@@ -1,0 +1,51 @@
+# Build artifacts
+build/
+dist/
+dist-newstyle/
+
+# Agda
+*.agdai
+.agda-lib.bak
+
+# Haskell
+haskell-shim/MAlonzo
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+.stack-work/
+cabal.project.local
+.ghc.environment.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Shake
+.shake/
+.shake.database
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Examples output
+examples/*.log
+examples/output/

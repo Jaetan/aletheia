@@ -1,0 +1,24 @@
+frames:
+  - timestamp: "2025-11-08 14:32:01.000000"
+    source_ecu: "ECU_ENGINE"
+    target_ecu: "ECU_BROADCAST"
+    frame_id: 0x100
+    data: [0x00, 0x08, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+  - timestamp: "2025-11-08 14:32:01.050000"
+    source_ecu: "ECU_BRAKE"
+    target_ecu: "ECU_BROADCAST"
+    frame_id: 0x200
+    data: [0xE8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+  - timestamp: "2025-11-08 14:32:01.100000"
+    source_ecu: "ECU_ENGINE"
+    target_ecu: "ECU_BROADCAST"
+    frame_id: 0x100
+    data: [0x00, 0x10, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+  - timestamp: "2025-11-08 14:32:01.150000"
+    source_ecu: "ECU_BRAKE"
+    target_ecu: "ECU_BROADCAST"
+    frame_id: 0x200
+    data: [0xD0, 0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00]
