@@ -49,3 +49,5 @@ build/
 # Examples output
 examples/*.log
 examples/output/
+*.log
+c.log

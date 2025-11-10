@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --no-main #-}
+{-# OPTIONS --safe --without-K --no-main #-}
 
 module Aletheia.Parser.Combinators where
 
@@ -177,30 +177,44 @@ string s = parseChars (String.toList s) >>= λ _ → pure s
 -- Helper: Convert Char to Nat for comparison using the actual stdlib function
 private
   open import Data.Char.Base using (toℕ)
+  open import Data.Nat using (_≤ᵇ_)
 
   charToNat : Char → ℕ
   charToNat = toℕ
 
+  -- Pre-computed character codes for efficiency
+  code-0 : ℕ
+  code-0 = 48  -- '0'
+
+  code-9 : ℕ
+  code-9 = 57  -- '9'
+
+  code-A : ℕ
+  code-A = 65  -- 'A'
+
+  code-Z : ℕ
+  code-Z = 90  -- 'Z'
+
+  code-a : ℕ
+  code-a = 97  -- 'a'
+
+  code-z : ℕ
+  code-z = 122 -- 'z'
+
 -- | Check if character is a digit
 isDigit : Char → Bool
-isDigit c with charToNat c
-... | n with charToNat '0' | charToNat '9'
-... | n0 | n9 = (n0 Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ n9)
-  where open import Data.Nat using (_≤ᵇ_)
+isDigit c = let n = charToNat c
+            in (code-0 Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-9)
 
 -- | Check if character is a lowercase letter
 isLower : Char → Bool
-isLower c with charToNat c
-... | n with charToNat 'a' | charToNat 'z'
-... | na | nz = (na Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ nz)
-  where open import Data.Nat using (_≤ᵇ_)
+isLower c = let n = charToNat c
+            in (code-a Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-z)
 
 -- | Check if character is an uppercase letter
 isUpper : Char → Bool
-isUpper c with charToNat c
-... | n with charToNat 'A' | charToNat 'Z'
-... | nA | nZ = (nA Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ nZ)
-  where open import Data.Nat using (_≤ᵇ_)
+isUpper c = let n = charToNat c
+            in (code-A Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-Z)
 
 -- | Check if character is a letter
 isLetter : Char → Bool
@@ -281,18 +295,25 @@ parens p = between (symbol "(") (symbol ")") p
 -- HELPER FUNCTIONS
 -- ============================================================================
 
--- | Run a parser on a string
-parse : ∀ {A : Set} → Parser A → String → Maybe A
-parse p s with p (String.toList s)
-... | nothing = nothing
-... | just (result , []) = just result
-... | just (result , remaining) = nothing  -- Didn't consume all input
+-- Note: We provide List Char versions for efficiency, avoiding expensive
+-- String conversion during type-checking. String versions can be added
+-- as thin wrappers in a separate module if needed.
 
--- | Run a parser on a string, allow remaining input
-parsePartial : ∀ {A : Set} → Parser A → String → Maybe (A × String)
-parsePartial p s with p (String.toList s)
-... | nothing = nothing
-... | just (result , remaining) = just (result , String.fromList remaining)
+-- Helper to check if result consumed all input
+private
+  checkComplete : ∀ {A : Set} → Maybe (A × List Char) → Maybe A
+  checkComplete nothing = nothing
+  checkComplete (just (result , [])) = just result
+  checkComplete (just (result , remaining)) = nothing
+
+-- | Run a parser on a character list, skipping leading/trailing whitespace
+runParser : ∀ {A : Set} → Parser A → List Char → Maybe A
+runParser p input = checkComplete ((spaces *> p <* spaces) input)
+
+-- | Run a parser on a character list, allow remaining input
+runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (A × List Char)
+runParserPartial p input = p input
 
 -- TODO: Add more sophisticated error reporting with position information
 -- TODO: Phase 5 - Replace fuel-based repetition with proper termination proof
+-- TODO: String wrapper versions can be added in a separate StringParser module
