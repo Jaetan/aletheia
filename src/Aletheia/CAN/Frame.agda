@@ -13,7 +13,7 @@ record CANFrame : Set where
   field
     id : Fin 2048
     dlc : Fin 9
-    data : Vec Byte 8
+    payload : Vec Byte 8
 
 BitPosition : Set
 BitPosition = Fin 64
