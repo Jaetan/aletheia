@@ -380,6 +380,7 @@ Aletheia follows a phased implementation plan:
 - Streaming verification
 - Grammar formalization for parsers
 - Parser soundness proofs
+- **Rational parser proofs**: Add NonZero proofs to rational division (implementation in Phase 1)
 
 ### **Phase 4: Robustness Improvements**
 - Comprehensive logging
@@ -390,13 +391,13 @@ Aletheia follows a phased implementation plan:
 ### **Phase 5: Optimization and Feature Extensions**
 
 **Planned Enhancements**:
-- Full rational number parsing with NonZero proofs
 - Additional encoding/decoding tests and properties
 - Enhanced DBC validation (signal overlap detection, range validation)
 - Pretty-printer implementation for DBC
 - Round-trip property proofs (parse ∘ print ≡ id)
 - Advanced error reporting with precise locations
 - Performance optimizations
+- Support for extended DBC features (message transmitters, value tables, etc.)
 
 When adding features, consider which phase they belong to and maintain consistency with the overall architecture.
 
@@ -441,7 +442,9 @@ When adding features, consider which phase they belong to and maintain consisten
   - Complete message/signal parsing
   - Correctness properties: bounded values, determinism
   - Runtime semantic checks
-  - **Limitation**: Rational parser ignores fractional parts (Phase 5 enhancement)
+  - ⚠️ **CRITICAL LIMITATION**: Rational parser ignores fractional parts (0.25 → 0/1)
+    - Breaks signal extraction/injection for non-integer scaling
+    - **Must fix in Phase 1** before completing ExtractSignal/InjectSignal
 - ✅ Protocol integration
   - Command types defined
   - Command handlers implemented (all 4 commands)
@@ -457,23 +460,35 @@ When adding features, consider which phase they belong to and maintain consisten
 - ✅ End-to-end binary testing (Echo and ParseDBC only)
 
 **Remaining for Phase 1 Completion**:
-1. **Protocol parser completion**:
+1. **Fix rational number parsing** (moved from Phase 5):
+   - **Critical**: Current parser ignores fractional parts (0.25 → 0/1)
+   - This breaks signal extraction/injection for any non-integer scaling
+   - Implementation options:
+     a. **Pragmatic**: Parse fractional decimals, use postulate for NonZero proofs
+     b. **Safe subset**: Support common denominators (2, 4, 5, 8, 10, 100)
+     c. **Full**: Implement NonZero proofs (complex, defer to Phase 3)
+   - **Recommendation**: Option (a) for Phase 1, proofs in Phase 3
+   - Files to update:
+     - `DBC/Parser.agda`: Fix `rational` parser
+     - `CAN/Encoding.agda`: Fix `removeScaling` (needs division)
+
+2. **Protocol parser completion**:
    - Implement ExtractSignal command parser
    - Implement InjectSignal command parser
    - Requires: byte array parser (Vec Byte 8 from hex strings)
-   - Requires: rational number parser (reuse from DBC or improve)
+   - Requires: working rational parser (see item 1 above)
 
-2. **Python wrapper implementation**:
+3. **Python wrapper implementation**:
    - Create python/aletheia/client.py with subprocess interface
    - Implement CANDecoder class wrapping binary
    - YAML serialization/deserialization
    - Error handling and validation
 
-3. **Integration testing**:
+4. **Integration testing**:
    - End-to-end tests: Python → binary → Python
-   - Test all 4 command types
+   - Test all 4 command types (with correct signal values!)
    - Error case testing
-   - Sample DBC file testing
+   - Sample DBC file testing with fractional scaling factors
 
 **Parser Correctness Strategy** (as planned):
 - **Phase 1**: Lightweight correctness properties
@@ -501,14 +516,22 @@ git log --oneline -5  # Check latest commits
 
 # Current Status: Phase 1 ~85% complete
 # Last Completed: Protocol YAML parser (partial - Echo/ParseDBC only)
-# Commits: 8a853e1 (protocol parser), 3aca901 (CLAUDE.md update)
+# Commits: 8a853e1 (protocol parser), 3aca901, 8716802 (CLAUDE.md updates)
 
-# Next Steps for Phase 1 completion:
-# 1. Complete protocol parser (ExtractSignal/InjectSignal commands)
-#    - Need byte array parser for Vec Byte 8
-#    - Need rational parser (can reuse from DBC)
-# 2. Implement Python wrapper (python/aletheia/client.py)
-# 3. Integration tests (Python ↔ binary)
+# Next Steps for Phase 1 completion (in order):
+# 1. FIX RATIONAL PARSER (critical - moved from Phase 5)
+#    - DBC/Parser.agda: Parse fractional decimals (0.25 → 1/4)
+#    - CAN/Encoding.agda: Implement removeScaling with division
+#    - Options: postulate NonZero, or support safe subset of denominators
+#    - Impact: Enables correct signal extraction/injection
+#
+# 2. Complete protocol parser (ExtractSignal/InjectSignal commands)
+#    - Need byte array parser for Vec Byte 8 (hex strings)
+#    - Use fixed rational parser from step 1
+#
+# 3. Implement Python wrapper (python/aletheia/client.py)
+#
+# 4. Integration tests (Python ↔ binary) with real signal values
 
 # Current working tests:
 printf 'command: "Echo"\nmessage: "test"' | ./build/aletheia
