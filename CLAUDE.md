@@ -460,37 +460,89 @@ When adding features, consider which phase they belong to and maintain consisten
 - ✅ End-to-end binary testing (Echo and ParseDBC only)
 
 **Remaining for Phase 1 Completion**:
-1. **Fix rational number parsing** (moved from Phase 5):
-   - **Critical**: Current parser ignores fractional parts (0.25 → 0/1)
-   - This breaks signal extraction/injection for any non-integer scaling
-   - Implementation options:
-     a. **Pragmatic**: Parse fractional decimals, use postulate for NonZero proofs
-     b. **Safe subset**: Support common denominators (2, 4, 5, 8, 10, 100)
-     c. **Full**: Implement NonZero proofs (complex, defer to Phase 3)
-   - **Recommendation**: Option (a) for Phase 1, proofs in Phase 3
-   - Files to update:
-     - `DBC/Parser.agda`: Fix `rational` parser
-     - `CAN/Encoding.agda`: Fix `removeScaling` (needs division)
 
-2. **Protocol parser completion**:
-   - Implement ExtractSignal command parser
-   - Implement InjectSignal command parser
-   - Requires: byte array parser (Vec Byte 8 from hex strings)
-   - Requires: working rational parser (see item 1 above)
+See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constraints.
 
-3. **Python wrapper implementation**:
+### Critical Fixes (Block Phase 1 - Must Complete):
+
+1. **Fix rational number parsing** (CRITICAL - moved from Phase 5):
+   - **Issue**: Parser ignores fractional parts (0.25 → 0/1)
+   - **Impact**: All signal scaling broken, ExtractSignal/InjectSignal produce wrong values
+   - **Files**: `DBC/Parser.agda:99-115`
+   - **Fix**: Implement decimal → rational conversion (e.g., 0.25 → 1/4)
+   - **Options**:
+     a) Pragmatic: Support common decimals, postulate NonZero for division
+     b) Safe subset: Hardcode common denominators (2,4,5,8,10,100)
+   - **Recommendation**: Option (a)
+
+2. **Fix signal scaling removal** (CRITICAL):
+   - **Issue**: `removeScaling` ignores factor, assumes factor ≈ 1.0
+   - **Impact**: InjectSignal produces completely wrong raw values
+   - **File**: `CAN/Encoding.agda:46-53`
+   - **Fix**: Implement `(signalValue - offset) / factor`
+   - **Requires**: Division operation (needs NonZero proof or postulate)
+
+3. **Implement response formatting** (CRITICAL):
+   - **Issue**: Cannot output signal values or frame bytes (returns placeholders)
+   - **Impact**: ExtractSignal/InjectSignal return useless output
+   - **File**: `Protocol/Response.agda:46-48`
+   - **Fix**:
+     - `ℚ → String` conversion (decimal or fraction format)
+     - `Vec Byte 8 → String` (hex format: "0x12 0x34 ...")
+
+4. **Implement byte array parser** (CRITICAL):
+   - **Issue**: Cannot parse hex byte strings from YAML
+   - **Impact**: Cannot implement ExtractSignal/InjectSignal command parsers
+   - **File**: `Protocol/Parser.agda` (new parser needed)
+   - **Format**: `"0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"` → `Vec Byte 8`
+
+5. **Complete protocol parser**:
+   - Implement ExtractSignal command parser (needs #4 above)
+   - Implement InjectSignal command parser (needs #4 above)
+   - Test all 4 command types end-to-end
+
+6. **Python wrapper implementation**:
    - Create python/aletheia/client.py with subprocess interface
    - Implement CANDecoder class wrapping binary
    - YAML serialization/deserialization
    - Error handling and validation
 
-4. **Integration testing**:
+7. **Integration testing**:
    - End-to-end tests: Python → binary → Python
-   - Test all 4 command types (with correct signal values!)
+   - Test all 4 command types with real signal values
    - Error case testing
    - Sample DBC file testing with fractional scaling factors
 
-**Parser Correctness Strategy** (as planned):
+### Optional Enhancements (Improve Reliability):
+
+8. **Signal overlap detection** (runtime safety check)
+   - Detect when signals in same message overlap bit positions
+   - Prevents silent data corruption
+
+9. **Range validation** (runtime semantic check)
+   - Verify minimum ≤ maximum in signal definitions
+   - Catch malformed DBC files early
+
+### Known Architectural Constraints (By Design):
+
+**Standard CAN Only** (no CAN-FD):
+- Fixed 8-byte payload (`Vec Byte 8`)
+- 11-bit CAN IDs only (0-2047, no extended 29-bit IDs)
+- DLC 0-8 only (CAN-FD has different encoding)
+- **Rationale**: Covers 95% of automotive use cases
+- **Phase to Lift**: Phase 5 (extended features)
+
+**No Signal Multiplexing**:
+- All signals always present in frame
+- **Phase to Add**: Phase 5
+
+**No Value Tables** (enumerations):
+- Signal values are numeric only
+- **Phase to Add**: Phase 5
+
+See `PHASE1_AUDIT.md` for complete list of constraints and deferred work.
+
+### Parser Correctness Strategy (as planned):
 - **Phase 1**: Lightweight correctness properties
   - Determinism properties
   - Bounded value checks
@@ -501,6 +553,7 @@ When adding features, consider which phase they belong to and maintain consisten
   - Soundness proofs (parse → valid AST)
   - Completeness proofs where applicable
   - Round-trip properties (parse ∘ print ≡ id)
+  - NonZero proofs for rational division
 
 ### Resolved Issue - Type-Checking Timeout:
 **Previous Problem**: Parser normalization caused >120s timeouts
