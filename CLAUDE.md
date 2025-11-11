@@ -202,6 +202,26 @@ See BUILDING.md for detailed installation instructions.
   - Recommended for all type-checking to maximize performance
 - **First build**: Run `agda src/PrecompileStdlib.agda` to cache standard library (~20s one-time cost)
 
+### MAlonzo FFI and Name Mangling
+
+**Issue**: MAlonzo mangles Agda function names when generating Haskell code. For example, `processCommand` becomes `d_processCommand_28`, where the number suffix can change if the Agda code structure changes.
+
+**Pragmatic Solution** (current approach):
+1. When Agda code changes, regenerate MAlonzo code: `cabal run shake -- build-agda`
+2. Check the generated function name: `grep "processCommand" build/MAlonzo/Code/Aletheia/Main.hs`
+3. Update `haskell-shim/src/Main.hs` with the new mangled name if it changed
+4. This is rare - the number only changes when adding/removing definitions **before** processCommand
+
+**Alternative Solutions** (not currently used):
+- **COMPILE pragmas**: `{-# COMPILE GHC name = name #-}` - but not allowed with `--safe` flag
+- **FFI module**: Separate non-safe module just for FFI - adds complexity, breaks in --safe mode
+- **FOREIGN blocks**: Write I/O code in Agda - violates clean separation architecture
+
+**Best Practice**: Keep the Haskell shim minimal and update the mangled name when needed (rarely). The trade-off of a tiny maintenance burden is better than:
+- Losing `--safe` guarantees
+- Adding complex FFI layer
+- Mixing I/O code with verified logic
+
 ### Virtual Environment
 
 The Python virtual environment (`venv/`) is critical:
