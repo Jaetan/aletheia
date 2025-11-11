@@ -358,46 +358,77 @@ When adding features, consider which phase they belong to and maintain consisten
    - Full command handlers in Main.agda
    - Type-safe integration of all Phase 1 components
 
-### Known Issue - Type-Checking Timeout:
-**Problem**: Main.agda type-checking times out (>3 minutes)
-- **Cause**: Large parser combinators force expensive normalization during type-checking
-- **Impact**: Cannot complete full Agda compilation to Haskell (needed for binary build)
+### Known Issue - Type-Checking Timeout (DEEP ISSUE):
+**Problem**: Parser normalization causes timeout even after modularization
+- **Root Cause**: Fuel-based parser combinators force symbolic evaluation during type-checking
+- **Impact**: Cannot compile Agda → Haskell (>2min timeout persists)
 - **Not a correctness issue**: All code is type-safe and logically correct
+- **Attempted fixes** (commit cde5921):
+  - ✅ Split Main.agda into Handlers module
+  - ✅ Added NOINLINE pragmas
+  - ❌ Still times out on Handlers.agda
 
-**Solution Path** (Option 1 - Currently Working On):
-1. Split Main.agda into smaller modules to reduce type-checking scope
-2. Add `{-# NO_INLINE #-}` pragmas to parser functions to prevent normalization
-3. Refactor large `with` pattern chains into separate helper functions
-4. Use abstract types where possible to hide implementation details
+**Resolution Options**:
+
+**Option A - Hybrid Approach (Recommended for Now)**:
+1. Keep core logic in Agda for verification
+2. Use postulates for handlers in Agda (to get types)
+3. Implement actual handlers in Haskell shim
+4. Benefit: Can compile and test, lose some verification
+
+**Option B - Rewrite Parser Combinators**:
+1. Replace fuel-based termination with sized types
+2. More complex but should compile faster
+3. Phase 4 task (optimization phase)
+
+**Option C - Incremental Compilation** :
+1. Cache type-checked modules
+2. Only recompile changed parts
+3. Requires build system improvements
 
 ### Files Modified (Uncommitted):
 - None (all changes committed)
 
-### Next Immediate Steps:
-1. **Optimize Main.agda for compilation**:
-   - Extract command handlers to separate module (Aletheia/Protocol/Handlers.agda)
-   - Add NO_INLINE pragmas to prevent parser normalization
-   - Simplify Main.agda to minimal dispatcher
+### Next Immediate Steps (Choose One):
 
-2. **Build the pipeline**:
-   - Compile Agda → Haskell (should succeed after optimization)
-   - Build Haskell → binary via Cabal
-   - Test with simple Echo command
+**If choosing Option A (Hybrid)**:
+1. Replace handler implementations with postulates in Handlers.agda
+2. Implement handlers in Haskell shim (haskell-shim/src/Main.hs)
+3. Keep Agda types for verification, runtime logic in Haskell
+4. Trade-off: Lose end-to-end verification but can build and test
 
-3. **End-to-end testing**:
-   - Test DBC parsing through binary
-   - Test signal extraction/injection
-   - Validate Python wrapper integration
+**If choosing Option B (Rewrite Parsers - Recommended for Complete Solution)**:
+1. Research sized types in Agda standard library
+2. Rewrite Parser/Combinators.agda using sized types
+3. May take longer but preserves full verification
+4. Proper solution for Phase 4
+
+**If choosing Option C (Defer to Phase 4)**:
+1. Move to Phase 2 (LTL implementation)
+2. Address compilation in Phase 4 optimization
+3. Work on other verified components first
 
 ### Session Recovery Notes:
 If session terminates, resume with:
 ```bash
 cd /home/nicolas/dev/agda/aletheia
-git log --oneline -5  # Check latest commits
-# Latest: 30efae6 "Implement protocol integration for Phase 1 completion"
+git log --oneline -7  # Check latest commits
+# Latest commits:
+#   cde5921 Optimize Main.agda structure for compilation (WIP)
+#   b1cfba3 Update CLAUDE.md with current session status
+#   30efae6 Implement protocol integration for Phase 1 completion
+#   00935c6 Add DBC parser correctness properties
+#   61969d9 Implement DBC YAML parser
 
-# Next action: Optimize Main.agda for compilation
-# Create: src/Aletheia/Protocol/Handlers.agda
-# Modify: src/Aletheia/Main.agda (extract handlers, add pragmas)
-# Goal: Enable successful `agda --compile` without timeout
+# Current Status: Type-checking timeout issue identified
+# Decision needed: Choose Option A, B, or C (see above)
+
+# If Option A chosen - implement handlers in Haskell:
+vim haskell-shim/src/Main.hs
+
+# If Option B chosen - rewrite parsers with sized types:
+vim src/Aletheia/Parser/Combinators.agda
+
+# If Option C chosen - move to Phase 2:
+vim src/Aletheia/LTL/Syntax.agda
 ```
