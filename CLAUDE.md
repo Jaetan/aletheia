@@ -389,46 +389,43 @@ When adding features, consider which phase they belong to and maintain consisten
 ### Files Modified (Uncommitted):
 - None (all changes committed)
 
-### Next Immediate Steps (Choose One):
+### Decision: Option B - Rewrite Parser Combinators (CHOSEN)
 
-**If choosing Option A (Hybrid)**:
-1. Replace handler implementations with postulates in Handlers.agda
-2. Implement handlers in Haskell shim (haskell-shim/src/Main.hs)
-3. Keep Agda types for verification, runtime logic in Haskell
-4. Trade-off: Lose end-to-end verification but can build and test
+**Rationale**:
+- Fuel-based approach caused compilation timeout - need to fix root cause
+- Cannot keep codebase in non-compilable state long-term
+- Risk of compounding issues as more code is added
+- Better to fix thoroughly now than accumulate technical debt
+- No time pressure - can take time to do it right
 
-**If choosing Option B (Rewrite Parsers - Recommended for Complete Solution)**:
-1. Research sized types in Agda standard library
-2. Rewrite Parser/Combinators.agda using sized types
-3. May take longer but preserves full verification
-4. Proper solution for Phase 4
+**Implementation Plan**:
+1. ✅ Research sized types in Agda
+2. 🚧 Design new combinator structure using sized types
+3. ⏳ Rewrite Parser/Combinators.agda incrementally
+4. ⏳ Update DBC/Parser.agda to use new combinators
+5. ⏳ Test compilation performance
+6. ⏳ Verify all existing tests still pass
 
-**If choosing Option C (Defer to Phase 4)**:
-1. Move to Phase 2 (LTL implementation)
-2. Address compilation in Phase 4 optimization
-3. Work on other verified components first
+**Expected Benefits**:
+- Faster type-checking (no fuel-based symbolic evaluation)
+- Same correctness guarantees (sized types are well-founded)
+- Cleaner termination proofs
+- Better foundation for future parsers
 
 ### Session Recovery Notes:
 If session terminates, resume with:
 ```bash
 cd /home/nicolas/dev/agda/aletheia
 git log --oneline -7  # Check latest commits
-# Latest commits:
-#   cde5921 Optimize Main.agda structure for compilation (WIP)
-#   b1cfba3 Update CLAUDE.md with current session status
-#   30efae6 Implement protocol integration for Phase 1 completion
-#   00935c6 Add DBC parser correctness properties
-#   61969d9 Implement DBC YAML parser
 
-# Current Status: Type-checking timeout issue identified
-# Decision needed: Choose Option A, B, or C (see above)
+# Current Status: Rewriting parser combinators with sized types (Option B chosen)
+# Working on: src/Aletheia/Parser/Combinators.agda
 
-# If Option A chosen - implement handlers in Haskell:
-vim haskell-shim/src/Main.hs
-
-# If Option B chosen - rewrite parsers with sized types:
-vim src/Aletheia/Parser/Combinators.agda
-
-# If Option C chosen - move to Phase 2:
-vim src/Aletheia/LTL/Syntax.agda
+# Next actions:
+# 1. Read current Parser/Combinators.agda to understand structure
+# 2. Research Agda sized types (Size, ↑, ∞)
+# 3. Create new parser type using sized types instead of fuel
+# 4. Rewrite core combinators: pure, _<$>_, _<*>_, _>>=_
+# 5. Test with simple parsers first
+# 6. Gradually migrate DBC parser to new combinators
 ```
