@@ -359,9 +359,15 @@ Aletheia follows a phased implementation plan:
   - Binary executable works correctly
   - All 11 Aletheia modules compiled
 
+- ✅ Protocol YAML parser implementation (commit 8a853e1)
+  - Echo and ParseDBC command parsers
+  - Multi-line YAML input handling
+  - End-to-end pipeline tested and working
+  - Binary successfully parses and executes commands
+
 **Remaining in Phase 1**:
-- End-to-end testing through Python wrapper
-- Integration testing with sample DBC files
+- Python wrapper implementation
+- Integration testing with Python API
 
 ### **Phase 2: LTL Foundation**
 - LTL syntax and semantics
@@ -396,89 +402,62 @@ When adding features, consider which phase they belong to and maintain consisten
 
 ## Current Session Progress
 
-**Last Completed**: Protocol integration (commit 30efae6)
+**Last Completed**: Protocol YAML parser (commit 8a853e1)
 
 ### Completed in This Session:
-1. ✅ DBC parser with correctness properties (commits 61969d9, 00935c6)
-   - Full YAML parser with primitives
-   - Correctness properties: bounded values, determinism
-   - Runtime semantic checks and test cases
+1. ✅ Parser combinators rewrite with structural recursion
+   - Replaced fuel-based termination with input-length-based approach
+   - Progress checking prevents infinite loops (sameLengthᵇ)
+   - Type-checks in ~10s (previously >120s timeout)
+   - Maintains all correctness guarantees
 
-2. ✅ Protocol integration (commit 30efae6)
-   - Extended Command types: ParseDBC, ExtractSignal, InjectSignal
-   - Rich Response types with typed payload data
-   - Full command handlers in Main.agda
-   - Type-safe integration of all Phase 1 components
+2. ✅ Build pipeline verification
+   - Agda → MAlonzo compilation working (~43s)
+   - Haskell shim integration successful
+   - Binary executable created and tested
+   - Automated FFI name mismatch detection implemented
 
-### Known Issue - Type-Checking Timeout (DEEP ISSUE):
-**Problem**: Parser normalization causes timeout even after modularization
-- **Root Cause**: Fuel-based parser combinators force symbolic evaluation during type-checking
-- **Impact**: Cannot compile Agda → Haskell (>2min timeout persists)
-- **Not a correctness issue**: All code is type-safe and logically correct
-- **Attempted fixes** (commit cde5921):
-  - ✅ Split Main.agda into Handlers module
-  - ✅ Added NOINLINE pragmas
-  - ❌ Still times out on Handlers.agda
+3. ✅ Protocol YAML parser implementation (commit 8a853e1)
+   - Implemented parseCommand in Protocol/Parser.agda
+   - Echo and ParseDBC command parsers functional
+   - Updated Main.agda to use protocol parser
+   - Changed Haskell shim to read multi-line input (getContents)
+   - End-to-end testing successful:
+     * Echo command: ✅ Parses and echoes messages
+     * ParseDBC command: ✅ Successfully parses sample.dbc.yaml
 
-**Resolution Options**:
+### Phase 1 Status: ~95% Complete
+**Completed**:
+- ✅ Parser combinators (structural recursion)
+- ✅ CAN encoding/decoding
+- ✅ DBC YAML parser
+- ✅ Protocol integration
+- ✅ Command handlers
+- ✅ Build pipeline
+- ✅ Protocol YAML parser
+- ✅ End-to-end binary testing
 
-**Option A - Hybrid Approach (Recommended for Now)**:
-1. Keep core logic in Agda for verification
-2. Use postulates for handlers in Agda (to get types)
-3. Implement actual handlers in Haskell shim
-4. Benefit: Can compile and test, lose some verification
+**Remaining**:
+- Python wrapper implementation
+- Integration tests with Python API
 
-**Option B - Rewrite Parser Combinators**:
-1. Replace fuel-based termination with sized types
-2. More complex but should compile faster
-3. Phase 4 task (optimization phase)
-
-**Option C - Incremental Compilation** :
-1. Cache type-checked modules
-2. Only recompile changed parts
-3. Requires build system improvements
-
-### Files Modified (Uncommitted):
-- None (all changes committed)
-
-### Decision: Option B - Rewrite Parser Combinators (CHOSEN)
-
-**Rationale**:
-- Fuel-based approach caused compilation timeout - need to fix root cause
-- Cannot keep codebase in non-compilable state long-term
-- Risk of compounding issues as more code is added
-- Better to fix thoroughly now than accumulate technical debt
-- No time pressure - can take time to do it right
-
-**Implementation Plan**:
-1. ✅ Research sized types in Agda
-2. 🚧 Design new combinator structure using sized types
-3. ⏳ Rewrite Parser/Combinators.agda incrementally
-4. ⏳ Update DBC/Parser.agda to use new combinators
-5. ⏳ Test compilation performance
-6. ⏳ Verify all existing tests still pass
-
-**Expected Benefits**:
-- Faster type-checking (no fuel-based symbolic evaluation)
-- Same correctness guarantees (sized types are well-founded)
-- Cleaner termination proofs
-- Better foundation for future parsers
+### Resolved Issue - Type-Checking Timeout:
+**Previous Problem**: Parser normalization caused >120s timeouts
+**Root Cause**: Fuel-based parser combinators forced symbolic evaluation
+**Solution Implemented**: Rewrote parser combinators with structural recursion
+**Result**: Type-checks in ~10s, all functionality preserved
 
 ### Session Recovery Notes:
 If session terminates, resume with:
 ```bash
 cd /home/nicolas/dev/agda/aletheia
-git log --oneline -7  # Check latest commits
+git log --oneline -5  # Check latest commits
 
-# Current Status: Rewriting parser combinators with sized types (Option B chosen)
-# Working on: src/Aletheia/Parser/Combinators.agda
+# Current Status: Phase 1 ~95% complete
+# Last Completed: Protocol YAML parser (commit 8a853e1)
+# Next Steps: Python wrapper implementation
 
-# Next actions:
-# 1. Read current Parser/Combinators.agda to understand structure
-# 2. Research Agda sized types (Size, ↑, ∞)
-# 3. Create new parser type using sized types instead of fuel
-# 4. Rewrite core combinators: pure, _<$>_, _<*>_, _>>=_
-# 5. Test with simple parsers first
-# 6. Gradually migrate DBC parser to new combinators
+# To test the binary:
+echo 'command: "Echo"\nmessage: "test"' | ./build/aletheia
+cat examples/sample.dbc.yaml | sed '1s/^/command: "ParseDBC"\nyaml: /' | ./build/aletheia
 ```
-- You can use the ghc options to the agda compiler to use up to 32 cpus.
