@@ -14,8 +14,8 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
-    -- Read input (single line for now)
-    input <- TIO.getLine
+    -- Read all input (multi-line YAML commands)
+    input <- TIO.getContents
 
     -- Call Agda's processCommand function
     -- Agda String is represented as Data.Text.Text in MAlonzo
