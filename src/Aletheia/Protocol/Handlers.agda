@@ -49,46 +49,60 @@ findSignal sigName msg = find matchName (DBCMessage.signals msg)
 -- Handle ParseDBC command
 {-# NOINLINE handleParseDBC #-}
 handleParseDBC : String → Response
-handleParseDBC yaml with runParser parseDBC (toList yaml)
-... | nothing = errorResponse "Failed to parse DBC YAML"
-... | just dbc = successResponse "DBC parsed successfully" (DBCData dbc)
+handleParseDBC yaml = parseHelper (runParser parseDBC (toList yaml))
+  where
+    parseHelper : Maybe DBC → Response
+    parseHelper nothing = errorResponse "Failed to parse DBC YAML"
+    parseHelper (just dbc) = successResponse "DBC parsed successfully" (DBCData dbc)
 
 -- Handle ExtractSignal command
 {-# NOINLINE handleExtractSignal #-}
 handleExtractSignal : String → String → String → Vec Byte 8 → Response
-handleExtractSignal dbcYAML msgName sigName frameBytes
-  with runParser parseDBC (toList dbcYAML)
-... | nothing = errorResponse "Failed to parse DBC YAML"
-... | just dbc with findMessage msgName dbc
-...   | nothing = errorResponse ("Message not found: " ++ msgName)
-...   | just msg with findSignal sigName msg
-...     | nothing = errorResponse ("Signal not found: " ++ sigName)
-...     | just sig =
-        let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
-            sigDef = DBCSignal.signalDef sig
-            byteOrd = DBCSignal.byteOrder sig
-        in helper (extractSignal frame sigDef byteOrd)
+handleExtractSignal dbcYAML msgName sigName frameBytes =
+  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  where
+    parseDBCHelper : Maybe DBC → Response
+    parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"
+    parseDBCHelper (just dbc) = findMessageHelper (findMessage msgName dbc)
       where
-        helper : Maybe SignalValue → Response
-        helper nothing = errorResponse "Failed to extract signal value"
-        helper (just val) = successResponse "Signal extracted successfully" (SignalValueData val)
+        findMessageHelper : Maybe DBCMessage → Response
+        findMessageHelper nothing = errorResponse ("Message not found: " ++ msgName)
+        findMessageHelper (just msg) = findSignalHelper (findSignal sigName msg)
+          where
+            findSignalHelper : Maybe DBCSignal → Response
+            findSignalHelper nothing = errorResponse ("Signal not found: " ++ sigName)
+            findSignalHelper (just sig) =
+              let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
+                  sigDef = DBCSignal.signalDef sig
+                  byteOrd = DBCSignal.byteOrder sig
+              in extractHelper (extractSignal frame sigDef byteOrd)
+              where
+                extractHelper : Maybe SignalValue → Response
+                extractHelper nothing = errorResponse "Failed to extract signal value"
+                extractHelper (just val) = successResponse "Signal extracted successfully" (SignalValueData val)
 
 -- Handle InjectSignal command
 {-# NOINLINE handleInjectSignal #-}
 handleInjectSignal : String → String → String → ℚ → Vec Byte 8 → Response
-handleInjectSignal dbcYAML msgName sigName value frameBytes
-  with runParser parseDBC (toList dbcYAML)
-... | nothing = errorResponse "Failed to parse DBC YAML"
-... | just dbc with findMessage msgName dbc
-...   | nothing = errorResponse ("Message not found: " ++ msgName)
-...   | just msg with findSignal sigName msg
-...     | nothing = errorResponse ("Signal not found: " ++ sigName)
-...     | just sig =
-        let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
-            sigDef = DBCSignal.signalDef sig
-            byteOrd = DBCSignal.byteOrder sig
-        in helper (injectSignal value sigDef byteOrd frame)
+handleInjectSignal dbcYAML msgName sigName value frameBytes =
+  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  where
+    parseDBCHelper : Maybe DBC → Response
+    parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"
+    parseDBCHelper (just dbc) = findMessageHelper (findMessage msgName dbc)
       where
-        helper : Maybe CANFrame → Response
-        helper nothing = errorResponse "Failed to inject signal value"
-        helper (just newFrame) = successResponse "Signal injected successfully" (FrameData (CANFrame.payload newFrame))
+        findMessageHelper : Maybe DBCMessage → Response
+        findMessageHelper nothing = errorResponse ("Message not found: " ++ msgName)
+        findMessageHelper (just msg) = findSignalHelper (findSignal sigName msg)
+          where
+            findSignalHelper : Maybe DBCSignal → Response
+            findSignalHelper nothing = errorResponse ("Signal not found: " ++ sigName)
+            findSignalHelper (just sig) =
+              let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
+                  sigDef = DBCSignal.signalDef sig
+                  byteOrd = DBCSignal.byteOrder sig
+              in injectHelper (injectSignal value sigDef byteOrd frame)
+              where
+                injectHelper : Maybe CANFrame → Response
+                injectHelper nothing = errorResponse "Failed to inject signal value"
+                injectHelper (just newFrame) = successResponse "Signal injected successfully" (FrameData (CANFrame.payload newFrame))

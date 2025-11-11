@@ -103,11 +103,6 @@ rational : Parser ℚ
 rational =
   parseRational <$> integer <*> optional (char '.' *> some digit)
   where
-    optional : ∀ {A : Set} → Parser A → Parser (Maybe A)
-    optional p input with p input
-    ... | nothing = just (nothing , input)
-    ... | just (x , rest) = just (just x , rest)
-
     parseRational : ℤ → Maybe (List Char) → ℚ
     parseRational intPart nothing = intPart Data.Rational./ 1
       where open import Data.Rational using (_/_)

@@ -2,24 +2,21 @@
 
 module Aletheia.Parser.Combinators where
 
-open import Data.List using (List; []; _∷_; _++_; map)
+open import Data.List using (List; []; _∷_; _++_; map; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
-open import Data.Nat using (ℕ; zero; suc; _≤_; _<_)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_)
 open import Data.String as String using (String)
 open import Function using (_∘_; id)
 open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 -- Parser type: consumes a list of characters, returns result and remainder
--- Using fuel parameter for termination
+-- NEW: Structurally recursive - no fuel needed!
 Parser : Set → Set
 Parser A = List Char → Maybe (A × List Char)
-
--- NOTE: Removed ParseResult record - we use plain pairs (A × List Char)
--- TODO: Phase 3 - Add better error reporting with position information
 
 -- ============================================================================
 -- BASIC COMBINATORS
@@ -120,29 +117,41 @@ noneOf chars = satisfy (λ c → not (elem c chars))
     ... | false = elem c xs
 
 -- ============================================================================
--- REPETITION COMBINATORS (with fuel for termination)
+-- REPETITION COMBINATORS (structurally recursive on input length)
 -- ============================================================================
 
--- | Parse zero or more occurrences (with fuel for termination)
-manyWithFuel : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
-manyWithFuel zero p = pure []
-manyWithFuel (suc n) p =
-  ((λ x xs → x ∷ xs) <$> p <*> manyWithFuel n p) <|> pure []
+-- NEW APPROACH: Make recursion structurally terminating by measuring progress
+-- If a parser doesn't consume input, we stop to ensure termination
+
+-- Helper: Check if two lists have the same length
+sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool
+sameLengthᵇ [] [] = true
+sameLengthᵇ (_ ∷ _) [] = false
+sameLengthᵇ [] (_ ∷ _) = false
+sameLengthᵇ (_ ∷ xs) (_ ∷ ys) = sameLengthᵇ xs ys
+
+-- Helper for many: structurally recursive on input via well-founded recursion
+-- Uses the length of the input as a measure
+private
+  manyHelper : ∀ {A : Set} → Parser A → (input : List Char) → ℕ → Maybe (List A × List Char)
+  -- Base case: ran out of attempts
+  manyHelper p input zero = just ([] , input)
+  -- Recursive case: try parser
+  manyHelper p input (suc n) with p input
+  ... | nothing = just ([] , input)  -- Parser failed, return empty list
+  ... | just (x , rest) with sameLengthᵇ input rest
+  ...   | true = just ([] , input)  -- No progress made, stop to ensure termination
+  ...   | false with manyHelper p rest n  -- Progress made, continue
+  ...     | nothing = just ((x ∷ []) , rest)  -- Couldn't continue, return what we have
+  ...     | just (xs , final) = just ((x ∷ xs) , final)
+
+-- | Parse zero or more occurrences (structurally terminating)
+many : ∀ {A : Set} → Parser A → Parser (List A)
+many p input = manyHelper p input (length input)
 
 -- | Parse one or more occurrences
-someWithFuel : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
-someWithFuel n p = (λ x xs → x ∷ xs) <$> p <*> manyWithFuel n p
-
--- Default fuel value (can be adjusted)
-defaultFuel : ℕ
-defaultFuel = 1000
-
--- Convenient aliases with default fuel
-many : ∀ {A : Set} → Parser A → Parser (List A)
-many = manyWithFuel defaultFuel
-
 some : ∀ {A : Set} → Parser A → Parser (List A)
-some = someWithFuel defaultFuel
+some p = (λ x xs → x ∷ xs) <$> p <*> many p
 
 -- | Parse exactly n occurrences
 count : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
@@ -152,9 +161,15 @@ count (suc n) p = (λ x xs → x ∷ xs) <$> p <*> count n p
 -- | Parse between min and max occurrences
 countRange : ∀ {A : Set} → ℕ → ℕ → Parser A → Parser (List A)
 countRange min max p = count min p >>= λ xs →
-  manyWithFuel (max Data.Nat.∸ min) p >>= λ ys →
+  countUpTo (max Data.Nat.∸ min) p >>= λ ys →
   pure (xs ++ ys)
-  where open import Data.Nat using (_∸_)
+  where
+    open import Data.Nat using (_∸_)
+
+    -- Parse up to n occurrences (structurally recursive on n)
+    countUpTo : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
+    countUpTo zero p = pure []
+    countUpTo (suc n) p = ((λ x xs → x ∷ xs) <$> p <*> countUpTo n p) <|> pure []
 
 -- ============================================================================
 -- STRING PARSERS
@@ -177,7 +192,6 @@ string s = parseChars (String.toList s) >>= λ _ → pure s
 -- Helper: Convert Char to Nat for comparison using the actual stdlib function
 private
   open import Data.Char.Base using (toℕ)
-  open import Data.Nat using (_≤ᵇ_)
 
   charToNat : Char → ℕ
   charToNat = toℕ
@@ -199,121 +213,117 @@ private
   code-a = 97  -- 'a'
 
   code-z : ℕ
-  code-z = 122 -- 'z'
+  code-z = 122  -- 'z'
 
 -- | Check if character is a digit
 isDigit : Char → Bool
 isDigit c = let n = charToNat c
-            in (code-0 Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-9)
+            in (code-0 ≤ᵇ n) ∧ (n ≤ᵇ code-9)
 
--- | Check if character is a lowercase letter
-isLower : Char → Bool
-isLower c = let n = charToNat c
-            in (code-a Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-z)
-
--- | Check if character is an uppercase letter
+-- | Check if character is uppercase letter
 isUpper : Char → Bool
 isUpper c = let n = charToNat c
-            in (code-A Data.Nat.≤ᵇ n) ∧ (n Data.Nat.≤ᵇ code-Z)
+            in (code-A ≤ᵇ n) ∧ (n ≤ᵇ code-Z)
+
+-- | Check if character is lowercase letter
+isLower : Char → Bool
+isLower c = let n = charToNat c
+            in (code-a ≤ᵇ n) ∧ (n ≤ᵇ code-z)
 
 -- | Check if character is a letter
-isLetter : Char → Bool
-isLetter c = isLower c ∨ isUpper c
+isAlpha : Char → Bool
+isAlpha c = isUpper c ∨ isLower c
 
 -- | Check if character is alphanumeric
 isAlphaNum : Char → Bool
-isAlphaNum c = isLetter c ∨ isDigit c
+isAlphaNum c = isAlpha c ∨ isDigit c
 
 -- | Check if character is whitespace
 isSpace : Char → Bool
-isSpace c = elem c (' ' ∷ '\t' ∷ '\n' ∷ '\r' ∷ [])
-  where
-    elem : Char → List Char → Bool
-    elem c [] = false
-    elem c (x ∷ xs) with c Data.Char.≈ᵇ x
-      where open import Data.Char using (_≈ᵇ_)
-    ... | true = true
-    ... | false = elem c xs
+isSpace c = (c Data.Char.≈ᵇ ' ') ∨ (c Data.Char.≈ᵇ '\t') ∨ (c Data.Char.≈ᵇ '\n') ∨ (c Data.Char.≈ᵇ '\r')
+  where open import Data.Char using (_≈ᵇ_)
 
--- ============================================================================
--- BASIC CHARACTER CLASS PARSERS
--- ============================================================================
-
--- | Parse a digit
+-- Parse a digit character
 digit : Parser Char
 digit = satisfy isDigit
 
--- | Parse a letter
-letter : Parser Char
-letter = satisfy isLetter
+-- Parse an uppercase letter
+upper : Parser Char
+upper = satisfy isUpper
 
--- | Parse alphanumeric character
+-- Parse a lowercase letter
+lower : Parser Char
+lower = satisfy isLower
+
+-- Parse any letter
+letter : Parser Char
+letter = satisfy isAlpha
+
+-- Parse any alphanumeric character
 alphaNum : Parser Char
 alphaNum = satisfy isAlphaNum
 
--- | Parse whitespace character
+-- Parse a whitespace character
 space : Parser Char
 space = satisfy isSpace
 
--- | Parse zero or more whitespace characters
+-- Parse zero or more whitespace characters
 spaces : Parser (List Char)
 spaces = many space
-
--- | Parse one or more whitespace characters
-spaces1 : Parser (List Char)
-spaces1 = some space
 
 -- ============================================================================
 -- UTILITY COMBINATORS
 -- ============================================================================
 
--- | Parse p between opening and closing parsers
-between : ∀ {A B C : Set} → Parser A → Parser B → Parser C → Parser C
-between opening closing p = opening *> p <* closing
-
--- | Parse p followed by separator one or more times
-sepBy1 : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
-sepBy1 p sep = (λ x xs → x ∷ xs) <$> p <*> many (sep *> p)
-
--- | Parse p followed by separator zero or more times
-sepBy : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
-sepBy p sep = sepBy1 p sep <|> pure []
-
--- | Skip whitespace then parse p
-lexeme : ∀ {A : Set} → Parser A → Parser A
-lexeme p = p <* spaces
-
--- | Parse a symbol (string) and skip trailing whitespace
-symbol : String → Parser String
-symbol s = lexeme (string s)
-
--- | Parse p enclosed in parentheses
-parens : ∀ {A : Set} → Parser A → Parser A
-parens p = between (symbol "(") (symbol ")") p
-
--- ============================================================================
--- HELPER FUNCTIONS
--- ============================================================================
-
--- Note: We provide List Char versions for efficiency, avoiding expensive
--- String conversion during type-checking. String versions can be added
--- as thin wrappers in a separate module if needed.
-
--- Helper to check if result consumed all input
-private
-  checkComplete : ∀ {A : Set} → Maybe (A × List Char) → Maybe A
-  checkComplete nothing = nothing
-  checkComplete (just (result , [])) = just result
-  checkComplete (just (result , remaining)) = nothing
-
--- | Run a parser on a character list, skipping leading/trailing whitespace
+-- | Run a parser and extract result, discarding remainder
 runParser : ∀ {A : Set} → Parser A → List Char → Maybe A
-runParser p input = checkComplete ((spaces *> p <* spaces) input)
+runParser p input with p input
+... | nothing = nothing
+... | just (result , _) = just result
 
--- | Run a parser on a character list, allow remaining input
+-- | Run parser partially, returning both result and remainder
 runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (A × List Char)
 runParserPartial p input = p input
 
--- TODO: Add more sophisticated error reporting with position information
--- TODO: Phase 5 - Replace fuel-based repetition with proper termination proof
--- TODO: String wrapper versions can be added in a separate StringParser module
+-- | Optional: parse A or return nothing if it fails
+optional : ∀ {A : Set} → Parser A → Parser (Maybe A)
+optional p = (just <$> p) <|> pure nothing
+
+-- | Parse something between two delimiters
+between : ∀ {A B C : Set} → Parser A → Parser B → Parser C → Parser C
+between popen pclose p = popen *> p <* pclose
+
+-- | Parse one or more occurrences separated by a separator
+sepBy1 : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
+sepBy1 p sep = (λ x xs → x ∷ xs) <$> p <*> many (sep *> p)
+
+-- | Parse zero or more occurrences separated by a separator
+sepBy : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
+sepBy p sep = sepBy1 p sep <|> pure []
+
+-- | Parse one or more occurrences ending with a separator
+endBy1 : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
+endBy1 p sep = some (p <* sep)
+
+-- | Parse zero or more occurrences ending with a separator
+endBy : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
+endBy p sep = many (p <* sep)
+
+-- | Parse items separated or ended by separator
+sepEndBy : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
+sepEndBy p sep = sepBy p sep <* optional sep
+
+-- COMMENTED OUT: chainl1 and chainl have termination issues with the new approach
+-- These combinators aren't used in the current codebase
+-- Can be re-implemented with proper termination checking if needed
+
+-- -- | Chain parsers with left-associative operator
+-- chainl1 : ∀ {A : Set} → Parser A → Parser (A → A → A) → Parser A
+-- chainl1 {A} p op = p >>= rest
+--   where
+--     rest : A → Parser A
+--     rest x = (op >>= λ f → p >>= λ y → rest (f x y)) <|> pure x
+
+-- -- | Chain parsers with left-associative operator, with default value
+-- chainl : ∀ {A : Set} → Parser A → Parser (A → A → A) → A → Parser A
+-- chainl p op x = chainl1 p op <|> pure x

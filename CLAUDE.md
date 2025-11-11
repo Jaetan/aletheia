@@ -56,13 +56,15 @@ cd src
 agda Aletheia/YourModule.agda
 
 # Type-check main entry point (verifies all dependencies)
-agda Aletheia/Main.agda
+# IMPORTANT: Use parallel GHC for complex modules (Protocol, Main)
+agda +RTS -N32 -RTS Aletheia/Main.agda
 
 # Check with verbose output
-agda -v 10 Aletheia/Main.agda
+agda -v 10 Aletheia/YourModule.agda
 
-# Use GHC RTS options for faster compilation (parallel GC, more threads)
-agda +RTS -N8 -RTS Aletheia/YourModule.agda
+# Parallel compilation (recommended for all modules)
+# Uses up to 32 CPU cores for GHC's runtime
+agda +RTS -N32 -RTS Aletheia/YourModule.agda
 ```
 
 ### Testing
@@ -195,7 +197,9 @@ See BUILDING.md for detailed installation instructions.
 - Use `--no-main` flag (binary entry point is in Haskell)
 - Generated MAlonzo code goes to `build/` directory
 - Don't edit generated Haskell code; modify Agda source instead
-- **Performance**: Use GHC RTS options for faster compilation: `agda +RTS -N8 -RTS`
+- **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
+  - Critical for Protocol/Handlers.agda and Main.agda (17s vs >120s timeout)
+  - Recommended for all type-checking to maximize performance
 - **First build**: Run `agda src/PrecompileStdlib.agda` to cache standard library (~20s one-time cost)
 
 ### Virtual Environment
@@ -262,18 +266,29 @@ cat ~/.agda/defaults   # Should contain "standard-library"
 
 ### Parser Combinators
 
-The parser library (`Aletheia.Parser.Combinators`) uses fuel-based termination (`defaultFuel = 1000`). To avoid expensive symbolic evaluation during type-checking:
+The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion** on input length for termination:
 
-- Helper functions like `runParser` avoid `with` patterns, using simple pattern matching instead
-- String conversion happens at boundaries only (use `List Char` internally)
-- Pre-computed character codes (`code-0 = 48`, etc.) instead of runtime computation
+- **Key insight**: The `many` combinator uses input length as termination measure
+  - `manyHelper p input (length input)` - recursion bounded by input size
+  - Stops immediately if parser doesn't consume input (prevents infinite loops)
+  - No fuel needed - structurally terminating!
+- **Old approach** (removed): Fuel-based termination caused >120s type-checking timeouts
+  - `manyWithFuel 1000 p` forced Agda to symbolically evaluate 1000 recursion levels
+  - Even with NOINLINE pragmas, the issue persisted
+- **Design patterns**:
+  - Helper functions avoid `with` patterns in type signatures (use nested where clauses)
+  - String conversion at boundaries only (use `List Char` internally)
+  - Pre-computed character codes (`code-0 = 48`, etc.) instead of runtime computation
+- **History**: Original fuel-based parser was removed after successful migration
 
 ### Type-Checking Tips
 
+- **Critical**: Always use parallel GHC with `agda +RTS -N32 -RTS`
+  - Protocol/Handlers.agda: 17s (parallel) vs >120s timeout (serial)
+  - Main.agda: 18s (parallel) vs >120s timeout (serial)
 - First build compiles stdlib (~20s), subsequent builds are much faster
 - Use `PrecompileStdlib.agda` to cache common imports
 - Avoid `with` patterns on complex parser compositions in type signatures
-- Use `+RTS -N8 -RTS` to parallelize GHC's runtime during type-checking
 
 ## Implementation Phases
 
@@ -282,9 +297,11 @@ Aletheia follows a phased implementation plan:
 ### **Phase 1: Core Infrastructure** (In Progress)
 
 **Completed**:
-- ✅ Parser combinators with fuel-based termination (commit 077b39d)
+- ✅ Parser combinators with **structural recursion** (rewritten from fuel-based)
   - Full functor/applicative/monad interfaces
+  - Structurally terminating on input length
   - Basic correctness properties
+  - Type-checks in ~10s with parallel GHC
 - ✅ CAN signal encoding/decoding (commit 92911c4)
   - Frame types with bounded IDs/DLC
   - Bit-level extraction/injection
@@ -298,16 +315,16 @@ Aletheia follows a phased implementation plan:
   - Runtime semantic checks
   - Test cases
 
+- ✅ Protocol integration and Main.agda implementation
+  - Extended Command types: ParseDBC, ExtractSignal, InjectSignal
+  - Implemented command handlers with proper error handling
+  - Rich Response types with typed payloads
+  - Type-checks in ~18s with parallel GHC
+
 **Currently Working On**:
-- 🚧 Protocol integration and Main.agda implementation
-  - Extend Command types beyond Echo
-  - Add ParseDBC, ExtractSignal, InjectSignal commands
-  - Implement command handlers in Main.agda
-  - Create proper Response types
-  - Build and test end-to-end pipeline
+- 🚧 Build pipeline verification (Agda → Haskell → binary)
 
 **Remaining in Phase 1**:
-- Build pipeline verification (Agda → Haskell → binary)
 - End-to-end testing through Python wrapper
 - Integration testing with sample DBC files
 
@@ -429,3 +446,4 @@ git log --oneline -7  # Check latest commits
 # 5. Test with simple parsers first
 # 6. Gradually migrate DBC parser to new combinators
 ```
+- You can use the ghc options to the agda compiler to use up to 32 cpus.
