@@ -5,8 +5,8 @@ module Main where
 import qualified Data.Text.IO as TIO
 import System.IO (hSetBuffering, stdin, stdout, BufferMode(..))
 
--- This import will work after Agda compilation
--- import qualified MAlonzo.Code.Aletheia.Main as Agda
+-- Import Agda-generated code
+import qualified MAlonzo.Code.Aletheia.Main as Agda
 
 main :: IO ()
 main = do
@@ -14,13 +14,12 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
-    -- Read input
-    input <- TIO.getContents
+    -- Read input (single line for now)
+    input <- TIO.getLine
 
-    -- For now, just echo (will be replaced with Agda call)
-    let output = "Echo: " <> input
-    -- In Phase 2, this will be:
-    -- let output = T.pack $ Agda.processCommand (T.unpack input)
+    -- Call Agda's processCommand function
+    -- Agda String is represented as Data.Text.Text in MAlonzo
+    let output = Agda.d_processCommand_28 input
 
     -- Write output
     TIO.putStrLn output
