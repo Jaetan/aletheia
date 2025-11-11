@@ -48,6 +48,8 @@ formatData (FrameData bytes) = "frame: <bytes>\n"  -- TODO
 
 ## ARCHITECTURAL CONSTRAINTS (Design Decisions)
 
+⚠️ **IMPORTANT**: These constraints are currently "by design" but we must **revisit before Phase 2** to ensure we're not painting ourselves into a corner. See "Architectural Constraint Review Plan" section at end of document.
+
 ### 📐 4. Standard CAN Only (No CAN-FD Support)
 **Files**:
 - `CAN/Frame.agda:16` - `payload : Vec Byte 8`
@@ -62,17 +64,27 @@ formatData (FrameData bytes) = "frame: <bytes>\n"  -- TODO
 **Rationale**: Standard CAN covers 95% of automotive use cases
 **Phase to Lift**: **Phase 5** (extended features)
 **Effort**: Medium - requires parameterizing Frame type over payload length
+**Risk**: 🔴 **HIGH** - Hardcoded `Vec Byte 8` is deeply embedded in:
+  - All encoding/decoding functions
+  - Protocol commands (ExtractSignal/InjectSignal)
+  - DBC parser structure
+  - Test data
+**Mitigation**: Should parameterize Frame type early if CAN-FD is ever needed
 
 ### 📐 5. Hardcoded 64-bit Address Space
 **File**: `CAN/Frame.agda:19` - `BitPosition = Fin 64`
 **Constraint**: Assumes 8-byte frames (8 × 8 = 64 bits)
 **Phase to Lift**: **Phase 5** (with CAN-FD support)
+**Risk**: 🟡 **MEDIUM** - Tightly coupled to constraint #4
+**Mitigation**: Fix together with payload parameterization
 
 ### 📐 6. Single Protocol Parser Per Command
 **File**: `Protocol/Parser.agda:79-81`
 **Current**: `parseCommand = parseEcho <|> parseParseDBC`
 **Limitation**: No versioning, no protocol negotiation
 **Phase to Extend**: **Phase 4** (protocol v2 with capabilities negotiation)
+**Risk**: 🟢 **LOW** - Protocol is internal API, easy to extend
+**Mitigation**: None needed - good separation of concerns
 
 ---
 
@@ -315,4 +327,269 @@ parse-print-inverse : parseDBC (toList (printDBC dbc)) ≡ just (dbc, [])
 11. 🆕 All extended CAN features → Phase 5
 
 **Total Phase 1 Completion**: 6 critical fixes + 2 optional safety checks
+
+---
+
+## ARCHITECTURAL CONSTRAINT REVIEW PLAN
+
+⚠️ **Critical**: We must validate architectural constraints early to avoid designing ourselves into a corner. Once Phase 2 (LTL) is built on top of Phase 1 foundations, changing core types becomes exponentially harder.
+
+### Review Schedule
+
+**🔴 End of Phase 1 (Before Phase 2 Starts)**:
+- **Decision Point**: Validate that Standard CAN is sufficient
+- **Questions to Answer**:
+  1. Do we have users who need CAN-FD? (Survey/research)
+  2. Do we have users who need extended 29-bit IDs?
+  3. Will LTL formulas reference frame payload length?
+  4. Will trace analysis tools assume 8-byte frames?
+- **Risk**: If LTL module assumes `Vec Byte 8`, refactoring later requires rewriting entire Phase 2
+- **Action**: If any answer is "yes" or "maybe", refactor Frame type NOW before Phase 2
+
+**🟡 Mid-Phase 2 (After LTL Core)**:
+- **Review Point**: Check if LTL formulas expose payload size assumptions
+- **Questions**:
+  1. Can LTL formulas express "signal at bit position > 64"?
+  2. Do temporal properties depend on fixed frame structure?
+  3. Would trace parser need to handle variable-length frames?
+- **Action**: If yes, assess refactoring cost vs benefit
+
+**🟢 End of Phase 3 (Before Phase 4)**:
+- **Review Point**: Finalize protocol design before external API freeze
+- **Questions**:
+  1. Do we need streaming protocol (multiple commands per connection)?
+  2. Do we need protocol versioning/negotiation?
+  3. What's our backward compatibility policy?
+- **Action**: Design Phase 4 protocol with extensibility in mind
+
+### Constraint Risk Matrix
+
+| # | Constraint | Change Cost @ Phase 1 | Change Cost @ Phase 2 | Change Cost @ Phase 3 | Recommendation |
+|---|------------|----------------------|----------------------|----------------------|----------------|
+| 4 | Vec Byte 8 | 🟢 Low (1 day) | 🟡 Medium (3 days) | 🔴 High (1 week) | **Review at Phase 1 end** |
+| 5 | Fin 64 | 🟢 Low (tied to #4) | 🟡 Medium (tied to #4) | 🔴 High (tied to #4) | **Review with #4** |
+| 6 | Protocol | 🟢 Low (internal) | 🟢 Low (internal) | 🟡 Medium (if API published) | Review at Phase 3 |
+| 24 | Extended IDs | 🟢 Low (sum type) | 🟡 Medium (DBC parser) | 🔴 High (trace format) | **Review at Phase 1 end** |
+| 25-27 | DBC Extensions | 🟢 Low (additive) | 🟢 Low (additive) | 🟢 Low (additive) | Can defer safely |
+
+### Early Warning Signs
+
+🚨 **Red Flags** that indicate we're painting ourselves into a corner:
+
+1. **Deep Embedding**: If we find ourselves writing:
+   ```agda
+   -- BAD: Hardcoded assumptions everywhere
+   processSignal : Vec Byte 8 → ...
+   verifyFrame : Fin 2048 → Vec Byte 8 → ...
+   ltlCheck : List (Vec Byte 8) → ...
+   ```
+   **Fix**: Abstract over frame size BEFORE it spreads
+
+2. **Type Proliferation**: If we see:
+   ```agda
+   Frame8 : Set
+   Frame16 : Set  -- Copy-paste of Frame8 with different size
+   Frame64 : Set  -- Another copy-paste
+   ```
+   **Fix**: Use dependent types NOW, not later
+
+3. **Conditional Logic**: If we see:
+   ```agda
+   if frameSize == 8
+     then processStandardCAN
+     else error "unsupported"
+   ```
+   **Fix**: Make unsupported cases unrepresentable in types
+
+4. **External API Exposure**: If Python API exposes:
+   ```python
+   def extract_signal(frame: bytes) -> float:
+       assert len(frame) == 8  # DANGER: API contract hardcoded
+   ```
+   **Fix**: Use `Sequence[int]` or parameterize before API freeze
+
+### Recommended Refactoring (If Needed)
+
+If Phase 1 review determines we need flexibility:
+
+**Option A - Parameterized Frame** (Preferred):
+```agda
+record CANFrame (n : ℕ) : Set where
+  field
+    id : CANId  -- Sum type: Standard (Fin 2048) | Extended (Fin 536870912)
+    dlc : Fin (suc n)
+    payload : Vec Byte n
+
+-- Standard CAN
+StandardFrame : Set
+StandardFrame = CANFrame 8
+
+-- CAN-FD
+FDFrame : Set
+FDFrame = CANFrame 64
+```
+**Effort**: 2-3 days to refactor Phase 1
+**Benefit**: Future-proof, type-safe, no runtime checks
+
+**Option B - Runtime Tagged Type** (Not Recommended):
+```agda
+data FrameType : Set where
+  Standard : FrameType
+  Extended : FrameType
+  FD : FrameType
+
+record CANFrame : Set where
+  field
+    frameType : FrameType
+    id : ℕ  -- Runtime validation
+    payload : List Byte  -- Runtime length check
+```
+**Effort**: 1 day
+**Downside**: Loses type safety, requires runtime checks, defeats Agda benefits
+
+### Decision Criteria
+
+**Refactor NOW if**:
+- We know we'll need CAN-FD (e.g., user requirement)
+- Research shows >20% of target users need extended features
+- Cost to refactor later > 1 week
+- Type safety would be lost with runtime approach
+
+**Defer if**:
+- No clear user requirement yet
+- Standard CAN sufficient for prototype/MVP
+- Refactoring cost < 3 days even at Phase 3
+- Can maintain type safety with runtime checks
+
+### Action Items
+
+**Before Starting Phase 2**:
+1. ☐ Survey potential users about CAN-FD requirements
+2. ☐ Research typical CAN frame sizes in target domains (automotive, industrial, etc.)
+3. ☐ Estimate refactoring cost if done now vs after Phase 2
+4. ☐ **DECIDE**: Refactor to parameterized Frame OR accept constraint
+5. ☐ Document decision rationale in DESIGN.md
+6. ☐ If not refactoring, add "CAN-FD Support" to Phase 5 roadmap with effort estimate
+
+**This review is MANDATORY before Phase 2 starts.**
+
+---
+
+## POSTULATES AND PROOF OBLIGATIONS TRACKING
+
+⚠️ **IMPORTANT**: All postulates must be replaced with proofs before project is considered complete. This section tracks where postulates are allowed and when they must be removed.
+
+### Current Postulate Status
+
+**Phase 1 (Current)**: ✅ **ZERO POSTULATES**
+- Using `--safe` flag which prohibits postulates
+- All code is fully verified or uses runtime checks
+- No holes `{!!}` in production code paths
+
+### Anticipated Postulates in Phase 1
+
+When implementing rational parser fixes (#1, #2), we may need:
+
+**1. NonZero Proofs for Division**
+```agda
+-- Will be needed in CAN/Encoding.agda for removeScaling
+postulate
+  nonZero-factor : ∀ (q : ℚ) → NonZero q  -- TEMPORARY
+```
+**Justification**: Rational division requires proof that divisor ≠ 0
+**Phase to Replace**: **Phase 3** (verification phase)
+**Alternative**: Runtime check + Maybe type (lose some type safety)
+
+**2. Decimal Parsing Correctness**
+```agda
+-- May be needed in DBC/Parser.agda for decimal → rational
+postulate
+  parseDecimal-correct : ∀ (chars : List Char) (q : ℚ) →
+    parseDecimal chars ≡ just q →
+    show q ≡ fromList chars  -- TEMPORARY
+```
+**Justification**: Full decimal parsing verification is complex
+**Phase to Replace**: **Phase 3** (parser soundness proofs)
+**Alternative**: Defer proof, rely on testing
+
+### Postulate Management Policy
+
+**Rules**:
+1. **No postulates in --safe modules** (enforced by compiler)
+2. **If postulate needed**: Create separate `*.Unsafe.agda` module without --safe
+3. **Document every postulate** with:
+   - Why it's needed
+   - What property it assumes
+   - When it will be replaced
+   - Alternative approaches considered
+4. **Track in this document**: All postulates must appear in this audit
+5. **Phase 3 requirement**: ALL postulates must be replaced before Phase 3 completion
+
+**Workflow for Adding Postulate**:
+```agda
+-- Step 1: Try to avoid (use runtime checks, Maybe, etc.)
+-- Step 2: If truly needed, create Unsafe module:
+
+{-# OPTIONS --without-K #-}  -- NOT --safe!
+module Aletheia.DBC.Parser.Unsafe where
+
+postulate
+  property-name : ∀ ... → ...
+  -- TODO Phase 3: Replace with real proof
+  -- Justification: [explain why needed]
+  -- Test coverage: [list tests that validate this property]
+```
+
+### Postulate Replacement Schedule
+
+| Postulate | Module | Added in Phase | Replace by Phase | Effort | Priority |
+|-----------|--------|----------------|------------------|--------|----------|
+| (none yet) | - | - | - | - | - |
+
+**To be updated as postulates are added during Phase 1 rational parser work.**
+
+### Phase 3 Exit Criteria
+
+**Cannot complete Phase 3 until**:
+- ☐ All postulates replaced with proofs
+- ☐ All `{!!}` holes filled
+- ☐ All modules using --safe flag
+- ☐ All properties in audit document have formal proofs or explicit decision to defer
+
+### Tracking Holes vs Postulates
+
+**Holes `{!!}`**: Incomplete implementations
+- **Allowed in**: Non-critical modules, future phases
+- **Not allowed in**: Core logic used in production
+- **Status**: Tracked in "Incomplete Implementations" section above
+
+**Postulates**: Assumed properties without proof
+- **Allowed in**: Unsafe modules only, with documentation
+- **Not allowed in**: Safe modules (compiler enforces)
+- **Status**: Must be tracked in table above
+
+**Current Status**:
+- Holes: 5 (all in Phase 2 modules - LTL/Trace)
+- Postulates: 0 (will track when added for rational division)
+
+### Action Items for Postulate Management
+
+**During Phase 1 rational parser implementation**:
+1. ☐ Try to avoid postulates (use runtime checks first)
+2. ☐ If postulate needed, create Unsafe module
+3. ☐ Document postulate in this audit (update table above)
+4. ☐ Add comprehensive tests to validate assumed properties
+5. ☐ Add Phase 3 task to replace with real proof
+
+**Before Phase 2**:
+6. ☐ Review all postulates added during Phase 1
+7. ☐ Estimate effort to replace each one
+8. ☐ Decide which to replace early vs defer to Phase 3
+
+**Before Phase 3 Completion**:
+9. ☐ Replace ALL postulates with real proofs
+10. ☐ Verify all modules use --safe flag
+11. ☐ No holes in production code paths
+
+**This tracking ensures no 'forgotten' postulates or proof obligations.**
 

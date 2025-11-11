@@ -525,22 +525,34 @@ See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constrai
 
 ### Known Architectural Constraints (By Design):
 
+⚠️ **MANDATORY REVIEW BEFORE PHASE 2**: See `PHASE1_AUDIT.md` "Architectural Constraint Review Plan" section. We must validate these constraints before building Phase 2 on top of them.
+
 **Standard CAN Only** (no CAN-FD):
-- Fixed 8-byte payload (`Vec Byte 8`)
-- 11-bit CAN IDs only (0-2047, no extended 29-bit IDs)
+- Fixed 8-byte payload (`Vec Byte 8`) - 🔴 **HIGH RISK** if changed later
+- 11-bit CAN IDs only (0-2047, no extended 29-bit IDs) - 🔴 **HIGH RISK** if changed later
 - DLC 0-8 only (CAN-FD has different encoding)
 - **Rationale**: Covers 95% of automotive use cases
 - **Phase to Lift**: Phase 5 (extended features)
+- **⚠️ WARNING**: Hardcoded `Vec Byte 8` is deeply embedded throughout codebase
+  - If Phase 2 (LTL) assumes fixed frame size, refactoring cost becomes 1 week+
+  - **Recommendation**: Review at end of Phase 1, refactor early if needed
+  - See audit doc for parameterized Frame type design (2-3 day effort now)
 
 **No Signal Multiplexing**:
 - All signals always present in frame
 - **Phase to Add**: Phase 5
+- **Risk**: 🟢 Low - additive feature
 
 **No Value Tables** (enumerations):
 - Signal values are numeric only
 - **Phase to Add**: Phase 5
+- **Risk**: 🟢 Low - additive feature
 
-See `PHASE1_AUDIT.md` for complete list of constraints and deferred work.
+See `PHASE1_AUDIT.md` for:
+- Complete list of constraints and deferred work
+- Risk assessment for each constraint
+- Review schedule and decision criteria
+- Refactoring options if constraints need to be lifted early
 
 ### Parser Correctness Strategy (as planned):
 - **Phase 1**: Lightweight correctness properties
