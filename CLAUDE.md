@@ -8,6 +8,38 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Phase**: 1 - Core Infrastructure (see DESIGN.md for roadmap)
 
+## Global Project Rules
+
+### Agda Module Requirements (MANDATORY)
+
+**Every Agda module MUST use**:
+```agda
+{-# OPTIONS --safe --without-K #-}
+```
+
+**Rationale**:
+- `--safe`: Prohibits postulates, unsafe primitives, and non-terminating recursion
+  - Ensures all code is fully verified or uses runtime checks
+  - Prevents accidental holes in production logic
+  - Forces explicit documentation of any assumed properties
+- `--without-K`: Ensures compatibility with Homotopy Type Theory (HoTT)
+  - Makes proofs more general and reusable
+  - Required for certain classes of formal verification
+
+**Exceptions**:
+- If postulate is truly needed (rare), create separate `*.Unsafe.agda` module
+  - Remove `--safe` flag ONLY in that module
+  - Document why postulate is needed
+  - Track in `PHASE1_AUDIT.md` postulate table
+  - Must be replaced with proof by Phase 3 completion
+
+**Enforcement**:
+- Build system checks all modules have --safe flag
+- CI/CD should verify no unsafe modules in production paths
+- Code review checklist includes verifying flags
+
+**Current Status**: ✅ All 27 Aletheia modules use `--safe --without-K`
+
 ## Common Commands
 
 ### Build System (Shake via Cabal)

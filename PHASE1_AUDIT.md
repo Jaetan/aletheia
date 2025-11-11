@@ -251,8 +251,46 @@ parse-print-inverse : parseDBC (toList (printDBC dbc)) ≡ just (dbc, [])
 
 ### 🆕 27. Signal Multiplexing
 **Missing**: Some signals are only present when a multiplexor signal has specific value
-**Phase**: **Phase 5** (advanced DBC features)
+**Phase**: **Phase 5** (advanced DBC features) - **OR Phase 2 if needed for LTL**
 **Complexity**: High (changes signal extraction logic)
+
+**What is Multiplexing**:
+In CAN, a single message ID can have different "modes" where different signals are active. A multiplexor signal determines which set of signals is valid.
+
+**Example**:
+```yaml
+message_id: 0x100
+signals:
+  - name: Mode         # Multiplexor signal
+    value: 0 → signals A, B, C are valid
+    value: 1 → signals D, E, F are valid
+    value: 2 → signals G, H, I are valid
+```
+
+**Why It Matters**:
+- **Common in automotive**: ~30% of CAN messages use multiplexing
+- **Affects extraction**: Must check multiplexor value before extracting signal
+- **Affects LTL**: Temporal properties may need to reason about signal presence
+  - Example: "If Mode=1, THEN signal D must be between 0 and 100"
+- **Type safety**: Should multiplexed signals have Optional types?
+
+**Impact on Architecture**:
+- DBC types need to model multiplexing relationships
+- Signal extraction must check multiplexor first
+- LTL formulas may need conditional signal access
+- Python API needs to handle signal absence gracefully
+
+**Decision Point**: **End of Phase 1** (same as CAN-FD review)
+- If LTL will reason about multiplexed signals → implement in Phase 2
+- If just decoding frames → defer to Phase 5
+- **Risk**: If deferred, LTL module may assume all signals always present
+
+**Design Options**:
+1. **Static Types**: `Signal (Maybe ℚ)` - multiplexed signals optional
+2. **Dynamic Check**: Return `Nothing` if multiplexor doesn't match
+3. **Dependent Types**: Signal validity depends on multiplexor value
+
+**Recommendation**: Address in Phase 2 if doing real-world CAN traces, Phase 5 if theoretical only
 
 ---
 
@@ -337,14 +375,18 @@ parse-print-inverse : parseDBC (toList (printDBC dbc)) ≡ just (dbc, [])
 ### Review Schedule
 
 **🔴 End of Phase 1 (Before Phase 2 Starts)**:
-- **Decision Point**: Validate that Standard CAN is sufficient
+- **Decision Point**: Validate that Standard CAN is sufficient AND signal model is adequate
 - **Questions to Answer**:
   1. Do we have users who need CAN-FD? (Survey/research)
   2. Do we have users who need extended 29-bit IDs?
   3. Will LTL formulas reference frame payload length?
   4. Will trace analysis tools assume 8-byte frames?
-- **Risk**: If LTL module assumes `Vec Byte 8`, refactoring later requires rewriting entire Phase 2
-- **Action**: If any answer is "yes" or "maybe", refactor Frame type NOW before Phase 2
+  5. **Do we need signal multiplexing support?** (NEW)
+     - Will we analyze real-world CAN traces? (likely yes → multiplexing needed)
+     - Will LTL reason about conditional signal presence?
+     - ~30% of automotive messages use multiplexing
+- **Risk**: If LTL module assumes `Vec Byte 8` OR assumes all signals always present, refactoring later requires rewriting entire Phase 2
+- **Action**: If any answer is "yes" or "maybe", refactor Frame type AND signal model NOW before Phase 2
 
 **🟡 Mid-Phase 2 (After LTL Core)**:
 - **Review Point**: Check if LTL formulas expose payload size assumptions
@@ -370,7 +412,14 @@ parse-print-inverse : parseDBC (toList (printDBC dbc)) ≡ just (dbc, [])
 | 5 | Fin 64 | 🟢 Low (tied to #4) | 🟡 Medium (tied to #4) | 🔴 High (tied to #4) | **Review with #4** |
 | 6 | Protocol | 🟢 Low (internal) | 🟢 Low (internal) | 🟡 Medium (if API published) | Review at Phase 3 |
 | 24 | Extended IDs | 🟢 Low (sum type) | 🟡 Medium (DBC parser) | 🔴 High (trace format) | **Review at Phase 1 end** |
-| 25-27 | DBC Extensions | 🟢 Low (additive) | 🟢 Low (additive) | 🟢 Low (additive) | Can defer safely |
+| 26 | Value Tables | 🟢 Low (additive) | 🟢 Low (additive) | 🟢 Low (additive) | Can defer safely |
+| 27 | **Multiplexing** | 🟡 Medium (2-3 days) | 🔴 High (1 week) | 🔴 Very High (2 weeks) | **⚠️ REVIEW AT PHASE 1 END** |
+
+**Note on Multiplexing**: Unlike other extensions, multiplexing affects core signal model:
+- Not just additive (changes SignalDef type)
+- Affects LTL semantics (conditional signal presence)
+- Common in real CAN traces (~30% of messages)
+- **Decision needed before Phase 2**: All signals always present OR optional types?
 
 ### Early Warning Signs
 
@@ -466,12 +515,28 @@ record CANFrame : Set where
 **Before Starting Phase 2**:
 1. ☐ Survey potential users about CAN-FD requirements
 2. ☐ Research typical CAN frame sizes in target domains (automotive, industrial, etc.)
-3. ☐ Estimate refactoring cost if done now vs after Phase 2
-4. ☐ **DECIDE**: Refactor to parameterized Frame OR accept constraint
-5. ☐ Document decision rationale in DESIGN.md
-6. ☐ If not refactoring, add "CAN-FD Support" to Phase 5 roadmap with effort estimate
+3. ☐ **Research signal multiplexing prevalence** in target use cases
+   - Review sample DBC files from automotive industry
+   - Check if test traces contain multiplexed signals
+   - Assess: Can we ignore multiplexing for MVP or is it essential?
+4. ☐ Estimate refactoring cost if done now vs after Phase 2
+   - Frame parameterization: 1-2 days now vs 1 week later
+   - Multiplexing support: 2-3 days now vs 2 weeks later
+5. ☐ **DECIDE**:
+   - Refactor to parameterized Frame OR accept 8-byte constraint
+   - Add multiplexing support OR accept all-signals-present constraint
+6. ☐ Document decision rationale in DESIGN.md
+7. ☐ If not refactoring:
+   - Add "CAN-FD Support" to Phase 5 roadmap with effort estimate
+   - Add "Signal Multiplexing" to Phase 5 roadmap with effort estimate
+   - Document limitations in user-facing documentation
 
 **This review is MANDATORY before Phase 2 starts.**
+
+**Critical Questions**:
+- Will Phase 2 analyze real-world automotive CAN traces? → Likely need multiplexing
+- Will Phase 2 be theoretical/academic only? → Can defer multiplexing
+- Is this project targeting production use? → Need both CAN-FD and multiplexing eventually
 
 ---
 
