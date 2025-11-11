@@ -426,20 +426,66 @@ When adding features, consider which phase they belong to and maintain consisten
      * Echo command: ✅ Parses and echoes messages
      * ParseDBC command: ✅ Successfully parses sample.dbc.yaml
 
-### Phase 1 Status: ~95% Complete
-**Completed**:
-- ✅ Parser combinators (structural recursion)
-- ✅ CAN encoding/decoding
-- ✅ DBC YAML parser
-- ✅ Protocol integration
-- ✅ Command handlers
-- ✅ Build pipeline
-- ✅ Protocol YAML parser
-- ✅ End-to-end binary testing
+### Phase 1 Status: ~85% Complete
 
-**Remaining**:
-- Python wrapper implementation
-- Integration tests with Python API
+**Completed Core Infrastructure**:
+- ✅ Parser combinators (structural recursion)
+  - Functor/Applicative/Monad interfaces
+  - Basic correctness properties (determinism)
+  - No full soundness proofs (deferred to Phase 3)
+- ✅ CAN encoding/decoding
+  - Frame types, bit-level operations
+  - Endianness handling
+  - One proof: byte swap involutive
+- ✅ DBC YAML parser
+  - Complete message/signal parsing
+  - Correctness properties: bounded values, determinism
+  - Runtime semantic checks
+  - **Limitation**: Rational parser ignores fractional parts (Phase 5 enhancement)
+- ✅ Protocol integration
+  - Command types defined
+  - Command handlers implemented (all 4 commands)
+  - Response types with typed payloads
+- ✅ Build pipeline
+  - Agda → MAlonzo → Haskell → binary
+  - Automated FFI name mismatch detection
+- ✅ Protocol YAML parser **[Partial]**
+  - ✅ Echo command parser
+  - ✅ ParseDBC command parser
+  - ❌ ExtractSignal parser (needs byte array parsing)
+  - ❌ InjectSignal parser (needs byte array + rational parsing)
+- ✅ End-to-end binary testing (Echo and ParseDBC only)
+
+**Remaining for Phase 1 Completion**:
+1. **Protocol parser completion**:
+   - Implement ExtractSignal command parser
+   - Implement InjectSignal command parser
+   - Requires: byte array parser (Vec Byte 8 from hex strings)
+   - Requires: rational number parser (reuse from DBC or improve)
+
+2. **Python wrapper implementation**:
+   - Create python/aletheia/client.py with subprocess interface
+   - Implement CANDecoder class wrapping binary
+   - YAML serialization/deserialization
+   - Error handling and validation
+
+3. **Integration testing**:
+   - End-to-end tests: Python → binary → Python
+   - Test all 4 command types
+   - Error case testing
+   - Sample DBC file testing
+
+**Parser Correctness Strategy** (as planned):
+- **Phase 1**: Lightweight correctness properties
+  - Determinism properties
+  - Bounded value checks
+  - Runtime semantic validation
+  - **NOT** full soundness/completeness proofs
+- **Phase 3**: Full parser verification
+  - Grammar formalization
+  - Soundness proofs (parse → valid AST)
+  - Completeness proofs where applicable
+  - Round-trip properties (parse ∘ print ≡ id)
 
 ### Resolved Issue - Type-Checking Timeout:
 **Previous Problem**: Parser normalization caused >120s timeouts
@@ -453,11 +499,22 @@ If session terminates, resume with:
 cd /home/nicolas/dev/agda/aletheia
 git log --oneline -5  # Check latest commits
 
-# Current Status: Phase 1 ~95% complete
-# Last Completed: Protocol YAML parser (commit 8a853e1)
-# Next Steps: Python wrapper implementation
+# Current Status: Phase 1 ~85% complete
+# Last Completed: Protocol YAML parser (partial - Echo/ParseDBC only)
+# Commits: 8a853e1 (protocol parser), 3aca901 (CLAUDE.md update)
 
-# To test the binary:
-echo 'command: "Echo"\nmessage: "test"' | ./build/aletheia
+# Next Steps for Phase 1 completion:
+# 1. Complete protocol parser (ExtractSignal/InjectSignal commands)
+#    - Need byte array parser for Vec Byte 8
+#    - Need rational parser (can reuse from DBC)
+# 2. Implement Python wrapper (python/aletheia/client.py)
+# 3. Integration tests (Python ↔ binary)
+
+# Current working tests:
+printf 'command: "Echo"\nmessage: "test"' | ./build/aletheia
 cat examples/sample.dbc.yaml | sed '1s/^/command: "ParseDBC"\nyaml: /' | ./build/aletheia
+
+# To rebuild if needed:
+cabal run shake -- build  # Full build (Agda + Haskell)
+cabal run shake -- build-haskell  # Haskell only (if Agda unchanged)
 ```
