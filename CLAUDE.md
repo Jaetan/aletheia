@@ -356,6 +356,19 @@ The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion**
 
 ## Implementation Phases
 
+⚠️ **MAJOR PLAN REVISION** - See `PLAN_REVIEW.md` for full analysis
+
+**Goal**: Process real-world automotive CAN data with LTL reasoning, via rich Python DSL
+
+**Key Changes from Original Plan**:
+- **Multiplexing**: Moved from Phase 5 → Phase 2A (CRITICAL for real traces)
+- **Python DSL**: Added as Phase 2A core deliverable (not afterthought)
+- **Streaming**: Moved from Phase 3 → Phase 2B (essential for large traces)
+- **Counterexamples**: Moved from Phase 4 → Phase 2B (critical UX)
+- **Real-world validation**: Added throughout all phases
+- **Extensibility strategy**: Three-tier approach (built-in, Python, Agda)
+- **Decision points**: Added pivot opportunities at end of each phase
+
 Aletheia follows a phased implementation plan:
 
 ### **Phase 1: Core Infrastructure** (In Progress)
@@ -401,35 +414,110 @@ Aletheia follows a phased implementation plan:
 - Python wrapper implementation
 - Integration testing with Python API
 
-### **Phase 2: LTL Foundation**
-- LTL syntax and semantics
-- Coinductive trace streams
+### **Phase 2A: LTL Core + Real-World Support** (REVISED)
+
+**Goals**: LTL reasoning on real automotive traces
+
+**Core LTL**:
+- LTL syntax (Always, Eventually, Until, etc.)
+- Semantics for finite traces (bounded checking)
 - Basic model checker
-- Temporal property verification
+- **Signal multiplexing support** (MOVED FROM PHASE 5 - CRITICAL)
+  - Conditional signal presence based on multiplexor value
+  - ~30% of automotive messages use multiplexing
 
-### **Phase 3: Temporal Bounds and Streaming**
-- Bounded LTL checking
-- Streaming verification
-- Grammar formalization for parsers
-- Parser soundness proofs
-- **Rational parser proofs**: Add NonZero proofs to rational division (implementation in Phase 1)
+**Python DSL v1** (NEW - CRITICAL):
+- DSL design document and architecture
+- Basic predicates (equals, between, changed_by)
+- Temporal operators (always, eventually, within)
+- Composition (when/then, and/or)
+- Parser: Python DSL → Agda LTL AST
+- Example: `Signal("Speed").within(100*ms).must_be_between(0, 8000)`
 
-### **Phase 4: Robustness Improvements**
-- Comprehensive logging
-- Counterexample generation
-- Error recovery and reporting
-- Performance profiling
+**Validation**:
+- Test with real automotive CAN trace
+- Common properties: speed limits, signal bounds, temporal constraints
 
-### **Phase 5: Optimization and Feature Extensions**
+**Timeline**: 4-6 weeks
+**Deliverable**: Users can check LTL properties on real traces using Python DSL
 
-**Planned Enhancements**:
-- Additional encoding/decoding tests and properties
-- Enhanced DBC validation (signal overlap detection, range validation)
-- Pretty-printer implementation for DBC
-- Round-trip property proofs (parse ∘ print ≡ id)
-- Advanced error reporting with precise locations
-- Performance optimizations
-- Support for extended DBC features (message transmitters, value tables, etc.)
+### **Phase 2B: Streaming + Counterexamples** (NEW)
+
+**Goals**: Handle large traces, debug failures
+
+**Streaming**:
+- Streaming trace parser (incremental, memory-bounded)
+- Incremental LTL checking
+- Handle 1GB+ trace files
+
+**Counterexamples** (MOVED FROM PHASE 4):
+- Counterexample generation (show violating trace)
+- Minimal counterexample (shrink to essential)
+- Python-friendly format (timestamp, signal values)
+
+**DSL Extensions**:
+- Custom user-defined predicates (Python callbacks)
+- Standard library of common checks
+- Composition helpers
+
+**Timeline**: 3-4 weeks
+**Deliverable**: Production-ready LTL checking with good UX
+
+### **Phase 3: Verification + Performance** (REVISED)
+
+**Goals**: Prove correctness, optimize bottlenecks
+
+**Proofs**:
+- Replace all postulates with proofs
+- Parser soundness (grammar formalization)
+- LTL semantics correctness
+- Round-trip properties
+- **Rational parser proofs**: Add NonZero proofs to rational division
+
+**Performance**:
+- Profile on large traces (identify bottlenecks)
+- Optimize hot paths
+- Benchmark target: 1M frames/sec
+
+**Timeline**: 4-6 weeks
+**Deliverable**: Fully verified, production-performance system
+
+### **Phase 4: Production Hardening** (REVISED)
+
+**Goals**: Polish for real users
+
+**UX**:
+- Comprehensive error messages (user can fix without asking us)
+- User documentation (tutorials, examples)
+- Standard library of checks (common properties)
+- Example gallery (real-world use cases)
+
+**Robustness**:
+- Edge case handling
+- Graceful degradation
+- Logging and debugging support
+- Integration with common tools (pandas, etc.)
+
+**Timeline**: 3-4 weeks
+**Deliverable**: User-friendly, production-ready tool
+
+### **Phase 5: Optional Extensions** (REVISED)
+
+**Planned Enhancements** (prioritized by user feedback):
+- 🟢 Value tables/enumerations (medium value, low cost)
+- 🟢 Pretty-printer for DBC (medium value, low cost)
+- 🟢 Additional DBC validation (signal overlap, range checks)
+- 🟡 Extended CAN IDs (low value for automotive, medium cost)
+- 🔴 CAN-FD support (low value for now, high cost)
+
+**Timeline**: Ongoing, based on demand
+**Deliverable**: Enhanced feature set based on user feedback
+
+**Dropped Features** (tracked in PLAN_REVIEW.md):
+- Real-time analysis (architectural limitation)
+- Automatic property inference (research problem)
+- GUI/visualization (use existing tools)
+- J1939 protocol (different domain)
 
 When adding features, consider which phase they belong to and maintain consistency with the overall architecture.
 
