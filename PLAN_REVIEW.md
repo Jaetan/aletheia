@@ -239,13 +239,15 @@ Property(my_safety_check).must_hold()
 10. ✅ Benchmark signal extraction performance (target: <1ms per signal)
 
 **Architectural Review** (MANDATORY before Phase 2):
-11. ✅ **Comprehensive constraint evaluation** (allocate 1-2 days, not 0.5!)
-    - Survey: CAN-FD requirements (8-byte vs 64-byte frames)
-    - Survey: Extended 29-bit CAN IDs (vs standard 11-bit)
-    - Survey: Signal multiplexing prevalence (~30% of automotive messages)
-    - **Decision point**: Refactor Frame type NOW (2-3 days) vs LATER (1-2 weeks)
-    - Document decision rationale with cost/benefit analysis
-    - **Risk**: Building Phase 2 (LTL) on Phase 1 assumptions locks us in!
+11. ✅ **COMPLETED** - Comprehensive constraint evaluation
+    - ✅ **Survey Results** (see ARCHITECTURAL_ANALYSIS.md for full details):
+      * **CAN-FD**: 0 out of 62 OpenDBC files (0% prevalence) → **DEFER TO PHASE 5**
+      * **Extended 29-bit CAN IDs**: 30-40% prevalence, Hyundai/Kia 100% usage → **ADD TO PHASE 2A**
+      * **Signal multiplexing**: 5-10% message prevalence, but CRITICAL for VIN/diagnostics → **CONFIRMED FOR PHASE 2A**
+    - **Decision**: Hybrid Approach (add extended IDs + multiplexing, defer CAN-FD)
+    - **Implementation cost**: +1 day (extended IDs) + 2-3 days (multiplexing already planned)
+    - **Document created**: ARCHITECTURAL_ANALYSIS.md with full rationale and risk assessment
+    - **Outcome**: Phase 1 will add extended ID support before Phase 2 begins
 
 **Deliverable**: Users can extract signals from standard CAN frames using Python
 
@@ -261,27 +263,33 @@ Property(my_safety_check).must_hold()
 1. ✅ LTL syntax (Always, Eventually, Until, etc.)
 2. ✅ Semantics for finite traces (bounded checking)
 3. ✅ Basic model checker
-4. ✅ Signal multiplexing support (MOVED FROM PHASE 5)
-   - Conditional signal presence
+4. ✅ **Extended 29-bit CAN ID support** (ADDED based on OpenDBC survey)
+   - Update CANId type: `Fin 2048` → `Fin 536870912` (or sum type)
+   - Update DBC parser for extended ID syntax
+   - Test with Hyundai/Kia DBC files (100% extended IDs)
+   - **Rationale**: Blocks 15-20% of automotive market without this
+5. ✅ Signal multiplexing support (MOVED FROM PHASE 5, USER CONFIRMED)
+   - Conditional signal presence based on multiplexor value
    - `Signal (Maybe ℚ)` types OR dependent types
    - Extraction checks multiplexor first
+   - **Rationale**: 5-10% message prevalence, critical for VIN/diagnostics
 
 **Python DSL v1** (CRITICAL, not in original plan):
-5. ✅ DSL design document
-6. ✅ Basic predicates (equals, between, changed)
-7. ✅ Temporal operators (always, eventually, within)
-8. ✅ Composition (when/then, and/or)
-9. ✅ Parser: Python DSL → Agda LTL AST
-10. ✅ Serialization/deserialization
+6. ✅ DSL design document
+7. ✅ Basic predicates (equals, between, changed)
+8. ✅ Temporal operators (always, eventually, within)
+9. ✅ Composition (when/then, and/or)
+10. ✅ Parser: Python DSL → Agda LTL AST
+11. ✅ Serialization/deserialization
 
 **Validation**:
-11. ✅ Test with real CAN trace (automotive)
-12. ✅ Example: "Speed < SpeedLimit" property
-13. ✅ Example: "When braking, speed decreases"
+12. ✅ Test with real CAN trace (automotive, including multiplexed signals)
+13. ✅ Example: "Speed < SpeedLimit" property
+14. ✅ Example: "When braking, speed decreases"
 
 **Deliverable**: Users can check LTL properties on real traces using Python DSL
 
-**Timeline**: 4-6 weeks
+**Timeline**: 5-7 weeks (was 4-6 weeks, +1 day for extended ID support)
 
 **Risk**: Multiplexing might take longer than expected
 
@@ -375,12 +383,16 @@ Property(my_safety_check).must_hold()
 
 **Goals**: Nice-to-have features, not critical
 
-**Extensions** (prioritized):
-1. 🟢 Value tables/enumerations (medium value, low cost)
-2. 🟡 Extended CAN IDs (low value for automotive, medium cost)
-3. 🔴 CAN-FD support (low value for now, high cost)
-4. 🟢 Pretty-printer for DBC (medium value, low cost)
-5. 🟢 Additional DBC validation (medium value, low cost)
+**Extensions** (prioritized based on OpenDBC survey):
+1. 🟢 Value tables/enumerations (medium value, low cost) - ~5% prevalence
+2. 🟢 Pretty-printer for DBC (medium value, low cost) - tooling support
+3. 🟢 Additional DBC validation (medium value, low cost) - signal overlap, range checks
+4. 🔴 **CAN-FD support** (DEFERRED - see ARCHITECTURAL_ANALYSIS.md)
+   - **Prevalence**: 0 out of 62 OpenDBC files (0%)
+   - **Industry status**: Early adoption, not yet in open data
+   - **Cost**: HIGH (2-3 days minimum, cascade effects)
+   - **Decision**: Wait for user demand and OpenDBC CAN-FD files
+   - **Reconsider if**: User requests explicitly OR OpenDBC adds CAN-FD files
 
 **Deliverable**: Enhanced feature set based on user feedback
 
@@ -564,15 +576,18 @@ speedReasonable v = (v <ℚ 200ℚ) ∧ (v ≥ℚ 0ℚ)
 
 ### Dropped Features Log
 
-| Feature | Reason Dropped | Reconsidered If | Decision Date |
-|---------|----------------|-----------------|---------------|
-| CAN-FD | Limited automotive use, high complexity | User survey shows >20% need | End of Phase 1 |
-| Extended IDs | Most automotive uses 11-bit | Test DBCs show usage | End of Phase 1 |
-| Value tables | Nice-to-have, not blocking | User requests | Phase 5 |
-| Real-time | Architectural limitation (Agda overhead) | Never (use C++ instead) | Now |
-| Auto-infer properties | Research problem, not tool feature | Never (separate tool) | Now |
+| Feature | Status | Reason | Prevalence Data | Reconsidered If | Decision Date |
+|---------|--------|--------|-----------------|-----------------|---------------|
+| Extended IDs | **RESTORED** | 30-40% OpenDBC usage, Hyundai/Kia 100% | Analyzed 7 DBC files | N/A - added to Phase 2A | 2025-11-12 |
+| Multiplexing | **RESTORED** | User confirmed needed, 5-10% messages, critical for VIN/diagnostics | VW: 21 signals, Tesla: 25 signals | N/A - confirmed Phase 2A | 2025-11-12 |
+| CAN-FD | **DEFERRED** | 0% in OpenDBC (0/62 files), high cost, slow adoption | Industry: early adoption only | OpenDBC adds files OR user demand | 2025-11-12 |
+| Value tables | **DEFERRED** | Nice-to-have, ~5% prevalence | Seen in some DBC files | User requests | Phase 5 |
+| Real-time | **DROPPED** | Architectural limitation (Agda overhead) | N/A - design constraint | Never (use C++ instead) | Initial |
+| Auto-infer properties | **DROPPED** | Research problem, not tool feature | N/A - out of scope | Never (separate tool) | Initial |
 
 **Review Schedule**: End of each phase, ask "Should we reconsider any dropped features?"
+
+**Latest Review**: 2025-11-12 - Comprehensive OpenDBC survey completed (see ARCHITECTURAL_ANALYSIS.md)
 
 ---
 
