@@ -547,7 +547,9 @@ When adding features, consider which phase they belong to and maintain consisten
      * Echo command: ✅ Parses and echoes messages
      * ParseDBC command: ✅ Successfully parses sample.dbc.yaml
 
-### Phase 1 Status: ~85% Complete
+### Phase 1 Status: ~90% Complete
+
+✅ **ALL 4 CRITICAL FIXES COMPLETE** - No postulates needed!
 
 **Completed Core Infrastructure**:
 - ✅ Parser combinators (structural recursion)
@@ -562,9 +564,7 @@ When adding features, consider which phase they belong to and maintain consisten
   - Complete message/signal parsing
   - Correctness properties: bounded values, determinism
   - Runtime semantic checks
-  - ⚠️ **CRITICAL LIMITATION**: Rational parser ignores fractional parts (0.25 → 0/1)
-    - Breaks signal extraction/injection for non-integer scaling
-    - **Must fix in Phase 1** before completing ExtractSignal/InjectSignal
+  - ✅ **FIXED**: Rational parser now handles fractional parts correctly (0.25 → 1/4)
 - ✅ Protocol integration
   - Command types defined
   - Command handlers implemented (all 4 commands)
@@ -581,9 +581,14 @@ When adding features, consider which phase they belong to and maintain consisten
 
 **Remaining for Phase 1 Completion**:
 
+5. **Complete protocol parser**: ExtractSignal and InjectSignal command parsers
+6. **Python wrapper implementation**: python/aletheia/client.py with subprocess interface
+7. **Integration testing**: End-to-end tests with Python ↔ binary
+8. **Architectural constraint review**: MANDATORY before Phase 2 (see PHASE1_AUDIT.md)
+
 See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constraints.
 
-### Critical Fixes (Block Phase 1 - Must Complete):
+### ✅ Critical Fixes (ALL 4 COMPLETE - NO POSTULATES!):
 
 1. ✅ **Fix rational number parsing** (COMPLETED - NO POSTULATES NEEDED):
    - **Issue**: Parser was ignoring fractional parts (0.25 → 0/1)
@@ -619,10 +624,11 @@ See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constrai
      - `byteArray`: Parses exactly 8 hex bytes separated by spaces
    - **Result**: Remains `--safe --without-K` compliant
 
-5. **Complete protocol parser**:
-   - Implement ExtractSignal command parser (needs #4 above)
-   - Implement InjectSignal command parser (needs #4 above)
-   - Test all 4 command types end-to-end
+**Next Steps (Non-Critical, Complete Phase 1)**:
+
+5. **Complete protocol parser**: ExtractSignal and InjectSignal command parsers
+   - Now unblocked since byte array parser is complete
+   - Can parse frame bytes and signal names from YAML
 
 6. **Python wrapper implementation**:
    - Create python/aletheia/client.py with subprocess interface
@@ -633,8 +639,7 @@ See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constrai
 7. **Integration testing**:
    - End-to-end tests: Python → binary → Python
    - Test all 4 command types with real signal values
-   - Error case testing
-   - Sample DBC file testing with fractional scaling factors
+   - Validate fractional scaling factors work correctly (0.25, 1.5, etc.)
 
 ### Optional Enhancements (Improve Reliability):
 
