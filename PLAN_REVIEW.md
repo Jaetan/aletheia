@@ -226,14 +226,30 @@ Property(my_safety_check).must_hold()
 6. ✅ Python wrapper (basic)
 7. ✅ Integration tests
 
-**NEW: Validation**:
-8. ✅ Test with real DBC file (e.g., from OpenDBC project)
-9. ✅ Benchmark signal extraction performance
-10. ✅ Document limitations clearly
+**Testing** (REQUIRED before Phase 1 completion):
+8. ✅ **Unit tests for all critical fixes**
+   - Rational parser: Test "0.25" → 1/4, "1.5" → 3/2, negative decimals
+   - Signal scaling: Test round-trip (applyScaling ∘ removeScaling ≈ id)
+   - Response formatting: Test ℚ and Vec Byte 8 output formats
+   - Byte array parser: Test hex parsing, case sensitivity, bounds
+9. ✅ **Integration tests**
+   - End-to-end: Python → binary → Python for all 4 commands
+   - Real DBC file from OpenDBC (Toyota, Honda, etc.)
+   - Fractional scaling factors (0.25, 1.5, 2.5, etc.)
+10. ✅ Benchmark signal extraction performance (target: <1ms per signal)
+
+**Architectural Review** (MANDATORY before Phase 2):
+11. ✅ **Comprehensive constraint evaluation** (allocate 1-2 days, not 0.5!)
+    - Survey: CAN-FD requirements (8-byte vs 64-byte frames)
+    - Survey: Extended 29-bit CAN IDs (vs standard 11-bit)
+    - Survey: Signal multiplexing prevalence (~30% of automotive messages)
+    - **Decision point**: Refactor Frame type NOW (2-3 days) vs LATER (1-2 weeks)
+    - Document decision rationale with cost/benefit analysis
+    - **Risk**: Building Phase 2 (LTL) on Phase 1 assumptions locks us in!
 
 **Deliverable**: Users can extract signals from standard CAN frames using Python
 
-**Timeline**: 2-3 weeks (including critical fixes)
+**Timeline**: 3-4 weeks (including critical fixes, testing, and architectural review)
 
 ---
 
@@ -302,14 +318,23 @@ Property(my_safety_check).must_hold()
 
 **Proofs**:
 1. ✅ Replace all postulates with proofs
-2. ✅ Parser soundness (grammar formalization)
-3. ✅ LTL semantics correctness
-4. ✅ Round-trip properties
+2. ✅ **Prove unreachable cases are impossible** (replace coverage patterns with proofs)
+   - Prove `power10 n` always returns `suc k` (never zero)
+   - Prove valid hex characters always parse successfully
+   - Prove well-formed DBC files have nonzero factors
+3. ✅ Parser soundness (grammar formalization)
+4. ✅ LTL semantics correctness
+5. ✅ Round-trip properties (parse ∘ print ≡ id)
 
-**Performance**:
-5. ✅ Profile on large traces (identify bottlenecks)
-6. ✅ Optimize hot paths
-7. ✅ Benchmark against target (e.g., 1M frames/sec)
+**Performance** (EXPLICIT profiling requirements):
+6. ✅ **Profile entire pipeline systematically**
+   - Rational number operations (normalization, arithmetic)
+   - String conversions (ℚ → String, Vec Byte 8 → String)
+   - Parser performance on large DBC files (100+ messages)
+   - Signal extraction throughput (target: <1ms per signal)
+   - Memory usage patterns
+7. ✅ Identify and optimize hot paths based on profiling data
+8. ✅ Benchmark against target: 1M frames/sec signal extraction
 
 **Deliverable**: Fully verified, production-performance system
 
@@ -322,16 +347,23 @@ Property(my_safety_check).must_hold()
 **Goals**: Polish for real users
 
 **UX**:
-1. ✅ Comprehensive error messages
-2. ✅ User documentation (tutorials, examples)
-3. ✅ Standard library of checks (common properties)
-4. ✅ Example gallery (real-world use cases)
+1. ✅ **Comprehensive error messages with context**
+   - Parser errors: Show line/column position and expected input
+   - Validation errors: Explain what constraint was violated
+   - Runtime errors: Provide actionable guidance
+2. ✅ **Decimal approximations for user-facing output** (internal stays rational)
+   - Display format: "3/2 (≈ 1.5)" for signal values
+   - Configuration option to show fractions-only or decimals-only
+   - Maintains exact rational arithmetic internally
+3. ✅ User documentation (tutorials, examples)
+4. ✅ Standard library of checks (common properties)
+5. ✅ Example gallery (real-world use cases)
 
 **Robustness**:
-5. ✅ Edge case handling
-6. ✅ Graceful degradation
-7. ✅ Logging and debugging support
-8. ✅ Integration with common tools (pandas, etc.)
+6. ✅ Edge case handling
+7. ✅ Graceful degradation
+8. ✅ Logging and debugging support
+9. ✅ Integration with common tools (pandas, etc.)
 
 **Deliverable**: User-friendly, production-ready tool
 

@@ -579,12 +579,21 @@ When adding features, consider which phase they belong to and maintain consisten
   - ❌ InjectSignal parser (needs byte array + rational parsing)
 - ✅ End-to-end binary testing (Echo and ParseDBC only)
 
-**Remaining for Phase 1 Completion**:
+**Remaining for Phase 1 Completion** (REQUIRED, not optional):
 
 5. **Complete protocol parser**: ExtractSignal and InjectSignal command parsers
 6. **Python wrapper implementation**: python/aletheia/client.py with subprocess interface
-7. **Integration testing**: End-to-end tests with Python ↔ binary
-8. **Architectural constraint review**: MANDATORY before Phase 2 (see PHASE1_AUDIT.md)
+7. **Unit tests for all 4 critical fixes** (REQUIRED):
+   - Rational parser: "0.25" → 1/4, "1.5" → 3/2, negatives
+   - Signal scaling: Round-trip property (applyScaling ∘ removeScaling ≈ id)
+   - Response formatting: ℚ and Vec Byte 8 outputs
+   - Byte array parser: Hex parsing, case sensitivity, bounds
+8. **Integration testing**: End-to-end tests with Python ↔ binary, real DBC file
+9. **Performance benchmarking**: Signal extraction <1ms per signal
+10. **Architectural constraint review** (1-2 days, MANDATORY before Phase 2):
+    - Evaluate CAN-FD, extended IDs, signal multiplexing requirements
+    - **Decision**: Refactor Frame type NOW vs accept constraints
+    - Document rationale (see PHASE1_AUDIT.md)
 
 See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constraints.
 
