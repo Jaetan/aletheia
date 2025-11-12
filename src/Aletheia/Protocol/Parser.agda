@@ -18,6 +18,8 @@ open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Data.Char using (_≟_)
 open import Aletheia.CAN.Frame using (Byte)
+-- Import rational parser from DBC module (reuse the decimal → rational conversion)
+open import Aletheia.DBC.Parser using (rational)
 
 -- ============================================================================
 -- YAML PRIMITIVES (reuse from DBC parser patterns)
@@ -105,6 +107,16 @@ byteArray =
     buildVec : Byte → Byte → Byte → Byte → Byte → Byte → Byte → Byte → Vec Byte 8
     buildVec b0 b1 b2 b3 b4 b5 b6 b7 = b0 Data.Vec.∷ b1 Data.Vec.∷ b2 Data.Vec.∷ b3 Data.Vec.∷ b4 Data.Vec.∷ b5 Data.Vec.∷ b6 Data.Vec.∷ b7 Data.Vec.∷ Data.Vec.[]
 
+-- Parse "frame: 0x00 0x01 ..." key-value pair
+parseFrame : Parser (Vec Byte 8)
+parseFrame =
+  string "frame" *> char ':' *> spaces *> byteArray
+
+-- Parse "value: 123.45" key-value pair for signal values
+parseValue : Parser ℚ
+parseValue =
+  string "value" *> char ':' *> spaces *> rational
+
 -- ============================================================================
 -- COMMAND PARSERS
 -- ============================================================================
@@ -125,11 +137,50 @@ parseParseDBC =
     mkParseDBC : String → String → Command
     mkParseDBC _ yaml = ParseDBC yaml
 
--- For Phase 1, we'll implement just Echo and ParseDBC
--- ExtractSignal and InjectSignal require parsing byte arrays and rationals,
--- which we'll defer for now
+-- Parse ExtractSignal command:
+-- command: "ExtractSignal"
+-- dbc_yaml: |
+--   ...
+-- message: "MessageName"
+-- signal: "SignalName"
+-- frame: "0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07"
+parseExtractSignal : Parser Command
+parseExtractSignal =
+  mkExtractSignal
+    <$> (parseCommandType <* newline)
+    <*> (multilineValue "dbc_yaml" <* newline)
+    <*> (keyValue "message" <* newline)
+    <*> (keyValue "signal" <* newline)
+    <*> parseFrame
+  where
+    mkExtractSignal : String → String → String → String → Vec Byte 8 → Command
+    mkExtractSignal _ dbcYaml msgName sigName frameBytes =
+      ExtractSignal dbcYaml msgName sigName frameBytes
+
+-- Parse InjectSignal command:
+-- command: "InjectSignal"
+-- dbc_yaml: |
+--   ...
+-- message: "MessageName"
+-- signal: "SignalName"
+-- value: 123.45
+-- frame: "0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07"
+parseInjectSignal : Parser Command
+parseInjectSignal =
+  mkInjectSignal
+    <$> (parseCommandType <* newline)
+    <*> (multilineValue "dbc_yaml" <* newline)
+    <*> (keyValue "message" <* newline)
+    <*> (keyValue "signal" <* newline)
+    <*> (parseValue <* newline)
+    <*> parseFrame
+  where
+    mkInjectSignal : String → String → String → String → ℚ → Vec Byte 8 → Command
+    mkInjectSignal _ dbcYaml msgName sigName sigValue frameBytes =
+      InjectSignal dbcYaml msgName sigName sigValue frameBytes
 
 -- Main command parser - tries each command type
+-- Order matters: try more specific parsers first
 parseCommand : Parser Command
 parseCommand =
-  parseEcho <|> parseParseDBC
+  parseEcho <|> parseParseDBC <|> parseExtractSignal <|> parseInjectSignal
