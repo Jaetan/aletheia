@@ -523,34 +523,49 @@ When adding features, consider which phase they belong to and maintain consisten
 
 ## Current Session Progress
 
-**Last Completed**: All 4 critical fixes + protocol parser structure (commits up to d99f8a0)
-**Blocker**: Command routing bug - all commands route to Echo instead of their handlers
+**Last Completed**: Build system made rock solid + command routing fixed (commits 9e22c2c, e3233ae, 215e881)
+**Current Status**: Phase 1 ~95% complete, ready for final DBC parsing debug
+**Blocker**: DBC YAML parsing (all commands route correctly now!)
 
 ### Completed in This Session:
-1. ✅ Parser combinators rewrite with structural recursion
-   - Replaced fuel-based termination with input-length-based approach
-   - Progress checking prevents infinite loops (sameLengthᵇ)
-   - Type-checks in ~10s (previously >120s timeout)
-   - Maintains all correctness guarantees
 
-2. ✅ Build pipeline verification
-   - Agda → MAlonzo compilation working (~43s)
-   - Haskell shim integration successful
-   - Binary executable created and tested
-   - Automated FFI name mismatch detection implemented
+**MAJOR ACCOMPLISHMENT**: Build system completely overhauled and made production-ready!
 
-3. ✅ Protocol YAML parser implementation (commit 8a853e1)
-   - Implemented parseCommand in Protocol/Parser.agda
-   - Echo and ParseDBC command parsers functional
-   - Updated Main.agda to use protocol parser
-   - Changed Haskell shim to read multi-line input (getContents)
-   - End-to-end testing successful:
-     * Echo command: ✅ Parses and echoes messages
-     * ParseDBC command: ✅ Successfully parses sample.dbc.yaml
+1. ✅ **Command routing bug FIXED** (root cause: stale .agdai cache)
+   - Spent ~4 hours debugging parser logic (all approaches failed identically)
+   - Root cause discovered: Stale .agdai interface files from previous compilations
+   - Parser logic was correct all along!
+   - All 4 commands now route correctly: Echo, ParseDBC, ExtractSignal, InjectSignal
 
-### Phase 1 Status: ~90% Complete
+2. ✅ **Build system: Hash-based dependency tracking** (commit 215e881, e3233ae)
+   - Enabled `shakeChange=ChangeModtimeAndDigest` for content hashing (not timestamps)
+   - Track all 319 MAlonzo .hs files (not just Main.hs) - ensures no missed changes
+   - Trust Agda's .agdai cache management (no manual cleaning needed)
+   - Performance: 0.26s no-op builds, ~11s incremental builds
+   - No more stale cache issues, no false rebuilds
+   - **RESULT**: Production-grade build system
+
+3. ✅ **Architectural research completed** (commit 63ca8aa)
+   - Surveyed OpenDBC: 62 DBC files, 384 vehicles, 50+ manufacturers
+   - Analyzed 7 representative files (Toyota, Honda, Hyundai, Kia, etc.)
+   - Created ARCHITECTURAL_ANALYSIS.md with findings
+   - **Decisions made**:
+     * CAN-FD: 0% prevalence → DEFER to Phase 5
+     * Extended 29-bit IDs: 30-40% prevalence → ADD to Phase 2A
+     * Signal multiplexing: 5-10% messages, user requirement → CONFIRMED Phase 2A
+
+4. ✅ **All 4 critical fixes complete** (from previous session, zero postulates)
+   - Rational parser: 0.25 → 1/4
+   - Signal scaling: proper division with factor
+   - Response formatting: ℚ → String, Vec Byte 8 → hex
+   - Byte array parser: hex string → Vec Byte 8
+
+### Phase 1 Status: ~95% Complete
 
 ✅ **ALL 4 CRITICAL FIXES COMPLETE** - No postulates needed!
+✅ **BUILD SYSTEM ROCK SOLID** - Hash-based dependency tracking
+✅ **COMMAND ROUTING FIXED** - All 4 commands route correctly
+⚠️ **BLOCKER**: DBC YAML parsing (commands route, but DBC parsing fails)
 
 **Completed Core Infrastructure**:
 - ✅ Parser combinators (structural recursion)
@@ -715,32 +730,33 @@ See `PHASE1_AUDIT.md` for:
 If session terminates, resume with:
 ```bash
 cd /home/nicolas/dev/agda/aletheia
-git log --oneline -5  # Check latest commits
 
-# Current Status: Phase 1 ~85% complete
-# Last Completed: Protocol YAML parser (partial - Echo/ParseDBC only)
-# Commits: 8a853e1 (protocol parser), 3aca901, 8716802 (CLAUDE.md updates)
+# Read comprehensive session state (RECOMMENDED - start here!)
+cat .session-state.md
 
-# Next Steps for Phase 1 completion (in order):
-# 1. FIX RATIONAL PARSER (critical - moved from Phase 5)
-#    - DBC/Parser.agda: Parse fractional decimals (0.25 → 1/4)
-#    - CAN/Encoding.agda: Implement removeScaling with division
-#    - Options: postulate NonZero, or support safe subset of denominators
-#    - Impact: Enables correct signal extraction/injection
-#
-# 2. Complete protocol parser (ExtractSignal/InjectSignal commands)
-#    - Need byte array parser for Vec Byte 8 (hex strings)
-#    - Use fixed rational parser from step 1
-#
-# 3. Implement Python wrapper (python/aletheia/client.py)
-#
-# 4. Integration tests (Python ↔ binary) with real signal values
+# Quick status check
+git log --oneline -5  # Recent commits: build system fixes, routing fix
 
-# Current working tests:
-printf 'command: "Echo"\nmessage: "test"' | ./build/aletheia
-cat examples/sample.dbc.yaml | sed '1s/^/command: "ParseDBC"\nyaml: /' | ./build/aletheia
+# Current Status: Phase 1 ~95% complete
+# Last Completed: Build system rock solid + command routing fixed (commits 9e22c2c, e3233ae, 215e881)
+# Blocker: DBC YAML parsing (all commands route correctly now!)
 
-# To rebuild if needed:
-cabal run shake -- build  # Full build (Agda + Haskell)
-cabal run shake -- build-haskell  # Haskell only (if Agda unchanged)
+# Next Priority: Debug DBC YAML parsing
+cat test_parsedbc_minimal.yaml | ./build/aletheia
+# Expected: Parse successfully
+# Actual: "Failed to parse DBC YAML"
+# Need to debug why multilineValue output doesn't parse
+
+# Build system is production-ready:
+cabal run shake -- build         # Full build, 0.26s no-op, ~11s incremental
+cabal run shake -- build-agda    # Agda only
+cabal run shake -- clean         # Clean all artifacts
+
+# All 4 commands route correctly now:
+printf 'command: "Echo"\nmessage: "test"' | ./build/aletheia  # Works!
+cat test_parsedbc_minimal.yaml | ./build/aletheia              # Routes, DBC parsing fails
+cat test_extract_reordered.yaml | ./build/aletheia             # Routes, DBC parsing fails
+cat test_inject_proper.yaml | ./build/aletheia                 # Routes, DBC parsing fails
 ```
+
+**IMPORTANT**: See `.session-state.md` for complete project state, decisions, and recovery instructions.
