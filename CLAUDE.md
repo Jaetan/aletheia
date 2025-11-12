@@ -611,11 +611,13 @@ See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constrai
      - `Vec Byte 8 → String`: Custom hex formatter (e.g., "0x12 0x34 ...")
    - **Result**: Remains `--safe --without-K` compliant
 
-4. **Implement byte array parser** (CRITICAL):
-   - **Issue**: Cannot parse hex byte strings from YAML
-   - **Impact**: Cannot implement ExtractSignal/InjectSignal command parsers
-   - **File**: `Protocol/Parser.agda` (new parser needed)
-   - **Format**: `"0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"` → `Vec Byte 8`
+4. ✅ **Implement byte array parser** (COMPLETED - NO POSTULATES NEEDED):
+   - **Issue**: Could not parse hex byte strings from YAML
+   - **File**: `Protocol/Parser.agda:37-106`
+   - **Fix Implemented**:
+     - `hexByte`: Parses "0xNN" using modulo (returns Fin 256 automatically)
+     - `byteArray`: Parses exactly 8 hex bytes separated by spaces
+   - **Result**: Remains `--safe --without-K` compliant
 
 5. **Complete protocol parser**:
    - Implement ExtractSignal command parser (needs #4 above)

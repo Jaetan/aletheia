@@ -55,6 +55,24 @@
 - Signal value 1.5 → "value: 3/2"
 - Frame [0x12, 0x34, ...] → "frame: 0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"
 
+### ✅ 4. Byte Array Parser - FIXED
+**File**: `Protocol/Parser.agda:37-106`
+**Issue**: Could not parse hex byte strings from YAML
+**Impact**: Was blocking ExtractSignal/InjectSignal command parsers
+**Fix Implemented**: Hex string parser for Vec Byte 8
+- **hexCharToNat**: Converts '0'-'9','A'-'F','a'-'f' → 0-15 (Maybe ℕ)
+- **hexByte**: Parses "0xNN" using modulo to prove bounds automatically
+  - Formula: `(hi * 16 + lo) mod 256` returns `Fin 256` directly
+  - Much cleaner than manual proof construction!
+- **byteArray**: Parses exactly 8 hex bytes separated by spaces
+- **NO POSTULATES NEEDED** - remains `--safe --without-K` compliant
+**Implementation Details**:
+- Uses `_mod_` from Data.Nat.DivMod (automatically returns Fin)
+- Pattern matches on Bool constructors (not variables) to avoid shadowing warnings
+- Fallback to `Data.Fin.zero` for invalid hex (unreachable in practice)
+- Applicative style parses all 8 bytes: `<$> b0 <*> b1 <*> ... <*> b7`
+**Example Input**: `"0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"`
+
 ---
 
 ## ARCHITECTURAL CONSTRAINTS (Design Decisions)
