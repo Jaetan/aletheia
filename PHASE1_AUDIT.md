@@ -38,19 +38,22 @@
 - Converts back to normalized ℚ via `fromℚᵘ`
 **Trade-off**: Runtime check instead of static proof (deferred to Phase 3)
 
-### 🔴 3. Response Formatting Incomplete
-**File**: `Protocol/Response.agda:46-48`
-**Issue**: Cannot output signal values or frame bytes (returns placeholders)
-**Impact**: ExtractSignal/InjectSignal commands return useless output
-**Placeholders**:
-```agda
-formatData (SignalValueData val) = "value: " ++ "<rational>" ++ "\n"  -- TODO
-formatData (FrameData bytes) = "frame: <bytes>\n"  -- TODO
-```
-**Fix Required**:
-- Implement `ℚ → String` conversion
-- Implement `Vec Byte 8 → String` (hex format: "0x12 0x34 ...")
-**Phase**: **Phase 1** (blocks ExtractSignal/InjectSignal output)
+### ✅ 3. Response Formatting - FIXED
+**File**: `Protocol/Response.agda:41-91`
+**Issue**: Was returning placeholders for signal values and frame bytes
+**Impact**: Would have made ExtractSignal/InjectSignal output useless
+**Fix Implemented**: Proper formatting for both types
+- **ℚ → String**: Uses `Data.Rational.Show.show` (format: "3/2", "1/4")
+- **Vec Byte 8 → String**: Custom hex formatter (format: "0x12 0x34 0x56 ...")
+- **NO POSTULATES NEEDED** - remains `--safe --without-K` compliant
+**Implementation Details**:
+- `hexDigit`: Converts 0-15 to '0'-'9','A'-'F'
+- `byteToHex`: Converts Fin 256 to "0xNN" using division/modulo
+- `bytesToHex`: Uses `foldr` over Vec to concatenate with spaces
+- Uses List cons operator `L.∷` (not Vec) for building char lists
+**Example Output**:
+- Signal value 1.5 → "value: 3/2"
+- Frame [0x12, 0x34, ...] → "frame: 0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"
 
 ---
 
