@@ -122,39 +122,42 @@ parseValue =
 -- COMMAND PARSER
 -- ============================================================================
 
--- Main command parser - reads command type first, then routes to specific parser
+-- Main command parser - Parses command type once, then routes
 parseCommand : Parser Command
 parseCommand =
-  (parseCommandType <* newline) >>= routeCommand
+  parseCommandType >>= routeToHandler
   where
-    open import Data.String.Properties using (_==_)
-    open import Data.Bool using (if_then_else_)
+    open import Data.String.Properties as StrProps
+    open import Relation.Nullary using (yes; no)
 
-    routeCommand : String → Parser Command
-    routeCommand cmdType =
-      if (cmdType == "Echo")
-      then Echo <$> keyValue "message"
-      else (if (cmdType == "ParseDBC")
-            then ParseDBC <$> multilineValue "yaml"
-            else (if (cmdType == "ExtractSignal")
-                  then mkExtractSignal
-                         <$> (keyValue "message" <* newline)
-                         <*> (keyValue "signal" <* newline)
-                         <*> (parseFrame <* newline)
-                         <*> multilineValue "dbc_yaml"
-                  else (if (cmdType == "InjectSignal")
-                        then mkInjectSignal
-                               <$> (keyValue "message" <* newline)
-                               <*> (keyValue "signal" <* newline)
-                               <*> (parseValue <* newline)
-                               <*> (parseFrame <* newline)
-                               <*> multilineValue "dbc_yaml"
-                        else fail)))
+    mkExtractSignal : String → String → Vec Byte 8 → String → Command
+    mkExtractSignal msgName sigName frameBytes dbcYaml =
+      ExtractSignal dbcYaml msgName sigName frameBytes
+
+    mkInjectSignal : String → String → ℚ → Vec Byte 8 → String → Command
+    mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
+      InjectSignal dbcYaml msgName sigName sigValue frameBytes
+
+    routeToHandler : String → Parser Command
+    routeToHandler cmdType = newline *>
+      checkCommand cmdType
       where
-        mkExtractSignal : String → String → Vec Byte 8 → String → Command
-        mkExtractSignal msgName sigName frameBytes dbcYaml =
-          ExtractSignal dbcYaml msgName sigName frameBytes
-
-        mkInjectSignal : String → String → ℚ → Vec Byte 8 → String → Command
-        mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
-          InjectSignal dbcYaml msgName sigName sigValue frameBytes
+        checkCommand : String → Parser Command
+        checkCommand cmd with cmd StrProps.≟ "Echo"
+        ... | yes _ = Echo <$> keyValue "message"
+        ... | no _  with cmd StrProps.≟ "ParseDBC"
+        ...   | yes _ = ParseDBC <$> multilineValue "yaml"
+        ...   | no _  with cmd StrProps.≟ "ExtractSignal"
+        ...     | yes _ = mkExtractSignal
+                            <$> (keyValue "message" <* newline)
+                            <*> (keyValue "signal" <* newline)
+                            <*> (parseFrame <* newline)
+                            <*> multilineValue "dbc_yaml"
+        ...     | no _  with cmd StrProps.≟ "InjectSignal"
+        ...       | yes _ = mkInjectSignal
+                              <$> (keyValue "message" <* newline)
+                              <*> (keyValue "signal" <* newline)
+                              <*> (parseValue <* newline)
+                              <*> (parseFrame <* newline)
+                              <*> multilineValue "dbc_yaml"
+        ...       | no _ = fail
