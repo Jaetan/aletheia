@@ -69,10 +69,11 @@ parseCommandType : Parser String
 parseCommandType = keyValue "command"
 
 -- Parse multiline string after "yaml:" or "dbc_yaml:"
--- For Phase 1, we'll use a simplified approach: read until end of input
+-- Phase 1: Simplified approach - reads everything until end of input
+-- This works because multiline fields are always last in the command
 multilineValue : String → Parser String
 multilineValue key =
-  string key *> char ':' *> spaces *>
+  string key *> char ':' *> spaces *> optional (char '|') *> newline *>
   (fromList <$> many anyChar)
 
 -- Parse a single hex byte "0xNN" → Fin 256
@@ -118,69 +119,42 @@ parseValue =
   string "value" *> char ':' *> spaces *> rational
 
 -- ============================================================================
--- COMMAND PARSERS
+-- COMMAND PARSER
 -- ============================================================================
 
--- Parse Echo command: command: "Echo"\nmessage: "text"
-parseEcho : Parser Command
-parseEcho =
-  mkEcho <$> (parseCommandType <* newline) <*> keyValue "message"
-  where
-    mkEcho : String → String → Command
-    mkEcho _ msg = Echo msg
-
--- Parse ParseDBC command: command: "ParseDBC"\nyaml: ...
-parseParseDBC : Parser Command
-parseParseDBC =
-  mkParseDBC <$> (parseCommandType <* newline) <*> multilineValue "yaml"
-  where
-    mkParseDBC : String → String → Command
-    mkParseDBC _ yaml = ParseDBC yaml
-
--- Parse ExtractSignal command:
--- command: "ExtractSignal"
--- dbc_yaml: |
---   ...
--- message: "MessageName"
--- signal: "SignalName"
--- frame: "0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07"
-parseExtractSignal : Parser Command
-parseExtractSignal =
-  mkExtractSignal
-    <$> (parseCommandType <* newline)
-    <*> (multilineValue "dbc_yaml" <* newline)
-    <*> (keyValue "message" <* newline)
-    <*> (keyValue "signal" <* newline)
-    <*> parseFrame
-  where
-    mkExtractSignal : String → String → String → String → Vec Byte 8 → Command
-    mkExtractSignal _ dbcYaml msgName sigName frameBytes =
-      ExtractSignal dbcYaml msgName sigName frameBytes
-
--- Parse InjectSignal command:
--- command: "InjectSignal"
--- dbc_yaml: |
---   ...
--- message: "MessageName"
--- signal: "SignalName"
--- value: 123.45
--- frame: "0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07"
-parseInjectSignal : Parser Command
-parseInjectSignal =
-  mkInjectSignal
-    <$> (parseCommandType <* newline)
-    <*> (multilineValue "dbc_yaml" <* newline)
-    <*> (keyValue "message" <* newline)
-    <*> (keyValue "signal" <* newline)
-    <*> (parseValue <* newline)
-    <*> parseFrame
-  where
-    mkInjectSignal : String → String → String → String → ℚ → Vec Byte 8 → Command
-    mkInjectSignal _ dbcYaml msgName sigName sigValue frameBytes =
-      InjectSignal dbcYaml msgName sigName sigValue frameBytes
-
--- Main command parser - tries each command type
--- Order matters: try more specific parsers first
+-- Main command parser - reads command type first, then routes to specific parser
 parseCommand : Parser Command
 parseCommand =
-  parseEcho <|> parseParseDBC <|> parseExtractSignal <|> parseInjectSignal
+  (parseCommandType <* newline) >>= routeCommand
+  where
+    open import Data.String.Properties using (_==_)
+    open import Data.Bool using (if_then_else_)
+
+    routeCommand : String → Parser Command
+    routeCommand cmdType =
+      if (cmdType == "Echo")
+      then Echo <$> keyValue "message"
+      else (if (cmdType == "ParseDBC")
+            then ParseDBC <$> multilineValue "yaml"
+            else (if (cmdType == "ExtractSignal")
+                  then mkExtractSignal
+                         <$> (keyValue "message" <* newline)
+                         <*> (keyValue "signal" <* newline)
+                         <*> (parseFrame <* newline)
+                         <*> multilineValue "dbc_yaml"
+                  else (if (cmdType == "InjectSignal")
+                        then mkInjectSignal
+                               <$> (keyValue "message" <* newline)
+                               <*> (keyValue "signal" <* newline)
+                               <*> (parseValue <* newline)
+                               <*> (parseFrame <* newline)
+                               <*> multilineValue "dbc_yaml"
+                        else fail)))
+      where
+        mkExtractSignal : String → String → Vec Byte 8 → String → Command
+        mkExtractSignal msgName sigName frameBytes dbcYaml =
+          ExtractSignal dbcYaml msgName sigName frameBytes
+
+        mkInjectSignal : String → String → ℚ → Vec Byte 8 → String → Command
+        mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
+          InjectSignal dbcYaml msgName sigName sigValue frameBytes
