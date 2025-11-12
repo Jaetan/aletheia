@@ -127,7 +127,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             else liftIO $ createDirectoryLink target symlinkPath
 
     "build/aletheia" %> \out -> do
-        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
+        -- Depend on all MAlonzo generated Haskell files, not just Main.hs
+        -- This ensures Shake detects any changes from Agda compilation
+        malonzoFiles <- getDirectoryFiles "build" ["MAlonzo//**/*.hs"]
+        need (map ("build" </>) malonzoFiles)
+
         need ["create-symlink"]  -- Depend on phony target, not directory
         need ["haskell-shim/src/Main.hs", "haskell-shim/aletheia.cabal"]
 
