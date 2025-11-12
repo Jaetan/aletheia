@@ -1,0 +1,20 @@
+command: "InjectSignal"
+dbc_yaml: |
+  messages:
+    - name: "EngineData"
+      id: 0x100
+      dlc: 8
+      signals:
+        - name: "EngineSpeed"
+          start_bit: 0
+          length: 16
+          byte_order: "little_endian"
+          signed: "unsigned"
+          factor: 0.25
+          offset: 0
+          minimum: 0
+          maximum: 8000
+message: "EngineData"
+signal: "EngineSpeed"
+value: 2500.5
+frame: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00

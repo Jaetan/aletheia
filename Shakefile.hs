@@ -66,7 +66,7 @@ checkFFIName malonzoFile shimFile = do
             putWarn "Could not extract function name from Haskell shim (might be OK if imports changed)"
 
 main :: IO ()
-main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0} $ do
+main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
 
     phony "build" $ do
         need ["build/aletheia"]
@@ -92,6 +92,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0} $ do
         agdaSources <- getDirectoryFiles "src" ["//*.agda"]
         need (map ("src" </>) agdaSources)
 
+        -- Shake's ChangeModtimeAndDigest tracks file content hashes
+        -- When any .agda source changes, Shake detects it and re-runs this rule
+        -- Agda will then update .agdai files as needed based on source changes
         putInfo "Compiling Agda to Haskell (this may take a few minutes)..."
         cmd_ (Cwd "src")
             "agda"

@@ -122,42 +122,80 @@ parseValue =
 -- COMMAND PARSER
 -- ============================================================================
 
--- Main command parser - Parses command type once, then routes
+-- Main command parser - OPTION C: Complete restructure
+--
+-- DEBUG HISTORY: Spent ~3 hours debugging routing issues:
+-- - Attempt 1: if-then-else with _==_ → routed to Echo
+-- - Attempt 2: <|> with separate parsers → routed to Echo
+-- - Attempt 3: `with` pattern matching on Dec → routed to Echo
+-- - Attempt 4: Explicit alternatives → STILL routed to Echo (ParseDBC worked, others didn't)
+--
+-- ROOT CAUSE HYPOTHESIS: Parser combinator state/backtracking issue that's not obvious
+--
+-- OPTION C STRATEGY: Parse entire command manually, dispatch explicitly
+-- Goal: "Get every intelligent bit inside Agda" - so we'll make it maximally explicit
 parseCommand : Parser Command
 parseCommand =
-  parseCommandType >>= routeToHandler
+  -- Step 1: Parse command type literally, character by character
+  parseCommandLiteral >>= dispatch
   where
-    open import Data.String.Properties as StrProps
-    open import Relation.Nullary using (yes; no)
+    -- Parse the entire "command: \"Name\"" structure and return Name
+    parseCommandLiteral : Parser String
+    parseCommandLiteral =
+      string "command" *>
+      char ':' *>
+      spaces *>
+      quotedString  -- This returns the command name without quotes
 
-    mkExtractSignal : String → String → Vec Byte 8 → String → Command
-    mkExtractSignal msgName sigName frameBytes dbcYaml =
-      ExtractSignal dbcYaml msgName sigName frameBytes
-
-    mkInjectSignal : String → String → ℚ → Vec Byte 8 → String → Command
-    mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
-      InjectSignal dbcYaml msgName sigName sigValue frameBytes
-
-    routeToHandler : String → Parser Command
-    routeToHandler cmdType = newline *>
-      checkCommand cmdType
+    -- Explicitly dispatch based on EXACT string match
+    -- No clever parser combinators, just direct string comparison
+    dispatch : String → Parser Command
+    dispatch cmdName = newline *> route cmdName
       where
-        checkCommand : String → Parser Command
-        checkCommand cmd with cmd StrProps.≟ "Echo"
-        ... | yes _ = Echo <$> keyValue "message"
-        ... | no _  with cmd StrProps.≟ "ParseDBC"
-        ...   | yes _ = ParseDBC <$> multilineValue "yaml"
-        ...   | no _  with cmd StrProps.≟ "ExtractSignal"
-        ...     | yes _ = mkExtractSignal
-                            <$> (keyValue "message" <* newline)
-                            <*> (keyValue "signal" <* newline)
-                            <*> (parseFrame <* newline)
-                            <*> multilineValue "dbc_yaml"
-        ...     | no _  with cmd StrProps.≟ "InjectSignal"
-        ...       | yes _ = mkInjectSignal
-                              <$> (keyValue "message" <* newline)
-                              <*> (keyValue "signal" <* newline)
-                              <*> (parseValue <* newline)
-                              <*> (parseFrame <* newline)
-                              <*> multilineValue "dbc_yaml"
-        ...       | no _ = fail
+        open import Data.String.Properties using (_==_)
+        open import Data.Bool using (Bool; true; false)
+
+        -- Body parsers (after command type is determined)
+        parseEchoBody : Parser Command
+        parseEchoBody = Echo <$> keyValue "message"
+
+        parseParseDBCBody : Parser Command
+        parseParseDBCBody = ParseDBC <$> multilineValue "yaml"
+
+        parseExtractSignalBody : Parser Command
+        parseExtractSignalBody =
+          mkExtractSignal
+            <$> (keyValue "message" <* newline)
+            <*> (keyValue "signal" <* newline)
+            <*> (parseFrame <* newline)
+            <*> multilineValue "dbc_yaml"
+          where
+            mkExtractSignal : String → String → Vec Byte 8 → String → Command
+            mkExtractSignal msgName sigName frameBytes dbcYaml =
+              ExtractSignal dbcYaml msgName sigName frameBytes
+
+        parseInjectSignalBody : Parser Command
+        parseInjectSignalBody =
+          mkInjectSignal
+            <$> (keyValue "message" <* newline)
+            <*> (keyValue "signal" <* newline)
+            <*> (parseValue <* newline)
+            <*> (parseFrame <* newline)
+            <*> multilineValue "dbc_yaml"
+          where
+            mkInjectSignal : String → String → ℚ → Vec Byte 8 → String → Command
+            mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
+              InjectSignal dbcYaml msgName sigName sigValue frameBytes
+
+        -- Route function (uses the parsers defined above)
+        -- Pattern match on Bool result of string equality
+        route : String → Parser Command
+        route name with name == "Echo"
+        ... | true  = parseEchoBody
+        ... | false with name == "ParseDBC"
+        ...   | true  = parseParseDBCBody
+        ...   | false with name == "ExtractSignal"
+        ...     | true  = parseExtractSignalBody
+        ...     | false with name == "InjectSignal"
+        ...       | true  = parseInjectSignalBody
+        ...       | false = fail  -- Unknown command
