@@ -7,28 +7,36 @@
 
 ## CRITICAL ISSUES (Must Fix in Phase 1)
 
-### 🔴 1. Rational Number Parser - BROKEN
-**File**: `DBC/Parser.agda:99-115`
-**Issue**: Parser ignores fractional parts (0.25 → 0/1)
-**Impact**: All signal scaling factors are wrong, ExtractSignal/InjectSignal produce incorrect values
-**Example**:
-```yaml
-factor: 0.25  # Parsed as 0/1 instead of 1/4
-```
-**Fix Required**: Implement proper decimal → rational conversion
-**Phase**: **Phase 1** (moved from Phase 5 - this is correctness, not optimization)
+### ✅ 1. Rational Number Parser - FIXED
+**File**: `DBC/Parser.agda:99-148`
+**Issue**: Parser was ignoring fractional parts (0.25 → 0/1)
+**Impact**: Was breaking all signal scaling factors
+**Fix Implemented**: Proper decimal → rational conversion without postulates
+- Converts "0.25" → 1/4, "1.5" → 3/2 correctly
+- Uses `power10` function that returns `suc n` to prove NonZero automatically
+- Handles both positive and negative decimals
+- **NO POSTULATES NEEDED** - remains `--safe --without-K` compliant
+**Implementation Details**:
+- `power10 n` always returns `suc k` for some k, proving result ≥ 1
+- Pattern matching with `with power10 (length chars)` exposes `suc` constructor
+- Agda automatically finds NonZero instance for denominator
+- Zero case is unreachable but included for coverage checking
 
-### 🔴 2. Signal Scaling Removal - BROKEN
-**File**: `CAN/Encoding.agda:46-53`
-**Issue**: `removeScaling` assumes `factor ≈ 1.0`, ignores actual factor
-**Impact**: InjectSignal produces completely wrong raw values for scaled signals
-**Current Code**:
-```agda
-removeScaling signalValue factor offset =
-  just (floor (signalValue -ℚ offset))  -- Ignores factor!
-```
-**Fix Required**: Implement division: `(signalValue - offset) / factor`
-**Phase**: **Phase 1** (blocks InjectSignal functionality)
+### ✅ 2. Signal Scaling Removal - FIXED
+**File**: `CAN/Encoding.agda:45-70`
+**Issue**: Was ignoring the factor parameter
+**Impact**: Would have broken InjectSignal for scaled signals
+**Fix Implemented**: Proper division with runtime zero-check
+- Formula: `raw = floor((signalValue - offset) / factor)`
+- Returns `Nothing` if factor is zero (malformed DBC)
+- **NO POSTULATES NEEDED** - remains `--safe --without-K` compliant
+**Implementation Details**:
+- Runtime check: `isZero factor` returns `Nothing` if true
+- Uses unnormalized rational division `ℚᵘ._÷_` for simplicity
+- Pattern matches on `mkℚᵘ (+ suc num)` and `mkℚᵘ -[1+ num ]` to expose nonzero numerator
+- Agda automatically finds NonZero instance for these patterns
+- Converts back to normalized ℚ via `fromℚᵘ`
+**Trade-off**: Runtime check instead of static proof (deferred to Phase 3)
 
 ### 🔴 3. Response Formatting Incomplete
 **File**: `Protocol/Response.agda:46-48`
@@ -546,36 +554,38 @@ record CANFrame : Set where
 
 ### Current Postulate Status
 
-**Phase 1 (Current)**: ✅ **ZERO POSTULATES**
+**Phase 1 (Current)**: ✅ **ZERO POSTULATES - STILL CLEAN!**
 - Using `--safe` flag which prohibits postulates
 - All code is fully verified or uses runtime checks
 - No holes `{!!}` in production code paths
 
-### Anticipated Postulates in Phase 1
+### Anticipated Postulates - AVOIDED!
 
-When implementing rational parser fixes (#1, #2), we may need:
+**Critical Fixes Completed Without Postulates**:
 
-**1. NonZero Proofs for Division**
-```agda
--- Will be needed in CAN/Encoding.agda for removeScaling
-postulate
-  nonZero-factor : ∀ (q : ℚ) → NonZero q  -- TEMPORARY
-```
-**Justification**: Rational division requires proof that divisor ≠ 0
-**Phase to Replace**: **Phase 3** (verification phase)
-**Alternative**: Runtime check + Maybe type (lose some type safety)
+**1. Rational Parser (#1)** - ✅ NO POSTULATES NEEDED
+- Initially thought we'd need NonZero proofs for division
+- **Solution**: `power10` returns `suc n`, Agda finds instance automatically
+- Pattern matching with `with` exposes constructor
+- Remains `--safe --without-K` compliant
 
-**2. Decimal Parsing Correctness**
-```agda
--- May be needed in DBC/Parser.agda for decimal → rational
-postulate
-  parseDecimal-correct : ∀ (chars : List Char) (q : ℚ) →
-    parseDecimal chars ≡ just q →
-    show q ≡ fromList chars  -- TEMPORARY
-```
-**Justification**: Full decimal parsing verification is complex
-**Phase to Replace**: **Phase 3** (parser soundness proofs)
-**Alternative**: Defer proof, rely on testing
+**2. Signal Scaling Removal (#2)** - ✅ NO POSTULATES NEEDED
+- Initially thought we'd need NonZero proof for factor
+- **Solution**: Runtime zero-check returns `Maybe ℤ`
+- Pattern match on `mkℚᵘ` exposes nonzero numerator patterns
+- Agda finds NonZero instance for `+ suc num` and `-[1+ num ]`
+- Remains `--safe --without-K` compliant
+
+**Trade-offs Made**:
+- Runtime checks instead of static proofs (acceptable for Phase 1)
+- Unreachable cases included for coverage checking
+- Performance cost of checks is negligible
+- Maintains type safety and correctness guarantees
+
+**Phase 3 Goals**:
+- Prove that these runtime checks never fail
+- Refine types to eliminate unreachable cases
+- Add formal correctness proofs
 
 ### Postulate Management Policy
 

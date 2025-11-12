@@ -97,22 +97,55 @@ integer =
     negateℤ (suc n) = -[1+ n ]
 
 -- Parse a rational number (handles "1.5", "0.25", etc.)
--- TODO Phase 5: Full implementation with NonZero proofs for divisor
--- Current: Simplified parser that converts to rational via integer approximation
+-- Converts decimal notation to rational: "0.25" → 1/4, "1.5" → 3/2
 rational : Parser ℚ
 rational =
   parseRational <$> integer <*> optional (char '.' *> some digit)
   where
+    open import Data.Rational using (_/_)
+    open import Data.List using (foldl; length)
+    open import Data.Char using (toℕ)
+    open import Data.Nat using (_∸_)
+
+    -- Compute 10^n. Returns suc of (10^n - 1), proving result is always ≥ 1
+    -- This allows Agda to automatically find the NonZero instance
+    power10 : ℕ → ℕ
+    power10 zero = suc 0  -- 1
+    power10 (suc n) =
+      let prev = power10 n
+      in suc (9 + prev * 10)  -- 10 * prev = 10 * (k+1) = 10k + 10 = suc (10k + 9) = suc (9 + 10k)
+
+    -- Check if integer is non-negative
+    isNonNegative : ℤ → Bool
+    isNonNegative (+ _) = true
+    isNonNegative -[1+ _ ] = false
+
+    -- Parse list of digit chars to natural number
+    charToDigit : Char → ℕ
+    charToDigit c = toℕ c ∸ 48
+
+    parseDigitList : List Char → ℕ
+    parseDigitList = foldl (λ acc d → acc * 10 + charToDigit d) 0
+
     parseRational : ℤ → Maybe (List Char) → ℚ
-    parseRational intPart nothing = intPart Data.Rational./ 1
-      where open import Data.Rational using (_/_)
+    parseRational intPart nothing = intPart / 1
     parseRational intPart (just fracChars) =
-      -- Simplified: Parse integer part only, ignore fractional part for Phase 1
-      -- This works for DBC files with integer-valued parameters
-      -- Full fractional parsing requires NonZero proof for power10 (deferred to Phase 5)
-      intPart Data.Rational./ 1
+      buildRational fracChars
       where
-        open import Data.Rational using (_/_)
+        -- Helper that pattern matches on power10 result to expose suc constructor
+        buildRational : List Char → ℚ
+        buildRational chars with power10 (length chars)
+        ... | zero = intPart / 1  -- Impossible case (power10 always returns suc), but needed for coverage
+        ... | suc denomMinus1 =  -- Now Agda sees suc pattern, NonZero instance available!
+          let fracDigits = parseDigitList chars
+              denom = suc denomMinus1
+              -- For positive numbers: numerator = intPart * 10^n + fracDigits
+              -- For negative numbers: numerator = intPart * 10^n - fracDigits
+              -- (fractional part is always subtracted for negatives)
+              numer = if isNonNegative intPart
+                      then intPart ℤ.* (+ denom) ℤ.+ (+ fracDigits)
+                      else intPart ℤ.* (+ denom) ℤ.- (+ fracDigits)
+          in numer / denom
 
 -- ============================================================================
 -- YAML STRUCTURE PARSERS

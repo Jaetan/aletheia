@@ -8,9 +8,9 @@ open import Aletheia.CAN.Endianness
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_)
+open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
 open import Data.Rational using () renaming (_+_ to _+ℚ_; _*_ to _*ℚ_; _-_ to _-ℚ_)
-open import Relation.Nullary.Decidable using (⌊_⌋; True; toWitness)
+open import Relation.Nullary.Decidable as Dec using (True; toWitness)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -43,14 +43,31 @@ applyScaling raw factor offset =
   in (rawℚ *ℚ factor) +ℚ offset
 
 -- Inverse of applyScaling: convert signal value back to raw integer
--- TODO Phase 5: Full implementation with NonZero proofs for factor
--- Current implementation: simplified for Phase 1, assumes factor ≈ 1.0 for typical CAN signals
+-- Formula: raw = floor((signalValue - offset) / factor)
+-- Returns Nothing if factor is zero (malformed DBC file)
 removeScaling : ℚ → ℚ → ℚ → Maybe ℤ
 removeScaling signalValue factor offset =
-  -- Simplified: just floor the unscaled value
-  -- This works when factor = 1.0 and offset = 0.0 (common case)
-  -- Full division implementation requires NonZero proofs (deferred to Phase 5)
-  just (floor (signalValue -ℚ offset))
+  if isZero factor
+  then nothing  -- Cannot divide by zero
+  else just (floor (divideByFactor (signalValue -ℚ offset) factor))
+  where
+    -- Check if rational is zero
+    isZero : ℚ → Bool
+    isZero q = Dec.⌊ q Rat.≟ 0ℚ ⌋
+
+    -- Divide by factor (only called when factor ≠ 0, but Agda can't prove this)
+    -- We work with unnormalized rationals to avoid coprimality proofs
+    divideByFactor : ℚ → ℚ → ℚ
+    divideByFactor numer denom =
+      Rat.fromℚᵘ (divideUnnorm (Rat.toℚᵘ numer) (Rat.toℚᵘ denom))
+      where
+        -- Divide unnormalized rationals by pattern matching to expose nonzero structure
+        divideUnnorm : ℚᵘ → ℚᵘ → ℚᵘ
+        divideUnnorm n (ℚᵘ.mkℚᵘ (+ zero) _) = ℚᵘ.0ℚᵘ  -- Unreachable (isZero check prevents), but needed for coverage
+        divideUnnorm n (ℚᵘ.mkℚᵘ (+ suc num) denom) =  -- Explicit nonzero pattern, instance exists!
+          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ (+ suc num) denom)
+        divideUnnorm n (ℚᵘ.mkℚᵘ -[1+ num ] denom) =    -- Explicit nonzero pattern, instance exists!
+          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ -[1+ num ] denom)
 
 -- Check if a signal value is within bounds
 inBounds : ℚ → ℚ → ℚ → Bool

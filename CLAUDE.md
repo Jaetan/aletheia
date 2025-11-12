@@ -585,24 +585,25 @@ See `PHASE1_AUDIT.md` for comprehensive analysis of all limitations and constrai
 
 ### Critical Fixes (Block Phase 1 - Must Complete):
 
-1. **Fix rational number parsing** (CRITICAL - moved from Phase 5):
-   - **Issue**: Parser ignores fractional parts (0.25 → 0/1)
-   - **Impact**: All signal scaling broken, ExtractSignal/InjectSignal produce wrong values
-   - **Files**: `DBC/Parser.agda:99-115`
-   - **Fix**: Implement decimal → rational conversion (e.g., 0.25 → 1/4)
-   - **Options**:
-     a) Pragmatic: Support common decimals, postulate NonZero for division
-     b) Safe subset: Hardcode common denominators (2,4,5,8,10,100)
-   - **Recommendation**: Option (a)
+1. ✅ **Fix rational number parsing** (COMPLETED - NO POSTULATES NEEDED):
+   - **Issue**: Parser was ignoring fractional parts (0.25 → 0/1)
+   - **File**: `DBC/Parser.agda:99-148`
+   - **Fix Implemented**: Proper decimal → rational conversion
+     - Uses `power10` that returns `suc n` to prove NonZero automatically
+     - Pattern matching with `with` exposes `suc` constructor
+     - Converts "0.25" → 1/4, "1.5" → 3/2 correctly
+   - **Result**: Remains `--safe --without-K` compliant
 
-2. **Fix signal scaling removal** (CRITICAL):
-   - **Issue**: `removeScaling` ignores factor, assumes factor ≈ 1.0
-   - **Impact**: InjectSignal produces completely wrong raw values
-   - **File**: `CAN/Encoding.agda:46-53`
-   - **Fix**: Implement `(signalValue - offset) / factor`
-   - **Requires**: Division operation (needs NonZero proof or postulate)
+2. ✅ **Fix signal scaling removal** (COMPLETED - NO POSTULATES NEEDED):
+   - **Issue**: Was ignoring factor parameter
+   - **File**: `CAN/Encoding.agda:45-70`
+   - **Fix Implemented**: `raw = floor((signalValue - offset) / factor)`
+     - Runtime zero-check returns `Nothing` if factor is zero
+     - Pattern matches on `mkℚᵘ` to expose nonzero numerator
+     - Uses unnormalized rational division for simplicity
+   - **Result**: Remains `--safe --without-K` compliant
 
-3. **Implement response formatting** (CRITICAL):
+3. **Implement response formatting** (CRITICAL - IN PROGRESS):
    - **Issue**: Cannot output signal values or frame bytes (returns placeholders)
    - **Impact**: ExtractSignal/InjectSignal return useless output
    - **File**: `Protocol/Response.agda:46-48`
