@@ -148,26 +148,17 @@ rational =
           in numer / denom
 
 -- ============================================================================
--- YAML STRUCTURE PARSERS
+-- YAML STRUCTURE PARSERS (using block-based combinators)
 -- ============================================================================
 
 -- Parse newline
 newline : Parser Char
 newline = char '\n'
 
--- Parse indentation (spaces)
-indent : ℕ → Parser (List Char)
-indent n = count n space
-
--- Parse "key: value" pair
+-- Parse "key: value" pair (no indentation)
 keyValue : ∀ {A : Set} → String → Parser A → Parser A
 keyValue key valueParser =
   string key *> spaces *> char ':' *> spaces *> valueParser
-
--- Parse a YAML list item at given indentation level (starts with "- ")
-listItem : ∀ {A : Set} → ℕ → Parser A → Parser A
-listItem indentLevel itemParser =
-  indent indentLevel *> char '-' *> spaces *> itemParser
 
 -- ============================================================================
 -- DBC-SPECIFIC PARSERS
@@ -179,21 +170,58 @@ parseByteOrder =
   (string "little_endian" *> pure LittleEndian) <|>
   (string "big_endian" *> pure BigEndian)
 
+-- Validate ByteOrder from parsed quoted string
+validateByteOrder : String → Parser ByteOrder
+validateByteOrder "little_endian" = pure LittleEndian
+validateByteOrder "big_endian" = pure BigEndian
+validateByteOrder _ = λ _ → nothing
+
 -- Parse boolean from unsigned/signed
 parseSigned : Parser Bool
 parseSigned =
   (string "unsigned" *> pure false) <|>
   (string "signed" *> pure true)
 
--- Parse a signal definition
-parseSignalDef : ℕ → Parser DBCSignal
-parseSignalDef indentLevel =
-  parseFields (mkSignal "" zero zero LittleEndian false ((+ 0) Data.Rational./ 1) ((+ 0) Data.Rational./ 1) ((+ 0) Data.Rational./ 1) ((+ 0) Data.Rational./ 1) "")
-  where
-    open import Data.Rational using (_/_)
-    open import Data.Fin using (zero)
+-- Validate signedness from parsed quoted string
+validateSigned : String → Parser Bool
+validateSigned "unsigned" = pure false
+validateSigned "signed" = pure true
+validateSigned _ = λ _ → nothing
 
-    -- Helper to accumulate signal fields
+-- Parse a signal definition at given base indentation
+-- First field (name) is on same line as "- ", rest are indented on new lines
+parseSignalDef : ℕ → Parser DBCSignal
+parseSignalDef base =
+  let fieldIndent = base + 2  -- Subsequent fields indented 2 more than the "-"
+  in
+    keyValue "name" quotedString >>= λ n →   -- First field on same line as "- "
+    newline *>
+    yamlKeyValue fieldIndent "start_bit" natural >>= λ sb →
+    newline *>
+    yamlKeyValue fieldIndent "bit_length" natural >>= λ bl →
+    newline *>
+    yamlKeyValue fieldIndent "byte_order" quotedString >>= λ boStr →
+    validateByteOrder boStr >>= λ bo →
+    newline *>
+    yamlKeyValue fieldIndent "value_type" quotedString >>= λ vtStr →
+    validateSigned vtStr >>= λ vs →
+    newline *>
+    yamlKeyValue fieldIndent "factor" rational >>= λ f →
+    newline *>
+    yamlKeyValue fieldIndent "offset" rational >>= λ o →
+    newline *>
+    yamlKeyValue fieldIndent "minimum" rational >>= λ minV →
+    newline *>
+    yamlKeyValue fieldIndent "maximum" rational >>= λ maxV →
+    newline *>
+    yamlKeyValue fieldIndent "unit" quotedString >>= λ u →
+    pure (mkSignal n (sb mod 64) (bl mod 65) bo vs f o minV maxV u)
+  where
+    open import Data.Nat.DivMod using (_mod_)
+    open import Data.Fin using (zero)
+    open import Data.Rational using (_/_)
+
+    -- Helper to build signal record
     mkSignal : String → Fin 64 → Fin 65 → ByteOrder → Bool → ℚ → ℚ → ℚ → ℚ → String → DBCSignal
     mkSignal name startBit bitLen byteOrd isSig fac off minVal maxVal unit =
       record
@@ -211,49 +239,46 @@ parseSignalDef indentLevel =
         ; unit = unit
         }
 
-    parseFields : DBCSignal → Parser DBCSignal
-    parseFields sig =
-      (newline *> indent (indentLevel + 2) *> keyValue "name" quotedString >>= λ n →
-       newline *> indent (indentLevel + 2) *> keyValue "start_bit" natural >>= λ sb →
-       newline *> indent (indentLevel + 2) *> keyValue "bit_length" natural >>= λ bl →
-       newline *> indent (indentLevel + 2) *> keyValue "byte_order" quotedString *> parseByteOrder >>= λ bo →
-       newline *> indent (indentLevel + 2) *> keyValue "value_type" quotedString *> parseSigned >>= λ vs →
-       newline *> indent (indentLevel + 2) *> keyValue "factor" rational >>= λ f →
-       newline *> indent (indentLevel + 2) *> keyValue "offset" rational >>= λ o →
-       newline *> indent (indentLevel + 2) *> keyValue "minimum" rational >>= λ minV →
-       newline *> indent (indentLevel + 2) *> keyValue "maximum" rational >>= λ maxV →
-       newline *> indent (indentLevel + 2) *> keyValue "unit" quotedString >>= λ u →
-       pure (mkSignal n (sb mod 64) (bl mod 65) bo vs f o minV maxV u))
-      <|> pure sig
-      where
-        open import Data.Nat.DivMod using (_mod_)
-
--- Parse a message definition
+-- Parse a message definition at given base indentation
+-- Messages are list items: "  - id: 0x100"
+-- Message fields are indented 2 more: "    name: ..."
 parseMessage : ℕ → Parser DBCMessage
-parseMessage indentLevel =
-  listItem indentLevel (
-    keyValue "id" hexNumber >>= λ msgId →
-    newline *> indent (indentLevel + 2) *> keyValue "name" quotedString >>= λ msgName →
-    newline *> indent (indentLevel + 2) *> keyValue "dlc" natural >>= λ msgDlc →
-    newline *> indent (indentLevel + 2) *> keyValue "sender" quotedString >>= λ sender →
-    newline *> indent (indentLevel + 2) *> string "signals:" *>
-    many (parseSignalDef (indentLevel + 2)) >>= λ sigs →
+parseMessage base =
+  let fieldIndent = base + 2  -- Fields indented 2 more than the "- " marker
+      signalIndent = base + 4  -- Signal list items indented 4 more (2 for "- ", 2 for nesting)
+  in
+    yamlListItem base (keyValue "id" hexNumber) >>= λ msgId →
+    newline *>
+    yamlKeyValue fieldIndent "name" quotedString >>= λ msgName →
+    newline *>
+    yamlKeyValue fieldIndent "dlc" natural >>= λ msgDlc →
+    newline *>
+    yamlKeyValue fieldIndent "sender" quotedString >>= λ sender →
+    newline *>
+    atIndent fieldIndent (string "signals:") *>
+    newline *>
+    yamlListItem signalIndent (parseSignalDef signalIndent) >>= λ firstSig →
+    many (newline *> yamlListItem signalIndent (parseSignalDef signalIndent)) >>= λ restSigs →
     pure (record
       { id = msgId mod 2048
       ; name = msgName
       ; dlc = msgDlc mod 9
       ; sender = sender
-      ; signals = sigs
+      ; signals = firstSig ∷ restSigs
       })
-  )
   where
     open import Data.Nat.DivMod using (_mod_)
 
--- Parse top-level DBC file
+-- Parse top-level DBC file with automatic base indentation detection
+-- Works regardless of whether content starts at column 0 or has leading spaces
+-- Example: Handles both "version: ..." and "  version: ..." automatically
 parseDBC : Parser DBC
 parseDBC =
-  keyValue "version" quotedString >>= λ ver →
-  newline *> newline *>
-  string "messages:" *>
-  many (parseMessage 2) >>= λ msgs →
-  pure (record { version = ver ; messages = msgs })
+  withBaseIndent λ base →
+    atIndent base (keyValue "version" quotedString) >>= λ ver →
+    newline *> newline *>
+    atIndent base (string "messages:") *>
+    newline *>
+    parseMessage (base + 2) >>= λ firstMsg →
+    many (newline *> parseMessage (base + 2)) >>= λ restMsgs →
+    pure (record { version = ver ; messages = firstMsg ∷ restMsgs })

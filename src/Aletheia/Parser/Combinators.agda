@@ -327,3 +327,64 @@ sepEndBy p sep = sepBy p sep <* optional sep
 -- -- | Chain parsers with left-associative operator, with default value
 -- chainl : ∀ {A : Set} → Parser A → Parser (A → A → A) → A → Parser A
 -- chainl p op x = chainl1 p op <|> pure x
+
+-- ============================================================================
+-- INDENTATION-AWARE COMBINATORS (for YAML block parsing)
+-- ============================================================================
+
+-- Design: Proper block-based YAML parser with automatic indentation detection
+-- No preprocessing (dedenting) needed - parser handles indentation natively
+
+open import Data.Unit using (⊤; tt)
+
+-- | Parse exactly N space characters
+exactSpaces : ℕ → Parser ⊤
+exactSpaces zero = pure tt
+exactSpaces (suc n) = char ' ' *> exactSpaces n
+
+-- | Count leading spaces in remaining input (doesn't consume)
+-- Returns number of spaces before first non-space character
+countLeadingSpaces : Parser ℕ
+countLeadingSpaces input = just (countSpaces input 0 , input)
+  where
+    countSpaces : List Char → ℕ → ℕ
+    countSpaces [] n = n
+    countSpaces (' ' ∷ rest) n = countSpaces rest (suc n)
+    countSpaces _ n = n
+
+-- | Parse at specific absolute indentation level (N spaces)
+atIndent : ∀ {A : Set} → ℕ → Parser A → Parser A
+atIndent n p = exactSpaces n *> p
+
+-- | Parse content, automatically detecting its indentation level
+-- Returns (indentation_level, parsed_content)
+withIndent : ∀ {A : Set} → Parser A → Parser (ℕ × A)
+withIndent p =
+  countLeadingSpaces >>= λ n →
+  exactSpaces n *> (p >>= λ x → pure (n , x))
+
+-- | Parse a YAML list item "- " at indentation N, content at N+2
+yamlListItem : ∀ {A : Set} → ℕ → Parser A → Parser A
+yamlListItem n p = atIndent n (char '-' *> char ' ' *> p)
+
+-- | Parse key-value pair at indentation N: "key: value"
+yamlKeyValue : ∀ {A : Set} → ℕ → String → Parser A → Parser A
+yamlKeyValue n key p = atIndent n (string key *> char ':' *> spaces *> p)
+
+-- | Parse a block of items at same indentation
+-- Each item on new line with same indent
+yamlBlock : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
+yamlBlock n p = many (char '\n' *> atIndent n p)
+
+-- | Parse YAML with automatic base indentation detection
+-- Discovers indentation from first non-empty line, parses relative to that
+-- Example: "  version: 1.0" → detects base=2, parses as if at column 0
+withBaseIndent : ∀ {A : Set} → (ℕ → Parser A) → Parser A
+withBaseIndent f =
+  skipEmptyLines *>
+  countLeadingSpaces >>= λ base →
+  f base
+  where
+    -- Skip leading newlines
+    skipEmptyLines : Parser ⊤
+    skipEmptyLines = (many (char '\n') >>= λ _ → pure tt)

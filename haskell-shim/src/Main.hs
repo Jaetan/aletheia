@@ -4,6 +4,7 @@ module Main where
 
 import qualified Data.Text.IO as TIO
 import System.IO (hSetBuffering, stdin, stdout, BufferMode(..))
+import System.Environment (getArgs)
 
 -- Import Agda-generated code
 import qualified MAlonzo.Code.Aletheia.Main as Agda
@@ -14,12 +15,14 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
-    -- Read all input (multi-line YAML commands)
-    input <- TIO.getContents
-
-    -- Call Agda's processCommand function
-    -- Agda String is represented as Data.Text.Text in MAlonzo
-    let output = Agda.d_processCommand_28 input
-
-    -- Write output
-    TIO.putStrLn output
+    -- Check for --debug flag
+    args <- getArgs
+    case args of
+        ["--debug"] -> do
+            -- Run debug mode (trace both parsers)
+            TIO.putStrLn Agda.d_runDebug_40
+        _ -> do
+            -- Normal mode: read input and process commands
+            input <- TIO.getContents
+            let output = Agda.d_processCommand_28 input
+            TIO.putStrLn output

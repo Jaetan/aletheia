@@ -7,6 +7,7 @@ open import Aletheia.Protocol.Response
 open import Aletheia.Protocol.Handlers
 open import Aletheia.Protocol.Parser
 open import Aletheia.Parser.Combinators using (runParser)
+open import Aletheia.DebugDBC using (debugBoth)
 open import Data.String using (String; toList)
 open import Data.Maybe using (Maybe; just; nothing)
 
@@ -28,3 +29,8 @@ processCommand input = parseHelper (runParser parseCommand (toList input))
     parseHelper : Maybe Command → String
     parseHelper nothing = formatResponse (errorResponse "Failed to parse command")
     parseHelper (just cmd) = formatResponse (handleCommand cmd)
+
+-- Debug function for parser tracing
+{-# NOINLINE runDebug #-}
+runDebug : String
+runDebug = debugBoth

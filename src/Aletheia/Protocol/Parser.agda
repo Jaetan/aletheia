@@ -17,6 +17,7 @@ open import Data.Nat using (ℕ; _+_; _*_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Data.Char using (_≟_)
+open import Function using (_∘_)
 open import Aletheia.CAN.Frame using (Byte)
 -- Import rational parser from DBC module (reuse the decimal → rational conversion)
 open import Aletheia.DBC.Parser using (rational)
@@ -68,13 +69,13 @@ keyValue key =
 parseCommandType : Parser String
 parseCommandType = keyValue "command"
 
--- Parse multiline string after "yaml:" or "dbc_yaml:"
--- Phase 1: Simplified approach - reads everything until end of input
--- This works because multiline fields are always last in the command
+-- Parse multiline YAML content after "key: |"
+-- The DBC parser handles indentation automatically using withBaseIndent!
+-- Simply extract raw YAML and pass it to the parser
 multilineValue : String → Parser String
 multilineValue key =
-  string key *> char ':' *> spaces *> optional (char '|') *> newline *>
-  (fromList <$> many anyChar)
+  fromList <$>
+    (string key *> char ':' *> spaces *> optional (char '|') *> newline *> many anyChar)
 
 -- Parse a single hex byte "0xNN" → Fin 256
 -- Uses modulo to automatically prove the result is in bounds

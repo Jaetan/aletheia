@@ -2,9 +2,15 @@ import Development.Shake
 import Development.Shake.FilePath
 import System.Directory (createDirectoryLink, removePathForcibly, doesDirectoryExist)
 import System.Info (os)
+import System.Process (readProcess)
 import Data.List (isInfixOf)
 import Data.Maybe (listToMaybe)
+import Data.Char (isSpace)
 import Control.Monad (when)
+
+-- | Trim whitespace from both ends of a string
+strip :: String -> String
+strip = dropWhile isSpace . reverse . dropWhile isSpace . reverse
 
 -- | Extract the mangled MAlonzo name for processCommand from generated Haskell
 -- Looks for pattern: "d_processCommand_XX ::"
@@ -135,8 +141,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need ["create-symlink"]  -- Depend on phony target, not directory
         need ["haskell-shim/src/Main.hs", "haskell-shim/aletheia.cabal"]
 
+        -- Force Cabal to rebuild when MAlonzo files change
+        -- Touch Main.hs to invalidate Cabal's cache, then clean object files
+        putInfo "Invalidating Cabal cache (touch Main.hs)..."
+        cmd_ "touch" "haskell-shim/src/Main.hs"
+
+        -- Delete intermediate build artifacts to force relink
+        putInfo "Cleaning Cabal build artifacts..."
+        cmd_ (Cwd "haskell-shim") "rm" "-rf" "dist-newstyle/build/x86_64-linux/ghc-9.6.7/aletheia-0.1.0.0/x/aletheia"
+
         putInfo "Building Haskell executable..."
-        cmd_ (Cwd "haskell-shim") "cabal" "build" "exe:aletheia"
+        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j" "exe:aletheia"
 
         putInfo "Copying binary..."
         cmd_ (Cwd "haskell-shim") Shell
