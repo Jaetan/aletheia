@@ -71,7 +71,7 @@ agda Aletheia/CAN/Frame.agda
 
 # 3. Build and test
 cd ..
-shake build
+cabal run shake -- build
 python3 examples/test_feature.py
 
 # 4. Commit

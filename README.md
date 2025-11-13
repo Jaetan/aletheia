@@ -22,10 +22,10 @@ See [BUILDING.md](BUILDING.md) for detailed installation instructions.
 
 ```bash
 # Build the system
-shake build
+cabal run shake -- build
 
 # Install Python package
-shake install-python
+cabal run shake -- install-python
 ```
 
 ### Basic Usage
