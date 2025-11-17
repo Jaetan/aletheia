@@ -1,11 +1,10 @@
-# Session Summary - 2025-11-17
+# Session Summary - 2025-11-18
 
-## 🎉 Major Achievement: Critical Bug Fixed!
+## 🎉 Phase 1 Complete - All Critical Bugs Fixed!
 
-### The Problem
-Signal extraction was completely broken - returning garbage values instead of actual signal data from CAN frames.
+### Two Critical Bugs Fixed
 
-### The Solution
+#### Bug 1: Bit Extraction (shiftR)
 **One line fix** in `src/Aletheia/CAN/Endianness.agda:26`:
 
 ```diff
@@ -15,49 +14,63 @@ Signal extraction was completely broken - returning garbage values instead of ac
 
 The pattern `(suc value)` was binding `value` to the inner number, then dividing that instead of the full value.
 
-### Impact
-**ALL bit extraction tests now pass!**
-
-Before fix:
-- 0x09 → 5 (wrong)
-- 0xAB → 83 (wrong)
-- Only 0x01, 0x03, 0x0F, 0xFF worked
-
-After fix:
+**Result**: ALL bit extraction tests pass!
 - 0x01 → 1 ✓
 - 0x09 → 9 ✓
 - 0xAB → 171 ✓
 - 0xFF → 255 ✓
 
+#### Bug 2: Rational Parsing (power10)
+**Fix** in `src/Aletheia/DBC/Parser.agda:114-116`:
+
+```diff
+- power10 (suc n) =
+-   let prev = power10 n
+-   in suc (9 + prev * 10)  # WRONG: prev * 10 = (suc m) * 10 = (m+1) * 10
+
++ power10 (suc n) with power10 n
++ ... | zero = suc 0
++ ... | suc m = suc (9 + 10 * m)  # CORRECT: multiply m by 10, not prev
+```
+
+The expression `prev * 10` was treating `suc m` as `m+1`, giving wrong powers of 10.
+
+**Result**: ALL rational parsing tests pass!
+- Factor 0.25: 10000 × 0.25 = 2500.0 ✓
+- Factor 0.5: 100 × 0.5 - 40 = 10.0 ✓
+- Factor 1.5: 100 × 1.5 = 150.0 ✓
+- Factor 0.125: 80 × 0.125 = 10.0 ✓
+
 ## Current Status
 
-**Phase 1: 97% Complete** (10/14 tasks done)
+**Phase 1: 100% Complete!** ✅
 
-### ✅ What's Working
-- Build system (rock solid)
-- All 4 commands (Echo, ParseDBC, ExtractSignal, InjectSignal)
-- Bit extraction (COMPLETELY FIXED!)
-- Python wrapper (fully implemented)
-- Hex parsing (was never broken)
+### ✅ All Components Working
+- ✅ Build system (rock solid, hash-based dependency tracking)
+- ✅ Parser combinators (structural recursion)
+- ✅ CAN encoding/decoding (bit extraction fixed)
+- ✅ DBC YAML parser (rational parsing fixed)
+- ✅ Protocol integration (all 4 commands)
+- ✅ Build pipeline (Agda → Haskell → binary)
+- ✅ Python wrapper (subprocess interface)
+- ✅ End-to-end signal extraction with scaling
 
-### ⚠️ What Remains (1 bug!)
-**Rational parser** produces wrong scaling factors:
-- Input: `factor: 0.25`
-- Expected: 1/4
-- Actual: 5/42 (wrong!)
-- Location: `src/Aletheia/DBC/Parser.agda:99-148`
-- Estimate: 1-2 hours to fix
+### 🎯 Ready for Phase 2A
+**Next**: LTL Core + Real-World Support
 
-## Next Session Priorities
+**Goals**:
+1. LTL syntax and semantics for finite traces
+2. Basic model checker
+3. Signal multiplexing support (moved from Phase 5)
+4. Python DSL v1 for temporal properties
+5. Validation with real automotive CAN trace
 
-1. **Fix rational parser** (CRITICAL - 1-2 hours)
-2. **Run integration tests** (30 min)
-3. **Clean up debug code** (15 min, optional)
-4. **Phase 1 COMPLETE!** 🎉
+**Timeline**: 4-6 weeks
 
 ## Key Files Modified
 
 - `src/Aletheia/CAN/Endianness.agda` - Fixed shiftR ✓
+- `src/Aletheia/DBC/Parser.agda` - Fixed power10 ✓
 - `src/Aletheia/Protocol/Handlers.agda` - Added debug output
 - `python/aletheia/decoder.py` - Fixed status check, YAML preservation
 - `.session-state.md` - Comprehensive state documentation
@@ -67,27 +80,54 @@ After fix:
 ```bash
 cd /home/nicolas/dev/agda/aletheia
 
-# Verify the fix still works
-printf 'command: "ExtractSignal"\nmessage: "Test"\nsignal: "Signal1"\nframe: 0x09 0x00 0x00 0x00 0x00 0x00 0x00 0x00\ndbc_yaml: |\n  version: "1.0"\n\n  messages:\n    - id: 0x100\n      name: "Test"\n      dlc: 8\n      sender: "ECU"\n      signals:\n        - name: "Signal1"\n          start_bit: 0\n          bit_length: 8\n          byte_order: "little_endian"\n          value_type: "unsigned"\n          factor: 1\n          offset: 0\n          minimum: 0\n          maximum: 255\n          unit: ""\n' | ./build/aletheia
-# Should show: value: 9/1 ✓
+# Read comprehensive session state
+cat .session-state.md
 
-# Then fix rational parser at:
-# src/Aletheia/DBC/Parser.agda:99-148
+# Verify everything works
+source venv/bin/activate
+cd python && python3 -m pytest tests/ -v
+
+# Review Phase 2A plan
+cat DESIGN.md  # See Phase 2A section
+cat PLAN_REVIEW.md  # See revised plan with multiplexing
+
+# Start Phase 2A
+# 1. Design LTL syntax
+# 2. Implement basic model checker
+# 3. Add multiplexing to DBC types
 ```
 
 ## Debugging Stats
 
-- **Time spent**: ~6 hours debugging
-- **Red herrings**: Hex parser (was working all along)
-- **Breakthrough**: Debug output showing parsed byte vs extracted value
-- **Root cause**: Pattern matching subtlety in shiftR
-- **Fix**: Simplified pattern matching (removed unnecessary case)
+- **Time spent on shiftR**: ~6 hours
+- **Time spent on power10**: ~30 minutes
+- **Key insight**: Both bugs involved incorrect `suc` pattern matching
+- **Breakthrough**: Debug output showing intermediate values
+- **Lesson**: Pattern matching on `suc` constructor requires care
+
+## Key Insights
+
+1. **Pattern matching is subtle**: `(suc value)` binds `value` to inner number, not full value
+2. **Similar bugs have similar solutions**: Both needed explicit pattern matching with `with`
+3. **Debug output is essential**: Showing intermediate values immediately narrowed the problem
+4. **Test systematically**: Multiple test values revealed the pattern quickly
+
+## Commits
+
+1. `8fc48a3` - Fix shiftR pattern matching bug
+2. `60a94a4` - Fix power10 pattern matching bug
 
 ## Mood
 
 **Excellent!** 🎉
 
-We conquered a nasty bug that had us chasing through 5+ layers of code. Now just one small rational parser issue stands between us and Phase 1 completion. We're at the finish line!
+Phase 1 is complete! All critical infrastructure works correctly:
+- Parsing ✓
+- Encoding/Decoding ✓
+- Build system ✓
+- Python integration ✓
+
+Ready to build LTL reasoning on this solid foundation!
 
 ---
 
