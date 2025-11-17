@@ -1,0 +1,38 @@
+version: "1.0"
+
+messages:
+  - id: 0x100
+    name: "Sensors"
+    dlc: 8
+    sender: "ECU"
+    signals:
+      - name: "Temp"
+        start_bit: 0
+        bit_length: 8
+        byte_order: "little_endian"
+        value_type: "unsigned"
+        factor: 0.5
+        offset: -40
+        minimum: -40
+        maximum: 87.5
+        unit: "C"
+      - name: "Pressure"
+        start_bit: 8
+        bit_length: 8
+        byte_order: "little_endian"
+        value_type: "unsigned"
+        factor: 1.5
+        offset: 0
+        minimum: 0
+        maximum: 382.5
+        unit: "kPa"
+      - name: "Voltage"
+        start_bit: 16
+        bit_length: 8
+        byte_order: "little_endian"
+        value_type: "unsigned"
+        factor: 0.125
+        offset: 0
+        minimum: 0
+        maximum: 31.875
+        unit: "V"

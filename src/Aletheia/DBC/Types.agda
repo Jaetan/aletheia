@@ -8,6 +8,13 @@ open import Aletheia.CAN.Endianness
 open import Data.String using (String)
 open import Data.List using (List)
 open import Data.Fin using (Fin)
+open import Data.Nat using (ℕ)
+
+-- Signal presence model for multiplexing
+-- A signal is either always present or conditionally present based on a multiplexor
+data SignalPresence : Set where
+  Always : SignalPresence
+  When : (multiplexor : String) → (value : ℕ) → SignalPresence
 
 record DBCSignal : Set where
   field
@@ -15,6 +22,7 @@ record DBCSignal : Set where
     signalDef : SignalDef
     byteOrder : ByteOrder
     unit : String
+    presence : SignalPresence  -- NEW: Conditional presence for multiplexing
 
 record DBCMessage : Set where
   field

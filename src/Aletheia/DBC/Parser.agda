@@ -215,15 +215,31 @@ parseSignalDef base =
     yamlKeyValue fieldIndent "maximum" rational >>= λ maxV →
     newline *>
     yamlKeyValue fieldIndent "unit" quotedString >>= λ u →
-    pure (mkSignal n (sb mod 64) (bl mod 65) bo vs f o minV maxV u)
+    -- Optional multiplexing fields
+    parsePresence fieldIndent >>= λ pres →
+    pure (mkSignal n (sb mod 64) (bl mod 65) bo vs f o minV maxV u pres)
   where
     open import Data.Nat.DivMod using (_mod_)
     open import Data.Fin using (zero)
     open import Data.Rational using (_/_)
+    open import Data.Maybe using (Maybe; just; nothing)
+
+    -- Parse optional multiplexing fields
+    parsePresence : ℕ → Parser SignalPresence
+    parsePresence indent =
+      -- Try to parse "multiplexor: ..." and "multiplex_value: ..."
+      (newline *>
+       yamlKeyValue indent "multiplexor" quotedString >>= λ muxName →
+       newline *>
+       yamlKeyValue indent "multiplex_value" natural >>= λ muxVal →
+       pure (When muxName muxVal))
+      <|>
+      -- If no multiplexing fields, signal is always present
+      pure Always
 
     -- Helper to build signal record
-    mkSignal : String → Fin 64 → Fin 65 → ByteOrder → Bool → ℚ → ℚ → ℚ → ℚ → String → DBCSignal
-    mkSignal name startBit bitLen byteOrd isSig fac off minVal maxVal unit =
+    mkSignal : String → Fin 64 → Fin 65 → ByteOrder → Bool → ℚ → ℚ → ℚ → ℚ → String → SignalPresence → DBCSignal
+    mkSignal name startBit bitLen byteOrd isSig fac off minVal maxVal unit pres =
       record
         { name = name
         ; signalDef = record
@@ -237,6 +253,7 @@ parseSignalDef base =
             }
         ; byteOrder = byteOrd
         ; unit = unit
+        ; presence = pres
         }
 
 -- Parse CAN ID (standard or extended)
