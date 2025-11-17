@@ -2,8 +2,8 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 0.1.0
-**Status**: Phase 1 ~95% Complete
-**Last Updated**: 2025-11-13
+**Status**: Phase 1 Complete ✅ | Phase 2A Week 1 Complete ✅
+**Last Updated**: 2025-11-18
 
 ## Project Overview
 
@@ -74,7 +74,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 **Goal**: Process real-world automotive CAN data with LTL reasoning, via rich Python DSL
 
-### Phase 1: Core Infrastructure (Current - ~95% Complete)
+### Phase 1: Core Infrastructure ✅ COMPLETE
 
 **Timeline**: 3 weeks (2 weeks spent)
 
@@ -123,18 +123,21 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 - Build system is reliable and fast
 - Architecture validated against real-world requirements
 
-### Phase 2A: LTL Core + Real-World Support (Next)
+### Phase 2A: LTL Core + Real-World Support (In Progress - Week 1/7 Complete ✅)
 
-**Timeline**: 5-7 weeks
+**Timeline**: 5-7 weeks total | **Current**: Week 1 complete, starting Week 2
 
-**Goals**: LTL reasoning on real automotive traces
+**Week 1 Completed** ✅:
+- **Extended 29-bit CAN ID support** - CANId sum type (Standard | Extended)
+- **Signal multiplexing support** - SignalPresence dependent type (Always | When)
+- DBC parser updates for both features
+- Protocol handlers with multiplexing validation
+- **Commits**: 004cf42, a4461fb, 210bce8
 
-**Core LTL**:
+**Week 2-3 Goals** (LTL Core):
 - LTL syntax (Always, Eventually, Until, Next, etc.)
 - Semantics for finite traces (bounded checking)
 - Basic model checker
-- **Extended 29-bit CAN ID support** (+1 day) - unblocks Korean vehicles
-- **Signal multiplexing support** (+2-3 days) - conditional signal presence
 
 **Python DSL v1**:
 - DSL design document and architecture
