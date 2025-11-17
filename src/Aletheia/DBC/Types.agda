@@ -18,7 +18,7 @@ record DBCSignal : Set where
 
 record DBCMessage : Set where
   field
-    id : Fin 2048
+    id : CANId
     name : String
     dlc : Fin 9
     sender : String

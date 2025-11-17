@@ -239,6 +239,24 @@ parseSignalDef base =
         ; unit = unit
         }
 
+-- Parse CAN ID (standard or extended)
+-- Standard: id: 0x100
+-- Extended: id: 0x18FF1234
+--           extended: true
+parseCANId : ℕ → ℕ → Parser CANId
+parseCANId fieldIndent rawId =
+  -- Try to parse "extended: true" field
+  (newline *> yamlKeyValue fieldIndent "extended" yamlString >>= λ extStr →
+    if extStr String.== "true"
+    then pure (Extended (rawId mod 536870912))
+    else pure (Standard (rawId mod 2048)))
+  <|>
+  -- If no "extended" field, assume standard ID
+  pure (Standard (rawId mod 2048))
+  where
+    open import Data.String using (_==_)
+    open import Data.Nat.DivMod using (_mod_)
+
 -- Parse a message definition at given base indentation
 -- Messages are list items: "  - id: 0x100"
 -- Message fields are indented 2 more: "    name: ..."
@@ -247,7 +265,8 @@ parseMessage base =
   let fieldIndent = base + 2  -- Fields indented 2 more than the "- " marker
       signalIndent = base + 4  -- Signal list items indented 4 more (2 for "- ", 2 for nesting)
   in
-    yamlListItem base (keyValue "id" hexNumber) >>= λ msgId →
+    yamlListItem base (keyValue "id" hexNumber) >>= λ rawId →
+    parseCANId fieldIndent rawId >>= λ msgId →
     newline *>
     yamlKeyValue fieldIndent "name" quotedString >>= λ msgName →
     newline *>
@@ -260,7 +279,7 @@ parseMessage base =
     yamlListItem signalIndent (parseSignalDef signalIndent) >>= λ firstSig →
     many (newline *> yamlListItem signalIndent (parseSignalDef signalIndent)) >>= λ restSigs →
     pure (record
-      { id = msgId mod 2048
+      { id = msgId
       ; name = msgName
       ; dlc = msgDlc mod 9
       ; sender = sender
