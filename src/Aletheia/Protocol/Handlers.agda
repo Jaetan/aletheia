@@ -81,20 +81,53 @@ handleExtractSignal dbcYAML msgName sigName frameBytes =
             findSignalHelper : Maybe DBCSignal → Response
             findSignalHelper nothing = errorResponse ("Signal not found: " ++ sigName)
             findSignalHelper (just sig) =
-              let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
-                  sigDef = DBCSignal.signalDef sig
-                  byteOrd = DBCSignal.byteOrder sig
-              in extractHelper sigDef (extractSignal frame sigDef byteOrd)
+              checkPresence (DBCSignal.presence sig)
               where
                 open import Data.Fin using (toℕ)
+                open import Data.Nat using (ℕ)
                 open import Data.Nat.Show using (show)
+                open import Data.Rational as Rat using (ℚ)
+                open import Relation.Nullary.Decidable using (⌊_⌋)
+                open import Data.Integer using (+_)
 
+                frame : CANFrame
+                frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
+
+                -- Helper to extract signal and format response
                 extractHelper : SignalDef → Maybe SignalValue → Response
                 extractHelper sigDef nothing = errorResponse ("Failed to extract signal value")
                 extractHelper sigDef (just val) =
                   let startBitStr = show (toℕ (SignalDef.startBit sigDef))
                       bitLenStr = show (toℕ (SignalDef.bitLength sigDef))
                   in successResponse ("Extracted (byte=" ++ debugFirstByte ++ " start=" ++ startBitStr ++ " len=" ++ bitLenStr ++ ")") (SignalValueData val)
+
+                -- Check if signal is present based on multiplexing
+                checkPresence : SignalPresence → Response
+                checkPresence Always =
+                  -- Signal is always present, extract directly
+                  let sigDef = DBCSignal.signalDef sig
+                      byteOrd = DBCSignal.byteOrder sig
+                  in extractHelper sigDef (extractSignal frame sigDef byteOrd)
+
+                checkPresence (When muxName muxVal) =
+                  -- Signal is conditional, check multiplexor first
+                  findMuxHelper (findSignal muxName msg)
+                  where
+                    findMuxHelper : Maybe DBCSignal → Response
+                    findMuxHelper nothing = errorResponse ("Multiplexor signal not found: " ++ muxName)
+                    findMuxHelper (just muxSig) =
+                      checkMuxValue (extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig))
+                      where
+                        open import Data.Rational using (_/_)
+
+                        checkMuxValue : Maybe SignalValue → Response
+                        checkMuxValue nothing = errorResponse ("Failed to extract multiplexor signal: " ++ muxName)
+                        checkMuxValue (just muxValue) =
+                          -- Check if multiplexor value matches expected value
+                          let expectedℚ = (+ muxVal) / 1
+                          in if ⌊ muxValue Rat.≟ expectedℚ ⌋
+                             then extractHelper (DBCSignal.signalDef sig) (extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig))
+                             else errorResponse ("Signal not present (multiplexor " ++ muxName ++ " value mismatch)")
 
 -- Handle InjectSignal command
 {-# NOINLINE handleInjectSignal #-}
@@ -113,11 +146,45 @@ handleInjectSignal dbcYAML msgName sigName value frameBytes =
             findSignalHelper : Maybe DBCSignal → Response
             findSignalHelper nothing = errorResponse ("Signal not found: " ++ sigName)
             findSignalHelper (just sig) =
-              let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
-                  sigDef = DBCSignal.signalDef sig
-                  byteOrd = DBCSignal.byteOrder sig
-              in injectHelper (injectSignal value sigDef byteOrd frame)
+              checkPresence (DBCSignal.presence sig)
               where
+                open import Data.Rational as Rat using (ℚ)
+                open import Relation.Nullary.Decidable using (⌊_⌋)
+                open import Data.Nat using (ℕ)
+                open import Data.Integer using (+_)
+
+                frame : CANFrame
+                frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
+
+                -- Helper to inject signal and format response
                 injectHelper : Maybe CANFrame → Response
                 injectHelper nothing = errorResponse "Failed to inject signal value"
                 injectHelper (just newFrame) = successResponse "Signal injected successfully" (FrameData (CANFrame.payload newFrame))
+
+                -- Check if signal is present based on multiplexing
+                checkPresence : SignalPresence → Response
+                checkPresence Always =
+                  -- Signal is always present, inject directly
+                  let sigDef = DBCSignal.signalDef sig
+                      byteOrd = DBCSignal.byteOrder sig
+                  in injectHelper (injectSignal value sigDef byteOrd frame)
+
+                checkPresence (When muxName muxVal) =
+                  -- Signal is conditional, check multiplexor first
+                  findMuxHelper (findSignal muxName msg)
+                  where
+                    findMuxHelper : Maybe DBCSignal → Response
+                    findMuxHelper nothing = errorResponse ("Multiplexor signal not found: " ++ muxName)
+                    findMuxHelper (just muxSig) =
+                      checkMuxValue (extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig))
+                      where
+                        open import Data.Rational using (_/_)
+
+                        checkMuxValue : Maybe SignalValue → Response
+                        checkMuxValue nothing = errorResponse ("Failed to extract multiplexor signal: " ++ muxName)
+                        checkMuxValue (just muxValue) =
+                          -- Check if multiplexor value matches expected value
+                          let expectedℚ = (+ muxVal) / 1
+                          in if ⌊ muxValue Rat.≟ expectedℚ ⌋
+                             then injectHelper (injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame)
+                             else errorResponse ("Signal not present (multiplexor " ++ muxName ++ " value mismatch)")
