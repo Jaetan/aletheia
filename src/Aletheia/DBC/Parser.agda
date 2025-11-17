@@ -111,9 +111,9 @@ rational =
     -- This allows Agda to automatically find the NonZero instance
     power10 : ℕ → ℕ
     power10 zero = suc 0  -- 1
-    power10 (suc n) =
-      let prev = power10 n
-      in suc (9 + prev * 10)  -- 10 * prev = 10 * (k+1) = 10k + 10 = suc (10k + 9) = suc (9 + 10k)
+    power10 (suc n) with power10 n
+    ... | zero = suc 0  -- Impossible case (power10 always returns suc), but needed for coverage
+    ... | suc m = suc (9 + 10 * m)  -- 10 * (suc m) = 10m + 10 = suc (9 + 10m)
 
     -- Check if integer is non-negative
     isNonNegative : ℤ → Bool
