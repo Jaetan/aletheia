@@ -61,25 +61,42 @@ extractSignalValue sigName dbc frame =
   extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
 
 -- ============================================================================
+-- COMPARISON HELPERS
+-- ============================================================================
+
+-- Simplified comparison operators that return Bool directly
+_==ℚ_ : ℚ → ℚ → Bool
+x ==ℚ y = ⌊ x Rat.≟ y ⌋
+
+_≤ℚ_ : ℚ → ℚ → Bool
+x ≤ℚ y = ⌊ x Rat.≤? y ⌋
+
+_<ℚ_ : ℚ → ℚ → Bool
+x <ℚ y = x ≤ℚ y ∧ not (x ==ℚ y)
+
+_>ℚ_ : ℚ → ℚ → Bool
+x >ℚ y = not (x ≤ℚ y)
+
+-- ============================================================================
 -- PREDICATE EVALUATION
 -- ============================================================================
 
 evalPredicate : SignalPredicate → DBC → CANFrame → Maybe Bool
 evalPredicate (Equals sigName value) dbc frame =
   extractSignalValue sigName dbc frame >>= λ sigVal →
-  just ⌊ sigVal Rat.≟ value ⌋
+  just (sigVal ==ℚ value)
 
 evalPredicate (LessThan sigName value) dbc frame =
   extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (⌊ sigVal Rat.≤? value ⌋ ∧ not ⌊ sigVal Rat.≟ value ⌋)
+  just (sigVal <ℚ value)
 
 evalPredicate (GreaterThan sigName value) dbc frame =
   extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (not ⌊ sigVal Rat.≤? value ⌋)
+  just (sigVal >ℚ value)
 
 evalPredicate (Between sigName minVal maxVal) dbc frame =
   extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (⌊ minVal Rat.≤? sigVal ⌋ ∧ ⌊ sigVal Rat.≤? maxVal ⌋)
+  just (minVal ≤ℚ sigVal ∧ sigVal ≤ℚ maxVal)
 
 evalPredicate (ChangedBy sigName delta) dbc frame = nothing
 
