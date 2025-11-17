@@ -61,6 +61,15 @@ handleExtractSignal : String → String → String → Vec Byte 8 → Response
 handleExtractSignal dbcYAML msgName sigName frameBytes =
   parseDBCHelper (runParser parseDBC (toList dbcYAML))
   where
+    -- DEBUG: Show first byte value to diagnose parsing issue
+    debugFirstByte : String
+    debugFirstByte = showℕ (toℕ (head frameBytes))
+      where
+        open import Data.Vec using (head)
+        open import Data.Fin using (toℕ)
+        open import Data.Nat.Show using (show)
+        showℕ = show
+
     parseDBCHelper : Maybe DBC → Response
     parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"
     parseDBCHelper (just dbc) = findMessageHelper (findMessage msgName dbc)
@@ -75,11 +84,17 @@ handleExtractSignal dbcYAML msgName sigName frameBytes =
               let frame = record { id = DBCMessage.id msg ; dlc = DBCMessage.dlc msg ; payload = frameBytes }
                   sigDef = DBCSignal.signalDef sig
                   byteOrd = DBCSignal.byteOrder sig
-              in extractHelper (extractSignal frame sigDef byteOrd)
+              in extractHelper sigDef (extractSignal frame sigDef byteOrd)
               where
-                extractHelper : Maybe SignalValue → Response
-                extractHelper nothing = errorResponse "Failed to extract signal value"
-                extractHelper (just val) = successResponse "Signal extracted successfully" (SignalValueData val)
+                open import Data.Fin using (toℕ)
+                open import Data.Nat.Show using (show)
+
+                extractHelper : SignalDef → Maybe SignalValue → Response
+                extractHelper sigDef nothing = errorResponse ("Failed to extract signal value")
+                extractHelper sigDef (just val) =
+                  let startBitStr = show (toℕ (SignalDef.startBit sigDef))
+                      bitLenStr = show (toℕ (SignalDef.bitLength sigDef))
+                  in successResponse ("Extracted (byte=" ++ debugFirstByte ++ " start=" ++ startBitStr ++ " len=" ++ bitLenStr ++ ")") (SignalValueData val)
 
 -- Handle InjectSignal command
 {-# NOINLINE handleInjectSignal #-}

@@ -89,7 +89,9 @@ hexByte =
     parseTwo : Char → Char → Byte
     parseTwo hi lo with hexCharToNat hi | hexCharToNat lo
     ... | just h | just l = (h * 16 + l) mod 256  -- Modulo returns Fin 256 automatically!
-    ... | _ | _ = Data.Fin.zero  -- Fallback to 0 for invalid hex (should not happen for valid input)
+    ... | just h | nothing = Data.Fin.zero  -- Debug: low nibble failed
+    ... | nothing | just l = Data.Fin.zero  -- Debug: high nibble failed
+    ... | nothing | nothing = Data.Fin.zero  -- Debug: both failed
 
 -- Parse exactly 8 hex bytes separated by spaces: "0x12 0x34 0x56 0x78 0x9A 0xBC 0xDE 0xF0"
 -- Returns Vec Byte 8 (exactly 8 bytes, no more, no less)

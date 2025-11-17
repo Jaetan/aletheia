@@ -1,0 +1,18 @@
+version: "1.0"
+
+messages:
+  - id: 0x100
+    name: "Test"
+    dlc: 8
+    sender: "ECU"
+    signals:
+      - name: "Signal1"
+        start_bit: 0
+        bit_length: 16
+        byte_order: "little_endian"
+        value_type: "unsigned"
+        factor: 1
+        offset: 0
+        minimum: 0
+        maximum: 65535
+        unit: ""

@@ -10,13 +10,15 @@ from aletheia._binary import call_aletheia_binary
 class CANDecoder:
     """Decoder for CAN frames using DBC specification"""
 
-    def __init__(self, dbc_data: Dict[str, Any]):
+    def __init__(self, dbc_data: Dict[str, Any], dbc_yaml: str = None):
         """Initialize decoder with DBC data
 
         Args:
             dbc_data: Parsed DBC YAML data
+            dbc_yaml: Original DBC YAML string (to preserve hex formatting)
         """
         self.dbc_data = dbc_data
+        self.dbc_yaml = dbc_yaml or yaml.dump(dbc_data, default_flow_style=False)
         self._messages = {msg['id']: msg for msg in dbc_data.get('messages', [])}
 
     @classmethod
@@ -44,9 +46,12 @@ class CANDecoder:
         # Call binary to parse DBC (uses verified Agda parser)
         # Build the command YAML manually to preserve multiline literal format
         command_yaml = f'command: "ParseDBC"\nyaml: |\n'
-        # Indent each line of DBC content by 2 spaces
+        # Indent each line of DBC content by 2 spaces (skip indentation for empty lines)
         for line in dbc_yaml_content.splitlines():
-            command_yaml += f'  {line}\n'
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
 
         # Call binary directly with formatted YAML
         from aletheia._binary import get_binary_path
@@ -71,15 +76,16 @@ class CANDecoder:
             raise RuntimeError("Binary timed out")
 
         # Check response status
-        if response.get('status') != 'success':
+        if not response.get('success'):
             error_msg = response.get('message', 'Unknown error')
             raise RuntimeError(f"Failed to parse DBC: {error_msg}")
 
         # Return decoder with parsed DBC data
         # Note: For Phase 1, we trust the binary's parsing
         # Phase 3 will add round-trip verification
+        # IMPORTANT: Preserve original YAML to maintain hex formatting
         dbc_data = yaml.safe_load(dbc_yaml_content)
-        return cls(dbc_data)
+        return cls(dbc_data, dbc_yaml_content)
 
     def extract_signal(
         self,
@@ -113,15 +119,18 @@ class CANDecoder:
         frame_hex = " ".join(f"0x{b:02X}" for b in frame_bytes)
 
         # Build command YAML manually with multiline literal format
-        dbc_yaml_str = yaml.dump(self.dbc_data, default_flow_style=False)
+        # Use original YAML to preserve hex formatting (0x100 vs 256)
         command_yaml = f'''command: "ExtractSignal"
 message: "{message_name}"
 signal: "{signal_name}"
 frame: {frame_hex}
-yaml: |
+dbc_yaml: |
 '''
-        for line in dbc_yaml_str.splitlines():
-            command_yaml += f'  {line}\n'
+        for line in self.dbc_yaml.splitlines():
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
 
         # Call binary directly
         from aletheia._binary import get_binary_path
@@ -146,7 +155,7 @@ yaml: |
             raise RuntimeError("Binary timed out")
 
         # Check response status
-        if response.get('status') != 'success':
+        if not response.get('success'):
             error_msg = response.get('message', 'Unknown error')
             raise RuntimeError(f"Failed to extract signal: {error_msg}")
 
@@ -188,16 +197,19 @@ yaml: |
         frame_hex = " ".join(f"0x{b:02X}" for b in frame_bytes)
 
         # Build command YAML manually with multiline literal format
-        dbc_yaml_str = yaml.dump(self.dbc_data, default_flow_style=False)
+        # Use original YAML to preserve hex formatting (0x100 vs 256)
         command_yaml = f'''command: "InjectSignal"
 message: "{message_name}"
 signal: "{signal_name}"
 value: {value}
 frame: {frame_hex}
-yaml: |
+dbc_yaml: |
 '''
-        for line in dbc_yaml_str.splitlines():
-            command_yaml += f'  {line}\n'
+        for line in self.dbc_yaml.splitlines():
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
 
         # Call binary directly
         from aletheia._binary import get_binary_path
@@ -222,7 +234,7 @@ yaml: |
             raise RuntimeError("Binary timed out")
 
         # Check response status
-        if response.get('status') != 'success':
+        if not response.get('success'):
             error_msg = response.get('message', 'Unknown error')
             raise RuntimeError(f"Failed to inject signal: {error_msg}")
 

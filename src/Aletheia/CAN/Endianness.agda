@@ -23,8 +23,7 @@ private
   -- Shift right by n positions (divide by 2^n)
   shiftR : ℕ → ℕ → ℕ
   shiftR value 0 = value
-  shiftR 0 (suc n) = 0
-  shiftR (suc value) (suc n) = shiftR (value div 2) n
+  shiftR value (suc n) = shiftR (value div 2) n
 
   -- Test if bit n is set in a natural number
   testBitℕ : ℕ → ℕ → Bool
