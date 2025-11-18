@@ -7,7 +7,7 @@ open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding
 open import Aletheia.DBC.Types
 open import Data.String using (String; _≟_)
-open import Data.Rational as Rat using (ℚ; _/_; _-_; ∣_∣; _≤?_)
+open import Data.Rational as Rat using (ℚ; _/_; _-_; ∣_∣; _≤?_; _<?_)
 open import Data.Integer using (+_)
 open import Data.List using (List; _∷_; [])
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
@@ -64,18 +64,25 @@ extractSignalValue sigName dbc frame =
 -- COMPARISON HELPERS
 -- ============================================================================
 
--- Simplified comparison operators that return Bool directly
+-- Efficient Boolean comparison operators
+-- These are wrappers around decidable comparisons for runtime checking.
+-- Phase 3 can use the decidable versions (_≤?_, _≟_, etc.) for proofs.
+
 _==ℚ_ : ℚ → ℚ → Bool
 x ==ℚ y = ⌊ x Rat.≟ y ⌋
 
 _≤ℚ_ : ℚ → ℚ → Bool
 x ≤ℚ y = ⌊ x Rat.≤? y ⌋
 
+-- Efficient strict comparison (single check, not double)
 _<ℚ_ : ℚ → ℚ → Bool
-x <ℚ y = x ≤ℚ y ∧ not (x ==ℚ y)
+x <ℚ y = ⌊ x Rat.<? y ⌋
 
 _>ℚ_ : ℚ → ℚ → Bool
-x >ℚ y = not (x ≤ℚ y)
+x >ℚ y = y <ℚ x
+
+_≥ℚ_ : ℚ → ℚ → Bool
+x ≥ℚ y = y ≤ℚ x
 
 -- ============================================================================
 -- PREDICATE EVALUATION
