@@ -137,21 +137,64 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 **Week 2-3 Completed** ✅ (LTL Core):
 - ✅ LTL syntax (existing Syntax.agda with all temporal operators)
 - ✅ SignalPredicate (atomic propositions: Equals, LessThan, Between, ChangedBy)
-- ✅ Bounded semantics (satisfiesAt for finite trace lists)
+- ✅ Bounded semantics (satisfiesAt for finite trace lists with repeat-last)
 - ✅ Model checker (checkTrace with CheckResult type)
-- ✅ Simplified comparison operators for rational values
-- **Commits**: 760bb78, c527cd2, de48383, 4dac736
+- ✅ Efficient decidable comparisons (single-check `_<ℚ_`, proof-ready)
+- ✅ Coinductive traces with `fromListRepeat` (enables Phase 2B streaming)
+- ✅ Python wrapper verified working (Phase 1 complete!)
+- **Commits**: 760bb78, c527cd2, de48383, 4dac736, b84f5a3
 - **Note**: Trace parser deferred to Phase 2B (streaming implementation)
 
-**Week 4-5 Goals** (Python DSL v1):
-- DSL design document and architecture
-- Python Signal class with fluent interface
-- Basic predicates (equals, between, changed_by)
-- Temporal operators (always, eventually, within)
-- Composition (when/then, and/or)
-- YAML serialization: Python DSL → YAML
-- LTL/DSL/Parser.agda: YAML → LTL AST
-- Example: `Signal("Speed").within(100*ms).must_be_between(0, 8000)`
+**Week 4-5 Plan** (Python DSL v1) - **CURRENT FOCUS**:
+
+**Risk Mitigation (Examples-First Design)**:
+- Designed API from 10 real-world properties (speed limits, braking, VIN, etc.)
+- Simplified DSL for Phase 2A (single-signal predicates only)
+- Deferred complexity to Phase 2B (multi-signal, arithmetic, callbacks)
+
+**Translation Correctness** (PROVABLE):
+- Structural recursion on PythonLTL AST
+- Theorem: `translate-preserves-semantics : ∀ prop trace → evalPython trace prop ≡ checkTrace trace (translate prop)`
+- Proof strategy: Induction on LTL structure (base cases + temporal induction)
+
+**Implementation Tasks** (9-11 days):
+1. **Python DSL API** (1-2 days):
+   - `Signal` class: `equals()`, `less_than()`, `greater_than()`, `between()`, `changed_by()`
+   - `Predicate` class: `always()`, `eventually()`, `within()`, `never()`
+   - `Property` class: `and_()`, `or_()`, `implies()`, `until()`
+   - YAML serialization via `to_yaml()`
+
+2. **Update PythonLTL AST** (LTL/DSL/Python.agda) (1 day):
+   - Add `Between`, `ChangedBy` to expressions
+   - Add `Never`, `Until` to temporal operators
+   - Ensure complete Phase 2A coverage
+
+3. **DSL Parser** (LTL/DSL/Parser.agda) (2 days):
+   - Parse YAML → PythonLTL AST
+   - Reuse parser combinators from Phase 1
+   - Test with hand-written YAML examples
+
+4. **DSL Translator + Proof** (LTL/DSL/Translate.agda) (2-3 days):
+   - `translate : PythonLTL → LTL SignalPredicate`
+   - Prove `translate-preserves-semantics` by structural induction
+   - Agda accepts proof due to structural recursion
+
+5. **Protocol Integration** (1 day):
+   - Add `CheckProperty` command to Protocol/Command.agda
+   - Implement `handleCheckProperty` in Protocol/Handlers.agda
+   - Wire to model checker
+
+6. **End-to-End Testing** (2 days):
+   - Test all 10 example properties
+   - Validate with OpenDBC files (Hyundai, VW, Tesla)
+   - Performance: <100ms for 1000-frame traces
+
+**Example Properties to Test**:
+- Speed limits: `Signal("Speed").less_than(220).always()`
+- Braking: `brake_pressed.implies(speed_decreases.within(100))`
+- Gear safety: `moving_forward.implies(in_reverse.never())`
+- Battery range: `Signal("BatteryVoltage").between(11.5, 14.5).always()`
+- VIN decoding: Multiplexed signal presence checks
 
 **Week 6-7 Goals** (Validation):
 - Integrate CheckProperty command into protocol
@@ -191,17 +234,42 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 **Goals**: Prove correctness, optimize bottlenecks
 
-**Proofs**:
-- Replace all runtime checks with static proofs where possible
-- Parser soundness (grammar formalization)
-- LTL semantics correctness
-- Round-trip properties (parse ∘ print ≡ id)
-- NonZero proofs for rational division
+**How Phase 2 Enables Verification**:
 
-**Performance**:
+Phase 2 design decisions explicitly enable Phase 3 proofs:
+
+1. **Decidable Comparisons** (Week 3):
+   - Kept `_<?_` decidable: `⌊ x Rat.<? y ⌋`
+   - Phase 3 theorem: `<-preserves-semantics : ∀ x y → (x <ℚ y ≡ true) ↔ (x < y)`
+   - Proof witnesses extractable from `Dec` type
+
+2. **Repeat-Last Semantics** (Week 3):
+   - Coinductive traces with `fromListRepeat`
+   - Phase 3 theorem: `repeat-last-soundness : ∀ xs φ → satisfiesAt xs φ ≡ (fromListRepeat xs ⊨ φ)`
+   - Foundation already correct for verification
+
+3. **Structural Recursion** (Phase 1):
+   - Parser combinators structurally recursive on input length
+   - Phase 3 theorem: `many-soundness : ∀ p input → ...`
+   - Proofs straightforward due to structural termination
+
+4. **Translation Correctness** (Week 4-5):
+   - Translator structurally recursive on PythonLTL AST
+   - Phase 3 theorem: `translate-preserves-semantics : ∀ prop trace → ...`
+   - Proof by induction on LTL structure (Agda accepts immediately)
+
+**Verification Targets**:
+- ✅ Parser soundness (grammar formalization)
+- ✅ LTL semantics correctness (matches standard definitions)
+- ✅ Translation correctness (DSL → Core preserves meaning)
+- ✅ Round-trip properties (parse ∘ print ≡ id)
+- ⚠️ Replace runtime checks with proofs (NonZero for division)
+
+**Performance Targets**:
 - Profile on large traces (identify bottlenecks)
-- Optimize hot paths in Agda
-- Benchmark target: 1M frames/sec
+- Optimize hot paths (signal extraction, predicate evaluation)
+- Benchmark goal: 1M frames/sec (10x current estimate)
+- Optimizations enabled: Parser memoization, signal caching, predicate short-circuiting
 
 **Deliverable**: Fully verified, production-performance system
 
