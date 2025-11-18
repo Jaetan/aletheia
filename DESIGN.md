@@ -2,7 +2,7 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 0.1.0
-**Status**: Phase 1 Complete ✅ | Phase 2A Week 1 Complete ✅
+**Status**: Phase 1 Complete ✅ | Phase 2A Weeks 1-3 Complete ✅ (LTL Core)
 **Last Updated**: 2025-11-18
 
 ## Project Overview
@@ -123,9 +123,9 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 - Build system is reliable and fast
 - Architecture validated against real-world requirements
 
-### Phase 2A: LTL Core + Real-World Support (In Progress - Week 1/7 Complete ✅)
+### Phase 2A: LTL Core + Real-World Support (In Progress - Weeks 1-3/7 Complete ✅)
 
-**Timeline**: 5-7 weeks total | **Current**: Week 1 complete, starting Week 2
+**Timeline**: 5-7 weeks total | **Current**: Weeks 1-3 complete, starting Python DSL
 
 **Week 1 Completed** ✅:
 - **Extended 29-bit CAN ID support** - CANId sum type (Standard | Extended)
@@ -134,20 +134,28 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 - Protocol handlers with multiplexing validation
 - **Commits**: 004cf42, a4461fb, 210bce8
 
-**Week 2-3 Goals** (LTL Core):
-- LTL syntax (Always, Eventually, Until, Next, etc.)
-- Semantics for finite traces (bounded checking)
-- Basic model checker
+**Week 2-3 Completed** ✅ (LTL Core):
+- ✅ LTL syntax (existing Syntax.agda with all temporal operators)
+- ✅ SignalPredicate (atomic propositions: Equals, LessThan, Between, ChangedBy)
+- ✅ Bounded semantics (satisfiesAt for finite trace lists)
+- ✅ Model checker (checkTrace with CheckResult type)
+- ✅ Simplified comparison operators for rational values
+- **Commits**: 760bb78, c527cd2, de48383, 4dac736
+- **Note**: Trace parser deferred to Phase 2B (streaming implementation)
 
-**Python DSL v1**:
+**Week 4-5 Goals** (Python DSL v1):
 - DSL design document and architecture
+- Python Signal class with fluent interface
 - Basic predicates (equals, between, changed_by)
 - Temporal operators (always, eventually, within)
 - Composition (when/then, and/or)
-- Parser: Python DSL → Agda LTL AST
+- YAML serialization: Python DSL → YAML
+- LTL/DSL/Parser.agda: YAML → LTL AST
 - Example: `Signal("Speed").within(100*ms).must_be_between(0, 8000)`
 
-**Validation**:
+**Week 6-7 Goals** (Validation):
+- Integrate CheckProperty command into protocol
+- Implement handleCheckProperty handler
 - Test with real automotive CAN trace from OpenDBC
 - Common properties: speed limits, signal bounds, temporal constraints
 - Multiplexed signal handling (VIN decoding, power states)
