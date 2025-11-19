@@ -2,40 +2,27 @@
 
 module Aletheia.LTL.DSL.Parser where
 
+open import Aletheia.LTL.DSL.Yaml
+open import Aletheia.LTL.DSL.Convert
 open import Aletheia.LTL.DSL.Python
 open import Aletheia.Parser.Combinators
 open import Aletheia.DBC.Parser using (quotedString; identifier; natural; rational)
 open import Data.List using (List; []; _∷_)
-open import Data.String using (String; _==_; toList)
+open import Data.String using (String; _==_; toList; _++_)
 open import Data.Rational using (ℚ)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; zero; suc; _≤?_; _≤_)
+open import Data.Nat.Show using (show)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Char using (Char)
-open import Data.Bool using (if_then_else_)
+open import Data.Bool using (if_then_else_; true; false)
+open import Relation.Nullary using (Dec; yes; no)
 
 -- ============================================================================
--- YAML KEY-VALUE PARSERS
+-- YAML PRIMITIVES
 -- ============================================================================
 
--- Parse a YAML key-value pair: "key: value"
-keyValue : ∀ {A : Set} → String → Parser A → Parser A
-keyValue expectedKey p =
-  identifier >>= λ key →
-  spaces *> char ':' *> spaces *>
-  (if key == expectedKey
-    then p
-    else fail)
-
--- Parse just a key followed by colon (for nested structures)
-key : String → Parser String
-key expectedKey =
-  identifier >>= λ k →
-  spaces *> char ':' *> spaces *>
-  (if k == expectedKey
-    then pure k
-    else fail)
-
--- Skip optional newlines and spaces
+-- Skip whitespace
 skipWS : Parser (List Char)
 skipWS = many (satisfy isWSChar)
   where
@@ -43,101 +30,220 @@ skipWS = many (satisfy isWSChar)
     open import Data.Char using (_≈ᵇ_)
 
     isWSChar : Char → Bool
-    isWSChar c = (c ≈ᵇ ' ') ∨ (c ≈ᵇ '\n') ∨ (c ≈ᵇ '\r')
+    isWSChar c = (c ≈ᵇ ' ') ∨ (c ≈ᵇ '\n') ∨ (c ≈ᵇ '\r') ∨ (c ≈ᵇ '\t')
+
+-- Parse "key: " prefix
+parseKey : String → Parser String
+parseKey expected =
+  skipWS *> identifier >>= λ key →
+  skipWS *> char ':' *> skipWS *>
+  (if key == expected then pure key else fail)
 
 -- ============================================================================
 -- COMPARISON OPERATOR PARSER
 -- ============================================================================
 
-parseCompOp : Parser ComparisonOp
-parseCompOp =
-  (string "LT" *> pure LT) <|>
-  (string "GT" *> pure GT) <|>
-  (string "LE" *> pure LE) <|>
-  (string "GE" *> pure GE) <|>
-  (string "EQ" *> pure EQ) <|>
-  (string "NE" *> pure NE)
+parseCompOpYaml : Parser CompOpYaml
+parseCompOpYaml =
+  (string "LT" *> pure LT-yaml) <|>
+  (string "GT" *> pure GT-yaml) <|>
+  (string "LE" *> pure LE-yaml) <|>
+  (string "GE" *> pure GE-yaml) <|>
+  (string "EQ" *> pure EQ-yaml) <|>
+  (string "NE" *> pure NE-yaml)
 
 -- ============================================================================
--- EXPRESSION PARSERS (Phase 2A - Simple properties only)
+-- EXPRESSION PARSER (No recursion - all leaves)
 -- ============================================================================
 
--- NOTE: For Phase 2A, we parse only simple LTL properties without nested
--- temporal operators. Complex properties (and, or, implies, until, not) are
--- DEFERRED to Phase 2B to avoid termination issues with mutual recursion.
---
--- This covers the majority of our 10 example automotive properties.
-
--- Parse PythonExpr from YAML
-parsePythonExpr : Parser PythonExpr
-parsePythonExpr =
-  skipWS *>
-  key "type" *>
-  skipWS *>
-  (identifier >>= λ exprType →
+parseExprYaml : Parser ExprYaml
+parseExprYaml =
+  skipWS *> parseKey "type" >>= λ _ →
+  identifier >>= λ exprType →
   skipWS *>
   (if exprType == "compare"
-  then (keyValue "signal" identifier >>= λ sig →
-        skipWS *>
-        keyValue "op" parseCompOp >>= λ op →
-        skipWS *>
-        keyValue "value" rational >>= λ val →
-        pure (Compare (Signal sig) op (Constant val)))
-  else (if exprType == "between"
-    then (keyValue "signal" identifier >>= λ sig →
+   then (parseKey "signal" *> identifier >>= λ sig →
+         skipWS *>
+         parseKey "op" *> parseCompOpYaml >>= λ op →
+         skipWS *>
+         parseKey "value" *> rational >>= λ val →
+         pure (CompareYaml sig op val))
+   else (if exprType == "between"
+    then (parseKey "signal" *> identifier >>= λ sig →
           skipWS *>
-          keyValue "min" rational >>= λ minVal →
+          parseKey "min" *> rational >>= λ minV →
           skipWS *>
-          keyValue "max" rational >>= λ maxVal →
-          pure (Between sig minVal maxVal))
+          parseKey "max" *> rational >>= λ maxV →
+          pure (BetweenYaml sig minV maxV))
     else (if exprType == "changed_by"
-      then (keyValue "signal" identifier >>= λ sig →
-            skipWS *>
-            keyValue "delta" rational >>= λ delta →
-            pure (ChangedBy sig delta))
-      else (if exprType == "signal"
-        then (keyValue "name" identifier >>= λ name →
-              pure (Signal name))
-        else (if exprType == "constant"
-          then (keyValue "value" rational >>= λ val →
-                pure (Constant val))
-          else fail))))))
-
--- Parse PythonLTL from YAML (simple temporal operators only)
-parsePythonLTL : Parser PythonLTL
-parsePythonLTL =
-  skipWS *>
-  key "type" *>
-  skipWS *>
-  (identifier >>= λ ltlType →
-  skipWS *>
-  (if ltlType == "always"
-  then (key "formula" *> skipWS *> parsePythonExpr >>= λ expr →
-        pure (Always (Expr expr)))
-  else (if ltlType == "eventually"
-    then (key "formula" *> skipWS *> parsePythonExpr >>= λ expr →
-          pure (Eventually (Expr expr)))
-    else (if ltlType == "never"
-      then (key "formula" *> skipWS *> parsePythonExpr >>= λ expr →
-            pure (Never (Expr expr)))
-      else (if ltlType == "eventually_within"
-        then (keyValue "time_ms" natural >>= λ time →
-              skipWS *>
-              key "formula" *> skipWS *> parsePythonExpr >>= λ expr →
-              pure (EventuallyWithin time (Expr expr)))
-        else (if ltlType == "always_within"
-          then (keyValue "time_ms" natural >>= λ time →
-                skipWS *>
-                key "formula" *> skipWS *> parsePythonExpr >>= λ expr →
-                pure (AlwaysWithin time (Expr expr)))
-          else fail))))))
+     then (parseKey "signal" *> identifier >>= λ sig →
+           skipWS *>
+           parseKey "delta" *> rational >>= λ delta →
+           pure (ChangedByYaml sig delta))
+     else (if exprType == "signal"
+      then (parseKey "name" *> identifier >>= λ name →
+            pure (SignalYaml name))
+      else (if exprType == "constant"
+       then (parseKey "value" *> rational >>= λ val →
+             pure (ConstantYaml val))
+       else fail)))))
 
 -- ============================================================================
--- TOP-LEVEL PARSER
+-- PROPERTY PARSER (Fuel-bounded recursion)
 -- ============================================================================
 
--- Parse a complete YAML property specification
+-- Fuel parameter bounds nesting depth to prevent infinite recursion
+-- Our schema has maximum depth ~4, so fuel = 10 is more than sufficient
+-- This avoids term expansion issues that occur with high fuel values
+
+parsePropertyYaml : ℕ → Parser PropertyYaml
+parsePropertyYaml zero = fail  -- Fuel exhausted (should never happen with valid input)
+parsePropertyYaml (suc fuel) =
+  skipWS *> parseKey "type" >>= λ _ →
+  identifier >>= λ propType →
+  skipWS *>
+  parseByType propType
+  where
+    -- Expression parsers (helpers)
+    parseCompareExpr : Parser ExprYaml
+    parseCompareExpr =
+      parseKey "signal" *> identifier >>= λ sig →
+      skipWS *>
+      parseKey "op" *> parseCompOpYaml >>= λ op →
+      skipWS *>
+      parseKey "value" *> rational >>= λ val →
+      pure (CompareYaml sig op val)
+
+    parseBetweenExpr : Parser ExprYaml
+    parseBetweenExpr =
+      parseKey "signal" *> identifier >>= λ sig →
+      skipWS *>
+      parseKey "min" *> rational >>= λ minV →
+      skipWS *>
+      parseKey "max" *> rational >>= λ maxV →
+      pure (BetweenYaml sig minV maxV)
+
+    parseChangedByExpr : Parser ExprYaml
+    parseChangedByExpr =
+      parseKey "signal" *> identifier >>= λ sig →
+      skipWS *>
+      parseKey "delta" *> rational >>= λ delta →
+      pure (ChangedByYaml sig delta)
+
+    parseSignalExpr : Parser ExprYaml
+    parseSignalExpr =
+      parseKey "name" *> identifier >>= λ name →
+      pure (SignalYaml name)
+
+    parseConstantExpr : Parser ExprYaml
+    parseConstantExpr =
+      parseKey "value" *> rational >>= λ val →
+      pure (ConstantYaml val)
+
+    parseByType : String → Parser PropertyYaml
+    -- Simple temporal operators (contain expressions - no recursion)
+    parseByType "always" =
+      parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
+      pure (AlwaysYaml expr)
+    parseByType "eventually" =
+      parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
+      pure (EventuallyYaml expr)
+    parseByType "never" =
+      parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
+      pure (NeverYaml expr)
+
+    -- Bounded temporal operators
+    parseByType "eventually_within" =
+      parseKey "time_ms" *> natural >>= λ time →
+      skipWS *>
+      parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
+      pure (EventuallyWithinYaml time expr)
+    parseByType "always_within" =
+      parseKey "time_ms" *> natural >>= λ time →
+      skipWS *>
+      parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
+      pure (AlwaysWithinYaml time expr)
+
+    -- Compound operators (recursive - consume fuel)
+    parseByType "not" =
+      parseKey "formula" *> skipWS *> parsePropertyYaml fuel >>= λ sub →
+      pure (NotYaml sub)
+    parseByType "and" =
+      parseKey "left" *> skipWS *> parsePropertyYaml fuel >>= λ left →
+      skipWS *>
+      parseKey "right" *> skipWS *> parsePropertyYaml fuel >>= λ right →
+      pure (AndYaml left right)
+    parseByType "or" =
+      parseKey "left" *> skipWS *> parsePropertyYaml fuel >>= λ left →
+      skipWS *>
+      parseKey "right" *> skipWS *> parsePropertyYaml fuel >>= λ right →
+      pure (OrYaml left right)
+    parseByType "implies" =
+      parseKey "antecedent" *> skipWS *> parsePropertyYaml fuel >>= λ ante →
+      skipWS *>
+      parseKey "consequent" *> skipWS *> parsePropertyYaml fuel >>= λ cons →
+      pure (ImpliesYaml ante cons)
+    parseByType "until" =
+      parseKey "left" *> skipWS *> parsePropertyYaml fuel >>= λ left →
+      skipWS *>
+      parseKey "right" *> skipWS *> parsePropertyYaml fuel >>= λ right →
+      pure (UntilYaml left right)
+
+    -- Expression types (base case)
+    parseByType "compare" =
+      parseCompareExpr >>= λ expr → pure (ExprProperty expr)
+    parseByType "between" =
+      parseBetweenExpr >>= λ expr → pure (ExprProperty expr)
+    parseByType "changed_by" =
+      parseChangedByExpr >>= λ expr → pure (ExprProperty expr)
+    parseByType "signal" =
+      parseSignalExpr >>= λ expr → pure (ExprProperty expr)
+    parseByType "constant" =
+      parseConstantExpr >>= λ expr → pure (ExprProperty expr)
+
+    parseByType _ = fail
+
+-- ============================================================================
+-- TOP-LEVEL PARSER WITH ERROR REPORTING
+-- ============================================================================
+
+-- Parser errors
+data ParseError : Set where
+  SyntaxError : String → ParseError
+  FuelExhausted : ℕ → ℕ → ParseError  -- actual depth, fuel limit
+
+-- Parse result with error information
+ParseResult : Set
+ParseResult = String ⊎ PythonLTL
+
+-- Format error message
+formatError : ParseError → String
+formatError (SyntaxError msg) =
+  "Parse error: Invalid YAML syntax. " ++ msg
+formatError (FuelExhausted actualDepth fuelLimit) =
+  "Parse error: Property nesting depth (" ++ show actualDepth ++
+  ") exceeds parser limit (" ++ show fuelLimit ++
+  "). Please simplify the property structure or contact support."
+
+-- Helper: Pattern match on Dec result
+checkHelper : (propYaml : PropertyYaml) → (d : ℕ) → Dec (d ≤ 100) → ParseResult
+checkHelper propYaml d (yes _) = inj₂ (propertyYamlToLTL propYaml)
+checkHelper propYaml d (no _) = inj₁ (formatError (FuelExhausted d 100))
+
+-- Helper: Check depth and convert or report error
+checkDepthAndConvert : PropertyYaml → ParseResult
+checkDepthAndConvert propYaml =
+  checkHelper propYaml (depth propYaml) (depth propYaml ≤? 100)
+
+-- Parse YAML text to PythonLTL with error reporting
+-- Uses fuel = 100 to handle deeply nested properties
+parsePropertyWithError : String → ParseResult
+parsePropertyWithError input with runParser (parsePropertyYaml 100) (toList input)
+... | just propYaml = checkDepthAndConvert propYaml
+... | nothing = inj₁ (formatError (SyntaxError "Could not parse YAML structure. Check property syntax."))
+
+-- Convenience wrapper that returns Maybe (for backward compatibility)
 parseProperty : String → Maybe PythonLTL
-parseProperty input with runParser parsePythonLTL (toList input)
-... | just prop = just prop
-... | nothing = nothing
+parseProperty input with parsePropertyWithError input
+... | inj₁ _ = nothing
+... | inj₂ ltl = just ltl

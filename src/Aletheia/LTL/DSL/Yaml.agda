@@ -2,51 +2,84 @@
 
 module Aletheia.LTL.DSL.Yaml where
 
-open import Data.List using (List; []; _∷_)
-open import Data.String using (String; _≟_)
+open import Data.String using (String)
 open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Product using (_×_; proj₁; proj₂)
-open import Relation.Nullary using (yes; no)
 
 -- ============================================================================
--- YAML INTERMEDIATE REPRESENTATION
+-- SCHEMA-SPECIFIC YAML REPRESENTATION
 -- ============================================================================
 
--- Simple tree structure representing parsed YAML
--- This separates parsing (phase 1) from AST construction (phase 2)
-data YamlValue : Set where
-  -- Primitive values
-  YString : String → YamlValue
-  YNat : ℕ → YamlValue
-  YRational : ℚ → YamlValue
+-- YAML representation matching our LTL property schema exactly
+-- This has bounded recursion matching the structure of our DSL
 
-  -- Structured values
-  YObject : List (String × YamlValue) → YamlValue
+-- Comparison operators (as strings in YAML)
+data CompOpYaml : Set where
+  LT-yaml GT-yaml LE-yaml GE-yaml EQ-yaml NE-yaml : CompOpYaml
 
--- Helper: Lookup a field in a YAML object
-lookupField : String → YamlValue → Maybe YamlValue
-lookupField key (YObject fields) = lookup key fields
-  where
-    lookup : String → List (String × YamlValue) → Maybe YamlValue
-    lookup _ [] = nothing
-    lookup k (pair ∷ rest) with k ≟ proj₁ pair
-    ... | yes _ = just (proj₂ pair)
-    ... | no _ = lookup k rest
-lookupField _ _ = nothing
+-- Expression-level YAML fields (no recursion - these are leaves)
+data ExprYaml : Set where
+  -- compare: {signal, op, value}
+  CompareYaml : String → CompOpYaml → ℚ → ExprYaml
 
--- Helper: Extract string from YamlValue
-asString : YamlValue → Maybe String
-asString (YString s) = just s
-asString _ = nothing
+  -- between: {signal, min, max}
+  BetweenYaml : String → ℚ → ℚ → ExprYaml
 
--- Helper: Extract nat from YamlValue
-asNat : YamlValue → Maybe ℕ
-asNat (YNat n) = just n
-asNat _ = nothing
+  -- changed_by: {signal, delta}
+  ChangedByYaml : String → ℚ → ExprYaml
 
--- Helper: Extract rational from YamlValue
-asRational : YamlValue → Maybe ℚ
-asRational (YRational q) = just q
-asRational _ = nothing
+  -- signal: {name}
+  SignalYaml : String → ExprYaml
+
+  -- constant: {value}
+  ConstantYaml : ℚ → ExprYaml
+
+-- Property-level YAML (can contain expressions or nested properties)
+data PropertyYaml : Set where
+  -- Atomic expression (base case)
+  ExprProperty : ExprYaml → PropertyYaml
+
+  -- Simple temporal operators (contain expressions)
+  AlwaysYaml : ExprYaml → PropertyYaml
+  EventuallyYaml : ExprYaml → PropertyYaml
+  NeverYaml : ExprYaml → PropertyYaml
+
+  -- Bounded temporal operators (contain expressions)
+  EventuallyWithinYaml : ℕ → ExprYaml → PropertyYaml
+  AlwaysWithinYaml : ℕ → ExprYaml → PropertyYaml
+
+  -- Compound operators (recursive - contain sub-properties)
+  NotYaml : PropertyYaml → PropertyYaml
+  AndYaml : PropertyYaml → PropertyYaml → PropertyYaml
+  OrYaml : PropertyYaml → PropertyYaml → PropertyYaml
+  ImpliesYaml : PropertyYaml → PropertyYaml → PropertyYaml
+  UntilYaml : PropertyYaml → PropertyYaml → PropertyYaml
+
+-- Note: This representation is structurally recursive with clear termination:
+-- - ExprYaml has no recursion (base case)
+-- - PropertyYaml can contain ExprYaml (smaller) or PropertyYaml (same size, but bounded by input)
+-- - Recursion is direct and obvious to Agda's termination checker
+
+-- ============================================================================
+-- DEPTH BOUNDS (for fuel verification)
+-- ============================================================================
+
+open import Data.Nat using (zero; suc; _⊔_)
+
+-- Compute nesting depth of a property
+depth : PropertyYaml → ℕ
+depth (ExprProperty _) = zero
+depth (AlwaysYaml _) = suc zero
+depth (EventuallyYaml _) = suc zero
+depth (NeverYaml _) = suc zero
+depth (EventuallyWithinYaml _ _) = suc zero
+depth (AlwaysWithinYaml _ _) = suc zero
+depth (NotYaml sub) = suc (depth sub)
+depth (AndYaml left right) = suc (depth left ⊔ depth right)
+depth (OrYaml left right) = suc (depth left ⊔ depth right)
+depth (ImpliesYaml ante cons) = suc (depth ante ⊔ depth cons)
+depth (UntilYaml left right) = suc (depth left ⊔ depth right)
+
+-- Note: While PropertyYaml allows arbitrary nesting in principle,
+-- realistic properties have bounded depth. Our 10 example properties
+-- have maximum depth 4. Parser uses fuel = 100 for safety margin.
