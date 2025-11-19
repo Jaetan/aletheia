@@ -3,8 +3,8 @@
 module Aletheia.DBC.ParserTraced where
 
 open import Aletheia.DBC.Types
-open import Aletheia.DBC.Parser using (parseMessage; quotedString; natural; parseDBC; keyValue; newline; hexNumber)
-open import Aletheia.Parser.Combinators using (Parser; runParser; atIndent; string; withBaseIndent; _>>=_; _*>_; pure; char)
+open import Aletheia.DBC.Parser using (parseMessage; quotedString; natural; parseDBC; keyValue; hexNumber)
+open import Aletheia.Parser.Combinators using (Parser; runParser; atIndent; string; withBaseIndent; _>>=_; _*>_; pure; char; newline)
 open import Aletheia.Parser.Tracing
 open import Data.String as String using (String; toList; fromList)
 open import Data.List using (List; []; _∷_; _++_)

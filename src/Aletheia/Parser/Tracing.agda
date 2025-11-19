@@ -2,7 +2,7 @@
 
 module Aletheia.Parser.Tracing where
 
-open import Aletheia.Parser.Combinators using (Parser)
+open import Aletheia.Parser.Combinators using (Parser; Position; ParseResult; initialPosition)
 open import Data.List using (List; []; _∷_; _++_; length; take; reverse)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
@@ -74,18 +74,22 @@ preview n cs =
 -- ============================================================================
 
 -- | Wrap a parser to add tracing on entry/exit
+-- Updated for Position-aware Parser type
 traceParser : ∀ {A : Set} → String → Parser A → (ℕ → List Char → TracedResult A)
 traceParser name p pos input =
   let previewStr = preview 20 input
       enterEvent = Enter name pos previewStr
-      result = p input
+      -- Call parser with initial position (we track our own pos for tracing)
+      result = p initialPosition input
   in case result of λ where
     nothing →
       traced nothing (enterEvent ∷ Exit name pos false 0 ∷ [])
-    (just (x , rest)) →
-      let consumed = length input ∸ length rest
+    (just parseResult) →
+      let value = ParseResult.value parseResult
+          rest = ParseResult.remaining parseResult
+          consumed = length input ∸ length rest
           exitEvent = Exit name pos true consumed
-      in traced (just (x , rest)) (enterEvent ∷ exitEvent ∷ [])
+      in traced (just (value , rest)) (enterEvent ∷ exitEvent ∷ [])
   where
     open import Data.Maybe using (Maybe; just; nothing)
     open import Relation.Binary.PropositionalEquality using (_≡_)
