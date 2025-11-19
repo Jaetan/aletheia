@@ -16,6 +16,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Char using (Char)
 open import Data.Bool using (if_then_else_; true; false)
+open import Data.Product using (proj₁)
 open import Relation.Nullary using (Dec; yes; no)
 
 -- ============================================================================
@@ -209,38 +210,39 @@ parsePropertyYaml (suc fuel) =
 
 -- Parser errors
 data ParseError : Set where
-  SyntaxError : String → ParseError
+  SyntaxError : String → Position → ParseError
   FuelExhausted : ℕ → ℕ → ParseError  -- actual depth, fuel limit
 
 -- Parse result with error information
-ParseResult : Set
-ParseResult = String ⊎ PythonLTL
+DSLParseResult : Set
+DSLParseResult = String ⊎ PythonLTL
 
 -- Format error message
 formatError : ParseError → String
-formatError (SyntaxError msg) =
-  "Parse error: Invalid YAML syntax. " ++ msg
+formatError (SyntaxError msg pos) =
+  "Parse error at line " ++ show (line pos) ++ ", column " ++ show (column pos) ++
+  ": Invalid YAML syntax. " ++ msg
 formatError (FuelExhausted actualDepth fuelLimit) =
   "Parse error: Property nesting depth (" ++ show actualDepth ++
   ") exceeds parser limit (" ++ show fuelLimit ++
   "). Please simplify the property structure or contact support."
 
 -- Helper: Pattern match on Dec result
-checkHelper : (propYaml : PropertyYaml) → (d : ℕ) → Dec (d ≤ 100) → ParseResult
+checkHelper : (propYaml : PropertyYaml) → (d : ℕ) → Dec (d ≤ 100) → DSLParseResult
 checkHelper propYaml d (yes _) = inj₂ (propertyYamlToLTL propYaml)
 checkHelper propYaml d (no _) = inj₁ (formatError (FuelExhausted d 100))
 
 -- Helper: Check depth and convert or report error
-checkDepthAndConvert : PropertyYaml → ParseResult
+checkDepthAndConvert : PropertyYaml → DSLParseResult
 checkDepthAndConvert propYaml =
   checkHelper propYaml (depth propYaml) (depth propYaml ≤? 100)
 
 -- Parse YAML text to PythonLTL with error reporting
 -- Uses fuel = 100 to handle deeply nested properties
-parsePropertyWithError : String → ParseResult
+parsePropertyWithError : String → DSLParseResult
 parsePropertyWithError input with runParser (parsePropertyYaml 100) (toList input)
-... | just propYaml = checkDepthAndConvert propYaml
-... | nothing = inj₁ (formatError (SyntaxError "Could not parse YAML structure. Check property syntax."))
+... | nothing = inj₁ (formatError (SyntaxError "Could not parse YAML structure. Check property syntax." initialPosition))
+... | just result = checkDepthAndConvert (proj₁ result)
 
 -- Convenience wrapper that returns Maybe (for backward compatibility)
 parseProperty : String → Maybe PythonLTL

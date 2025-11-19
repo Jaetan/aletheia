@@ -310,27 +310,17 @@ spaces = many space
 -- UTILITY COMBINATORS
 -- ============================================================================
 
--- | Run a parser and extract result, discarding remainder and position
-runParser : ∀ {A : Set} → Parser A → List Char → Maybe A
+-- | Run a parser from the beginning of input
+-- Returns parsed value with final position (for error reporting)
+runParser : ∀ {A : Set} → Parser A → List Char → Maybe (A × Position)
 runParser p input with p initialPosition input
-... | nothing = nothing
-... | just result = just (value result)
-
--- | Run parser partially, returning result, position, and remainder
-runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (ParseResult A)
-runParserPartial p input = p initialPosition input
-
--- | Run parser and return result with position (for error reporting)
-runParserWithPos : ∀ {A : Set} → Parser A → List Char → Maybe (A × Position)
-runParserWithPos p input with p initialPosition input
 ... | nothing = nothing
 ... | just result = just (value result , position result)
 
--- | Run parser and get final position (useful for tracking progress)
-runParserPos : ∀ {A : Set} → Parser A → List Char → Maybe Position
-runParserPos p input with p initialPosition input
-... | nothing = nothing
-... | just result = just (position result)
+-- | Run parser and return full result (value, position, and remaining input)
+-- Useful for incremental parsing or when you need unconsumed input
+runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (ParseResult A)
+runParserPartial p input = p initialPosition input
 
 -- | Optional: parse A or return nothing if it fails
 optional : ∀ {A : Set} → Parser A → Parser (Maybe A)

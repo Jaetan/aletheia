@@ -174,7 +174,7 @@ parseByteOrder =
 validateByteOrder : String → Parser ByteOrder
 validateByteOrder "little_endian" = pure LittleEndian
 validateByteOrder "big_endian" = pure BigEndian
-validateByteOrder _ = λ _ → nothing
+validateByteOrder _ = fail
 
 -- Parse boolean from unsigned/signed
 parseSigned : Parser Bool
@@ -186,7 +186,7 @@ parseSigned =
 validateSigned : String → Parser Bool
 validateSigned "unsigned" = pure false
 validateSigned "signed" = pure true
-validateSigned _ = λ _ → nothing
+validateSigned _ = fail
 
 -- Parse a signal definition at given base indentation
 -- First field (name) is on same line as "- ", rest are indented on new lines
