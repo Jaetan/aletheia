@@ -306,6 +306,10 @@ space = satisfy isSpace
 spaces : Parser (List Char)
 spaces = many space
 
+-- Parse a newline character
+newline : Parser Char
+newline = char '\n'
+
 -- ============================================================================
 -- UTILITY COMBINATORS
 -- ============================================================================

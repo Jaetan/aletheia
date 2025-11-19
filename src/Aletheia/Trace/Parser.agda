@@ -14,6 +14,7 @@ open import Data.String using (String; toList)
 open import Data.Char using (Char)
 open import Data.Vec using (Vec)
 open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Product using (_,_)
 
 -- ============================================================================
 -- YAML TRACE PARSER
@@ -60,16 +61,16 @@ hexByte =
 byteArray8 : Parser (Vec (Fin 256) 8)
 byteArray8 =
   char '[' *> spaces *>
-  (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-   (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-    (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-     (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-      (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-       (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-        (Data.Vec._∷_ <$> hexByte <* char ',' <* spaces <*>
-         (Data.Vec._∷_ <$> hexByte <*>
-          pure Data.Vec.[]))))))))
-  <* spaces <* char ']'
+  hexByte >>= λ b0 → char ',' *> spaces *>
+  hexByte >>= λ b1 → char ',' *> spaces *>
+  hexByte >>= λ b2 → char ',' *> spaces *>
+  hexByte >>= λ b3 → char ',' *> spaces *>
+  hexByte >>= λ b4 → char ',' *> spaces *>
+  hexByte >>= λ b5 → char ',' *> spaces *>
+  hexByte >>= λ b6 → char ',' *> spaces *>
+  hexByte >>= λ b7 → spaces *> char ']' *>
+  pure (b0 Data.Vec.∷ b1 Data.Vec.∷ b2 Data.Vec.∷ b3 Data.Vec.∷
+        b4 Data.Vec.∷ b5 Data.Vec.∷ b6 Data.Vec.∷ b7 Data.Vec.∷ Data.Vec.[])
 
 -- Parse CAN ID (hex number)
 parseCANId : ℕ → Parser CANId
@@ -162,9 +163,6 @@ parseCANTrace =
 
 -- User-facing function: parse trace from string
 parseTrace : String → Maybe (List TimedFrame)
-parseTrace input =
-  case runParser parseCANTrace (toList input) of λ where
-    nothing → nothing
-    (just (trace , _)) → just trace
-  where
-    open import Data.Product using (proj₁)
+parseTrace input with runParser parseCANTrace (toList input)
+... | nothing = nothing
+... | just (trace , _) = just trace
