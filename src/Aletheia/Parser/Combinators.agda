@@ -2,21 +2,59 @@
 
 module Aletheia.Parser.Combinators where
 
-open import Data.List using (List; []; _∷_; _++_; map; length)
+open import Data.List using (List; []; _∷_; _++_; map; length; take)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
-open import Data.Char using (Char)
+open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
-open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _∸_)
 open import Data.String as String using (String)
 open import Function using (_∘_; id)
 open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
--- Parser type: consumes a list of characters, returns result and remainder
--- NEW: Structurally recursive - no fuel needed!
+-- ============================================================================
+-- POSITION TRACKING
+-- ============================================================================
+
+-- Source position (line and column numbers)
+record Position : Set where
+  constructor mkPos
+  field
+    line : ℕ
+    column : ℕ
+
+open Position public
+
+-- Initial position (start of input)
+initialPosition : Position
+initialPosition = mkPos 1 1
+
+-- Advance position by one character
+advancePosition : Position -> Char → Position
+advancePosition pos c with c ≈ᵇ '\n'
+... | true  = mkPos (suc (line pos)) 1
+... | false = mkPos (line pos) (suc (column pos))
+
+-- Advance position by a list of characters
+advancePositions : Position → List Char → Position
+advancePositions pos [] = pos
+advancePositions pos (c ∷ cs) = advancePositions (advancePosition pos c) cs
+
+-- Parse result with position information
+record ParseResult (A : Set) : Set where
+  constructor mkResult
+  field
+    value : A
+    position : Position
+    remaining : List Char
+
+open ParseResult public
+
+-- Parser type: takes position and input, returns result with new position
+-- NEW: Tracks position for precise error reporting!
 Parser : Set → Set
-Parser A = List Char → Maybe (A × List Char)
+Parser A = Position → List Char → Maybe (ParseResult A)
 
 -- ============================================================================
 -- BASIC COMBINATORS
@@ -24,33 +62,33 @@ Parser A = List Char → Maybe (A × List Char)
 
 -- | Always succeeds with given value, consumes nothing
 pure : ∀ {A : Set} → A → Parser A
-pure x input = just (x , input)
+pure x pos input = just (mkResult x pos input)
 
 -- | Always fails
 fail : ∀ {A : Set} → Parser A
-fail _ = nothing
+fail _ _ = nothing
 
 -- | Monadic bind for parsers
 _>>=_ : ∀ {A B : Set} → Parser A → (A → Parser B) → Parser B
-(p >>= f) input with p input
+(p >>= f) pos input with p pos input
 ... | nothing = nothing
-... | just (x , rest) = f x rest
+... | just result = f (value result) (position result) (remaining result)
 
 infixl 1 _>>=_
 
 -- | Map over parser result (functor)
 _<$>_ : ∀ {A B : Set} → (A → B) → Parser A → Parser B
-(f <$> p) input with p input
+(f <$> p) pos input with p pos input
 ... | nothing = nothing
-... | just (x , rest) = just (f x , rest)
+... | just result = just (mkResult (f (value result)) (position result) (remaining result))
 
 infixl 4 _<$>_
 
 -- | Applicative: apply a parser of functions to a parser of values
 _<*>_ : ∀ {A B : Set} → Parser (A → B) → Parser A → Parser B
-(pf <*> px) input with pf input
+(pf <*> px) pos input with pf pos input
 ... | nothing = nothing
-... | just (f , rest) = (f <$> px) rest
+... | just result = (value result <$> px) (position result) (remaining result)
 
 infixl 4 _<*>_
 
@@ -68,9 +106,9 @@ infixl 4 _<*_
 
 -- | Alternative: try first parser, if it fails, try second
 _<|>_ : ∀ {A : Set} → Parser A → Parser A → Parser A
-(p1 <|> p2) input with p1 input
+(p1 <|> p2) pos input with p1 pos input
 ... | just result = just result
-... | nothing = p2 input
+... | nothing = p2 pos input
 
 infixl 3 _<|>_
 
@@ -80,15 +118,14 @@ infixl 3 _<|>_
 
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char
-satisfy pred [] = nothing
-satisfy pred (c ∷ cs) with pred c
-... | true = just (c , cs)
+satisfy pred pos [] = nothing
+satisfy pred pos (c ∷ cs) with pred c
+... | true  = just (mkResult c (advancePosition pos c) cs)
 ... | false = nothing
 
 -- | Parse specific character
 char : Char → Parser Char
-char target = satisfy (λ c → c Data.Char.≈ᵇ target)
-  where open import Data.Char using (_≈ᵇ_)
+char target = satisfy (λ c → c ≈ᵇ target)
 
 -- | Parse any character
 anyChar : Parser Char
@@ -100,8 +137,7 @@ oneOf chars = satisfy (λ c → elem c chars)
   where
     elem : Char → List Char → Bool
     elem c [] = false
-    elem c (x ∷ xs) with c Data.Char.≈ᵇ x
-      where open import Data.Char using (_≈ᵇ_)
+    elem c (x ∷ xs) with c ≈ᵇ x
     ... | true = true
     ... | false = elem c xs
 
@@ -111,8 +147,7 @@ noneOf chars = satisfy (λ c → not (elem c chars))
   where
     elem : Char → List Char → Bool
     elem c [] = false
-    elem c (x ∷ xs) with c Data.Char.≈ᵇ x
-      where open import Data.Char using (_≈ᵇ_)
+    elem c (x ∷ xs) with c ≈ᵇ x
     ... | true = true
     ... | false = elem c xs
 
@@ -133,21 +168,21 @@ sameLengthᵇ (_ ∷ xs) (_ ∷ ys) = sameLengthᵇ xs ys
 -- Helper for many: structurally recursive on input via well-founded recursion
 -- Uses the length of the input as a measure
 private
-  manyHelper : ∀ {A : Set} → Parser A → (input : List Char) → ℕ → Maybe (List A × List Char)
+  manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Maybe (ParseResult (List A))
   -- Base case: ran out of attempts
-  manyHelper p input zero = just ([] , input)
+  manyHelper p pos input zero = just (mkResult [] pos input)
   -- Recursive case: try parser
-  manyHelper p input (suc n) with p input
-  ... | nothing = just ([] , input)  -- Parser failed, return empty list
-  ... | just (x , rest) with sameLengthᵇ input rest
-  ...   | true = just ([] , input)  -- No progress made, stop to ensure termination
-  ...   | false with manyHelper p rest n  -- Progress made, continue
-  ...     | nothing = just ((x ∷ []) , rest)  -- Couldn't continue, return what we have
-  ...     | just (xs , final) = just ((x ∷ xs) , final)
+  manyHelper p pos input (suc n) with p pos input
+  ... | nothing = just (mkResult [] pos input)  -- Parser failed, return empty list
+  ... | just result with sameLengthᵇ input (remaining result)
+  ...   | true = just (mkResult [] pos input)  -- No progress made, stop to ensure termination
+  ...   | false with manyHelper p (position result) (remaining result) n  -- Progress made, continue
+  ...     | nothing = just (mkResult ((value result) ∷ []) (position result) (remaining result))
+  ...     | just restResult = just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
 
 -- | Parse zero or more occurrences (structurally terminating)
 many : ∀ {A : Set} → Parser A → Parser (List A)
-many p input = manyHelper p input (length input)
+many p pos input = manyHelper p pos input (length input)
 
 -- | Parse one or more occurrences
 some : ∀ {A : Set} → Parser A → Parser (List A)
@@ -275,15 +310,27 @@ spaces = many space
 -- UTILITY COMBINATORS
 -- ============================================================================
 
--- | Run a parser and extract result, discarding remainder
+-- | Run a parser and extract result, discarding remainder and position
 runParser : ∀ {A : Set} → Parser A → List Char → Maybe A
-runParser p input with p input
+runParser p input with p initialPosition input
 ... | nothing = nothing
-... | just (result , _) = just result
+... | just result = just (value result)
 
--- | Run parser partially, returning both result and remainder
-runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (A × List Char)
-runParserPartial p input = p input
+-- | Run parser partially, returning result, position, and remainder
+runParserPartial : ∀ {A : Set} → Parser A → List Char → Maybe (ParseResult A)
+runParserPartial p input = p initialPosition input
+
+-- | Run parser and return result with position (for error reporting)
+runParserWithPos : ∀ {A : Set} → Parser A → List Char → Maybe (A × Position)
+runParserWithPos p input with p initialPosition input
+... | nothing = nothing
+... | just result = just (value result , position result)
+
+-- | Run parser and get final position (useful for tracking progress)
+runParserPos : ∀ {A : Set} → Parser A → List Char → Maybe Position
+runParserPos p input with p initialPosition input
+... | nothing = nothing
+... | just result = just (position result)
 
 -- | Optional: parse A or return nothing if it fails
 optional : ∀ {A : Set} → Parser A → Parser (Maybe A)
@@ -345,7 +392,7 @@ exactSpaces (suc n) = char ' ' *> exactSpaces n
 -- | Count leading spaces in remaining input (doesn't consume)
 -- Returns number of spaces before first non-space character
 countLeadingSpaces : Parser ℕ
-countLeadingSpaces input = just (countSpaces input 0 , input)
+countLeadingSpaces pos input = just (mkResult (countSpaces input 0) pos input)
   where
     countSpaces : List Char → ℕ → ℕ
     countSpaces [] n = n
