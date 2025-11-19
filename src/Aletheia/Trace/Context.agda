@@ -1,24 +1,14 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --safe --without-K --guardedness #-}
 
 module Aletheia.Trace.Context where
 
 open import Aletheia.CAN.Frame
 open import Aletheia.DBC.Types
+open import Aletheia.Trace.CANTrace using (TimedFrame) public
 open import Data.Nat using (ℕ)
 open import Data.List using (List)
 
--- ============================================================================
--- TIMESTAMPED FRAMES
--- ============================================================================
-
--- CAN frame with timestamp for time-based LTL properties
--- Timestamp is in microseconds since trace start
-record TimedFrame : Set where
-  constructor mkTimedFrame
-  field
-    timestamp : ℕ      -- microseconds since trace start
-    frame : CANFrame
-
+-- Re-export TimedFrame record accessors
 open TimedFrame public
 
 -- ============================================================================

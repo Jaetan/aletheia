@@ -5,6 +5,8 @@ module Aletheia.LTL.SignalPredicate where
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding
+open import Aletheia.CAN.SignalExtraction
+open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
 open import Data.String using (String; _≟_)
 open import Data.Rational as Rat using (ℚ; _/_; _-_; ∣_∣; _≤?_; _<?_)
@@ -33,32 +35,10 @@ data SignalPredicate : Set where
 -- HELPER FUNCTIONS
 -- ============================================================================
 
-canIdEquals : CANId → CANId → Bool
-canIdEquals (Standard x) (Standard y) = toℕ x ≡ᵇ toℕ y
-canIdEquals (Extended x) (Extended y) = toℕ x ≡ᵇ toℕ y
-canIdEquals _ _ = false
-
-findInList : ∀ {A : Set} → (A → Bool) → List A → Maybe A
-findInList pred [] = nothing
-findInList pred (x ∷ xs) = if pred x then just x else findInList pred xs
-
-findMessageById : CANId → DBC → Maybe DBCMessage
-findMessageById msgId dbc = findInList matchesId (DBC.messages dbc)
-  where
-    matchesId : DBCMessage → Bool
-    matchesId msg = canIdEquals msgId (DBCMessage.id msg)
-
-findSignalByName : String → DBCMessage → Maybe DBCSignal
-findSignalByName name msg = findInList matchesName (DBCMessage.signals msg)
-  where
-    matchesName : DBCSignal → Bool
-    matchesName sig = ⌊ DBCSignal.name sig ≟ name ⌋
-
+-- Extract signal value using new extraction with multiplexing support
+-- Returns Maybe ℚ for backward compatibility, but uses rich error types internally
 extractSignalValue : String → DBC → CANFrame → Maybe ℚ
-extractSignalValue sigName dbc frame =
-  findMessageById (CANFrame.id frame) dbc >>= λ msg →
-  findSignalByName sigName msg >>= λ sig →
-  extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+extractSignalValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
 -- ============================================================================
 -- COMPARISON HELPERS
