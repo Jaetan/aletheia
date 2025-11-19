@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --safe --without-K --guardedness #-}
 
 module Aletheia.LTL.SignalPredicate where
 
@@ -95,3 +95,36 @@ evalPredicatePair (ChangedBy sigName delta) dbc prevFrame currFrame =
   in just ⌊ delta Rat.≤? diff ⌋
 
 evalPredicatePair pred dbc _ currFrame = evalPredicate pred dbc currFrame
+
+-- ============================================================================
+-- MODEL CHECKER INTEGRATION
+-- ============================================================================
+
+open import Aletheia.LTL.Syntax using (LTL; mapLTL)
+open import Aletheia.LTL.Semantics using (satisfiesAt)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Data.List using (List; map)
+
+-- Evaluate predicate on a TimedFrame, defaulting to false on extraction failure
+evalOnFrame : DBC → SignalPredicate → TimedFrame → Bool
+evalOnFrame dbc pred timedFrame =
+  let frame = TimedFrame.frame timedFrame
+  in case evalPredicate pred dbc frame of λ where
+       nothing → false  -- Signal extraction failed
+       (just b) → b
+  where
+    open import Function using (case_of_)
+
+-- Check if a trace satisfies an LTL formula
+-- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
+checkProperty : DBC → List TimedFrame → LTL SignalPredicate → Bool
+checkProperty dbc frames formula =
+  let -- Transform each SignalPredicate to a predicate on TimedFrame
+      predToFunc : SignalPredicate → (TimedFrame → Bool)
+      predToFunc pred = evalOnFrame dbc pred
+
+      -- Transform the formula
+      transformedFormula : LTL (TimedFrame → Bool)
+      transformedFormula = mapLTL predToFunc formula
+
+  in satisfiesAt frames transformedFormula

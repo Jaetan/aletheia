@@ -24,7 +24,7 @@ open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.DSL.Parser using (parsePythonLTL; DSLParseResult; DSLSuccess; DSLError)
 open import Aletheia.LTL.DSL.Translate using (translate)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; checkProperty)
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -217,6 +217,7 @@ handleCheckLTL dbcYAML traceYAML propertyYAML =
                 translateHelper : Maybe (LTL SignalPredicate) → Response
                 translateHelper nothing = errorResponse "Failed to translate property to core LTL"
                 translateHelper (just ltlFormula) =
-                  -- TODO: Actually run the model checker
-                  -- For now, return a placeholder success
-                  successResponse "Property checked (model checker stub)" (LTLResultData true nothing)
+                  let result = checkProperty dbc frames ltlFormula
+                  in if result
+                     then successResponse "Property holds on trace" (LTLResultData true nothing)
+                     else successResponse "Property violated" (LTLResultData false nothing)
