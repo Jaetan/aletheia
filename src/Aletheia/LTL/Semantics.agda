@@ -4,8 +4,9 @@ module Aletheia.LTL.Semantics where
 
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Stream
+open import Aletheia.Trace.Context
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
-open import Data.Nat using (ℕ; zero; suc; _≤_)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _≤ᵇ_; _∸_)
 open import Data.List using (List; []; _∷_; length; drop)
 open import Data.Maybe using (Maybe; just; nothing)
 
@@ -74,3 +75,87 @@ checkList = satisfiesAt
 -- Always/Eventually on infinite traces require infinite computation.
 -- For practical use, convert lists to coinductive traces with fromListRepeat,
 -- or use bounded checking with satisfiesAt on finite prefixes.
+
+-- ============================================================================
+-- TIME-BASED SEMANTICS FOR TIMESTAMPED TRACES
+-- ============================================================================
+
+-- Helper: Get elapsed time between first frame and current position
+-- Returns microseconds elapsed since start of trace
+elapsedTime : List TimedFrame → ℕ
+elapsedTime [] = 0
+elapsedTime (tf ∷ _) = timestamp tf
+
+-- Helper: Check if within time window (microseconds)
+-- Given start time and window duration, returns true if current time is within window
+withinTimeWindow : ℕ → ℕ → ℕ → Bool
+withinTimeWindow startTime windowMicros currentTime =
+  (currentTime ∸ startTime) ≤ᵇ windowMicros
+
+-- Time-aware LTL checking on timestamped traces
+-- EventuallyWithin and AlwaysWithin use time (microseconds) instead of steps
+satisfiesAtTimed : List TimedFrame → LTL (TimedFrame → Bool) → Bool
+satisfiesAtTimed [] (Atomic _) = false
+satisfiesAtTimed (tf ∷ _) (Atomic pred) = pred tf
+
+satisfiesAtTimed trace (Not φ) = not (satisfiesAtTimed trace φ)
+
+satisfiesAtTimed trace (And φ ψ) = satisfiesAtTimed trace φ ∧ satisfiesAtTimed trace ψ
+
+satisfiesAtTimed trace (Or φ ψ) = satisfiesAtTimed trace φ ∨ satisfiesAtTimed trace ψ
+
+satisfiesAtTimed [] (Next _) = false
+satisfiesAtTimed (_ ∷ []) (Next φ) = satisfiesAtTimed [] (Next φ)
+satisfiesAtTimed (_ ∷ rest) (Next φ) = satisfiesAtTimed rest φ
+
+satisfiesAtTimed [] (Always _) = true
+satisfiesAtTimed (tf ∷ []) (Always φ) = satisfiesAtTimed (tf ∷ []) φ
+satisfiesAtTimed trace@(_ ∷ rest) (Always φ) = satisfiesAtTimed trace φ ∧ satisfiesAtTimed rest (Always φ)
+
+satisfiesAtTimed [] (Eventually _) = false
+satisfiesAtTimed trace@(_ ∷ rest) (Eventually φ) = satisfiesAtTimed trace φ ∨ satisfiesAtTimed rest (Eventually φ)
+
+satisfiesAtTimed [] (Until _ _) = false
+satisfiesAtTimed trace@(_ ∷ rest) (Until φ ψ) =
+  satisfiesAtTimed trace ψ ∨ (satisfiesAtTimed trace φ ∧ satisfiesAtTimed rest (Until φ ψ))
+
+-- Time-based bounded operators
+-- EventuallyWithin n φ: φ must hold within n microseconds from current time
+satisfiesAtTimed [] (EventuallyWithin _ _) = false
+satisfiesAtTimed trace@(tf ∷ rest) (EventuallyWithin windowMicros φ) =
+  -- Check if φ holds at current position or within the time window
+  satisfiesAtTimed trace φ ∨ checkWithinTime rest
+  where
+    open import Data.Bool using (if_then_else_)
+
+    startTime = timestamp tf
+
+    -- Check if φ holds somewhere in the remaining trace within the time window
+    checkWithinTime : List TimedFrame → Bool
+    checkWithinTime [] = false
+    checkWithinTime restTrace@(tf' ∷ more) =
+      if withinTimeWindow startTime windowMicros (timestamp tf')
+      then satisfiesAtTimed restTrace φ ∨ checkWithinTime more
+      else false  -- Beyond time window, stop checking
+
+-- AlwaysWithin n φ: φ must hold for n microseconds from current time
+satisfiesAtTimed [] (AlwaysWithin _ _) = true
+satisfiesAtTimed trace@(tf ∷ rest) (AlwaysWithin windowMicros φ) =
+  -- φ must hold at current position and throughout the time window
+  satisfiesAtTimed trace φ ∧ checkWithinTime rest
+  where
+    open import Data.Bool using (if_then_else_)
+
+    startTime = timestamp tf
+
+    -- Check if φ holds throughout the remaining trace within the time window
+    checkWithinTime : List TimedFrame → Bool
+    checkWithinTime [] = true  -- Vacuously true if trace ends
+    checkWithinTime restTrace@(tf' ∷ more) =
+      if withinTimeWindow startTime windowMicros (timestamp tf')
+      then satisfiesAtTimed restTrace φ ∧ checkWithinTime more
+      else true  -- Beyond time window, don't need to check
+
+-- Primary interface for time-based checking
+checkTimedTrace : List TimedFrame → LTL (TimedFrame → Bool) → Bool
+checkTimedTrace = satisfiesAtTimed
