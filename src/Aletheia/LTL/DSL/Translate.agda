@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --safe --without-K --guardedness #-}
 
 module Aletheia.LTL.DSL.Translate where
 

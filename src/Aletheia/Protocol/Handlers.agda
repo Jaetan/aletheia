@@ -13,12 +13,13 @@ open import Aletheia.CAN.Endianness
 open import Aletheia.Parser.Combinators
 open import Data.String using (String; _++_; toList; _≟_)
 open import Data.List using (List; _∷_; [])
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Vec using (Vec)
 open import Data.Rational using (ℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Nat using (ℕ)
+open import Data.Product using (proj₁)
 open import Aletheia.Trace.Parser using (parseTrace)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.DSL.Parser using (parsePythonLTL; DSLParseResult; DSLSuccess; DSLError)
@@ -56,7 +57,7 @@ findSignal sigName msg = find matchName (DBCMessage.signals msg)
 -- Handle ParseDBC command
 {-# NOINLINE handleParseDBC #-}
 handleParseDBC : String → Response
-handleParseDBC yaml = parseHelper (runParser parseDBC (toList yaml))
+handleParseDBC yaml = parseHelper (map proj₁ (runParser parseDBC (toList yaml)))
   where
     parseHelper : Maybe DBC → Response
     parseHelper nothing = errorResponse "Failed to parse DBC YAML"
@@ -66,7 +67,7 @@ handleParseDBC yaml = parseHelper (runParser parseDBC (toList yaml))
 {-# NOINLINE handleExtractSignal #-}
 handleExtractSignal : String → String → String → Vec Byte 8 → Response
 handleExtractSignal dbcYAML msgName sigName frameBytes =
-  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  parseDBCHelper (map proj₁ (runParser parseDBC (toList dbcYAML)))
   where
     -- DEBUG: Show first byte value to diagnose parsing issue
     debugFirstByte : String
@@ -140,7 +141,7 @@ handleExtractSignal dbcYAML msgName sigName frameBytes =
 {-# NOINLINE handleInjectSignal #-}
 handleInjectSignal : String → String → String → ℚ → Vec Byte 8 → Response
 handleInjectSignal dbcYAML msgName sigName value frameBytes =
-  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  parseDBCHelper (map proj₁ (runParser parseDBC (toList dbcYAML)))
   where
     parseDBCHelper : Maybe DBC → Response
     parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"
@@ -200,7 +201,7 @@ handleInjectSignal dbcYAML msgName sigName value frameBytes =
 {-# NOINLINE handleCheckLTL #-}
 handleCheckLTL : String → String → String → Response
 handleCheckLTL dbcYAML traceYAML propertyYAML =
-  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  parseDBCHelper (map proj₁ (runParser parseDBC (toList dbcYAML)))
   where
     parseDBCHelper : Maybe DBC → Response
     parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"

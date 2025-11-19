@@ -20,9 +20,9 @@ main = do
     case args of
         ["--debug"] -> do
             -- Run debug mode (trace both parsers)
-            TIO.putStrLn Agda.d_runDebug_40
+            TIO.putStrLn Agda.d_runDebug_46
         _ -> do
             -- Normal mode: read input and process commands
             input <- TIO.getContents
-            let output = Agda.d_processCommand_28 input
+            let output = Agda.d_processCommand_34 input
             TIO.putStrLn output

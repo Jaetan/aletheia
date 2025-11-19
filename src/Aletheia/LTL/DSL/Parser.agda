@@ -249,3 +249,15 @@ parseProperty : String → Maybe PythonLTL
 parseProperty input with parsePropertyWithError input
 ... | inj₁ _ = nothing
 ... | inj₂ ltl = just ltl
+
+-- ============================================================================
+-- PUBLIC API (aliases for cleaner imports)
+-- ============================================================================
+
+-- Result type with pattern synonyms
+pattern DSLSuccess ltl = inj₂ ltl
+pattern DSLError msg = inj₁ msg
+
+-- Main entry point
+parsePythonLTL : String → DSLParseResult
+parsePythonLTL = parsePropertyWithError
