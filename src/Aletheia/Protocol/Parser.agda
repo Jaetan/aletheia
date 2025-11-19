@@ -56,10 +56,6 @@ quotedString : Parser String
 quotedString =
   fromList <$> (char '"' *> many (satisfy λ c → not ⌊ c ≟ '"' ⌋) <* char '"')
 
--- Parse newline
-newline : Parser Char
-newline = char '\n'
-
 -- Parse a key-value pair: "key: value"
 keyValue : String → Parser String
 keyValue key =
@@ -190,6 +186,17 @@ parseCommand =
             mkInjectSignal msgName sigName sigValue frameBytes dbcYaml =
               InjectSignal dbcYaml msgName sigName sigValue frameBytes
 
+        parseCheckLTLBody : Parser Command
+        parseCheckLTLBody =
+          mkCheckLTL
+            <$> multilineValue "dbc_yaml"
+            <*> (newline *> multilineValue "trace_yaml")
+            <*> (newline *> multilineValue "property_yaml")
+          where
+            mkCheckLTL : String → String → String → Command
+            mkCheckLTL dbcYaml traceYaml propertyYaml =
+              CheckLTL dbcYaml traceYaml propertyYaml
+
         -- Route function (uses the parsers defined above)
         -- Pattern match on Bool result of string equality
         route : String → Parser Command
@@ -201,4 +208,6 @@ parseCommand =
         ...     | true  = parseExtractSignalBody
         ...     | false with name == "InjectSignal"
         ...       | true  = parseInjectSignalBody
-        ...       | false = fail  -- Unknown command
+        ...       | false with name == "CheckLTL"
+        ...         | true  = parseCheckLTLBody
+        ...         | false = fail  -- Unknown command

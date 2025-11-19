@@ -151,10 +151,6 @@ rational =
 -- YAML STRUCTURE PARSERS (using block-based combinators)
 -- ============================================================================
 
--- Parse newline
-newline : Parser Char
-newline = char '\n'
-
 -- Parse "key: value" pair (no indentation)
 keyValue : ∀ {A : Set} → String → Parser A → Parser A
 keyValue key valueParser =
