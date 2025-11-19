@@ -103,11 +103,36 @@ evalPredicatePair pred dbc _ currFrame = evalPredicate pred dbc currFrame
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
 open import Aletheia.LTL.Semantics using (satisfiesAtTimed)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
-open import Data.List using (List; map)
+open import Data.List using (List; map; []; _∷_)
+open import Data.Nat using (_≡ᵇ_) renaming (_≟_ to _≟ℕ_)
 
--- Evaluate predicate on a TimedFrame, defaulting to false on extraction failure
-evalOnFrame : DBC → SignalPredicate → TimedFrame → Bool
-evalOnFrame dbc pred timedFrame =
+-- Find the previous frame in a trace (by matching timestamp)
+-- Returns nothing if this is the first frame or not found
+findPrevFrame : TimedFrame → List TimedFrame → Maybe TimedFrame
+findPrevFrame _ [] = nothing
+findPrevFrame _ (_ ∷ []) = nothing
+findPrevFrame curr (prev ∷ next ∷ rest) =
+  if TimedFrame.timestamp next ≡ᵇ TimedFrame.timestamp curr
+  then just prev
+  else findPrevFrame curr (next ∷ rest)
+
+-- Evaluate predicate on a TimedFrame with access to previous frame for ChangedBy
+-- For ChangedBy: looks up previous frame in trace
+-- For other predicates: uses single-frame evaluation
+evalOnFrameWithTrace : DBC → List TimedFrame → SignalPredicate → TimedFrame → Bool
+evalOnFrameWithTrace dbc trace pred@(ChangedBy _ _) currFrame =
+  let currCANFrame = TimedFrame.frame currFrame
+  in case findPrevFrame currFrame trace of λ where
+       nothing → false  -- No previous frame (first in trace)
+       (just prevTF) →
+         let prevCANFrame = TimedFrame.frame prevTF
+         in case evalPredicatePair pred dbc prevCANFrame currCANFrame of λ where
+              nothing → false
+              (just b) → b
+  where
+    open import Function using (case_of_)
+
+evalOnFrameWithTrace dbc _ pred timedFrame =
   let frame = TimedFrame.frame timedFrame
   in case evalPredicate pred dbc frame of λ where
        nothing → false  -- Signal extraction failed
@@ -115,14 +140,26 @@ evalOnFrame dbc pred timedFrame =
   where
     open import Function using (case_of_)
 
+-- Legacy single-frame evaluation (for backward compatibility)
+evalOnFrame : DBC → SignalPredicate → TimedFrame → Bool
+evalOnFrame dbc pred timedFrame =
+  let frame = TimedFrame.frame timedFrame
+  in case evalPredicate pred dbc frame of λ where
+       nothing → false
+       (just b) → b
+  where
+    open import Function using (case_of_)
+
 -- Check if a trace satisfies an LTL formula
 -- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
 -- Uses satisfiesAtTimed for proper timestamp-based EventuallyWithin/AlwaysWithin
+-- ChangedBy predicates use previous frame lookup
 checkProperty : DBC → List TimedFrame → LTL SignalPredicate → Bool
 checkProperty dbc frames formula =
   let -- Transform each SignalPredicate to a predicate on TimedFrame
+      -- Captures trace for ChangedBy previous frame lookup
       predToFunc : SignalPredicate → (TimedFrame → Bool)
-      predToFunc pred = evalOnFrame dbc pred
+      predToFunc pred = evalOnFrameWithTrace dbc frames pred
 
       -- Transform the formula
       transformedFormula : LTL (TimedFrame → Bool)
