@@ -24,3 +24,7 @@ data Command : Set where
   -- Inject a signal value into a CAN frame
   -- Args: DBC YAML, message name, signal name, signal value, frame bytes
   InjectSignal : String → String → String → ℚ → Vec Byte 8 → Command
+
+  -- Check an LTL property on a CAN trace
+  -- Args: DBC YAML, Trace YAML, Property YAML (PythonLTL format)
+  CheckLTL : String → String → String → Command

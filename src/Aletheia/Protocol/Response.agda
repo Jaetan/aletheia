@@ -22,6 +22,8 @@ data ResponseData : Set where
   DBCData : DBC → ResponseData
   SignalValueData : ℚ → ResponseData
   FrameData : Vec Byte 8 → ResponseData
+  -- LTL check result: holds? and optional counterexample index
+  LTLResultData : Bool → Maybe ℕ → ResponseData
 
 -- Complete response with success/error and optional data
 record Response : Set where
@@ -92,3 +94,11 @@ formatResponse resp =
     formatData (DBCData dbc) = "dbc: <parsed>\n"  -- TODO Phase 5: Implement DBC serialization (pretty-printer)
     formatData (SignalValueData val) = "value: " ++ ℚShow.show val ++ "\n"
     formatData (FrameData bytes) = "frame: " ++ bytesToHex bytes ++ "\n"
+    formatData (LTLResultData holds counterex) =
+      "property_holds: " ++ (if holds then "true" else "false") ++ "\n" ++
+      formatCounterex counterex
+      where
+        open import Data.Nat.Show as ℕShow using (show)
+        formatCounterex : Maybe ℕ → String
+        formatCounterex nothing = ""
+        formatCounterex (just idx) = "counterexample_index: " ++ ℕShow.show idx ++ "\n"

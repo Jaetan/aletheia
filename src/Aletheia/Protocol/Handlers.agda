@@ -18,6 +18,13 @@ open import Data.Vec using (Vec)
 open import Data.Rational using (ℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Data.Nat using (ℕ)
+open import Aletheia.Trace.Parser using (parseTrace)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.LTL.DSL.Parser using (parsePythonLTL; DSLParseResult; DSLSuccess; DSLError)
+open import Aletheia.LTL.DSL.Translate using (translate)
+open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -188,3 +195,28 @@ handleInjectSignal dbcYAML msgName sigName value frameBytes =
                           in if ⌊ muxValue Rat.≟ expectedℚ ⌋
                              then injectHelper (injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame)
                              else errorResponse ("Signal not present (multiplexor " ++ muxName ++ " value mismatch)")
+
+-- Handle CheckLTL command
+{-# NOINLINE handleCheckLTL #-}
+handleCheckLTL : String → String → String → Response
+handleCheckLTL dbcYAML traceYAML propertyYAML =
+  parseDBCHelper (runParser parseDBC (toList dbcYAML))
+  where
+    parseDBCHelper : Maybe DBC → Response
+    parseDBCHelper nothing = errorResponse "Failed to parse DBC YAML"
+    parseDBCHelper (just dbc) = parseTraceHelper (parseTrace traceYAML)
+      where
+        parseTraceHelper : Maybe (List TimedFrame) → Response
+        parseTraceHelper nothing = errorResponse "Failed to parse trace YAML"
+        parseTraceHelper (just frames) = parsePropHelper (parsePythonLTL propertyYAML)
+          where
+            parsePropHelper : DSLParseResult → Response
+            parsePropHelper (DSLError msg) = errorResponse ("Failed to parse property: " ++ msg)
+            parsePropHelper (DSLSuccess pythonLTL) = translateHelper (translate pythonLTL)
+              where
+                translateHelper : Maybe (LTL SignalPredicate) → Response
+                translateHelper nothing = errorResponse "Failed to translate property to core LTL"
+                translateHelper (just ltlFormula) =
+                  -- TODO: Actually run the model checker
+                  -- For now, return a placeholder success
+                  successResponse "Property checked (model checker stub)" (LTLResultData true nothing)
