@@ -92,7 +92,7 @@ evalPredicatePair (ChangedBy sigName delta) dbc prevFrame currFrame =
   extractSignalValue sigName dbc prevFrame >>= λ prevVal →
   extractSignalValue sigName dbc currFrame >>= λ currVal →
   let diff = ∣ currVal Rat.- prevVal ∣
-  in just ⌊ delta Rat.≤? diff ⌋
+  in just ⌊ diff Rat.≤? delta ⌋
 
 evalPredicatePair pred dbc _ currFrame = evalPredicate pred dbc currFrame
 
@@ -123,7 +123,7 @@ evalOnFrameWithTrace : DBC → List TimedFrame → SignalPredicate → TimedFram
 evalOnFrameWithTrace dbc trace pred@(ChangedBy _ _) currFrame =
   let currCANFrame = TimedFrame.frame currFrame
   in case findPrevFrame currFrame trace of λ where
-       nothing → false  -- No previous frame (first in trace)
+       nothing → true  -- No previous frame (first in trace) - vacuously true
        (just prevTF) →
          let prevCANFrame = TimedFrame.frame prevTF
          in case evalPredicatePair pred dbc prevCANFrame currCANFrame of λ where
