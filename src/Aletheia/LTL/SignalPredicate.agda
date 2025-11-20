@@ -101,7 +101,7 @@ evalPredicatePair pred dbc _ currFrame = evalPredicate pred dbc currFrame
 -- ============================================================================
 
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
-open import Aletheia.LTL.Semantics using (satisfiesAtTimed)
+open import Aletheia.LTL.Incremental using (checkListStreaming)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Data.List using (List; map; []; _∷_)
 open import Data.Nat using (_≡ᵇ_) renaming (_≟_ to _≟ℕ_)
@@ -152,7 +152,7 @@ evalOnFrame dbc pred timedFrame =
 
 -- Check if a trace satisfies an LTL formula
 -- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
--- Uses satisfiesAtTimed for proper timestamp-based EventuallyWithin/AlwaysWithin
+-- Uses incremental checker with early termination for large traces
 -- ChangedBy predicates use previous frame lookup
 checkProperty : DBC → List TimedFrame → LTL SignalPredicate → Bool
 checkProperty dbc frames formula =
@@ -165,4 +165,5 @@ checkProperty dbc frames formula =
       transformedFormula : LTL (TimedFrame → Bool)
       transformedFormula = mapLTL predToFunc formula
 
-  in satisfiesAtTimed frames transformedFormula
+  -- Use incremental checker with early termination
+  in checkListStreaming frames transformedFormula

@@ -5,7 +5,7 @@ module Aletheia.LTL.Semantics where
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Stream
 open import Aletheia.Trace.Context
-open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
+open import Data.Bool using (Bool; true; false; _∧_; _∨_; not; if_then_else_)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _≤ᵇ_; _∸_)
 open import Data.List using (List; []; _∷_; length; drop)
 open import Data.Maybe using (Maybe; just; nothing)
