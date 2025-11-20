@@ -4,7 +4,41 @@ from pathlib import Path
 from typing import Dict, Any, List, Union
 import yaml
 
-from aletheia._binary import call_aletheia_binary
+from aletheia._binary import get_binary_path
+import subprocess
+
+
+def _call_binary(command_yaml: str, timeout: int = 60) -> Dict[str, Any]:
+    """Call the Aletheia binary with a command and return parsed response
+
+    Args:
+        command_yaml: YAML-formatted command string
+        timeout: Timeout in seconds
+
+    Returns:
+        Parsed YAML response as dictionary
+
+    Raises:
+        RuntimeError: If binary call fails
+    """
+    binary = get_binary_path()
+
+    try:
+        result = subprocess.run(
+            [str(binary)],
+            input=command_yaml.encode('utf-8'),
+            capture_output=True,
+            check=True,
+            timeout=timeout
+        )
+
+        response_yaml = result.stdout.decode('utf-8')
+        return yaml.safe_load(response_yaml)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
+        raise RuntimeError(f"Binary failed: {stderr}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Binary timed out")
 
 
 class CANDecoder:
@@ -53,27 +87,8 @@ class CANDecoder:
             else:
                 command_yaml += '\n'
 
-        # Call binary directly with formatted YAML
-        from aletheia._binary import get_binary_path
-        import subprocess
-        binary = get_binary_path()
-
-        try:
-            result = subprocess.run(
-                [str(binary)],
-                input=command_yaml.encode('utf-8'),
-                capture_output=True,
-                check=True,
-                timeout=60
-            )
-
-            response_yaml = result.stdout.decode('utf-8')
-            response = yaml.safe_load(response_yaml)
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
-            raise RuntimeError(f"Binary failed: {stderr}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Binary timed out")
+        # Call binary with formatted YAML
+        response = _call_binary(command_yaml)
 
         # Check response status
         if not response.get('success'):
@@ -132,27 +147,8 @@ dbc_yaml: |
             else:
                 command_yaml += '\n'
 
-        # Call binary directly
-        from aletheia._binary import get_binary_path
-        import subprocess
-        binary = get_binary_path()
-
-        try:
-            result = subprocess.run(
-                [str(binary)],
-                input=command_yaml.encode('utf-8'),
-                capture_output=True,
-                check=True,
-                timeout=60
-            )
-
-            response_yaml = result.stdout.decode('utf-8')
-            response = yaml.safe_load(response_yaml)
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
-            raise RuntimeError(f"Binary failed: {stderr}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Binary timed out")
+        # Call binary
+        response = _call_binary(command_yaml)
 
         # Check response status
         if not response.get('success'):
@@ -211,27 +207,8 @@ dbc_yaml: |
             else:
                 command_yaml += '\n'
 
-        # Call binary directly
-        from aletheia._binary import get_binary_path
-        import subprocess
-        binary = get_binary_path()
-
-        try:
-            result = subprocess.run(
-                [str(binary)],
-                input=command_yaml.encode('utf-8'),
-                capture_output=True,
-                check=True,
-                timeout=60
-            )
-
-            response_yaml = result.stdout.decode('utf-8')
-            response = yaml.safe_load(response_yaml)
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
-            raise RuntimeError(f"Binary failed: {stderr}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Binary timed out")
+        # Call binary
+        response = _call_binary(command_yaml)
 
         # Check response status
         if not response.get('success'):
@@ -308,27 +285,8 @@ dbc_yaml: |
             else:
                 command_yaml += '\n'
 
-        # Call binary directly
-        from aletheia._binary import get_binary_path
-        import subprocess
-        binary = get_binary_path()
-
-        try:
-            result = subprocess.run(
-                [str(binary)],
-                input=command_yaml.encode('utf-8'),
-                capture_output=True,
-                check=True,
-                timeout=60
-            )
-
-            response_yaml = result.stdout.decode('utf-8')
-            response = yaml.safe_load(response_yaml)
-        except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
-            raise RuntimeError(f"Binary failed: {stderr}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("Binary timed out")
+        # Call binary
+        response = _call_binary(command_yaml)
 
         # Check response status
         if not response.get('success'):
