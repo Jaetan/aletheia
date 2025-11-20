@@ -13,7 +13,7 @@ open import Data.Integer using (ℤ; +_)
 open import Data.Vec using (Vec; _∷_; [])
 open import Data.Fin using (Fin; #_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _*_)
+open import Data.Nat using (ℕ; _+_; _*_; suc; zero)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Data.Char using (_≟_)
@@ -72,6 +72,28 @@ multilineValue : String → Parser String
 multilineValue key =
   fromList <$>
     (string key *> char ':' *> spaces *> optional (char '|') *> newline *> many anyChar)
+
+-- Parse content between markers
+-- Format: key: |\n<content>\n---
+multilineSection : String → Parser String
+multilineSection key =
+  string key *> char ':' *> spaces *> optional (char '|') *> newline *>
+  (fromList <$> contentUntilMarker)
+  where
+    -- Parse until we see \n---\n or end of input
+    -- Uses fuel for termination (100000 chars should be enough for any DBC/trace)
+    contentUntilMarker : Parser (List Char)
+    contentUntilMarker = go 100000 []
+      where
+        open import Data.List using (reverse)
+
+        go : ℕ → List Char → Parser (List Char)
+        go zero acc = pure (reverse acc)  -- Fuel exhausted
+        go (suc fuel) acc =
+          -- Try to parse end marker
+          (newline *> string "---" *> pure (reverse acc)) <|>
+          -- Otherwise consume a character and continue
+          (anyChar >>= λ c → go fuel (c ∷ acc))
 
 -- Parse a single hex byte "0xNN" → Fin 256
 -- Uses modulo to automatically prove the result is in bounds
@@ -189,9 +211,9 @@ parseCommand =
         parseCheckLTLBody : Parser Command
         parseCheckLTLBody =
           mkCheckLTL
-            <$> multilineValue "dbc_yaml"
-            <*> (newline *> multilineValue "trace_yaml")
-            <*> (newline *> multilineValue "property_yaml")
+            <$> (multilineSection "dbc_yaml" <* newline)
+            <*> (multilineSection "trace_yaml" <* newline)
+            <*> multilineValue "property_yaml"
           where
             mkCheckLTL : String → String → String → Command
             mkCheckLTL dbcYaml traceYaml propertyYaml =
