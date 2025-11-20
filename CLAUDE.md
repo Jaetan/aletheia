@@ -492,6 +492,15 @@ Aletheia follows a phased implementation plan:
 - Standard library of checks (common properties)
 - Example gallery (real-world use cases)
 
+**Documentation** (Priority):
+- Python API reference with clear examples
+- LTL property YAML format specification
+- "Why Formal Verification?" guide for non-technical stakeholders
+  - Target: Python developers and managers unfamiliar with formal methods
+  - Must be candid, precise, concise
+  - Address concerns: complexity, overhead, when it's worth it
+  - Explain what guarantees you get vs traditional testing
+
 **Robustness**:
 - Edge case handling
 - Graceful degradation

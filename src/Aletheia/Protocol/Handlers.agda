@@ -22,9 +22,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (proj₁)
 open import Aletheia.Trace.Parser using (parseTrace)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
-open import Aletheia.LTL.DSL.Parser using (parsePythonLTL; DSLParseResult; DSLSuccess; DSLError)
-open import Aletheia.LTL.DSL.Translate using (translate)
-open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.LTL.DSL.Parser using (parseLTL; DSLParseResult; DSLSuccess; DSLError)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; checkProperty)
 
 -- ============================================================================
@@ -209,16 +207,12 @@ handleCheckLTL dbcYAML traceYAML propertyYAML =
       where
         parseTraceHelper : Maybe (List TimedFrame) → Response
         parseTraceHelper nothing = errorResponse "Failed to parse trace YAML"
-        parseTraceHelper (just frames) = parsePropHelper (parsePythonLTL propertyYAML)
+        parseTraceHelper (just frames) = parsePropHelper (parseLTL propertyYAML)
           where
             parsePropHelper : DSLParseResult → Response
             parsePropHelper (DSLError msg) = errorResponse ("Failed to parse property: " ++ msg)
-            parsePropHelper (DSLSuccess pythonLTL) = translateHelper (translate pythonLTL)
-              where
-                translateHelper : Maybe (LTL SignalPredicate) → Response
-                translateHelper nothing = errorResponse "Failed to translate property to core LTL"
-                translateHelper (just ltlFormula) =
-                  let result = checkProperty dbc frames ltlFormula
-                  in if result
-                     then successResponse "Property holds on trace" (LTLResultData true nothing)
-                     else successResponse "Property violated" (LTLResultData false nothing)
+            parsePropHelper (DSLSuccess ltlFormula) =
+              let result = checkProperty dbc frames ltlFormula
+              in if result
+                 then successResponse "Property holds on trace" (LTLResultData true nothing)
+                 else successResponse "Property violated" (LTLResultData false nothing)

@@ -1,10 +1,11 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --safe --without-K --guardedness #-}
 
 module Aletheia.LTL.DSL.Parser where
 
 open import Aletheia.LTL.DSL.Yaml
-open import Aletheia.LTL.DSL.Convert
-open import Aletheia.LTL.DSL.Python
+open import Aletheia.LTL.DSL.Translate
+open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 open import Aletheia.Parser.Combinators
 open import Aletheia.DBC.Parser using (quotedString; identifier; natural; rational)
 open import Data.List using (List; []; _∷_)
@@ -213,9 +214,12 @@ data ParseError : Set where
   SyntaxError : String → Position → ParseError
   FuelExhausted : ℕ → ℕ → ParseError  -- actual depth, fuel limit
 
--- Parse result with error information
+-- Parse result: error message or LTL formula
 DSLParseResult : Set
-DSLParseResult = String ⊎ PythonLTL
+DSLParseResult = String ⊎ LTL SignalPredicate
+
+pattern DSLSuccess ltl = inj₂ ltl
+pattern DSLError msg = inj₁ msg
 
 -- Format error message
 formatError : ParseError → String
@@ -227,37 +231,16 @@ formatError (FuelExhausted actualDepth fuelLimit) =
   ") exceeds parser limit (" ++ show fuelLimit ++
   "). Please simplify the property structure or contact support."
 
--- Helper: Pattern match on Dec result
-checkHelper : (propYaml : PropertyYaml) → (d : ℕ) → Dec (d ≤ 100) → DSLParseResult
-checkHelper propYaml d (yes _) = inj₂ (propertyYamlToLTL propYaml)
-checkHelper propYaml d (no _) = inj₁ (formatError (FuelExhausted d 100))
+-- Check depth and translate to LTL
+checkAndTranslate : PropertyYaml → DSLParseResult
+checkAndTranslate propYaml with depth propYaml ≤? 100
+... | no _ = inj₁ (formatError (FuelExhausted (depth propYaml) 100))
+... | yes _ with translate propYaml
+...   | nothing = inj₁ "Translation error: unsupported property structure"
+...   | just ltl = inj₂ ltl
 
--- Helper: Check depth and convert or report error
-checkDepthAndConvert : PropertyYaml → DSLParseResult
-checkDepthAndConvert propYaml =
-  checkHelper propYaml (depth propYaml) (depth propYaml ≤? 100)
-
--- Parse YAML text to PythonLTL with error reporting
--- Uses fuel = 100 to handle deeply nested properties
-parsePropertyWithError : String → DSLParseResult
-parsePropertyWithError input with runParser (parsePropertyYaml 100) (toList input)
+-- Main entry point: parse YAML string to LTL formula
+parseLTL : String → DSLParseResult
+parseLTL input with runParser (parsePropertyYaml 100) (toList input)
 ... | nothing = inj₁ (formatError (SyntaxError "Could not parse YAML structure. Check property syntax." initialPosition))
-... | just result = checkDepthAndConvert (proj₁ result)
-
--- Convenience wrapper that returns Maybe (for backward compatibility)
-parseProperty : String → Maybe PythonLTL
-parseProperty input with parsePropertyWithError input
-... | inj₁ _ = nothing
-... | inj₂ ltl = just ltl
-
--- ============================================================================
--- PUBLIC API (aliases for cleaner imports)
--- ============================================================================
-
--- Result type with pattern synonyms
-pattern DSLSuccess ltl = inj₂ ltl
-pattern DSLError msg = inj₁ msg
-
--- Main entry point
-parsePythonLTL : String → DSLParseResult
-parsePythonLTL = parsePropertyWithError
+... | just result = checkAndTranslate (proj₁ result)
