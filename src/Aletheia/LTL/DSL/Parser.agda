@@ -154,14 +154,14 @@ parsePropertyYaml (suc fuel) =
       parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
       pure (NeverYaml expr)
 
-    -- Bounded temporal operators
+    -- Bounded temporal operators (time in microseconds)
     parseByType "eventually_within" =
-      parseKey "time_ms" *> natural >>= λ time →
+      parseKey "time_us" *> natural >>= λ time →
       skipWS *>
       parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
       pure (EventuallyWithinYaml time expr)
     parseByType "always_within" =
-      parseKey "time_ms" *> natural >>= λ time →
+      parseKey "time_us" *> natural >>= λ time →
       skipWS *>
       parseKey "formula" *> skipWS *> parseExprYaml >>= λ expr →
       pure (AlwaysWithinYaml time expr)

@@ -367,7 +367,7 @@ class TestTimeBasedOperators:
     def test_eventually_within_passes(self, decoder, increasing_speed_trace):
         """EventuallyWithin 1500µs Speed > 50 should pass (100 at t=1000µs)"""
         property_yaml = '''type: eventually_within
-time_ms: 1500
+time_us: 1500
 formula:
   type: compare
   signal: Speed
@@ -380,7 +380,7 @@ formula:
     def test_eventually_within_fails(self, decoder, increasing_speed_trace):
         """EventuallyWithin 500µs Speed > 50 should fail (still 0 at t=0, 100 at t=1000µs)"""
         property_yaml = '''type: eventually_within
-time_ms: 500
+time_us: 500
 formula:
   type: compare
   signal: Speed
@@ -393,7 +393,7 @@ formula:
     def test_always_within_passes(self, decoder, increasing_speed_trace):
         """AlwaysWithin 1500µs Speed < 150 should pass (0 at t=0, 100 at t=1000µs)"""
         property_yaml = '''type: always_within
-time_ms: 1500
+time_us: 1500
 formula:
   type: compare
   signal: Speed
@@ -406,7 +406,7 @@ formula:
     def test_always_within_fails(self, decoder, increasing_speed_trace):
         """AlwaysWithin 2500µs Speed < 150 should fail (200 at t=2000µs)"""
         property_yaml = '''type: always_within
-time_ms: 2500
+time_us: 2500
 formula:
   type: compare
   signal: Speed
