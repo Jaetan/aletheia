@@ -76,24 +76,29 @@ multilineValue key =
 -- Parse content between markers
 -- Format: key: |\n<content>\n---
 multilineSection : String → Parser String
-multilineSection key =
-  string key *> char ':' *> spaces *> optional (char '|') *> newline *>
-  (fromList <$> contentUntilMarker)
+multilineSection key pos input = helper ((string key *> char ':' *> spaces *> optional (char '|') *> newline) pos input)
   where
-    -- Parse until we see \n---\n or end of input
-    -- Uses fuel for termination (100000 chars should be enough for any DBC/trace)
-    contentUntilMarker : Parser (List Char)
-    contentUntilMarker = go 100000 []
-      where
-        open import Data.List using (reverse)
+    open import Data.List using (reverse; length)
+    open import Aletheia.Parser.Combinators using (mkResult; position; remaining; value)
 
-        go : ℕ → List Char → Parser (List Char)
-        go zero acc = pure (reverse acc)  -- Fuel exhausted
-        go (suc fuel) acc =
-          -- Try to parse end marker
-          (newline *> string "---" *> pure (reverse acc)) <|>
-          -- Otherwise consume a character and continue
-          (anyChar >>= λ c → go fuel (c ∷ acc))
+    -- Parse until we see \n---\n or end of input
+    -- Uses input length as fuel (principled termination)
+    contentUntilMarker : Position → List Char → Maybe (ParseResult (List Char))
+    contentUntilMarker pos₂ input₂ = go (length input₂) [] pos₂ input₂
+      where
+        go : ℕ → List Char → Position → List Char → Maybe (ParseResult (List Char))
+        go zero acc p i = just (mkResult (reverse acc) p i)  -- Fuel exhausted
+        go (suc fuel) acc p i with (newline *> string "---") p i
+        ... | just r = just (mkResult (reverse acc) (position r) (remaining r))
+        ... | nothing with anyChar p i
+        ...   | just r₁ = go fuel (value r₁ ∷ acc) (position r₁) (remaining r₁)
+        ...   | nothing = nothing
+
+    helper : Maybe (ParseResult Char) → Maybe (ParseResult String)
+    helper nothing = nothing
+    helper (just result) with contentUntilMarker (position result) (remaining result)
+    ... | nothing = nothing
+    ... | just contentResult = just (mkResult (fromList (value contentResult)) (position contentResult) (remaining contentResult))
 
 -- Parse a single hex byte "0xNN" → Fin 256
 -- Uses modulo to automatically prove the result is in bounds
