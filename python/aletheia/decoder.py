@@ -242,6 +242,101 @@ dbc_yaml: |
         frame_result = response.get('frame', '')
         return _parse_frame_hex(frame_result)
 
+    def check_ltl(
+        self,
+        trace: List[Dict[str, Any]],
+        property_yaml: str
+    ) -> bool:
+        """Check an LTL property on a CAN trace
+
+        Uses the verified Agda LTL model checker.
+
+        Args:
+            trace: List of trace frames, each with:
+                   - timestamp: int (microseconds)
+                   - id: int (CAN ID as hex, e.g., 0x100)
+                   - dlc: int (data length)
+                   - data: List[int] (8 bytes)
+            property_yaml: LTL property in YAML format, e.g.:
+                   type: always
+                   formula:
+                     type: compare
+                     signal: VehicleSpeed
+                     op: LT
+                     value: 300
+
+        Returns:
+            True if property holds on trace, False if violated
+
+        Raises:
+            RuntimeError: If checking fails
+        """
+        # Format trace as YAML with frames: key
+        trace_lines = ['frames:']
+        for frame in trace:
+            trace_lines.append(f"  - timestamp: {frame['timestamp']}")
+            # Format ID as hex
+            frame_id = frame['id']
+            if isinstance(frame_id, int):
+                trace_lines.append(f"    id: 0x{frame_id:X}")
+            else:
+                trace_lines.append(f"    id: {frame_id}")
+            trace_lines.append(f"    dlc: {frame.get('dlc', 8)}")
+            # Format data as hex array
+            data = frame['data']
+            data_hex = ", ".join(f"0x{b:02X}" for b in data)
+            trace_lines.append(f"    data: [{data_hex}]")
+        trace_yaml = '\n'.join(trace_lines)
+
+        # Build command YAML with --- separators
+        command_yaml = 'command: "CheckLTL"\ndbc_yaml: |\n'
+        for line in self.dbc_yaml.splitlines():
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
+        command_yaml += '---\ntrace_yaml: |\n'
+        for line in trace_yaml.splitlines():
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
+        command_yaml += '---\nproperty_yaml: |\n'
+        for line in property_yaml.splitlines():
+            if line.strip():
+                command_yaml += f'  {line}\n'
+            else:
+                command_yaml += '\n'
+
+        # Call binary directly
+        from aletheia._binary import get_binary_path
+        import subprocess
+        binary = get_binary_path()
+
+        try:
+            result = subprocess.run(
+                [str(binary)],
+                input=command_yaml.encode('utf-8'),
+                capture_output=True,
+                check=True,
+                timeout=60
+            )
+
+            response_yaml = result.stdout.decode('utf-8')
+            response = yaml.safe_load(response_yaml)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode('utf-8') if e.stderr else 'No error output'
+            raise RuntimeError(f"Binary failed: {stderr}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Binary timed out")
+
+        # Check response status
+        if not response.get('success'):
+            error_msg = response.get('message', 'Unknown error')
+            raise RuntimeError(f"Failed to check property: {error_msg}")
+
+        return response.get('property_holds', False)
+
     def signal(self, signal_name: str) -> 'SignalRef':
         """Create a reference to a signal for use in LTL formulas
 
