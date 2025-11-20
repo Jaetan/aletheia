@@ -51,3 +51,9 @@ examples/*.log
 examples/output/
 *.log
 c.log
+
+# Temporary test files (development artifacts)
+/test_*.yaml
+/test_*.py
+/debug_*.py
+/tmp_*.yaml

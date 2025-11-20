@@ -1,5 +1,0 @@
-command: "ParseDBC"
-yaml: |
-  version: "1.0"
-
-  messages:
