@@ -355,6 +355,69 @@ class TestEqualsPredicate:
 
 
 # =============================================================================
+# TIME-BASED OPERATOR TESTS
+# =============================================================================
+
+class TestTimeBasedOperators:
+    """Tests for time-bounded operators (EventuallyWithin, AlwaysWithin)
+
+    Note: Timestamps are in microseconds. Test trace has timestamps at 0, 1000, 2000µs.
+    """
+
+    def test_eventually_within_passes(self, decoder, increasing_speed_trace):
+        """EventuallyWithin 1500µs Speed > 50 should pass (100 at t=1000µs)"""
+        property_yaml = '''type: eventually_within
+time_ms: 1500
+formula:
+  type: compare
+  signal: Speed
+  op: GT
+  value: 50
+'''
+        result = decoder.check_ltl(increasing_speed_trace, property_yaml)
+        assert result is True, "Speed > 50 at t=1000µs, within 1500µs window"
+
+    def test_eventually_within_fails(self, decoder, increasing_speed_trace):
+        """EventuallyWithin 500µs Speed > 50 should fail (still 0 at t=0, 100 at t=1000µs)"""
+        property_yaml = '''type: eventually_within
+time_ms: 500
+formula:
+  type: compare
+  signal: Speed
+  op: GT
+  value: 50
+'''
+        result = decoder.check_ltl(increasing_speed_trace, property_yaml)
+        assert result is False, "Speed > 50 not reached within 500µs"
+
+    def test_always_within_passes(self, decoder, increasing_speed_trace):
+        """AlwaysWithin 1500µs Speed < 150 should pass (0 at t=0, 100 at t=1000µs)"""
+        property_yaml = '''type: always_within
+time_ms: 1500
+formula:
+  type: compare
+  signal: Speed
+  op: LT
+  value: 150
+'''
+        result = decoder.check_ltl(increasing_speed_trace, property_yaml)
+        assert result is True, "Speed stays < 150 within first 1500µs"
+
+    def test_always_within_fails(self, decoder, increasing_speed_trace):
+        """AlwaysWithin 2500µs Speed < 150 should fail (200 at t=2000µs)"""
+        property_yaml = '''type: always_within
+time_ms: 2500
+formula:
+  type: compare
+  signal: Speed
+  op: LT
+  value: 150
+'''
+        result = decoder.check_ltl(increasing_speed_trace, property_yaml)
+        assert result is False, "Speed reaches 200 at t=2000µs, violates < 150"
+
+
+# =============================================================================
 # EDGE CASE TESTS
 # =============================================================================
 
