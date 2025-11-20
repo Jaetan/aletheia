@@ -65,12 +65,59 @@ keyValue key =
 parseCommandType : Parser String
 parseCommandType = keyValue "command"
 
+-- ============================================================================
+-- INDENTATION STRIPPING (for YAML literal blocks)
+-- ============================================================================
+
+private
+  open import Data.List.Base using (foldr; map)
+
+  -- Count leading spaces in a list of chars (pure function)
+  leadingSpaces : List Char → ℕ
+  leadingSpaces [] = 0
+  leadingSpaces (' ' ∷ cs) = suc (leadingSpaces cs)
+  leadingSpaces (_ ∷ _) = 0
+
+  -- Split list on a character, returning list of lists
+  splitOn : Char → List Char → List (List Char)
+  splitOn sep = foldr step ([] ∷ [])
+    where
+      open import Data.Bool using (true; false)
+      step : Char → List (List Char) → List (List Char)
+      step c [] = (c ∷ []) ∷ []
+      step c (curr ∷ rest) with ⌊ c ≟ sep ⌋
+      ... | true = [] ∷ (curr ∷ rest)
+      ... | false = (c ∷ curr) ∷ rest
+
+  -- Join lists with separator
+  joinWith : Char → List (List Char) → List Char
+  joinWith sep [] = []
+  joinWith sep (x ∷ []) = x
+  joinWith sep (x ∷ xs) = x Data.List.++ (sep ∷ joinWith sep xs)
+
+  -- Find first non-empty line and get its indentation
+  findIndent : List (List Char) → ℕ
+  findIndent [] = 0
+  findIndent ([] ∷ rest) = findIndent rest
+  findIndent (line ∷ _) = leadingSpaces line
+
+  -- Strip n characters from start of each line
+  stripLines : ℕ → List (List Char) → List (List Char)
+  stripLines n = map (Data.List.drop n)
+    where open import Data.List using (drop)
+
+  -- Strip common indentation from content (YAML literal block style)
+  stripIndent : List Char → List Char
+  stripIndent content = joinWith '\n' (stripLines indent lines)
+    where
+      lines = splitOn '\n' content
+      indent = findIndent lines
+
 -- Parse multiline YAML content after "key: |"
--- The DBC parser handles indentation automatically using withBaseIndent!
--- Simply extract raw YAML and pass it to the parser
+-- Strips YAML literal block indentation before passing to DBC parser
 multilineValue : String → Parser String
 multilineValue key =
-  fromList <$>
+  (λ chars → fromList (stripIndent chars)) <$>
     (string key *> char ':' *> spaces *> optional (char '|') *> newline *> many anyChar)
 
 -- Parse content between markers
@@ -98,7 +145,7 @@ multilineSection key pos input = helper ((string key *> char ':' *> spaces *> op
     helper nothing = nothing
     helper (just result) with contentUntilMarker (position result) (remaining result)
     ... | nothing = nothing
-    ... | just contentResult = just (mkResult (fromList (value contentResult)) (position contentResult) (remaining contentResult))
+    ... | just contentResult = just (mkResult (fromList (stripIndent (value contentResult))) (position contentResult) (remaining contentResult))
 
 -- Parse a single hex byte "0xNN" → Fin 256
 -- Uses modulo to automatically prove the result is in bounds
