@@ -5,10 +5,8 @@ module Aletheia.LTL.Incremental where
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not; if_then_else_)
-open import Data.Nat using (ℕ; zero; suc; _≤ᵇ_; _∸_)
-open import Data.List using (List; []; _∷_; length)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Nat using (ℕ; _≤ᵇ_; _∸_)
+open import Data.List using (List; []; _∷_)
 
 -- ============================================================================
 -- INCREMENTAL LTL CHECKING
@@ -16,38 +14,9 @@ open import Data.Product using (_×_; _,_; proj₁; proj₂)
 
 -- Process frames one at a time with early termination.
 -- Key features:
--- 1. Memory-bounded: doesn't need entire trace in memory
--- 2. Early termination: stops when result is known
--- 3. Multi-property: can check multiple formulas in one pass
-
--- ============================================================================
--- CHECKER STATE
--- ============================================================================
-
--- Status of incremental checking
-data CheckStatus : Set where
-  Running    : CheckStatus  -- Still processing, need more frames
-  Satisfied  : CheckStatus  -- Formula definitely holds
-  Violated   : CheckStatus  -- Formula definitely violated
-
--- Combine two statuses (for And/Or)
-combineAnd : CheckStatus → CheckStatus → CheckStatus
-combineAnd Violated _ = Violated
-combineAnd _ Violated = Violated
-combineAnd Satisfied Satisfied = Satisfied
-combineAnd _ _ = Running
-
-combineOr : CheckStatus → CheckStatus → CheckStatus
-combineOr Satisfied _ = Satisfied
-combineOr _ Satisfied = Satisfied
-combineOr Violated Violated = Violated
-combineOr _ _ = Running
-
--- State for tracking bounded operators
-record BoundedState : Set where
-  field
-    startTime : ℕ      -- When this operator started
-    satisfied : Bool   -- Has the condition been met?
+-- 1. Early termination: stops when result is known
+-- 2. Short-circuit evaluation for And/Or
+-- 3. Structurally recursive on formula tree
 
 -- ============================================================================
 -- EVALUATE NON-TEMPORAL FORMULAS
