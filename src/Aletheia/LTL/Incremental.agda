@@ -2,11 +2,9 @@
 
 module Aletheia.LTL.Incremental where
 
+open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
-open import Data.Bool using (Bool; true; false; _∧_; _∨_; not; if_then_else_)
-open import Data.Nat using (ℕ; _≤ᵇ_; _∸_)
-open import Data.List using (List; []; _∷_)
 
 -- ============================================================================
 -- INCREMENTAL LTL CHECKING

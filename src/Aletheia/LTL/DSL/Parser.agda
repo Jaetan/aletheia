@@ -2,23 +2,17 @@
 
 module Aletheia.LTL.DSL.Parser where
 
+open import Aletheia.Prelude
+open import Data.String using (_==_; toList)
+open import Data.Nat using (_≤?_)
+open import Data.Nat.Show using (show)
+
 open import Aletheia.LTL.DSL.Yaml
 open import Aletheia.LTL.DSL.Translate
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 open import Aletheia.Parser.Combinators
 open import Aletheia.DBC.Parser using (quotedString; identifier; natural; rational)
-open import Data.List using (List; []; _∷_)
-open import Data.String using (String; _==_; toList; _++_)
-open import Data.Rational using (ℚ)
-open import Data.Nat using (ℕ; zero; suc; _≤?_; _≤_)
-open import Data.Nat.Show using (show)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Char using (Char)
-open import Data.Bool using (if_then_else_; true; false)
-open import Data.Product using (proj₁)
-open import Relation.Nullary using (Dec; yes; no)
 
 -- ============================================================================
 -- YAML PRIMITIVES

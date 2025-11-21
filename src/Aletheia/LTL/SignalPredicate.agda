@@ -2,20 +2,16 @@
 
 module Aletheia.LTL.SignalPredicate where
 
+open import Aletheia.Prelude
+open import Data.Rational as Rat using (_/_; _-_; ∣_∣; _≤?_; _<?_)
+open import Data.Maybe using (_>>=_)
+
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding
 open import Aletheia.CAN.SignalExtraction
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
-open import Data.String using (String)
-open import Data.Rational as Rat using (ℚ; _/_; _-_; ∣_∣; _≤?_; _<?_)
-open import Data.Integer using (+_)
-open import Data.List using (List; _∷_; [])
-open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Data.Nat using (_≡ᵇ_)
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
 open import Aletheia.LTL.Incremental using (checkListStreaming)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
