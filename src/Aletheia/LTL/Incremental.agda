@@ -148,3 +148,123 @@ checkMultiple trace (φ ∷ rest) = checkIncremental trace φ ∷ checkMultiple 
 -- Primary interface for streaming check
 checkListStreaming : List TimedFrame → LTL (TimedFrame → Bool) → Bool
 checkListStreaming = checkIncremental
+
+-- ============================================================================
+-- COUNTEREXAMPLE GENERATION
+-- ============================================================================
+
+-- Counterexample: evidence of why a property failed
+record Counterexample : Set where
+  constructor mkCounterexample
+  field
+    violatingFrame : TimedFrame    -- The frame where violation occurred
+    reason : String                -- Human-readable explanation
+
+-- Result of checking with counterexample support
+data CheckResult : Set where
+  Pass : CheckResult
+  Fail : Counterexample → CheckResult
+
+-- Check formula and return counterexample on failure
+checkWithCounterexample : List TimedFrame → LTL (TimedFrame → Bool) → CheckResult
+checkWithCounterexample [] _ = Pass  -- Empty trace: vacuously true
+checkWithCounterexample frames@(first ∷ _) φ = checkFormulaCE frames φ
+  where
+    start = timestamp first
+
+    -- Main recursive checker returning counterexamples
+    checkFormulaCE : List TimedFrame → LTL (TimedFrame → Bool) → CheckResult
+
+    -- Atomic: check first frame
+    checkFormulaCE [] (Atomic _) = Pass
+    checkFormulaCE (tf ∷ _) (Atomic pred) =
+      if pred tf then Pass
+      else Fail (mkCounterexample tf "atomic predicate failed")
+
+    -- Not: invert (counterexample from inner becoming pass means outer fails)
+    checkFormulaCE trace (Not ψ) with checkFormulaCE trace ψ
+    ... | Pass = Fail (mkCounterexample first "negation failed (inner property held)")
+    ... | Fail _ = Pass
+
+    -- And: both must hold
+    checkFormulaCE trace (And ψ₁ ψ₂) with checkFormulaCE trace ψ₁
+    ... | Fail ce = Fail ce
+    ... | Pass = checkFormulaCE trace ψ₂
+
+    -- Or: either must hold
+    checkFormulaCE trace (Or ψ₁ ψ₂) with checkFormulaCE trace ψ₁
+    ... | Pass = Pass
+    ... | Fail ce₁ with checkFormulaCE trace ψ₂
+    ...   | Pass = Pass
+    ...   | Fail ce₂ = Fail ce₂  -- Return second counterexample
+
+    -- Next: check second frame
+    checkFormulaCE [] (Next _) = Pass
+    checkFormulaCE (_ ∷ []) (Next _) = Pass
+    checkFormulaCE (_ ∷ rest) (Next ψ) = checkFormulaCE rest ψ
+
+    -- Always: must hold on all frames
+    checkFormulaCE trace (Always ψ) = goAlwaysCE trace
+      where
+        goAlwaysCE : List TimedFrame → CheckResult
+        goAlwaysCE [] = Pass
+        goAlwaysCE (tf ∷ rest) =
+          if evalAtFrame tf ψ
+          then goAlwaysCE rest
+          else Fail (mkCounterexample tf "Always violated")
+
+    -- Eventually: must hold somewhere
+    checkFormulaCE trace (Eventually ψ) = goEventuallyCE trace
+      where
+        goEventuallyCE : List TimedFrame → CheckResult
+        goEventuallyCE [] = Fail (mkCounterexample first "Eventually never satisfied")
+        goEventuallyCE (tf ∷ rest) =
+          if evalAtFrame tf ψ
+          then Pass
+          else goEventuallyCE rest
+
+    -- Until: φ until ψ
+    checkFormulaCE trace (Until ψ₁ ψ₂) = goUntilCE trace
+      where
+        goUntilCE : List TimedFrame → CheckResult
+        goUntilCE [] = Fail (mkCounterexample first "Until: second condition never held")
+        goUntilCE (tf ∷ rest) =
+          if evalAtFrame tf ψ₂
+          then Pass
+          else if evalAtFrame tf ψ₁
+               then goUntilCE rest
+               else Fail (mkCounterexample tf "Until: first condition failed before second held")
+
+    -- EventuallyWithin: must hold within time window
+    checkFormulaCE trace (EventuallyWithin windowMicros ψ) = goEWCE trace
+      where
+        goEWCE : List TimedFrame → CheckResult
+        goEWCE [] = Fail (mkCounterexample first "EventuallyWithin: never satisfied")
+        goEWCE (tf ∷ rest) =
+          if (timestamp tf ∸ start) ≤ᵇ windowMicros
+          then if evalAtFrame tf ψ
+               then Pass
+               else goEWCE rest
+          else Fail (mkCounterexample tf "EventuallyWithin: window expired")
+
+    -- AlwaysWithin: must hold throughout time window
+    checkFormulaCE trace (AlwaysWithin windowMicros ψ) = goAWCE trace
+      where
+        goAWCE : List TimedFrame → CheckResult
+        goAWCE [] = Pass
+        goAWCE (tf ∷ rest) =
+          if (timestamp tf ∸ start) ≤ᵇ windowMicros
+          then if evalAtFrame tf ψ
+               then goAWCE rest
+               else Fail (mkCounterexample tf "AlwaysWithin: violated within window")
+          else Pass
+
+-- Helper to extract counterexample if present
+getCounterexample : CheckResult → Maybe Counterexample
+getCounterexample Pass = nothing
+getCounterexample (Fail ce) = just ce
+
+-- Helper to check if result is pass
+isPass : CheckResult → Bool
+isPass Pass = true
+isPass (Fail _) = false
