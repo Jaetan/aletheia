@@ -10,7 +10,8 @@ open import Data.Bool public
   using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
 
 open import Data.Nat public
-  using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _≤ᵇ_; _≡ᵇ_)
+  using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _≡ᵇ_)
+  -- Note: _≤ᵇ_ not exported to avoid clash with Data.Rational._≤ᵇ_
 
 open import Data.List public
   using (List; []; _∷_; length; map; filter; foldr)
@@ -25,7 +26,8 @@ open import Data.Char public
   using (Char)
 
 open import Data.Fin public
-  using (Fin; zero; suc; toℕ)
+  using (Fin; zero; suc)
+  -- Note: toℕ not exported to avoid clash with Data.Char.toℕ
 
 open import Data.Vec public
   using (Vec; []; _∷_)

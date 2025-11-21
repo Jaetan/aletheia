@@ -3,6 +3,7 @@
 module Aletheia.LTL.Incremental where
 
 open import Aletheia.Prelude
+open import Data.Nat using (_≤ᵇ_)
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 
