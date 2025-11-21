@@ -268,3 +268,20 @@ getCounterexample (Fail ce) = just ce
 isPass : CheckResult → Bool
 isPass Pass = true
 isPass (Fail _) = false
+
+-- ============================================================================
+-- NOTE ON MEMORY-BOUNDED STREAMING
+-- ============================================================================
+--
+-- True memory-bounded streaming (processing frames without building full list)
+-- requires either:
+-- 1. Sized types (--sized-types) to prove termination on coinductive streams
+-- 2. A fundamentally different parser architecture with lazy I/O
+--
+-- Current approach: Use list-based checking which compiles to lazy Haskell
+-- code via MAlonzo. This provides reasonable memory efficiency for most traces.
+--
+-- For 1GB+ traces, consider:
+-- - Chunked processing (check in segments)
+-- - External preprocessing to filter relevant frames
+-- - Streaming parser in Haskell shim (breaks verification boundary)

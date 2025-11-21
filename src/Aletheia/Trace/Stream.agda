@@ -7,7 +7,7 @@ open import Data.List using (List; []; _∷_; reverse; last; [_])
 open import Data.Maybe using (Maybe; just; nothing)
 
 -- ============================================================================
--- COINDUCTIVE TRACE
+-- COINDUCTIVE TRACE (INFINITE)
 -- ============================================================================
 
 record Trace (A : Set) : Set where
@@ -17,6 +17,44 @@ record Trace (A : Set) : Set where
     tail : Trace A
 
 open Trace public
+
+-- ============================================================================
+-- FINITE STREAM (FOR BOUNDED TRACES)
+-- ============================================================================
+
+-- A finite stream that can terminate
+-- This is the key type for memory-bounded streaming
+record Stream (A : Set) : Set where
+  coinductive
+  field
+    hd : A
+    tl : Maybe (Stream A)
+
+open Stream public
+
+-- Convert list to finite stream (lazy construction)
+listToStream : ∀ {A : Set} → List A → Maybe (Stream A)
+listToStream [] = nothing
+listToStream (x ∷ xs) = just (mkStream x xs)
+  where
+    mkStream : ∀ {A : Set} → A → List A → Stream A
+    hd (mkStream x _) = x
+    tl (mkStream _ []) = nothing
+    tl (mkStream _ (y ∷ ys)) = just (mkStream y ys)
+
+-- Take first n elements from stream (bounded, so terminating)
+takeStream : ∀ {A : Set} → ℕ → Stream A → List A
+takeStream zero _ = []
+takeStream (suc n) s with tl s
+... | nothing = [ hd s ]
+... | just s' = hd s ∷ takeStream n s'
+
+-- Map over a finite stream
+mapStream : ∀ {A B : Set} → (A → B) → Stream A → Stream B
+hd (mapStream f s) = f (hd s)
+tl (mapStream f s) with tl s
+... | nothing = nothing
+... | just s' = just (mapStream f s')
 
 -- ============================================================================
 -- TRACE OPERATIONS
