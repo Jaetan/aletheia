@@ -15,6 +15,13 @@ open import Data.Char using (Char)
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.DBC.Types using (DBC)
 
+-- Counterexample data for LTL violations
+record CounterexampleData : Set where
+  constructor mkCounterexampleData
+  field
+    timestamp : ℕ       -- Timestamp (microseconds) of violating frame
+    reason : String     -- Human-readable reason
+
 -- Response payload types
 data ResponseData : Set where
   NoData : ResponseData
@@ -22,8 +29,8 @@ data ResponseData : Set where
   DBCData : DBC → ResponseData
   SignalValueData : ℚ → ResponseData
   FrameData : Vec Byte 8 → ResponseData
-  -- LTL check result: holds? and optional counterexample index
-  LTLResultData : Bool → Maybe ℕ → ResponseData
+  -- LTL check result: holds? and optional counterexample
+  LTLResultData : Bool → Maybe CounterexampleData → ResponseData
 
 -- Complete response with success/error and optional data
 record Response : Set where
@@ -99,6 +106,9 @@ formatResponse resp =
       formatCounterex counterex
       where
         open import Data.Nat.Show as ℕShow using (show)
-        formatCounterex : Maybe ℕ → String
+        formatCounterex : Maybe CounterexampleData → String
         formatCounterex nothing = ""
-        formatCounterex (just idx) = "counterexample_index: " ++ ℕShow.show idx ++ "\n"
+        formatCounterex (just ce) =
+          "counterexample:\n" ++
+          "  timestamp: " ++ ℕShow.show (CounterexampleData.timestamp ce) ++ "\n" ++
+          "  reason: \"" ++ CounterexampleData.reason ce ++ "\"\n"

@@ -194,7 +194,7 @@ class TestAlwaysOperator:
     def test_always_speed_lt_300_passes(self, decoder, increasing_speed_trace):
         """Always Speed < 300 should pass (max is 200)"""
         result = decoder.check_ltl(increasing_speed_trace, ALWAYS_SPEED_LT_300)
-        assert result is True, "Speed never exceeds 300, should pass"
+        assert result, "Speed never exceeds 300, should pass"
 
     def test_always_speed_lt_100_fails(self, decoder, increasing_speed_trace):
         """Always Speed < 100 should fail (speed reaches 200)"""
@@ -206,7 +206,7 @@ formula:
   value: 100
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed exceeds 100, should fail"
+        assert not result, "Speed exceeds 100, should fail"
 
 
 class TestEventuallyOperator:
@@ -215,7 +215,7 @@ class TestEventuallyOperator:
     def test_eventually_speed_gt_100_passes(self, decoder, increasing_speed_trace):
         """Eventually Speed > 100 should pass (reaches 200)"""
         result = decoder.check_ltl(increasing_speed_trace, EVENTUALLY_SPEED_GT_100)
-        assert result is True, "Speed reaches 200 > 100, should pass"
+        assert result, "Speed reaches 200 > 100, should pass"
 
     def test_eventually_speed_gt_300_fails(self, decoder, increasing_speed_trace):
         """Eventually Speed > 300 should fail (max is 200)"""
@@ -227,7 +227,7 @@ formula:
   value: 300
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed never exceeds 300, should fail"
+        assert not result, "Speed never exceeds 300, should fail"
 
 
 class TestNeverOperator:
@@ -236,7 +236,7 @@ class TestNeverOperator:
     def test_never_speed_gt_250_passes(self, decoder, increasing_speed_trace):
         """Never Speed > 250 should pass (max is 200)"""
         result = decoder.check_ltl(increasing_speed_trace, NEVER_SPEED_GT_250)
-        assert result is True, "Speed never exceeds 250, should pass"
+        assert result, "Speed never exceeds 250, should pass"
 
     def test_never_speed_gt_100_fails(self, decoder, increasing_speed_trace):
         """Never Speed > 100 should fail (speed reaches 200)"""
@@ -248,7 +248,7 @@ formula:
   value: 100
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed exceeds 100, should fail"
+        assert not result, "Speed exceeds 100, should fail"
 
 
 class TestBetweenPredicate:
@@ -257,7 +257,7 @@ class TestBetweenPredicate:
     def test_always_between_0_200_passes(self, decoder, increasing_speed_trace):
         """Always 0 <= Speed <= 200 should pass"""
         result = decoder.check_ltl(increasing_speed_trace, ALWAYS_SPEED_BETWEEN)
-        assert result is True, "Speed stays in [0, 200], should pass"
+        assert result, "Speed stays in [0, 200], should pass"
 
     def test_always_between_50_150_fails(self, decoder, increasing_speed_trace):
         """Always 50 <= Speed <= 150 should fail (starts at 0, ends at 200)"""
@@ -269,7 +269,7 @@ formula:
   max: 150
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed goes outside [50, 150], should fail"
+        assert not result, "Speed goes outside [50, 150], should fail"
 
 
 class TestLogicalOperators:
@@ -295,7 +295,7 @@ right:
     value: 200
 '''
         result = decoder.check_ltl(constant_speed_trace, property_yaml)
-        assert result is True, "150 is in (100, 200), should pass"
+        assert result, "150 is in (100, 200), should pass"
 
     def test_or_operator_passes(self, decoder, increasing_speed_trace):
         """Speed < 50 OR Speed > 150 should pass (0 < 50 or 200 > 150)"""
@@ -317,7 +317,7 @@ right:
     value: 150
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is True, "Speed 0 < 50 at start, should pass"
+        assert result, "Speed 0 < 50 at start, should pass"
 
 
 class TestChangedByPredicate:
@@ -326,7 +326,7 @@ class TestChangedByPredicate:
     def test_changed_by_small_passes(self, decoder, increasing_speed_trace):
         """Change by <= 150 should pass (changes are 100)"""
         result = decoder.check_ltl(increasing_speed_trace, ALWAYS_SPEED_CHANGE)
-        assert result is True, "Changes are 100 <= 150, should pass"
+        assert result, "Changes are 100 <= 150, should pass"
 
     def test_changed_by_large_fails(self, decoder, increasing_speed_trace):
         """Change by <= 50 should fail (changes are 100)"""
@@ -337,7 +337,7 @@ formula:
   delta: 50
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Changes are 100 > 50, should fail"
+        assert not result, "Changes are 100 > 50, should fail"
 
 
 class TestEqualsPredicate:
@@ -346,12 +346,12 @@ class TestEqualsPredicate:
     def test_eventually_equals_passes(self, decoder, constant_speed_trace):
         """Eventually Speed == 150 should pass"""
         result = decoder.check_ltl(constant_speed_trace, EVENTUALLY_SPEED_EQ_150)
-        assert result is True, "Speed is constantly 150, should pass"
+        assert result, "Speed is constantly 150, should pass"
 
     def test_eventually_equals_fails(self, decoder, increasing_speed_trace):
         """Eventually Speed == 150 should fail (values are 0, 100, 200)"""
         result = decoder.check_ltl(increasing_speed_trace, EVENTUALLY_SPEED_EQ_150)
-        assert result is False, "Speed never equals 150, should fail"
+        assert not result, "Speed never equals 150, should fail"
 
 
 # =============================================================================
@@ -375,7 +375,7 @@ formula:
   value: 50
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is True, "Speed > 50 at t=1000µs, within 1500µs window"
+        assert result, "Speed > 50 at t=1000µs, within 1500µs window"
 
     def test_eventually_within_fails(self, decoder, increasing_speed_trace):
         """EventuallyWithin 500µs Speed > 50 should fail (still 0 at t=0, 100 at t=1000µs)"""
@@ -388,7 +388,7 @@ formula:
   value: 50
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed > 50 not reached within 500µs"
+        assert not result, "Speed > 50 not reached within 500µs"
 
     def test_always_within_passes(self, decoder, increasing_speed_trace):
         """AlwaysWithin 1500µs Speed < 150 should pass (0 at t=0, 100 at t=1000µs)"""
@@ -401,7 +401,7 @@ formula:
   value: 150
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is True, "Speed stays < 150 within first 1500µs"
+        assert result, "Speed stays < 150 within first 1500µs"
 
     def test_always_within_fails(self, decoder, increasing_speed_trace):
         """AlwaysWithin 2500µs Speed < 150 should fail (200 at t=2000µs)"""
@@ -414,7 +414,7 @@ formula:
   value: 150
 '''
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Speed reaches 200 at t=2000µs, violates < 150"
+        assert not result, "Speed reaches 200 at t=2000µs, violates < 150"
 
 
 # =============================================================================
@@ -436,7 +436,7 @@ class TestEdgeCases:
              'data': [0xB8, 0x3A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]}
         ]
         result = decoder.check_ltl(trace, ALWAYS_SPEED_LT_300)
-        assert result is True, "150 < 300, should pass"
+        assert result, "150 < 300, should pass"
 
     def test_invalid_signal_name(self, decoder, increasing_speed_trace):
         """Invalid signal name returns false (signal extraction fails)
@@ -454,7 +454,7 @@ formula:
         # Currently returns false when signal extraction fails
         # TODO: Phase 2B - raise error with helpful message about missing signal
         result = decoder.check_ltl(increasing_speed_trace, property_yaml)
-        assert result is False, "Should return false for non-existent signal"
+        assert not result, "Should return false for non-existent signal"
 
 
 if __name__ == '__main__':

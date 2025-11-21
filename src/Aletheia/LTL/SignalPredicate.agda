@@ -13,7 +13,7 @@ open import Aletheia.CAN.SignalExtraction
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
-open import Aletheia.LTL.Incremental using (checkListStreaming)
+open import Aletheia.LTL.Incremental using (checkListStreaming; checkWithCounterexample; CheckResult; Pass; Fail; Counterexample)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
@@ -141,3 +141,15 @@ checkProperty dbc frames formula =
 
   -- Use incremental checker with early termination
   in checkListStreaming frames transformedFormula
+
+-- Check property and return counterexample on failure
+-- Returns CheckResult with violating frame and reason
+checkPropertyWithCounterexample : DBC → List TimedFrame → LTL SignalPredicate → CheckResult
+checkPropertyWithCounterexample dbc frames formula =
+  let predToFunc : SignalPredicate → (TimedFrame → Bool)
+      predToFunc pred = evalOnFrameWithTrace dbc frames pred
+
+      transformedFormula : LTL (TimedFrame → Bool)
+      transformedFormula = mapLTL predToFunc formula
+
+  in checkWithCounterexample frames transformedFormula

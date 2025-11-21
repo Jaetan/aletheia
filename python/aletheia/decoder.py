@@ -1,11 +1,40 @@
 """CAN frame decoder"""
 
 from pathlib import Path
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Optional
+from dataclasses import dataclass
 import yaml
 
 from aletheia._binary import get_binary_path
 import subprocess
+
+
+@dataclass
+class Counterexample:
+    """Evidence of why an LTL property failed"""
+    timestamp: int  # Timestamp in microseconds
+    reason: str     # Human-readable explanation
+
+    def __str__(self) -> str:
+        return f"Violation at {self.timestamp}µs: {self.reason}"
+
+
+@dataclass
+class CheckResult:
+    """Result of checking an LTL property"""
+    holds: bool
+    counterexample: Optional[Counterexample] = None
+
+    def __bool__(self) -> bool:
+        return self.holds
+
+    def __str__(self) -> str:
+        if self.holds:
+            return "Property holds"
+        elif self.counterexample:
+            return f"Property violated: {self.counterexample}"
+        else:
+            return "Property violated"
 
 
 def _call_binary(command_yaml: str, timeout: int = 60) -> Dict[str, Any]:
@@ -223,7 +252,7 @@ dbc_yaml: |
         self,
         trace: List[Dict[str, Any]],
         property_yaml: str
-    ) -> bool:
+    ) -> CheckResult:
         """Check an LTL property on a CAN trace
 
         Uses the verified Agda LTL model checker.
@@ -243,7 +272,7 @@ dbc_yaml: |
                      value: 300
 
         Returns:
-            True if property holds on trace, False if violated
+            CheckResult with holds status and optional counterexample
 
         Raises:
             RuntimeError: If checking fails
@@ -293,7 +322,18 @@ dbc_yaml: |
             error_msg = response.get('message', 'Unknown error')
             raise RuntimeError(f"Failed to check property: {error_msg}")
 
-        return response.get('property_holds', False)
+        holds = response.get('property_holds', False)
+
+        # Parse counterexample if present
+        ce_data = response.get('counterexample')
+        counterexample = None
+        if ce_data:
+            counterexample = Counterexample(
+                timestamp=ce_data.get('timestamp', 0),
+                reason=ce_data.get('reason', 'Unknown')
+            )
+
+        return CheckResult(holds=holds, counterexample=counterexample)
 
     def signal(self, signal_name: str) -> 'SignalRef':
         """Create a reference to a signal for use in LTL formulas

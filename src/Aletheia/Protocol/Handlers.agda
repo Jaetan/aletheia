@@ -23,7 +23,8 @@ open import Data.Product using (proj₁)
 open import Aletheia.Trace.Parser using (parseTrace)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.DSL.Parser using (parseLTL; DSLParseResult; DSLSuccess; DSLError)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; checkProperty)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; checkPropertyWithCounterexample)
+open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample)
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -212,7 +213,12 @@ handleCheckLTL dbcYAML traceYAML propertyYAML =
             parsePropHelper : DSLParseResult → Response
             parsePropHelper (DSLError msg) = errorResponse ("Failed to parse property: " ++ msg)
             parsePropHelper (DSLSuccess ltlFormula) =
-              let result = checkProperty dbc frames ltlFormula
-              in if result
-                 then successResponse "Property holds on trace" (LTLResultData true nothing)
-                 else successResponse "Property violated" (LTLResultData false nothing)
+              convertResult (checkPropertyWithCounterexample dbc frames ltlFormula)
+              where
+                convertResult : CheckResult → Response
+                convertResult Pass = successResponse "Property holds on trace" (LTLResultData true nothing)
+                convertResult (Fail ce) =
+                  let ceData = mkCounterexampleData
+                                 (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                 (Counterexample.reason ce)
+                  in successResponse "Property violated" (LTLResultData false (just ceData))
