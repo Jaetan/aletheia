@@ -10,24 +10,17 @@ open import Size using (Size; ∞)
 open import Codata.Sized.Thunk using (Thunk; force)
 open import Codata.Sized.Delay using (Delay; now; later)
 open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
-open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false; if_then_else_; not; _∧_; _∨_)
 open import Data.Nat using (ℕ; zero; suc; _∸_; _≤ᵇ_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.String using (String; _++_)
+open import Data.Nat.Show using (show)
 
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Trace.Context using (timestamp)
-
--- ============================================================================
--- COLIST CONVERSION
--- ============================================================================
-
--- Convert list to colist
-listToColist : ∀ {A : Set} → List A → Colist A ∞
-listToColist [] = []
-listToColist (x ∷ xs) = x ∷ λ where .force → listToColist xs
+open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample; mkCounterexample)
 
 -- ============================================================================
 -- LTL CHECKER STATE MACHINES
@@ -188,23 +181,137 @@ checkColist φ (frame ∷ rest) = later λ where .force → go φ frame (rest .f
             else now true
 
 -- ============================================================================
+-- COINDUCTIVE LTL CHECKER WITH COUNTEREXAMPLES
+-- ============================================================================
+
+-- Main checker with counterexample generation
+checkColistCE : ∀ {i : Size}
+              → LTL (TimedFrame → Bool)
+              → Colist TimedFrame i
+              → Delay CheckResult i
+
+-- Handle empty trace
+checkColistCE φ [] = now Pass  -- Empty trace, vacuously true
+
+-- Non-empty trace
+checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest .force)
+  where
+    -- Helper to create failure result
+    fail : TimedFrame → String → Delay CheckResult ∞
+    fail tf reason = now (Fail (mkCounterexample tf reason))
+
+    -- Recursive checker with counterexample tracking
+    go : ∀ {i : Size}
+       → LTL (TimedFrame → Bool)
+       → TimedFrame
+       → Colist TimedFrame i
+       → Delay CheckResult i
+
+    -- Atomic: just evaluate on last frame
+    go (Atomic pred) frame [] =
+      if pred frame then now Pass
+      else now (Fail (mkCounterexample frame "Atomic predicate failed"))
+    go (Atomic pred) frame (next ∷ rest') =
+      later λ where .force → go (Atomic pred) next (rest' .force)
+
+    -- Not: negate result (swap Pass/Fail)
+    go (Not ψ) frame colist = Delay.map negate (go ψ frame colist)
+      where
+        import Codata.Sized.Delay as Delay
+        negate : CheckResult → CheckResult
+        negate Pass = Fail (mkCounterexample frame "Negation: inner formula passed")
+        negate (Fail _) = Pass
+
+    -- And: check both (short-circuit on false)
+    go (And ψ₁ ψ₂) frame [] =
+      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
+      else now (Fail (mkCounterexample frame "And: conjunct failed at end of trace"))
+    go (And ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂
+        then (later λ where .force → go (And ψ₁ ψ₂) next (rest' .force))
+        else now (Fail (mkCounterexample frame "And: conjunct failed"))
+
+    -- Or: check either (short-circuit on true)
+    go (Or ψ₁ ψ₂) frame [] =
+      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂ then now Pass
+      else now (Fail (mkCounterexample frame "Or: both disjuncts failed at end of trace"))
+    go (Or ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂
+        then now Pass
+        else (later λ where .force → go (Or ψ₁ ψ₂) next (rest' .force))
+
+    -- Next: check next frame
+    go (Next ψ) frame [] =
+      if evalAtFrame frame ψ then now Pass
+      else now (Fail (mkCounterexample frame "Next: predicate failed at end of trace"))
+    go (Next ψ) frame (next ∷ rest') =
+      later λ where .force → go ψ next (rest' .force)
+
+    -- Always: all frames must satisfy (early termination on failure)
+    go (Always ψ) frame [] =
+      if evalAtFrame frame ψ then now Pass
+      else now (Fail (mkCounterexample frame "Always: predicate failed at end of trace"))
+    go (Always ψ) frame (next ∷ rest') =
+      if evalAtFrame frame ψ
+        then (later λ where .force → go (Always ψ) next (rest' .force))
+        else now (Fail (mkCounterexample frame "Always: predicate failed"))
+
+    -- Eventually: some frame must satisfy (early termination on success)
+    go (Eventually ψ) frame [] =
+      if evalAtFrame frame ψ then now Pass
+      else now (Fail (mkCounterexample frame "Eventually: predicate never satisfied"))
+    go (Eventually ψ) frame (next ∷ rest') =
+      if evalAtFrame frame ψ
+        then now Pass
+        else (later λ where .force → go (Eventually ψ) next (rest' .force))
+
+    -- Until: ψ₁ holds until ψ₂
+    go (Until ψ₁ ψ₂) frame [] =
+      if evalAtFrame frame ψ₂ then now Pass
+      else now (Fail (mkCounterexample frame "Until: ψ₂ never satisfied"))
+    go (Until ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₂
+        then now Pass
+        else if evalAtFrame frame ψ₁
+             then (later λ where .force → go (Until ψ₁ ψ₂) next (rest' .force))
+             else now (Fail (mkCounterexample frame "Until: ψ₁ failed before ψ₂"))
+
+    -- EventuallyWithin: must satisfy within time window
+    go (EventuallyWithin window ψ) frame colist = goEW (timestamp frame) frame colist
+      where
+        goEW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
+        goEW start frame [] =
+          if ((timestamp frame ∸ start) ≤ᵇ window) ∧ evalAtFrame frame ψ then now Pass
+          else now (Fail (mkCounterexample frame ("EventuallyWithin: not satisfied within " ++ show window ++ "ms")))
+        goEW start frame (next ∷ rest') =
+          if (timestamp frame ∸ start) ≤ᵇ window
+            then (if evalAtFrame frame ψ
+                    then now Pass
+                    else (later λ where .force → goEW start next (rest' .force)))
+            else now (Fail (mkCounterexample frame ("EventuallyWithin: window of " ++ show window ++ "ms expired")))
+
+    -- AlwaysWithin: must satisfy throughout time window
+    go (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
+      where
+        goAW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
+        goAW start frame [] =
+          if not ((timestamp frame ∸ start) ≤ᵇ window) ∨ evalAtFrame frame ψ then now Pass
+          else now (Fail (mkCounterexample frame ("AlwaysWithin: failed within " ++ show window ++ "ms window")))
+        goAW start frame (next ∷ rest') =
+          if (timestamp frame ∸ start) ≤ᵇ window
+            then (if evalAtFrame frame ψ
+                    then (later λ where .force → goAW start next (rest' .force))
+                    else now (Fail (mkCounterexample frame ("AlwaysWithin: failed at t=" ++ show (timestamp frame)))))
+            else now Pass
+
+-- ============================================================================
 -- PUBLIC API
 -- ============================================================================
 
--- Check LTL property on a colist (coinductive input)
+-- Check LTL property on a stream (coinductive input/output)
 checkProperty : LTL (TimedFrame → Bool) → Colist TimedFrame ∞ → Delay Bool ∞
 checkProperty = checkColist
 
--- Check LTL property on a list (converts to colist)
-checkPropertyList : LTL (TimedFrame → Bool) → List TimedFrame → Delay Bool ∞
-checkPropertyList φ frames = checkColist φ (listToColist frames)
-
--- Run checker with fuel (extracts result if available within n steps)
-runWithFuel : ∀ {A : Set} → ℕ → Delay A ∞ → Maybe A
-runWithFuel zero _ = nothing
-runWithFuel (suc n) (now a) = just a
-runWithFuel (suc n) (later d) = runWithFuel n (d .force)
-
--- Convenience: check and extract result with default fuel
-checkAndRun : ℕ → LTL (TimedFrame → Bool) → List TimedFrame → Maybe Bool
-checkAndRun fuel φ frames = runWithFuel fuel (checkPropertyList φ frames)
+-- Check with counterexample generation (coinductive input/output)
+checkPropertyWithCE : LTL (TimedFrame → Bool) → Colist TimedFrame ∞ → Delay CheckResult ∞
+checkPropertyWithCE = checkColistCE
