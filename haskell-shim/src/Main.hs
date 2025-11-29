@@ -5,7 +5,6 @@ module Main where
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.IO (hSetBuffering, stdin, stdout, BufferMode(..), hFlush, isEOF)
-import System.Environment (getArgs)
 import Control.Monad (when)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -21,15 +20,8 @@ main = do
     hSetBuffering stdin LineBuffering
     hSetBuffering stdout LineBuffering
 
-    -- Check for debug flag
-    args <- getArgs
-    case args of
-        ["--debug"] -> do
-            -- Run debug mode (DBC parser trace)
-            TIO.putStrLn Agda.d_runDebug_46
-        _ -> do
-            -- Default: JSON streaming mode (Phase 2B)
-            jsonStreamLoop AgdaStreamState.d_initialState_34
+    -- JSON streaming mode (Phase 2B)
+    jsonStreamLoop AgdaStreamState.d_initialState_34
 
 -- Convert Text to Agda String (AgdaString.T_String_6 = Data.Text.Text)
 textToAgdaString :: T.Text -> AgdaString.T_String_6
@@ -45,7 +37,7 @@ jsonStreamLoop state = do
         line <- TIO.getLine
 
         -- Call Agda processJSONLine
-        let result = Agda.d_processJSONLine_48 state (textToAgdaString line)
+        let result = Agda.d_processJSONLine_4 state (textToAgdaString line)
 
         -- Extract (newState, responseJSON) from Sigma type
         -- Note: MAlonzo Sigma accessors return AgdaAny, need unsafeCoerce for state

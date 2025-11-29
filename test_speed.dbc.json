@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "messages": [
+    {
+      "id": 256,
+      "name": "SpeedMessage",
+      "dlc": 8,
+      "sender": "ECU",
+      "signals": [
+        {
+          "name": "Speed",
+          "startBit": 0,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": 0.1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 300,
+          "unit": "km/h",
+          "presence": "always"
+        }
+      ]
+    }
+  ]
+}

@@ -59,37 +59,59 @@ listToVec8 (n₀ ∷ n₁ ∷ n₂ ∷ n₃ ∷ n₄ ∷ n₅ ∷ n₆ ∷ n₇ 
     toFin n = n mod 256  -- _mod_ : ℕ → (n : ℕ) {n≢0 : NonZero n} → Fin n
 listToVec8 _ = nothing  -- Wrong length
 
+-- Parse StreamCommand from JSON object (with tracing)
+parseCommandWithTrace : List (String × JSON) → String ⊎ StreamCommand
+parseCommandWithTrace obj with lookupString "command" obj
+... | nothing = inj₁ "TRACE_CMD0: missing 'command' field"
+... | just cmdType = dispatchCommand cmdType obj
+  where
+    dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
+    dispatchCommand cmdType obj =
+      if ⌊ cmdType ≟ "parseDBC" ⌋ then tryParseDBC obj
+      else if ⌊ cmdType ≟ "setProperties" ⌋ then trySetProperties obj
+      else if ⌊ cmdType ≟ "startStream" ⌋ then inj₂ StartStream
+      else if ⌊ cmdType ≟ "encode" ⌋ then tryEncode obj
+      else if ⌊ cmdType ≟ "decode" ⌋ then tryDecode obj
+      else if ⌊ cmdType ≟ "endStream" ⌋ then inj₂ EndStream
+      else inj₁ ("TRACE_CMD11: unknown command: " ++S cmdType)
+      where
+        tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
+        tryParseDBC obj with lookup "dbc" obj
+        ... | nothing = inj₁ "TRACE_CMD1: missing 'dbc' field"
+        ... | just dbc = inj₂ (ParseDBC dbc)
+
+        trySetProperties : List (String × JSON) → String ⊎ StreamCommand
+        trySetProperties obj with lookupArray "properties" obj
+        ... | nothing = inj₁ "TRACE_CMD2: missing 'properties' field"
+        ... | just props = inj₂ (SetProperties props)
+
+        tryEncode : List (String × JSON) → String ⊎ StreamCommand
+        tryEncode obj with lookupString "message" obj
+        ... | nothing = inj₁ "TRACE_CMD3: missing 'message' field in encode"
+        ... | just msgName with lookupString "signal" obj
+        ...   | nothing = inj₁ "TRACE_CMD4: missing 'signal' field in encode"
+        ...   | just sigName with lookupInt "value" obj
+        ...     | nothing = inj₁ "TRACE_CMD5: missing or invalid 'value' field in encode"
+        ...     | just value = inj₂ (Encode msgName sigName value)
+
+        tryDecode : List (String × JSON) → String ⊎ StreamCommand
+        tryDecode obj with lookupString "message" obj
+        ... | nothing = inj₁ "TRACE_CMD6: missing 'message' field in decode"
+        ... | just msgName with lookupString "signal" obj
+        ...   | nothing = inj₁ "TRACE_CMD7: missing 'signal' field in decode"
+        ...   | just sigName with lookupArray "bytes" obj
+        ...     | nothing = inj₁ "TRACE_CMD8: missing 'bytes' field in decode"
+        ...     | just bytesJSON with parseByteArray bytesJSON
+        ...       | nothing = inj₁ "TRACE_CMD9: failed to parse byte array in decode"
+        ...       | just byteList with listToVec8 byteList
+        ...         | nothing = inj₁ "TRACE_CMD10: wrong number of bytes in decode (must be 8)"
+        ...         | just bytes = inj₂ (Decode msgName sigName bytes)
+
 -- Parse StreamCommand from JSON object
 parseCommand : List (String × JSON) → Maybe StreamCommand
-parseCommand obj with lookupString "command" obj
-... | nothing = nothing
-... | just cmdType with ⌊ cmdType ≟ "parseDBC" ⌋
-...   | true = do
-        dbc ← lookup "dbc" obj
-        just (ParseDBC dbc)
-...   | false with ⌊ cmdType ≟ "setProperties" ⌋
-...     | true = do
-            props ← lookupArray "properties" obj
-            just (SetProperties props)  -- props is already List JSON
-...     | false with ⌊ cmdType ≟ "startStream" ⌋
-...       | true = just StartStream
-...       | false with ⌊ cmdType ≟ "encode" ⌋
-...         | true = do
-              msgName ← lookupString "message" obj
-              sigName ← lookupString "signal" obj
-              value ← lookupInt "value" obj
-              just (Encode msgName sigName value)
-...         | false with ⌊ cmdType ≟ "decode" ⌋
-...           | true = do
-                msgName ← lookupString "message" obj
-                sigName ← lookupString "signal" obj
-                bytesJSON ← lookupArray "bytes" obj
-                byteList ← parseByteArray bytesJSON
-                bytes ← listToVec8 byteList
-                just (Decode msgName sigName bytes)
-...           | false with ⌊ cmdType ≟ "endStream" ⌋
-...             | true = just EndStream
-...             | false = nothing  -- Unknown command
+parseCommand obj with parseCommandWithTrace obj
+... | inj₁ _ = nothing
+... | inj₂ cmd = just cmd
 
 -- Parse data frame from JSON object (returns timestamp and frame)
 -- Returns Maybe String for error messages during debugging

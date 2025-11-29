@@ -16,7 +16,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 -- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing using (parseRequest; formatResponse; parseDataFrameWithTrace)
+open import Aletheia.Protocol.Routing using (parseRequest; formatResponse; parseDataFrameWithTrace; parseCommandWithTrace)
 open import Aletheia.Protocol.Routing as Routing using ()
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
 open import Aletheia.Data.Message as Msg using (Request; Response)
@@ -32,9 +32,17 @@ processJSONLine : StreamState → String → StreamState × String
 processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJSON (toList jsonLine)))
   where
     open import Aletheia.Protocol.JSON using (JObject; lookupString)
-    open import Data.String using (_≟_)
+    open import Data.String using (_≟_) renaming (_++_ to _++S_)
     open import Relation.Nullary.Decidable using (⌊_⌋)
     open import Data.Bool using (if_then_else_)
+
+    -- Try to parse command with detailed tracing
+    tryParseCommand : List (String × JSON) → StreamState × String
+    tryParseCommand obj with parseCommandWithTrace obj
+    ... | inj₁ errMsg = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
+    ... | inj₂ cmd =
+          let (newState , response) = processStreamCommand cmd state
+          in (newState , formatJSON (Routing.formatResponse response))
 
     parseRequest_helper : Maybe Msg.Request → StreamState × String
     parseRequest_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Invalid request format")))
@@ -56,7 +64,9 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
         case_type (just msgType) obj =
           if ⌊ msgType ≟ "data" ⌋
           then trace_dataframe obj
-          else parseRequest_helper (parseRequest (JObject obj))  -- Not "data", use normal routing
+          else if ⌊ msgType ≟ "command" ⌋
+               then tryParseCommand obj  -- Use traced command parser
+               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("TRACE: unknown type: " ++S msgType))))
           where
             trace_dataframe : List (String × JSON) → StreamState × String
             trace_dataframe obj with parseDataFrameWithTrace obj
