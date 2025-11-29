@@ -1,4 +1,7 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --without-K --guardedness --sized-types #-}
+
+-- NOTE: This module uses --sized-types which is incompatible with --safe.
+-- This is required because it imports Aletheia.Trace.StreamParser.
 
 module Aletheia.Protocol.Handlers where
 
@@ -19,12 +22,23 @@ open import Data.Rational using (ℚ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Nat using (ℕ)
-open import Data.Product using (proj₁)
+open import Data.Product using (proj₁; _×_; _,_)
 open import Aletheia.Trace.Parser using (parseTrace)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.StreamParser using (parseFrameStream)
 open import Aletheia.LTL.DSL.Parser using (parseLTL; DSLParseResult; DSLSuccess; DSLError)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; checkPropertyWithCounterexample)
 open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample)
+open import Aletheia.LTL.Coinductive using (checkStreamingProperty; checkAllPropertiesStream)
+open import Aletheia.Data.DelayedColist using (DelayedColist)
+open Aletheia.Data.DelayedColist
+open import Aletheia.LTL.Syntax using (LTL)
+open import Data.Char using (Char)
+open import Codata.Sized.Colist as Colist using (Colist; fromList)
+open import Codata.Sized.Delay as Delay using (Delay; now; later)
+open import Codata.Sized.Thunk using (Thunk; force)
+open import Size using (∞)
+open import Data.Nat using (_+_)
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -222,3 +236,42 @@ handleCheckLTL dbcYAML traceYAML propertyYAML =
                                  (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                  (Counterexample.reason ce)
                   in successResponse "Property violated" (LTLResultData false (just ceData))
+
+-- Handle CheckStreamingLTL command
+-- Takes DBC YAML, list of property YAMLs, and remaining stdin as Colist
+-- Returns stream of PropertyResults as properties are decided
+handleCheckStreamingLTL : String → List String → Colist Char ∞ → DelayedColist PropertyResult ∞
+{-# NOINLINE handleCheckStreamingLTL #-}
+handleCheckStreamingLTL dbcYAML propertyYAMLs inputStream =
+  parseDBCHelper (map proj₁ (runParser parseDBC (toList dbcYAML)))
+  where
+    -- Helper to create error result as a singleton stream
+    errorResult : String → DelayedColist PropertyResult ∞
+    errorResult msg = Violation 0 (mkCounterexampleData 0 ("Error: " ++ msg)) ∷ λ where .force → []
+
+    parseDBCHelper : Maybe DBC → DelayedColist PropertyResult ∞
+    parseDBCHelper nothing = errorResult "Failed to parse DBC YAML"
+    parseDBCHelper (just dbc) = parsePropertiesHelper (parseAllProperties propertyYAMLs)
+      where
+        -- Parse all properties and index them
+        parseAllProperties : List String → List (DSLParseResult)
+        parseAllProperties [] = []
+        parseAllProperties (yaml ∷ yamls) = parseLTL yaml ∷ parseAllProperties yamls
+
+        parsePropertiesHelper : List DSLParseResult → DelayedColist PropertyResult ∞
+        parsePropertiesHelper results = checkForErrors results []
+          where
+            -- Process the stream with all properties
+            processStream : DBC → List (ℕ × LTL SignalPredicate) → Colist Char ∞ → DelayedColist PropertyResult ∞
+            processStream dbc formulas input =
+              let frameStream = parseFrameStream input
+              in checkAllPropertiesStream dbc formulas frameStream
+
+            -- Check if any property failed to parse
+            checkForErrors : List DSLParseResult → List (ℕ × LTL SignalPredicate) → DelayedColist PropertyResult ∞
+            checkForErrors [] formulas = processStream dbc formulas inputStream
+            checkForErrors (DSLError msg ∷ rest) _ = errorResult ("Failed to parse property: " ++ msg)
+            checkForErrors (DSLSuccess formula ∷ rest) acc =
+              let idx = Data.List.length acc
+              in checkForErrors rest (acc Data.List.++ ((idx , formula) ∷ []))
+              where open import Data.List using (length; _++_)

@@ -68,6 +68,329 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 **Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell or Python layers.
 
+## Streaming Protocol Architecture (Phase 2B)
+
+**Added**: 2025-11-26 | **Status**: Design phase - JSON protocol with async Python
+**Updated**: 2025-11-26 | **Paradigm Shift**: Pivoted from YAML to JSON, introduced three-layer architecture
+
+### Design Rationale
+
+**Problem**: For large CAN traces (1GB+), neither Python nor the binary can materialize the full trace in memory.
+
+**Constraints**:
+1. Python reads frames from stream (file, network, real-time capture)
+2. Python may need to modify frames mid-stream (Frame 153 debugging scenario)
+3. Binary must process incrementally without buffering full trace
+4. Multiple LTL properties must be checked in **single pass** (stream non-replayable)
+5. Violations reported **immediately** (not waiting for end of stream)
+6. Commands (encode/decode services) need immediate response, independent of data stream
+7. Command priority: "Process all pending commands before next data frame"
+
+**Solution**: Three-layer architecture with JSON protocol, async Python, and Haskell multiplexing.
+
+### Three-Layer Architecture (Option D: Truly Dumb Haskell)
+
+**Design Decision**: After analyzing latency requirements and CAN bus characteristics, we chose the simplest possible architecture: sequential message processing with no threading or multiplexing complexity.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Python Layer (async/await)                                  │
+│ - Async task 1: Send messages (commands + data, tagged)     │
+│ - Async task 2: Read responses (sync replies + violations)  │
+│ - Tags all messages: {"type": "command"|"data", ...}        │
+│ - Can modify frames mid-stream (Frame 153 scenario)         │
+└──────────────────────────┬─────────────────────────────────┘
+                           │
+                  [Line-delimited JSON]
+                  One message per line
+                           │
+                           ▼
+         ┌─────────────────────────────────────────┐
+         │ Single stdin pipe (FIFO, no queuing)    │
+         └─────────────────┬───────────────────────┘
+                           │
+┌──────────────────────────▼────────────────────────────────────┐
+│ Haskell Layer (~15 lines, truly dumb)                        │
+│ - while(true): line = readLine(); result = agda(line); print  │
+│ - Line buffering handled by hGetLine                          │
+│ - No threading, no queues, no multiplexing                    │
+│ - Just a thin wrapper around MAlonzo function call            │
+└──────────────────┬────────────────────────────────────────────┘
+                   │
+          [String → Agda → String]
+                   │
+                   ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Agda Layer (ALL logic lives here)                           │
+│ - processJSONLine : String → String                          │
+│ - Parses JSON, routes by type field                          │
+│ - Command handlers: parseDBC, setProperties, encode, decode  │
+│ - Data handler: Frame → LTL check → Violation or Ack         │
+│ - State machine: DBC, properties, checker state              │
+│ - Validates all state transitions                            │
+│ - Returns response for EVERY message (sync or violation)     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key Principles**:
+1. **Agda has ALL logic** - validation, state, routing, LTL checking
+2. **Haskell is truly dumb** - ~15 lines, just I/O loop
+3. **Python controls flow** - async tasks, stream modification, user interaction
+4. **Sequential processing** - no queues, no threading, simplest possible
+5. **Every message gets response** - commands return results, data frames return violations or acks
+
+**Latency Analysis** (why Option D works):
+
+| Scenario | Frame Rate | Per-Frame Time | Burst Size | Max Latency | Acceptable? |
+|----------|------------|----------------|------------|-------------|-------------|
+| Real-time CAN | 250 Hz | 4ms | N/A | < 1ms | ✅ Yes (serial bus) |
+| Replay | 10K frames/sec | 100μs | 1000 frames | 100ms | ✅ Yes (at boundary) |
+
+**Upgrade Path**: If latency becomes an issue in practice, we can upgrade to Option A (two file descriptors with threading) for guaranteed bounded latency. But start simple.
+
+**Platform**: Linux x86_64/amd64 only, Ubuntu ≥22.04 or Debian unstable, GNU tools
+
+### Protocol Format
+
+**Line-Delimited JSON** (one JSON object per line):
+
+**Input Messages** (Python → Haskell → Agda):
+
+```json
+{"type": "command", "command": "parseDBC", "yaml": "messages:\n  - name: VehicleSpeed\n    ..."}
+{"type": "command", "command": "setProperties", "properties": ["Signal('Speed').always.between(0, 200)", ...]}
+{"type": "command", "command": "startStream"}
+{"type": "data", "timestamp": 1000, "id": 256, "data": [18, 52, 86, 120, 154, 188, 222, 240]}
+{"type": "data", "timestamp": 1001, "id": 256, "data": [19, 53, 87, 121, 155, 189, 223, 241]}
+{"type": "command", "command": "encode", "message": "VehicleSpeed", "signal": "Speed", "value": 1000}
+{"type": "data", "timestamp": 1002, "id": 256, "data": [20, 54, 88, 122, 156, 190, 224, 242]}
+{"type": "command", "command": "endStream"}
+```
+
+**Output Messages** (Agda → Haskell → Python):
+
+```json
+{"type": "response", "command": "parseDBC", "status": "success"}
+{"type": "response", "command": "setProperties", "status": "success"}
+{"type": "response", "command": "startStream", "status": "success"}
+{"type": "violation", "property": 0, "timestamp": 1050, "reason": "Speed = 250 violates always.between(0, 200)"}
+{"type": "response", "command": "encode", "status": "success", "data": [232, 3, 0, 0, 0, 0, 0, 0]}
+{"type": "satisfaction", "property": 1}
+{"type": "response", "command": "endStream", "status": "success"}
+{"type": "complete", "pending": [{"property": 2, "status": "pending"}]}
+```
+
+**Message Types**:
+
+| Type | Direction | Purpose | Response |
+|------|-----------|---------|----------|
+| `command` | Python → Agda | Service requests (parseDBC, encode, decode) or control (startStream, endStream) | Immediate `response` |
+| `data` | Python → Agda | CAN frame for LTL checking | No immediate response (async violations) |
+| `response` | Agda → Python | Acknowledgment of command | Synchronous |
+| `violation` | Agda → Python | LTL property violation detected | Asynchronous |
+| `satisfaction` | Agda → Python | LTL property satisfied | Asynchronous |
+| `complete` | Agda → Python | Stream ended, final pending results | Asynchronous |
+
+**JSON Schema** (validation in Phase 2B.1, proofs in Phase 3):
+- Command schema: Required fields per command type
+- Data schema: Required timestamp, id, data (8-element array)
+- Response schema: Status + optional payload
+- Report schema: Violation/satisfaction structure
+
+### Property Lifecycle and Early Termination
+
+**Property States**:
+- **Active**: Currently being checked against incoming frames
+- **Violated**: Decided false, reported immediately with counterexample
+- **Satisfied**: Decided true, reported immediately
+- **Pending**: Cannot decide without full trace, reported at EndStream
+
+**Early Termination Semantics** (Finite Prefix of Infinite Traces):
+
+| LTL Operator | Can Fail Early? | Can Succeed Early? | Semantics at EndStream |
+|--------------|-----------------|--------------------|-----------------------|
+| `Always(φ)` | ✅ Yes (first ¬φ) | ❌ No | Success if no violations seen |
+| `Eventually(φ)` | ❌ No | ✅ Yes (first φ) | Failure if never satisfied |
+| `Until(φ U ψ)` | ✅ Yes (φ fails) | ✅ Yes (ψ satisfied) | Failure if ψ never satisfied |
+| `Never(φ)` | ✅ Yes (first φ) | ❌ No | Success if φ never seen |
+
+**Property Removal**: Once a property is decided (violated or satisfied), it is removed from the active checking set. This:
+- Improves performance (fewer properties to check per frame)
+- Prevents redundant violation reports
+- Allows Python to handle violations immediately
+
+### Implementation Layers
+
+#### Agda Layer (Core Logic)
+
+**Output Stream Type**:
+```agda
+data PropertyResult : Set where
+  Violation    : ℕ → Counterexample → PropertyResult
+  Satisfaction : ℕ → PropertyResult
+  Pending      : ℕ → Bool → PropertyResult
+```
+
+**Handler Signature**:
+```agda
+handleCheckStreamingLTL : String                      -- DBC YAML
+                        → List String                 -- Property YAMLs
+                        → Colist Char ∞               -- Input stream (stdin)
+                        → DelayedColist PropertyResult ∞  -- Output stream
+```
+
+**Incremental Multi-Property Checker**:
+```agda
+checkAllPropertiesIncremental : ∀ {i : Size}
+                              → DBC
+                              → List (ℕ × LTL SignalPredicate)
+                              → DelayedColist TimedFrame i
+                              → DelayedColist PropertyResult i
+```
+
+**Key Design Points**:
+- Takes list of **indexed** properties (to identify them in results)
+- Returns `DelayedColist PropertyResult` - a stream of results
+- Internally partitions properties into decided vs. active on each frame
+- Emits results immediately when properties settle
+- At EndStream marker, emits pending results
+
+#### Haskell Layer (I/O Orchestration)
+
+**Lazy Bidirectional Streaming**:
+```haskell
+case cmd of
+  CheckStreamingLTL dbcYaml properties -> do
+    -- Input stream (lazy I/O)
+    remainingStdin <- getContents
+    let inputStream = stringToColist remainingStdin
+
+    -- Call Agda handler (returns lazy result stream)
+    let resultStream = handleCheckStreamingLTL dbcYaml properties inputStream
+
+    -- Process results as they emerge
+    processResults resultStream
+  where
+    processResults :: DelayedColist PropertyResult -> IO ()
+    processResults [] = putStrLn "---\nstatus: complete"
+    processResults (later rest) = processResults (force rest)
+    processResults (result ∷ rest) = do
+      putStrLn "---"
+      putStrLn (propertyResultToYaml result)
+      hFlush stdout  -- CRITICAL: Force output immediately
+      processResults (force rest)
+```
+
+**Key Mechanism**: Haskell's lazy evaluation ties the streams together:
+1. Pattern matching on `resultStream` forces Agda computation
+2. Agda computation pulls from `inputStream` (frame Colist)
+3. Pulling from `inputStream` triggers Haskell's lazy I/O (reads stdin)
+4. Frames flow through incrementally, results emitted as they're decided
+
+**Memory Behavior**:
+- No buffering - stdin read on demand as Agda pulls frames
+- Only checker state + current frame in memory (not full trace)
+- Old frames garbage-collected after processing
+
+#### Python Layer (User Interface)
+
+**Concurrent Streaming**:
+```python
+import threading
+import queue
+
+class StreamingLTLChecker:
+    def __init__(self, dbc_yaml: str, properties: list[str]):
+        self.proc = subprocess.Popen(['./aletheia'], ...)
+
+        # Send command
+        cmd = {"command": "CheckStreamingLTL", ...}
+        yaml.dump(cmd, self.proc.stdin)
+
+        # Start result reader thread
+        self.violations = queue.Queue()
+        threading.Thread(target=self._read_results).start()
+
+    def feed_frame(self, frame: dict):
+        """Send frame to binary (main thread)"""
+        yaml.dump(frame, self.proc.stdin)
+        self.proc.stdin.flush()
+
+    def end_stream(self):
+        """Signal end of frames"""
+        self.proc.stdin.write("---\ncommand: EndStream\n")
+
+    def get_result(self, timeout=None):
+        """Get next violation/result (blocks until available)"""
+        return self.violations.get(timeout=timeout)
+```
+
+**Usage Pattern**:
+```python
+checker = StreamingLTLChecker(dbc_yaml, [
+    "Signal('Speed').always.between(0, 200)",
+    "Signal('EngineTemp').eventually.above(90)"
+])
+
+# Main thread: feed frames
+for frame in frame_stream:
+    checker.feed_frame(frame)
+
+    # Check for violations (non-blocking)
+    try:
+        result = checker.get_result(timeout=0)
+        print(f"Violation: {result}")
+        # Python decides whether to continue or stop
+    except queue.Empty:
+        pass
+
+checker.end_stream()
+
+# Get final results
+while True:
+    result = checker.get_result()
+    if result['status'] == 'complete':
+        break
+```
+
+### Protocol Safety
+
+**Guard Against Post-EndStream Frames**:
+```haskell
+-- After EndStream, verify no more data
+extraInput <- hReady stdin
+when extraInput $ do
+  extra <- hGetLine stdin
+  unless (all isSpace extra) $
+    error "Protocol violation: frames after EndStream"
+```
+
+**Violation**: If Python sends frames after EndStream, binary terminates with error.
+
+### Infinite Trace Semantics
+
+**No Finite Trace Assumption**:
+- DelayedColist is coinductive (supports infinite streams)
+- LTL checker uses coinductive semantics
+- EndStream is an explicit termination signal, not EOF
+
+**Finite Prefix Semantics**:
+- When EndStream is received, checker reports results based on finite prefix seen
+- `Always(φ)`: True if no violations in prefix (cannot prove true for infinite trace)
+- `Eventually(φ)`: False if not satisfied in prefix (may be satisfied later in infinite trace)
+
+This matches standard LTL semantics over **finite prefixes of infinite traces**.
+
+### Performance Characteristics
+
+**Space Complexity**: O(|checker state| + |current frame|) - **not** O(|trace|)
+
+**Time Complexity**: O(|frames| × |active properties| × |signals per frame|)
+- Active properties decrease as they settle
+- Amortized cost improves over trace
+
+**Throughput Target**: 100K frames/sec (Phase 2B), 1M frames/sec (Phase 3)
+
 ## Implementation Phases
 
 ⚠️ **MAJOR PLAN REVISION** - See [PLAN_REVIEW.md](PLAN_REVIEW.md) for full analysis
@@ -205,28 +528,168 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 **Deliverable**: Users can check LTL properties on real traces using Python DSL
 
-### Phase 2B: Streaming + Counterexamples
+### Phase 2B: Streaming Architecture & Async Python
 
-**Timeline**: 3-4 weeks
+**Timeline**: 6-9 days (expanded scope due to paradigm shift)
+**Status**: Design phase complete, ready for implementation
 
-**Goals**: Handle large traces, debug failures
+**Overview**: Phase 2B represents a paradigm shift from finite-trace verification to streaming architecture with async Python. The scope has expanded significantly to support real-world scenarios like mid-stream frame modification (Frame 153 debugging).
 
-**Streaming**:
-- Streaming trace parser (incremental, memory-bounded)
-- Incremental LTL checking
-- Handle 1GB+ trace files
+**Subdivision Rationale**: Three distinct sub-phases to track progress and provide clear checkpoints.
 
-**Counterexamples**:
-- Counterexample generation (show violating trace)
-- Minimal counterexample (shrink to essential)
-- Python-friendly format (timestamp, signal values)
+---
 
-**DSL Extensions**:
-- Custom user-defined predicates (Python callbacks)
-- Standard library of common checks
-- Composition helpers
+#### **Phase 2B.1: Core Protocol & Infrastructure** (Foundation)
 
-**Deliverable**: Production-ready LTL checking with good UX
+**Timeline**: 2-3 days
+
+**Goal**: Stable JSON protocol and multiplexing architecture working end-to-end
+
+**Deliverables**:
+1. **JSON Protocol Specification**
+   - Complete message format specification (all message types)
+   - JSON schema for validation (TypeScript-style or JSON Schema)
+   - State machine definition (states, transitions, invariants, error conditions)
+
+2. **Agda JSON Implementation**
+   - JSON data types: `data JSON = JNull | JBool Bool | JNumber ℤ | JString String | JArray (List JSON) | JObject (List (String × JSON))`
+   - JSON parser: `parseJSON : Parser JSON` (line-delimited)
+   - JSON formatter: `formatJSON : JSON → String`
+   - Lookup helpers: `lookupString`, `lookupInt`, `lookupArray`, etc.
+
+3. **Agda Message Router**
+   - Parse input messages, route by `type` field
+   - Command router: dispatch to appropriate handler
+   - Data router: send to LTL checker
+
+4. **Agda Command Handlers**
+   - `handleParseDBC : JSON → Response` - Parse and validate DBC, reset all state
+   - `handleSetProperties : JSON → Response` - Parse and store LTL properties
+   - `handleStartStream : JSON → Response` - Initialize LTL checker
+   - `handleEncode : JSON → Response` - Encode signal value to CAN frame bytes
+   - `handleDecode : JSON → Response` - Decode signal value from CAN frame bytes
+   - `handleEndStream : JSON → Response` - Stop checking, emit pending results
+
+5. **Agda State Machine**
+   - `record StreamState` with DBC, properties, checker state
+   - State validation: reject invalid command sequences (e.g., encode before parseDBC)
+   - Error responses with clear messages
+
+6. **Haskell Passthrough** (~15 lines, Option D: Truly Dumb)
+   - Simple I/O loop: `forever (readLine >>= agdaProcess >>= writeLine)`
+   - No threading, no queues, no multiplexing
+   - Line buffering handled by `hGetLine` (reads until '\n')
+   - Calls single MAlonzo function: `processJSONLine : String → String`
+   - Sequential processing: one message in, one response out
+   - **Latency**: ~100μs per message (acceptable for real-time and replay)
+
+7. **Basic Python Client** (Sync API for testing)
+   - Subprocess wrapper
+   - Send command, read response (synchronous)
+   - Validate JSON parsing works end-to-end
+
+**Test Criteria**:
+- Can send `parseDBC`, get success response
+- Can send `encode`, get byte array response
+- Can send `startStream` → data frame → `endStream`, get complete response
+- Invalid command sequences return error (e.g., encode before parseDBC)
+
+---
+
+#### **Phase 2B.2: Streaming LTL + Async Python** (Core Feature)
+
+**Timeline**: 2-3 days
+
+**Goal**: Async streaming verification working, Frame 153 scenario functional
+
+**Deliverables**:
+1. **Agda Data Handler**
+   - Integrate frame processing with LTL checker
+   - Stream frames incrementally to checker
+   - Emit violations/satisfactions asynchronously
+   - Handle `endStream` to emit pending properties
+
+2. **Async Python Client API Redesign**
+   - `async def` interface for all operations
+   - `StreamingLTLChecker` class with async methods
+   - `await checker.parse_dbc(...)`
+   - `await checker.encode(...)`
+   - `async for violation in checker.check_stream(...):`
+
+3. **Async Task Management**
+   - Task 1: Command sender (controlled by user)
+   - Task 2: Data frame sender (controlled by user or file reader)
+   - Task 3: Result reader (yields violations/satisfactions)
+   - Proper lifecycle: start subprocess, manage tasks, cleanup
+
+4. **Frame 153 Debugging Scenario**
+   - User replays trace
+   - At frame 153: call `await checker.encode(...)` to build modified frame
+   - Inject modified frame into data stream
+   - Continue streaming, verify fix works
+   - Agda unaware stream was tampered with
+
+5. **Integration Tests**
+   - Real trace verification (100-1000 frames)
+   - Multiple properties in single pass
+   - Mid-stream modification (Frame 153 scenario)
+   - Verify violations reported immediately (not batched)
+   - Memory usage stays constant (no buffering)
+
+**Test Criteria**:
+- Frame 153 scenario works: modify frame, verify fix
+- Can verify 1000-frame trace with 5 properties
+- Violations appear immediately (within 1s of occurrence)
+- Memory usage O(1) regardless of trace length
+
+---
+
+#### **Phase 2B.3: Counterexamples & Polish** (User Experience)
+
+**Timeline**: 2-3 days
+
+**Goal**: Production-ready streaming with excellent UX and documentation
+
+**Deliverables**:
+1. **Counterexample Generation**
+   - Minimal violating trace (shrink to essential frames)
+   - Include signal values at violation point
+   - Clear error messages explaining violation
+   - Python-friendly format (dict with timestamp, signals, reason)
+
+2. **Rich Error Messages**
+   - Command validation errors: "Cannot encode before parseDBC"
+   - JSON parse errors: Line number, character position
+   - DBC validation errors: Which message/signal is malformed
+   - LTL property errors: Which operator is invalid
+
+3. **DSL Extensions**
+   - Custom user-defined predicates (Python lambda callbacks)
+   - Standard library of common checks (bounds, monotonicity, etc.)
+   - Composition helpers (and_then, or_else, when_then)
+
+4. **Performance Tuning**
+   - Profile on large traces (1M+ frames)
+   - Optimize hot paths (JSON parsing, signal extraction, predicate evaluation)
+   - Target: 100K frames/sec throughput
+
+5. **USER_DOC.md** (Comprehensive User Documentation)
+   - Async API reference with detailed examples
+   - Frame 153 scenario tutorial (step-by-step)
+   - Common patterns (read trace from file, real-time capture, etc.)
+   - Error handling best practices
+   - Cut-and-paste examples that just work
+   - Troubleshooting guide
+
+**Test Criteria**:
+- User can understand and fix violations without asking us
+- Examples in USER_DOC.md all run successfully
+- Performance target met (100K frames/sec)
+- Error messages are clear and actionable
+
+---
+
+**Phase 2B Total Deliverable**: Production-ready streaming LTL verification with async Python, JSON protocol, and excellent UX. Users can verify properties on large traces, debug violations mid-stream, and extend with custom predicates.
 
 ### Phase 3: Verification + Performance
 

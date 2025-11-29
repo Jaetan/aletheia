@@ -94,7 +94,35 @@ evalPredicatePair (ChangedBy sigName delta) dbc prevFrame currFrame =
 evalPredicatePair pred dbc _ currFrame = evalPredicate pred dbc currFrame
 
 -- ============================================================================
--- MODEL CHECKER INTEGRATION
+-- STATEFUL PREDICATE EVALUATION (for streaming)
+-- ============================================================================
+
+-- Evaluate predicate on a frame with optional previous frame
+-- This is the streaming-friendly version that doesn't require the full trace
+evalPredicateWithPrev : DBC
+                      → Maybe TimedFrame  -- previous frame (only used by ChangedBy)
+                      → SignalPredicate
+                      → TimedFrame        -- current frame
+                      → Bool
+evalPredicateWithPrev dbc nothing (ChangedBy _ _) _ = true  -- First frame: vacuously true
+evalPredicateWithPrev dbc (just prevTF) (ChangedBy sigName delta) currTF =
+  case evalPredicatePair (ChangedBy sigName delta) dbc (TimedFrame.frame prevTF) (TimedFrame.frame currTF) of λ where
+    nothing → false
+    (just b) → b
+  where
+    case_of_ : ∀ {A B : Set} → A → (A → B) → B
+    case x of f = f x
+
+evalPredicateWithPrev dbc _ pred timedFrame =
+  case evalPredicate pred dbc (TimedFrame.frame timedFrame) of λ where
+    nothing → false
+    (just b) → b
+  where
+    case_of_ : ∀ {A B : Set} → A → (A → B) → B
+    case x of f = f x
+
+-- ============================================================================
+-- MODEL CHECKER INTEGRATION (list-based, for backward compatibility)
 -- ============================================================================
 
 -- Find the previous frame in a trace (by matching timestamp)

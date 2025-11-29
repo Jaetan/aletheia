@@ -22,10 +22,21 @@ record CounterexampleData : Set where
     timestamp : ℕ       -- Timestamp (microseconds) of violating frame
     reason : String     -- Human-readable reason
 
+-- Property checking result for streaming protocol
+-- Emitted when a property is decided (early termination or at EndStream)
+data PropertyResult : Set where
+  -- Property violated (failed early or at EndStream)
+  Violation    : ℕ → CounterexampleData → PropertyResult
+  -- Property satisfied (succeeded early or at EndStream)
+  Satisfaction : ℕ → PropertyResult
+  -- At EndStream: property still pending (neither proved nor violated)
+  Pending      : ℕ → Bool → PropertyResult
+  -- Stream complete marker (all properties decided)
+  StreamComplete : PropertyResult
+
 -- Response payload types
 data ResponseData : Set where
   NoData : ResponseData
-  EchoData : String → ResponseData
   DBCData : DBC → ResponseData
   SignalValueData : ℚ → ResponseData
   FrameData : Vec Byte 8 → ResponseData
@@ -97,7 +108,6 @@ formatResponse resp =
   where
     formatData : ResponseData → String
     formatData NoData = ""
-    formatData (EchoData s) = "echo: \"" ++ s ++ "\"\n"
     formatData (DBCData dbc) = "dbc: <parsed>\n"  -- TODO Phase 5: Implement DBC serialization (pretty-printer)
     formatData (SignalValueData val) = "value: " ++ ℚShow.show val ++ "\n"
     formatData (FrameData bytes) = "frame: " ++ bytesToHex bytes ++ "\n"
@@ -112,3 +122,26 @@ formatResponse resp =
           "counterexample:\n" ++
           "  timestamp: " ++ ℕShow.show (CounterexampleData.timestamp ce) ++ "\n" ++
           "  reason: \"" ++ CounterexampleData.reason ce ++ "\"\n"
+
+-- Format PropertyResult as YAML for streaming output
+formatPropertyResult : PropertyResult → String
+formatPropertyResult (Violation idx counterex) =
+  "status: violation\n" ++
+  "property_index: " ++ ℕShow.show idx ++ "\n" ++
+  "result: false\n" ++
+  "counterexample:\n" ++
+  "  timestamp: " ++ ℕShow.show (CounterexampleData.timestamp counterex) ++ "\n" ++
+  "  reason: \"" ++ CounterexampleData.reason counterex ++ "\"\n"
+  where open import Data.Nat.Show as ℕShow using (show)
+formatPropertyResult (Satisfaction idx) =
+  "status: satisfaction\n" ++
+  "property_index: " ++ ℕShow.show idx ++ "\n" ++
+  "result: true\n"
+  where open import Data.Nat.Show as ℕShow using (show)
+formatPropertyResult (Pending idx result) =
+  "status: pending\n" ++
+  "property_index: " ++ ℕShow.show idx ++ "\n" ++
+  "result: " ++ (if result then "true" else "false") ++ "\n"
+  where open import Data.Nat.Show as ℕShow using (show)
+formatPropertyResult StreamComplete =
+  "status: complete\n"

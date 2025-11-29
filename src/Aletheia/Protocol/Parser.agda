@@ -229,9 +229,6 @@ parseCommand =
         open import Data.Bool using (Bool; true; false)
 
         -- Body parsers (after command type is determined)
-        parseEchoBody : Parser Command
-        parseEchoBody = Echo <$> keyValue "message"
-
         parseParseDBCBody : Parser Command
         parseParseDBCBody = ParseDBC <$> multilineValue "yaml"
 
@@ -274,11 +271,9 @@ parseCommand =
         -- Route function (uses the parsers defined above)
         -- Pattern match on Bool result of string equality
         route : String → Parser Command
-        route name with name == "Echo"
-        ... | true  = parseEchoBody
-        ... | false with name == "ParseDBC"
-        ...   | true  = parseParseDBCBody
-        ...   | false with name == "ExtractSignal"
+        route name with name == "ParseDBC"
+        ... | true  = parseParseDBCBody
+        ... | false with name == "ExtractSignal"
         ...     | true  = parseExtractSignalBody
         ...     | false with name == "InjectSignal"
         ...       | true  = parseInjectSignalBody

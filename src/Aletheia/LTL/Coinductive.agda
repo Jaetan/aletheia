@@ -21,6 +21,10 @@ open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Trace.Context using (timestamp)
 open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample; mkCounterexample)
+open import Aletheia.DBC.Types using (DBC)
+open import Data.Product using (_,_)
+open import Aletheia.Data.DelayedColist using (DelayedColist) renaming (later to wait)
+open Aletheia.Data.DelayedColist
 
 -- ============================================================================
 -- LTL CHECKER STATE MACHINES
@@ -315,3 +319,349 @@ checkProperty = checkColist
 -- Check with counterexample generation (coinductive input/output)
 checkPropertyWithCE : LTL (TimedFrame → Bool) → Colist TimedFrame ∞ → Delay CheckResult ∞
 checkPropertyWithCE = checkColistCE
+
+-- ============================================================================
+-- DELAYED COLIST CHECKERS
+-- ============================================================================
+
+-- Check LTL property on a delayed stream
+-- The 'wait' constructors in input become 'later' in output
+checkDelayedColist : ∀ {i : Size}
+                   → LTL (TimedFrame → Bool)
+                   → DelayedColist TimedFrame i
+                   → Delay Bool i
+checkDelayedColist φ [] = now true
+checkDelayedColist φ (wait rest) = later λ where .force → checkDelayedColist φ (rest .force)
+checkDelayedColist φ (frame ∷ rest) = later λ where .force → goDelayed φ frame (rest .force)
+  where
+    -- Recursive checker for delayed colist
+    goDelayed : ∀ {i : Size}
+              → LTL (TimedFrame → Bool)
+              → TimedFrame
+              → DelayedColist TimedFrame i
+              → Delay Bool i
+
+    goDelayed (Atomic pred) frame [] = now (pred frame)
+    goDelayed (Atomic pred) frame (wait rest) = later λ where .force → goDelayed (Atomic pred) frame (rest .force)
+    goDelayed (Atomic pred) frame (next ∷ rest') = later λ where .force → goDelayed (Atomic pred) next (rest' .force)
+
+    goDelayed (Not ψ) frame dc = Delay.map not (goDelayed ψ frame dc)
+      where import Codata.Sized.Delay as Delay
+
+    goDelayed (And ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
+    goDelayed (And ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (And ψ₁ ψ₂) frame (rest .force)
+    goDelayed (And ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂
+        then (later λ where .force → goDelayed (And ψ₁ ψ₂) next (rest' .force))
+        else now false
+
+    goDelayed (Or ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
+    goDelayed (Or ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (Or ψ₁ ψ₂) frame (rest .force)
+    goDelayed (Or ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂
+        then now true
+        else (later λ where .force → goDelayed (Or ψ₁ ψ₂) next (rest' .force))
+
+    goDelayed (Next ψ) frame [] = now (evalAtFrame frame ψ)
+    goDelayed (Next ψ) frame (wait rest) = later λ where .force → goDelayed (Next ψ) frame (rest .force)
+    goDelayed (Next ψ) frame (next ∷ rest') = later λ where .force → goDelayed ψ next (rest' .force)
+
+    goDelayed (Always ψ) frame [] = now (evalAtFrame frame ψ)
+    goDelayed (Always ψ) frame (wait rest) = later λ where .force → goDelayed (Always ψ) frame (rest .force)
+    goDelayed (Always ψ) frame (next ∷ rest') =
+      if evalAtFrame frame ψ
+        then (later λ where .force → goDelayed (Always ψ) next (rest' .force))
+        else now false
+
+    goDelayed (Eventually ψ) frame [] = now (evalAtFrame frame ψ)
+    goDelayed (Eventually ψ) frame (wait rest) = later λ where .force → goDelayed (Eventually ψ) frame (rest .force)
+    goDelayed (Eventually ψ) frame (next ∷ rest') =
+      if evalAtFrame frame ψ
+        then now true
+        else (later λ where .force → goDelayed (Eventually ψ) next (rest' .force))
+
+    goDelayed (Until ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₂)
+    goDelayed (Until ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (Until ψ₁ ψ₂) frame (rest .force)
+    goDelayed (Until ψ₁ ψ₂) frame (next ∷ rest') =
+      if evalAtFrame frame ψ₂
+        then now true
+        else if evalAtFrame frame ψ₁
+             then (later λ where .force → goDelayed (Until ψ₁ ψ₂) next (rest' .force))
+             else now false
+
+    goDelayed (EventuallyWithin window ψ) frame dc = goEW (timestamp frame) frame dc
+      where
+        goEW : ∀ {i : Size} → ℕ → TimedFrame → DelayedColist TimedFrame i → Delay Bool i
+        goEW start frame [] = now (((timestamp frame ∸ start) ≤ᵇ window) ∧ evalAtFrame frame ψ)
+        goEW start frame (wait rest) = later λ where .force → goEW start frame (rest .force)
+        goEW start frame (next ∷ rest') =
+          if (timestamp frame ∸ start) ≤ᵇ window
+            then (if evalAtFrame frame ψ
+                    then now true
+                    else (later λ where .force → goEW start next (rest' .force)))
+            else now false
+
+    goDelayed (AlwaysWithin window ψ) frame dc = goAW (timestamp frame) frame dc
+      where
+        goAW : ∀ {i : Size} → ℕ → TimedFrame → DelayedColist TimedFrame i → Delay Bool i
+        goAW start frame [] = now (not ((timestamp frame ∸ start) ≤ᵇ window) ∨ evalAtFrame frame ψ)
+        goAW start frame (wait rest) = later λ where .force → goAW start frame (rest .force)
+        goAW start frame (next ∷ rest') =
+          if (timestamp frame ∸ start) ≤ᵇ window
+            then (if evalAtFrame frame ψ
+                    then (later λ where .force → goAW start next (rest' .force))
+                    else now false)
+            else now true
+
+-- Public API for delayed streams
+checkDelayedProperty : LTL (TimedFrame → Bool) → DelayedColist TimedFrame ∞ → Delay Bool ∞
+checkDelayedProperty = checkDelayedColist
+
+-- ============================================================================
+-- STREAMING SIGNAL PREDICATE CHECKER
+-- ============================================================================
+
+-- Import the stateful predicate evaluator
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; evalPredicateWithPrev)
+
+-- Check LTL SignalPredicate formula on a delayed stream
+-- Threads previous frame through for ChangedBy predicates
+checkSignalPredicateStream : ∀ {i : Size}
+                           → DBC
+                           → LTL SignalPredicate
+                           → DelayedColist TimedFrame i
+                           → Delay Bool i
+checkSignalPredicateStream dbc formula stream = go nothing formula stream
+  where
+    -- Eval SignalPredicate on a frame
+    evalPred : Maybe TimedFrame → SignalPredicate → TimedFrame → Bool
+    evalPred prev pred frame = evalPredicateWithPrev dbc prev pred frame
+
+    -- Evaluate LTL formula at a frame (for operators like And, Or)
+    evalFormula : Maybe TimedFrame → LTL SignalPredicate → TimedFrame → Bool
+    evalFormula prev (Atomic pred) frame = evalPred prev pred frame
+    evalFormula prev (Not ψ) frame = not (evalFormula prev ψ frame)
+    evalFormula prev (And ψ₁ ψ₂) frame = evalFormula prev ψ₁ frame ∧ evalFormula prev ψ₂ frame
+    evalFormula prev (Or ψ₁ ψ₂) frame = evalFormula prev ψ₁ frame ∨ evalFormula prev ψ₂ frame
+    evalFormula prev (Next ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Always ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Eventually ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Until ψ₁ ψ₂) frame = evalFormula prev ψ₂ frame
+    evalFormula prev (EventuallyWithin _ ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (AlwaysWithin _ ψ) frame = evalFormula prev ψ frame
+
+    mutual
+      -- Helper: threads previous frame through the stream
+      go : ∀ {i : Size}
+         → Maybe TimedFrame  -- previous frame (state)
+         → LTL SignalPredicate
+         → DelayedColist TimedFrame i
+         → Delay Bool i
+      go prev φ [] = now true
+      go prev φ (wait rest) = later λ where .force → go prev φ (rest .force)
+      go prev φ (frame ∷ rest) = later λ where .force → goFrame prev φ frame (rest .force)
+
+      -- Process one frame with the formula
+      goFrame : ∀ {i : Size}
+              → Maybe TimedFrame
+              → LTL SignalPredicate
+              → TimedFrame
+              → DelayedColist TimedFrame i
+              → Delay Bool i
+
+      goFrame prev (Atomic pred) frame stream = go (just frame) (Atomic pred) stream
+      goFrame prev (Not ψ) frame stream = Delay.map not (goFrame prev ψ frame stream)
+        where import Codata.Sized.Delay as Delay
+      goFrame prev (And ψ₁ ψ₂) frame stream =
+        if evalFormula prev (And ψ₁ ψ₂) frame
+          then go (just frame) (And ψ₁ ψ₂) stream
+          else now false
+      goFrame prev (Or ψ₁ ψ₂) frame stream =
+        if evalFormula prev (Or ψ₁ ψ₂) frame
+          then now true
+          else go (just frame) (Or ψ₁ ψ₂) stream
+      goFrame prev (Next ψ) frame stream = go (just frame) ψ stream
+      goFrame prev (Always ψ) frame stream =
+        if evalFormula prev ψ frame
+          then go (just frame) (Always ψ) stream
+          else now false
+      goFrame prev (Eventually ψ) frame stream =
+        if evalFormula prev ψ frame
+          then now true
+          else go (just frame) (Eventually ψ) stream
+      goFrame prev (Until ψ₁ ψ₂) frame stream =
+        if evalFormula prev ψ₂ frame
+          then now true
+          else if evalFormula prev ψ₁ frame
+               then go (just frame) (Until ψ₁ ψ₂) stream
+               else now false
+      goFrame prev (EventuallyWithin window ψ) frame stream = goEW (timestamp frame) prev ψ frame stream
+        where
+          goEW : ∀ {i : Size} → ℕ → Maybe TimedFrame → LTL SignalPredicate → TimedFrame → DelayedColist TimedFrame i → Delay Bool i
+          goEW start prevFrame φ curFrame [] = now (((timestamp curFrame ∸ start) ≤ᵇ window) ∧ evalFormula prevFrame φ curFrame)
+          goEW start prevFrame φ curFrame (wait rest) = later λ where .force → goEW start prevFrame φ curFrame (rest .force)
+          goEW start prevFrame φ curFrame (next ∷ rest') =
+            if (timestamp curFrame ∸ start) ≤ᵇ window
+              then (if evalFormula prevFrame φ curFrame
+                      then now true
+                      else later λ where .force → goEW start (just curFrame) φ next (rest' .force))
+              else now false
+      goFrame prev (AlwaysWithin window ψ) frame stream = goAW (timestamp frame) prev ψ frame stream
+        where
+          goAW : ∀ {i : Size} → ℕ → Maybe TimedFrame → LTL SignalPredicate → TimedFrame → DelayedColist TimedFrame i → Delay Bool i
+          goAW start prevFrame φ curFrame [] = now (not ((timestamp curFrame ∸ start) ≤ᵇ window) ∨ evalFormula prevFrame φ curFrame)
+          goAW start prevFrame φ curFrame (wait rest) = later λ where .force → goAW start prevFrame φ curFrame (rest .force)
+          goAW start prevFrame φ curFrame (next ∷ rest') =
+            let inWindow = (timestamp curFrame ∸ start) ≤ᵇ window
+                holds = evalFormula prevFrame φ curFrame
+                continue = later λ where .force → goAW start (just curFrame) φ next (rest' .force)
+            in if inWindow
+               then (if holds then continue else now false)
+               else now true
+
+-- Public API for streaming SignalPredicate checking
+checkStreamingProperty : DBC → LTL SignalPredicate → DelayedColist TimedFrame ∞ → Delay Bool ∞
+checkStreamingProperty = checkSignalPredicateStream
+
+-- ============================================================================
+-- INCREMENTAL MULTI-PROPERTY CHECKER
+-- ============================================================================
+
+-- Import PropertyResult type from Protocol
+open import Aletheia.Protocol.Response using (PropertyResult; Violation; Satisfaction; Pending; StreamComplete; CounterexampleData; mkCounterexampleData)
+open import Data.List as List using (List; []; _∷_; filter; partition)
+open import Data.List.Properties using ()
+open import Data.Product using (_×_; _,_)
+
+-- Check multiple properties incrementally on a delayed stream
+-- Emits PropertyResult whenever a property is decided (violated/satisfied)
+-- Removes decided properties from active set
+checkAllPropertiesIncremental : ∀ {i : Size}
+                              → DBC
+                              → List (ℕ × LTL SignalPredicate)
+                              → DelayedColist TimedFrame i
+                              → DelayedColist PropertyResult i
+checkAllPropertiesIncremental dbc properties stream = go nothing properties stream
+  where
+    -- Evaluate predicate on frame
+    evalPred : Maybe TimedFrame → SignalPredicate → TimedFrame → Bool
+    evalPred prev pred frame = evalPredicateWithPrev dbc prev pred frame
+
+    -- Evaluate full formula on frame
+    evalFormula : Maybe TimedFrame → LTL SignalPredicate → TimedFrame → Bool
+    evalFormula prev (Atomic pred) frame = evalPred prev pred frame
+    evalFormula prev (Not ψ) frame = not (evalFormula prev ψ frame)
+    evalFormula prev (And ψ₁ ψ₂) frame = evalFormula prev ψ₁ frame ∧ evalFormula prev ψ₂ frame
+    evalFormula prev (Or ψ₁ ψ₂) frame = evalFormula prev ψ₁ frame ∨ evalFormula prev ψ₂ frame
+    evalFormula prev (Next ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Always ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Eventually ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (Until ψ₁ ψ₂) frame = evalFormula prev ψ₂ frame
+    evalFormula prev (EventuallyWithin _ ψ) frame = evalFormula prev ψ frame
+    evalFormula prev (AlwaysWithin _ ψ) frame = evalFormula prev ψ frame
+
+    -- Check if a property can be decided early at current frame
+    -- Returns: Just (True) = satisfied, Just (False) = violated, Nothing = still checking
+    canDecideEarly : Maybe TimedFrame → LTL SignalPredicate → TimedFrame → Maybe Bool
+    canDecideEarly prev (Atomic pred) frame =
+      -- Atomic predicate decided on each frame, but doesn't terminate checking
+      nothing
+    canDecideEarly prev (Not ψ) frame = canDecideEarly prev ψ frame
+    canDecideEarly prev (And ψ₁ ψ₂) frame =
+      -- Can fail early if either conjunct fails
+      case canDecideEarly prev ψ₁ frame of λ where
+        (just false) → just false
+        _ → canDecideEarly prev ψ₂ frame
+      where
+        case_of_ : ∀ {A B : Set} → A → (A → B) → B
+        case x of f = f x
+    canDecideEarly prev (Or ψ₁ ψ₂) frame =
+      -- Can succeed early if either disjunct succeeds
+      case canDecideEarly prev ψ₁ frame of λ where
+        (just true) → just true
+        _ → canDecideEarly prev ψ₂ frame
+      where
+        case_of_ : ∀ {A B : Set} → A → (A → B) → B
+        case x of f = f x
+    canDecideEarly prev (Always ψ) frame with evalFormula prev ψ frame
+    ... | false = just false  -- Violation found - can decide immediately
+    ... | true = nothing  -- Still holding - need more frames
+    canDecideEarly prev (Eventually ψ) frame with evalFormula prev ψ frame
+    ... | true = just true  -- Satisfaction found - can decide immediately
+    ... | false = nothing  -- Not yet - need more frames
+    canDecideEarly prev (Until ψ₁ ψ₂) frame with evalFormula prev ψ₂ frame
+    ... | true = just true  -- ψ₂ satisfied - can decide immediately
+    ... | false with evalFormula prev ψ₁ frame
+    ...   | false = just false  -- ψ₁ failed before ψ₂ - violation
+    ...   | true = nothing  -- Still waiting for ψ₂
+    canDecideEarly prev _ frame = nothing  -- Other operators can't decide early
+
+    -- Check each property and partition into decided/active
+    checkProperties : Maybe TimedFrame
+                    → List (ℕ × LTL SignalPredicate)
+                    → TimedFrame
+                    → (List PropertyResult × List (ℕ × LTL SignalPredicate))
+    checkProperties prev [] frame = ([] , [])
+    checkProperties prev ((idx , φ) ∷ rest) frame =
+      let (decidedRest , activeRest) = checkProperties prev rest frame
+      in case canDecideEarly prev φ frame of λ where
+           (just false) →
+             let reason = "Property violated at t=" ++ show (timestamp frame)
+                 ce = mkCounterexampleData (timestamp frame) reason
+             in ((Violation idx ce) ∷ decidedRest , activeRest)
+           (just true) →
+             ((Satisfaction idx) ∷ decidedRest , activeRest)
+           nothing →
+             (decidedRest , (idx , φ) ∷ activeRest)
+      where
+        case_of_ : ∀ {A B : Set} → A → (A → B) → B
+        case x of f = f x
+
+    -- Emit list of results to output stream
+    emitResults : ∀ {i : Size} → List PropertyResult → DelayedColist PropertyResult i → DelayedColist PropertyResult i
+    emitResults [] rest = rest
+    emitResults (r ∷ rs) rest = r ∷ λ where .force → emitResults rs rest
+
+    -- At EndStream: emit pending results for active properties
+    emitPending : List (ℕ × LTL SignalPredicate) → Maybe TimedFrame → DelayedColist PropertyResult ∞
+    emitPending [] prev = StreamComplete ∷ λ where .force → []
+    emitPending ((idx , φ) ∷ rest) prev =
+      let result = finalDecision prev φ
+      in (Pending idx result) ∷ λ where .force → emitPending rest prev
+      where
+        -- Decide result based on finite prefix semantics
+        finalDecision : Maybe TimedFrame → LTL SignalPredicate → Bool
+        finalDecision prev (Always ψ) = true  -- No violations found
+        finalDecision prev (Eventually ψ) = false  -- Never satisfied
+        finalDecision prev (Until ψ₁ ψ₂) = false  -- ψ₂ never satisfied
+        finalDecision prev _ = true  -- Other operators default to true
+
+    mutual
+      -- Main loop: process stream with active properties
+      go : ∀ {i : Size}
+         → Maybe TimedFrame  -- previous frame
+         → List (ℕ × LTL SignalPredicate)  -- active properties
+         → DelayedColist TimedFrame i
+         → DelayedColist PropertyResult i
+      go prev [] stream = emitPending [] prev  -- All properties decided
+      go prev props [] = emitPending props prev  -- EndStream reached
+      go prev props (wait rest) = wait λ where .force → go prev props (rest .force)
+      go prev props (frame ∷ rest) = wait λ where .force → processFrame prev props frame (rest .force)
+
+      -- Process one frame against all active properties
+      processFrame : ∀ {i : Size}
+                   → Maybe TimedFrame
+                   → List (ℕ × LTL SignalPredicate)
+                   → TimedFrame
+                   → DelayedColist TimedFrame i
+                   → DelayedColist PropertyResult i
+      processFrame prev props frame rest =
+        let (decided , stillActive) = checkProperties prev props frame
+        in emitResults decided (go (just frame) stillActive rest)
+
+-- Public API for incremental multi-property checking
+checkAllPropertiesStream : DBC
+                         → List (ℕ × LTL SignalPredicate)
+                         → DelayedColist TimedFrame ∞
+                         → DelayedColist PropertyResult ∞
+checkAllPropertiesStream = checkAllPropertiesIncremental
