@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+_build/
 dist/
 dist-newstyle/
 
@@ -54,6 +55,5 @@ c.log
 
 # Temporary test files (development artifacts)
 /test_*.yaml
-/test_*.py
 /debug_*.py
 /tmp_*.yaml
