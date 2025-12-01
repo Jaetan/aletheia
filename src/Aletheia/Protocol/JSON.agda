@@ -52,11 +52,6 @@ getBool : JSON → Maybe Bool
 getBool (JBool b) = just b
 getBool _ = nothing
 
--- Get rational value from JSON
-getRational : JSON → Maybe ℚ
-getRational (JNumber r) = just r
-getRational _ = nothing
-
 -- Get integer value from JSON (rational must be an integer)
 -- TEMPORARY DEBUG VERSION - Returns String instead of ℤ to trace execution
 getIntDebug : JSON → Maybe String
@@ -107,6 +102,25 @@ getNat (JNumber r) = extractNat (getInt (JNumber r))
     extractNat (just (Data.Integer.+ n)) = just n
     extractNat _ = nothing
 getNat _ = nothing
+
+-- Get rational value from JSON (supports both decimal and object formats)
+-- Accepts: JNumber (direct rational) or {"numerator": n, "denominator": d}
+getRational : JSON → Maybe ℚ
+getRational (JNumber r) = just r
+getRational (JObject fields) = parseRationalObject fields
+  where
+    parseRationalObject : List (String × JSON) → Maybe ℚ
+    parseRationalObject fields with lookup "numerator" fields
+    ... | nothing = nothing
+    ... | just numJSON with getInt numJSON
+    ...   | nothing = nothing
+    ...   | just num with lookup "denominator" fields
+    ...     | nothing = nothing
+    ...     | just denomJSON with getNat denomJSON
+    ...       | nothing = nothing
+    ...       | just Data.Nat.zero = nothing  -- Denominator cannot be zero
+    ...       | just (Data.Nat.suc d) = just (num / (Data.Nat.suc d))  -- NonZero proved by suc
+getRational _ = nothing
 
 -- Get array value from JSON
 getArray : JSON → Maybe (List JSON)
@@ -170,11 +184,20 @@ escapeString : String → String
 escapeString s = foldr _++S_ "" (map escapeChar (toList s))
 
 -- Format JSON as string (structurally recursive on JSON data type)
+-- Format a rational as a JSON object with numerator and denominator
+formatRational : ℚ → String
+formatRational r with Rat.toℚᵘ r
+... | ℚᵘ.mkℚᵘ num denom-1 =
+      "{\"numerator\": " ++S IntShow.show num ++S
+      ", \"denominator\": " ++S ℕShow.show (Data.Nat.suc denom-1) ++S "}"
+  where
+    open import Data.Nat.Show as ℕShow using (show)
+
 formatJSON : JSON → String
 formatJSON JNull = "null"
 formatJSON (JBool true) = "true"
 formatJSON (JBool false) = "false"
-formatJSON (JNumber n) = RatShow.show n
+formatJSON (JNumber n) = formatRational n
 formatJSON (JString s) = "\"" ++S escapeString s ++S "\""
 formatJSON (JArray xs) = "[" ++S formatJSONList xs ++S "]"
   where

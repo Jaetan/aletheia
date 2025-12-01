@@ -75,30 +75,9 @@ handleSetProperties-State propJSONs state with StreamState.phase state
     parseAllProperties [] idx acc =
       let newState = mkStreamState ReadyToStream (StreamState.dbc state) acc []  -- Reset accumulated frames when setting properties
       in (newState , Response.Success "Properties set successfully")
-    parseAllProperties (json@(JObject obj) ∷ rest) idx acc with lookupString "operator" obj
-    ... | nothing = (state , Response.Error ("TRACE 1: missing 'operator' field"))
-    ... | just op with lookupObject "predicate" obj
-    ...   | nothing = (state , Response.Error ("TRACE 2: missing 'predicate' field"))
-    ...   | just predObj with lookupString "predicate" predObj
-    ...     | nothing = (state , Response.Error ("TRACE 3: predicate object missing 'predicate' field"))
-    ...     | just predType with parseSignalPredicate predObj
-    ...       | nothing = (state , Response.Error ("TRACE 4: parseSignalPredicate FAILED"))
-    ...       | just _ with dispatchPredicate predType predObj
-    ...         | nothing = (state , Response.Error ("TRACE 5: dispatchPredicate FAILED"))
-    ...         | just _ with parseAtomic 98 obj
-    ...           | nothing = (state , Response.Error ("TRACE 6: parseAtomic FAILED"))
-    ...           | just _ with parseLTLObjectHelper 98 obj
-    ...             | nothing = (state , Response.Error ("TRACE 6.5: parseLTLObjectHelper FAILED"))
-    ...             | just _ with parseLTLObject 99 obj
-    ...               | nothing = (state , Response.Error ("TRACE 7: parseLTLObject FAILED"))
-    ...             | just _ with parseLTLDispatch 99 json
-    ...               | nothing = (state , Response.Error ("TRACE 8: parseLTLDispatch FAILED"))
-    ...               | just _ with parseLTL 100 json
-    ...                 | nothing = (state , Response.Error ("TRACE 9: parseLTL FAILED"))
-    ...                 | just _ with parseProperty json
-    ...                   | nothing = (state , Response.Error ("TRACE 10: parseProperty FAILED (but all manual steps succeeded!)"))
-    ...                   | just prop = parseAllProperties rest (idx + 1) (acc ++ ((idx , prop) ∷ []))
-    parseAllProperties (_ ∷ _) idx _ = (state , Response.Error ("Property " ++S showℕ idx ++S ": not a JSON object"))
+    parseAllProperties (json ∷ rest) idx acc with parseProperty json
+    ... | nothing = (state , Response.Error ("Failed to parse property " ++S showℕ idx))
+    ... | just prop = parseAllProperties rest (idx + 1) (acc ++ ((idx , prop) ∷ []))
 ... | Streaming = (state , Response.Error "Cannot set properties while streaming")
 
 -- Start stream command: transition to streaming mode
