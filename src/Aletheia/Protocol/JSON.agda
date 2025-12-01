@@ -53,24 +53,6 @@ getBool (JBool b) = just b
 getBool _ = nothing
 
 -- Get integer value from JSON (rational must be an integer)
--- TEMPORARY DEBUG VERSION - Returns String instead of ℤ to trace execution
-getIntDebug : JSON → Maybe String
-getIntDebug (JNumber r) = checkInteger (Rat.toℚᵘ r)
-  where
-    open import Data.Nat.Divisibility using (_∣?_)
-    open import Data.Integer using (+_; -[1+_]; ∣_∣)
-    open import Data.Integer.Show as IntShow using ()
-    open import Data.Nat.Show as ℕShow using (show)
-    open import Relation.Nullary using (yes; no)
-
-    checkInteger : ℚᵘ → Maybe String
-    checkInteger (ℚᵘ.mkℚᵘ num (Data.Nat.suc denom)) with (Data.Nat.suc denom) ∣? ∣ num ∣
-    ... | yes _ = just ("DIVISIBLE: num=" ++S IntShow.show num ++S " denom=" ++S ℕShow.show (Data.Nat.suc denom))
-    ... | no _ = just ("NOT_DIVISIBLE: num=" ++S IntShow.show num ++S " denom=" ++S ℕShow.show (Data.Nat.suc denom))
-    checkInteger (ℚᵘ.mkℚᵘ num Data.Nat.zero) = just ("ZERO_DENOM: num=" ++S IntShow.show num)
-getIntDebug _ = just "NOT_A_NUMBER"
-
--- Get integer value from JSON (rational must be an integer)
 -- Works by checking if numerator is divisible by denominator
 -- NOTE: ℚᵘ stores denominator-1, so actual denominator = pattern + 1
 getInt : JSON → Maybe ℤ

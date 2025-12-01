@@ -60,24 +60,24 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
       in case_type typeField obj
       where
         case_type : Maybe String → List (String × JSON) → StreamState × String
-        case_type nothing obj = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "TRACE: missing type field")))
+        case_type nothing obj = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Missing 'type' field in request")))
         case_type (just msgType) obj =
           if ⌊ msgType ≟ "data" ⌋
           then trace_dataframe obj
           else if ⌊ msgType ≟ "command" ⌋
-               then tryParseCommand obj  -- Use traced command parser
-               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("TRACE: unknown type: " ++S msgType))))
+               then tryParseCommand obj
+               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("Unknown message type: " ++S msgType))))
           where
             trace_dataframe : List (String × JSON) → StreamState × String
             trace_dataframe obj with parseDataFrameWithTrace obj
-            ... | nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "TRACE_DF0: parseDataFrameWithTrace returned nothing")))
+            ... | nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Failed to parse data frame")))
             ... | just (inj₁ errMsg) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
             ... | just (inj₂ (timestamp , frame)) =
                   let (newState , response) = handleDataFrame state timestamp frame
                   in (newState , formatJSON (Routing.formatResponse response))
-    parseJSON_helperWithTrace json = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "TRACE: JSON is not an object")))
+    parseJSON_helperWithTrace json = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
     parseJSON_helper : Maybe JSON → StreamState × String
-    parseJSON_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "TRACE_PARSE: Invalid JSON")))
+    parseJSON_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Invalid JSON")))
     parseJSON_helper (just (JObject obj)) = parseJSON_helperWithTrace (JObject obj)
-    parseJSON_helper (just _) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "TRACE_PARSE: JSON is not an object")))
+    parseJSON_helper (just _) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Request must be a JSON object")))

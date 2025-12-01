@@ -59,10 +59,10 @@ listToVec8 (n₀ ∷ n₁ ∷ n₂ ∷ n₃ ∷ n₄ ∷ n₅ ∷ n₆ ∷ n₇ 
     toFin n = n mod 256  -- _mod_ : ℕ → (n : ℕ) {n≢0 : NonZero n} → Fin n
 listToVec8 _ = nothing  -- Wrong length
 
--- Parse StreamCommand from JSON object (with tracing)
+-- Parse StreamCommand from JSON object
 parseCommandWithTrace : List (String × JSON) → String ⊎ StreamCommand
 parseCommandWithTrace obj with lookupString "command" obj
-... | nothing = inj₁ "TRACE_CMD0: missing 'command' field"
+... | nothing = inj₁ "Missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
   where
     dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
@@ -73,38 +73,38 @@ parseCommandWithTrace obj with lookupString "command" obj
       else if ⌊ cmdType ≟ "encode" ⌋ then tryEncode obj
       else if ⌊ cmdType ≟ "decode" ⌋ then tryDecode obj
       else if ⌊ cmdType ≟ "endStream" ⌋ then inj₂ EndStream
-      else inj₁ ("TRACE_CMD11: unknown command: " ++S cmdType)
+      else inj₁ ("Unknown command: " ++S cmdType)
       where
         tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
         tryParseDBC obj with lookup "dbc" obj
-        ... | nothing = inj₁ "TRACE_CMD1: missing 'dbc' field"
+        ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
         ... | just dbc = inj₂ (ParseDBC dbc)
 
         trySetProperties : List (String × JSON) → String ⊎ StreamCommand
         trySetProperties obj with lookupArray "properties" obj
-        ... | nothing = inj₁ "TRACE_CMD2: missing 'properties' field"
+        ... | nothing = inj₁ "SetProperties: missing 'properties' field"
         ... | just props = inj₂ (SetProperties props)
 
         tryEncode : List (String × JSON) → String ⊎ StreamCommand
         tryEncode obj with lookupString "message" obj
-        ... | nothing = inj₁ "TRACE_CMD3: missing 'message' field in encode"
+        ... | nothing = inj₁ "Encode: missing 'message' field"
         ... | just msgName with lookupString "signal" obj
-        ...   | nothing = inj₁ "TRACE_CMD4: missing 'signal' field in encode"
+        ...   | nothing = inj₁ "Encode: missing 'signal' field"
         ...   | just sigName with lookupInt "value" obj
-        ...     | nothing = inj₁ "TRACE_CMD5: missing or invalid 'value' field in encode"
+        ...     | nothing = inj₁ "Encode: missing or invalid 'value' field"
         ...     | just value = inj₂ (Encode msgName sigName value)
 
         tryDecode : List (String × JSON) → String ⊎ StreamCommand
         tryDecode obj with lookupString "message" obj
-        ... | nothing = inj₁ "TRACE_CMD6: missing 'message' field in decode"
+        ... | nothing = inj₁ "Decode: missing 'message' field"
         ... | just msgName with lookupString "signal" obj
-        ...   | nothing = inj₁ "TRACE_CMD7: missing 'signal' field in decode"
+        ...   | nothing = inj₁ "Decode: missing 'signal' field"
         ...   | just sigName with lookupArray "bytes" obj
-        ...     | nothing = inj₁ "TRACE_CMD8: missing 'bytes' field in decode"
+        ...     | nothing = inj₁ "Decode: missing 'bytes' field"
         ...     | just bytesJSON with parseByteArray bytesJSON
-        ...       | nothing = inj₁ "TRACE_CMD9: failed to parse byte array in decode"
+        ...       | nothing = inj₁ "Decode: failed to parse byte array"
         ...       | just byteList with listToVec8 byteList
-        ...         | nothing = inj₁ "TRACE_CMD10: wrong number of bytes in decode (must be 8)"
+        ...         | nothing = inj₁ "Decode: expected 8 bytes"
         ...         | just bytes = inj₂ (Decode msgName sigName bytes)
 
 -- Parse StreamCommand from JSON object
@@ -114,27 +114,19 @@ parseCommand obj with parseCommandWithTrace obj
 ... | inj₂ cmd = just cmd
 
 -- Parse data frame from JSON object (returns timestamp and frame)
--- Returns Maybe String for error messages during debugging
+-- Returns error messages for debugging
 parseDataFrameWithTrace : List (String × JSON) → Maybe (String ⊎ (ℕ × CANFrame))
-parseDataFrameWithTrace obj with lookup "timestamp" obj
-... | nothing = just (inj₁ "TRACE_DF1a: timestamp field not found")
-... | just timestampJSON with getRational timestampJSON
-...   | nothing = just (inj₁ "TRACE_DF1b: timestamp field is not a rational")
-...   | just timestampRat with getIntDebug timestampJSON
-...     | nothing = just (inj₁ ("TRACE_DF1c_DEBUG: getIntDebug returned nothing (impossible!)"))
-...     | just debugMsg with getInt timestampJSON
-...       | nothing = just (inj₁ ("TRACE_DF1c: getInt failed: " ++S debugMsg))
-...       | just timestampInt with getNat timestampJSON
-...         | nothing = just (inj₁ ("TRACE_DF1d: getNat returned nothing but getInt succeeded: " ++S debugMsg))
-...         | just timestamp with lookupNat "id" obj
-...           | nothing = just (inj₁ "TRACE_DF2: missing id")
-...       | just canId with lookupArray "data" obj
-...         | nothing = just (inj₁ "TRACE_DF3: missing data array")
-...         | just bytesJSON with parseByteArray bytesJSON
-...           | nothing = just (inj₁ "TRACE_DF4: parseByteArray failed")
-...           | just byteList with listToVec8 byteList
-...             | nothing = just (inj₁ "TRACE_DF5: listToVec8 failed (wrong length)")
-...             | just bytes = buildFrame timestamp canId bytes
+parseDataFrameWithTrace obj with lookupNat "timestamp" obj
+... | nothing = just (inj₁ "Data frame: missing or invalid 'timestamp' field")
+... | just timestamp with lookupNat "id" obj
+...   | nothing = just (inj₁ "Data frame: missing or invalid 'id' field")
+...   | just canId with lookupArray "data" obj
+...     | nothing = just (inj₁ "Data frame: missing 'data' array")
+...     | just bytesJSON with parseByteArray bytesJSON
+...       | nothing = just (inj₁ "Data frame: failed to parse byte array")
+...       | just byteList with listToVec8 byteList
+...         | nothing = just (inj₁ "Data frame: expected 8 bytes")
+...         | just bytes = buildFrame timestamp canId bytes
   where
     buildFrame : ℕ → ℕ → Vec Byte 8 → Maybe (String ⊎ (ℕ × CANFrame))
     buildFrame timestamp canId bytes =
