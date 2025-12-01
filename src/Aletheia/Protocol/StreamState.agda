@@ -1,5 +1,8 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- Streaming protocol state machine and command handlers.
+-- Manages state transitions: WaitingForDBC → ReadyToStream → Streaming.
+-- Accumulates frames and checks LTL properties incrementally.
 module Aletheia.Protocol.StreamState where
 
 open import Data.String using (String; toList) renaming (_++_ to _++S_)

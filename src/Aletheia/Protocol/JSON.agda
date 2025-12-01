@@ -1,5 +1,8 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- JSON data types, parser, and formatter with rational number support.
+-- Rationals are represented as {"numerator": n, "denominator": d} objects.
+
 module Aletheia.Protocol.JSON where
 
 open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++S_)

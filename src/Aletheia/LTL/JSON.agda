@@ -1,5 +1,8 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- JSON parser for LTL formulas with signal predicates.
+-- Parses nested operator structures (always, eventually, until, etc.)
+-- and signal predicates (equals, lessThan, greaterThan, etc.).
 module Aletheia.LTL.JSON where
 
 open import Data.String using (String; _≟_)

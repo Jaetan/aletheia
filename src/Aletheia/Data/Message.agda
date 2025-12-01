@@ -1,5 +1,8 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Protocol message types for the JSON streaming LTL checker.
+-- Defines StreamCommand (commands), Request (command or data frame),
+-- and Response (success, error, property results, ack).
 module Aletheia.Data.Message where
 
 open import Data.String using (String)
