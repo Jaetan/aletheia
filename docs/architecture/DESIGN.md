@@ -2,8 +2,8 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 0.1.0
-**Status**: Phase 1 Complete ✅ | Phase 2A Weeks 1-3 Complete ✅ (LTL Core)
-**Last Updated**: 2025-11-18
+**Status**: Phase 2B.1 Complete ✅ | JSON Streaming Protocol with LTL Checking
+**Last Updated**: 2025-12-02
 
 ## Project Overview
 
@@ -43,10 +43,10 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 ┌─────────────────────────────────────────┐
 │ Python Layer (python/)                  │
 │ - User-facing API (CANDecoder, LTL DSL) │
-│ - Subprocess communication via YAML     │
+│ - Subprocess communication via JSON     │
 │ - Simple wrapper around binary           │
 └──────────────┬──────────────────────────┘
-               │ YAML over stdin/stdout
+               │ JSON over stdin/stdout
 ┌──────────────▼──────────────────────────┐
 │ Haskell Shim (haskell-shim/)            │
 │ - Minimal I/O layer (<100 lines)        │
