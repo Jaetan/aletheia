@@ -44,9 +44,14 @@ class StreamingClient:
     6. Send EndStream command when done
 
     Example:
+        from aletheia.dbc_converter import dbc_to_json
+
+        dbc_json = dbc_to_json("example.dbc")
+        property = Signal("Speed").less_than(220).always().to_dict()
+
         with StreamingClient() as client:
-            client.parse_dbc(dbc_yaml)
-            client.set_properties([prop1, prop2])
+            client.parse_dbc(dbc_json)
+            client.set_properties([property])
             client.start_stream()
 
             for frame in can_trace:

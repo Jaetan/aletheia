@@ -3,10 +3,15 @@
 Provides fluent interface for expressing temporal properties:
     Signal("Speed").less_than(220).always()
     brake_pressed.implies(speed_decreases.within(100))
+
+Usage with StreamingClient:
+    from aletheia import StreamingClient, Signal
+
+    property = Signal("Speed").less_than(220).always()
+    client.set_properties([property.to_dict()])
 """
 
 from typing import Any, Dict, Union
-import yaml
 
 
 class Signal:
@@ -403,21 +408,14 @@ class Property:
             'right': other._data
         })
 
-    def to_yaml(self) -> str:
-        """Serialize property to YAML for binary consumption
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for use with StreamingClient
 
         Returns:
-            YAML string representation
+            Dictionary representation suitable for JSON serialization
 
         Example:
-            yaml_str = speed_limit.to_yaml()
-        """
-        return yaml.dump(self._data, default_flow_style=False, sort_keys=False)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary (for debugging/inspection)
-
-        Returns:
-            Dictionary representation
+            property = Signal("Speed").less_than(220).always()
+            client.set_properties([property.to_dict()])
         """
         return self._data
