@@ -1,6 +1,6 @@
-# Aletheia Python API Reference
+# Aletheia Python DSL Guide
 
-**Purpose**: Complete guide to using Aletheia from Python for CAN frame analysis and LTL verification.
+**Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
 **Version**: 0.1.0 (Phase 2B.1)
 **Last Updated**: 2025-12-02
 
@@ -9,63 +9,26 @@
 ## Quick Start
 
 ```python
-from aletheia.streaming_client import StreamingClient
+from aletheia import StreamingClient, Signal
+from aletheia.dbc_converter import dbc_to_json
 
-# Load DBC (Database CAN) with your vehicle's signal definitions
-dbc_json = {
-    "version": "1.0",
-    "messages": [{
-        "id": 256,
-        "name": "SpeedMessage",
-        "dlc": 8,
-        "extended": False,
-        "sender": "ECU",
-        "signals": [{
-            "name": "Speed",
-            "startBit": 0,
-            "length": 16,
-            "byteOrder": "little_endian",
-            "signed": False,
-            "factor": 0.1,
-            "offset": 0.0,
-            "minimum": 0.0,
-            "maximum": 300.0,
-            "unit": "km/h",
-            "presence": "always"
-        }]
-    }]
-}
+# Load DBC file (converts .dbc to JSON automatically)
+dbc_json = dbc_to_json("vehicle.dbc")
 
-# Define LTL property: "Speed must always be less than 250 km/h"
-property = {
-    "operator": "always",
-    "formula": {
-        "operator": "atomic",
-        "predicate": {
-            "predicate": "lessThan",
-            "signal": "Speed",
-            "value": 250
-        }
-    }
-}
+# Define property using fluent DSL: "Speed must always be less than 250 km/h"
+property = Signal("Speed").less_than(250).always()
 
 # Check CAN frames against property
 with StreamingClient() as client:
     client.parse_dbc(dbc_json)
-    client.set_properties([property])
+    client.set_properties([property.to_dict()])
     client.start_stream()
 
-    # Send frames from your trace
     for frame in can_trace:
-        response = client.send_frame(
-            timestamp=frame.timestamp,
-            can_id=frame.id,
-            data=frame.data  # [byte0, byte1, ..., byte7]
-        )
+        response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("type") == "property":
-            print(f"Violation detected at {response['timestamp']}")
-            print(f"Reason: {response['reason']}")
+            print(f"⚠️  Violation at {response['timestamp']}: {response['reason']}")
             break
 
     client.end_stream()
@@ -73,74 +36,310 @@ with StreamingClient() as client:
 
 ---
 
-## Installation
+## Python DSL Reference
 
-### Prerequisites
+### Signal Predicates
 
-1. **Build the Aletheia binary** (required):
-   ```bash
-   cd /path/to/aletheia
-   cabal run shake -- build
-   ```
+The `Signal` class provides fluent methods for building atomic predicates.
 
-2. **Install Python package** (development mode):
-   ```bash
-   cd python
-   pip install -e ".[dev]"
-   ```
-
-### Verify Installation
+#### Basic Comparisons
 
 ```python
-from aletheia.streaming_client import get_binary_path
+from aletheia import Signal
 
-try:
-    binary = get_binary_path()
-    print(f"Aletheia binary found at: {binary}")
-except FileNotFoundError as e:
-    print(f"Error: {e}")
+# Equality
+Signal("Gear").equals(0)                    # Gear is in park (0)
+
+# Relational operators
+Signal("Speed").less_than(220)              # Speed < 220 km/h
+Signal("Speed").greater_than(0)             # Speed > 0
+Signal("Speed").less_than_or_equal(200)     # Speed ≤ 200
+Signal("Speed").greater_than_or_equal(60)   # Speed ≥ 60
+
+# Range checking
+Signal("BatteryVoltage").between(11.5, 14.5)  # 11.5 ≤ voltage ≤ 14.5
+```
+
+#### Change Detection
+
+```python
+# Signal changed by at least delta (absolute value)
+Signal("Speed").changed_by(-10)  # Speed decreased by 10+ km/h
+Signal("RPM").changed_by(500)    # RPM increased or decreased by 500+
+```
+
+**Note**: `changed_by` checks `|value_now - value_prev| ≥ |delta|`
+
+---
+
+### Temporal Operators
+
+Build LTL formulas by chaining temporal operators on predicates.
+
+#### Always (Globally)
+
+Property must hold for all frames in the trace.
+
+```python
+# Speed must always stay below 220 km/h
+Signal("Speed").less_than(220).always()
+
+# Gear must always be between 0 and 6
+Signal("Gear").between(0, 6).always()
+```
+
+#### Eventually (Finally)
+
+Property must hold at some point in the trace.
+
+```python
+# Engine must eventually reach operating temperature
+Signal("EngineTemp").greater_than(90).eventually()
+
+# Door must eventually close
+Signal("DoorClosed").equals(1).eventually()
+```
+
+#### Never
+
+Property must never hold (always negated).
+
+```python
+# Error code must never be 0xFF
+Signal("ErrorCode").equals(0xFF).never()
+
+# Speed must never exceed 300 km/h
+Signal("Speed").greater_than(300).never()
+```
+
+#### Bounded Temporal Operators
+
+```python
+# Must hold within time_ms milliseconds
+brake_pressed.within(100)
+
+# Must hold continuously for at least time_ms milliseconds
+Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced door sensor
 ```
 
 ---
 
-## StreamingClient (Primary API)
+### Logical Composition
 
-**Use Case**: Incremental LTL checking over large CAN traces.
+Combine predicates and properties using logical operators.
 
-### Class: `StreamingClient`
-
-Provides JSON streaming interface for real-time CAN frame analysis.
-
-**Protocol Flow**:
-```
-1. parse_dbc()      → Load signal definitions
-2. set_properties() → Define LTL properties to check
-3. start_stream()   → Begin streaming mode
-4. send_frame()     → Process frames one at a time
-   ↳ Returns ack or violation
-5. end_stream()     → Finish and get final results
-```
-
-### Constructor
+#### Predicate Composition
 
 ```python
-client = StreamingClient()
+# Both conditions must hold
+left_ok = Signal("LeftBrake").equals(1)
+right_ok = Signal("RightBrake").equals(1)
+both_brakes = left_ok.and_(right_ok).always()
+
+# At least one condition must hold
+error1 = Signal("Error1").equals(1)
+error2 = Signal("Error2").equals(1)
+any_error = error1.or_(error2).never()
+
+# Negation
+enabled = Signal("Enabled").equals(1).not_()
 ```
 
-Creates a client (subprocess starts when used as context manager).
+#### Property Composition
+
+```python
+# AND: both properties must hold
+speed_ok = Signal("Speed").less_than(220).always()
+voltage_ok = Signal("Voltage").between(11, 14).always()
+all_ok = speed_ok.and_(voltage_ok)
+
+# OR: at least one property must hold
+charging = Signal("Charging").equals(1).always()
+engine_running = Signal("EngineRPM").greater_than(0).always()
+powered = charging.or_(engine_running)
+```
+
+#### Implication
+
+```python
+# If brake pressed, then speed must decrease within 100ms
+brake_pressed = Signal("BrakePedal").greater_than(0)
+speed_decreasing = Signal("Speed").changed_by(-5)
+
+brake_pressed.implies(speed_decreasing.within(100))
+```
+
+#### Until
+
+```python
+# Power mode transition: Start button never active until ACC mode
+power_off = Signal("PowerMode").equals(0)
+power_acc = Signal("PowerMode").equals(2)
+power_start = Signal("StartButton").equals(1)
+
+power_off.implies(
+    power_start.never().until(power_acc)
+)
+```
+
+---
+
+## Complete Examples
+
+### Example 1: Speed Limit Checking
+
+```python
+from aletheia import StreamingClient, Signal
+from aletheia.dbc_converter import dbc_to_json
+
+# Load DBC
+dbc = dbc_to_json("vehicle.dbc")
+
+# Property: Speed must always stay below 250 km/h
+property = Signal("Speed").less_than(250).always()
+
+# Check CAN trace
+with StreamingClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([property.to_dict()])
+    client.start_stream()
+
+    for timestamp, can_id, data in frames:
+        response = client.send_frame(timestamp, can_id, data)
+
+        if response.get("type") == "property":
+            print(f"⚠️  Speed limit exceeded at {timestamp}µs")
+            print(f"   Reason: {response['reason']}")
+            break
+        else:
+            print(f"✓ Frame at {timestamp}µs: OK")
+
+    client.end_stream()
+```
+
+---
+
+### Example 2: Multiple Properties
+
+```python
+properties = [
+    # P1: Speed always in valid range
+    Signal("Speed").between(0, 300).always(),
+
+    # P2: Voltage always stable
+    Signal("BatteryVoltage").between(11.5, 14.5).always(),
+
+    # P3: No critical errors
+    Signal("CriticalError").equals(1).never(),
+
+    # P4: Engine eventually reaches operating temp
+    Signal("EngineTemp").greater_than(90).eventually()
+]
+
+with StreamingClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([p.to_dict() for p in properties])
+    client.start_stream()
+
+    for frame in trace:
+        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+
+        if response.get("type") == "property":
+            prop_idx = response["property_index"]["numerator"]
+            print(f"Property {prop_idx} violated at {response['timestamp']}")
+
+    client.end_stream()
+```
+
+---
+
+### Example 3: Brake Safety Property
+
+```python
+# Safety property: If brake pedal pressed, speed must decrease within 100ms
+
+brake_pressed = Signal("BrakePedal").greater_than(0)
+speed_decreasing = Signal("Speed").changed_by(-5)  # Decreased by at least 5 km/h
+
+property = brake_pressed.implies(speed_decreasing.within(100))
+
+with StreamingClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([property.to_dict()])
+    client.start_stream()
+
+    violations = []
+    for frame in trace:
+        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+
+        if response.get("type") == "property":
+            violations.append({
+                "timestamp": response["timestamp"],
+                "reason": response["reason"]
+            })
+
+    client.end_stream()
+
+    if violations:
+        print(f"⚠️  Brake safety violations: {len(violations)}")
+        for v in violations:
+            print(f"   - {v['timestamp']}µs: {v['reason']}")
+    else:
+        print("✓ Brake safety property satisfied")
+```
+
+---
+
+### Example 4: Power Mode State Machine
+
+```python
+# Property: From power-off, start button can't activate until ACC mode reached
+
+power_off = Signal("PowerMode").equals(0)
+power_acc = Signal("PowerMode").equals(2)
+power_start = Signal("StartButton").equals(1)
+
+property = power_off.implies(
+    power_start.never().until(power_acc)
+)
+
+with StreamingClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([property.to_dict()])
+    client.start_stream()
+
+    for frame in trace:
+        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+
+        if response.get("type") == "property":
+            print("⚠️  Invalid power mode transition detected")
+            print(f"   Timestamp: {response['timestamp']}")
+            print(f"   Reason: {response['reason']}")
+            break
+
+    client.end_stream()
+```
+
+---
+
+## StreamingClient API
 
 ### Context Manager
 
 ```python
 with StreamingClient() as client:
     # Subprocess runs during this block
-    client.parse_dbc(...)
-    client.send_frame(...)
+    client.parse_dbc(dbc_json)
+    client.set_properties([property.to_dict()])
+    client.start_stream()
+
+    for frame in trace:
+        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        # Process response...
+
+    client.end_stream()
+# Subprocess automatically cleaned up
 ```
-
-**Automatic cleanup**: Subprocess is terminated when exiting the `with` block.
-
----
 
 ### Methods
 
@@ -148,67 +347,115 @@ with StreamingClient() as client:
 
 Load DBC structure from JSON dictionary.
 
-**Parameters**:
-- `dbc_json`: DBC structure as Python dictionary
-
-**Returns**:
 ```python
-{"status": "success", "message": "DBC parsed successfully"}
-```
+from aletheia.dbc_converter import dbc_to_json
 
-**Example**:
-```python
-dbc = {
-    "version": "1.0",
-    "messages": [
-        {
-            "id": 256,
-            "name": "SpeedMessage",
-            "dlc": 8,
-            "extended": False,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "Speed",
-                    "startBit": 0,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 0.1,
-                    "offset": 0.0,
-                    "minimum": 0.0,
-                    "maximum": 300.0,
-                    "unit": "km/h",
-                    "presence": "always"
-                }
-            ]
-        }
-    ]
-}
-
+dbc = dbc_to_json("vehicle.dbc")  # Convert .dbc file to JSON
 response = client.parse_dbc(dbc)
 assert response["status"] == "success"
 ```
 
-**Converting .dbc Files**:
+#### `set_properties(properties: List[Dict]) → Dict`
 
-Use `cantools` to convert `.dbc` files to JSON:
+Set LTL properties to check (use `.to_dict()` on DSL properties).
+
+```python
+properties = [
+    Signal("Speed").less_than(250).always(),
+    Signal("Voltage").between(11, 14).always()
+]
+
+response = client.set_properties([p.to_dict() for p in properties])
+assert response["status"] == "success"
+```
+
+#### `start_stream() → Dict`
+
+Begin streaming mode.
+
+```python
+response = client.start_stream()
+assert response["status"] == "success"
+```
+
+#### `send_frame(timestamp: int, can_id: int, data: List[int]) → Dict`
+
+Send a CAN frame for incremental checking.
+
+**Parameters**:
+- `timestamp`: Microseconds (integer)
+- `can_id`: 0-2047 (standard) or 0-536870911 (extended)
+- `data`: 8-byte payload `[0-255]`
+
+**Returns** (acknowledged):
+```python
+{"status": "ack"}
+```
+
+**Returns** (violation):
+```python
+{
+    "type": "property",
+    "status": "violation",
+    "property_index": {"numerator": 0, "denominator": 1},
+    "timestamp": {"numerator": 1000, "denominator": 1},
+    "reason": "Always violated"
+}
+```
+
+**Example**:
+```python
+response = client.send_frame(
+    timestamp=1000,
+    can_id=256,
+    data=[0xE8, 0x03, 0, 0, 0, 0, 0, 0]
+)
+
+if response.get("type") == "property":
+    print(f"Violation: {response['reason']}")
+```
+
+#### `end_stream() → Dict`
+
+End streaming and get final results.
+
+```python
+response = client.end_stream()
+assert response["status"] == "complete"
+```
+
+---
+
+## Converting .dbc Files
+
+Use `cantools` to convert `.dbc` files:
+
+```bash
+pip install cantools
+```
+
+```python
+from aletheia.dbc_converter import dbc_to_json
+
+# Convert .dbc file to Aletheia JSON format
+dbc_json = dbc_to_json("vehicle.dbc")
+```
+
+**Manual conversion** (if dbc_converter unavailable):
 
 ```python
 import cantools
 import json
 
-# Load .dbc file
 db = cantools.database.load_file("vehicle.dbc")
 
-# Convert to Aletheia JSON format
 dbc_json = {
     "version": "1.0",
     "messages": [
         {
             "id": msg.frame_id,
             "name": msg.name,
-            "dlc": len(msg.signals[0].byte_order) if msg.signals else 8,
+            "dlc": 8,
             "extended": msg.is_extended_frame,
             "sender": msg.senders[0] if msg.senders else "Unknown",
             "signals": [
@@ -235,494 +482,12 @@ dbc_json = {
 
 ---
 
-#### `set_properties(properties: List[Dict]) → Dict`
-
-Define LTL properties to check against the trace.
-
-**Parameters**:
-- `properties`: List of LTL property definitions (JSON objects)
-
-**Returns**:
-```python
-{"status": "success", "message": "Properties set successfully"}
-```
-
-**Example**:
-```python
-properties = [
-    {
-        "operator": "always",
-        "formula": {
-            "operator": "atomic",
-            "predicate": {
-                "predicate": "lessThan",
-                "signal": "Speed",
-                "value": 250
-            }
-        }
-    }
-]
-
-response = client.set_properties(properties)
-assert response["status"] == "success"
-```
-
-See [LTL Property Format](#ltl-property-format) for complete specification.
-
----
-
-#### `start_stream() → Dict`
-
-Begin streaming mode for processing data frames.
-
-**Returns**:
-```python
-{"status": "success", "message": "Streaming started"}
-```
-
-**Example**:
-```python
-response = client.start_stream()
-assert response["status"] == "success"
-```
-
----
-
-#### `send_frame(timestamp: int, can_id: int, data: List[int]) → Dict`
-
-Send a CAN frame for incremental checking.
-
-**Parameters**:
-- `timestamp`: Frame timestamp in microseconds (integer)
-- `can_id`: CAN message ID (0-2047 for standard, 0-536870911 for extended)
-- `data`: 8-byte payload as list of integers `[0-255]`
-
-**Returns** (Acknowledged):
-```python
-{"status": "ack"}
-```
-
-**Returns** (Violation):
-```python
-{
-    "type": "property",
-    "status": "violation",
-    "property_index": {"numerator": 0, "denominator": 1},
-    "timestamp": {"numerator": 1000, "denominator": 1},
-    "reason": "Always violated"
-}
-```
-
-**Example**:
-```python
-# Frame at timestamp 1000µs with speed = 100 km/h
-# Raw value: 1000 (100 km/h / 0.1 factor)
-# Little-endian: 0x03E8 → [0xE8, 0x03, 0, 0, 0, 0, 0, 0]
-response = client.send_frame(
-    timestamp=1000,
-    can_id=256,
-    data=[0xE8, 0x03, 0, 0, 0, 0, 0, 0]
-)
-
-if response.get("type") == "property":
-    print(f"Property violation detected!")
-    print(f"  Property index: {response['property_index']}")
-    print(f"  Timestamp: {response['timestamp']}")
-    print(f"  Reason: {response['reason']}")
-else:
-    print("Frame processed successfully")
-```
-
-**Error Handling**:
-```python
-try:
-    response = client.send_frame(timestamp, can_id, data)
-except ValueError as e:
-    print(f"Invalid frame: {e}")
-except RuntimeError as e:
-    print(f"Communication error: {e}")
-```
-
----
-
-#### `end_stream() → Dict`
-
-End streaming mode and return final results.
-
-**Returns**:
-```python
-{"status": "complete"}
-```
-
-**Example**:
-```python
-response = client.end_stream()
-assert response["status"] == "complete"
-```
-
----
-
-## LTL Property Format
-
-### Signal Predicates (Atomic)
-
-#### `equals`
-
-Signal equals a specific value.
-
-```python
-{
-    "predicate": "equals",
-    "signal": "Speed",
-    "value": 100
-}
-```
-
-#### `lessThan`
-
-Signal is less than a value.
-
-```python
-{
-    "predicate": "lessThan",
-    "signal": "Speed",
-    "value": 250
-}
-```
-
-#### `greaterThan`
-
-Signal is greater than a value.
-
-```python
-{
-    "predicate": "greaterThan",
-    "signal": "RPM",
-    "value": 0
-}
-```
-
-#### `between`
-
-Signal is between two values (inclusive).
-
-```python
-{
-    "predicate": "between",
-    "signal": "Temperature",
-    "min": 60,
-    "max": 90
-}
-```
-
-#### `changedBy`
-
-Signal changed by more than a threshold from previous frame.
-
-```python
-{
-    "predicate": "changedBy",
-    "signal": "Speed",
-    "delta": 10
-}
-```
-
----
-
-### Temporal Operators
-
-#### `atomic`
-
-Wraps a signal predicate (required for all predicates).
-
-```python
-{
-    "operator": "atomic",
-    "predicate": {
-        "predicate": "lessThan",
-        "signal": "Speed",
-        "value": 250
-    }
-}
-```
-
-#### `always` (Globally)
-
-Property must hold for all frames in the trace.
-
-```python
-{
-    "operator": "always",
-    "formula": {...}
-}
-```
-
-#### `eventually` (Finally)
-
-Property must hold at some point in the trace.
-
-```python
-{
-    "operator": "eventually",
-    "formula": {...}
-}
-```
-
-#### `next`
-
-Property must hold in the next frame.
-
-```python
-{
-    "operator": "next",
-    "formula": {...}
-}
-```
-
-#### `until`
-
-Left formula must hold until right formula becomes true.
-
-```python
-{
-    "operator": "until",
-    "left": {...},
-    "right": {...}
-}
-```
-
-#### `and`
-
-Both formulas must hold.
-
-```python
-{
-    "operator": "and",
-    "left": {...},
-    "right": {...}
-}
-```
-
-#### `or`
-
-At least one formula must hold.
-
-```python
-{
-    "operator": "or",
-    "left": {...},
-    "right": {...}
-}
-```
-
-#### `not`
-
-Formula must not hold.
-
-```python
-{
-    "operator": "not",
-    "formula": {...}
-}
-```
-
----
-
-## Complete Examples
-
-### Example 1: Speed Limit Checking
-
-Check that vehicle speed never exceeds 250 km/h.
-
-```python
-from aletheia.streaming_client import StreamingClient
-
-# DBC with speed signal
-dbc = {
-    "version": "1.0",
-    "messages": [{
-        "id": 256,
-        "name": "SpeedMessage",
-        "dlc": 8,
-        "extended": False,
-        "sender": "ECU",
-        "signals": [{
-            "name": "Speed",
-            "startBit": 0,
-            "length": 16,
-            "byteOrder": "little_endian",
-            "signed": False,
-            "factor": 0.1,  # Scale factor: raw * 0.1 = km/h
-            "offset": 0.0,
-            "minimum": 0.0,
-            "maximum": 300.0,
-            "unit": "km/h",
-            "presence": "always"
-        }]
-    }]
-}
-
-# Property: "Speed < 250"
-property = {
-    "operator": "always",
-    "formula": {
-        "operator": "atomic",
-        "predicate": {
-            "predicate": "lessThan",
-            "signal": "Speed",
-            "value": 250
-        }
-    }
-}
-
-# Simulate CAN trace
-frames = [
-    (100, 256, [0xE8, 0x03, 0, 0, 0, 0, 0, 0]),  # 1000 * 0.1 = 100 km/h
-    (200, 256, [0xD0, 0x07, 0, 0, 0, 0, 0, 0]),  # 2000 * 0.1 = 200 km/h
-    (300, 256, [0x28, 0x0A, 0, 0, 0, 0, 0, 0]),  # 2600 * 0.1 = 260 km/h (VIOLATION!)
-]
-
-# Check property
-with StreamingClient() as client:
-    client.parse_dbc(dbc)
-    client.set_properties([property])
-    client.start_stream()
-
-    for timestamp, can_id, data in frames:
-        response = client.send_frame(timestamp, can_id, data)
-
-        if response.get("type") == "property":
-            print(f"⚠️  Property violation at {timestamp}µs")
-            print(f"   Reason: {response['reason']}")
-            print(f"   Frame data: {data}")
-            break
-        else:
-            print(f"✓ Frame at {timestamp}µs: OK")
-
-    client.end_stream()
-```
-
-**Output**:
-```
-✓ Frame at 100µs: OK
-✓ Frame at 200µs: OK
-⚠️  Property violation at 300µs
-   Reason: Always violated
-   Frame data: [40, 10, 0, 0, 0, 0, 0, 0]
-```
-
----
-
-### Example 2: Multiple Properties
-
-Check multiple properties simultaneously.
-
-```python
-properties = [
-    # Property 1: Speed always < 250
-    {
-        "operator": "always",
-        "formula": {
-            "operator": "atomic",
-            "predicate": {
-                "predicate": "lessThan",
-                "signal": "Speed",
-                "value": 250
-            }
-        }
-    },
-    # Property 2: Speed always >= 0
-    {
-        "operator": "always",
-        "formula": {
-            "operator": "atomic",
-            "predicate": {
-                "predicate": "greaterThan",
-                "signal": "Speed",
-                "value": 0
-            }
-        }
-    }
-]
-
-with StreamingClient() as client:
-    client.parse_dbc(dbc)
-    client.set_properties(properties)
-    client.start_stream()
-
-    for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
-
-        if response.get("type") == "property":
-            prop_idx = response["property_index"]["numerator"]
-            print(f"Property {prop_idx} violated at {response['timestamp']}")
-
-    client.end_stream()
-```
-
----
-
-### Example 3: Reading CAN Trace from File
-
-Process a CAN trace from a CSV file.
-
-```python
-import csv
-from aletheia.streaming_client import StreamingClient
-
-def parse_can_csv(filename):
-    """Parse CAN trace from CSV: timestamp,id,data0,data1,...,data7"""
-    frames = []
-    with open(filename) as f:
-        reader = csv.reader(f)
-        next(reader)  # Skip header
-        for row in reader:
-            timestamp = int(row[0])
-            can_id = int(row[1], 16) if row[1].startswith('0x') else int(row[1])
-            data = [int(row[i], 16) if row[i].startswith('0x') else int(row[i]) for i in range(2, 10)]
-            frames.append((timestamp, can_id, data))
-    return frames
-
-# Load trace
-frames = parse_can_csv("trace.csv")
-
-# Check property
-with StreamingClient() as client:
-    client.parse_dbc(dbc)
-    client.set_properties([property])
-    client.start_stream()
-
-    violations = []
-    for timestamp, can_id, data in frames:
-        response = client.send_frame(timestamp, can_id, data)
-
-        if response.get("type") == "property":
-            violations.append({
-                "timestamp": response["timestamp"],
-                "property": response["property_index"]["numerator"],
-                "reason": response["reason"]
-            })
-
-    client.end_stream()
-
-    # Report violations
-    if violations:
-        print(f"Found {len(violations)} violations:")
-        for v in violations:
-            print(f"  - Property {v['property']} at {v['timestamp']}µs: {v['reason']}")
-    else:
-        print("✓ All properties satisfied")
-```
-
----
-
 ## Error Handling
 
-### Common Errors
+### Binary Not Found
 
-**Binary Not Found**:
 ```python
-from aletheia.streaming_client import StreamingClient, get_binary_path
+from aletheia.streaming_client import get_binary_path
 
 try:
     binary = get_binary_path()
@@ -731,7 +496,8 @@ except FileNotFoundError as e:
     print("Build the binary with: cabal run shake -- build")
 ```
 
-**Invalid Frame Data**:
+### Invalid Frame Data
+
 ```python
 try:
     response = client.send_frame(1000, 256, [0xFF, 0xFF])  # Only 2 bytes!
@@ -739,27 +505,12 @@ except ValueError as e:
     print(f"Error: {e}")  # "Data must be exactly 8 bytes, got 2"
 ```
 
-**Protocol Error**:
-```python
-try:
-    response = client.send_frame(1000, 256, [0] * 8)
-except RuntimeError as e:
-    print(f"Communication error: {e}")
-```
+### Signal Not Found
 
-**Signal Not Found**:
 ```python
-response = client.set_properties([{
-    "operator": "always",
-    "formula": {
-        "operator": "atomic",
-        "predicate": {
-            "predicate": "lessThan",
-            "signal": "InvalidSignal",  # Doesn't exist in DBC
-            "value": 100
-        }
-    }
-}])
+property = Signal("InvalidSignal").less_than(100).always()
+
+response = client.set_properties([property.to_dict()])
 
 if response.get("status") == "error":
     print(f"Error: {response['message']}")
@@ -773,14 +524,14 @@ if response.get("status") == "error":
 
 For traces with millions of frames:
 
-1. **Use StreamingClient** (not batch processing)
-2. **Process incrementally** (don't load full trace into memory)
-3. **Early termination**: Stop on first violation if appropriate
+1. **Use StreamingClient** (incremental processing)
+2. **Don't load full trace into memory**
+3. **Early termination** on first violation
 
 ```python
 with StreamingClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([property])
+    client.set_properties([property.to_dict()])
     client.start_stream()
 
     for frame in read_trace_incrementally("huge_trace.log"):
@@ -793,16 +544,69 @@ with StreamingClient() as client:
     client.end_stream()
 ```
 
-### Throughput
+### Current Performance
 
-Current performance (Phase 2B.1):
-- **Target**: 100K frames/sec
+- **Phase 2B**: 100K frames/sec target
 - **Phase 3 goal**: 1M frames/sec with optimizations
+
+---
+
+## DSL Class Reference
+
+### Signal
+
+```python
+class Signal:
+    def __init__(self, name: str)
+
+    # Comparisons
+    def equals(self, value: float) -> Predicate
+    def less_than(self, value: float) -> Predicate
+    def greater_than(self, value: float) -> Predicate
+    def less_than_or_equal(self, value: float) -> Predicate
+    def greater_than_or_equal(self, value: float) -> Predicate
+    def between(self, min_val: float, max_val: float) -> Predicate
+
+    # Change detection
+    def changed_by(self, delta: float) -> Predicate
+```
+
+### Predicate
+
+```python
+class Predicate:
+    # Temporal operators
+    def always(self) -> Property
+    def eventually(self) -> Property
+    def never(self) -> Property
+    def within(self, time_ms: int) -> Property
+    def for_at_least(self, time_ms: int) -> Property
+
+    # Logical operators
+    def and_(self, other: Predicate) -> Predicate
+    def or_(self, other: Predicate) -> Predicate
+    def not_(self) -> Predicate
+    def implies(self, other: Union[Property, Predicate]) -> Property
+```
+
+### Property
+
+```python
+class Property:
+    # Logical operators
+    def and_(self, other: Property) -> Property
+    def or_(self, other: Property) -> Property
+    def implies(self, other: Union[Property, Predicate]) -> Property
+    def until(self, other: Property) -> Property
+
+    # Serialization
+    def to_dict(self) -> Dict[str, Any]
+```
 
 ---
 
 ## See Also
 
-- [PROTOCOL.md](../architecture/PROTOCOL.md) - Complete JSON protocol specification
+- [PROTOCOL.md](../architecture/PROTOCOL.md) - JSON protocol specification
 - [DESIGN.md](../architecture/DESIGN.md) - System architecture
 - [BUILDING.md](BUILDING.md) - Build instructions
