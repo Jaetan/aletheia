@@ -4,26 +4,33 @@ import pytest
 from aletheia.streaming_client import StreamingClient
 
 
-# Sample minimal DBC for testing (matches format from examples/sample.dbc.yaml)
-MINIMAL_DBC = """version: "1.0"
-
-messages:
-  - id: 0x100
-    name: "VehicleSpeed"
-    dlc: 8
-    sender: "ECU"
-    signals:
-      - name: "Speed"
-        start_bit: 0
-        bit_length: 16
-        byte_order: "little_endian"
-        value_type: "unsigned"
-        factor: 0.01
-        offset: 0
-        minimum: 0
-        maximum: 655.35
-        unit: "kph"
-"""
+# Sample minimal DBC for testing (JSON format for streaming protocol)
+MINIMAL_DBC = {
+    "version": "1.0",
+    "messages": [
+        {
+            "id": 0x100,
+            "name": "VehicleSpeed",
+            "dlc": 8,
+            "sender": "ECU",
+            "signals": [
+                {
+                    "name": "Speed",
+                    "startBit": 0,
+                    "length": 16,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 0.01,
+                    "offset": 0,
+                    "minimum": 0,
+                    "maximum": 655.35,
+                    "unit": "kph",
+                    "presence": "always"
+                }
+            ]
+        }
+    ]
+}
 
 
 def test_parse_dbc():

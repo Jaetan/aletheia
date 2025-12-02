@@ -115,19 +115,24 @@ class StreamingClient:
         except json.JSONDecodeError as e:
             raise RuntimeError(f"Invalid JSON response: {response_line!r} - {e}")
 
-    def parse_dbc(self, dbc_yaml: str) -> Dict[str, Any]:
+    def parse_dbc(self, dbc: Dict[str, Any]) -> Dict[str, Any]:
         """Parse DBC file
 
         Args:
-            dbc_yaml: DBC YAML content
+            dbc: DBC structure as JSON dictionary (use dbc_converter.dbc_to_json())
 
         Returns:
             Response: {"status": "success", "message": "DBC parsed successfully"}
+
+        Example:
+            from aletheia.dbc_converter import dbc_to_json
+            dbc_json = dbc_to_json("example.dbc")
+            client.parse_dbc(dbc_json)
         """
         return self._send_command({
             "type": "command",
             "command": "parseDBC",
-            "dbc": dbc_yaml
+            "dbc": dbc
         })
 
     def set_properties(self, properties: List[Dict[str, Any]]) -> Dict[str, Any]:
