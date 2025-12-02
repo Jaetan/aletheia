@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- Trace file parser for CAN frame sequences.
+--
+-- Purpose: Parse CAN traces from text format (timestamp, ID, data).
+-- Format: Line-delimited frames, hex or decimal values.
+-- Role: Load traces from files for offline LTL verification.
+--
+-- Design: Uses Parser.Combinators for robust parsing with error messages.
 module Aletheia.Trace.Parser where
 
 open import Aletheia.Trace.CANTrace

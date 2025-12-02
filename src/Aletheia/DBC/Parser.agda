@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- DBC YAML parser (legacy - Phase 1).
+--
+-- Purpose: Parse DBC files from YAML format (replaced by JSONParser in Phase 2B).
+-- Status: Legacy code kept for reference; production uses JSONParser.
+-- Role: Original YAML-based DBC parsing implementation.
+--
+-- Note: Phase 2B migrated to JSON protocol; this parser is no longer in main flow.
 module Aletheia.DBC.Parser where
 
 open import Aletheia.DBC.Types

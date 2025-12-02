@@ -1,8 +1,15 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
 -- Streaming protocol state machine and command handlers.
--- Manages state transitions: WaitingForDBC → ReadyToStream → Streaming.
--- Accumulates frames and checks LTL properties incrementally.
+--
+-- Purpose: Manage state transitions and process commands/data frames.
+-- States: WaitingForDBC → ReadyToStream → Streaming.
+-- Handlers: processStreamCommand (parseDBC, setProperties, startStream, endStream),
+--           processDataFrame (extract signals, check LTL, emit violations).
+-- Role: Core protocol logic used by Main to maintain session state.
+--
+-- State machine enforces: DBC must be loaded before properties, properties before streaming.
+-- LTL checking: Incremental evaluation with immediate violation reporting.
 module Aletheia.Protocol.StreamState where
 
 open import Data.String using (String; toList) renaming (_++_ to _++S_)

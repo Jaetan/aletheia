@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Request parsing and routing for the streaming protocol.
+--
+-- Purpose: Parse JSON requests and route to appropriate handlers.
+-- Operations: parseRequest (JSON → Request), parseCommand, parseDataFrame.
+-- Role: Entry point for all incoming JSON messages, used by Main.processLine.
+--
+-- Routing: Checks "type" field → "command" (parse command type) or "data" (parse frame).
+-- Validation: All required fields checked, descriptive error messages on failure.
 module Aletheia.Protocol.Routing where
 
 open import Data.String using (String; _≟_) renaming (_++_ to _++S_)

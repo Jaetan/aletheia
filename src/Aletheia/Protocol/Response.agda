@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Protocol response types and JSON formatters.
+--
+-- Purpose: Define response types and convert them to JSON for output.
+-- Types: Success, Error, Ack, PropertyResponse (violation/satisfaction), Complete.
+-- Operations: formatResponse (Response → JSON), includes rational formatting.
+-- Role: Used by Protocol.Routing and Main to generate JSON responses.
+--
+-- Design: Each response type has corresponding JSON structure matching protocol spec.
 module Aletheia.Protocol.Response where
 
 open import Data.String using (String; _++_)

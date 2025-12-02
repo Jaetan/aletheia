@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- Stream utilities for infinite trace processing.
+--
+-- Purpose: Operations on coinductive traces (DelayedColist).
+-- Operations: take, drop, filter, map for delayed colists.
+-- Role: Support coinductive LTL checking over potentially infinite traces.
+--
+-- Design: All operations preserve guardedness for productivity guarantees.
 module Aletheia.Trace.Stream where
 
 open import Data.Nat using (ℕ; zero; suc)

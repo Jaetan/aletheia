@@ -1,8 +1,14 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- JSON data types, parser, and formatter with rational number support.
--- Rationals are represented as {"numerator": n, "denominator": d} objects.
-
+--
+-- Purpose: Core JSON handling for streaming protocol (parse/format JSON).
+-- Types: JSON (JNull, JBool, JNumber, JString, JArray, JObject).
+-- Operations: parseJSON (String → JSON), formatJSON (JSON → String).
+-- Role: Foundation for all protocol communication (commands, responses, data frames).
+--
+-- Rational encoding: Supports both decimal (3.14) and object ({"numerator": 1, "denominator": 3"}).
+-- Parser accepts both formats, formatter outputs object format for exact representation.
 module Aletheia.Protocol.JSON where
 
 open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++S_)

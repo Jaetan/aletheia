@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- DBC YAML parser with debug tracing (development/debugging tool).
+--
+-- Purpose: YAML DBC parser wrapped with tracing for debugging parse failures.
+-- Usage: Development only - helps diagnose why DBC parsing fails.
+-- Role: Debug variant of DBC.Parser, not used in production.
+--
+-- Note: Wraps DBC.Parser combinators with Parser.Tracing for visibility.
 module Aletheia.DBC.ParserTraced where
 
 open import Aletheia.DBC.Types

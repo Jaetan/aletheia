@@ -1,8 +1,13 @@
 {-# OPTIONS --without-K --guardedness --sized-types #-}
 
--- Streaming trace parser using Delay for line buffering
--- Colist Char → Colist TimedFrame
-
+-- Streaming trace parser using Delay for line buffering.
+--
+-- Purpose: Parse traces incrementally without loading full file into memory.
+-- Implementation: Uses Delay monad for buffered line reading (Colist Char → Colist TimedFrame).
+-- Role: Support large trace files for offline verification.
+--
+-- Design: Combines Parser.Combinators with Delay for streaming I/O.
+-- NOTE: Uses --sized-types which is incompatible with --safe.
 module Aletheia.Trace.StreamParser where
 
 open import Size using (Size; Size<_; ∞; ↑_)

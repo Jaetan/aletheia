@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- DBC JSON parser for the streaming protocol (Phase 2B).
+--
+-- Purpose: Parse DBC structures from JSON format sent by Python client.
+-- Handles: Complete DBC JSON objects (messages, signals, all metadata).
+-- Role: Used by Protocol.StreamState to process parseDBC commands.
+--
+-- Design: Parses JSON → DBC.Types, validates all required fields, bounded types.
+-- Current protocol: Python converts .dbc → JSON, Agda parses JSON → DBC types.
 module Aletheia.DBC.JSONParser where
 
 open import Aletheia.DBC.Types

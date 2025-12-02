@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Correctness properties for DBC parsers and types.
+--
+-- Purpose: Prove properties of DBC parsing and validation.
+-- Properties: Bounded values (IDs, start bits, lengths), determinism, well-formedness.
+-- Role: Phase 1 basic properties; full soundness proofs deferred to Phase 3.
+--
+-- Status: Runtime semantic checks implemented (signal overlap, range validation).
+-- Future work: Round-trip properties (parse ∘ print ≡ id), grammar formalization.
 module Aletheia.DBC.Properties where
 
 open import Aletheia.DBC.Types

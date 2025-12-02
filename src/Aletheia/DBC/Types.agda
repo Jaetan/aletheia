@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- DBC (Database CAN) file structure types.
+--
+-- Purpose: Define types representing DBC file contents (messages, signals, metadata).
+-- Types: DBC (top-level), Message (CAN message definition), Signal (signal within message).
+-- Role: Core data structure used throughout CAN processing and verification.
+--
+-- Design: Matches DBC file format with type-safe representations (Fin for bounds).
 module Aletheia.DBC.Types where
 
 open import Aletheia.CAN.Frame
