@@ -393,8 +393,6 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
 
 ## Implementation Phases
 
-⚠️ **MAJOR PLAN REVISION** - See [PLAN_REVIEW.md](PLAN_REVIEW.md) for full analysis
-
 **Goal**: Process real-world automotive CAN data with LTL reasoning, via rich Python DSL
 
 ### Phase 1: Core Infrastructure ✅ COMPLETE
@@ -768,7 +766,7 @@ Phase 2 design decisions explicitly enable Phase 3 proofs:
 - 🟡 CAN-FD support (only if users request it - HIGH cost, 2-3 days minimum)
 - 🔴 Extended features based on user feedback
 
-**Dropped Features** (tracked in PLAN_REVIEW.md):
+**Dropped Features**:
 - Real-time analysis (architectural limitation)
 - Automatic property inference (research problem)
 - GUI/visualization (use existing tools)
@@ -897,18 +895,22 @@ cabal run shake -- install-python
 - No protocol versioning yet
 - **Phase to Enhance**: Phase 4 (streaming protocol)
 
-See [PHASE1_AUDIT.md](PHASE1_AUDIT.md) for comprehensive list of deferred work.
-
 ## Documentation Structure
 
+### Root Documentation
 - **README.md**: Quick start and project overview
+- **CLAUDE.md**: Instructions for Claude Code assistant
+
+### docs/architecture/
+- **DESIGN.md**: This document - design decisions and roadmap
+- **PROTOCOL.md**: Complete JSON streaming protocol specification
+- **CHANGELOG.md**: Phase completion history and milestones
+- **ARCHITECTURAL_ANALYSIS.md**: Research findings on CAN protocols
+
+### docs/development/
 - **BUILDING.md**: Step-by-step build instructions
 - **DEVELOPMENT.md**: Architecture and workflows
-- **DESIGN.md**: This document - design decisions and roadmap
-- **PHASE1_AUDIT.md**: Comprehensive audit of limitations and constraints
-- **ARCHITECTURAL_ANALYSIS.md**: Research findings on CAN protocols
-- **PLAN_REVIEW.md**: Major plan revision rationale
-- **CLAUDE.md**: Instructions for Claude Code assistant
+- **PYTHON_API.md**: Python client library API reference
 
 ---
 
