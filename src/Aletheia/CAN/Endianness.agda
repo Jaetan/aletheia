@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Byte order handling for CAN signal extraction (little/big endian).
+--
+-- Purpose: Convert between little-endian and big-endian byte representations.
+-- Operations: byteSwap (reverse bytes), proven involutive (swap ∘ swap ≡ id).
+-- Role: Used by CAN.Encoding to handle different signal byte orders in DBC.
+--
+-- Proof: byteSwap is its own inverse (Phase 1 proof, verified).
 module Aletheia.CAN.Endianness where
 
 open import Aletheia.CAN.Frame

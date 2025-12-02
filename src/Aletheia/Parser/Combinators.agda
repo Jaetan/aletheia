@@ -1,5 +1,14 @@
 {-# OPTIONS --safe --without-K --no-main #-}
 
+-- Parser combinators with structural recursion on input length.
+--
+-- Purpose: Provide composable parsers for strings with termination guarantees.
+-- Key design: Uses input length as termination measure (no fuel needed).
+-- Interfaces: Functor, Applicative, Monad for parser composition.
+-- Role: Foundation for all parsing (JSON, DBC, LTL, protocol).
+--
+-- Performance: Rewritten from fuel-based approach, type-checks in ~10s (was >120s).
+-- The `many` combinator terminates structurally by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
 open import Data.List using (List; []; _∷_; _++_; map; length; take)

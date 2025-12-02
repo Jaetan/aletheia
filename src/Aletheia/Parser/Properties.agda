@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Correctness properties for parser combinators.
+--
+-- Purpose: Prove basic properties of parsers (determinism, bounded results).
+-- Properties: Determinism (same input → same result), length bounds, parser laws.
+-- Role: Phase 1 basic properties; full soundness proofs deferred to Phase 3.
+--
+-- Status: Lightweight correctness properties implemented.
+-- Future work: Grammar formalization, soundness (parse → valid AST), round-trip proofs.
 module Aletheia.Parser.Properties where
 
 open import Aletheia.Parser.Combinators

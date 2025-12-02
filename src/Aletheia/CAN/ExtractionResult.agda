@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Result type for signal extraction operations.
+--
+-- Purpose: Represent success/failure of signal extraction with error messages.
+-- Types: ExtractionResult A = Success A | NotFound String | InvalidFrame String.
+-- Role: Error handling for CAN.Encoding operations.
+--
+-- Design: Simple sum type for explicit error propagation (no exceptions in Agda).
 module Aletheia.CAN.ExtractionResult where
 
 open import Data.String using (String; _++_)

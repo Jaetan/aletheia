@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- Signal predicates for LTL properties (equals, lessThan, greaterThan, between, changedBy).
+--
+-- Purpose: Define atomic predicates over signal values extracted from CAN frames.
+-- Predicates: Equals, LessThan, GreaterThan, Between (range), ChangedBy (delta from previous).
+-- Role: Instantiate LTL.Syntax with signal-specific predicates for CAN verification.
+--
+-- Design: Operates on physical values (ℚ) after signal extraction and scaling.
 module Aletheia.LTL.SignalPredicate where
 
 open import Aletheia.Prelude

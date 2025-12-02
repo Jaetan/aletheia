@@ -1,8 +1,15 @@
 {-# OPTIONS --without-K --guardedness --sized-types #-}
 
--- Shared DelayedColist type used by both StreamParser and LTL checking
--- Combines Colist with Delay - allows pausing without producing elements
-
+-- Coinductive delayed colists for potentially infinite traces.
+--
+-- Purpose: Provide coinductive stream type with built-in delay (Thunk).
+-- Key feature: Guardedness checking ensures productivity (no infinite loops).
+-- Role: Foundation for LTL.Coinductive semantics over infinite traces.
+--
+-- Design: DelayedColist A ∞ represents a potentially infinite list of A values.
+-- Each tail is wrapped in Thunk to satisfy guardedness requirements.
+--
+-- NOTE: Uses --sized-types and --guardedness (incompatible with --safe).
 module Aletheia.Data.DelayedColist where
 
 open import Size using (Size)

@@ -1,9 +1,13 @@
 {-# OPTIONS --without-K --guardedness --sized-types #-}
 
--- NOTE: This module uses --sized-types which is incompatible with --safe.
--- All other Aletheia modules remain --safe --without-K.
--- This module is isolated to contain the unsafe boundary.
-
+-- Coinductive LTL semantics over infinite traces (DelayedColist).
+--
+-- Purpose: Define LTL evaluation for potentially infinite traces with proper productivity.
+-- Semantics: Standard LTL semantics (Always = forall frames, Eventually = exists frame, etc.).
+-- Role: Formal semantics foundation; Incremental checker approximates this for finite traces.
+--
+-- Design: Uses DelayedColist for infinite traces, guardedness ensures productivity.
+-- NOTE: Uses --sized-types which is incompatible with --safe.
 module Aletheia.LTL.Coinductive where
 
 open import Size using (Size; ∞)

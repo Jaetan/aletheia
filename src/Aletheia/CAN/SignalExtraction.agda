@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- High-level signal extraction using DBC context.
+--
+-- Purpose: Extract signals from frames by name using DBC definitions.
+-- Operations: extractSignalByName (DBC + frame + signal name → value).
+-- Role: User-facing API combining DBC lookup with CAN.Encoding.
+--
+-- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.
 module Aletheia.CAN.SignalExtraction where
 
 open import Aletheia.CAN.Frame

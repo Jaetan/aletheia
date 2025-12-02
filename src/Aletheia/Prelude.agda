@@ -1,8 +1,10 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Common imports re-exported for convenience
--- Use: open import Aletheia.Prelude
-
+-- Common imports and utilities used throughout the Aletheia codebase.
+--
+-- Purpose: Centralize frequently-used standard library imports to reduce boilerplate.
+-- Exports: Core types (Bool, Nat, List, Maybe, String), basic operations, proofs.
+-- Role: Foundation module imported by most other Aletheia modules.
 module Aletheia.Prelude where
 
 -- Basic types

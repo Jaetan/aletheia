@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Linear Temporal Logic (LTL) abstract syntax tree.
+--
+-- Purpose: Define LTL formula types parameterized by atomic predicate type.
+-- Operators: Atomic, Not, And, Or, Next, Always, Eventually, Until.
+-- Role: Core LTL syntax used by Coinductive/Incremental semantics and JSON parser.
+--
+-- Design: Parametric in predicate type A allows reuse (signal predicates, generic predicates).
 module Aletheia.LTL.Syntax where
 
 open import Data.Nat using (ℕ)

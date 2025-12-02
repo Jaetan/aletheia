@@ -1,5 +1,14 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Signal extraction and injection from CAN frames (bit-level operations).
+--
+-- Purpose: Extract/inject signal values from 8-byte CAN frames using DBC definitions.
+-- Operations: extractSignal (frame + signal → physical value with scaling),
+--             injectSignal (physical value + signal → frame with updated bits).
+-- Role: Core CAN processing, used by protocol handlers and verification.
+--
+-- Algorithm: Bit extraction → endianness conversion → sign extension → scaling (factor/offset).
+-- Verified: All bit manipulations use bounded types (Fin) for safety.
 module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame

@@ -1,8 +1,14 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
 -- JSON parser for LTL formulas with signal predicates.
--- Parses nested operator structures (always, eventually, until, etc.)
--- and signal predicates (equals, lessThan, greaterThan, etc.).
+--
+-- Purpose: Parse LTL properties from JSON objects sent by Python client.
+-- Handles: Temporal operators (always, eventually, next, until, and, or, not),
+--          Signal predicates (equals, lessThan, greaterThan, between, changedBy).
+-- Role: Protocol.Routing uses this to parse "setProperties" command payload.
+--
+-- Format: Nested JSON objects with "operator" and "predicate" fields.
+-- Example: {"operator": "always", "formula": {"operator": "atomic", "predicate": {...}}}
 module Aletheia.LTL.JSON where
 
 open import Data.String using (String; _≟_)

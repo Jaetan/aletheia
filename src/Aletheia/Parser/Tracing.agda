@@ -1,5 +1,12 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Parser tracing utilities for debugging parse failures.
+--
+-- Purpose: Add debug traces to parsers to understand why parsing failed.
+-- Usage: Wrap parsers with `trace "label" parser` to log progress.
+-- Role: Development/debugging tool (not used in production parsers).
+--
+-- Example: trace "hexByte" hexByteParser emits "hexByte: attempting" on entry.
 module Aletheia.Parser.Tracing where
 
 open import Aletheia.Parser.Combinators using (Parser; Position; ParseResult; initialPosition)

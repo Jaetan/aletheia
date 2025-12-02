@@ -1,8 +1,11 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Protocol message types for the JSON streaming LTL checker.
--- Defines StreamCommand (commands), Request (command or data frame),
--- and Response (success, error, property results, ack).
+--
+-- Purpose: Define command and response types for the streaming protocol.
+-- Types: StreamCommand (parseDBC, setProperties, startStream, endStream),
+--        Request (command or data frame), Response (success, error, ack, property).
+-- Role: Core types used by Protocol.Routing and Protocol.StreamState.
 module Aletheia.Data.Message where
 
 open import Data.String using (String)

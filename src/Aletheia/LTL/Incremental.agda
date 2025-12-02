@@ -1,5 +1,13 @@
 {-# OPTIONS --safe --without-K --guardedness #-}
 
+-- Incremental LTL model checker for finite traces with early termination.
+--
+-- Purpose: Check LTL properties over finite frame lists with progressive evaluation.
+-- Key features: Early termination (stops when result known), short-circuit And/Or evaluation.
+-- Role: Used by Protocol.StreamState for real-time violation detection during streaming.
+--
+-- Algorithm: Accumulates frames, evaluates formulas progressively, returns violation on failure.
+-- Performance: Optimized for streaming (doesn't wait for full trace).
 module Aletheia.LTL.Incremental where
 
 open import Aletheia.Prelude
