@@ -20,7 +20,7 @@ Based on analysis of **62 DBC files** covering **384 vehicles** from **50+ manuf
 | Constraint | Decision | Rationale | Phase to Lift |
 |------------|----------|-----------|---------------|
 | **8-byte CAN frames** | ✅ **Keep fixed** | 100% of OpenDBC uses standard CAN, 0% CAN-FD | Phase 5 (if requested) |
-| **Extended 29-bit CAN IDs** | ✅ **Add in Phase 2A** | 30-40% prevalence, blocks Korean market (Hyundai/Kia) | Phase 2A |
+| **Extended 29-bit CAN IDs** | ✅ **IMPLEMENTED** | Supported via CANId sum type (Standard \| Extended) | Phase 1 |
 | **Signal multiplexing** | ✅ **Add in Phase 2A** | User requirement, critical for VIN/diagnostics | Phase 2A |
 | **CAN-FD support** | ❌ **Defer to Phase 5** | 0% in OpenDBC, high refactoring cost | Phase 5 (if requested) |
 
@@ -449,7 +449,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
 **Timeline**: 5-7 weeks total | **Current**: Weeks 1-3 complete, starting Python DSL
 
 **Week 1 Completed** ✅:
-- **Extended 29-bit CAN ID support** - CANId sum type (Standard | Extended)
+- **Extended 29-bit CAN ID support** - ✅ IMPLEMENTED - CANId sum type (Standard | Extended)
 - **Signal multiplexing support** - SignalPresence dependent type (Always | When)
 - DBC parser updates for both features
 - Protocol handlers with multiplexing validation
@@ -875,7 +875,7 @@ cabal run shake -- install-python
 
 **Standard CAN Only** (no CAN-FD):
 - Fixed 8-byte payload (`Vec Byte 8`)
-- 11-bit CAN IDs (0-2047) - **Extended 29-bit IDs in Phase 2A**
+- ✅ Both standard (11-bit) and extended (29-bit) CAN IDs supported
 - DLC 0-8 only (CAN-FD has different encoding)
 - **Rationale**: 100% of OpenDBC uses standard CAN, 0% CAN-FD
 - **Risk**: Refactoring later would take 1+ week if LTL assumes fixed frames

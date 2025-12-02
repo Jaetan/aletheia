@@ -3,12 +3,12 @@
 -- CAN frame types with bounded IDs and data length codes.
 --
 -- Purpose: Define type-safe CAN frames with compile-time bounds checking.
--- Types: CANId (Fin 2048 for standard 11-bit IDs), DLC (Fin 9 for 0-8 bytes),
+-- Types: CANId (Standard 11-bit | Extended 29-bit), DLC (Fin 9 for 0-8 bytes),
 --        Frame (ID + 8-byte payload), TimedFrame (Frame + timestamp).
 -- Role: Core types used throughout CAN processing and signal extraction.
 --
--- Current constraints: Standard CAN only (11-bit IDs, 8-byte frames).
--- Future: Extended IDs (29-bit) deferred to later phase.
+-- Supported: Both standard (11-bit) and extended (29-bit) CAN IDs via sum type.
+-- Current constraint: Fixed 8-byte payload (CAN 2.0B, no CAN-FD support yet).
 module Aletheia.CAN.Frame where
 
 open import Data.Nat using (ℕ)
