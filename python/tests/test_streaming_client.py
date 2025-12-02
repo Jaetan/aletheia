@@ -122,7 +122,13 @@ def test_property_violation():
         # Should receive a property violation response
         assert response.get("type") == "property"
         assert response.get("status") == "violation"
-        assert response.get("property_index") == 0
+
+        # property_index may be returned as integer or rational number format
+        prop_idx = response.get("property_index")
+        if isinstance(prop_idx, dict) and "numerator" in prop_idx:
+            assert prop_idx["numerator"] == 0  # Rational format
+        else:
+            assert prop_idx == 0  # Plain integer format
 
 
 def test_state_machine_error_dataframe_before_start():
