@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wall -Wcompat -Widentities -Wincomplete-record-updates
+                -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints #-}
 
 module Main where
 
