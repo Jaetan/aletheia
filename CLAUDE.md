@@ -119,11 +119,11 @@ The system is structured to maximize formal verification while providing a pract
 ```
 ┌─────────────────────────────────────────┐
 │ Python Layer (python/)                  │
-│ - User-facing API (CANDecoder, LTL DSL) │
-│ - Subprocess communication via YAML     │
+│ - User-facing API (StreamingClient, DSL)│
+│ - Subprocess communication via JSON     │
 │ - Simple wrapper around binary           │
 └──────────────┬──────────────────────────┘
-               │ YAML over stdin/stdout
+               │ JSON over stdin/stdout
 ┌──────────────▼──────────────────────────┐
 │ Haskell Shim (haskell-shim/)            │
 │ - Minimal I/O layer (<100 lines)        │
@@ -385,15 +385,15 @@ Aletheia follows a phased implementation plan:
   - Endianness handling (little/big endian)
   - Rational scaling with factor/offset
   - Proof: byte swap involutive
-- ✅ DBC YAML parser (commits 61969d9, 00935c6)
-  - Complete YAML parsing with primitives
+- ✅ DBC JSON parser (migrated from YAML in Phase 2B)
+  - Complete JSON parsing with primitives
   - Type-safe signal/message parsing
   - Correctness properties: bounded values, determinism
   - Runtime semantic checks
   - Test cases
 
 - ✅ Protocol integration and Main.agda implementation
-  - Extended Command types: ParseDBC, ExtractSignal, InjectSignal
+  - Extended Command types: ParseDBC, SetProperties, StartStream, EndStream
   - Implemented command handlers with proper error handling
   - Rich Response types with typed payloads
   - Type-checks in ~18s with parallel GHC
@@ -402,11 +402,11 @@ Aletheia follows a phased implementation plan:
   - Agda → MAlonzo compilation: ~43s
   - Haskell → binary compilation successful
   - Binary executable works correctly
-  - All 11 Aletheia modules compiled
+  - All 27 Aletheia modules compiled
 
-- ✅ Protocol YAML parser implementation (commit 8a853e1)
-  - Echo and ParseDBC command parsers
-  - Multi-line YAML input handling
+- ✅ Protocol JSON parser implementation (Phase 2B streaming protocol)
+  - All streaming commands: parseDBC, setProperties, startStream, endStream
+  - JSON line protocol (one command per line)
   - End-to-end pipeline tested and working
   - Binary successfully parses and executes commands
 
@@ -494,7 +494,7 @@ Aletheia follows a phased implementation plan:
 
 **Documentation** (Priority):
 - Python API reference with clear examples
-- LTL property YAML format specification
+- LTL property JSON format specification
 - "Why Formal Verification?" guide for non-technical stakeholders
   - Target: Python developers and managers unfamiliar with formal methods
   - Must be candid, precise, concise
@@ -554,11 +554,12 @@ When adding features, consider which phase they belong to and maintain consisten
    - **Time**: ~30 minutes debugging
    - **Result**: ALL rational parsing tests pass
 
-3. ✅ **Python wrapper implementation** (previous session)
-   - Full subprocess interface to binary
-   - YAML preservation (no hex→decimal conversion)
-   - All 4 commands: Echo, ParseDBC, ExtractSignal, InjectSignal
+3. ✅ **Python wrapper implementation** (Phase 2B)
+   - StreamingClient with subprocess interface to binary
+   - JSON line protocol (one command per line)
+   - All streaming commands: parseDBC, setProperties, startStream, endStream, send_frame
    - Proper error handling and validation
+   - Python DSL for LTL properties (Signal().less_than().always())
 
 4. ✅ **Build system: Production-ready** (previous session)
    - Hash-based dependency tracking
@@ -581,24 +582,24 @@ When adding features, consider which phase they belong to and maintain consisten
   - Frame types, bit-level operations
   - Endianness handling
   - One proof: byte swap involutive
-- ✅ DBC YAML parser
+- ✅ DBC JSON parser (migrated from YAML in Phase 2B)
   - Complete message/signal parsing
   - Correctness properties: bounded values, determinism
   - Runtime semantic checks
   - ✅ **FIXED**: Rational parser now handles fractional parts correctly (0.25 → 1/4)
 - ✅ Protocol integration
   - Command types defined
-  - Command handlers implemented (all 4 commands)
+  - Command handlers implemented (streaming protocol)
   - Response types with typed payloads
 - ✅ Build pipeline
   - Agda → MAlonzo → Haskell → binary
   - Automated FFI name mismatch detection
-- ✅ Protocol YAML parser **[Partial]**
-  - ✅ Echo command parser
-  - ✅ ParseDBC command parser
-  - ❌ ExtractSignal parser (needs byte array parsing)
-  - ❌ InjectSignal parser (needs byte array + rational parsing)
-- ✅ End-to-end binary testing (Echo and ParseDBC only)
+- ✅ Protocol JSON parser (Phase 2B streaming protocol)
+  - ✅ parseDBC command parser
+  - ✅ setProperties command parser
+  - ✅ startStream / endStream command parsers
+  - ✅ DataFrame parser (timestamp, CAN ID, 8-byte payload)
+- ✅ End-to-end streaming tests (all 5 tests passing)
 
 **Phase 1 Complete** - All Requirements Met:
 
@@ -644,25 +645,22 @@ See `PHASE1_AUDIT.md` for architectural constraints to address in Phase 2.
      - `Vec Byte 8 → String`: Custom hex formatter (e.g., "0x12 0x34 ...")
    - **Result**: Remains `--safe --without-K` compliant
 
-4. ✅ **Implement byte array parser** (COMPLETED - NO POSTULATES NEEDED):
-   - **Issue**: Could not parse hex byte strings from YAML
-   - **File**: `Protocol/Parser.agda:37-106`
-   - **Fix Implemented**:
-     - `hexByte`: Parses "0xNN" using modulo (returns Fin 256 automatically)
-     - `byteArray`: Parses exactly 8 hex bytes separated by spaces
+4. ✅ **Implement JSON protocol parser** (COMPLETED - Phase 2B):
+   - **Migration**: Moved from YAML to JSON line protocol
+   - **File**: `Protocol/Routing.agda` and `Protocol/JSON.agda`
+   - **Implemented**:
+     - JSON parsing with proper error handling
+     - All streaming commands: parseDBC, setProperties, startStream, endStream
+     - DataFrame parsing (timestamp, CAN ID, 8-byte payload)
    - **Result**: Remains `--safe --without-K` compliant
 
-**Next Steps (Non-Critical, Complete Phase 1)**:
+**Phase 2B Complete** - Streaming Protocol Operational:
 
-5. **Complete protocol parser**: ExtractSignal and InjectSignal command parsers
-   - Now unblocked since byte array parser is complete
-   - Can parse frame bytes and signal names from YAML
-
-6. **Python wrapper implementation**:
-   - Create python/aletheia/client.py with subprocess interface
-   - Implement CANDecoder class wrapping binary
-   - YAML serialization/deserialization
-   - Error handling and validation
+✅ JSON streaming protocol fully implemented
+✅ Python StreamingClient with DSL support
+✅ All 5 integration tests passing
+✅ Incremental LTL checking working
+✅ Property violation detection operational
 
 7. **Integration testing**:
    - End-to-end tests: Python → binary → Python
@@ -754,12 +752,19 @@ cabal run shake -- build         # Full build, 0.26s no-op, ~11s incremental
 cabal run shake -- build-agda    # Agda only
 cabal run shake -- clean         # Clean all artifacts
 
-# Test signal extraction:
+# Test streaming protocol:
 cd python && python3 << 'EOF'
-from aletheia.decoder import CANDecoder
-decoder = CANDecoder.from_dbc("../test_factor.dbc.yaml")
-result = decoder.extract_signal("Speed", "VehicleSpeed", [0x10, 0x27, 0, 0, 0, 0, 0, 0])
-print(f"Result: {result}")  # Should be 2500.0
+from aletheia import StreamingClient, Signal
+from aletheia.dbc_converter import dbc_to_json
+
+# Example: Simple property check
+dbc_json = dbc_to_json("../examples/example.dbc")
+property = Signal("Speed").less_than(220).always()
+
+with StreamingClient() as client:
+    client.parse_dbc(dbc_json)
+    client.set_properties([property.to_dict()])
+    # ... stream frames ...
 EOF
 ```
 

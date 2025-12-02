@@ -13,7 +13,7 @@ Aletheia follows a three-layer architecture:
 │ - CANDecoder API                        │
 │ - Subprocess communication              │
 └──────────────┬──────────────────────────┘
-               │ YAML over stdin/stdout
+               │ JSON over stdin/stdout
 ┌──────────────▼──────────────────────────┐
 │ Haskell Shim (I/O Only)                 │
 │ - Read bytes from stdin                 │

@@ -157,7 +157,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 **Input Messages** (Python → Haskell → Agda):
 
 ```json
-{"type": "command", "command": "parseDBC", "yaml": "messages:\n  - name: VehicleSpeed\n    ..."}
+{"type": "command", "command": "parseDBC", "dbc": {"version": "1.0", "messages": [{"name": "VehicleSpeed", ...}]}}
 {"type": "command", "command": "setProperties", "properties": ["Signal('Speed').always.between(0, 200)", ...]}
 {"type": "command", "command": "startStream"}
 {"type": "data", "timestamp": 1000, "id": 256, "data": [18, 52, 86, 120, 154, 188, 222, 240]}
@@ -233,8 +233,8 @@ data PropertyResult : Set where
 
 **Handler Signature**:
 ```agda
-handleCheckStreamingLTL : String                      -- DBC YAML
-                        → List String                 -- Property YAMLs
+handleCheckStreamingLTL : DBC                         -- Parsed DBC structure
+                        → List LTLFormula             -- LTL properties
                         → Colist Char ∞               -- Input stream (stdin)
                         → DelayedColist PropertyResult ∞  -- Output stream
 ```
@@ -257,28 +257,29 @@ checkAllPropertiesIncremental : ∀ {i : Size}
 
 #### Haskell Layer (I/O Orchestration)
 
-**Lazy Bidirectional Streaming**:
+**JSON Line Protocol**:
 ```haskell
-case cmd of
-  CheckStreamingLTL dbcYaml properties -> do
-    -- Input stream (lazy I/O)
-    remainingStdin <- getContents
-    let inputStream = stringToColist remainingStdin
+-- JSON streaming mode (Phase 2B)
+-- Reads JSON lines from stdin, processes them with Agda, writes JSON responses to stdout
+jsonStreamLoop :: StreamState -> IO ()
+jsonStreamLoop state = do
+    eof <- isEOF
+    when (not eof) $ do
+        -- Read one JSON line
+        line <- getLine
 
-    -- Call Agda handler (returns lazy result stream)
-    let resultStream = handleCheckStreamingLTL dbcYaml properties inputStream
+        -- Call Agda processJSONLine
+        let result = processJSONLine state line
 
-    -- Process results as they emerge
-    processResults resultStream
-  where
-    processResults :: DelayedColist PropertyResult -> IO ()
-    processResults [] = putStrLn "---\nstatus: complete"
-    processResults (later rest) = processResults (force rest)
-    processResults (result ∷ rest) = do
-      putStrLn "---"
-      putStrLn (propertyResultToYaml result)
-      hFlush stdout  -- CRITICAL: Force output immediately
-      processResults (force rest)
+        -- Extract (newState, responseJSON) from result
+        let (newState, responseJSON) = result
+
+        -- Print response
+        putStrLn responseJSON
+        hFlush stdout  -- CRITICAL: Force output immediately
+
+        -- Continue with new state
+        jsonStreamLoop newState
 ```
 
 **Key Mechanism**: Haskell's lazy evaluation ties the streams together:
@@ -296,41 +297,57 @@ case cmd of
 
 **Concurrent Streaming**:
 ```python
-import threading
-import queue
+import json
 
-class StreamingLTLChecker:
-    def __init__(self, dbc_yaml: str, properties: list[str]):
+class StreamingClient:
+    """JSON streaming client for incremental LTL checking"""
+
+    def __init__(self):
         self.proc = subprocess.Popen(['./aletheia'], ...)
 
-        # Send command
-        cmd = {"command": "CheckStreamingLTL", ...}
-        yaml.dump(cmd, self.proc.stdin)
+    def parse_dbc(self, dbc: dict) -> dict:
+        """Parse DBC file (JSON format)"""
+        return self._send_command({
+            "type": "command",
+            "command": "parseDBC",
+            "dbc": dbc
+        })
 
-        # Start result reader thread
-        self.violations = queue.Queue()
-        threading.Thread(target=self._read_results).start()
+    def set_properties(self, properties: list[dict]) -> dict:
+        """Set LTL properties to check"""
+        return self._send_command({
+            "type": "command",
+            "command": "setProperties",
+            "properties": properties
+        })
 
-    def feed_frame(self, frame: dict):
-        """Send frame to binary (main thread)"""
-        yaml.dump(frame, self.proc.stdin)
-        self.proc.stdin.flush()
-
-    def end_stream(self):
-        """Signal end of frames"""
-        self.proc.stdin.write("---\ncommand: EndStream\n")
-
-    def get_result(self, timeout=None):
-        """Get next violation/result (blocks until available)"""
-        return self.violations.get(timeout=timeout)
+    def send_frame(self, timestamp: int, can_id: int, data: list[int]) -> dict:
+        """Send a CAN frame for incremental checking"""
+        return self._send_command({
+            "type": "data",
+            "timestamp": timestamp,
+            "id": can_id,
+            "data": data
+        })
 ```
 
 **Usage Pattern**:
 ```python
-checker = StreamingLTLChecker(dbc_yaml, [
-    "Signal('Speed').always.between(0, 200)",
-    "Signal('EngineTemp').eventually.above(90)"
-])
+from aletheia import StreamingClient, Signal
+
+property = Signal("Speed").less_than(220).always()
+
+with StreamingClient() as client:
+    client.parse_dbc(dbc_json)
+    client.set_properties([property.to_dict()])
+    client.start_stream()
+
+    for frame in can_trace:
+        response = client.send_frame(frame.timestamp, frame.can_id, frame.data)
+        if response.get("type") == "property":
+            print(f"Violation: {response}")
+
+    client.end_stream()
 
 # Main thread: feed frames
 for frame in frame_stream:
@@ -409,7 +426,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
   - Bit-level extraction/injection with endianness
   - Rational scaling with factor/offset
   - Proof: byte swap is involutive
-- ✅ DBC YAML parser
+- ✅ DBC JSON parser (migrated from YAML in Phase 2B)
   - Complete message/signal parsing
   - Correctness properties: bounded values, determinism
   - Runtime semantic checks
@@ -483,7 +500,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
    - `Signal` class: `equals()`, `less_than()`, `greater_than()`, `between()`, `changed_by()`
    - `Predicate` class: `always()`, `eventually()`, `within()`, `never()`
    - `Property` class: `and_()`, `or_()`, `implies()`, `until()`
-   - YAML serialization via `to_yaml()`
+   - JSON serialization via `to_dict()`
 
 2. **Update PythonLTL AST** (LTL/DSL/Python.agda) (1 day):
    - Add `Between`, `ChangedBy` to expressions
