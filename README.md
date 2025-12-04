@@ -31,22 +31,28 @@ cabal run shake -- install-python
 ### Basic Usage
 
 ```python
-from aletheia import CANDecoder, LTL, verify
+from aletheia import StreamingClient, Signal
+from aletheia.dbc_converter import dbc_to_json
 
-# Load DBC specification
-decoder = CANDecoder.from_dbc("vehicle.dbc.yaml")
+# Load DBC specification (converts .dbc to JSON)
+dbc_json = dbc_to_json("vehicle.dbc")
 
-# Define temporal property
-property = LTL.always(
-    LTL.implies(
-        decoder.signal("speed") > 0,
-        LTL.eventually(decoder.signal("brake_pressed") == 1, within=5.0)
-    )
-)
+# Define temporal properties using fluent DSL
+speed_limit = Signal("Speed").less_than(220).always()
+brake_check = Signal("BrakePressed").equals(1).eventually()
 
-# Verify against trace
-result = verify(decoder, "recording.yaml", [property])
-print(result)
+# Stream CAN frames and check properties
+with StreamingClient() as client:
+    client.parse_dbc(dbc_json)
+    client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
+    client.start_stream()
+
+    for timestamp, can_id, data in can_trace:
+        response = client.send_frame(timestamp, can_id, data)
+        if response.get("type") == "property":
+            print(f"Violation: {response['message']}")
+
+    client.end_stream()
 ```
 
 ## Project Structure
@@ -67,9 +73,9 @@ aletheia/
 
 ## Status
 
-**Current Phase**: 1 - Core Infrastructure
+**Current**: Production-ready JSON streaming protocol with LTL verification
 
-See [DESIGN.md](DESIGN.md) for implementation phases and roadmap.
+See [DESIGN.md](DESIGN.md) for detailed architecture and roadmap.
 
 ## License
 
