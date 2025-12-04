@@ -14,6 +14,7 @@ module Aletheia.Protocol.JSON where
 open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++S_)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++L_)
 open import Data.Char using (Char)
+open import Data.Char.Base using (isDigit)
 open import Data.Bool using (Bool; true; false; if_then_else_; not; _∨_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
@@ -24,6 +25,7 @@ open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Function using (_∘_; id)
 open import Aletheia.Parser.Combinators
+open import Aletheia.Prelude using (lookupByKey)
 open import Data.Integer.Show as IntShow using ()
 open import Data.Rational.Show as RatShow using ()
 
@@ -44,12 +46,6 @@ data JSON : Set where
 -- ============================================================================
 -- JSON LOOKUP HELPERS
 -- ============================================================================
-
--- Look up a key in a JSON object
-lookup : String → List (String × JSON) → Maybe JSON
-lookup key [] = nothing
-lookup key ((k , v) ∷ rest) =
-  if ⌊ k ≟ key ⌋ then just v else lookup key rest
 
 -- Get string value from JSON
 getString : JSON → Maybe String
@@ -101,11 +97,11 @@ getRational (JNumber r) = just r
 getRational (JObject fields) = parseRationalObject fields
   where
     parseRationalObject : List (String × JSON) → Maybe ℚ
-    parseRationalObject fields with lookup "numerator" fields
+    parseRationalObject fields with lookupByKey "numerator" fields
     ... | nothing = nothing
     ... | just numJSON with getInt numJSON
     ...   | nothing = nothing
-    ...   | just num with lookup "denominator" fields
+    ...   | just num with lookupByKey "denominator" fields
     ...     | nothing = nothing
     ...     | just denomJSON with getNat denomJSON
     ...       | nothing = nothing
@@ -123,41 +119,34 @@ getObject : JSON → Maybe (List (String × JSON))
 getObject (JObject fields) = just fields
 getObject _ = nothing
 
--- Lookup and extract string in one step
+-- Generic lookup combinator: lookup key, then extract with given function
+-- This pattern is repeated for all typed lookups, so we factor it out
+lookupWith : {A : Set} → (JSON → Maybe A) → String → List (String × JSON) → Maybe A
+lookupWith extract key obj with lookupByKey key obj
+... | nothing = nothing
+... | just v = extract v
+
+-- Typed lookup helpers (all use the generic combinator)
 lookupString : String → List (String × JSON) → Maybe String
-lookupString key obj with lookup key obj
-... | nothing = nothing
-... | just v = getString v
+lookupString = lookupWith getString
 
--- Lookup and extract boolean in one step
 lookupBool : String → List (String × JSON) → Maybe Bool
-lookupBool key obj with lookup key obj
-... | nothing = nothing
-... | just v = getBool v
+lookupBool = lookupWith getBool
 
--- Lookup and extract integer in one step
 lookupInt : String → List (String × JSON) → Maybe ℤ
-lookupInt key obj with lookup key obj
-... | nothing = nothing
-... | just v = getInt v
+lookupInt = lookupWith getInt
 
--- Lookup and extract natural in one step
 lookupNat : String → List (String × JSON) → Maybe ℕ
-lookupNat key obj with lookup key obj
-... | nothing = nothing
-... | just v = getNat v
+lookupNat = lookupWith getNat
 
--- Lookup and extract array in one step
+lookupRational : String → List (String × JSON) → Maybe ℚ
+lookupRational = lookupWith getRational
+
 lookupArray : String → List (String × JSON) → Maybe (List JSON)
-lookupArray key obj with lookup key obj
-... | nothing = nothing
-... | just v = getArray v
+lookupArray = lookupWith getArray
 
--- Lookup and extract object in one step
 lookupObject : String → List (String × JSON) → Maybe (List (String × JSON))
-lookupObject key obj with lookup key obj
-... | nothing = nothing
-... | just v = getObject v
+lookupObject = lookupWith getObject
 
 -- ============================================================================
 -- JSON FORMATTER (Structurally recursive on JSON)
