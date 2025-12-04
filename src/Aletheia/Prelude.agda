@@ -24,6 +24,9 @@ open import Data.Maybe public
 open import Data.String public
   using (String; _++_)
 
+-- Import string equality for utility functions
+open import Data.String.Properties using (_≟_)
+
 open import Data.Char public
   using (Char)
 
@@ -60,3 +63,17 @@ open import Relation.Nullary.Decidable public
 -- Function combinators
 open import Function public
   using (_∘_; _$_; id; const)
+
+-- COMMON UTILITY FUNCTIONS
+-- ============================================================================
+
+-- Find first element in list matching a predicate
+findByPredicate : ∀ {A : Set} → (A → Bool) → List A → Maybe A
+findByPredicate pred [] = nothing
+findByPredicate pred (x ∷ xs) = if pred x then just x else findByPredicate pred xs
+
+-- Look up value by string key in association list
+lookupByKey : ∀ {A : Set} → String → List (String × A) → Maybe A
+lookupByKey key [] = nothing
+lookupByKey key ((k , v) ∷ rest) =
+  if ⌊ k ≟ key ⌋ then just v else lookupByKey key rest

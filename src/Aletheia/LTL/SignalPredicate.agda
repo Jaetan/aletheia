@@ -72,22 +72,25 @@ x ≥ℚ y = y ≤ℚ x
 -- PREDICATE EVALUATION
 -- ============================================================================
 
+-- Generic signal comparison helper to reduce code duplication
+-- Extracts signal value and applies a comparison function
+compareSignal : (ℚ → Bool) → String → DBC → CANFrame → Maybe Bool
+compareSignal cmp sigName dbc frame =
+  extractSignalValue sigName dbc frame >>= λ sigVal →
+  just (cmp sigVal)
+
 evalPredicate : SignalPredicate → DBC → CANFrame → Maybe Bool
 evalPredicate (Equals sigName value) dbc frame =
-  extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (sigVal ==ℚ value)
+  compareSignal (_==ℚ value) sigName dbc frame
 
 evalPredicate (LessThan sigName value) dbc frame =
-  extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (sigVal <ℚ value)
+  compareSignal (_<ℚ value) sigName dbc frame
 
 evalPredicate (GreaterThan sigName value) dbc frame =
-  extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (sigVal >ℚ value)
+  compareSignal (_>ℚ value) sigName dbc frame
 
 evalPredicate (Between sigName minVal maxVal) dbc frame =
-  extractSignalValue sigName dbc frame >>= λ sigVal →
-  just (minVal ≤ℚ sigVal ∧ sigVal ≤ℚ maxVal)
+  compareSignal (λ sigVal → minVal ≤ℚ sigVal ∧ sigVal ≤ℚ maxVal) sigName dbc frame
 
 evalPredicate (ChangedBy sigName delta) dbc frame = nothing
 

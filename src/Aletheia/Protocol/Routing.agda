@@ -26,9 +26,11 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.Protocol.JSON
 open import Aletheia.Data.Message
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
+open import Aletheia.CAN.Endianness using (byteToℕ)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 
 -- ============================================================================
@@ -73,47 +75,61 @@ parseCommandWithTrace obj with lookupString "command" obj
 ... | nothing = inj₁ "Missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
   where
+    -- Helper parsers for each command type
+    tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
+    tryParseDBC obj with lookupByKey "dbc" obj
+    ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
+    ... | just dbc = inj₂ (ParseDBC dbc)
+
+    trySetProperties : List (String × JSON) → String ⊎ StreamCommand
+    trySetProperties obj with lookupArray "properties" obj
+    ... | nothing = inj₁ "SetProperties: missing 'properties' field"
+    ... | just props = inj₂ (SetProperties props)
+
+    tryStartStream : List (String × JSON) → String ⊎ StreamCommand
+    tryStartStream _ = inj₂ StartStream
+
+    tryEncode : List (String × JSON) → String ⊎ StreamCommand
+    tryEncode obj with lookupString "message" obj
+    ... | nothing = inj₁ "Encode: missing 'message' field"
+    ... | just msgName with lookupString "signal" obj
+    ...   | nothing = inj₁ "Encode: missing 'signal' field"
+    ...   | just sigName with lookupInt "value" obj
+    ...     | nothing = inj₁ "Encode: missing or invalid 'value' field"
+    ...     | just value = inj₂ (Encode msgName sigName value)
+
+    tryDecode : List (String × JSON) → String ⊎ StreamCommand
+    tryDecode obj with lookupString "message" obj
+    ... | nothing = inj₁ "Decode: missing 'message' field"
+    ... | just msgName with lookupString "signal" obj
+    ...   | nothing = inj₁ "Decode: missing 'signal' field"
+    ...   | just sigName with lookupArray "bytes" obj
+    ...     | nothing = inj₁ "Decode: missing 'bytes' field"
+    ...     | just bytesJSON with parseByteArray bytesJSON
+    ...       | nothing = inj₁ "Decode: failed to parse byte array"
+    ...       | just byteList with listToVec8 byteList
+    ...         | nothing = inj₁ "Decode: expected 8 bytes"
+    ...         | just bytes = inj₂ (Decode msgName sigName bytes)
+
+    tryEndStream : List (String × JSON) → String ⊎ StreamCommand
+    tryEndStream _ = inj₂ EndStream
+
+    -- Dispatch table for command parsers
+    commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
+    commandDispatchTable =
+      ("parseDBC" , tryParseDBC) ∷
+      ("setProperties" , trySetProperties) ∷
+      ("startStream" , tryStartStream) ∷
+      ("encode" , tryEncode) ∷
+      ("decode" , tryDecode) ∷
+      ("endStream" , tryEndStream) ∷
+      []
+
+    -- Dispatch using table lookup
     dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
-    dispatchCommand cmdType obj =
-      if ⌊ cmdType ≟ "parseDBC" ⌋ then tryParseDBC obj
-      else if ⌊ cmdType ≟ "setProperties" ⌋ then trySetProperties obj
-      else if ⌊ cmdType ≟ "startStream" ⌋ then inj₂ StartStream
-      else if ⌊ cmdType ≟ "encode" ⌋ then tryEncode obj
-      else if ⌊ cmdType ≟ "decode" ⌋ then tryDecode obj
-      else if ⌊ cmdType ≟ "endStream" ⌋ then inj₂ EndStream
-      else inj₁ ("Unknown command: " ++S cmdType)
-      where
-        tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
-        tryParseDBC obj with lookup "dbc" obj
-        ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
-        ... | just dbc = inj₂ (ParseDBC dbc)
-
-        trySetProperties : List (String × JSON) → String ⊎ StreamCommand
-        trySetProperties obj with lookupArray "properties" obj
-        ... | nothing = inj₁ "SetProperties: missing 'properties' field"
-        ... | just props = inj₂ (SetProperties props)
-
-        tryEncode : List (String × JSON) → String ⊎ StreamCommand
-        tryEncode obj with lookupString "message" obj
-        ... | nothing = inj₁ "Encode: missing 'message' field"
-        ... | just msgName with lookupString "signal" obj
-        ...   | nothing = inj₁ "Encode: missing 'signal' field"
-        ...   | just sigName with lookupInt "value" obj
-        ...     | nothing = inj₁ "Encode: missing or invalid 'value' field"
-        ...     | just value = inj₂ (Encode msgName sigName value)
-
-        tryDecode : List (String × JSON) → String ⊎ StreamCommand
-        tryDecode obj with lookupString "message" obj
-        ... | nothing = inj₁ "Decode: missing 'message' field"
-        ... | just msgName with lookupString "signal" obj
-        ...   | nothing = inj₁ "Decode: missing 'signal' field"
-        ...   | just sigName with lookupArray "bytes" obj
-        ...     | nothing = inj₁ "Decode: missing 'bytes' field"
-        ...     | just bytesJSON with parseByteArray bytesJSON
-        ...       | nothing = inj₁ "Decode: failed to parse byte array"
-        ...       | just byteList with listToVec8 byteList
-        ...         | nothing = inj₁ "Decode: expected 8 bytes"
-        ...         | just bytes = inj₂ (Decode msgName sigName bytes)
+    dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
+    ... | nothing = inj₁ ("Unknown command: " ++S cmdType)
+    ... | just parser = parser obj
 
 -- Parse StreamCommand from JSON object
 parseCommand : List (String × JSON) → Maybe StreamCommand
@@ -179,13 +195,10 @@ parseRequest _ = nothing  -- Not a JSON object
 -- RESPONSE → JSON FORMATTING
 -- ============================================================================
 
--- Convert byte to natural
-byteToNat : Byte → ℕ
-byteToNat b = toℕ b
-
 -- Convert Vec Byte 8 to JSON array
+-- Note: Uses byteToℕ from CAN.Endianness to avoid duplication
 bytesToJSON : Vec Byte 8 → JSON
-bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (map byteToNat (toList bytes)))
+bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (map byteToℕ (toList bytes)))
   where open import Data.Rational using (_/_)
 
 -- Format PropertyResult as JSON object

@@ -66,44 +66,34 @@ successResponse msg dat = mkResponse true msg dat
 errorResponse : String → Response
 errorResponse msg = mkResponse false msg NoData
 
--- Convert a single hex digit (0-15) to a character ('0'-'9', 'A'-'F')
-hexDigit : ℕ → Char
-hexDigit 0 = '0'
-hexDigit 1 = '1'
-hexDigit 2 = '2'
-hexDigit 3 = '3'
-hexDigit 4 = '4'
-hexDigit 5 = '5'
-hexDigit 6 = '6'
-hexDigit 7 = '7'
-hexDigit 8 = '8'
-hexDigit 9 = '9'
-hexDigit 10 = 'A'
-hexDigit 11 = 'B'
-hexDigit 12 = 'C'
-hexDigit 13 = 'D'
-hexDigit 14 = 'E'
-hexDigit 15 = 'F'
-hexDigit _ = 'X'  -- Should never happen for valid input
-
 -- Convert a byte (Fin 256) to hex string "0xNN"
+-- Uses stdlib's showInBase for proper hex conversion
 byteToHex : Byte → String
-byteToHex b =
-  let n = toℕ b
-      hi = n / 16
-      lo = n % 16
-  in fromList ('0' L.∷ 'x' L.∷ hexDigit hi L.∷ hexDigit lo L.∷ L.[])
+byteToHex b = "0x" Data.String.++ padLeft '0' 2 (showInBase 16 (toℕ b))
   where
-    open import Data.String using (fromList)
-    module L = Data.List
+    open import Data.Nat.Show using (showInBase)
+    open import Data.Nat.Base using (_<ᵇ_; _∸_)
+    open import Data.String using (length; fromList; toList)
+    open import Data.List as L using (replicate)
+
+    -- Pad string on left with given character to reach minimum length
+    padLeft : Char → ℕ → String → String
+    padLeft c minLen s =
+      let len = length s
+          padding = if len <ᵇ minLen then minLen ∸ len else 0
+      in fromList (L.replicate padding c L.++ toList s)
 
 -- Convert Vec Byte 8 to space-separated hex string "0x12 0x34 0x56 ..."
 bytesToHex : Vec Byte 8 → String
 bytesToHex bytes =
-  foldr (λ _ → String) (λ b acc → if isEmptyString acc then byteToHex b else byteToHex b ++ " " ++ acc) "" bytes
+  foldr (λ _ → String) combineBytes "" bytes
   where
-    open import Data.String using (length)
+    open import Data.String using (length; _++_)
     open import Data.Nat.Base using (_≡ᵇ_)
+
     isEmptyString : String → Bool
     isEmptyString s = Data.String.length s ≡ᵇ 0
+
+    combineBytes : Byte → String → String
+    combineBytes b acc = if isEmptyString acc then byteToHex b else byteToHex b ++ " " ++ acc
 

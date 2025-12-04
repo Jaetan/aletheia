@@ -70,18 +70,11 @@ parseSignal obj = do
   -- Parse "signed" field (can be boolean or string)
   isSigned ← parseSigned obj
 
-  -- Get rational fields using getRational helper
-  factorJSON ← lookup "factor" obj
-  factor ← getRational factorJSON
-
-  offsetJSON ← lookup "offset" obj
-  offset ← getRational offsetJSON
-
-  minimumJSON ← lookup "minimum" obj
-  minimum ← getRational minimumJSON
-
-  maximumJSON ← lookup "maximum" obj
-  maximum ← getRational maximumJSON
+  -- Get rational fields using lookupRational helper
+  factor ← lookupRational "factor" obj
+  offset ← lookupRational "offset" obj
+  minimum ← lookupRational "minimum" obj
+  maximum ← lookupRational "maximum" obj
 
   unit ← lookupString "unit" obj
   presence ← parseSignalPresence obj

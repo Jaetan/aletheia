@@ -26,6 +26,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Fin using (toℕ)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Aletheia.Prelude using (findByPredicate)
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -36,18 +37,14 @@ canIdEquals (Standard x) (Standard y) = toℕ x ≡ᵇ toℕ y
 canIdEquals (Extended x) (Extended y) = toℕ x ≡ᵇ toℕ y
 canIdEquals _ _ = false
 
-findInList : ∀ {A : Set} → (A → Bool) → List A → Maybe A
-findInList pred [] = nothing
-findInList pred (x ∷ xs) = if pred x then just x else findInList pred xs
-
 findMessageById : CANId → DBC → Maybe DBCMessage
-findMessageById msgId dbc = findInList matchesId (DBC.messages dbc)
+findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
   where
     matchesId : DBCMessage → Bool
     matchesId msg = canIdEquals msgId (DBCMessage.id msg)
 
 findSignalByName : String → DBCMessage → Maybe DBCSignal
-findSignalByName name msg = findInList matchesName (DBCMessage.signals msg)
+findSignalByName name msg = findByPredicate matchesName (DBCMessage.signals msg)
   where
     matchesName : DBCSignal → Bool
     matchesName sig = ⌊ DBCSignal.name sig ≟ₛ name ⌋

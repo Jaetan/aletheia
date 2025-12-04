@@ -30,7 +30,6 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - If postulate is truly needed (rare), create separate `*.Unsafe.agda` module
   - Remove `--safe` flag ONLY in that module
   - Document why postulate is needed
-  - Track in `PHASE1_AUDIT.md` postulate table
   - Must be replaced with proof by Phase 3 completion
 
 **Enforcement**:
@@ -356,8 +355,6 @@ The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion**
 
 ## Implementation Phases
 
-⚠️ **MAJOR PLAN REVISION** - See `PLAN_REVIEW.md` for full analysis
-
 **Goal**: Process real-world automotive CAN data with LTL reasoning, via rich Python DSL
 
 **Key Changes from Original Plan**:
@@ -522,12 +519,6 @@ Aletheia follows a phased implementation plan:
 **Timeline**: Ongoing, based on demand
 **Deliverable**: Enhanced feature set based on user feedback
 
-**Dropped Features** (tracked in PLAN_REVIEW.md):
-- Real-time analysis (architectural limitation)
-- Automatic property inference (research problem)
-- GUI/visualization (use existing tools)
-- J1939 protocol (different domain)
-
 When adding features, consider which phase they belong to and maintain consistency with the overall architecture.
 
 ## Current Session Progress
@@ -615,8 +606,6 @@ When adding features, consider which phase they belong to and maintain consisten
 - Signal scaling: 10000 × 0.25 = 2500.0 ✓
 
 **Next Steps**: Begin Phase 2A (LTL Core + Real-World Support)
-See `PHASE1_AUDIT.md` for architectural constraints to address in Phase 2.
-
 ### ✅ Critical Fixes (ALL 4 COMPLETE - NO POSTULATES!):
 
 1. ✅ **Fix rational number parsing** (COMPLETED - NO POSTULATES NEEDED):
@@ -676,37 +665,6 @@ See `PHASE1_AUDIT.md` for architectural constraints to address in Phase 2.
 9. **Range validation** (runtime semantic check)
    - Verify minimum ≤ maximum in signal definitions
    - Catch malformed DBC files early
-
-### Known Architectural Constraints (By Design):
-
-⚠️ **MANDATORY REVIEW BEFORE PHASE 2**: See `PHASE1_AUDIT.md` "Architectural Constraint Review Plan" section. We must validate these constraints before building Phase 2 on top of them.
-
-**Standard CAN Only** (no CAN-FD):
-- Fixed 8-byte payload (`Vec Byte 8`) - 🔴 **HIGH RISK** if changed later
-- 11-bit CAN IDs only (0-2047, no extended 29-bit IDs) - 🔴 **HIGH RISK** if changed later
-- DLC 0-8 only (CAN-FD has different encoding)
-- **Rationale**: Covers 95% of automotive use cases
-- **Phase to Lift**: Phase 5 (extended features)
-- **⚠️ WARNING**: Hardcoded `Vec Byte 8` is deeply embedded throughout codebase
-  - If Phase 2 (LTL) assumes fixed frame size, refactoring cost becomes 1 week+
-  - **Recommendation**: Review at end of Phase 1, refactor early if needed
-  - See audit doc for parameterized Frame type design (2-3 day effort now)
-
-**No Signal Multiplexing**:
-- All signals always present in frame
-- **Phase to Add**: Phase 5
-- **Risk**: 🟢 Low - additive feature
-
-**No Value Tables** (enumerations):
-- Signal values are numeric only
-- **Phase to Add**: Phase 5
-- **Risk**: 🟢 Low - additive feature
-
-See `PHASE1_AUDIT.md` for:
-- Complete list of constraints and deferred work
-- Risk assessment for each constraint
-- Review schedule and decision criteria
-- Refactoring options if constraints need to be lifted early
 
 ### Parser Correctness Strategy (as planned):
 - **Phase 1**: Lightweight correctness properties

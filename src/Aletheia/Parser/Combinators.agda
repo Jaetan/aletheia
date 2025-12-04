@@ -15,6 +15,7 @@ open import Data.List using (List; []; _∷_; _++_; map; length; take)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Char.Base using (isDigit; isAlpha; isSpace; isLower)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _∸_)
 open import Data.String as String using (String)
@@ -233,59 +234,14 @@ string s = parseChars (String.toList s) >>= λ _ → pure s
 -- COMMON CHARACTER CLASSES
 -- ============================================================================
 
--- Helper: Convert Char to Nat for comparison using the actual stdlib function
-private
-  open import Data.Char.Base using (toℕ)
-
-  charToNat : Char → ℕ
-  charToNat = toℕ
-
-  -- Pre-computed character codes for efficiency
-  code-0 : ℕ
-  code-0 = 48  -- '0'
-
-  code-9 : ℕ
-  code-9 = 57  -- '9'
-
-  code-A : ℕ
-  code-A = 65  -- 'A'
-
-  code-Z : ℕ
-  code-Z = 90  -- 'Z'
-
-  code-a : ℕ
-  code-a = 97  -- 'a'
-
-  code-z : ℕ
-  code-z = 122  -- 'z'
-
--- | Check if character is a digit
-isDigit : Char → Bool
-isDigit c = let n = charToNat c
-            in (code-0 ≤ᵇ n) ∧ (n ≤ᵇ code-9)
-
--- | Check if character is uppercase letter
+-- Use stdlib character classification (isDigit, isAlpha, isSpace, isLower)
+-- isUpper: stdlib only has isLower, so define isUpper as "alpha but not lower"
 isUpper : Char → Bool
-isUpper c = let n = charToNat c
-            in (code-A ≤ᵇ n) ∧ (n ≤ᵇ code-Z)
+isUpper c = isAlpha c ∧ not (isLower c)
 
--- | Check if character is lowercase letter
-isLower : Char → Bool
-isLower c = let n = charToNat c
-            in (code-a ≤ᵇ n) ∧ (n ≤ᵇ code-z)
-
--- | Check if character is a letter
-isAlpha : Char → Bool
-isAlpha c = isUpper c ∨ isLower c
-
--- | Check if character is alphanumeric
+-- isAlphaNum: simple composition of stdlib functions
 isAlphaNum : Char → Bool
 isAlphaNum c = isAlpha c ∨ isDigit c
-
--- | Check if character is whitespace
-isSpace : Char → Bool
-isSpace c = (c Data.Char.≈ᵇ ' ') ∨ (c Data.Char.≈ᵇ '\t') ∨ (c Data.Char.≈ᵇ '\n') ∨ (c Data.Char.≈ᵇ '\r')
-  where open import Data.Char using (_≈ᵇ_)
 
 -- Parse a digit character
 digit : Parser Char
@@ -362,19 +318,4 @@ endBy p sep = many (p <* sep)
 -- | Parse items separated or ended by separator
 sepEndBy : ∀ {A B : Set} → Parser A → Parser B → Parser (List A)
 sepEndBy p sep = sepBy p sep <* optional sep
-
--- COMMENTED OUT: chainl1 and chainl have termination issues with the new approach
--- These combinators aren't used in the current codebase
--- Can be re-implemented with proper termination checking if needed
-
--- -- | Chain parsers with left-associative operator
--- chainl1 : ∀ {A : Set} → Parser A → Parser (A → A → A) → Parser A
--- chainl1 {A} p op = p >>= rest
---   where
---     rest : A → Parser A
---     rest x = (op >>= λ f → p >>= λ y → rest (f x y)) <|> pure x
-
--- -- | Chain parsers with left-associative operator, with default value
--- chainl : ∀ {A : Set} → Parser A → Parser (A → A → A) → A → Parser A
--- chainl p op x = chainl1 p op <|> pure x
 

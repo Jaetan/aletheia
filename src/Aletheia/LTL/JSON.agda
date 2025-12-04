@@ -13,30 +13,22 @@ module Aletheia.LTL.JSON where
 
 open import Data.String using (String; _≟_)
 open import Data.Bool using (if_then_else_)
-open import Data.List using (List)
+open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Nat using (ℕ; suc; zero; _≡ᵇ_)
-open import Data.Product using (_×_)
+open import Data.Product using (_×_; _,_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.Protocol.JSON
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 
 -- ============================================================================
--- RATIONAL LOOKUP (JSON numbers are now rationals directly)
--- ============================================================================
-
--- Lookup and extract rational in one step
-lookupRational : String → List (String × JSON) → Maybe ℚ
-lookupRational key obj with lookup key obj
-... | nothing = nothing
-... | just v = getRational v
-
--- ============================================================================
 -- SIGNAL PREDICATE PARSING - Factored into helper functions
 -- ============================================================================
+-- Note: lookupRational is now provided by Aletheia.Protocol.JSON
 
 -- Parse Equals predicate
 parseEquals : List (String × JSON) → Maybe SignalPredicate
@@ -74,15 +66,21 @@ parseChangedBy obj = do
   delta ← lookupRational "delta" obj
   just (SignalPredicate.ChangedBy signal delta)
 
--- Helper: Dispatch to correct predicate parser based on type
+-- Dispatch table for signal predicates
+predicateDispatchTable : List (String × (List (String × JSON) → Maybe SignalPredicate))
+predicateDispatchTable =
+  ("equals" , parseEquals) ∷
+  ("lessThan" , parseLessThan) ∷
+  ("greaterThan" , parseGreaterThan) ∷
+  ("between" , parseBetween) ∷
+  ("changedBy" , parseChangedBy) ∷
+  []
+
+-- Helper: Dispatch to correct predicate parser based on type (using dispatch table)
 dispatchPredicate : String → List (String × JSON) → Maybe SignalPredicate
-dispatchPredicate predType obj =
-  if ⌊ predType ≟ "equals" ⌋ then parseEquals obj
-  else if ⌊ predType ≟ "lessThan" ⌋ then parseLessThan obj
-  else if ⌊ predType ≟ "greaterThan" ⌋ then parseGreaterThan obj
-  else if ⌊ predType ≟ "between" ⌋ then parseBetween obj
-  else if ⌊ predType ≟ "changedBy" ⌋ then parseChangedBy obj
-  else nothing  -- Unknown predicate type
+dispatchPredicate predType obj with lookupByKey predType predicateDispatchTable
+... | nothing = nothing  -- Unknown predicate type
+... | just parser = parser obj
 
 -- Dispatch table for signal predicates (refactored to avoid with clauses)
 parseSignalPredicate : List (String × JSON) → Maybe SignalPredicate
@@ -114,15 +112,15 @@ parseAtomic depth obj = do
 -- Parse unary operator (Not, Next, Always, Eventually)
 parseUnary zero ctor obj = nothing
 parseUnary (suc depth) ctor obj = do
-  formulaJSON ← lookup "formula" obj
+  formulaJSON ← lookupByKey "formula" obj
   formula ← parseLTL depth formulaJSON
   just (ctor formula)
 
 -- Parse binary operator (And, Or, Until)
 parseBinary zero ctor obj = nothing
 parseBinary (suc depth) ctor obj = do
-  leftJSON ← lookup "left" obj
-  rightJSON ← lookup "right" obj
+  leftJSON ← lookupByKey "left" obj
+  rightJSON ← lookupByKey "right" obj
   left ← parseLTL depth leftJSON
   right ← parseLTL depth rightJSON
   just (ctor left right)
@@ -131,11 +129,13 @@ parseBinary (suc depth) ctor obj = do
 parseBounded zero ctor obj = nothing
 parseBounded (suc depth) ctor obj = do
   timebound ← lookupNat "timebound" obj
-  formulaJSON ← lookup "formula" obj
+  formulaJSON ← lookupByKey "formula" obj
   formula ← parseLTL depth formulaJSON
   just (ctor timebound formula)
 
 -- Helper: Dispatch to correct operator parser based on type
+-- Note: Using if-then-else instead of dispatch table to maintain termination checking
+-- (dispatch tables hide structural recursion from Agda's termination checker)
 dispatchOperator : String → ℕ → List (String × JSON) → Maybe (LTL SignalPredicate)
 dispatchOperator op depth obj =
   if ⌊ op ≟ "atomic" ⌋ then parseAtomic depth obj
