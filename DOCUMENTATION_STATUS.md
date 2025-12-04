@@ -55,7 +55,7 @@
 - ✅ Git commits with clear messages
 
 **Notes on Test Failures**:
-- Smoke tests (basic functionality) all pass: binary exists, CANDecoder creation, LTL formula creation, serialization
+- Smoke tests (basic functionality) all pass: binary exists, StreamingClient creation, LTL formula creation, JSON protocol
 - Integration test failures are pre-existing issues in streaming protocol implementation (Phase 2B.1)
 - Build system and core functionality verified as working
 

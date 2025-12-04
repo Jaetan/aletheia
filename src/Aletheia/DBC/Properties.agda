@@ -7,7 +7,6 @@
 -- Role: Runtime validation properties; full soundness proofs deferred to Phase 3.
 --
 -- Status: Runtime semantic checks implemented (signal overlap, range validation).
--- Note: YAML parser removed in Phase 2B (JSON-only protocol).
 module Aletheia.DBC.Properties where
 
 open import Aletheia.DBC.Types

@@ -66,7 +66,7 @@
 - Audience: Python users (primary user base)
 - **Content**:
   - Quick start example
-  - CANDecoder usage
+  - StreamingClient usage
   - LTL DSL (Signal, Predicate, Property)
   - StreamingClient usage
   - Error handling
@@ -140,27 +140,36 @@ Critical missing documentation. Template:
 ## Quick Start
 
 \`\`\`python
-from aletheia import CANDecoder, Signal
+from aletheia import StreamingClient, Signal
+from aletheia.dbc_converter import dbc_to_json
 
-# Load DBC and create decoder
-decoder = CANDecoder.from_dbc("vehicle.dbc")
+# Load DBC and convert to JSON
+dbc_json = dbc_to_json("vehicle.dbc")
 
-# Decode a frame
-frame = bytes([0x10, 0x27, 0, 0, 0, 0, 0, 0])
-speed = decoder.decode_signal("Speed", "VehicleSpeed", frame)
-print(f"Speed: {speed} km/h")  # Speed: 100.0 km/h
+# Create streaming client for LTL verification
+with StreamingClient() as client:
+    client.parse_dbc(dbc_json)
+    client.set_properties([
+        Signal("Speed").between(0, 300).always().to_dict()
+    ])
+    client.start_stream()
+
+    # Send frames for verification
+    frame = bytes([0x10, 0x27, 0, 0, 0, 0, 0, 0])
+    response = client.send_frame(timestamp=100, can_id=0x100, data=frame)
+    print(response)
 \`\`\`
 
 ## API Reference
 
-### CANDecoder
-[Full documentation with examples]
-
-### LTL DSL
-[Signal, Predicate, Property classes]
-
 ### StreamingClient
-[Streaming API for large traces]
+[Streaming protocol for LTL verification]
+
+### Signal DSL
+[Fluent interface for building LTL properties]
+
+### dbc_converter
+[Convert .dbc files to JSON format]
 
 ## Complete Examples
 [Full working programs]

@@ -9,8 +9,8 @@ Aletheia follows a three-layer architecture:
 ```
 ┌─────────────────────────────────────────┐
 │ Python Layer (User Interface)           │
-│ - DSL for LTL properties                │
-│ - CANDecoder API                        │
+│ - DSL for LTL properties (Signal)       │
+│ - StreamingClient API                   │
 │ - Subprocess communication              │
 └──────────────┬──────────────────────────┘
                │ JSON over stdin/stdout
