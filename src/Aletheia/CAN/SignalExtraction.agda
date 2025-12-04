@@ -14,7 +14,7 @@ open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
-open import Data.String using (String; _++_)
+open import Data.String using (String) renaming (_++_ to _++S_)
 open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Properties renaming (_≟_ to _≟ᵣ_)
@@ -59,9 +59,9 @@ checkSignalPresence : CANFrame → DBCMessage → DBCSignal → Maybe String
 checkSignalPresence frame msg sig with DBCSignal.presence sig
 ... | Always = nothing  -- Signal always present, no error
 ... | When muxName muxValue with findSignalByName muxName msg
-...   | nothing = just ("multiplexor signal '" ++ muxName ++ "' not found in message")
+...   | nothing = just ("multiplexor signal '" ++S muxName ++S "' not found in message")
 ...   | just muxSig with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
-...     | nothing = just ("failed to extract multiplexor signal '" ++ muxName ++ "'")
+...     | nothing = just ("failed to extract multiplexor signal '" ++S muxName ++S "'")
 ...     | just muxVal =
           -- Check if multiplexor value matches
           -- Note: We compare to rational directly since muxValue is ℕ
@@ -69,7 +69,7 @@ checkSignalPresence frame msg sig with DBCSignal.presence sig
               matches = ⌊ muxVal ≟ᵣ expectedVal ⌋
           in if matches
              then nothing  -- Match! Signal is present
-             else just ("multiplexor value mismatch (expected " ++ showℕ muxValue ++ ")")
+             else just ("multiplexor value mismatch (expected " ++S showℕ muxValue ++S ")")
 
 -- Extract signal value from frame with full error reporting
 -- This is the primary interface for signal extraction

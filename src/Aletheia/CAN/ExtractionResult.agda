@@ -9,7 +9,7 @@
 -- Design: Simple sum type for explicit error propagation (no exceptions in Agda).
 module Aletheia.CAN.ExtractionResult where
 
-open import Data.String using (String; _++_)
+open import Data.String using (String) renaming (_++_ to _++S_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Show using (show)
 open import Data.Bool using (Bool; true; false)
@@ -53,13 +53,13 @@ getValue _ = nothing
 
 -- Format extraction result as error message
 formatError : ExtractionResult → String
-formatError (Success v) = "Success: " ++ show v
+formatError (Success v) = "Success: " ++S show v
 formatError (SignalNotInDBC sigName) =
-  "Signal '" ++ sigName ++ "' not found in DBC file"
+  "Signal '" ++S sigName ++S "' not found in DBC file"
 formatError (SignalNotPresent sigName reason) =
-  "Signal '" ++ sigName ++ "' not present in frame (" ++ reason ++ ")"
+  "Signal '" ++S sigName ++S "' not present in frame (" ++S reason ++S ")"
 formatError (ValueOutOfBounds sigName value min max) =
-  "Signal '" ++ sigName ++ "' value out of bounds: " ++
-  show value ++ " not in [" ++ show min ++ ", " ++ show max ++ "]"
+  "Signal '" ++S sigName ++S "' value out of bounds: " ++S
+  show value ++S " not in [" ++S show min ++S ", " ++S show max ++S "]"
 formatError (ExtractionFailed sigName reason) =
-  "Failed to extract signal '" ++ sigName ++ "': " ++ reason
+  "Failed to extract signal '" ++S sigName ++S "': " ++S reason
