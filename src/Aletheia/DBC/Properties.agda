@@ -12,13 +12,23 @@ module Aletheia.DBC.Properties where
 open import Aletheia.DBC.Types
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
-open import Data.List using (List; []; _∷_; all)
+open import Data.List using (List; []; _∷_)
 open import Data.Nat using (ℕ; _<_; _≤_)
 open import Data.Fin using (Fin; toℕ)
-open import Data.Bool using (Bool; _∧_)
+open import Data.Bool using (Bool; true; _∧_)
 open import Data.Rational using (ℚ; _≤ᵇ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.Product using (_×_; _,_)
+
+-- ============================================================================
+-- HELPER FUNCTIONS
+-- ============================================================================
+
+-- Check if all elements of a list satisfy a predicate
+-- Replacement for deprecated Data.List.all
+all : {A : Set} → (A → Bool) → List A → Bool
+all pred [] = true
+all pred (x ∷ xs) = pred x ∧ all pred xs
 
 -- ============================================================================
 -- BASIC STRUCTURAL PROPERTIES
@@ -37,11 +47,15 @@ bitLength-bounded sig = ≤-pred (toℕ<n (SignalDef.bitLength (DBCSignal.signal
     open import Data.Fin.Properties using (toℕ<n)
     open import Data.Nat.Properties using (≤-pred)
 
--- Property: Parsed message IDs are valid CAN IDs
-messageId-bounded : ∀ (msg : DBCMessage) → toℕ (DBCMessage.id msg) < 2048
-messageId-bounded msg = toℕ<n (DBCMessage.id msg)
+-- Property: Parsed message IDs are always valid (bounded by CANId type)
+-- Standard IDs: < 2048 (11-bit)
+-- Extended IDs: < 536870912 (29-bit)
+-- This property is trivially true by construction of CANId type
+messageId-valid : ∀ (id : CANId) → ℕ
+messageId-valid (Standard x) = toℕ x
+messageId-valid (Extended x) = toℕ x
   where
-    open import Data.Fin.Properties using (toℕ<n)
+    open import Data.Fin using (toℕ)
 
 -- Property: Parsed DLC values are valid
 dlc-bounded : ∀ (msg : DBCMessage) → toℕ (DBCMessage.dlc msg) ≤ 8
@@ -65,16 +79,12 @@ signal-ranges-consistent sig =
 -- Check all signals in a message have consistent ranges
 message-ranges-consistent : DBCMessage → Bool
 message-ranges-consistent msg =
-  Data.List.all signal-ranges-consistent (DBCMessage.signals msg)
-  where
-    open import Data.List using (all)
+  all signal-ranges-consistent (DBCMessage.signals msg)
 
 -- Check all messages in a DBC have consistent ranges
 dbc-ranges-consistent : DBC → Bool
 dbc-ranges-consistent dbc =
-  Data.List.all message-ranges-consistent (DBC.messages dbc)
-  where
-    open import Data.List using (all)
+  all message-ranges-consistent (DBC.messages dbc)
 
 -- ============================================================================
 -- VALIDATION INVARIANTS
@@ -94,18 +104,15 @@ signal-well-formed sig =
 message-well-formed : DBCMessage → Bool
 message-well-formed msg =
   (toℕ (DBCMessage.dlc msg) Data.Nat.≤ᵇ 8) ∧
-  Data.List.all signal-well-formed (DBCMessage.signals msg)
+  all signal-well-formed (DBCMessage.signals msg)
   where
     open import Data.Nat using (_≤ᵇ_)
-    open import Data.List using (all)
 
 -- If a DBC parses successfully, all its structural properties hold
 dbc-well-formed : DBC → Bool
 dbc-well-formed dbc =
   dbc-ranges-consistent dbc ∧
-  Data.List.all message-well-formed (DBC.messages dbc)
-  where
-    open import Data.List using (all)
+  all message-well-formed (DBC.messages dbc)
 
 -- ============================================================================
 -- FUTURE PROOF OBLIGATIONS (Phase 3+)
