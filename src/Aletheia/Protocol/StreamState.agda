@@ -21,7 +21,7 @@ open import Codata.Sized.Delay using (Delay; now; later)
 open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
 open import Data.String using (String; toList) renaming (_++_ to _++S_)
 open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
-open import Data.List using (List; []; _∷_; length; _++_)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++L_)
 open import Data.List as L using (map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Maybe as M using (map)
@@ -153,7 +153,7 @@ handleSetProperties-State propJSONs state with StreamState.phase state
       in (newState , Response.Success "Properties set successfully")
     parseAllProperties (json ∷ rest) idx acc with parseProperty json
     ... | nothing = (state , Response.Error ("Failed to parse property " ++S showℕ idx))
-    ... | just prop = parseAllProperties rest (idx + 1) (acc ++ ((idx , prop) ∷ []))
+    ... | just prop = parseAllProperties rest (idx + 1) (acc ++L ((idx , prop) ∷ []))
 ... | Streaming = (state , Response.Error "Cannot set properties while streaming")
 
 -- Start stream command: transition to streaming mode
@@ -196,7 +196,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
     processFrame : DBC → StreamState × Response
     processFrame dbc =
       let timedFrame = record { timestamp = timestamp ; frame = frame }
-          newFrames = StreamState.accumulatedFrames state ++ (timedFrame ∷ [])
+          newFrames = StreamState.accumulatedFrames state ++L (timedFrame ∷ [])
           newState = mkStreamState Streaming (just dbc) (StreamState.properties state) newFrames
       in checkProps newState dbc newFrames (StreamState.properties newState)
       where
