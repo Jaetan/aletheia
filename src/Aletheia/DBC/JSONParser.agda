@@ -116,30 +116,45 @@ parseSignalList (JObject sigObj ∷ rest) = do
 parseSignalList (_ ∷ _) = nothing  -- Non-object in array
 
 -- Parse CAN ID from natural and optional "extended" field
+-- Validates that ID is within valid range for its type
 parseCANId : ℕ → List (String × JSON) → Maybe CANId
 parseCANId rawId obj with lookupBool "extended" obj
-... | just true = just (Extended (rawId mod 536870912))
-... | just false = just (Standard (rawId mod 2048))
-... | nothing = just (Standard (rawId mod 2048))  -- Default to standard
+... | just true = if rawId Data.Nat.<ᵇ 536870912
+                   then just (Extended (rawId mod 536870912))
+                   else nothing  -- Extended ID out of range
+... | just false = if rawId Data.Nat.<ᵇ 2048
+                    then just (Standard (rawId mod 2048))
+                    else nothing  -- Standard ID out of range
+... | nothing = if rawId Data.Nat.<ᵇ 2048
+                 then just (Standard (rawId mod 2048))
+                 else nothing  -- Default to standard, reject if too large
+  where
+    open import Data.Nat using (_<ᵇ_)
 
 -- Parse a single message from JSON object
+-- Validates all fields are present and within valid ranges
 parseMessage : List (String × JSON) → Maybe DBCMessage
 parseMessage obj = do
   rawId ← lookupNat "id" obj
   msgId ← parseCANId rawId obj
   name ← lookupString "name" obj
-  dlc ← lookupNat "dlc" obj
+  rawDlc ← lookupNat "dlc" obj
   sender ← lookupString "sender" obj
   signalsJSON ← lookupArray "signals" obj
   signals ← parseSignalList signalsJSON
 
-  just (record
-    { id = msgId
-    ; name = name
-    ; dlc = dlc mod 9
-    ; sender = sender
-    ; signals = signals
-    })
+  -- Validate DLC is in valid range (0-8 bytes)
+  if rawDlc Data.Nat.≤ᵇ 8
+    then just (record
+      { id = msgId
+      ; name = name
+      ; dlc = rawDlc mod 9
+      ; sender = sender
+      ; signals = signals
+      })
+    else nothing  -- DLC out of valid range
+  where
+    open import Data.Nat using (_≤ᵇ_)
 
 -- Parse a list of messages from JSON array
 parseMessageList : List JSON → Maybe (List DBCMessage)
