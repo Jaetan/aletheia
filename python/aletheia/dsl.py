@@ -11,7 +11,24 @@ Usage with StreamingClient:
     client.set_properties([property.to_dict()])
 """
 
-from typing import Any, Dict, Union
+from __future__ import annotations
+
+from aletheia.protocols import (
+    LTLFormula,
+    CompareFormula,
+    BetweenFormula,
+    ChangedByFormula,
+    AndFormula,
+    OrFormula,
+    NotFormula,
+    AlwaysFormula,
+    EventuallyFormula,
+    NeverFormula,
+    EventuallyWithinFormula,
+    AlwaysWithinFormula,
+    ImpliesFormula,
+    UntilFormula,
+)
 
 
 class Signal:
@@ -23,7 +40,7 @@ class Signal:
         Args:
             name: Signal name (must exist in DBC)
         """
-        self.name = name
+        self.name: str = name
 
     def equals(self, value: float) -> 'Predicate':
         """Signal equals a specific value
@@ -37,12 +54,13 @@ class Signal:
         Example:
             Signal("Gear").equals(0)  # Gear is in park
         """
-        return Predicate({
+        formula: CompareFormula = {
             'type': 'compare',
             'signal': self.name,
             'op': 'EQ',
             'value': value
-        })
+        }
+        return Predicate(formula)
 
     def less_than(self, value: float) -> 'Predicate':
         """Signal is less than a value
@@ -56,12 +74,13 @@ class Signal:
         Example:
             Signal("Speed").less_than(220)  # Speed below 220 km/h
         """
-        return Predicate({
+        formula: CompareFormula = {
             'type': 'compare',
             'signal': self.name,
             'op': 'LT',
             'value': value
-        })
+        }
+        return Predicate(formula)
 
     def greater_than(self, value: float) -> 'Predicate':
         """Signal is greater than a value
@@ -75,12 +94,13 @@ class Signal:
         Example:
             Signal("Speed").greater_than(5)  # Vehicle moving
         """
-        return Predicate({
+        formula: CompareFormula = {
             'type': 'compare',
             'signal': self.name,
             'op': 'GT',
             'value': value
-        })
+        }
+        return Predicate(formula)
 
     def less_than_or_equal(self, value: float) -> 'Predicate':
         """Signal is less than or equal to a value
@@ -91,12 +111,13 @@ class Signal:
         Returns:
             Predicate that can be used in temporal operators
         """
-        return Predicate({
+        formula: CompareFormula = {
             'type': 'compare',
             'signal': self.name,
             'op': 'LE',
             'value': value
-        })
+        }
+        return Predicate(formula)
 
     def greater_than_or_equal(self, value: float) -> 'Predicate':
         """Signal is greater than or equal to a value
@@ -107,12 +128,13 @@ class Signal:
         Returns:
             Predicate that can be used in temporal operators
         """
-        return Predicate({
+        formula: CompareFormula = {
             'type': 'compare',
             'signal': self.name,
             'op': 'GE',
             'value': value
-        })
+        }
+        return Predicate(formula)
 
     def between(self, min_val: float, max_val: float) -> 'Predicate':
         """Signal is within a range (inclusive)
@@ -127,12 +149,13 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        return Predicate({
+        formula: BetweenFormula = {
             'type': 'between',
             'signal': self.name,
             'min': min_val,
             'max': max_val
-        })
+        }
+        return Predicate(formula)
 
     def changed_by(self, delta: float) -> 'Predicate':
         """Signal changed by at least delta (absolute value)
@@ -148,11 +171,12 @@ class Signal:
         Example:
             Signal("Speed").changed_by(-10)  # Speed decreased by 10+
         """
-        return Predicate({
+        formula: ChangedByFormula = {
             'type': 'changed_by',
             'signal': self.name,
             'delta': delta
-        })
+        }
+        return Predicate(formula)
 
 
 class Predicate:
@@ -162,9 +186,17 @@ class Predicate:
     temporal properties using temporal operators.
     """
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, formula: LTLFormula):
         """Internal constructor - use Signal methods instead"""
-        self._data = data
+        self._data: LTLFormula = formula
+
+    def to_formula(self) -> LTLFormula:
+        """Convert to LTL formula for use in composition
+
+        Returns:
+            LTL formula representation
+        """
+        return self._data
 
     def always(self) -> 'Property':
         """Property must always hold (globally)
@@ -175,10 +207,11 @@ class Predicate:
         Example:
             Signal("Speed").less_than(220).always()
         """
-        return Property({
+        formula: AlwaysFormula = {
             'type': 'always',
             'formula': self._data
-        })
+        }
+        return Property(formula)
 
     def eventually(self) -> 'Property':
         """Property must eventually hold (sometime in future)
@@ -189,10 +222,11 @@ class Predicate:
         Example:
             Signal("DoorClosed").equals(1).eventually()
         """
-        return Property({
+        formula: EventuallyFormula = {
             'type': 'eventually',
             'formula': self._data
-        })
+        }
+        return Property(formula)
 
     def never(self) -> 'Property':
         """Property must never hold (always negated)
@@ -203,10 +237,11 @@ class Predicate:
         Example:
             Signal("ErrorCode").equals(0xFF).never()
         """
-        return Property({
+        formula: NeverFormula = {
             'type': 'never',
             'formula': self._data
-        })
+        }
+        return Property(formula)
 
     def within(self, time_ms: int) -> 'Property':
         """Property must hold within time_ms milliseconds
@@ -220,11 +255,12 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        return Property({
+        formula: EventuallyWithinFormula = {
             'type': 'eventually_within',
             'time_ms': time_ms,
             'formula': self._data
-        })
+        }
+        return Property(formula)
 
     def for_at_least(self, time_ms: int) -> 'Property':
         """Property must hold continuously for at least time_ms milliseconds
@@ -238,11 +274,12 @@ class Predicate:
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
-        return Property({
+        formula: AlwaysWithinFormula = {
             'type': 'always_within',
             'time_ms': time_ms,
             'formula': self._data
-        })
+        }
+        return Property(formula)
 
     def and_(self, other: 'Predicate') -> 'Predicate':
         """Logical AND of two predicates
@@ -256,11 +293,12 @@ class Predicate:
         Example:
             left_ok.and_(right_ok)
         """
-        return Predicate({
+        formula: AndFormula = {
             'type': 'and',
             'left': self._data,
-            'right': other._data
-        })
+            'right': other.to_formula()
+        }
+        return Predicate(formula)
 
     def or_(self, other: 'Predicate') -> 'Predicate':
         """Logical OR of two predicates
@@ -274,11 +312,12 @@ class Predicate:
         Example:
             error1.or_(error2)
         """
-        return Predicate({
+        formula: OrFormula = {
             'type': 'or',
             'left': self._data,
-            'right': other._data
-        })
+            'right': other.to_formula()
+        }
+        return Predicate(formula)
 
     def not_(self) -> 'Predicate':
         """Logical NOT of predicate
@@ -289,12 +328,13 @@ class Predicate:
         Example:
             Signal("Enabled").equals(1).not_()
         """
-        return Predicate({
+        formula: NotFormula = {
             'type': 'not',
             'formula': self._data
-        })
+        }
+        return Predicate(formula)
 
-    def implies(self, other: Union['Property', 'Predicate']) -> 'Property':
+    def implies(self, other: Property | Predicate) -> Property:
         """Logical implication: if self then other
 
         Args:
@@ -306,17 +346,18 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        # Convert Predicate to Property if needed
+        # Get the formula from the other operand
         if isinstance(other, Predicate):
-            other_data = other._data
+            other_formula = other.to_formula()
         else:
-            other_data = other._data
+            other_formula = other.to_formula()
 
-        return Property({
+        formula: ImpliesFormula = {
             'type': 'implies',
             'antecedent': self._data,
-            'consequent': other_data
-        })
+            'consequent': other_formula
+        }
+        return Property(formula)
 
 
 class Property:
@@ -326,9 +367,17 @@ class Property:
     other properties using logical operators.
     """
 
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, formula: LTLFormula):
         """Internal constructor - use Predicate methods instead"""
-        self._data = data
+        self._data: LTLFormula = formula
+
+    def to_formula(self) -> LTLFormula:
+        """Convert to LTL formula for use in composition
+
+        Returns:
+            LTL formula representation
+        """
+        return self._data
 
     def and_(self, other: 'Property') -> 'Property':
         """Logical AND of two properties
@@ -342,11 +391,12 @@ class Property:
         Example:
             speed_ok.and_(voltage_ok)
         """
-        return Property({
+        formula: AndFormula = {
             'type': 'and',
             'left': self._data,
-            'right': other._data
-        })
+            'right': other.to_formula()
+        }
+        return Property(formula)
 
     def or_(self, other: 'Property') -> 'Property':
         """Logical OR of two properties
@@ -360,13 +410,14 @@ class Property:
         Example:
             charging.or_(engine_running)
         """
-        return Property({
+        formula: OrFormula = {
             'type': 'or',
             'left': self._data,
-            'right': other._data
-        })
+            'right': other.to_formula()
+        }
+        return Property(formula)
 
-    def implies(self, other: Union['Property', 'Predicate']) -> 'Property':
+    def implies(self, other: Property | Predicate) -> Property:
         """Logical implication: if self then other
 
         Args:
@@ -378,17 +429,18 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        # Convert Predicate to Property if needed
+        # Get the formula from the other operand
         if isinstance(other, Predicate):
-            other_data = other._data
+            other_formula = other.to_formula()
         else:
-            other_data = other._data
+            other_formula = other.to_formula()
 
-        return Property({
+        formula: ImpliesFormula = {
             'type': 'implies',
             'antecedent': self._data,
-            'consequent': other_data
-        })
+            'consequent': other_formula
+        }
+        return Property(formula)
 
     def until(self, other: 'Property') -> 'Property':
         """Temporal until: self holds until other becomes true
@@ -402,13 +454,14 @@ class Property:
         Example:
             power_off.implies(power_start.never().until(power_acc))
         """
-        return Property({
+        formula: UntilFormula = {
             'type': 'until',
             'left': self._data,
-            'right': other._data
-        })
+            'right': other.to_formula()
+        }
+        return Property(formula)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> LTLFormula:
         """Convert to dictionary for use with StreamingClient
 
         Returns:

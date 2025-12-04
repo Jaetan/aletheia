@@ -4,11 +4,42 @@ Provides a streaming interface to the Aletheia binary using JSON line protocol.
 Maintains a persistent subprocess for incremental LTL checking.
 """
 
+from __future__ import annotations
+
 import subprocess
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import cast
 
+from aletheia.protocols import (
+    Command,
+    Response,
+    DBCDefinition,
+    LTLFormula,
+    SuccessResponse,
+    CompleteResponse,
+)
+
+
+# ============================================================================
+# CUSTOM EXCEPTIONS
+# ============================================================================
+
+class AletheiaError(Exception):
+    """Base exception for all Aletheia errors"""
+
+
+class ProcessError(AletheiaError):
+    """Subprocess-related errors (not running, terminated unexpectedly, etc.)"""
+
+
+class ProtocolError(AletheiaError):
+    """Protocol-related errors (invalid JSON, missing response, etc.)"""
+
+
+# ============================================================================
+# BINARY LOCATION
+# ============================================================================
 
 def get_binary_path() -> Path:
     """Locate the Aletheia binary
@@ -25,8 +56,8 @@ def get_binary_path() -> Path:
 
     if not binary.exists():
         raise FileNotFoundError(
-            f"Aletheia binary not found at {binary}. "
-            f"Please build it first with: cabal run shake -- build"
+            f"Aletheia binary not found at {binary}. " +
+            "Please build it first with: cabal run shake -- build"
         )
 
     return binary
@@ -63,10 +94,15 @@ class StreamingClient:
             client.end_stream()
     """
 
-    def __init__(self):
-        """Initialize the streaming client (does not start subprocess yet)"""
-        self.binary_path = get_binary_path()
-        self.proc: Optional[subprocess.Popen] = None
+    def __init__(self, shutdown_timeout: float = 5.0):
+        """Initialize the streaming client (does not start subprocess yet)
+
+        Args:
+            shutdown_timeout: Timeout in seconds for graceful shutdown (default: 5.0)
+        """
+        self.binary_path: Path = get_binary_path()
+        self.proc: subprocess.Popen[str] | None = None
+        self.shutdown_timeout: float = shutdown_timeout
 
     def __enter__(self):
         """Start the subprocess when entering context"""
@@ -80,30 +116,44 @@ class StreamingClient:
         )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Clean up the subprocess when exiting context"""
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object
+    ) -> None:
+        """Clean up the subprocess when exiting context
+
+        Tries graceful termination first, then force kill if needed.
+        """
         if self.proc:
             self.proc.terminate()
-            self.proc.wait(timeout=5)
+            try:
+                _ = self.proc.wait(timeout=self.shutdown_timeout)
+            except subprocess.TimeoutExpired:
+                # Graceful termination failed, force kill
+                self.proc.kill()
+                _ = self.proc.wait()  # Wait for kill to complete
 
-    def _send_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_command(self, command: Command) -> Response:
         """Send a JSON command and receive response
 
         Args:
-            command: Command dictionary
+            command: Command object (ParseDBCCommand, SetPropertiesCommand, etc.)
 
         Returns:
-            Response dictionary
+            Response object (SuccessResponse, ErrorResponse, etc.)
 
         Raises:
-            RuntimeError: If subprocess is not running or communication fails
+            ProcessError: If subprocess is not running or terminated unexpectedly
+            ProtocolError: If JSON communication fails
         """
         if not self.proc or not self.proc.stdin or not self.proc.stdout:
-            raise RuntimeError("Subprocess not running")
+            raise ProcessError("Subprocess not running")
 
         # Send command as JSON line
         json_line = json.dumps(command)
-        self.proc.stdin.write(json_line + "\n")
+        _ = self.proc.stdin.write(json_line + "\n")
         self.proc.stdin.flush()
 
         # Read response as JSON line
@@ -112,61 +162,65 @@ class StreamingClient:
             # Check if process died
             if self.proc.poll() is not None:
                 stderr = self.proc.stderr.read() if self.proc.stderr else ""
-                raise RuntimeError(f"Binary process terminated unexpectedly: {stderr}")
-            raise RuntimeError("No response from binary")
+                raise ProcessError(f"Binary process terminated unexpectedly: {stderr}")
+            raise ProtocolError("No response from binary")
 
         try:
-            return json.loads(response_line)
+            # Parse JSON and cast to Response type (runtime validation would happen here)
+            return cast(Response, json.loads(response_line))
         except json.JSONDecodeError as e:
-            raise RuntimeError(f"Invalid JSON response: {response_line!r} - {e}")
+            raise ProtocolError(f"Invalid JSON response: {response_line!r} - {e}") from e
 
-    def parse_dbc(self, dbc: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_dbc(self, dbc: DBCDefinition) -> SuccessResponse:
         """Parse DBC file
 
         Args:
-            dbc: DBC structure as JSON dictionary (use dbc_converter.dbc_to_json())
+            dbc: DBC structure (use dbc_converter.dbc_to_json())
 
         Returns:
-            Response: {"status": "success", "message": "DBC parsed successfully"}
+            SuccessResponse: {"status": "success", "message": "DBC parsed successfully"}
 
         Example:
             from aletheia.dbc_converter import dbc_to_json
             dbc_json = dbc_to_json("example.dbc")
             client.parse_dbc(dbc_json)
         """
-        return self._send_command({
+        response = self._send_command({
             "type": "command",
             "command": "parseDBC",
             "dbc": dbc
         })
+        return cast(SuccessResponse, response)
 
-    def set_properties(self, properties: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def set_properties(self, properties: list[LTLFormula]) -> SuccessResponse:
         """Set LTL properties to check
 
         Args:
-            properties: List of LTL property JSON objects (from DSL)
+            properties: List of LTL formulas (from DSL)
 
         Returns:
-            Response: {"status": "success", "message": "Properties set successfully"}
+            SuccessResponse: {"status": "success", "message": "Properties set successfully"}
         """
-        return self._send_command({
+        response = self._send_command({
             "type": "command",
             "command": "setProperties",
             "properties": properties
         })
+        return cast(SuccessResponse, response)
 
-    def start_stream(self) -> Dict[str, Any]:
+    def start_stream(self) -> SuccessResponse:
         """Start streaming data frames
 
         Returns:
-            Response: {"status": "success", "message": "Streaming started"}
+            SuccessResponse: {"status": "success", "message": "Streaming started"}
         """
-        return self._send_command({
+        response = self._send_command({
             "type": "command",
             "command": "startStream"
         })
+        return cast(SuccessResponse, response)
 
-    def send_frame(self, timestamp: int, can_id: int, data: List[int]) -> Dict[str, Any]:
+    def send_frame(self, timestamp: int, can_id: int, data: list[int]) -> Response:
         """Send a CAN frame for incremental checking
 
         Args:
@@ -175,7 +229,7 @@ class StreamingClient:
             data: 8-byte payload as list of integers [0-255]
 
         Returns:
-            Response: Either {"status": "ack"} or PropertyResponse
+            Response: Either AckResponse or PropertyViolationResponse
         """
         if len(data) != 8:
             raise ValueError(f"Data must be exactly 8 bytes, got {len(data)}")
@@ -187,13 +241,14 @@ class StreamingClient:
             "data": data
         })
 
-    def end_stream(self) -> Dict[str, Any]:
+    def end_stream(self) -> CompleteResponse:
         """End streaming and get final results
 
         Returns:
-            Response: {"status": "complete"}
+            CompleteResponse: {"status": "complete"}
         """
-        return self._send_command({
+        response = self._send_command({
             "type": "command",
             "command": "endStream"
         })
+        return cast(CompleteResponse, response)

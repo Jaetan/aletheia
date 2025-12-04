@@ -5,40 +5,29 @@ Uses cantools to parse .dbc files and converts them to the JSON structure
 expected by Aletheia.DBC.JSONParser.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import cast
+
+from aletheia.protocols import (
+    DBCSignal,
+    DBCMessage,
+    DBCDefinition,
+)
 
 try:
     import cantools
-except ImportError:
+except ImportError as exc:
     raise ImportError(
-        "cantools is required for DBC conversion. "
+        "cantools is required for DBC conversion. " +
         "Install it with: pip install cantools"
-    )
+    ) from exc
 
 
-def signal_to_json(signal: cantools.database.can.Signal) -> Dict[str, Any]:
+def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     """Convert a cantools Signal to JSON format."""
-
-    # Determine signal presence (multiplexing)
-    # cantools represents multiplexed signals differently
-    if signal.multiplexer_ids is not None:
-        # This is a multiplexed signal
-        # For simplicity, use the first multiplexer value if available
-        multiplex_ids = signal.multiplexer_ids
-        if isinstance(multiplex_ids, list) and len(multiplex_ids) > 0:
-            # Use first multiplexer value
-            presence = {
-                "multiplexor": signal.multiplexer_signal,
-                "multiplex_value": multiplex_ids[0]
-            }
-        else:
-            # Multiplexer but no specific value - treat as always present
-            presence = {"presence": "always"}
-    else:
-        # Normal signal, always present
-        presence = {"presence": "always"}
 
     # Convert byte order
     byte_order = "little_endian" if signal.byte_order == "little_endian" else "big_endian"
@@ -46,7 +35,12 @@ def signal_to_json(signal: cantools.database.can.Signal) -> Dict[str, Any]:
     # cantools uses is_signed, we use "signed" field
     is_signed = signal.is_signed
 
-    return {
+    # cantools may return None for min/max, use reasonable defaults
+    min_value = signal.minimum if signal.minimum is not None else 0.0
+    max_value = signal.maximum if signal.maximum is not None else 0.0
+
+    # Base signal fields common to all signal types
+    base_fields = {
         "name": signal.name,
         "startBit": signal.start,
         "length": signal.length,
@@ -54,20 +48,32 @@ def signal_to_json(signal: cantools.database.can.Signal) -> Dict[str, Any]:
         "signed": is_signed,
         "factor": signal.scale,
         "offset": signal.offset,
-        "minimum": signal.minimum,
-        "maximum": signal.maximum,
+        "minimum": min_value,
+        "maximum": max_value,
         "unit": signal.unit if signal.unit else "",
-        **presence  # Unpack presence dict
     }
 
+    # Handle multiplexing: check if signal has multiplexer_ids
+    if signal.multiplexer_ids is not None and len(signal.multiplexer_ids) > 0:
+        # This is a multiplexed signal - use first multiplexer value
+        multiplexor_name = signal.multiplexer_signal if signal.multiplexer_signal else "unknown"
+        return cast(DBCSignal, {
+            **base_fields,
+            "multiplexor": multiplexor_name,
+            "multiplex_value": signal.multiplexer_ids[0]
+        })
 
-def message_to_json(message: cantools.database.can.Message) -> Dict[str, Any]:
+    # Default: signal is always present
+    return cast(DBCSignal, {
+        **base_fields,
+        "presence": "always"
+    })
+
+
+def message_to_json(message: cantools.database.can.Message) -> DBCMessage:
     """Convert a cantools Message to JSON format."""
 
-    # Determine if CAN ID is extended
-    is_extended = message.is_extended_frame
-
-    msg_json = {
+    message_dict: DBCMessage = {
         "id": message.frame_id,
         "name": message.name,
         "dlc": message.length,
@@ -75,14 +81,14 @@ def message_to_json(message: cantools.database.can.Message) -> Dict[str, Any]:
         "signals": [signal_to_json(sig) for sig in message.signals]
     }
 
-    # Add extended field if needed
-    if is_extended:
-        msg_json["extended"] = True
+    # Add extended field if this is an extended frame (29-bit ID)
+    if message.is_extended_frame:
+        message_dict["extended"] = True
 
-    return msg_json
+    return message_dict
 
 
-def dbc_to_json(dbc_path: str | Path) -> Dict[str, Any]:
+def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     """
     Convert a .dbc file to JSON format.
 
@@ -90,16 +96,18 @@ def dbc_to_json(dbc_path: str | Path) -> Dict[str, Any]:
         dbc_path: Path to the .dbc file
 
     Returns:
-        Dictionary in the format expected by Aletheia.DBC.JSONParser
+        DBC definition in the format expected by Aletheia.DBC.JSONParser
     """
     # Load DBC file using cantools
     db = cantools.database.load_file(str(dbc_path))
 
     # Convert to JSON structure
-    return {
-        "version": db.version if db.version else "1.0",
-        "messages": [message_to_json(msg) for msg in db.messages]
+    # type: ignore comments below are for cantools.Database attributes (no type stubs available)
+    dbc_def: DBCDefinition = {
+        "version": db.version if db.version else "1.0",  # type: ignore[attr-defined]
+        "messages": [message_to_json(msg) for msg in db.messages]  # type: ignore[attr-defined]
     }
+    return dbc_def
 
 
 def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None) -> str:
@@ -117,7 +125,7 @@ def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None
     json_str = json.dumps(dbc_json, indent=2)
 
     if output_path:
-        Path(output_path).write_text(json_str)
+        _ = Path(output_path).write_text(json_str, encoding='utf-8')
 
     return json_str
 
