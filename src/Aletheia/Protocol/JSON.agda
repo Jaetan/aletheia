@@ -168,8 +168,8 @@ escapeString s = foldr _++ₛ_ "" (map escapeChar (toList s))
 formatRational : ℚ → String
 formatRational r with Rat.toℚᵘ r
 ... | ℚᵘ.mkℚᵘ num denom-1 =
-      "{\"numerator\": " ++S IntShow.show num ++S
-      ", \"denominator\": " ++S ℕShow.show (Data.Nat.suc denom-1) ++S "}"
+      "{\"numerator\": " ++ₛ IntShow.show num ++ₛ
+      ", \"denominator\": " ++ₛ ℕShow.show (Data.Nat.suc denom-1) ++ₛ "}"
   where
     open import Data.Nat.Show as ℕShow using (show)
 
@@ -178,22 +178,22 @@ formatJSON JNull = "null"
 formatJSON (JBool true) = "true"
 formatJSON (JBool false) = "false"
 formatJSON (JNumber n) = formatRational n
-formatJSON (JString s) = "\"" ++S escapeString s ++S "\""
-formatJSON (JArray xs) = "[" ++S formatJSONList xs ++S "]"
+formatJSON (JString s) = "\"" ++ₛ escapeString s ++ₛ "\""
+formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
   where
     formatJSONList : List JSON → String
     formatJSONList [] = ""
     formatJSONList (x ∷ []) = formatJSON x
-    formatJSONList (x ∷ xs) = formatJSON x ++S ", " ++S formatJSONList xs
-formatJSON (JObject fields) = "{" ++S formatFields fields ++S "}"
+    formatJSONList (x ∷ xs) = formatJSON x ++ₛ ", " ++ₛ formatJSONList xs
+formatJSON (JObject fields) = "{" ++ₛ formatFields fields ++ₛ"}"
   where
     formatField : String × JSON → String
-    formatField (key , val) = "\"" ++S escapeString key ++S "\": " ++S formatJSON val
+    formatField (key , val) = "\"" ++ₛ escapeString key ++ₛ"\": " ++ₛ formatJSON val
 
     formatFields : List (String × JSON) → String
     formatFields [] = ""
     formatFields (f ∷ []) = formatField f
-    formatFields (f ∷ fs) = formatField f ++S ", " ++S formatFields fs
+    formatFields (f ∷ fs) = formatField f ++ₛ ", " ++ₛ formatFields fs
 
 -- ============================================================================
 -- JSON PARSER (Uses parser combinators which are structurally recursive)
