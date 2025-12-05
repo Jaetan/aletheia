@@ -8,6 +8,21 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Phase**: 2 - LTL + Real-World Support (Phase 2B.1 Complete, Quality Improvements In Progress)
 
+## Table of Contents
+
+- [Global Project Rules](#global-project-rules)
+- [Common Commands](#common-commands)
+- [Architecture](#architecture-three-layer-design)
+- [Module Structure](#module-structure)
+- [Development Workflow](#development-workflow)
+- [Key Files](#key-files)
+- [Requirements](#requirements)
+- [Important Notes](#important-notes)
+- [Troubleshooting](#troubleshooting)
+- [Performance Considerations](#performance-considerations)
+- [Implementation Phases](#implementation-phases)
+- [Current Session Progress](#current-session-progress)
+
 ## Global Project Rules
 
 ### Agda Module Requirements (MANDATORY)
@@ -286,6 +301,28 @@ When adding new Agda modules:
 - Include correctness properties alongside implementations
 - Use descriptive module names (e.g., `Properties.agda` for proofs)
 - Update Main.agda if new functionality needs exposure
+
+### Import Naming Conventions
+
+When importing stdlib modules with conflicting names, use **subscript suffix** pattern for consistency:
+
+**Standard naming:**
+- String operators: `_++ₛ_`, `_≟ₛ_`
+- List operators: `_++ₗ_`
+- Rational operators: `_+ᵣ_`, `_*ᵣ_`, `_-ᵣ_`, `_≤ᵣ_`
+
+**Example:**
+```agda
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.List using (List) renaming (_++_ to _++ₗ_)
+open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
+
+-- Usage (underscores invisible at call sites)
+result = "hello" ++ₛ "world"   -- NOT _++ₛ_
+combined = list1 ++ₗ list2
+```
+
+**Important**: Underscores are invisible in infix usage, but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
 
 ## Troubleshooting
 

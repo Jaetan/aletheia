@@ -11,8 +11,8 @@
 -- Parser accepts both formats, formatter outputs object format for exact representation.
 module Aletheia.Protocol.JSON where
 
-open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++S_)
-open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++L_)
+open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++ₛ_)
+open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Char using (Char)
 open import Data.Char.Base using (isDigit)
 open import Data.Bool using (Bool; true; false; if_then_else_; not; _∨_)
@@ -161,7 +161,7 @@ escapeChar '\t' = "\\t"
 escapeChar c    = fromList (c ∷ [])
 
 escapeString : String → String
-escapeString s = foldr _++S_ "" (map escapeChar (toList s))
+escapeString s = foldr _++ₛ_ "" (map escapeChar (toList s))
 
 -- Format JSON as string (structurally recursive on JSON data type)
 -- Format a rational as a JSON object with numerator and denominator

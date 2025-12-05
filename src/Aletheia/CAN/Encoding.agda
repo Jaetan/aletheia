@@ -18,7 +18,7 @@ open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
-open import Data.Rational using () renaming (_+_ to _+ℚ_; _*_ to _*ℚ_; _-_ to _-ℚ_)
+open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
 open import Relation.Nullary.Decidable as Dec using (True; toWitness)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
@@ -49,7 +49,7 @@ fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
 applyScaling : ℤ → ℚ → ℚ → ℚ
 applyScaling raw factor offset =
   let rawℚ = raw / 1
-  in (rawℚ *ℚ factor) +ℚ offset
+  in (rawℚ *ᵣ factor) +ᵣ offset
 
 -- Inverse of applyScaling: convert signal value back to raw integer
 -- Formula: raw = floor((signalValue - offset) / factor)
@@ -58,7 +58,7 @@ removeScaling : ℚ → ℚ → ℚ → Maybe ℤ
 removeScaling signalValue factor offset =
   if isZero factor
   then nothing  -- Cannot divide by zero
-  else just (floor (divideByFactor (signalValue -ℚ offset) factor))
+  else just (floor (divideByFactor (signalValue -ᵣ offset) factor))
   where
     -- Check if rational is zero
     isZero : ℚ → Bool

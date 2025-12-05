@@ -23,6 +23,7 @@ open import Data.Nat.Show using (show)
 
 open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.CANTrace using (TimedFrame)
+-- Prelude not currently needed (previously used case_of_)
 open import Aletheia.Trace.Context using (timestamp)
 open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample; mkCounterexample)
 open import Aletheia.DBC.Types using (DBC)
@@ -571,22 +572,12 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
       -- Atomic predicate decided on each frame, but doesn't terminate checking
       nothing
     canDecideEarly prev (Not ψ) frame = canDecideEarly prev ψ frame
-    canDecideEarly prev (And ψ₁ ψ₂) frame =
-      -- Can fail early if either conjunct fails
-      case canDecideEarly prev ψ₁ frame of λ where
-        (just false) → just false
-        _ → canDecideEarly prev ψ₂ frame
-      where
-        case_of_ : ∀ {A B : Set} → A → (A → B) → B
-        case x of f = f x
-    canDecideEarly prev (Or ψ₁ ψ₂) frame =
-      -- Can succeed early if either disjunct succeeds
-      case canDecideEarly prev ψ₁ frame of λ where
-        (just true) → just true
-        _ → canDecideEarly prev ψ₂ frame
-      where
-        case_of_ : ∀ {A B : Set} → A → (A → B) → B
-        case x of f = f x
+    canDecideEarly prev (And ψ₁ ψ₂) frame with canDecideEarly prev ψ₁ frame
+    ... | just false = just false  -- Can fail early if either conjunct fails
+    ... | _ = canDecideEarly prev ψ₂ frame
+    canDecideEarly prev (Or ψ₁ ψ₂) frame with canDecideEarly prev ψ₁ frame
+    ... | just true = just true  -- Can succeed early if either disjunct succeeds
+    ... | _ = canDecideEarly prev ψ₂ frame
     canDecideEarly prev (Always ψ) frame with evalFormula prev ψ frame
     ... | false = just false  -- Violation found - can decide immediately
     ... | true = nothing  -- Still holding - need more frames
@@ -608,18 +599,15 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
     checkProperties prev [] frame = ([] , [])
     checkProperties prev ((idx , φ) ∷ rest) frame =
       let (decidedRest , activeRest) = checkProperties prev rest frame
-      in case canDecideEarly prev φ frame of λ where
-           (just false) →
-             let reason = "Property violated at t=" ++S show (timestamp frame)
-                 ce = mkCounterexampleData (timestamp frame) reason
-             in ((Violation idx ce) ∷ decidedRest , activeRest)
-           (just true) →
-             ((Satisfaction idx) ∷ decidedRest , activeRest)
-           nothing →
-             (decidedRest , (idx , φ) ∷ activeRest)
+      in aux (canDecideEarly prev φ frame)
       where
-        case_of_ : ∀ {A B : Set} → A → (A → B) → B
-        case x of f = f x
+        aux : Maybe Bool → (List PropertyResult × List (ℕ × LTL SignalPredicate))
+        aux (just false) =
+          let reason = "Property violated at t=" ++S show (timestamp frame)
+              ce = mkCounterexampleData (timestamp frame) reason
+          in ((Violation idx ce) ∷ decidedRest , activeRest)
+        aux (just true) = ((Satisfaction idx) ∷ decidedRest , activeRest)
+        aux nothing = (decidedRest , (idx , φ) ∷ activeRest)
 
     -- Emit list of results to output stream
     emitResults : ∀ {i : Size} → List PropertyResult → DelayedColist PropertyResult i → DelayedColist PropertyResult i

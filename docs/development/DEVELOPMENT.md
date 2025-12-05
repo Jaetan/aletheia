@@ -8,6 +8,25 @@
 
 This document describes the architecture, module structure, and development workflows for Aletheia.
 
+## For Agda Newcomers
+
+If you're new to Agda but familiar with Python/typed languages:
+
+- **`→`** means function arrow (like `->` in types)
+- **`∀`** means "for all" (universal quantification)
+- **`--safe`** ensures no undefined behavior (like Rust's borrow checker)
+- **`--without-K`** ensures proofs are constructive (no axiom of choice)
+- **Dependent types** let types depend on values (e.g., `Vec Byte 8` is a vector of exactly 8 bytes)
+
+**Why formal methods for automotive?**
+- Guarantees correctness (not just testing)
+- Signal extraction bugs can cause safety issues
+- LTL properties prove temporal safety constraints
+
+**Resources:**
+- [Agda Documentation](https://agda.readthedocs.io/)
+- [Standard Library](https://agda.github.io/agda-stdlib/)
+
 ## Architecture Overview
 
 For the full architecture diagram, see [DESIGN.md](../architecture/DESIGN.md#architecture).

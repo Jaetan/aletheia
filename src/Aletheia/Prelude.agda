@@ -80,10 +80,6 @@ lookupByKey key [] = nothing
 lookupByKey key ((k , v) ∷ rest) =
   if ⌊ k ≟ key ⌋ then just v else lookupByKey key rest
 
--- Case expression combinator (useful for inline pattern matching)
-case_of_ : ∀ {A B : Set} → A → (A → B) → B
-case x of f = f x
-
 -- CAN ID bounds (used for validation and type constraints)
 standard-can-id-max : ℕ
 standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)

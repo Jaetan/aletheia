@@ -115,21 +115,15 @@ evalPredicateWithPrev : DBC
                       → TimedFrame        -- current frame
                       → Bool
 evalPredicateWithPrev dbc nothing (ChangedBy _ _) _ = true  -- First frame: vacuously true
-evalPredicateWithPrev dbc (just prevTF) (ChangedBy sigName delta) currTF =
-  case evalPredicatePair (ChangedBy sigName delta) dbc (TimedFrame.frame prevTF) (TimedFrame.frame currTF) of λ where
-    nothing → false
-    (just b) → b
-  where
-    case_of_ : ∀ {A B : Set} → A → (A → B) → B
-    case x of f = f x
+evalPredicateWithPrev dbc (just prevTF) (ChangedBy sigName delta) currTF
+  with evalPredicatePair (ChangedBy sigName delta) dbc (TimedFrame.frame prevTF) (TimedFrame.frame currTF)
+... | nothing = false
+... | just b = b
 
-evalPredicateWithPrev dbc _ pred timedFrame =
-  case evalPredicate pred dbc (TimedFrame.frame timedFrame) of λ where
-    nothing → false
-    (just b) → b
-  where
-    case_of_ : ∀ {A B : Set} → A → (A → B) → B
-    case x of f = f x
+evalPredicateWithPrev dbc _ pred timedFrame
+  with evalPredicate pred dbc (TimedFrame.frame timedFrame)
+... | nothing = false
+... | just b = b
 
 -- ============================================================================
 -- MODEL CHECKER INTEGRATION (list-based, for backward compatibility)
