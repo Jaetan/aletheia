@@ -813,43 +813,52 @@ Phase 2 design decisions explicitly enable Phase 3 proofs:
 
 ### Agda Modules (`src/Aletheia/`)
 
-The codebase is organized into logical packages:
+**27 total modules** organized into 9 packages. All use `--safe --without-K` except 4 coinductive modules (Main, LTL/Coinductive, Protocol/StreamState, Data/DelayedColist) which use `--guardedness --sized-types`.
 
-- **Parser/**: Parser combinators with correctness properties
-  - Combinators.agda: Core parser type and operations
-  - Properties.agda: Determinism, monad laws (Phase 3)
-  - Tracing.agda: Safe debugging infrastructure
+**Package Organization**:
 
-- **CAN/**: CAN frame types and signal operations
-  - Frame.agda: Frame type, IDs, DLC, payload
-  - Signal.agda: Signal definition type
-  - Encoding.agda: Bit-level extraction/injection
-  - Endianness.agda: Byte ordering with proofs
+#### **Parser/** (2 modules) - Parser combinators with structural recursion
+- **Combinators.agda**: Structurally recursive parser type (functor/applicative/monad)
+- **Properties.agda**: Determinism proofs, basic correctness properties
 
-- **DBC/**: DBC database format
-  - Types.agda: Message and signal types
-  - Parser.agda: YAML DBC parser
-  - Semantics.agda: Frame decoding (Phase 2)
-  - Properties.agda: Correctness properties
+#### **CAN/** (6 modules) - CAN frame encoding, signal extraction, multiplexing
+- **Frame.agda**: CANFrame type with bounded IDs (Standard 11-bit | Extended 29-bit)
+- **Signal.agda**: SignalDef type (start bit, length, signed/unsigned, scaling)
+- **Endianness.agda**: ByteOrder type with byte swap proof (involutive)
+- **Encoding.agda**: Bit-level signal extraction/injection with scaling
+- **ExtractionResult.agda**: Rich error types (Success, SignalNotInDBC, SignalNotPresent, ExtractionFailed)
+- **SignalExtraction.agda**: High-level API with multiplexing support (checkMultiplexor, extractSignalWithContext)
 
-- **LTL/**: Linear Temporal Logic (Phase 2)
-  - Syntax.agda: LTL formula AST
-  - Semantics.agda: Trace satisfaction
-  - Checker.agda: Model checking algorithm
-  - DSL/: Python DSL support
+#### **DBC/** (3 modules) - DBC database format (JSON, not YAML)
+- **Types.agda**: DBCMessage, DBCSignal, SignalPresence (Always | When multiplexor)
+- **JSONParser.agda**: JSON DBC parser with bounded value validation
+- **Properties.agda**: Bounded ID/DLC/startBit proofs, determinism
 
-- **Trace/**: Trace representation (Phase 2)
-  - Stream.agda: Coinductive streams
-  - CAN.agda: CAN frame traces
-  - Parser.agda: Trace file parsing
+#### **LTL/** (5 modules) - Linear Temporal Logic model checking
+- **Syntax.agda**: LTL formula AST (Atomic, Not, And, Or, Next, Always, Eventually, Until)
+- **Coinductive.agda**: Infinite trace semantics with coinductive streams (`--guardedness`)
+- **Incremental.agda**: Streaming LTL checker with early termination
+- **SignalPredicate.agda**: Signal predicates (Equals, LessThan, GreaterThan, Between, ChangedBy)
+- **JSON.agda**: JSON LTL property parser (Python DSL → Agda AST)
 
-- **Protocol/**: Command protocol for binary interface
-  - Command.agda: Command types
-  - Parser.agda: Command parsing from YAML
-  - Response.agda: Response formatting
-  - Handlers.agda: Command handlers
+#### **Trace/** (3 modules) - CAN trace representation
+- **Stream.agda**: Generic stream utilities
+- **CANTrace.agda**: TimedFrame type (timestamp + CANFrame)
+- **Context.agda**: Trace context for debugging
 
-- **Main.agda**: Entry point compiled to Haskell
+#### **Protocol/** (4 modules) - JSON streaming protocol
+- **JSON.agda**: Core JSON parser/formatter with rational support
+- **Routing.agda**: Command routing (parseDBC, setProperties, startStream, endStream, dataFrame)
+- **Response.agda**: Response types (Success, Error, Ack, PropertyViolation, Complete)
+- **StreamState.agda**: Streaming state machine with coinductive checking (`--guardedness`)
+
+#### **Data/** (2 modules) - Utility data structures
+- **Message.agda**: Generic message type
+- **DelayedColist.agda**: Thunk-based coinductive colist (`--guardedness`)
+
+#### **Core**
+- **Prelude.agda**: Common imports and utilities (findByPredicate, lookupByKey, CAN ID bounds)
+- **Main.agda**: Entry point for MAlonzo compilation (`--sized-types`, calls processCommand)
 
 ## Development Workflow
 
