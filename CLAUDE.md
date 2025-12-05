@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through a Python API.
 
-**Current Phase**: 1 - Core Infrastructure (see DESIGN.md for roadmap)
+**Current Phase**: 2 - LTL + Real-World Support (Phase 2B.1 Complete, Quality Improvements In Progress)
 
 ## Global Project Rules
 
@@ -38,6 +38,31 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - Code review checklist includes verifying flags
 
 **Current Status**: ✅ All 27 Aletheia modules use `--safe --without-K`
+
+### Modules Not Using --safe Flag
+
+Four modules require extensions incompatible with --safe:
+
+1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
+   - Required for: MAlonzo compilation with coinductive LTL evaluation
+   - Safety trade-off: Entry point marshals between Agda and Haskell I/O
+
+2. **LTL/Coinductive.agda** - Uses `--guardedness --sized-types` for infinite trace semantics
+   - Required for: Coinductive streams representing infinite traces
+   - Safety trade-off: Productivity checking via --guardedness instead of --safe
+
+3. **Protocol/StreamState.agda** - Uses `--guardedness --sized-types` for streaming LTL checking
+   - Required for: Coinductive stream processing of large trace files
+   - Safety trade-off: Productivity checking via --guardedness instead of --safe
+
+4. **Data/DelayedColist.agda** - Uses `--guardedness --sized-types` for coinductive stream type
+   - Required for: Thunk-based delay in infinite traces
+   - Safety trade-off: Productivity checking via --guardedness instead of --safe
+   - Used by: LTL/Coinductive for infinite trace semantics
+
+**Rationale**: Coinductive types (required for infinite traces and streaming) need `--guardedness` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
+
+**Verification Status**: All four modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
 
 ## Common Commands
 
@@ -229,7 +254,7 @@ See BUILDING.md for detailed installation instructions.
 - Generated MAlonzo code goes to `build/` directory
 - Don't edit generated Haskell code; modify Agda source instead
 - **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
-  - Critical for Protocol/Handlers.agda and Main.agda (17s vs >120s timeout)
+  - Critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout)
   - Recommended for all type-checking to maximize performance
 - **First build**: Run `agda src/PrecompileStdlib.agda` to cache standard library (~20s one-time cost)
 
@@ -276,7 +301,7 @@ The Python virtual environment (`venv/`) is critical:
 ### Haskell Shim Philosophy
 
 The Haskell shim (haskell-shim/src/Main.hs) should remain minimal:
-- Current: ~27 lines
+- Current: 54 lines
 - Target: <100 lines
 - Purpose: I/O only (stdin/stdout, buffering)
 - Never add business logic here
@@ -347,7 +372,7 @@ The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion**
 ### Type-Checking Tips
 
 - **Critical**: Always use parallel GHC with `agda +RTS -N32 -RTS`
-  - Protocol/Handlers.agda: 17s (parallel) vs >120s timeout (serial)
+  - Protocol/StreamState.agda: 17s (parallel) vs >120s timeout (serial)
   - Main.agda: 18s (parallel) vs >120s timeout (serial)
 - First build compiles stdlib (~20s), subsequent builds are much faster
 - Use `PrecompileStdlib.agda` to cache common imports
@@ -368,7 +393,7 @@ The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion**
 
 Aletheia follows a phased implementation plan:
 
-### **Phase 1: Core Infrastructure** (In Progress)
+### **Phase 1: Core Infrastructure** ✅ (Complete)
 
 **Completed**:
 - ✅ Parser combinators with **structural recursion** (rewritten from fuel-based)
@@ -513,7 +538,6 @@ Aletheia follows a phased implementation plan:
 - 🟢 Value tables/enumerations (medium value, low cost)
 - 🟢 Pretty-printer for DBC (medium value, low cost)
 - 🟢 Additional DBC validation (signal overlap, range checks)
-- 🟡 Extended CAN IDs (low value for automotive, medium cost)
 - 🔴 CAN-FD support (low value for now, high cost)
 
 **Timeline**: Ongoing, based on demand
@@ -691,8 +715,7 @@ If session terminates, resume with:
 cd /home/nicolas/dev/agda/aletheia
 
 # Read comprehensive session state (RECOMMENDED - start here!)
-cat .session-state.md
-cat SESSION_SUMMARY.md  # Quick summary
+cat .session-state.md  # Comprehensive project state and recovery instructions
 
 # Quick status check
 git log --oneline -5  # Recent commits: shiftR fix, power10 fix, docs update

@@ -10,6 +10,9 @@
 -- Binary invocation: No arguments = JSON streaming mode
 -- Communication: stdin (line-delimited JSON) ↔ stdout (line-delimited JSON responses)
 --
+-- State machine logic delegated to Protocol.StreamState; Main provides entry point and I/O marshaling only.
+-- Binary accepts JSON on stdin, emits JSON on stdout (line-delimited protocol).
+--
 -- Key design: ALL logic lives in Agda (parsing, validation, state, LTL checking).
 -- Haskell shim only handles I/O (read line, call processLine, write response).
 --
