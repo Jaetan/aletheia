@@ -12,11 +12,51 @@ This document describes the architecture, module structure, and development work
 
 If you're new to Agda but familiar with Python/typed languages:
 
+### Basic Syntax
 - **`→`** means function arrow (like `->` in types)
 - **`∀`** means "for all" (universal quantification)
+- **`ℕ`** is natural numbers (type Nat with `\bN`)
+- **`ℚ`** is rationals (type with `\bQ`)
+- **`≡`** is propositional equality (type with `\==`)
+
+### Safety Flags
 - **`--safe`** ensures no undefined behavior (like Rust's borrow checker)
+  - No postulates, no unsafe primitives, all functions terminate
+  - Used in 23 of 27 Aletheia modules
 - **`--without-K`** ensures proofs are constructive (no axiom of choice)
-- **Dependent types** let types depend on values (e.g., `Vec Byte 8` is a vector of exactly 8 bytes)
+  - Makes code compatible with Homotopy Type Theory
+  - Required for formal verification
+
+### Dependent Types
+Types can depend on values:
+- `Vec Byte 8` - vector of exactly 8 bytes (length in type!)
+- `Fin n` - numbers 0 to n-1 (bounds checking at compile time)
+- `CANFrame` uses `Fin 2048` for standard IDs (impossible to exceed range)
+
+### Common Patterns
+- **Pattern matching with `with`**: Extract intermediate values
+  ```agda
+  -- Extract Maybe value for dependent matching
+  foo x with someComputation x
+  ... | just y = useY y
+  ... | nothing = default
+  ```
+- **Structural recursion**: Functions recurse on structurally smaller inputs
+  - Parser combinators recurse on `length input` (always decreasing)
+  - No fuel needed - termination guaranteed!
+- **Module imports with renaming**: Avoid name clashes
+  ```agda
+  open import Data.String using (String) renaming (_++_ to _++ₛ_)
+  open import Data.List using (List) renaming (_++_ to _++ₗ_)
+  ```
+
+### Reading Error Messages
+- **Yellow highlighting**: Type mismatch - check expected vs actual types
+- **"Not in scope"**: Import missing or wrong module name
+- **"Termination checking failed"**: Function might not terminate
+  - Use structural recursion on input length or add fuel parameter
+  - See Parser/Combinators.agda for examples
+- **"_X_42 is not defined"**: Agda generates metavariables - fill the hole!
 
 **Why formal methods for automotive?**
 - Guarantees correctness (not just testing)
@@ -26,6 +66,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Resources:**
 - [Agda Documentation](https://agda.readthedocs.io/)
 - [Standard Library](https://agda.github.io/agda-stdlib/)
+- [Agda Tutorial](https://agda.readthedocs.io/en/latest/getting-started/tutorial-list.html)
 
 ## Architecture Overview
 

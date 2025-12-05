@@ -469,7 +469,7 @@ agda Aletheia/Protocol/Command.agda  # Check just Command module
 After successful build:
 
 1. **Read the architecture**: See [DEVELOPMENT.md](DEVELOPMENT.md)
-2. **Review design decisions**: See [DESIGN.md](DESIGN.md)
+2. **Review design decisions**: See [DESIGN.md](../architecture/DESIGN.md)
 3. **Try examples**: Check `examples/` directory
 4. **Start developing**: Begin with Phase 2 (parser combinators)
 
