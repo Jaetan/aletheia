@@ -52,11 +52,13 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 27 Aletheia modules use `--safe --without-K`
+**Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-### Modules Not Using --safe Flag
+† **27 total modules**: 23 use `--safe --without-K`, 4 use `--guardedness --sized-types` for coinductive types (see below)
 
-Four modules require extensions incompatible with --safe:
+### Modules Not Using --safe Flag (4 of 27)
+
+Four modules require extensions incompatible with --safe for coinductive stream processing:
 
 1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
    - Required for: MAlonzo compilation with coinductive LTL evaluation
@@ -361,9 +363,9 @@ See [Implementation Phases](docs/architecture/DESIGN.md#implementation-phases) i
 
 ## Current Session Progress
 
-**Last Completed**: Phase 1 100% complete! All critical bugs fixed (commits 8fc48a3, 60a94a4, ca619bb)
-**Current Status**: Ready to begin Phase 2A - LTL Core + Real-World Support
-**Major Achievement**: Fixed two critical pattern matching bugs (shiftR and power10)
+**Last Completed**: Phase 2B.1 - LTL Core, Streaming, and Python DSL complete
+**Current Status**: Documentation and quality improvements in progress, batch signal operations remaining
+**Major Achievements**: Phase 1 complete (parser, CAN, DBC, protocol), Phase 2A/2B complete (LTL, streaming, multiplexing, DSL)
 
 ### Completed in This Session:
 
@@ -443,7 +445,7 @@ See [Implementation Phases](docs/architecture/DESIGN.md#implementation-phases) i
 - Rational parsing: 0.25, 0.5, 1.5, 0.125 all work correctly ✓
 - Signal scaling: 10000 × 0.25 = 2500.0 ✓
 
-**Next Steps**: Begin Phase 2A (LTL Core + Real-World Support)
+**Next Steps**: Complete batch signal operations, then begin Phase 3 (Verification + Performance)
 ### ✅ Critical Fixes (ALL 4 COMPLETE - NO POSTULATES!):
 
 1. ✅ **Fix rational number parsing** (COMPLETED - NO POSTULATES NEEDED):
