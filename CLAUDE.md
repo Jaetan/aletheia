@@ -138,34 +138,7 @@ cd examples && python3 simple_verification.py
 
 ## Architecture (Three-Layer Design)
 
-The system is structured to maximize formal verification while providing a practical interface:
-
-```
-┌─────────────────────────────────────────┐
-│ Python Layer (python/)                  │
-│ - User-facing API (StreamingClient, DSL)│
-│ - Subprocess communication via JSON     │
-│ - Simple wrapper around binary           │
-└──────────────┬──────────────────────────┘
-               │ JSON over stdin/stdout
-┌──────────────▼──────────────────────────┐
-│ Haskell Shim (haskell-shim/)            │
-│ - Minimal I/O layer (<100 lines)        │
-│ - Only handles stdin/stdout             │
-│ - Calls MAlonzo-generated Agda code     │
-└──────────────┬──────────────────────────┘
-               │ Direct function calls
-┌──────────────▼──────────────────────────┐
-│ Agda Core (src/Aletheia/)               │
-│ - ALL LOGIC lives here                  │
-│ - Parser combinators                    │
-│ - CAN frame encoding/decoding           │
-│ - DBC parser                            │
-│ - LTL model checker                     │
-│ - All correctness proofs                │
-│ - Compiled with --safe flag             │
-└─────────────────────────────────────────┘
-```
+See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the three-layer design diagram.
 
 **Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell or Python layers.
 

@@ -68,12 +68,25 @@ open import Function public
 -- ============================================================================
 
 -- Find first element in list matching a predicate
+-- Note: Uses Bool for runtime efficiency; stdlib's Data.List.Relation.Unary.Any is proof-oriented
 findByPredicate : ∀ {A : Set} → (A → Bool) → List A → Maybe A
 findByPredicate pred [] = nothing
 findByPredicate pred (x ∷ xs) = if pred x then just x else findByPredicate pred xs
 
 -- Look up value by string key in association list
+-- Note: Uses Bool equality for runtime lookup; proof-oriented alternatives exist in stdlib
 lookupByKey : ∀ {A : Set} → String → List (String × A) → Maybe A
 lookupByKey key [] = nothing
 lookupByKey key ((k , v) ∷ rest) =
   if ⌊ k ≟ key ⌋ then just v else lookupByKey key rest
+
+-- Case expression combinator (useful for inline pattern matching)
+case_of_ : ∀ {A B : Set} → A → (A → B) → B
+case x of f = f x
+
+-- CAN ID bounds (used for validation and type constraints)
+standard-can-id-max : ℕ
+standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)
+
+extended-can-id-max : ℕ
+extended-can-id-max = 536870912  -- 2^29 (29-bit extended CAN IDs: 0x00000000-0x1FFFFFFF)

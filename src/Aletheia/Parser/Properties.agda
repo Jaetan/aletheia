@@ -1,13 +1,10 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Correctness properties for parser combinators.
+-- Correctness properties for parser combinators (STUB - Phase 3).
 --
--- Purpose: Prove basic properties of parsers (determinism, bounded results).
--- Properties: Determinism (same input → same result), length bounds, parser laws.
--- Role: Phase 1 basic properties; full soundness proofs deferred to Phase 3.
---
--- Status: Lightweight correctness properties implemented.
--- Future work: Grammar formalization, soundness (parse → valid AST), round-trip proofs.
+-- Purpose: Will prove parser laws (determinism, monad laws, round-trip).
+-- Status: Placeholder module. Full proofs deferred to Phase 3.
+-- See: Phase 3 roadmap in DESIGN.md for planned properties.
 module Aletheia.Parser.Properties where
 
 open import Aletheia.Parser.Combinators

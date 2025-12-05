@@ -1,34 +1,16 @@
 # Development Guide
 
+---
+**Version**: 1.0.0
+**Last Updated**: 2025-12-05
+**Phase**: 2B.1 Complete
+---
+
 This document describes the architecture, module structure, and development workflows for Aletheia.
 
 ## Architecture Overview
 
-Aletheia follows a three-layer architecture:
-
-```
-┌─────────────────────────────────────────┐
-│ Python Layer (User Interface)           │
-│ - DSL for LTL properties (Signal)       │
-│ - StreamingClient API                   │
-│ - Subprocess communication              │
-└──────────────┬──────────────────────────┘
-               │ JSON over stdin/stdout
-┌──────────────▼──────────────────────────┐
-│ Haskell Shim (I/O Only)                 │
-│ - Read bytes from stdin                 │
-│ - Call MAlonzo-generated Agda code      │
-│ - Write formatted results               │
-└──────────────┬──────────────────────────┘
-               │ Direct function calls
-┌──────────────▼──────────────────────────┐
-│ Agda Core (All Logic + Proofs)          │
-│ - Parsing (DBC, commands, LTL)          │
-│ - CAN encoding/decoding                 │
-│ - LTL model checking                    │
-│ - All correctness proofs                │
-└─────────────────────────────────────────┘
-```
+For the full architecture diagram, see [DESIGN.md](../architecture/DESIGN.md#architecture).
 
 ### Design Principles
 
