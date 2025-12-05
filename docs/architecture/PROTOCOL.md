@@ -110,10 +110,97 @@ Load a DBC (Database CAN) structure from JSON format.
     - `offset`: Offset applied after scaling
     - `minimum`: Minimum physical value
     - `maximum`: Maximum physical value
-    - `unit`: Physical unit (string, e.g., "km/h")
-    - `presence`: "always" (multiplexing not yet supported)
+    - `presence`: "always" or multiplexed object (see Multiplexing Support below)
 
 **State Transition**: `WaitingForDBC` → `ReadyToStream`
+
+---
+
+### Multiplexing Support
+
+Aletheia supports multiplexed signals (signals that are conditionally present based on a multiplexor signal's value).
+
+**Signal Presence Formats**:
+
+#### Always Present
+```json
+{"presence": "always"}
+```
+Signal is always present in the frame.
+
+#### Conditional Presence (Multiplexed)
+```json
+{
+  "presence": {
+    "when": {
+      "multiplexor": "MuxSignal",
+      "value": 1
+    }
+  }
+}
+```
+
+Signal is only present when the multiplexor signal equals the specified value.
+
+**Example** (Multiplexed Message):
+```json
+{
+  "id": 512,
+  "name": "MultiplexedMessage",
+  "dlc": 8,
+  "extended": false,
+  "sender": "ECU",
+  "signals": [
+    {
+      "name": "MuxSignal",
+      "startBit": 0,
+      "length": 8,
+      "byteOrder": "little_endian",
+      "signed": false,
+      "factor": 1.0,
+      "offset": 0.0,
+      "minimum": 0.0,
+      "maximum": 3.0,
+      "unit": "",
+      "presence": "always"
+    },
+    {
+      "name": "Signal_Mux0",
+      "startBit": 8,
+      "length": 16,
+      "byteOrder": "little_endian",
+      "signed": false,
+      "factor": 1.0,
+      "offset": 0.0,
+      "minimum": 0.0,
+      "maximum": 1000.0,
+      "unit": "rpm",
+      "presence": {"when": {"multiplexor": "MuxSignal", "value": 0}}
+    },
+    {
+      "name": "Signal_Mux1",
+      "startBit": 8,
+      "length": 16,
+      "byteOrder": "little_endian",
+      "signed": true,
+      "factor": 0.1,
+      "offset": 0.0,
+      "minimum": -50.0,
+      "maximum": 150.0,
+      "unit": "°C",
+      "presence": {"when": {"multiplexor": "MuxSignal", "value": 1}}
+    }
+  ]
+}
+```
+
+**Behavior**:
+- When `MuxSignal == 0`, only `Signal_Mux0` is extracted
+- When `MuxSignal == 1`, only `Signal_Mux1` is extracted
+- Attempting to extract a signal that's not present returns an error
+- Multiplexor signal must be defined in the same message and have `"presence": "always"`
+
+**Implementation**: See `src/Aletheia/CAN/SignalExtraction.agda` (checkMultiplexor, checkSignalPresence) and `src/Aletheia/DBC/Types.agda` (SignalPresence type).
 
 ---
 

@@ -81,42 +81,22 @@ Four modules require extensions incompatible with --safe:
 
 ## Common Commands
 
-### Build System (Shake via Cabal)
+See [Building Aletheia](docs/development/BUILDING.md) for comprehensive build instructions, including:
+- Build system commands (Shake via Cabal)
+- Python virtual environment setup
+- Common development workflows
+- Troubleshooting build issues
 
-All build commands use `cabal run shake --` as the prefix:
-
+Quick reference:
 ```bash
-# Build everything (Agda → Haskell → binary)
+# Build everything
 cabal run shake -- build
 
-# Build individual components
-cabal run shake -- build-agda       # Compile Agda to Haskell (MAlonzo)
-cabal run shake -- build-haskell    # Build Haskell executable only
-
-# Install Python package (requires active venv)
-cabal run shake -- install-python
-
-# Clean build artifacts
-cabal run shake -- clean
-```
-
-### Python Development
-
-**IMPORTANT**: Always activate the virtual environment first:
-
-```bash
-# Activate virtual environment (required for all Python commands)
-source venv/bin/activate
-
-# Install package in development mode
-cd python
-pip install -e ".[dev]"
+# Set up Python environment
+python3 -m venv venv && source venv/bin/activate
 
 # Run tests
 python3 -m pytest tests/ -v
-
-# Deactivate when done
-deactivate
 ```
 
 ### Agda Development
@@ -159,32 +139,11 @@ See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the th
 
 ## Module Structure
 
-### Agda Modules (src/Aletheia/)
-
-The codebase is organized into logical packages:
-
-- **Parser/**: Parser combinators with correctness properties
-- **CAN/**: CAN frame types (Frame.agda), signal encoding (Encoding.agda), endianness (Endianness.agda)
-- **DBC/**: DBC types, parser, semantics, and properties
-- **LTL/**: LTL syntax, semantics, model checker, and Python DSL
-- **Trace/**: Coinductive streams, CAN traces, trace parser
-- **Protocol/**: Command protocol, parser, and responses
-- **Main.agda**: Entry point compiled to Haskell
-
-### Build Flow
-
-1. **Agda Compilation**: `src/Aletheia/Main.agda` → `build/MAlonzo/Code/Aletheia/Main.hs`
-   - Compiles Agda to Haskell using `--compile --ghc-dont-call-ghc`
-   - Generates MAlonzo FFI bindings
-
-2. **Symlink Creation**: `haskell-shim/MAlonzo` → `../build/MAlonzo`
-   - Allows Haskell shim to import generated code
-
-3. **Haskell Build**: Cabal builds `haskell-shim/` → `build/aletheia` binary
-   - Links against MAlonzo-generated Agda code
-   - Minimal Main.hs handles I/O
-
-4. **Python Package**: Wraps binary with subprocess interface
+See [Architecture Design](docs/architecture/DESIGN.md) for comprehensive module structure documentation, including:
+- Agda package organization (Parser/, CAN/, DBC/, LTL/, Trace/, Protocol/)
+- Module dependency map
+- Build flow (Agda → MAlonzo → Haskell → binary)
+- Detailed module descriptions
 
 ## Development Workflow
 
@@ -390,170 +349,15 @@ The parser library (`Aletheia.Parser.Combinators`) uses **structural recursion**
 
 ## Implementation Phases
 
-**Goal**: Process real-world automotive CAN data with LTL reasoning, via rich Python DSL
+See [Implementation Phases](docs/architecture/DESIGN.md#implementation-phases) in the architecture documentation for the complete roadmap, including:
+- Phase 1: Core Infrastructure ✅ Complete
+- Phase 2A: LTL Core + Real-World Support ✅ Complete
+- Phase 2B: Streaming + Counterexamples ✅ Complete (batch operations remaining)
+- Phase 3: Verification + Performance (next)
+- Phase 4: Production Hardening
+- Phase 5: Optional Extensions
 
-**Key Changes from Original Plan**:
-- **Multiplexing**: Moved from Phase 5 → Phase 2A (CRITICAL for real traces)
-- **Python DSL**: Added as Phase 2A core deliverable (not afterthought)
-- **Streaming**: Moved from Phase 3 → Phase 2B (essential for large traces)
-- **Counterexamples**: Moved from Phase 4 → Phase 2B (critical UX)
-- **Real-world validation**: Added throughout all phases
-- **Extensibility strategy**: Three-tier approach (built-in, Python, Agda)
-- **Decision points**: Added pivot opportunities at end of each phase
-
-Aletheia follows a phased implementation plan:
-
-### **Phase 1: Core Infrastructure** ✅ (Complete)
-
-**Completed**:
-- ✅ Parser combinators with **structural recursion** (rewritten from fuel-based)
-  - Full functor/applicative/monad interfaces
-  - Structurally terminating on input length
-  - Basic correctness properties
-  - Type-checks in ~10s with parallel GHC
-- ✅ CAN signal encoding/decoding (commit 92911c4)
-  - Frame types with bounded IDs/DLC
-  - Bit-level extraction/injection
-  - Endianness handling (little/big endian)
-  - Rational scaling with factor/offset
-  - Proof: byte swap involutive
-- ✅ DBC JSON parser (migrated from YAML in Phase 2B)
-  - Complete JSON parsing with primitives
-  - Type-safe signal/message parsing
-  - Correctness properties: bounded values, determinism
-  - Runtime semantic checks
-  - Test cases
-
-- ✅ Protocol integration and Main.agda implementation
-  - Extended Command types: ParseDBC, SetProperties, StartStream, EndStream
-  - Implemented command handlers with proper error handling
-  - Rich Response types with typed payloads
-  - Type-checks in ~18s with parallel GHC
-
-- ✅ Build pipeline verification (Agda → Haskell → binary)
-  - Agda → MAlonzo compilation: ~43s
-  - Haskell → binary compilation successful
-  - Binary executable works correctly
-  - All 27 Aletheia modules compiled
-
-- ✅ Protocol JSON parser implementation (Phase 2B streaming protocol)
-  - All streaming commands: parseDBC, setProperties, startStream, endStream
-  - JSON line protocol (one command per line)
-  - End-to-end pipeline tested and working
-  - Binary successfully parses and executes commands
-
-**Remaining in Phase 1**:
-- Python wrapper implementation
-- Integration testing with Python API
-
-### **Phase 2A: LTL Core + Real-World Support** (REVISED)
-
-**Goals**: LTL reasoning on real automotive traces
-
-**Core LTL**:
-- LTL syntax (Always, Eventually, Until, etc.)
-- Semantics for finite traces (bounded checking)
-- Basic model checker
-- **Signal multiplexing support** (MOVED FROM PHASE 5 - CRITICAL)
-  - Conditional signal presence based on multiplexor value
-  - ~30% of automotive messages use multiplexing
-
-**Python DSL v1** (NEW - CRITICAL):
-- DSL design document and architecture
-- Basic predicates (equals, between, changed_by)
-- Temporal operators (always, eventually, within)
-- Composition (when/then, and/or)
-- Parser: Python DSL → Agda LTL AST
-- Example: `Signal("Speed").within(100*ms).must_be_between(0, 8000)`
-
-**Validation**:
-- Test with real automotive CAN trace
-- Common properties: speed limits, signal bounds, temporal constraints
-
-**Timeline**: 4-6 weeks
-**Deliverable**: Users can check LTL properties on real traces using Python DSL
-
-### **Phase 2B: Streaming + Counterexamples** (NEW)
-
-**Goals**: Handle large traces, debug failures
-
-**Streaming**:
-- Streaming trace parser (incremental, memory-bounded)
-- Incremental LTL checking
-- Handle 1GB+ trace files
-
-**Counterexamples** (MOVED FROM PHASE 4):
-- Counterexample generation (show violating trace)
-- Minimal counterexample (shrink to essential)
-- Python-friendly format (timestamp, signal values)
-
-**DSL Extensions**:
-- Custom user-defined predicates (Python callbacks)
-- Standard library of common checks
-- Composition helpers
-
-**Timeline**: 3-4 weeks
-**Deliverable**: Production-ready LTL checking with good UX
-
-### **Phase 3: Verification + Performance** (REVISED)
-
-**Goals**: Prove correctness, optimize bottlenecks
-
-**Proofs**:
-- Replace all postulates with proofs
-- Parser soundness (grammar formalization)
-- LTL semantics correctness
-- Round-trip properties
-- **Rational parser proofs**: Add NonZero proofs to rational division
-
-**Performance**:
-- Profile on large traces (identify bottlenecks)
-- Optimize hot paths
-- Benchmark target: 1M frames/sec
-
-**Timeline**: 4-6 weeks
-**Deliverable**: Fully verified, production-performance system
-
-### **Phase 4: Production Hardening** (REVISED)
-
-**Goals**: Polish for real users
-
-**UX**:
-- Comprehensive error messages (user can fix without asking us)
-- User documentation (tutorials, examples)
-- Standard library of checks (common properties)
-- Example gallery (real-world use cases)
-
-**Documentation** (Priority):
-- Python API reference with clear examples
-- LTL property JSON format specification
-- "Why Formal Verification?" guide for non-technical stakeholders
-  - Target: Python developers and managers unfamiliar with formal methods
-  - Must be candid, precise, concise
-  - Address concerns: complexity, overhead, when it's worth it
-  - Explain what guarantees you get vs traditional testing
-
-**Robustness**:
-- Edge case handling
-- Graceful degradation
-- Logging and debugging support
-- Integration with common tools (pandas, etc.)
-
-**Timeline**: 3-4 weeks
-**Deliverable**: User-friendly, production-ready tool
-
-### **Phase 5: Optional Extensions** (REVISED)
-
-**Planned Enhancements** (prioritized by user feedback):
-- 🟢 Value tables/enumerations (medium value, low cost)
-- 🟢 Pretty-printer for DBC (medium value, low cost)
-- 🟢 Additional DBC validation (signal overlap, range checks)
-- 🔴 CAN-FD support (low value for now, high cost)
-
-**Timeline**: Ongoing, based on demand
-**Deliverable**: Enhanced feature set based on user feedback
-
-When adding features, consider which phase they belong to and maintain consistency with the overall architecture.
+**Current Phase**: Phase 2B.1 - Documentation & quality improvements in progress, batch signal operations remaining.
 
 ## Current Session Progress
 
