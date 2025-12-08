@@ -53,23 +53,28 @@ findSignalByName name msg = findByPredicate matchesName (DBCMessage.signals msg)
 -- SIGNAL EXTRACTION WITH MULTIPLEXING
 -- ============================================================================
 
+-- Check if multiplexor signal matches expected value
+-- Returns: nothing if match, just reason if mismatch or error
+checkMultiplexor : CANFrame → DBCMessage → String → ℕ → Maybe String
+checkMultiplexor frame msg muxName muxValue with findSignalByName muxName msg
+... | nothing = just ("multiplexor signal '" ++S muxName ++S "' not found in message")
+... | just muxSig with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
+...   | nothing = just ("failed to extract multiplexor signal '" ++S muxName ++S "'")
+...   | just muxVal =
+      -- Check if multiplexor value matches expected value
+      -- Note: We compare to rational directly since muxValue is ℕ
+      let expectedVal = (+ muxValue) / 1
+          matches = ⌊ muxVal ≟ᵣ expectedVal ⌋
+      in if matches
+         then nothing  -- Match! Signal is present
+         else just ("multiplexor value mismatch (expected " ++S showℕ muxValue ++S ")")
+
 -- Check if signal is present in frame (handles multiplexing)
 -- Returns: nothing if present, just reason if not present
 checkSignalPresence : CANFrame → DBCMessage → DBCSignal → Maybe String
 checkSignalPresence frame msg sig with DBCSignal.presence sig
 ... | Always = nothing  -- Signal always present, no error
-... | When muxName muxValue with findSignalByName muxName msg
-...   | nothing = just ("multiplexor signal '" ++S muxName ++S "' not found in message")
-...   | just muxSig with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
-...     | nothing = just ("failed to extract multiplexor signal '" ++S muxName ++S "'")
-...     | just muxVal =
-          -- Check if multiplexor value matches
-          -- Note: We compare to rational directly since muxValue is ℕ
-          let expectedVal = (+ muxValue) / 1
-              matches = ⌊ muxVal ≟ᵣ expectedVal ⌋
-          in if matches
-             then nothing  -- Match! Signal is present
-             else just ("multiplexor value mismatch (expected " ++S showℕ muxValue ++S ")")
+... | When muxName muxValue = checkMultiplexor frame msg muxName muxValue
 
 -- Extract signal value from frame with full error reporting
 -- This is the primary interface for signal extraction

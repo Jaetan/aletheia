@@ -14,7 +14,7 @@ open import Aletheia.CAN.Frame
 open import Aletheia.DBC.Types
 open import Aletheia.Trace.CANTrace using (TimedFrame) public
 open import Data.Nat using (ℕ)
-open import Data.List using (List)
+open import Data.List using (List; length)
 
 -- Re-export TimedFrame record accessors
 open TimedFrame public
@@ -44,4 +44,3 @@ getFrames = frames
 -- Helper: Get frame count
 frameCount : TraceContext → ℕ
 frameCount ctx = length (frames ctx)
-  where open import Data.List using (length)

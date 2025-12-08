@@ -126,6 +126,16 @@ infixl 3 _<|>_
 -- CHARACTER PARSERS
 -- ============================================================================
 
+-- Helper: Check if character is in a list (Boolean membership test)
+-- Note: Stdlib provides proof-oriented membership (Data.List.Relation.Unary.Any)
+-- but we need runtime Bool for parser predicates
+private
+  elem : Char → List Char → Bool
+  elem c [] = false
+  elem c (x ∷ xs) with c ≈ᵇ x
+  ... | true = true
+  ... | false = elem c xs
+
 -- | Parse a single character satisfying predicate
 satisfy : (Char → Bool) → Parser Char
 satisfy pred pos [] = nothing
@@ -144,22 +154,10 @@ anyChar = satisfy (λ _ → true)
 -- | Parse one of the given characters
 oneOf : List Char → Parser Char
 oneOf chars = satisfy (λ c → elem c chars)
-  where
-    elem : Char → List Char → Bool
-    elem c [] = false
-    elem c (x ∷ xs) with c ≈ᵇ x
-    ... | true = true
-    ... | false = elem c xs
 
 -- | Parse none of the given characters
 noneOf : List Char → Parser Char
 noneOf chars = satisfy (λ c → not (elem c chars))
-  where
-    elem : Char → List Char → Bool
-    elem c [] = false
-    elem c (x ∷ xs) with c ≈ᵇ x
-    ... | true = true
-    ... | false = elem c xs
 
 -- ============================================================================
 -- REPETITION COMBINATORS (structurally recursive on input length)

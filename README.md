@@ -16,7 +16,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 ### Prerequisites
 
-See [BUILDING.md](BUILDING.md) for detailed installation instructions.
+See [Building Guide](docs/development/BUILDING.md) for detailed installation instructions.
 
 ### Installation
 
@@ -67,15 +67,15 @@ aletheia/
 
 ## Documentation
 
-- [BUILDING.md](BUILDING.md) - Build instructions and dependencies
-- [DEVELOPMENT.md](DEVELOPMENT.md) - Architecture and development guide
-- [DESIGN.md](DESIGN.md) - Detailed design document
+- [Building Guide](docs/development/BUILDING.md) - Build instructions and dependencies
+- [Development Guide](docs/development/DEVELOPMENT.md) - Architecture and development guide
+- [Design Document](docs/architecture/DESIGN.md) - Detailed design document
 
 ## Status
 
 **Current**: Production-ready JSON streaming protocol with LTL verification
 
-See [DESIGN.md](DESIGN.md) for detailed architecture and roadmap.
+See [Design Document](docs/architecture/DESIGN.md) for detailed architecture and roadmap.
 
 ## License
 

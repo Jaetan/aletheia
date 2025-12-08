@@ -26,6 +26,7 @@ open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ; +_)
 open import Data.Fin using (Fin)
 open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
 
 -- ============================================================================
 -- JSON → DBC PARSERS
@@ -119,14 +120,14 @@ parseSignalList (_ ∷ _) = nothing  -- Non-object in array
 -- Validates that ID is within valid range for its type
 parseCANId : ℕ → List (String × JSON) → Maybe CANId
 parseCANId rawId obj with lookupBool "extended" obj
-... | just true = if rawId Data.Nat.<ᵇ 536870912
-                   then just (Extended (rawId mod 536870912))
+... | just true = if rawId Data.Nat.<ᵇ extended-can-id-max
+                   then just (Extended (rawId mod extended-can-id-max))
                    else nothing  -- Extended ID out of range
-... | just false = if rawId Data.Nat.<ᵇ 2048
-                    then just (Standard (rawId mod 2048))
+... | just false = if rawId Data.Nat.<ᵇ standard-can-id-max
+                    then just (Standard (rawId mod standard-can-id-max))
                     else nothing  -- Standard ID out of range
-... | nothing = if rawId Data.Nat.<ᵇ 2048
-                 then just (Standard (rawId mod 2048))
+... | nothing = if rawId Data.Nat.<ᵇ standard-can-id-max
+                 then just (Standard (rawId mod standard-can-id-max))
                  else nothing  -- Default to standard, reject if too large
   where
     open import Data.Nat using (_<ᵇ_)
