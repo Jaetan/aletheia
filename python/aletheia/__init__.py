@@ -43,6 +43,11 @@ from aletheia.streaming_client import (
     ProtocolError,
 )
 from aletheia.dsl import Signal, Predicate, Property
+from aletheia.signals import (
+    FrameBuilder,
+    SignalExtractor,
+    SignalExtractionResult,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -53,4 +58,7 @@ __all__ = [
     "Signal",
     "Predicate",
     "Property",
+    "FrameBuilder",
+    "SignalExtractor",
+    "SignalExtractionResult",
 ]

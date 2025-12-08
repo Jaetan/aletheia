@@ -42,8 +42,8 @@ open import Aletheia.Data.Message as Msg using (Request; Response)
 
 -- Process a single JSON line and update stream state
 -- Returns: (new state, JSON response string)
-{-# NOINLINE processJSONLine #-}
 processJSONLine : StreamState → String → StreamState × String
+{-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJSON (toList jsonLine)))
   where
     open import Aletheia.Protocol.JSON using (JObject; lookupString)

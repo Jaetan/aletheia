@@ -14,6 +14,7 @@ open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec)
 open import Data.Integer using (ℤ)
 open import Data.Nat using (ℕ)
+open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.JSON using (JSON)
@@ -35,15 +36,22 @@ data StreamCommand : Set where
   -- Begin streaming data frames
   StartStream : StreamCommand
 
-  -- Encode a signal value into frame bytes (service command, independent of stream)
-  -- Args: message name, signal name, signal value
-  -- Returns: 8-byte frame with signal encoded
-  Encode : String → String → ℤ → StreamCommand
+  -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
 
-  -- Decode a signal value from frame bytes (service command, independent of stream)
-  -- Args: message name, signal name, frame bytes
-  -- Returns: rational signal value
-  Decode : String → String → Vec Byte 8 → StreamCommand
+  -- Build CAN frame from signal name-value pairs
+  -- Args: CAN ID (as JSON number), list of {name: string, value: rational} objects
+  -- Returns: 8-byte frame with all signals encoded
+  BuildFrame : JSON → List JSON → StreamCommand
+
+  -- Extract all signals from a CAN frame
+  -- Args: CAN ID (as JSON number), 8-byte frame data
+  -- Returns: Extraction results (values/errors/absent)
+  ExtractAllSignals : JSON → Vec Byte 8 → StreamCommand
+
+  -- Update specific signals in an existing frame
+  -- Args: CAN ID, existing frame bytes, list of {name: string, value: rational} updates
+  -- Returns: Updated 8-byte frame
+  UpdateFrame : JSON → Vec Byte 8 → List JSON → StreamCommand
 
   -- End stream and emit final property results
   EndStream : StreamCommand
@@ -69,11 +77,12 @@ data Response : Set where
   -- Error with reason
   Error : String → Response
 
-  -- Byte array response (for Encode command)
+  -- Byte array response (for BuildFrame and UpdateFrame commands)
   ByteArray : Vec Byte 8 → Response
 
-  -- Signal value response (for Decode command)
-  SignalValue : ℚ → Response
+  -- Extraction results (for ExtractAllSignals command)
+  -- Args: successfully extracted values, errors, absent signals
+  ExtractionResultsResponse : List (String × ℚ) → List (String × String) → List String → Response
 
   -- Property violation/satisfaction/pending (for streaming data)
   PropertyResponse : PropertyResult → Response

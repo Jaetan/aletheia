@@ -15,7 +15,7 @@ open import Data.List using (List; []; _∷_; map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Integer using (ℤ)
-open import Data.Rational using (ℚ)
+open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ; _≤?_; _<_; s≤s; z≤n; _≤_)
@@ -26,7 +26,7 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (lookupByKey)
+open import Aletheia.Prelude using (lookupByKey; standard-can-id-max)
 open import Aletheia.Protocol.JSON
 open import Aletheia.Data.Message
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
@@ -89,27 +89,38 @@ parseCommandWithTrace obj with lookupString "command" obj
     tryStartStream : List (String × JSON) → String ⊎ StreamCommand
     tryStartStream _ = inj₂ StartStream
 
-    tryEncode : List (String × JSON) → String ⊎ StreamCommand
-    tryEncode obj with lookupString "message" obj
-    ... | nothing = inj₁ "Encode: missing 'message' field"
-    ... | just msgName with lookupString "signal" obj
-    ...   | nothing = inj₁ "Encode: missing 'signal' field"
-    ...   | just sigName with lookupInt "value" obj
-    ...     | nothing = inj₁ "Encode: missing or invalid 'value' field"
-    ...     | just value = inj₂ (Encode msgName sigName value)
+    -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
 
-    tryDecode : List (String × JSON) → String ⊎ StreamCommand
-    tryDecode obj with lookupString "message" obj
-    ... | nothing = inj₁ "Decode: missing 'message' field"
-    ... | just msgName with lookupString "signal" obj
-    ...   | nothing = inj₁ "Decode: missing 'signal' field"
-    ...   | just sigName with lookupArray "bytes" obj
-    ...     | nothing = inj₁ "Decode: missing 'bytes' field"
-    ...     | just bytesJSON with parseByteArray bytesJSON
-    ...       | nothing = inj₁ "Decode: failed to parse byte array"
-    ...       | just byteList with listToVec8 byteList
-    ...         | nothing = inj₁ "Decode: expected 8 bytes"
-    ...         | just bytes = inj₂ (Decode msgName sigName bytes)
+    tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
+    tryBuildFrame obj with lookupByKey "canId" obj
+    ... | nothing = inj₁ "BuildFrame: missing 'canId' field"
+    ... | just canIdJSON with lookupArray "signals" obj
+    ...   | nothing = inj₁ "BuildFrame: missing 'signals' array"
+    ...   | just signals = inj₂ (BuildFrame canIdJSON signals)
+
+    tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
+    tryExtractAllSignals obj with lookupByKey "canId" obj
+    ... | nothing = inj₁ "ExtractAllSignals: missing 'canId' field"
+    ... | just canIdJSON with lookupArray "data" obj
+    ...   | nothing = inj₁ "ExtractAllSignals: missing 'data' array"
+    ...   | just bytesJSON with parseByteArray bytesJSON
+    ...     | nothing = inj₁ "ExtractAllSignals: failed to parse byte array"
+    ...     | just byteList with listToVec8 byteList
+    ...       | nothing = inj₁ "ExtractAllSignals: expected 8 bytes"
+    ...       | just bytes = inj₂ (ExtractAllSignals canIdJSON bytes)
+
+    tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
+    tryUpdateFrame obj with lookupByKey "canId" obj
+    ... | nothing = inj₁ "UpdateFrame: missing 'canId' field"
+    ... | just canIdJSON with lookupArray "data" obj
+    ...   | nothing = inj₁ "UpdateFrame: missing 'data' array"
+    ...   | just bytesJSON with parseByteArray bytesJSON
+    ...     | nothing = inj₁ "UpdateFrame: failed to parse byte array"
+    ...     | just byteList with listToVec8 byteList
+    ...       | nothing = inj₁ "UpdateFrame: expected 8 bytes"
+    ...       | just bytes with lookupArray "signals" obj
+    ...         | nothing = inj₁ "UpdateFrame: missing 'signals' array"
+    ...         | just signals = inj₂ (UpdateFrame canIdJSON bytes signals)
 
     tryEndStream : List (String × JSON) → String ⊎ StreamCommand
     tryEndStream _ = inj₂ EndStream
@@ -120,8 +131,9 @@ parseCommandWithTrace obj with lookupString "command" obj
       ("parseDBC" , tryParseDBC) ∷
       ("setProperties" , trySetProperties) ∷
       ("startStream" , tryStartStream) ∷
-      ("encode" , tryEncode) ∷
-      ("decode" , tryDecode) ∷
+      ("buildFrame" , tryBuildFrame) ∷
+      ("extractAllSignals" , tryExtractAllSignals) ∷
+      ("updateFrame" , tryUpdateFrame) ∷
       ("endStream" , tryEndStream) ∷
       []
 
@@ -155,7 +167,7 @@ parseDataFrameWithTrace obj with lookupNat "timestamp" obj
     buildFrame : ℕ → ℕ → Vec Byte 8 → Maybe (String ⊎ (ℕ × CANFrame))
     buildFrame timestamp canId bytes =
       let frame = record
-            { id = CANId.Standard (canId mod 2048)
+            { id = CANId.Standard (canId mod standard-can-id-max)
             ; dlc = 8 mod 9  -- DLC = 8 (fixed for now)
             ; payload = bytes
             }
@@ -170,7 +182,7 @@ parseDataFrame obj = do
   byteList ← parseByteArray bytesJSON
   bytes ← listToVec8 byteList
   let frame = record
-        { id = CANId.Standard (canId mod 2048)
+        { id = CANId.Standard (canId mod standard-can-id-max)
         ; dlc = 8 mod 9  -- DLC = 8 (fixed for now)
         ; payload = bytes
         }
@@ -199,7 +211,6 @@ parseRequest _ = nothing  -- Not a JSON object
 -- Note: Uses byteToℕ from CAN.Endianness to avoid duplication
 bytesToJSON : Vec Byte 8 → JSON
 bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (map byteToℕ (toList bytes)))
-  where open import Data.Rational using (_/_)
 
 -- Format PropertyResult as JSON object
 formatPropertyResult : PropertyResult → JSON
@@ -211,14 +222,12 @@ formatPropertyResult (PropertyResult.Violation idx counterex) =
     ("timestamp" , JNumber ((Data.Integer.+ (CounterexampleData.timestamp counterex)) / 1)) ∷
     ("reason" , JString (CounterexampleData.reason counterex)) ∷
     [])
-  where open import Data.Rational using (_/_)
 formatPropertyResult (PropertyResult.Satisfaction idx) =
   JObject (
     ("type" , JString "property") ∷
     ("status" , JString "satisfaction") ∷
     ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
     [])
-  where open import Data.Rational using (_/_)
 formatPropertyResult (PropertyResult.Pending idx result) =
   JObject (
     ("type" , JString "property") ∷
@@ -226,7 +235,6 @@ formatPropertyResult (PropertyResult.Pending idx result) =
     ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
     ("result" , JBool result) ∷
     [])
-  where open import Data.Rational using (_/_)
 formatPropertyResult PropertyResult.StreamComplete =
   JObject (
     ("type" , JString "complete") ∷
@@ -250,11 +258,27 @@ formatResponse (ByteArray bytes) =
     ("status" , JString "success") ∷
     ("data" , bytesToJSON bytes) ∷
     [])
-formatResponse (SignalValue val) =
+formatResponse (ExtractionResultsResponse values errors absent) =
   JObject (
     ("status" , JString "success") ∷
-    ("value" , JString (ℚShow.show val)) ∷
+    ("values" , formatSignalValues values) ∷
+    ("errors" , formatErrors errors) ∷
+    ("absent" , JArray (map JString absent)) ∷
     [])
+  where
+    formatSignalValues : List (String × ℚ) → JSON
+    formatSignalValues vals = JArray (map formatPair vals)
+      where
+        formatPair : String × ℚ → JSON
+        formatPair (name , value) =
+          JObject (("name" , JString name) ∷ ("value" , JString (ℚShow.show value)) ∷ [])
+
+    formatErrors : List (String × String) → JSON
+    formatErrors errs = JArray (map formatError errs)
+      where
+        formatError : String × String → JSON
+        formatError (name , msg) =
+          JObject (("name" , JString name) ∷ ("error" , JString msg) ∷ [])
 formatResponse (PropertyResponse result) =
   formatPropertyResult result
 formatResponse Ack =

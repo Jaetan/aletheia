@@ -599,15 +599,15 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
     checkProperties prev [] frame = ([] , [])
     checkProperties prev ((idx , φ) ∷ rest) frame =
       let (decidedRest , activeRest) = checkProperties prev rest frame
-      in aux (canDecideEarly prev φ frame)
+      in aux decidedRest activeRest (canDecideEarly prev φ frame)
       where
-        aux : Maybe Bool → (List PropertyResult × List (ℕ × LTL SignalPredicate))
-        aux (just false) =
+        aux : List PropertyResult → List (ℕ × LTL SignalPredicate) → Maybe Bool → (List PropertyResult × List (ℕ × LTL SignalPredicate))
+        aux decidedRest activeRest (just false) =
           let reason = "Property violated at t=" ++S show (timestamp frame)
               ce = mkCounterexampleData (timestamp frame) reason
           in ((Violation idx ce) ∷ decidedRest , activeRest)
-        aux (just true) = ((Satisfaction idx) ∷ decidedRest , activeRest)
-        aux nothing = (decidedRest , (idx , φ) ∷ activeRest)
+        aux decidedRest activeRest (just true) = ((Satisfaction idx) ∷ decidedRest , activeRest)
+        aux decidedRest activeRest nothing = (decidedRest , (idx , φ) ∷ activeRest)
 
     -- Emit list of results to output stream
     emitResults : ∀ {i : Size} → List PropertyResult → DelayedColist PropertyResult i → DelayedColist PropertyResult i

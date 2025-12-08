@@ -49,6 +49,8 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.SignalExtraction using (findSignalByName; extractSignalWithContext)
 open import Aletheia.CAN.Encoding using (injectSignal; extractSignal)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ExtractionFailed; ValueOutOfBounds; getValue)
+open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
+open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame)
 -- Note: Not importing Response from Protocol.Response to avoid name clash
 
 -- ============================================================================
@@ -223,43 +225,99 @@ processStreamCommand : StreamCommand → StreamState → StreamState × Response
 processStreamCommand (ParseDBC dbcJSON) state = handleParseDBC-State dbcJSON state
 processStreamCommand (SetProperties props) state = handleSetProperties-State props state
 processStreamCommand StartStream state = handleStartStream-State state
-processStreamCommand (Encode msgName sigName value) state =
-  -- Service command, doesn't change state
-  encodeHelper (StreamState.dbc state)
-  where
-    encodeHelper : Maybe DBC → StreamState × Response
-    encodeHelper nothing = (state , Response.Error "DBC not loaded")
-    encodeHelper (just dbc) with findMessageByName msgName dbc
-    ... | nothing = (state , Response.Error ("Message '" ++S msgName ++S "' not found"))
-    ... | just msg with findSignalByName sigName msg
-    ...   | nothing = (state , Response.Error ("Signal '" ++S sigName ++S "' not found"))
-    ...   | just sig =
-          let signalValue = (value / 1)  -- Convert ℤ to ℚ
-              zeroFrame = makeZeroFrame (DBCMessage.id msg)
-          in injectHelper (injectSignal signalValue (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) zeroFrame)
-      where
-        injectHelper : Maybe CANFrame → StreamState × Response
-        injectHelper nothing = (state , Response.Error "Signal injection failed (value out of bounds)")
-        injectHelper (just frame) = (state , Response.ByteArray (CANFrame.payload frame))
 
-processStreamCommand (Decode msgName sigName bytes) state =
+-- BATCH SIGNAL OPERATIONS (Phase 2B.1)
+
+processStreamCommand (BuildFrame canIdJSON signalsJSON) state =
   -- Service command, doesn't change state
-  decodeHelper (StreamState.dbc state)
+  buildHelper (StreamState.dbc state)
   where
-    decodeHelper : Maybe DBC → StreamState × Response
-    decodeHelper nothing = (state , Response.Error "DBC not loaded")
-    decodeHelper (just dbc) with findMessageByName msgName dbc
-    ... | nothing = (state , Response.Error ("Message '" ++S msgName ++S "' not found"))
-    ... | just msg =
-          let frame = makeFrame (DBCMessage.id msg) bytes
-          in extractHelper (extractSignalWithContext dbc frame sigName)
+    open import Aletheia.Protocol.JSON using (getNat; getObject; lookupString; lookupRational)
+    open import Aletheia.Prelude using (standard-can-id-max)
+    open import Data.Nat.DivMod using (_mod_)
+
+    buildHelper : Maybe DBC → StreamState × Response
+    buildHelper nothing = (state , Response.Error "DBC not loaded")
+    buildHelper (just dbc) with getNat canIdJSON
+    ... | nothing = (state , Response.Error "Invalid CAN ID")
+    ... | just canIdNat =
+          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+          in parseSignals canId signalsJSON
       where
-        extractHelper : ExtractionResult → StreamState × Response
-        extractHelper (Success value) = (state , Response.SignalValue value)
-        extractHelper (SignalNotInDBC name) = (state , Response.Error ("Signal '" ++S name ++S "' not in DBC"))
-        extractHelper (SignalNotPresent name reason) = (state , Response.Error ("Signal not present: " ++S reason))
-        extractHelper (ValueOutOfBounds name val minVal maxVal) =
-          (state , Response.Error ("Value out of bounds: " ++S RatShow.show val ++S " not in [" ++S RatShow.show minVal ++S ", " ++S RatShow.show maxVal ++S "]"))
-        extractHelper (ExtractionFailed name reason) = (state , Response.Error ("Extraction failed: " ++S reason))
+        parseSignalList : List JSON → Maybe (List (String × ℚ))
+        parseSignalList [] = just []
+        parseSignalList (obj ∷ rest) with getObject obj
+        ... | nothing = nothing
+        ... | just fields with lookupString "name" fields
+        ...   | nothing = nothing
+        ...   | just name with lookupRational "value" fields
+        ...     | nothing = nothing
+        ...     | just value with parseSignalList rest
+        ...       | nothing = nothing
+        ...       | just restParsed = just ((name , value) ∷ restParsed)
+
+        parseSignals : CANId → List JSON → StreamState × Response
+        parseSignals canId signals with parseSignalList signals
+        ... | nothing = (state , Response.Error "Failed to parse signal list")
+        ... | just signalPairs with buildFrame dbc canId signalPairs
+        ...   | nothing = (state , Response.Error "Frame building failed (signals overlap, not found, or values out of bounds)")
+        ...   | just frameBytes = (state , Response.ByteArray frameBytes)
+
+processStreamCommand (ExtractAllSignals canIdJSON bytes) state =
+  -- Service command, doesn't change state
+  extractHelper (StreamState.dbc state)
+  where
+    open import Aletheia.Protocol.JSON using (getNat)
+    open import Aletheia.Prelude using (standard-can-id-max)
+    open import Data.Nat.DivMod using (_mod_)
+
+    extractHelper : Maybe DBC → StreamState × Response
+    extractHelper nothing = (state , Response.Error "DBC not loaded")
+    extractHelper (just dbc) with getNat canIdJSON
+    ... | nothing = (state , Response.Error "Invalid CAN ID")
+    ... | just canIdNat =
+          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+              frame = makeFrame canId bytes
+              results = extractAllSignals dbc frame
+          in (state , Response.ExtractionResultsResponse
+                        (ExtractionResults.values results)
+                        (ExtractionResults.errors results)
+                        (ExtractionResults.absent results))
+
+processStreamCommand (UpdateFrame canIdJSON bytes signalsJSON) state =
+  -- Service command, doesn't change state
+  updateHelper (StreamState.dbc state)
+  where
+    open import Aletheia.Protocol.JSON using (getNat; getObject; lookupString; lookupRational)
+    open import Aletheia.Prelude using (standard-can-id-max)
+    open import Data.Nat.DivMod using (_mod_)
+
+    updateHelper : Maybe DBC → StreamState × Response
+    updateHelper nothing = (state , Response.Error "DBC not loaded")
+    updateHelper (just dbc) with getNat canIdJSON
+    ... | nothing = (state , Response.Error "Invalid CAN ID")
+    ... | just canIdNat =
+          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+              frame = makeFrame canId bytes
+          in parseSignals canId signalsJSON frame
+      where
+        parseSignalList : List JSON → Maybe (List (String × ℚ))
+        parseSignalList [] = just []
+        parseSignalList (obj ∷ rest) with getObject obj
+        ... | nothing = nothing
+        ... | just fields with lookupString "name" fields
+        ...   | nothing = nothing
+        ...   | just name with lookupRational "value" fields
+        ...     | nothing = nothing
+        ...     | just value with parseSignalList rest
+        ...       | nothing = nothing
+        ...       | just restParsed = just ((name , value) ∷ restParsed)
+
+        parseSignals : CANId → List JSON → CANFrame → StreamState × Response
+        parseSignals canId signals frame with parseSignalList signals
+        ... | nothing = (state , Response.Error "Failed to parse signal list")
+        ... | just signalPairs with updateFrame dbc canId frame signalPairs
+        ...   | nothing = (state , Response.Error "Frame update failed (signals not found or values out of bounds)")
+        ...   | just updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
 
 processStreamCommand EndStream state = handleEndStream-State state
