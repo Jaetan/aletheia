@@ -482,6 +482,324 @@ dbc_json = {
 
 ---
 
+## Batch Signal Operations
+
+**Note**: Batch operations are independent from streaming verification. They provide a standalone toolbox for building, extracting, and updating CAN frames.
+
+### Overview
+
+Batch signal operations allow you to:
+- **Build frames**: Construct CAN frames from signal name-value pairs
+- **Extract signals**: Decode all signals from frames with rich error reporting
+- **Update frames**: Modify specific signals in existing frames
+
+**When to use**:
+- Frame construction for testing/simulation
+- Signal extraction from captured frames
+- Offline trace processing and modification
+- Debugging signal encoding issues
+
+**Don't use for**:
+- Real-time streaming verification (use `StreamingClient` instead)
+- LTL property checking (use `StreamingClient` with properties)
+
+### FrameBuilder
+
+Build CAN frames from signal name-value pairs using an immutable builder pattern.
+
+#### Basic Usage
+
+```python
+from aletheia import FrameBuilder
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+
+# Build a frame with multiple signals
+with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
+    frame = (builder
+        .set("EngineSpeed", 2000)
+        .set("EngineTemp", 90)
+        .set("Throttle", 75)
+        .build())
+
+    print(f"Frame: {frame}")  # [0x00, 0x07, 0xD0, 0x5A, ...]
+```
+
+#### Building Multiple Frames
+
+```python
+# Subprocess reused for efficiency
+with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
+    frames = []
+
+    for speed in range(1000, 3000, 100):
+        frame = builder.set("EngineSpeed", speed).build()
+        frames.append(frame)
+```
+
+#### API Reference
+
+```python
+class FrameBuilder:
+    def __init__(self, can_id: int, dbc: DBCDefinition)
+    def set(self, signal_name: str, value: float) -> FrameBuilder
+    def build(self) -> List[int]  # Returns 8-byte frame
+    def close(self) -> None
+    def __enter__(self) -> FrameBuilder
+    def __exit__(self, ...) -> None
+```
+
+**Key Features**:
+- **Immutable**: `set()` returns new builder, original unchanged
+- **Context manager**: Automatic subprocess cleanup
+- **Subprocess reuse**: All builders from `set()` share subprocess
+- **Validation**: Agda checks overlap, bounds, multiplexing
+
+### SignalExtractor
+
+Extract signals from CAN frames with rich error reporting.
+
+#### Basic Usage
+
+```python
+from aletheia import SignalExtractor
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+frame_data = [0x00, 0x07, 0xD0, 0x5A, 0x00, 0x00, 0x00, 0x00]
+
+with SignalExtractor(dbc=dbc) as extractor:
+    result = extractor.extract(can_id=0x100, data=frame_data)
+
+    # Successfully extracted values
+    speed = result.get("EngineSpeed", default=0.0)
+    temp = result.get("EngineTemp", default=20.0)
+
+    # Check for errors
+    if result.has_errors():
+        print(f"Errors: {result.errors}")
+
+    # Check for absent multiplexed signals
+    print(f"Absent: {result.absent}")
+```
+
+#### Processing Multiple Frames
+
+```python
+trace_frames = [
+    (0x100, [0x00, 0x07, 0xD0, 0x5A, ...]),
+    (0x100, [0x00, 0x09, 0xC4, 0x64, ...]),
+    # ... more frames
+]
+
+with SignalExtractor(dbc=dbc) as extractor:
+    for can_id, frame_data in trace_frames:
+        result = extractor.extract(can_id=can_id, data=frame_data)
+
+        for name, value in result.values.items():
+            print(f"{name}: {value}")
+```
+
+#### Updating Frames
+
+```python
+with SignalExtractor(dbc=dbc) as extractor:
+    # Update specific signals, leave others unchanged
+    updated_frame = extractor.update(
+        can_id=0x100,
+        frame=original_frame,
+        signals={
+            "EngineSpeed": 2500,
+            "EngineTemp": 95
+        }
+    )
+
+    # Original frame unchanged (immutable operation)
+    print(f"Original: {original_frame}")
+    print(f"Updated:  {updated_frame}")
+```
+
+#### API Reference
+
+```python
+class SignalExtractor:
+    def __init__(self, dbc: DBCDefinition)
+    def extract(self, can_id: int, data: List[int]) -> SignalExtractionResult
+    def update(self, can_id: int, frame: List[int],
+               signals: Dict[str, float]) -> List[int]
+    def close(self) -> None
+    def __enter__(self) -> SignalExtractor
+    def __exit__(self, ...) -> None
+```
+
+### SignalExtractionResult
+
+Rich result object partitioning extraction into three categories.
+
+#### Structure
+
+```python
+class SignalExtractionResult:
+    values: Dict[str, float]   # Successfully extracted signals
+    errors: Dict[str, str]     # Extraction errors (name -> error message)
+    absent: List[str]          # Absent multiplexed signals
+
+    def get(self, signal_name: str, default: float = 0.0) -> float
+    def has_errors(self) -> bool
+```
+
+#### Understanding Result Categories
+
+```python
+result = extractor.extract(can_id=0x100, data=frame)
+
+# Category 1: values - Successfully extracted
+for name, value in result.values.items():
+    print(f"{name}: {value}")  # Safe to use
+
+# Category 2: errors - Something went wrong
+for name, error in result.errors.items():
+    print(f"{name}: {error}")  # Investigation needed
+    # Common errors:
+    # - "Value out of bounds: got 500, max 255"
+    # - "Decoding failed"
+
+# Category 3: absent - Multiplexed signal not present
+for name in result.absent:
+    print(f"{name}: absent")  # NOT an error - normal for multiplexing
+```
+
+**Key Point**: `absent` signals are **not errors**. They're multiplexed signals that aren't active in this frame.
+
+### Batch Operations Examples
+
+#### Example 1: Build and Verify Frame
+
+```python
+from aletheia import FrameBuilder, SignalExtractor
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+
+# Build frame
+with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
+    frame = (builder
+        .set("EngineSpeed", 2000)
+        .set("EngineTemp", 90)
+        .build())
+
+# Verify by extracting
+with SignalExtractor(dbc=dbc) as extractor:
+    result = extractor.extract(can_id=0x100, data=frame)
+
+    assert abs(result.get("EngineSpeed") - 2000) < 0.01
+    assert abs(result.get("EngineTemp") - 90) < 0.01
+    print("✓ Frame encoding/decoding correct")
+```
+
+#### Example 2: Process Trace File
+
+```python
+def process_trace(trace_path, dbc_path):
+    """Extract signals from all frames in trace"""
+    dbc = dbc_to_json(dbc_path)
+    results = []
+
+    with SignalExtractor(dbc=dbc) as extractor:
+        with open(trace_path, 'r') as f:
+            for line in f:
+                # Parse: TIMESTAMP CAN_ID DATA0 DATA1 ... DATA7
+                parts = line.strip().split()
+                timestamp = float(parts[0])
+                can_id = int(parts[1], 16)
+                data = [int(b, 16) for b in parts[2:10]]
+
+                # Extract signals
+                result = extractor.extract(can_id=can_id, data=data)
+
+                results.append({
+                    "timestamp": timestamp,
+                    "signals": result.values,
+                    "errors": result.errors
+                })
+
+    return results
+
+# Usage
+results = process_trace("trace.log", "vehicle.dbc")
+
+# Analyze
+for r in results:
+    if r["errors"]:
+        print(f"Errors at {r['timestamp']}: {r['errors']}")
+```
+
+#### Example 3: Modify Trace Signals
+
+```python
+def update_trace(input_path, output_path, can_id, signal_updates):
+    """Update specific signals in all matching frames"""
+    dbc = dbc_to_json("vehicle.dbc")
+
+    with SignalExtractor(dbc=dbc) as extractor:
+        with open(input_path, 'r') as infile, \
+             open(output_path, 'w') as outfile:
+
+            for line in infile:
+                parts = line.strip().split()
+                timestamp = parts[0]
+                frame_id = int(parts[1], 16)
+                frame_data = [int(b, 16) for b in parts[2:10]]
+
+                # Update if matching CAN ID
+                if frame_id == can_id:
+                    frame_data = extractor.update(
+                        can_id=frame_id,
+                        frame=frame_data,
+                        signals=signal_updates
+                    )
+
+                # Write updated frame
+                outfile.write(f"{timestamp} 0x{frame_id:X} ")
+                outfile.write(" ".join(f"{b:02X}" for b in frame_data))
+                outfile.write("\n")
+
+# Usage
+update_trace(
+    "trace_original.txt",
+    "trace_modified.txt",
+    can_id=0x100,
+    signal_updates={"EngineSpeed": 2500}
+)
+```
+
+### Performance Tips
+
+1. **Reuse subprocess**: Keep `FrameBuilder`/`SignalExtractor` alive for multiple operations
+2. **Use context managers**: Ensures proper cleanup
+3. **Batch processing**: Process many frames with one subprocess
+
+```python
+# GOOD: Single subprocess for 1000 frames
+with SignalExtractor(dbc=dbc) as extractor:
+    for frame in frames:  # 1000 frames
+        result = extractor.extract(can_id, frame)
+
+# BAD: 1000 subprocess creations
+for frame in frames:
+    with SignalExtractor(dbc=dbc) as extractor:  # New subprocess!
+        result = extractor.extract(can_id, frame)
+```
+
+### Further Reading
+
+- **Tutorial**: `docs/tutorials/BATCH_OPERATIONS.md` - Complete tutorial with 10+ examples
+- **Example Scripts**: `examples/batch_operations/` - 6 working examples
+- **Architecture**: `docs/architecture/DESIGN.md` - How batch operations work
+
+---
+
 ## Error Handling
 
 ### Binary Not Found

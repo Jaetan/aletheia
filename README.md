@@ -55,6 +55,43 @@ with StreamingClient() as client:
     client.end_stream()
 ```
 
+### Batch Signal Operations
+
+Aletheia also provides standalone tools for building and extracting CAN signals, independent from streaming verification:
+
+```python
+from aletheia import FrameBuilder, SignalExtractor
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+
+# Build a CAN frame from signals
+with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
+    frame = (builder
+        .set("EngineSpeed", 2000)
+        .set("EngineTemp", 90)
+        .set("Throttle", 75)
+        .build())
+
+# Extract all signals from a frame
+with SignalExtractor(dbc=dbc) as extractor:
+    result = extractor.extract(can_id=0x100, data=frame)
+
+    speed = result.get("EngineSpeed")  # 2000.0
+    temp = result.get("EngineTemp")    # 90.0
+
+    if result.has_errors():
+        print(f"Extraction errors: {result.errors}")
+```
+
+**Use cases**:
+- Build test frames for simulation
+- Extract signals from captured CAN traces
+- Modify specific signals in existing frames
+- Debug signal encoding/decoding issues
+
+See [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) and [examples](examples/batch_operations/) for detailed usage.
+
 ## Project Structure
 
 ```
@@ -67,9 +104,17 @@ aletheia/
 
 ## Documentation
 
+### Getting Started
 - [Building Guide](docs/development/BUILDING.md) - Build instructions and dependencies
-- [Development Guide](docs/development/DEVELOPMENT.md) - Architecture and development guide
-- [Design Document](docs/architecture/DESIGN.md) - Detailed design document
+- [Python API Guide](docs/development/PYTHON_API.md) - Complete Python API reference
+- [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Learn batch signal operations
+
+### Architecture & Design
+- [Design Document](docs/architecture/DESIGN.md) - Detailed architecture and formal verification
+- [Development Guide](docs/development/DEVELOPMENT.md) - Contributing and development workflow
+
+### Examples
+- [Batch Operations Examples](examples/batch_operations/) - 6 complete examples with explanations
 
 ## Status
 
