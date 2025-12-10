@@ -16,17 +16,238 @@ open import Aletheia.LTL.Syntax
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 
 -- ============================================================================
--- INCREMENTAL LTL CHECKING
+-- INCREMENTAL LTL CHECKING (O(1) MEMORY)
 -- ============================================================================
 
--- Process frames one at a time with early termination.
+-- Process frames one at a time without accumulating history.
 -- Key features:
--- 1. Early termination: stops when result is known
--- 2. Short-circuit evaluation for And/Or
--- 3. Structurally recursive on formula tree
+-- 1. O(1) memory: no accumulation of frames
+-- 2. Stateful evaluation: each property tracks its own state
+-- 3. Early termination: stops when result is known
+-- 4. Generic over predicate types (avoids circular dependencies)
 
 -- ============================================================================
--- EVALUATE NON-TEMPORAL FORMULAS
+-- COUNTEREXAMPLE SUPPORT
+-- ============================================================================
+
+-- Counterexample: evidence of why a property failed
+record Counterexample : Set where
+  constructor mkCounterexample
+  field
+    violatingFrame : TimedFrame    -- The frame where violation occurred
+    reason : String                -- Human-readable explanation
+
+-- ============================================================================
+-- EVALUATION STATE
+-- ============================================================================
+
+-- State for incremental LTL evaluation
+-- Tracks position in the formula and intermediate results
+data LTLEvalState : Set where
+  -- Atomic predicates (stateless)
+  AtomicState : LTLEvalState
+
+  -- Propositional operators
+  NotState : LTLEvalState → LTLEvalState
+  AndState : LTLEvalState → LTLEvalState → LTLEvalState
+  OrState  : LTLEvalState → LTLEvalState → LTLEvalState
+
+  -- Temporal operators
+  NextState : LTLEvalState → LTLEvalState
+
+  -- Always: track if violated
+  AlwaysState : LTLEvalState → LTLEvalState
+  AlwaysFailed : LTLEvalState
+
+  -- Eventually: track if satisfied
+  EventuallyState : LTLEvalState → LTLEvalState
+  EventuallySucceeded : LTLEvalState
+
+  -- Until: track state of both subformulas
+  UntilState : LTLEvalState → LTLEvalState → LTLEvalState
+  UntilSucceeded : LTLEvalState
+  UntilFailed : LTLEvalState
+
+  -- Bounded temporal operators: track start time and result
+  EventuallyWithinState : ℕ → LTLEvalState → LTLEvalState  -- startTime
+  EventuallyWithinFailed : LTLEvalState
+  EventuallyWithinSucceeded : LTLEvalState
+
+  AlwaysWithinState : ℕ → LTLEvalState → LTLEvalState  -- startTime
+  AlwaysWithinFailed : LTLEvalState
+  AlwaysWithinSucceeded : LTLEvalState
+
+-- Result of one evaluation step
+data StepResult : Set where
+  Continue : LTLEvalState → StepResult  -- Keep checking
+  Violated : Counterexample → StepResult  -- Property violated
+  Satisfied : StepResult  -- Property satisfied (Eventually)
+
+-- ============================================================================
+-- INITIALIZATION
+-- ============================================================================
+
+-- Initialize evaluation state from formula
+-- Bounded operators start with 0 timestamp (updated on first frame)
+initState : ∀ {Atom : Set} → LTL Atom → LTLEvalState
+initState (Atomic _) = AtomicState
+initState (Not φ) = NotState (initState φ)
+initState (And φ ψ) = AndState (initState φ) (initState ψ)
+initState (Or φ ψ) = OrState (initState φ) (initState ψ)
+initState (Next φ) = NextState (initState φ)
+initState (Always φ) = AlwaysState (initState φ)
+initState (Eventually φ) = EventuallyState (initState φ)
+initState (Until φ ψ) = UntilState (initState φ) (initState ψ)
+initState (EventuallyWithin _ φ) = EventuallyWithinState 0 (initState φ)
+initState (AlwaysWithin _ φ) = AlwaysWithinState 0 (initState φ)
+
+-- ============================================================================
+-- INCREMENTAL EVALUATION
+-- ============================================================================
+
+-- Evaluate one frame incrementally
+-- Generic over predicate type to avoid circular dependencies
+-- The evaluator function takes: prevFrame, currFrame, predicate → Bool
+stepEval : ∀ {Atom : Set}
+         → LTL Atom                                     -- Formula
+         → (Maybe TimedFrame → TimedFrame → Atom → Bool)  -- Predicate evaluator
+         → LTLEvalState                                 -- Current state
+         → Maybe TimedFrame                             -- Previous frame (for ChangedBy)
+         → TimedFrame                                   -- Current frame
+         → StepResult
+
+-- Atomic: evaluate predicate on current frame
+stepEval (Atomic p) eval AtomicState prev curr =
+  if eval prev curr p
+  then Continue AtomicState
+  else Violated (mkCounterexample curr "atomic predicate failed")
+
+-- Not: evaluate inner and invert result
+stepEval (Not φ) eval (NotState st) prev curr
+  with stepEval φ eval st prev curr
+... | Continue st' = Continue (NotState st')
+... | Violated _ = Continue (NotState st)  -- Inner violated = outer continues (¬false = true)
+... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
+
+-- And: both must hold
+stepEval (And φ ψ) eval (AndState st1 st2) prev curr
+  with stepEval φ eval st1 prev curr
+... | Violated ce = Violated ce  -- Left failed
+... | Continue st1'
+  with stepEval ψ eval st2 prev curr
+... | Violated ce = Violated ce  -- Right failed
+... | Continue st2' = Continue (AndState st1' st2')
+... | Satisfied = Continue (AndState st1' st2)  -- Right satisfied, keep checking left
+stepEval (And φ ψ) eval (AndState st1 st2) prev curr | Satisfied
+  with stepEval ψ eval st2 prev curr
+... | Violated ce = Violated ce  -- Right failed
+... | Continue st2' = Continue (AndState st1 st2')  -- Left satisfied, keep checking right
+... | Satisfied = Satisfied  -- Both satisfied
+
+-- Or: either must hold
+stepEval (Or φ ψ) eval (OrState st1 st2) prev curr
+  with stepEval φ eval st1 prev curr
+... | Satisfied = Satisfied  -- Left satisfied
+... | Continue st1'
+  with stepEval ψ eval st2 prev curr
+... | Satisfied = Satisfied  -- Right satisfied
+... | Continue st2' = Continue (OrState st1' st2')
+... | Violated ce2 = Continue (OrState st1' st2)  -- Right violated, keep checking left
+stepEval (Or φ ψ) eval (OrState st1 st2) prev curr | Violated _
+  with stepEval ψ eval st2 prev curr
+... | Satisfied = Satisfied  -- Right satisfied
+... | Continue st2' = Continue (OrState st1 st2')  -- Left violated, keep checking right
+... | Violated ce = Violated ce  -- Both violated
+
+-- Next: skip first frame, then evaluate on subsequent frames
+stepEval (Next φ) eval (NextState st) prev curr
+  with stepEval φ eval st prev curr
+... | Continue st' = Continue (NextState st')
+... | Violated ce = Violated ce
+... | Satisfied = Satisfied
+
+-- Always: must hold on every frame
+stepEval (Always φ) eval (AlwaysState st) prev curr
+  with stepEval φ eval st prev curr
+... | Continue st' = Continue (AlwaysState st')
+... | Violated ce = Violated ce  -- Violation detected
+... | Satisfied = Continue (AlwaysState st)  -- Satisfied on this frame, keep checking
+
+stepEval (Always _) _ AlwaysFailed _ curr = Violated (mkCounterexample curr "Always already failed")
+
+-- Eventually: must hold at some point
+stepEval (Eventually φ) eval (EventuallyState st) prev curr
+  with stepEval φ eval st prev curr
+... | Continue st' = Continue (EventuallyState st')
+... | Violated _ = Continue (EventuallyState st)  -- Not yet, keep looking
+... | Satisfied = Satisfied  -- Found!
+
+stepEval (Eventually _) _ EventuallySucceeded _ _ = Satisfied
+
+-- Until: φ until ψ
+stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr
+  -- Check if ψ holds (satisfaction condition)
+  with stepEval ψ eval st2 prev curr
+... | Satisfied = Satisfied  -- ψ holds, Until satisfied
+... | Continue st2'
+  -- ψ doesn't hold yet, check if φ holds (waiting condition)
+  with stepEval φ eval st1 prev curr
+... | Violated ce = Violated ce  -- φ failed before ψ held
+... | Continue st1' = Continue (UntilState st1' st2')
+... | Satisfied = Continue (UntilState st1 st2')  -- φ holds, keep waiting for ψ
+stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr | Violated _
+  -- ψ failed, check if φ still holds
+  with stepEval φ eval st1 prev curr
+... | Violated ce = Violated ce  -- Both failed
+... | Continue st1' = Continue (UntilState st1' st2)
+... | Satisfied = Continue (UntilState st1 st2)
+
+stepEval (Until _ _) _ UntilSucceeded _ _ = Satisfied
+stepEval (Until _ _) _ UntilFailed _ curr = Violated (mkCounterexample curr "Until failed")
+
+-- EventuallyWithin: must hold within time window
+stepEval (EventuallyWithin windowMicros φ) eval (EventuallyWithinState startTime st) prev curr =
+  let currTime = timestamp curr
+      -- Initialize start time on first frame
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then handleInWindow (stepEval φ eval st prev curr) actualStart
+     else Violated (mkCounterexample curr "EventuallyWithin: window expired")
+  where
+    handleInWindow : StepResult → ℕ → StepResult
+    handleInWindow Satisfied _ = Satisfied
+    handleInWindow (Continue st') start = Continue (EventuallyWithinState start st')
+    handleInWindow (Violated _) start = Continue (EventuallyWithinState start st)
+
+stepEval (EventuallyWithin _ _) _ EventuallyWithinSucceeded _ _ = Satisfied
+stepEval (EventuallyWithin _ _) _ EventuallyWithinFailed _ curr = Violated (mkCounterexample curr "EventuallyWithin: window expired")
+
+-- AlwaysWithin: must hold throughout time window
+stepEval (AlwaysWithin windowMicros φ) eval (AlwaysWithinState startTime st) prev curr =
+  let currTime = timestamp curr
+      -- Initialize start time on first frame
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then handleInWindow (stepEval φ eval st prev curr) actualStart
+     else Satisfied  -- Window complete, always held
+  where
+    handleInWindow : StepResult → ℕ → StepResult
+    handleInWindow (Violated ce) _ = Violated ce
+    handleInWindow (Continue st') start = Continue (AlwaysWithinState start st')
+    handleInWindow Satisfied start = Continue (AlwaysWithinState start st)
+
+stepEval (AlwaysWithin _ _) _ AlwaysWithinSucceeded _ _ = Satisfied
+stepEval (AlwaysWithin _ _) _ AlwaysWithinFailed _ curr = Violated (mkCounterexample curr "AlwaysWithin: violated within window")
+
+-- Catch-all for mismatched formula/state pairs (shouldn't happen if initState is used)
+stepEval _ _ _ _ curr = Violated (mkCounterexample curr "internal error: formula/state mismatch")
+
+-- ============================================================================
+-- EVALUATE NON-TEMPORAL FORMULAS (legacy list-based checking)
 -- ============================================================================
 
 -- Evaluate formula at a single frame (handles Atomic, Not, And, Or)
@@ -158,15 +379,8 @@ checkListStreaming : List TimedFrame → LTL (TimedFrame → Bool) → Bool
 checkListStreaming = checkIncremental
 
 -- ============================================================================
--- COUNTEREXAMPLE GENERATION
+-- COUNTEREXAMPLE GENERATION (legacy list-based checking)
 -- ============================================================================
-
--- Counterexample: evidence of why a property failed
-record Counterexample : Set where
-  constructor mkCounterexample
-  field
-    violatingFrame : TimedFrame    -- The frame where violation occurred
-    reason : String                -- Human-readable explanation
 
 -- Result of checking with counterexample support
 data CheckResult : Set where

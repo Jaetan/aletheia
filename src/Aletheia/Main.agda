@@ -27,6 +27,9 @@ open import Data.List using (List; []; _∷_)
 open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Size using (Size; ∞)
+open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
+open import Codata.Sized.Thunk using (Thunk; force)
 
 -- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
@@ -96,3 +99,17 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
     parseJSON_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Invalid JSON")))
     parseJSON_helper (just (JObject obj)) = parseJSON_helperWithTrace (JObject obj)
     parseJSON_helper (just _) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Request must be a JSON object")))
+
+-- ============================================================================
+-- COINDUCTIVE STREAMING INTERFACE (O(1) Memory)
+-- ============================================================================
+
+-- Process a colist of JSON lines and produce a colist of responses
+-- This is the O(1) memory interface: processes frames one at a time without accumulation
+-- State is threaded through the stream computation
+processStream : ∀ {i} → StreamState → Colist String i → Colist String i
+{-# NOINLINE processStream #-}
+processStream state [] = []
+processStream state (line ∷ rest) =
+  let (newState , response) = processJSONLine state line
+  in response ∷ λ where .force → processStream newState (force rest)
