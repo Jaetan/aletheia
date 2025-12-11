@@ -351,7 +351,47 @@ All critical issues from previous sessions have been resolved:
 
 ## Immediate Next Steps
 
-### 1. Python Frame Injection Tooling (Phase 5) - NEXT
+### 1. Integration Testing (Phase 2B.2 Completion) - CURRENT PRIORITY
+**Goal**: Validate O(1) memory streaming with real binary, prepare for demos
+
+**Tasks**:
+- Test streaming protocol with real binary (not mocked subprocess)
+- Memory profiling with large traces (verify O(1) holds in practice)
+- Performance benchmarking (measure actual throughput)
+- Validate all streaming operations end-to-end
+- Test batch operations with real binary
+
+**Estimated**: 1-2 days
+**Status**: NEXT SESSION - Critical for Phase 2B.2 completion
+
+**Deliverables**:
+- Integration test suite with real binary
+- Memory profiling results
+- Performance benchmarks
+- **Phase 2B.2 COMPLETE** - Ready for demos
+
+### 2. Full Project Review (Pre-Phase 3)
+**Goal**: Comprehensive review of entire codebase before formal verification work
+
+**Tasks**:
+- Code review of all 27 Agda modules
+- Architecture review (verify design principles followed)
+- Documentation completeness check
+- API usability assessment
+- Identify technical debt and improvement opportunities
+- Security review (input validation, error handling)
+- Performance analysis (identify optimization opportunities)
+
+**Estimated**: 2-3 days
+**Status**: After integration testing complete
+
+**Deliverables**:
+- Code review report
+- Architecture assessment
+- Recommendations for Phase 3
+- **Phase 2 FULLY COMPLETE** - Ready for formal verification
+
+### 3. Phase 5: Python Frame Injection Tooling (Project Phase 4)
 **Goal**: Helper utilities for common frame injection patterns
 
 **Tasks**:
@@ -363,47 +403,46 @@ All critical issues from previous sessions have been resolved:
 **Estimated**: 1-2 days
 **Note**: Uses existing API, no Agda changes required
 
-### 2. Integration Testing Expansion (1-2 days)
-**Current State**:
-- Basic integration tests exist (`tests/integration/`)
-- Python unit tests use mocked subprocess (32 tests)
-
-**Needed**:
-- Batch operations end-to-end tests with real binary
-- Memory profiling with large traces (1M+ frames)
-- Performance benchmarks
-- Frame injection scenarios
-
-**Tasks**:
-1. Test batch operations (buildFrame, extractAllSignals, updateFrame)
-2. Profile memory usage (should be O(1) after refactoring)
-3. Benchmark throughput (target: 100K+ frames/sec)
-4. Stress test with 1M+ frames
-
-### 3. Begin Phase 3 (After Refactoring)
+### 4. Begin Phase 3: Verification + Performance (After Review)
 **Prerequisites**:
 - ✅ Documentation complete
 - ✅ Batch operations implemented
-- ⏳ O(1) memory refactoring (pending)
-- ⏳ Integration testing (pending)
+- ✅ O(1) memory refactoring complete
+- ⏳ Integration testing (next session)
+- ⏳ Full project review (pending)
 
 **Then Ready For**: Parser proofs, LTL semantics correctness, performance optimization
 
 ---
 
-## Recommendations
+## Recommended Path (Updated 2025-12-11)
 
-### Recommended Path (Updated)
-1. **Coinductive refactoring** (7-8 days) - CRITICAL architectural fix
-2. **Integration testing** (1-2 days) - Verify O(1) memory works
-3. **Phase 3**: Verification + Performance (4-6 weeks)
-4. **Phase 4**: Python injection tooling (~2 days) - Frame 153 helpers
+### Phase 2B.2 Completion Path
+1. **Integration Testing** (1-2 days) - NEXT SESSION
+   - Validate O(1) memory with real binary
+   - Performance benchmarks and memory profiling
+   - **Deliverable**: Phase 2B.2 COMPLETE - Ready for demos
+
+2. **Full Project Review** (2-3 days)
+   - Comprehensive code and architecture review
+   - Identify improvements before Phase 3
+   - **Deliverable**: Phase 2 FULLY COMPLETE
+
+3. **Phase 5: Python Frame Injection Tooling** (1-2 days)
+   - Helper utilities for common patterns
+   - **Deliverable**: Enhanced demo capabilities
+
+4. **Phase 3: Verification + Performance** (4-6 weeks)
+   - Parser soundness proofs
+   - LTL semantics correctness
+   - Performance optimization (1M fps target)
 
 ### Why This Order
-- Refactoring changes architecture significantly
-- Must verify O(1) memory before adding proofs
-- Integration tests validate refactoring correctness
-- Phase 3 proofs should apply to correct architecture
+- Integration testing validates the O(1) refactoring works in practice
+- Full review ensures clean foundation for formal verification
+- Phase 2B.2 completion enables project demonstrations
+- Frame injection tooling enhances demo scenarios
+- Phase 3 proofs built on reviewed, tested architecture
 
 ---
 
@@ -419,11 +458,15 @@ All critical issues from previous sessions have been resolved:
 
 **System State**: Fully functional and scalable (O(1) memory, ~10K fps baseline)
 
-**Next Priority**: Python frame injection tooling (Phase 5) - 1-2 days
+**Current Phase**: Phase 2B.2 (Streaming + Async Python) - Nearing completion
 
-**Recommendation**: Frame injection tooling → integration testing → Phase 3 verification
+**Next Session Priority**: Integration testing (1-2 days) - CRITICAL for Phase 2B.2 completion
 
-**Timeline to Phase 3**: ~5 days (tooling + testing)
+**Demo Readiness**: End of Phase 2B.2 (after integration testing)
+
+**Path to Phase 3**: Integration testing → Full review → Phase 5 tooling → Phase 3
+
+**Timeline to Phase 3**: ~6 days (testing + review + tooling)
 
 ---
 
