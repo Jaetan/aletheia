@@ -397,17 +397,31 @@ All critical issues from previous sessions have been resolved:
 - Recommendations for Phase 3
 - **Phase 2 FULLY COMPLETE** - Ready for formal verification
 
-### 3. Phase 5: Python Frame Injection Tooling (Project Phase 4)
-**Goal**: Helper utilities for common frame injection patterns
+### 3. Phase 5: Python Tooling Extensions (Project Phase 4)
+**Goal**: Helper utilities for common patterns and real-world CAN format support
 
 **Tasks**:
+
+**A. Frame Injection Tooling**:
 - Create `python/aletheia/injection.py` module
 - Support patterns: `every_n_frames`, `at_timestamps`, `when(condition)`
 - Example use case: Inject Frame 153 every 100 frames
 - Documentation and examples
 
-**Estimated**: 1-2 days
-**Note**: Uses existing API, no Agda changes required
+**B. CAN Format Conversion (Option C)**:
+- Create `python/aletheia/frame_converter.py` module
+- Leverage `python-can` library for format support:
+  - Vector BLF (.blf) - industry standard binary compressed
+  - Vector ASC (.asc) - ASCII alternative
+  - candump/SocketCAN (.log) - Linux standard
+  - ASAM MF4 (.mf4) - ASAM data exchange standard
+  - CSV, TRC formats
+- Convert to Aletheia JSON format (timestamp in microseconds)
+- Support both offline conversion and direct streaming
+- Keeps Agda pure (verification only), Python handles I/O
+
+**Estimated**: 2-3 days total (1-2 days injection, 1 day converter)
+**Note**: Uses existing API and python-can library, no Agda changes required
 
 ### 4. Begin Phase 3: Verification + Performance (After Review)
 **Prerequisites**:
@@ -434,9 +448,10 @@ All critical issues from previous sessions have been resolved:
    - Identify improvements before Phase 3
    - **Deliverable**: Phase 2 FULLY COMPLETE
 
-3. **Phase 5: Python Frame Injection Tooling** (1-2 days)
-   - Helper utilities for common patterns
-   - **Deliverable**: Enhanced demo capabilities
+3. **Phase 5: Python Tooling Extensions** (2-3 days)
+   - Frame injection utilities (every_n_frames, at_timestamps, when())
+   - CAN format converter (BLF, ASC, candump, MF4 → JSON)
+   - **Deliverable**: Enhanced demo capabilities + real-world format support
 
 4. **Phase 3: Verification + Performance** (4-6 weeks)
    - Parser soundness proofs
@@ -452,9 +467,9 @@ All critical issues from previous sessions have been resolved:
 
 ---
 
-## Summary (Updated 2025-12-11)
+## Summary (Updated 2025-12-12)
 
-**Phase 2B.1 is COMPLETE** ✅ - All streaming + batch operations implemented
+**Phase 2B.2 is COMPLETE** ✅ - Integration testing validated O(1) memory (1.08x growth)
 
 **Documentation is COMPLETE** ✅ - Comprehensive tutorials, examples, API docs
 
@@ -462,17 +477,19 @@ All critical issues from previous sessions have been resolved:
 
 **Performance Validated** ✅ - True streaming with lazy evaluation confirmed
 
+**Code Review Phase 1 is COMPLETE** ✅ - Documentation consolidation (279 lines saved)
+
 **System State**: Fully functional and scalable (O(1) memory, ~10K fps baseline)
 
-**Current Phase**: Phase 2B.2 (Streaming + Async Python) - ✅ **COMPLETE!**
+**Current Phase**: Full Project Review - Code quality improvements in progress
 
 **Demo Ready**: ✅ YES - O(1) memory validated, all tests passing
 
-**Next Priority**: Full project review (2-3 days) before Phase 3
+**Next Priority**: Code Review Phases 2 & 3 (Python refactoring + Agda cleanup, ~556 lines total)
 
-**Path to Phase 3**: Integration testing → Full review → Phase 5 tooling → Phase 3
+**Path to Phase 3**: Code review → Phase 5 tooling → Phase 3 verification
 
-**Timeline to Phase 3**: ~6 days (testing + review + tooling)
+**Timeline to Phase 3**: ~3 days (code review + tooling)
 
 ---
 
