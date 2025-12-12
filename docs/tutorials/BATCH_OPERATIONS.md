@@ -57,16 +57,14 @@ Batch signal operations provide a high-level toolbox for building, extracting, a
 
 ### Prerequisites
 
+**Prerequisites**: See [Building Guide](../development/BUILDING.md) for detailed installation instructions.
+
 ```bash
 # Build the Aletheia binary
-cd /path/to/aletheia
 cabal run shake -- build
 
 # Activate Python environment
 source venv/bin/activate
-
-# Install dependencies if needed
-pip install cantools
 ```
 
 ### Example 1: Build a Simple Frame

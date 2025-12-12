@@ -340,7 +340,7 @@ All critical issues from previous sessions have been resolved:
   - Lazy evaluation: Incremental output confirmed ✅
   - Throughput: ~10-12K frames/sec baseline (JSON parsing overhead)
   - Memory: O(1) verified via linear time scaling ✅
-  - Documentation: `PHASE4_TESTING_RESULTS.md`
+  - Documentation: `docs/testing/results/PHASE4_TESTING_RESULTS.md`
 
 **Performance Results**:
 - Memory complexity: O(n) → **O(1)** ✅
@@ -373,7 +373,7 @@ All critical issues from previous sessions have been resolved:
 **Deliverables**:
 - ✅ `test_memory_profiling.py` (289 lines)
 - ✅ `INTEGRATION_TESTING.md` (comprehensive docs)
-- ✅ `INTEGRATION_TEST_RESULTS.md` (full analysis)
+- ✅ `docs/testing/results/INTEGRATION_TEST_RESULTS.md` (full analysis)
 - ✅ **Phase 2B.2 COMPLETE** - **Ready for demos!**
 
 ### 2. Full Project Review (Pre-Phase 3)

@@ -1,7 +1,8 @@
 # Aletheia Development Changelog
 
 **Purpose**: Historical record of major phase completions and milestones.
-**Current Status**: Phase 2B.1 Complete (2025-12-02)
+
+For current project status, see [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 ---
 

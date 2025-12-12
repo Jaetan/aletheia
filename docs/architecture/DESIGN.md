@@ -941,5 +941,5 @@ cabal run shake -- install-python
 ---
 
 **Document Status**: Living document, updated as project progresses
-**Current Phase**: Phase 1 (Core Infrastructure) - ~95% complete
-**Next Milestone**: Python wrapper + tests → Phase 1 complete
+
+For up-to-date phase information, milestones, and completion status, see [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
