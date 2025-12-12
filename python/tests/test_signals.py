@@ -16,7 +16,7 @@ from aletheia import FrameBuilder, SignalExtractor, SignalExtractionResult
 @pytest.fixture
 def mock_subprocess():
     """Mock subprocess.Popen for FrameBuilder/SignalExtractor"""
-    with patch('aletheia.signals.subprocess.Popen') as mock_popen:
+    with patch('aletheia.binary_client.subprocess.Popen') as mock_popen:
         # Create mock process
         mock_proc = MagicMock()
         mock_proc.stdin = MagicMock()
@@ -34,7 +34,7 @@ def mock_subprocess():
 @pytest.fixture
 def mock_binary_path():
     """Mock binary path check"""
-    with patch('aletheia.signals._get_binary_path') as mock_path:
+    with patch('aletheia.binary_utils.get_binary_path') as mock_path:
         mock_path.return_value = '/fake/path/to/aletheia'
         yield mock_path
 

@@ -6,11 +6,10 @@ Maintains a persistent subprocess for incremental LTL checking.
 
 from __future__ import annotations
 
-import subprocess
 import json
-from pathlib import Path
 from typing import cast
 
+from aletheia.binary_client import BinaryClient
 from aletheia.protocols import (
     Command,
     Response,
@@ -37,33 +36,7 @@ class ProtocolError(AletheiaError):
     """Protocol-related errors (invalid JSON, missing response, etc.)"""
 
 
-# ============================================================================
-# BINARY LOCATION
-# ============================================================================
-
-def get_binary_path() -> Path:
-    """Locate the Aletheia binary
-
-    Returns:
-        Path to the binary
-
-    Raises:
-        FileNotFoundError: If binary not found
-    """
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
-    binary = repo_root / "build" / "aletheia"
-
-    if not binary.exists():
-        raise FileNotFoundError(
-            f"Aletheia binary not found at {binary}. " +
-            "Please build it first with: cabal run shake -- build"
-        )
-
-    return binary
-
-
-class StreamingClient:
+class StreamingClient(BinaryClient):
     """JSON streaming client for incremental LTL checking
 
     Protocol:
@@ -100,40 +73,12 @@ class StreamingClient:
         Args:
             shutdown_timeout: Timeout in seconds for graceful shutdown (default: 5.0)
         """
-        self.binary_path: Path = get_binary_path()
-        self.proc: subprocess.Popen[str] | None = None
-        self.shutdown_timeout: float = shutdown_timeout
+        super().__init__(shutdown_timeout=shutdown_timeout)
 
     def __enter__(self):
         """Start the subprocess when entering context"""
-        self.proc = subprocess.Popen(
-            [str(self.binary_path)],  # No args = JSON streaming mode
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1  # Line buffered
-        )
+        self._start_subprocess()
         return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: object
-    ) -> None:
-        """Clean up the subprocess when exiting context
-
-        Tries graceful termination first, then force kill if needed.
-        """
-        if self.proc:
-            self.proc.terminate()
-            try:
-                _ = self.proc.wait(timeout=self.shutdown_timeout)
-            except subprocess.TimeoutExpired:
-                # Graceful termination failed, force kill
-                self.proc.kill()
-                _ = self.proc.wait()  # Wait for kill to complete
 
     def _send_command(self, command: Command) -> Response:
         """Send a JSON command and receive response
@@ -148,20 +93,20 @@ class StreamingClient:
             ProcessError: If subprocess is not running or terminated unexpectedly
             ProtocolError: If JSON communication fails
         """
-        if not self.proc or not self.proc.stdin or not self.proc.stdout:
+        if not self._proc or not self._proc.stdin or not self._proc.stdout:
             raise ProcessError("Subprocess not running")
 
         # Send command as JSON line
         json_line = json.dumps(command)
-        _ = self.proc.stdin.write(json_line + "\n")
-        self.proc.stdin.flush()
+        _ = self._proc.stdin.write(json_line + "\n")
+        self._proc.stdin.flush()
 
         # Read response as JSON line
-        response_line = self.proc.stdout.readline()
+        response_line = self._proc.stdout.readline()
         if not response_line:
             # Check if process died
-            if self.proc.poll() is not None:
-                stderr = self.proc.stderr.read() if self.proc.stderr else ""
+            if self._proc.poll() is not None:
+                stderr = self._proc.stderr.read() if self._proc.stderr else ""
                 raise ProcessError(f"Binary process terminated unexpectedly: {stderr}")
             raise ProtocolError("No response from binary")
 

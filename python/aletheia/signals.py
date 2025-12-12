@@ -11,33 +11,31 @@ Classes:
     SignalExtractor: Extract and update signals in CAN frames
 """
 
-import subprocess
-import json
-from pathlib import Path
-from typing import Dict, List, Optional, Any, cast
+from __future__ import annotations
+
+from typing import Protocol, TypedDict
+
+from .binary_client import BinaryClient
 from .protocols import DBCDefinition
 
 
-def _get_binary_path() -> Path:
-    """Locate the Aletheia binary
+class SignalValue(TypedDict):
+    """Signal name-value pair for encoding"""
+    name: str
+    value: float
 
-    Returns:
-        Path to the binary
 
-    Raises:
-        FileNotFoundError: If binary not found
-    """
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
-    binary = repo_root / "build" / "aletheia"
+class SignalError(TypedDict):
+    """Signal name-error pair for extraction errors"""
+    name: str
+    error: str
 
-    if not binary.exists():
-        raise FileNotFoundError(
-            f"Aletheia binary not found at {binary}. "
-            "Please build it first with: cabal run shake -- build"
-        )
 
-    return binary
+class FrameResponse(Protocol):
+    """Protocol for responses containing a frame field"""
+    def get(self, key: str, default: object = None) -> object: ...
+    def __getitem__(self, key: str) -> object: ...
+    def __contains__(self, key: str) -> bool: ...
 
 
 class SignalExtractionResult:
@@ -50,11 +48,15 @@ class SignalExtractionResult:
     - absent: Multiplexed signals not present in this frame
     """
 
+    values: dict[str, float]
+    errors: dict[str, str]
+    absent: list[str]
+
     def __init__(
         self,
-        values: Dict[str, float],
-        errors: Dict[str, str],
-        absent: List[str]
+        values: dict[str, float],
+        errors: dict[str, str],
+        absent: list[str]
     ):
         """
         Initialize extraction result.
@@ -94,7 +96,7 @@ class SignalExtractionResult:
         )
 
 
-class FrameBuilder:
+class FrameBuilder(BinaryClient):
     """
     Build CAN frames from signal name-value pairs.
 
@@ -124,83 +126,18 @@ class FrameBuilder:
             FileNotFoundError: If binary not found
             RuntimeError: If DBC parsing fails
         """
-        self._can_id = can_id
-        self._dbc = dbc
-        self._signals: Dict[str, float] = {}
-        self._proc: Optional[subprocess.Popen[str]] = None
+        super().__init__()
+        self._can_id: int = can_id
+        self._dbc: DBCDefinition = dbc
+        self._signals: dict[str, float] = {}
 
         # Start subprocess and load DBC
-        binary_path = _get_binary_path()
-        self._proc = subprocess.Popen(
-            [str(binary_path)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-
-        # Load DBC
-        self._send_command({
+        self._start_subprocess()
+        _ = self._send_command({
             "type": "command",
             "command": "parseDBC",
             "dbc": dbc
         })
-
-    def __enter__(self):
-        """Context manager entry"""
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit - cleanup subprocess"""
-        self.close()
-
-    def close(self) -> None:
-        """Close subprocess and cleanup resources"""
-        if self._proc:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait()
-            self._proc = None
-
-    def _send_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
-        """Send command to subprocess and get response
-
-        Args:
-            command: Command dictionary
-
-        Returns:
-            Response dictionary
-
-        Raises:
-            RuntimeError: If subprocess not running or command fails
-        """
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
-            raise RuntimeError("Subprocess not running")
-
-        # Send command
-        json_line = json.dumps(command)
-        self._proc.stdin.write(json_line + "\n")
-        self._proc.stdin.flush()
-
-        # Read response
-        response_line = self._proc.stdout.readline()
-        if not response_line:
-            if self._proc.poll() is not None:
-                stderr = self._proc.stderr.read() if self._proc.stderr else ""
-                raise RuntimeError(f"Binary process terminated: {stderr}")
-            raise RuntimeError("No response from binary")
-
-        response = json.loads(response_line)
-
-        # Check for errors
-        if response.get("status") == "error":
-            raise RuntimeError(f"Command failed: {response.get('message', 'Unknown error')}")
-
-        return response
 
     def set(self, signal_name: str, value: float) -> 'FrameBuilder':
         """
@@ -218,14 +155,18 @@ class FrameBuilder:
         """
         # Create new builder sharing subprocess but with independent signals
         new_builder = object.__new__(FrameBuilder)
+        # Copy base class attributes
+        new_builder.binary_path = self.binary_path
+        new_builder._proc = self._proc  # Share subprocess
+        new_builder.shutdown_timeout = self.shutdown_timeout
+        # Copy FrameBuilder-specific attributes
         new_builder._can_id = self._can_id
         new_builder._dbc = self._dbc
-        new_builder._proc = self._proc  # Share subprocess
         new_builder._signals = self._signals.copy()
         new_builder._signals[signal_name] = value
         return new_builder
 
-    def build(self) -> List[int]:
+    def build(self) -> list[int]:
         """
         Build CAN frame from configured signals.
 
@@ -237,8 +178,8 @@ class FrameBuilder:
                          signal not found, value out of bounds, etc.)
         """
         # Convert signals to JSON format expected by Agda
-        signals_json = [
-            {"name": name, "value": value}
+        signals_json: list[SignalValue] = [
+            SignalValue(name=name, value=value)
             for name, value in self._signals.items()
         ]
 
@@ -254,11 +195,11 @@ class FrameBuilder:
         if "frame" not in response:
             raise RuntimeError("Invalid response: missing 'frame' field")
 
-        frame = response["frame"]
-        if not isinstance(frame, list) or len(frame) != 8:
-            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame}")
+        frame_data = response["frame"]
+        if not isinstance(frame_data, list) or len(frame_data) != 8:
+            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
 
-        return frame
+        return frame_data  # type: ignore[return-value]
 
     def __repr__(self) -> str:
         return (
@@ -268,7 +209,7 @@ class FrameBuilder:
         )
 
 
-class SignalExtractor:
+class SignalExtractor(BinaryClient):
     """
     Extract and update signals in CAN frames.
 
@@ -297,86 +238,21 @@ class SignalExtractor:
             FileNotFoundError: If binary not found
             RuntimeError: If DBC parsing fails
         """
-        self._dbc = dbc
-        self._proc: Optional[subprocess.Popen[str]] = None
+        super().__init__()
+        self._dbc: DBCDefinition = dbc
 
         # Start subprocess and load DBC
-        binary_path = _get_binary_path()
-        self._proc = subprocess.Popen(
-            [str(binary_path)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-
-        # Load DBC
-        self._send_command({
+        self._start_subprocess()
+        _ = self._send_command({
             "type": "command",
             "command": "parseDBC",
             "dbc": dbc
         })
 
-    def __enter__(self):
-        """Context manager entry"""
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Context manager exit - cleanup subprocess"""
-        self.close()
-
-    def close(self) -> None:
-        """Close subprocess and cleanup resources"""
-        if self._proc:
-            self._proc.terminate()
-            try:
-                self._proc.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                self._proc.kill()
-                self._proc.wait()
-            self._proc = None
-
-    def _send_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
-        """Send command to subprocess and get response
-
-        Args:
-            command: Command dictionary
-
-        Returns:
-            Response dictionary
-
-        Raises:
-            RuntimeError: If subprocess not running or command fails
-        """
-        if not self._proc or not self._proc.stdin or not self._proc.stdout:
-            raise RuntimeError("Subprocess not running")
-
-        # Send command
-        json_line = json.dumps(command)
-        self._proc.stdin.write(json_line + "\n")
-        self._proc.stdin.flush()
-
-        # Read response
-        response_line = self._proc.stdout.readline()
-        if not response_line:
-            if self._proc.poll() is not None:
-                stderr = self._proc.stderr.read() if self._proc.stderr else ""
-                raise RuntimeError(f"Binary process terminated: {stderr}")
-            raise RuntimeError("No response from binary")
-
-        response = json.loads(response_line)
-
-        # Check for errors
-        if response.get("status") == "error":
-            raise RuntimeError(f"Command failed: {response.get('message', 'Unknown error')}")
-
-        return response
-
     def extract(
         self,
         can_id: int,
-        data: List[int]
+        data: list[int]
     ) -> SignalExtractionResult:
         """
         Extract all signals from a CAN frame.
@@ -404,28 +280,41 @@ class SignalExtractor:
         })
 
         # Parse response into SignalExtractionResult
-        values_list = response.get("values", [])
-        errors_list = response.get("errors", [])
-        absent_list = response.get("absent", [])
+        values_data = response.get("values", [])
+        errors_data = response.get("errors", [])
+        absent_data = response.get("absent", [])
 
         # Convert values list to dict
-        values = {item["name"]: item["value"] for item in values_list}
+        values: dict[str, float] = {}
+        if isinstance(values_data, list):
+            for item in values_data:
+                if isinstance(item, dict) and "name" in item and "value" in item:
+                    values[str(item["name"])] = float(item["value"])  # type: ignore[arg-type]
 
         # Convert errors list to dict
-        errors = {item["name"]: item["error"] for item in errors_list}
+        errors: dict[str, str] = {}
+        if isinstance(errors_data, list):
+            for item in errors_data:
+                if isinstance(item, dict) and "name" in item and "error" in item:
+                    errors[str(item["name"])] = str(item["error"])
+
+        # Convert absent list
+        absent: list[str] = []
+        if isinstance(absent_data, list):
+            absent = [str(item) for item in absent_data]
 
         return SignalExtractionResult(
             values=values,
             errors=errors,
-            absent=absent_list
+            absent=absent
         )
 
     def update(
         self,
         can_id: int,
-        frame: List[int],
-        signals: Dict[str, float]
-    ) -> List[int]:
+        frame: list[int],
+        signals: dict[str, float]
+    ) -> list[int]:
         """
         Update specific signals in an existing frame.
 
@@ -447,8 +336,8 @@ class SignalExtractor:
             raise ValueError(f"Frame data must be 8 bytes, got {len(frame)}")
 
         # Convert signals to JSON format
-        signals_json = [
-            {"name": name, "value": value}
+        signals_json: list[SignalValue] = [
+            SignalValue(name=name, value=value)
             for name, value in signals.items()
         ]
 
@@ -465,11 +354,11 @@ class SignalExtractor:
         if "frame" not in response:
             raise RuntimeError("Invalid response: missing 'frame' field")
 
-        updated_frame = response["frame"]
-        if not isinstance(updated_frame, list) or len(updated_frame) != 8:
-            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {updated_frame}")
+        frame_data = response["frame"]
+        if not isinstance(frame_data, list) or len(frame_data) != 8:
+            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
 
-        return updated_frame
+        return frame_data  # type: ignore[return-value]
 
     def __repr__(self) -> str:
         return f"SignalExtractor(dbc=loaded)"
