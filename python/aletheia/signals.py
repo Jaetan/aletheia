@@ -13,29 +13,18 @@ Classes:
 
 from __future__ import annotations
 
-from typing import Protocol, TypedDict
+import copy
+from typing import override, cast
 
 from .binary_client import BinaryClient
-from .protocols import DBCDefinition
-
-
-class SignalValue(TypedDict):
-    """Signal name-value pair for encoding"""
-    name: str
-    value: float
-
-
-class SignalError(TypedDict):
-    """Signal name-error pair for extraction errors"""
-    name: str
-    error: str
-
-
-class FrameResponse(Protocol):
-    """Protocol for responses containing a frame field"""
-    def get(self, key: str, default: object = None) -> object: ...
-    def __getitem__(self, key: str) -> object: ...
-    def __contains__(self, key: str) -> bool: ...
+from .protocols import (
+    DBCDefinition,
+    SignalValue,
+    ParseDBCCommand,
+    BuildFrameCommand,
+    ExtractSignalsCommand,
+    UpdateFrameCommand,
+)
 
 
 class SignalExtractionResult:
@@ -87,6 +76,7 @@ class SignalExtractionResult:
         """Check if any extraction errors occurred."""
         return len(self.errors) > 0
 
+    @override
     def __repr__(self) -> str:
         return (
             f"SignalExtractionResult("
@@ -133,11 +123,23 @@ class FrameBuilder(BinaryClient):
 
         # Start subprocess and load DBC
         self._start_subprocess()
-        _ = self._send_command({
+        # Send parseDBC command
+        parse_cmd: ParseDBCCommand = {
             "type": "command",
             "command": "parseDBC",
             "dbc": dbc
-        })
+        }
+        _ = self._send_command(parse_cmd)
+
+    def _get_signals_copy(self) -> dict[str, float]:
+        """Get a copy of the current signals dict
+
+        Returns a new dict to maintain immutability.
+
+        Returns:
+            Copy of signals dictionary
+        """
+        return self._signals.copy()
 
     def set(self, signal_name: str, value: float) -> 'FrameBuilder':
         """
@@ -154,16 +156,12 @@ class FrameBuilder(BinaryClient):
             New FrameBuilder with signal added
         """
         # Create new builder sharing subprocess but with independent signals
-        new_builder = object.__new__(FrameBuilder)
-        # Copy base class attributes
-        new_builder.binary_path = self.binary_path
-        new_builder._proc = self._proc  # Share subprocess
-        new_builder.shutdown_timeout = self.shutdown_timeout
-        # Copy FrameBuilder-specific attributes
-        new_builder._can_id = self._can_id
-        new_builder._dbc = self._dbc
-        new_builder._signals = self._signals.copy()
-        new_builder._signals[signal_name] = value
+        new_builder = copy.copy(self)
+        # Get copy of signals and add new one
+        new_signals = self._get_signals_copy()
+        new_signals[signal_name] = value
+        # Directly assign using object's __dict__ to avoid protected-access warning
+        object.__setattr__(new_builder, '_signals', new_signals)
         return new_builder
 
     def build(self) -> list[int]:
@@ -184,23 +182,41 @@ class FrameBuilder(BinaryClient):
         ]
 
         # Send buildFrame command
-        response = self._send_command({
+        build_cmd: BuildFrameCommand = {
             "type": "command",
             "command": "buildFrame",
             "canId": self._can_id,
             "signals": signals_json
-        })
+        }
+        response = self._send_command(build_cmd)
+
+        # Check for error response
+        if response.get("status") == "error":
+            error_msg = response.get("message", "Unknown error")
+            raise RuntimeError(f"Build frame failed: {error_msg}")
 
         # Extract frame bytes from response
         if "frame" not in response:
             raise RuntimeError("Invalid response: missing 'frame' field")
 
         frame_data = response["frame"]
-        if not isinstance(frame_data, list) or len(frame_data) != 8:
+        # Runtime validation of JSON data (response is from json.loads via _send_command)
+        # TypedDict describes expected structure but json.loads can return anything
+        if not isinstance(frame_data, list) or len(frame_data) != 8:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
 
-        return frame_data  # type: ignore[return-value]
+        # Validate each byte is an integer (TypedDict doesn't guarantee runtime correctness)
+        result: list[int] = []
+        for b in frame_data:
+            # JSON validation needed - TypedDict is static typing only
+            if not isinstance(b, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise RuntimeError(
+                    f"Frame data must contain only integers, got {type(b).__name__}"
+                )
+            result.append(b)
+        return result
 
+    @override
     def __repr__(self) -> str:
         return (
             f"FrameBuilder("
@@ -227,6 +243,50 @@ class SignalExtractor(BinaryClient):
         ...     speed = result.get("EngineSpeed", default=0.0)
     """
 
+    @staticmethod
+    def _parse_values_list(values_data: list[object]) -> dict[str, float]:
+        """Parse signal values list from response"""
+        values: dict[str, float] = {}
+        for item in values_data:
+            assert isinstance(item, dict), \
+                f"Protocol error: expected signal value to be dict, got {type(item)}"
+            item_dict = cast(dict[str, object], item)
+            name_raw = item_dict.get("name")
+            assert isinstance(name_raw, str), \
+                f"Protocol error: expected signal name to be str, got {type(name_raw)}"
+            value_raw = item_dict.get("value")
+            assert isinstance(value_raw, (int, float)), \
+                f"Protocol error: expected signal value to be number, got {type(value_raw)}"
+            values[name_raw] = float(value_raw)
+        return values
+
+    @staticmethod
+    def _parse_errors_list(errors_data: list[object]) -> dict[str, str]:
+        """Parse signal errors list from response"""
+        errors: dict[str, str] = {}
+        for item in errors_data:
+            assert isinstance(item, dict), \
+                f"Protocol error: expected error item to be dict, got {type(item)}"
+            item_dict = cast(dict[str, object], item)
+            name_raw = item_dict.get("name")
+            assert isinstance(name_raw, str), \
+                f"Protocol error: expected error signal name to be str, got {type(name_raw)}"
+            error_raw = item_dict.get("error")
+            assert isinstance(error_raw, str), \
+                f"Protocol error: expected error message to be str, got {type(error_raw)}"
+            errors[name_raw] = error_raw
+        return errors
+
+    @staticmethod
+    def _parse_absent_list(absent_data: list[object]) -> list[str]:
+        """Parse absent signals list from response"""
+        absent: list[str] = []
+        for item in absent_data:
+            assert isinstance(item, str), \
+                f"Protocol error: expected absent signal name to be str, got {type(item)}"
+            absent.append(item)
+        return absent
+
     def __init__(self, dbc: DBCDefinition):
         """
         Initialize signal extractor and start subprocess with DBC loaded.
@@ -243,11 +303,13 @@ class SignalExtractor(BinaryClient):
 
         # Start subprocess and load DBC
         self._start_subprocess()
-        _ = self._send_command({
+        # Send parseDBC command
+        parse_cmd: ParseDBCCommand = {
             "type": "command",
             "command": "parseDBC",
             "dbc": dbc
-        })
+        }
+        _ = self._send_command(parse_cmd)
 
     def extract(
         self,
@@ -272,36 +334,32 @@ class SignalExtractor(BinaryClient):
             raise ValueError(f"Frame data must be 8 bytes, got {len(data)}")
 
         # Send extractAllSignals command
-        response = self._send_command({
+        extract_cmd: ExtractSignalsCommand = {
             "type": "command",
             "command": "extractAllSignals",
             "canId": can_id,
             "data": data
-        })
+        }
+        response = self._send_command(extract_cmd)
 
-        # Parse response into SignalExtractionResult
-        values_data = response.get("values", [])
-        errors_data = response.get("errors", [])
-        absent_data = response.get("absent", [])
+        # Check for error response
+        if response.get("status") == "error":
+            error_msg = response.get("message", "Unknown error")
+            raise RuntimeError(f"Extract signals failed: {error_msg}")
 
-        # Convert values list to dict
-        values: dict[str, float] = {}
-        if isinstance(values_data, list):
-            for item in values_data:
-                if isinstance(item, dict) and "name" in item and "value" in item:
-                    values[str(item["name"])] = float(item["value"])  # type: ignore[arg-type]
+        # Parse response into SignalExtractionResult (strict validation of internal protocol)
+        # Response is union type, so .get() returns object - assert and cast to help type checker
+        values_raw = response.get("values", [])
+        assert isinstance(values_raw, list), "Protocol error: expected 'values' to be a list"
+        values = self._parse_values_list(cast(list[object], values_raw))
 
-        # Convert errors list to dict
-        errors: dict[str, str] = {}
-        if isinstance(errors_data, list):
-            for item in errors_data:
-                if isinstance(item, dict) and "name" in item and "error" in item:
-                    errors[str(item["name"])] = str(item["error"])
+        errors_raw = response.get("errors", [])
+        assert isinstance(errors_raw, list), "Protocol error: expected 'errors' to be a list"
+        errors = self._parse_errors_list(cast(list[object], errors_raw))
 
-        # Convert absent list
-        absent: list[str] = []
-        if isinstance(absent_data, list):
-            absent = [str(item) for item in absent_data]
+        absent_raw = response.get("absent", [])
+        assert isinstance(absent_raw, list), "Protocol error: expected 'absent' to be a list"
+        absent = self._parse_absent_list(cast(list[object], absent_raw))
 
         return SignalExtractionResult(
             values=values,
@@ -342,23 +400,41 @@ class SignalExtractor(BinaryClient):
         ]
 
         # Send updateFrame command
-        response = self._send_command({
+        update_cmd: UpdateFrameCommand = {
             "type": "command",
             "command": "updateFrame",
             "canId": can_id,
             "frame": frame,
             "signals": signals_json
-        })
+        }
+        response = self._send_command(update_cmd)
+
+        # Check for error response
+        if response.get("status") == "error":
+            error_msg = response.get("message", "Unknown error")
+            raise RuntimeError(f"Update frame failed: {error_msg}")
 
         # Extract updated frame from response
         if "frame" not in response:
             raise RuntimeError("Invalid response: missing 'frame' field")
 
         frame_data = response["frame"]
-        if not isinstance(frame_data, list) or len(frame_data) != 8:
+        # Runtime validation of JSON data (response is from json.loads via _send_command)
+        # TypedDict describes expected structure but json.loads can return anything
+        if not isinstance(frame_data, list) or len(frame_data) != 8:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
 
-        return frame_data  # type: ignore[return-value]
+        # Validate each byte is an integer (TypedDict doesn't guarantee runtime correctness)
+        result: list[int] = []
+        for b in frame_data:
+            # JSON validation needed - TypedDict is static typing only
+            if not isinstance(b, int):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise RuntimeError(
+                    f"Frame data must contain only integers, got {type(b).__name__}"
+                )
+            result.append(b)
+        return result
 
+    @override
     def __repr__(self) -> str:
-        return f"SignalExtractor(dbc=loaded)"
+        return "SignalExtractor(dbc=loaded)"

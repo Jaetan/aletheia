@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from aletheia.protocols import (
+from .protocols import (
     DBCSignal,
     DBCMessage,
     DBCDefinition,

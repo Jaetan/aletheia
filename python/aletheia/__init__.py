@@ -36,14 +36,14 @@ Use the fluent Signal interface to build properties:
     brake.implies(speed_decreases.within(100))
 """
 
-from aletheia.streaming_client import (
+from .streaming_client import (
     StreamingClient,
     AletheiaError,
     ProcessError,
     ProtocolError,
 )
-from aletheia.dsl import Signal, Predicate, Property
-from aletheia.signals import (
+from .dsl import Signal, Predicate, Property
+from .signals import (
     FrameBuilder,
     SignalExtractor,
     SignalExtractionResult,

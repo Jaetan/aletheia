@@ -13,14 +13,10 @@ Centralizes:
 import json
 import subprocess
 from pathlib import Path
+from typing import cast
 
 from .binary_utils import get_binary_path
-
-
-# JSON type definition (recursive composite type)
-# JSON values can be: None, bool, int, float, str, list of JSON, or dict of str to JSON
-JSON = None | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
-JSONObject = dict[str, JSON]
+from .protocols import Command, Response
 
 
 class BinaryClient:
@@ -57,6 +53,10 @@ class BinaryClient:
         if self._proc is not None:
             raise RuntimeError("Subprocess already running")
 
+        # pylint: disable=consider-using-with
+        # Reason: Subprocess lifecycle is managed manually through __enter__/__exit__/close()
+        # The subprocess must persist across multiple method calls, so we cannot use 'with'
+        # at creation time. Cleanup is guaranteed through context manager protocol.
         self._proc = subprocess.Popen(
             [str(self.binary_path)],
             stdin=subprocess.PIPE,
@@ -87,21 +87,21 @@ class BinaryClient:
         if self._proc:
             self._proc.terminate()
             try:
-                self._proc.wait(timeout=self.shutdown_timeout)
+                _ = self._proc.wait(timeout=self.shutdown_timeout)
             except subprocess.TimeoutExpired:
                 # Graceful termination failed, force kill
                 self._proc.kill()
-                self._proc.wait()  # Wait for kill to complete
+                _ = self._proc.wait()  # Wait for kill to complete
             self._proc = None
 
-    def _send_command(self, command: JSONObject) -> JSONObject:
-        """Send JSON command to binary and receive response
+    def _send_command(self, command: Command) -> Response:
+        """Send command to binary and receive response
 
         Args:
-            command: Command dictionary (must have JSON-serializable structure)
+            command: Command (specific TypedDict type)
 
         Returns:
-            Response dictionary from binary
+            Response (specific TypedDict type)
 
         Raises:
             RuntimeError: If subprocess not running or command fails
@@ -111,7 +111,7 @@ class BinaryClient:
 
         # Send command as JSON line
         json_line = json.dumps(command)
-        self._proc.stdin.write(json_line + "\n")
+        _ = self._proc.stdin.write(json_line + "\n")
         self._proc.stdin.flush()
 
         # Read response line
@@ -123,13 +123,18 @@ class BinaryClient:
                 raise RuntimeError(f"Binary process terminated: {stderr}")
             raise RuntimeError("No response from binary")
 
-        # Parse JSON response
-        response_data: JSON = json.loads(response_line)
-        response: JSONObject = response_data if isinstance(response_data, dict) else {}
+        # Parse JSON response - validate it's a dict before assigning to Response
+        # Note: json.loads() returns Any by design (JSON can contain any structure)
+        # We validate with isinstance check and then cast to our Response type for type safety
+        try:
+            parsed = json.loads(response_line)  # pyright: ignore[reportAny]
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON response: {response_line!r} - {e}") from e
 
-        # Check for error status
-        if response.get("status") == "error":
-            error_msg = response.get("message", "Unknown error")
-            raise RuntimeError(f"Command failed: {error_msg}")
+        if not isinstance(parsed, dict):
+            # type(parsed) uses Any from json.loads
+            raise RuntimeError(f"Expected JSON object, got {type(parsed).__name__}")  # pyright: ignore[reportAny]
 
-        return response
+        # Type-safe cast after runtime validation (isinstance check ensures correctness)
+        # Cast through object first as basedpyright requires for unrelated type conversions
+        return cast(Response, cast(object, parsed))

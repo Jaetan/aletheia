@@ -22,7 +22,7 @@ def get_binary_path() -> Path:
 
     if not binary.exists():
         raise FileNotFoundError(
-            f"Aletheia binary not found at {binary}. "
+            f"Aletheia binary not found at {binary}. " +
             "Please build it first with: cabal run shake -- build"
         )
 

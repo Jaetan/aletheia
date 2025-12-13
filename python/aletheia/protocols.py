@@ -7,7 +7,7 @@ This provides better type safety and IDE support.
 from __future__ import annotations
 
 from enum import Enum
-from typing import TypedDict, NotRequired, Union, Literal
+from typing import TypedDict, NotRequired, Literal
 
 
 class ByteOrder(str, Enum):
@@ -27,7 +27,7 @@ class ResponseStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
     ACK = "ack"
-    VIOLATED = "violated"
+    VIOLATED = "violation"  # Note: binary sends "violation" not "violated"
     COMPLETE = "complete"
 
 
@@ -76,7 +76,7 @@ class DBCSignalMultiplexed(TypedDict):
 
 
 # Union type for all signal types
-DBCSignal = Union[DBCSignalAlways, DBCSignalMultiplexed]
+DBCSignal = DBCSignalAlways | DBCSignalMultiplexed
 
 
 class DBCMessage(TypedDict):
@@ -193,21 +193,43 @@ class UntilFormula(TypedDict):
 
 
 # Union type for all LTL formulas
-LTLFormula = Union[
-    CompareFormula,
-    BetweenFormula,
-    ChangedByFormula,
-    AndFormula,
-    OrFormula,
-    NotFormula,
-    AlwaysFormula,
-    EventuallyFormula,
-    NeverFormula,
-    EventuallyWithinFormula,
-    AlwaysWithinFormula,
-    ImpliesFormula,
-    UntilFormula,
-]
+LTLFormula = (
+    CompareFormula |
+    BetweenFormula |
+    ChangedByFormula |
+    AndFormula |
+    OrFormula |
+    NotFormula |
+    AlwaysFormula |
+    EventuallyFormula |
+    NeverFormula |
+    EventuallyWithinFormula |
+    AlwaysWithinFormula |
+    ImpliesFormula |
+    UntilFormula
+)
+
+
+# ============================================================================
+# Signal Operation Types
+# ============================================================================
+
+class RationalNumber(TypedDict):
+    """Rational number representation from Agda"""
+    numerator: int
+    denominator: int
+
+
+class SignalValue(TypedDict):
+    """Signal name-value pair for encoding"""
+    name: str
+    value: float
+
+
+class SignalError(TypedDict):
+    """Signal name-error pair for extraction errors"""
+    name: str
+    error: str
 
 
 # ============================================================================
@@ -216,52 +238,80 @@ LTLFormula = Union[
 
 class ParseDBCCommand(TypedDict):
     """Parse DBC file command"""
-    type: str  # "command"
-    command: str  # "parseDBC"
+    type: Literal["command"]
+    command: Literal["parseDBC"]
     dbc: DBCDefinition
 
 
 class SetPropertiesCommand(TypedDict):
     """Set LTL properties command"""
-    type: str  # "command"
-    command: str  # "setProperties"
+    type: Literal["command"]
+    command: Literal["setProperties"]
     properties: list[LTLFormula]
 
 
 class StartStreamCommand(TypedDict):
     """Start streaming command"""
-    type: str  # "command"
-    command: str  # "startStream"
+    type: Literal["command"]
+    command: Literal["startStream"]
 
 
 class EndStreamCommand(TypedDict):
     """End streaming command"""
-    type: str  # "command"
-    command: str  # "endStream"
+    type: Literal["command"]
+    command: Literal["endStream"]
+
+
+class BuildFrameCommand(TypedDict):
+    """Build CAN frame from signal values"""
+    type: Literal["command"]
+    command: Literal["buildFrame"]
+    canId: int
+    signals: list[SignalValue]
+
+
+class ExtractSignalsCommand(TypedDict):
+    """Extract all signals from CAN frame"""
+    type: Literal["command"]
+    command: Literal["extractAllSignals"]
+    canId: int
+    data: list[int]
+
+
+class UpdateFrameCommand(TypedDict):
+    """Update signals in existing CAN frame"""
+    type: Literal["command"]
+    command: Literal["updateFrame"]
+    canId: int
+    frame: list[int]
+    signals: list[SignalValue]
 
 
 class DataFrame(TypedDict):
     """CAN data frame"""
-    type: str  # "data"
+    type: Literal["data"]
     timestamp: int
     id: int
     data: list[int]
 
 
 # Union type for all commands
-Command = Union[
-    ParseDBCCommand,
-    SetPropertiesCommand,
-    StartStreamCommand,
-    EndStreamCommand,
-    DataFrame,
-]
+Command = (
+    ParseDBCCommand |
+    SetPropertiesCommand |
+    StartStreamCommand |
+    EndStreamCommand |
+    BuildFrameCommand |
+    ExtractSignalsCommand |
+    UpdateFrameCommand |
+    DataFrame
+)
 
 
 class SuccessResponse(TypedDict):
     """Success response"""
     status: ResponseStatus  # ResponseStatus.SUCCESS
-    message: str
+    message: NotRequired[str]  # Optional message field
 
 
 class ErrorResponse(TypedDict):
@@ -277,11 +327,11 @@ class AckResponse(TypedDict):
 
 class PropertyViolationResponse(TypedDict):
     """Property violation response"""
-    status: ResponseStatus  # ResponseStatus.VIOLATED
-    type: str  # "property"
-    property_id: int
-    timestamp: int
-    message: NotRequired[str]
+    status: Literal["violation"]  # Binary sends "violation"
+    type: Literal["property"]
+    property_index: RationalNumber
+    timestamp: RationalNumber
+    reason: NotRequired[str]  # Optional reason field from binary
 
 
 class CompleteResponse(TypedDict):
@@ -289,11 +339,34 @@ class CompleteResponse(TypedDict):
     status: ResponseStatus  # ResponseStatus.COMPLETE
 
 
+class BuildFrameResponse(TypedDict):
+    """Response from buildFrame command"""
+    status: Literal["success"]
+    frame: list[int]
+
+
+class ExtractSignalsResponse(TypedDict):
+    """Response from extractAllSignals command"""
+    status: Literal["success"]
+    values: list[SignalValue]
+    errors: list[SignalError]
+    absent: list[str]
+
+
+class UpdateFrameResponse(TypedDict):
+    """Response from updateFrame command"""
+    status: Literal["success"]
+    frame: list[int]
+
+
 # Union type for all responses
-Response = Union[
-    SuccessResponse,
-    ErrorResponse,
-    AckResponse,
-    PropertyViolationResponse,
-    CompleteResponse,
-]
+Response = (
+    SuccessResponse |
+    ErrorResponse |
+    AckResponse |
+    PropertyViolationResponse |
+    CompleteResponse |
+    BuildFrameResponse |
+    ExtractSignalsResponse |
+    UpdateFrameResponse
+)

@@ -13,7 +13,7 @@ Usage with StreamingClient:
 
 from __future__ import annotations
 
-from aletheia.protocols import (
+from .protocols import (
     LTLFormula,
     CompareFormula,
     BetweenFormula,
