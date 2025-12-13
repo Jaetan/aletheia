@@ -86,6 +86,32 @@ The Aletheia project has successfully completed all planned Phase 2B deliverable
 - **Memory validation: 1.08x growth across 100x trace size increase** ✅
 - Throughput: ~2K fps (test infrastructure), ~10K fps (pure streaming)
 
+**Testing Results** (December 11, 2025):
+
+*Memory Profiling*:
+- Test methodology: Generated traces (1K, 10K, 100K frames), measured RSS
+- Results: 13.0 MB → 13.2 MB → 14.0 MB (1.08x growth for 100x data)
+- Memory per frame: 146.80 bytes (100K trace, constant)
+- Verdict: **O(1) memory confirmed** (threshold: <1.5x growth)
+
+*Streaming Correctness*:
+- 1:1 input/output mapping: ✅ Verified (100, 1K, 10K frames)
+- Lazy evaluation: ✅ Confirmed (incremental output, no buffering)
+- Property violation detection: ✅ Working correctly
+
+*Performance Baseline*:
+- Integration tests: ~2K fps (includes file I/O, subprocess overhead)
+- Pure streaming: ~10K fps (direct pipes, representative baseline)
+- Throughput consistency: Improves slightly with larger traces
+- Time complexity: Linear (expected for O(1) memory)
+
+*Key Achievement*: Memory increased by only 7.7% when processing 100x more data, proving the transformation from `accumulatedFrames : List TimedFrame` to incremental `PropertyState` was successful.
+
+*Test Infrastructure*:
+- `test_memory_profiling.py` (289 lines): Automated trace generation, RSS measurement
+- `test_integration.py`: Streaming protocol end-to-end validation
+- Full results: Previously documented in INTEGRATION_TEST_RESULTS.md and PHASE4_TESTING_RESULTS.md (consolidated here)
+
 #### Phase 2B.3: Counterexamples & Polish ✅
 **Delivered**:
 - Counterexample generation with violation details
@@ -288,7 +314,8 @@ All critical issues from previous sessions have been resolved:
 
 ### Documentation
 - **Project Docs**: CLAUDE.md, README.md, PROJECT_STATUS.md (this file)
-- **Architecture Docs**: DESIGN.md, BUILDING.md, DEVELOPMENT.md
+- **Architecture Docs**: DESIGN.md, PROTOCOL.md, ARCHITECTURAL_ANALYSIS.md
+- **Development Docs**: BUILDING.md, PYTHON_API.md, BATCH_OPERATIONS.md
 - **Session Docs**: .session-state.md
 
 ---
@@ -340,7 +367,7 @@ All critical issues from previous sessions have been resolved:
   - Lazy evaluation: Incremental output confirmed ✅
   - Throughput: ~10-12K frames/sec baseline (JSON parsing overhead)
   - Memory: O(1) verified via linear time scaling ✅
-  - Documentation: `docs/testing/results/PHASE4_TESTING_RESULTS.md`
+  - Documentation: Previously in PHASE4_TESTING_RESULTS.md (consolidated above)
 
 **Performance Results**:
 - Memory complexity: O(n) → **O(1)** ✅
@@ -373,7 +400,7 @@ All critical issues from previous sessions have been resolved:
 **Deliverables**:
 - ✅ `test_memory_profiling.py` (289 lines)
 - ✅ `INTEGRATION_TESTING.md` (comprehensive docs)
-- ✅ `docs/testing/results/INTEGRATION_TEST_RESULTS.md` (full analysis)
+- ✅ Integration test results (previously in INTEGRATION_TEST_RESULTS.md, now consolidated in Phase 2B.2 section above)
 - ✅ **Phase 2B.2 COMPLETE** - **Ready for demos!**
 
 ### 2. Full Project Review (Pre-Phase 3)
@@ -490,6 +517,114 @@ All critical issues from previous sessions have been resolved:
 **Path to Phase 3**: Code review → Phase 5 tooling → Phase 3 verification
 
 **Timeline to Phase 3**: ~3 days (code review + tooling)
+
+---
+
+## Historical Milestones
+
+### December 14, 2025 - Type System Refactoring Complete
+**What**: Fixed all basedpyright warnings, improved type safety
+**Commits**: be24138, 2211ccb
+**Impact**: 0 errors, 0 warnings in our code; pylint 10.0/10 maintained
+
+**Key Changes**:
+- Added RationalNumber TypedDict for precise typing
+- Extracted helper methods to reduce complexity
+- Created python/.pylintrc (max-line-length=140)
+- Assert + cast pattern for strict protocol validation
+
+### December 10, 2025 - Documentation Consolidation & Batch Operations
+**What**: Eliminated documentation duplication, added comprehensive batch operations docs
+**Impact**: Saved 582 lines through DRY consolidation, added ~2,600 lines of new docs/examples
+
+**Part B - Documentation Consolidation**:
+- CLAUDE.md: 592 → 303 lines (289 saved)
+- .session-state.md: 498 → 205 lines (293 saved)
+- PROJECT_STATUS.md as single source for phase status
+
+**Part C - Batch Operations Documentation**:
+- Created docs/tutorials/BATCH_OPERATIONS.md (500+ lines tutorial)
+- Created 7 example scripts in examples/batch_operations/ (1,780 lines)
+- Updated PYTHON_API.md with batch operations section (320 lines)
+- Updated README.md with batch operations showcase
+
+### December 2, 2025 - Repository Reorganization
+**What**: Structured docs/ hierarchy for scalability
+**Commit**: 1808036
+
+**Changes**:
+- Created docs/architecture/, docs/development/, docs/phases/, docs/cleanup/
+- Created tests/integration/ with fixtures/
+- Moved 14 markdown files from root to organized locations
+- Cleaned .gitignore patterns
+
+### December 2, 2025 - Dead Code Cleanup
+**What**: Removed 9 unused modules (~1,175 lines)
+**Commit**: 8043d99
+**Impact**: 41 modules → 32 active modules
+
+**Modules Removed**:
+- DBC/Semantics.agda, Protocol/{Command,Handlers,Parser}.agda
+- LTL/DSL/{Yaml,Parser,Translate}.agda
+- DebugDBC.agda, Trace/SizedStream.agda
+
+### November 29 - December 2, 2025 - Phase 2B.1: JSON Streaming Protocol
+**Status**: ✅ COMPLETE
+
+**Deliverables**:
+- JSON streaming protocol (line-delimited, bidirectional)
+- Rational number support ({"numerator": n, "denominator": d})
+- LTL property checking (Always + atomic predicates)
+- Violation detection with timestamps and reasons
+- Incremental checking with frame accumulation
+
+**Commands**: parseDBC, setProperties, startStream, data, endStream
+**Responses**: Success/Error, Ack, PropertyResponse, Complete
+
+**State Machine**: WaitingForDBC → ReadyToStream → Streaming
+
+**Technical**: All --safe --without-K, build time ~11s incremental
+**Commits**: 1808036, 4ec14a5, 8043d99, 2c4bae0, 7aa94b5
+
+### November 9-18, 2025 - Phase 2A: LTL Core + Real-World Support
+**Status**: ✅ COMPLETE
+
+**Deliverables**:
+- LTL Syntax (Always, Eventually, Until, Next, Atomic, And, Or, Not)
+- Coinductive semantics over infinite traces
+- Model checker with incremental checking and early termination
+- Signal predicates (Equals, LessThan, GreaterThan, Between, ChangedBy)
+- JSON formula parser
+- Python DSL prototype
+
+**Modules Added**: LTL/{Syntax,Coinductive,Incremental,SignalPredicate,JSON}, Data/DelayedColist
+
+### October 15 - November 13, 2025 - Phase 1: Core Infrastructure
+**Status**: ✅ COMPLETE
+
+**Deliverables**:
+- Parser combinators with structural recursion (no fuel)
+- CAN frame encoding/decoding with bit-level precision
+- DBC YAML parser (later migrated to JSON)
+- Build system (Shake orchestration, hash-based deps, FFI detection)
+- Protocol integration (command types, handlers, responses)
+
+**Modules**: 33 total across Parser/, CAN/, DBC/, Protocol/, Trace/, Data/, Core
+
+**Critical Bug Fixes**:
+- shiftR pattern matching (commit 8fc48a3): 0x09 → 9 not 5
+- power10 pattern matching (commit 60a94a4): 0.25 → 1/4 not 5/42
+
+**Performance**:
+- Type-checking: 10-20s with parallel GHC (+RTS -N32)
+- Build: 0.26s no-op, ~11s incremental, ~43s full
+
+**Architectural Constraints** (from 62 DBC analysis):
+- ✅ 8-byte CAN frames (100% standard CAN)
+- ✅ 11-bit CAN IDs (universal)
+- ⏭️ Extended 29-bit IDs → Phase 2A
+- ⏭️ Signal multiplexing → Phase 2A
+- ⏭️ CAN-FD → Phase 5
 
 ---
 

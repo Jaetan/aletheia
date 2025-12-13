@@ -254,9 +254,9 @@ class TestRealWorldScenarios:
             b'{"status": "success", "message": "DBC parsed"}\n',  # parse_dbc
             b'{"status": "success", "message": "Properties set"}\n',  # set_properties
             b'{"status": "success", "message": "Stream started"}\n',  # start_stream
-            b'{"status": "success"}\n',  # send_frame
-            b'{"status": "success"}\n',  # send_frame
-            b'{"status": "success", "message": "Stream ended"}\n',  # end_stream
+            b'{"status": "ack"}\n',  # send_frame (binary sends "ack", not "success")
+            b'{"status": "ack"}\n',  # send_frame
+            b'{"status": "complete"}\n',  # end_stream (binary sends "complete")
         ]
         mock_process.stdout.readline.side_effect = responses
         mock_process.poll.return_value = None
@@ -281,13 +281,13 @@ class TestRealWorldScenarios:
         mock_process.stdin = Mock()
         mock_process.stdout = Mock()
 
-        # Mock violation response
+        # Mock violation response (matching actual binary format)
         violation = {
             "type": "property",
-            "status": "violated",
-            "message": "Speed exceeded limit",
-            "property_id": 0,
-            "timestamp": 100
+            "status": "violation",
+            "reason": "Speed exceeded limit",
+            "property_index": {"numerator": 0, "denominator": 1},
+            "timestamp": {"numerator": 100, "denominator": 1}
         }
         mock_process.stdout.readline.return_value = json.dumps(violation).encode() + b'\n'
         mock_process.poll.return_value = None
@@ -297,5 +297,5 @@ class TestRealWorldScenarios:
             response = client.send_frame(100, 0x100, [0xFF] * 8)
 
             assert response["type"] == "property"
-            assert response["status"] == "violated"
-            assert "Speed" in response["message"]
+            assert response["status"] == "violation"
+            assert "Speed" in response["reason"]

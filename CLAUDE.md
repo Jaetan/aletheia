@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through a Python API.
 
-**Current Phase**: 2 - LTL + Real-World Support (Phase 2B.1 Complete, Quality Improvements In Progress)
+**Current Phase**: Phase 2B Complete + Batch Operations Extension (All Quality Gates Passed)
 
 ## Table of Contents
 
@@ -286,7 +286,7 @@ combined = list1 ++ₗ list2
 
 ## Implementation Phases
 
-**Current Phase**: Phase 2B.1 ✅ Complete - All batch signal operations implemented and tested.
+**Current Phase**: Phase 2B Complete + Batch Operations Extension - All deliverables complete, quality gates passed.
 
 For detailed phase completion status, deliverables, and roadmap, see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
@@ -296,6 +296,95 @@ For detailed phase completion status, deliverables, and roadmap, see [PROJECT_ST
 - ✅ Phase 2B: Streaming + Counterexamples (complete)
 - ✅ Phase 2B.1: Batch Signal Operations (complete)
 - 🔜 Phase 3: Verification + Performance (next)
+
+---
+
+## For Human Developers
+
+This section provides guidance for developers new to Agda or the Aletheia codebase.
+
+### For Agda Newcomers
+
+If you're new to Agda but familiar with Python/typed languages:
+
+**Basic Syntax:**
+- `→` means function arrow (like `->` in types)
+- `∀` means "for all" (universal quantification)
+- `ℕ` is natural numbers (type Nat with `\bN`)
+- `ℚ` is rationals (type with `\bQ`)
+- `≡` is propositional equality (type with `\==`)
+
+**Safety Flags:**
+- `--safe` ensures no undefined behavior (like Rust's borrow checker)
+  - No postulates, no unsafe primitives, all functions terminate
+  - Used in 23 of 27 Aletheia modules
+- `--without-K` ensures proofs are constructive (no axiom of choice)
+  - Makes code compatible with Homotopy Type Theory
+  - Required for formal verification
+
+**Dependent Types:**
+Types can depend on values:
+- `Vec Byte 8` - vector of exactly 8 bytes (length in type!)
+- `Fin n` - numbers 0 to n-1 (bounds checking at compile time)
+- `CANFrame` uses `Fin 2048` for standard IDs (impossible to exceed range)
+
+**Common Patterns:**
+- **Pattern matching with `with`**: Extract intermediate values
+- **Structural recursion**: Functions recurse on structurally smaller inputs
+  - Parser combinators recurse on `length input` (always decreasing)
+  - No fuel needed - termination guaranteed!
+- **Module imports with renaming**: Avoid name clashes (see Import Naming Conventions above)
+
+**Reading Error Messages:**
+- **Yellow highlighting**: Type mismatch - check expected vs actual types
+- **"Not in scope"**: Import missing or wrong module name
+- **"Termination checking failed"**: Function might not terminate
+  - Use structural recursion on input length or add fuel parameter
+  - See Parser/Combinators.agda for examples
+- **"_X_42 is not defined"**: Agda generates metavariables - fill the hole!
+
+**Why formal methods for automotive?**
+- Guarantees correctness (not just testing)
+- Signal extraction bugs can cause safety issues
+- LTL properties prove temporal safety constraints
+
+**Resources:**
+- [Agda Documentation](https://agda.readthedocs.io/)
+- [Standard Library](https://agda.github.io/agda-stdlib/)
+- [Agda Tutorial](https://agda.readthedocs.io/en/latest/getting-started/tutorial-list.html)
+
+### Code Style
+
+**Agda:**
+- Naming: Follow stdlib conventions
+- Indentation: 2 spaces
+- Line length: Aim for 80 characters, max 100
+
+**Haskell:**
+- Style: Follow standard Haskell style
+- Keep it minimal: Haskell shim should stay <100 lines
+
+**Python:**
+- Style: PEP 8
+- Type hints: Use throughout
+- Docstrings: Google style
+
+### Contributing
+
+**Commit Messages:**
+Follow conventional commits:
+```
+feat(CAN): Add multiplexed signal support
+fix(Parser): Handle trailing whitespace in DBC
+docs(BUILDING): Add macOS-specific notes
+```
+
+**Before Committing:**
+1. Ensure code type-checks: `agda src/Aletheia/Main.agda`
+2. Build succeeds: `cabal run shake -- build`
+3. Tests pass: `cd python && pytest`
+
+---
 
 ## Current Session Progress
 

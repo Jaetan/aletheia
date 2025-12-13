@@ -692,5 +692,5 @@ Used in responses for exact representation.
 ## See Also
 
 - [DESIGN.md](DESIGN.md) - Overall architecture and design decisions
-- [CHANGELOG.md](CHANGELOG.md) - Phase 2B.1 implementation details
+- [PROJECT_STATUS.md](../../PROJECT_STATUS.md) - Phase completion status and milestones
 - [PYTHON_API.md](../development/PYTHON_API.md) - Python client library

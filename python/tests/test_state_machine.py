@@ -283,7 +283,7 @@ class TestStateEdgeCases:
             b'{"status": "success"}\n',  # parse_dbc
             b'{"status": "success"}\n',  # set_properties
             b'{"status": "success"}\n',  # start_stream
-            b'{"type": "property", "status": "violated", "message": "Speed exceeded", "property_id": 0, "timestamp": 1000}\n',
+            b'{"type": "property", "status": "violation", "reason": "Speed exceeded", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}}\n',
             b'{"status": "complete"}\n',  # end_stream
         ]
         mock_process.stdout.readline.side_effect = responses
@@ -299,7 +299,7 @@ class TestStateEdgeCases:
             ts, can_id, data = sample_can_frame
             resp = client.send_frame(ts, can_id, data)
             assert resp["type"] == "property"
-            assert resp["status"] == "violated"
+            assert resp["status"] == "violation"
 
             # Can still end stream after violation
             end_resp = client.end_stream()

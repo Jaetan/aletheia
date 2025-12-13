@@ -862,7 +862,7 @@ Phase 2 design decisions explicitly enable Phase 3 proofs:
 
 ## Development Workflow
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed workflows.
+See [CLAUDE.md](../../CLAUDE.md) for detailed workflows and contributing guidelines.
 
 **Quick Reference**:
 ```bash
@@ -925,17 +925,16 @@ cabal run shake -- install-python
 
 ### Root Documentation
 - **README.md**: Quick start and project overview
-- **CLAUDE.md**: Instructions for Claude Code assistant
+- **CLAUDE.md**: Project rules, development workflow, and contributing guidelines
+- **PROJECT_STATUS.md**: Phase completion status, milestones, and roadmap
 
 ### docs/architecture/
 - **DESIGN.md**: This document - design decisions and roadmap
 - **PROTOCOL.md**: Complete JSON streaming protocol specification
-- **CHANGELOG.md**: Phase completion history and milestones
 - **ARCHITECTURAL_ANALYSIS.md**: Research findings on CAN protocols
 
 ### docs/development/
 - **BUILDING.md**: Step-by-step build instructions
-- **DEVELOPMENT.md**: Architecture and workflows
 - **PYTHON_API.md**: Python client library API reference
 
 ---

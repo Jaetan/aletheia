@@ -111,7 +111,7 @@ aletheia/
 
 ### Architecture & Design
 - [Design Document](docs/architecture/DESIGN.md) - Detailed architecture and formal verification
-- [Development Guide](docs/development/DEVELOPMENT.md) - Contributing and development workflow
+- [CLAUDE.md](CLAUDE.md) - Project rules, development workflow, and contributing guidelines
 
 ### Examples
 - [Batch Operations Examples](examples/batch_operations/) - 6 complete examples with explanations
