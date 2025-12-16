@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               aletheia
-version:            0.1.0.0
+version:            0.2.0.0
 synopsis:           Formally verified CAN frame analysis
 description:        
     Aletheia provides proven-correct CAN frame encoding/decoding and

@@ -6,11 +6,13 @@
 
 ## Current Position
 
-**Phase 2 Complete** ✅
+**Phase 3 - Verification + Performance** 🚧
 
-All core infrastructure, LTL verification, streaming architecture, and batch signal operations are complete. The project is currently undergoing a comprehensive review of Phase 2 deliverables in preparation for the first GitHub release.
+Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on formal correctness proofs and performance optimization.
 
-**Status**: Review phase → First public release → Phase 3
+**Status**: Phase 3 in progress
+
+**Previous Release**: v0.1.0-alpha (Phase 2 complete)
 
 ---
 
@@ -87,11 +89,11 @@ All core infrastructure, LTL verification, streaming architecture, and batch sig
 
 ---
 
-### Phase 3: Verification + Performance ⏳ PLANNED
+### Phase 3: Verification + Performance 🚧 IN PROGRESS
 
 **Scope**: Formal correctness proofs and performance optimization
 
-**Planned**:
+**Goals**:
 - Parser soundness proofs
 - LTL semantics correctness proofs
 - DSL translation correctness proofs
@@ -100,7 +102,7 @@ All core infrastructure, LTL verification, streaming architecture, and batch sig
 - Signal caching
 - Predicate short-circuiting
 
-**Status**: Not started
+**Status**: In progress (started 2025-12-17)
 
 ---
 
@@ -159,14 +161,18 @@ All core infrastructure, LTL verification, streaming architecture, and batch sig
 
 ## Next Steps
 
-**Immediate**:
-1. Complete Phase 2 review
-2. First GitHub release
+**Phase 3 Goals**:
+1. Parser soundness proofs (prove parser correctness)
+2. LTL semantics proofs (prove model checker correctness)
+3. DSL translation proofs (prove Python DSL → Agda translation preserves semantics)
+4. Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
+5. Implement parser memoization
+6. Add signal value caching
+7. Optimize predicate evaluation with short-circuiting
 
-**Then**:
-3. Begin Phase 3 (Verification + Performance)
-4. Complete formal correctness proofs
-5. Optimize for 1M frames/sec target
+**Future**:
+- Phase 4: Production hardening, documentation, standard library
+- Phase 5: Optional extensions (value tables, format converters)
 
 ---
 

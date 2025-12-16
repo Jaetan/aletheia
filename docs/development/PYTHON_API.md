@@ -1,7 +1,7 @@
 # Aletheia Python DSL Guide
 
 **Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
-**Version**: 0.1.0 (Phase 2B.1)
+**Version**: 0.2.0-dev (Phase 3)
 **Last Updated**: 2025-12-02
 
 ---

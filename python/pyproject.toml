@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aletheia"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Formally verified CAN frame analysis with LTL"
 readme = "README.md"
 requires-python = ">=3.12"
