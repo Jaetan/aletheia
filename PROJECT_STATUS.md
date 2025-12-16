@@ -11,10 +11,10 @@
 The Aletheia project has successfully completed all planned Phase 2B deliverables (streaming LTL verification with JSON protocol) plus an additional **Batch Signal Operations** feature set that was implemented as an extension.
 
 **Key Metrics**:
-- **Agda Modules**: 27 total (23 safe, 4 coinductive)
-- **Python Modules**: 6 modules
-- **Test Coverage**: 37+ tests (32 unit + 5 integration)
-- **Lines of Code**: ~3,500 Agda + ~1,200 Python
+- **Agda Modules**: 32 total (see CLAUDE.md for safety breakdown)
+- **Python Modules**: 8 (streaming_client, binary_client, binary_utils, signals, dsl, protocols, dbc_converter, __init__)
+- **Test Coverage**: 146 tests passing
+- **Lines of Code**: ~4,800 Agda + ~2,000 Python
 - **Build Time**: 0.26s (no-op), ~11s (incremental)
 
 ---
@@ -302,14 +302,14 @@ All critical issues from previous sessions have been resolved:
 ## Code Statistics
 
 ### Agda Code
-- **Total Modules**: 27
-- **Safe Modules**: 23 (85%)
-- **Coinductive Modules**: 4 (15%)
-- **Lines of Code**: ~3,500 (estimated)
+- **Total Modules**: 32
+- **Safe Modules**: See CLAUDE.md for detailed breakdown
+- **Coinductive Modules**: 4 modules use `--guardedness --sized-types`
+- **Lines of Code**: ~4,800 (estimated)
 
 ### Python Code
-- **Modules**: 6 (streaming_client, signals, dsl, protocols, dbc_converter, __init__)
-- **Lines of Code**: ~1,200 (estimated)
+- **Modules**: 8 (streaming_client, binary_client, binary_utils, signals, dsl, protocols, dbc_converter, __init__)
+- **Lines of Code**: ~2,000 (estimated)
 - **Test Files**: 2 (test_signals, test_integration)
 
 ### Documentation

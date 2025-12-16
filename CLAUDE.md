@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through a Python API.
 
-**Current Phase**: Phase 2B Complete + Batch Operations Extension (All Quality Gates Passed)
+**Current Phase**: See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status
 
 ## Table of Contents
 
@@ -54,11 +54,19 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **27 total modules**: 23 use `--safe --without-K`, 4 use `--guardedness --sized-types` for coinductive types (see below)
+† **32 total modules**: Complex safety flag combinations - see detailed breakdown below
 
-### Modules Not Using --safe Flag (4 of 27)
+### Module Safety Flag Breakdown
 
-Four modules require extensions incompatible with --safe for coinductive stream processing:
+**By flag combination**:
+- **21 modules**: `--safe --without-K` (pure safe, no coinduction)
+- **2 modules**: `--safe --without-K --guardedness` (safe with coinduction - Trace/Stream, Trace/Context)
+- **4 modules**: `--guardedness --sized-types --without-K` (coinductive without `--safe`)
+- **5 modules**: Other safe combinations
+
+**Modules not using `--safe` flag (4 of 32)**:
+
+Four modules require extensions incompatible with `--safe` for coinductive stream processing:
 
 1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
    - Required for: MAlonzo compilation with coinductive LTL evaluation
@@ -89,16 +97,11 @@ See [Building Aletheia](docs/development/BUILDING.md) for comprehensive build in
 - Common development workflows
 - Troubleshooting build issues
 
-Quick reference:
+Quick reference (see [BUILDING.md](docs/development/BUILDING.md) for detailed instructions):
 ```bash
-# Build everything
-cabal run shake -- build
-
-# Set up Python environment
-python3 -m venv venv && source venv/bin/activate
-
-# Run tests
-python3 -m pytest tests/ -v
+cabal run shake -- build              # Build everything
+python3 -m venv venv && source venv/bin/activate  # Set up Python environment
+python3 -m pytest tests/ -v           # Run tests
 ```
 
 ### Agda Development
@@ -142,7 +145,7 @@ See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the th
 ## Module Structure
 
 See [Architecture Design](docs/architecture/DESIGN.md) for comprehensive module structure documentation, including:
-- Agda package organization (Parser/, CAN/, DBC/, LTL/, Trace/, Protocol/)
+- Agda package organization (Parser/, CAN/, DBC/, LTL/, Trace/, Protocol/, Data/)
 - Module dependency map
 - Build flow (Agda → MAlonzo → Haskell → binary)
 - Detailed module descriptions
@@ -186,13 +189,9 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 
 ## Requirements
 
-- **Agda**: 2.8.0 exact (with standard-library-2.3)
-- **GHC**: 9.4.x or 9.6.x
-- **Cabal**: 3.12.1.0 recommended
-- **Python**: 3.9+ (3.13.7 recommended)
-- **Shake**: Managed via project's shake.cabal
+See [BUILDING.md](docs/development/BUILDING.md#prerequisites) for detailed requirements and installation instructions.
 
-See BUILDING.md for detailed installation instructions.
+Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+ (uses `typing.override`)
 
 ## Important Notes
 
@@ -222,16 +221,14 @@ cabal run shake -- build
 
 ### Virtual Environment
 
-The Python virtual environment (`venv/`) is critical:
-- Create once: `python3.13 -m venv venv`
-- Activate for all Python work: `source venv/bin/activate`
-- Verify: `which python3` should show `*/aletheia/venv/bin/python3`
-- Never commit `venv/` to git
+See [BUILDING.md](docs/development/BUILDING.md#2-set-up-python-virtual-environment) for Python virtual environment setup.
+
+Quick reference: Create with `python3 -m venv venv`, activate with `source venv/bin/activate`
 
 ### Haskell Shim Philosophy
 
 The Haskell shim (haskell-shim/src/Main.hs) should remain minimal:
-- Current: 54 lines
+- Current: 74 lines
 - Target: <100 lines
 - Purpose: I/O only (stdin/stdout, buffering)
 - Never add business logic here
@@ -285,8 +282,6 @@ combined = list1 ++ₗ list2
 **Type-Checking**: **Always use `agda +RTS -N32 -RTS`** for parallel GHC (17s vs >120s timeout for StreamState/Main). First build caches stdlib (~20s).
 
 ## Implementation Phases
-
-**Current Phase**: Phase 2B Complete + Batch Operations Extension - All deliverables complete, quality gates passed.
 
 For detailed phase completion status, deliverables, and roadmap, see [PROJECT_STATUS.md](PROJECT_STATUS.md).
 

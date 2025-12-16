@@ -9,11 +9,10 @@ This directory contains example DBC files and verification scripts demonstrating
 
 ## Running Examples
 
-```bash
-# From repository root, ensure everything is built
-cabal run shake -- build
+See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) for build instructions.
 
-# Activate Python virtual environment
+```bash
+# From repository root, ensure everything is built and venv is active
 source venv/bin/activate
 
 # Install package in development mode

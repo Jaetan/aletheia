@@ -3,7 +3,7 @@
 ---
 **Version**: 1.0.0
 **Last Updated**: 2025-12-05
-**Phase**: 2B.1 Complete
+**Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
 
 This document provides step-by-step instructions for building Aletheia from source.

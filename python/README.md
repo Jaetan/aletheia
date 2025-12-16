@@ -4,8 +4,10 @@ Python interface for the Aletheia formally verified CAN frame analyzer.
 
 ## Installation
 
+See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) for detailed build instructions.
+
+Quick start:
 ```bash
-# From repository root
 cabal run shake -- build           # Build Agda + Haskell components
 cabal run shake -- install-python  # Install Python package
 ```

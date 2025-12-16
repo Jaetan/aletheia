@@ -4,13 +4,12 @@ This directory contains 6 complete examples demonstrating batch signal operation
 
 ## Prerequisites
 
-```bash
-# Build the Aletheia binary
-cd /path/to/aletheia
-cabal run shake -- build
+See [../../docs/development/BUILDING.md](../../docs/development/BUILDING.md) for build instructions.
 
-# Activate Python environment
-source venv/bin/activate
+```bash
+# From repository root
+cd /path/to/aletheia
+source venv/bin/activate  # Activate Python environment
 
 # Ensure you have a DBC file (examples use ../example.dbc)
 ls ../example.dbc
@@ -191,7 +190,7 @@ All examples demonstrate these core patterns:
 FileNotFoundError: Aletheia binary not found at /path/to/build/aletheia
 ```
 
-**Solution**: Build the binary first
+**Solution**: Build the binary first (see [build instructions](../../docs/development/BUILDING.md))
 ```bash
 cd /path/to/aletheia
 cabal run shake -- build
@@ -214,7 +213,7 @@ dbc_path = Path("/path/to/your.dbc")
 ModuleNotFoundError: No module named 'aletheia'
 ```
 
-**Solution**: Activate the Python virtual environment
+**Solution**: Activate the Python virtual environment (see [venv setup guide](../../docs/development/BUILDING.md#2-set-up-python-virtual-environment))
 ```bash
 source venv/bin/activate
 ```

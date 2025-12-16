@@ -2,7 +2,7 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 0.1.0
-**Status**: Phase 2B.1 Complete ✅ | JSON Streaming Protocol with LTL Checking
+**Status**: Phase 2B Complete + Batch Operations Extension ✅ | JSON Streaming Protocol with LTL Checking (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
 **Last Updated**: 2025-12-02
 
 ## Project Overview
@@ -30,10 +30,9 @@ Based on analysis of **62 DBC files** covering **384 vehicles** from **50+ manuf
 
 ## Core Requirements
 
-- **Agda 2.8.0** with stdlib 2.3 (`--safe --without-K` enabled) for all logic
-- **Haskell GHC 9.6.x** for minimal I/O shim (<100 lines)
-- **Python 3.9+** (3.13.7 recommended) for user-facing API
-- **Shake** (via Cabal) for build orchestration
+See [BUILDING.md](../development/BUILDING.md#prerequisites) for detailed requirements.
+
+Quick reference: Agda 2.8.0, GHC 9.6.x, Python 3.12+, Shake build system
 
 ## Architecture
 
@@ -70,7 +69,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 ## Streaming Protocol Architecture (Phase 2B)
 
-**Added**: 2025-11-26 | **Status**: Design phase - JSON protocol with async Python
+**Added**: 2025-11-26 | **Status**: Implemented - JSON protocol with synchronous Python subprocess communication
 **Updated**: 2025-11-26 | **Paradigm Shift**: Pivoted from YAML to JSON, introduced three-layer architecture
 
 ### Design Rationale
@@ -86,7 +85,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 6. Commands (encode/decode services) need immediate response, independent of data stream
 7. Command priority: "Process all pending commands before next data frame"
 
-**Solution**: Three-layer architecture with JSON protocol, async Python, and Haskell multiplexing.
+**Solution**: Three-layer architecture with JSON protocol, synchronous Python subprocess, and sequential Haskell processing.
 
 ### Three-Layer Architecture (Option D: Truly Dumb Haskell)
 
@@ -94,9 +93,9 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Python Layer (async/await)                                  │
-│ - Async task 1: Send messages (commands + data, tagged)     │
-│ - Async task 2: Read responses (sync replies + violations)  │
+│ Python Layer (subprocess, synchronous blocking I/O)         │
+│ - subprocess.Popen() with stdin/stdout pipes                │
+│ - Synchronous: send message → block → read response         │
 │ - Tags all messages: {"type": "command"|"data", ...}        │
 │ - Can modify frames mid-stream (Frame 153 scenario)         │
 └──────────────────────────┬─────────────────────────────────┘
@@ -135,7 +134,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 **Key Principles**:
 1. **Agda has ALL logic** - validation, state, routing, LTL checking
 2. **Haskell is truly dumb** - ~15 lines, just I/O loop
-3. **Python controls flow** - async tasks, stream modification, user interaction
+3. **Python controls flow** - subprocess management, stream modification, user interaction
 4. **Sequential processing** - no queues, no threading, simplest possible
 5. **Every message gets response** - commands return results, data frames return violations or acks
 
@@ -185,11 +184,11 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 | Type | Direction | Purpose | Response |
 |------|-----------|---------|----------|
 | `command` | Python → Agda | Service requests (parseDBC, encode, decode) or control (startStream, endStream) | Immediate `response` |
-| `data` | Python → Agda | CAN frame for LTL checking | No immediate response (async violations) |
+| `data` | Python → Agda | CAN frame for LTL checking | Immediate response (violation, ack, or property result) |
 | `response` | Agda → Python | Acknowledgment of command | Synchronous |
-| `violation` | Agda → Python | LTL property violation detected | Asynchronous |
-| `satisfaction` | Agda → Python | LTL property satisfied | Asynchronous |
-| `complete` | Agda → Python | Stream ended, final pending results | Asynchronous |
+| `violation` | Agda → Python | LTL property violation detected | Immediate synchronous response to data frame |
+| `satisfaction` | Agda → Python | LTL property satisfied | Immediate synchronous response to data frame |
+| `complete` | Agda → Python | Stream ended, final pending results | Synchronous response to endStream command |
 
 **JSON Schema** (validation in Phase 2B.1, proofs in Phase 3):
 - Command schema: Required fields per command type
@@ -442,7 +441,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
   - 0.26s no-op builds, ~11s incremental builds
 
 **Remaining for Phase 1 Completion**:
-- Python wrapper implementation (`python/aletheia/client.py`)
+- Python wrapper implementation (`python/aletheia/streaming_client.py` and `python/aletheia/binary_client.py`)
 - Unit tests for all 4 critical fixes
 - Integration testing: Python ↔ binary with real DBC file
 - Performance benchmarking: signal extraction <1ms per signal
@@ -548,7 +547,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
 **Timeline**: 6-9 days (expanded scope due to paradigm shift)
 **Status**: Design phase complete, ready for implementation
 
-**Overview**: Phase 2B represents a paradigm shift from finite-trace verification to streaming architecture with async Python. The scope has expanded significantly to support real-world scenarios like mid-stream frame modification (Frame 153 debugging).
+**Overview**: Phase 2B represents a paradigm shift from finite-trace verification to streaming architecture with synchronous Python subprocess communication. The scope has expanded significantly to support real-world scenarios like mid-stream frame modification (Frame 153 debugging).
 
 **Subdivision Rationale**: Three distinct sub-phases to track progress and provide clear checkpoints.
 
@@ -621,25 +620,25 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
 1. **Agda Data Handler**
    - Integrate frame processing with LTL checker
    - Stream frames incrementally to checker
-   - Emit violations/satisfactions asynchronously
+   - Return violations/satisfactions as immediate synchronous responses
    - Handle `endStream` to emit pending properties
 
-2. **Async Python Client API Redesign**
-   - `async def` interface for all operations
-   - `StreamingLTLChecker` class with async methods
-   - `await checker.parse_dbc(...)`
-   - `await checker.encode(...)`
-   - `async for violation in checker.check_stream(...):`
+2. **Synchronous Python Client API**
+   - `StreamingClient` class using `subprocess.Popen`
+   - Synchronous methods: `parse_dbc()`, `set_properties()`, `send_frame()`, etc.
+   - Context manager support: `with StreamingClient() as client:`
+   - Each method sends JSON → blocks → reads response
+   - **Note**: Async/await interface deferred to Phase 5 for evaluation
 
-3. **Async Task Management**
-   - Task 1: Command sender (controlled by user)
-   - Task 2: Data frame sender (controlled by user or file reader)
-   - Task 3: Result reader (yields violations/satisfactions)
-   - Proper lifecycle: start subprocess, manage tasks, cleanup
+3. **Subprocess Communication**
+   - Single subprocess with stdin/stdout pipes
+   - Line-buffered JSON protocol (one message per line)
+   - Synchronous request-response pattern
+   - Proper lifecycle: start subprocess, cleanup on exit
 
 4. **Frame 153 Debugging Scenario**
    - User replays trace
-   - At frame 153: call `await checker.encode(...)` to build modified frame
+   - At frame 153: call `client.build_frame(...)` to build modified frame
    - Inject modified frame into data stream
    - Continue streaming, verify fix works
    - Agda unaware stream was tampered with
@@ -704,7 +703,7 @@ This matches standard LTL semantics over **finite prefixes of infinite traces**.
 
 ---
 
-**Phase 2B Total Deliverable**: Production-ready streaming LTL verification with async Python, JSON protocol, and excellent UX. Users can verify properties on large traces, debug violations mid-stream, and extend with custom predicates.
+**Phase 2B Total Deliverable**: Production-ready streaming LTL verification with synchronous Python subprocess communication, JSON protocol, and excellent UX. Users can verify properties on large traces, debug violations mid-stream, and extend with custom predicates.
 
 ### Phase 3: Verification + Performance
 
@@ -813,7 +812,7 @@ Phase 2 design decisions explicitly enable Phase 3 proofs:
 
 ### Agda Modules (`src/Aletheia/`)
 
-**27 total modules** organized into 9 packages. All use `--safe --without-K` except 4 coinductive modules (Main, LTL/Coinductive, Protocol/StreamState, Data/DelayedColist) which use `--guardedness --sized-types`.
+**32 total modules** organized into 9 packages. See [Module Safety Flags](../../CLAUDE.md#modules-not-using-safe-flag) in CLAUDE.md for detailed safety flag breakdown.
 
 **Package Organization**:
 

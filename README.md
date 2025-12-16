@@ -20,12 +20,12 @@ See [Building Guide](docs/development/BUILDING.md) for detailed installation ins
 
 ### Installation
 
-```bash
-# Build the system
-cabal run shake -- build
+See [docs/development/BUILDING.md](docs/development/BUILDING.md) for detailed build instructions.
 
-# Install Python package
-cabal run shake -- install-python
+Quick start:
+```bash
+cabal run shake -- build              # Build the system
+cabal run shake -- install-python     # Install Python package
 ```
 
 ### Basic Usage

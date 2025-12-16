@@ -7,7 +7,7 @@ name = "aletheia"
 version = "0.1.0"
 description = "Formally verified CAN frame analysis with LTL"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [
     {name = "Aletheia Team", email = "aletheia@example.com"}
 ]
@@ -16,9 +16,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Testing",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "pyyaml>=6.0",
