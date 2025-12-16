@@ -101,6 +101,7 @@ aletheia/
 - [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Learn batch signal operations
 
 ### Project Information
+- [Project Pitch](docs/PITCH.md) - Why Aletheia? Benefits, risks, and honest assessment for teams
 - [Project Status](PROJECT_STATUS.md) - Current phase, deliverables, and roadmap
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute to the project
 - [License](LICENSE.md) - BSD 2-Clause License
