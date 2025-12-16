@@ -54,17 +54,17 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **32 total modules**: Complex safety flag combinations - see detailed breakdown below
+† **31 total modules**: 27 use `--safe`, 4 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
 **By flag combination**:
 - **21 modules**: `--safe --without-K` (pure safe, no coinduction)
-- **2 modules**: `--safe --without-K --guardedness` (safe with coinduction - Trace/Stream, Trace/Context)
-- **4 modules**: `--guardedness --sized-types --without-K` (coinductive without `--safe`)
-- **5 modules**: Other safe combinations
+- **1 module**: `--safe --without-K --no-main` (Parser/Combinators)
+- **5 modules**: `--safe --without-K --guardedness` (Trace/Stream, Trace/Context, LTL/Incremental, LTL/JSON, LTL/SignalPredicate)
+- **4 modules**: `--without-K --guardedness --sized-types` (no `--safe` - coinductive)
 
-**Modules not using `--safe` flag (4 of 32)**:
+**Modules not using `--safe` flag (4 of 31)**:
 
 Four modules require extensions incompatible with `--safe` for coinductive stream processing:
 
@@ -144,11 +144,16 @@ See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the th
 
 ## Module Structure
 
-See [Architecture Design](docs/architecture/DESIGN.md) for comprehensive module structure documentation, including:
-- Agda package organization (Parser/, CAN/, DBC/, LTL/, Trace/, Protocol/, Data/)
-- Module dependency map
-- Build flow (Agda → MAlonzo → Haskell → binary)
-- Detailed module descriptions
+Agda modules are organized by package:
+- **Parser/**: Parser combinators and string utilities
+- **CAN/**: CAN frame encoding/decoding (Endianness, Encoding)
+- **DBC/**: DBC file parser
+- **LTL/**: Linear Temporal Logic (Syntax, Semantics, Coinductive, Incremental, SignalPredicate)
+- **Trace/**: Trace types (Stream, Context)
+- **Protocol/**: JSON protocol and streaming state machine
+- **Data/**: Utility types (DelayedColist)
+
+See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer architecture diagram.
 
 ## Development Workflow
 
@@ -217,7 +222,7 @@ cabal run shake -- build
 
 **When it triggers**: Rarely - only when adding/removing Agda definitions before `processCommand` in Main.agda.
 
-**Best Practice**: Keep Haskell shim minimal (~54 lines), update mangled names when needed. Alternative solutions (COMPILE pragmas, FFI modules) would compromise `--safe` guarantees.
+**Best Practice**: Keep Haskell shim minimal (currently 74 lines), update mangled names when needed. Alternative solutions (COMPILE pragmas, FFI modules) would compromise `--safe` guarantees.
 
 ### Virtual Environment
 
@@ -312,7 +317,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 23 of 27 Aletheia modules
+  - Used in 27 of 31 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

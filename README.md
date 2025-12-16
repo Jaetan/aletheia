@@ -20,13 +20,12 @@ See [Building Guide](docs/development/BUILDING.md) for detailed installation ins
 
 ### Installation
 
-See [docs/development/BUILDING.md](docs/development/BUILDING.md) for detailed build instructions.
-
-Quick start:
 ```bash
 cabal run shake -- build              # Build the system
 cabal run shake -- install-python     # Install Python package
 ```
+
+See [docs/development/BUILDING.md](docs/development/BUILDING.md) for detailed build instructions.
 
 ### Basic Usage
 
@@ -55,9 +54,11 @@ with StreamingClient() as client:
     client.end_stream()
 ```
 
+See [Python API Guide](docs/development/PYTHON_API.md) for complete API reference and examples.
+
 ### Batch Signal Operations
 
-Aletheia also provides standalone tools for building and extracting CAN signals, independent from streaming verification:
+Aletheia also provides standalone tools for building and extracting CAN signals:
 
 ```python
 from aletheia import FrameBuilder, SignalExtractor
@@ -76,21 +77,10 @@ with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
 # Extract all signals from a frame
 with SignalExtractor(dbc=dbc) as extractor:
     result = extractor.extract(can_id=0x100, data=frame)
-
     speed = result.get("EngineSpeed")  # 2000.0
-    temp = result.get("EngineTemp")    # 90.0
-
-    if result.has_errors():
-        print(f"Extraction errors: {result.errors}")
 ```
 
-**Use cases**:
-- Build test frames for simulation
-- Extract signals from captured CAN traces
-- Modify specific signals in existing frames
-- Debug signal encoding/decoding issues
-
-See [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) and [examples](examples/batch_operations/) for detailed usage.
+See [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) for detailed usage and [examples](examples/batch_operations/).
 
 ## Project Structure
 
@@ -99,6 +89,7 @@ aletheia/
 ├── src/Aletheia/        # Agda core (formal verification)
 ├── haskell-shim/        # Minimal I/O layer
 ├── python/              # User-facing Python API
+├── docs/                # Documentation
 └── examples/            # Sample DBC files and traces
 ```
 
@@ -109,22 +100,39 @@ aletheia/
 - [Python API Guide](docs/development/PYTHON_API.md) - Complete Python API reference
 - [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Learn batch signal operations
 
+### Project Information
+- [Project Status](PROJECT_STATUS.md) - Current phase, deliverables, and roadmap
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute to the project
+- [License](LICENSE.md) - BSD 2-Clause License
+
 ### Architecture & Design
 - [Design Document](docs/architecture/DESIGN.md) - Detailed architecture and formal verification
-- [CLAUDE.md](CLAUDE.md) - Project rules, development workflow, and contributing guidelines
+- [CLAUDE.md](CLAUDE.md) - Development workflow and project rules
 
 ### Examples
 - [Batch Operations Examples](examples/batch_operations/) - 6 complete examples with explanations
 
-## Status
+## Project Status
 
-**Current**: Production-ready JSON streaming protocol with LTL verification
+**Current Phase**: Phase 2B Complete + Batch Operations Extension
 
-See [Design Document](docs/architecture/DESIGN.md) for detailed architecture and roadmap.
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed information on deliverables, quality gates, and roadmap.
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) to understand what kinds of contributions belong upstream, extension points for customization, and submission guidelines.
 
 ## License
 
-TBD
+This project is licensed under the **BSD 2-Clause License**. See [LICENSE.md](LICENSE.md) for details.
+
+### License Philosophy
+
+This project uses the BSD 2-Clause License to allow broad use of the software—including in proprietary and commercial environments—while keeping the core simple, stable, and easy to maintain.
+
+Rather than relying on licensing to force contributions, the project encourages collaboration through clear extension points, good documentation, and an upstream-first development process for generally useful improvements. This approach minimizes friction for adopters while still allowing the project to benefit from shared maintenance and evolution.
+
+This license choice reflects a preference for architectural and social solutions over legal compulsion.
 
 ## Etymology
 
