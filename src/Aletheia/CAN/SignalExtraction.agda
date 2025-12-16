@@ -13,8 +13,9 @@ open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding
 open import Aletheia.CAN.ExtractionResult
+open import Aletheia.CAN.DBCHelpers using (canIdEquals; findMessageById; findSignalByName)
 open import Aletheia.DBC.Types
-open import Data.String using (String) renaming (_++_ to _++S_)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Properties renaming (_≟_ to _≟ᵣ_)
@@ -24,30 +25,7 @@ open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.List using (List; _∷_; [])
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Fin using (toℕ)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (findByPredicate)
-
--- ============================================================================
--- HELPER FUNCTIONS
--- ============================================================================
-
-canIdEquals : CANId → CANId → Bool
-canIdEquals (Standard x) (Standard y) = toℕ x ≡ᵇ toℕ y
-canIdEquals (Extended x) (Extended y) = toℕ x ≡ᵇ toℕ y
-canIdEquals _ _ = false
-
-findMessageById : CANId → DBC → Maybe DBCMessage
-findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
-  where
-    matchesId : DBCMessage → Bool
-    matchesId msg = canIdEquals msgId (DBCMessage.id msg)
-
-findSignalByName : String → DBCMessage → Maybe DBCSignal
-findSignalByName name msg = findByPredicate matchesName (DBCMessage.signals msg)
-  where
-    matchesName : DBCSignal → Bool
-    matchesName sig = ⌊ DBCSignal.name sig ≟ₛ name ⌋
 
 -- ============================================================================
 -- SIGNAL EXTRACTION WITH MULTIPLEXING
@@ -57,9 +35,9 @@ findSignalByName name msg = findByPredicate matchesName (DBCMessage.signals msg)
 -- Returns: nothing if match, just reason if mismatch or error
 checkMultiplexor : CANFrame → DBCMessage → String → ℕ → Maybe String
 checkMultiplexor frame msg muxName muxValue with findSignalByName muxName msg
-... | nothing = just ("multiplexor signal '" ++S muxName ++S "' not found in message")
+... | nothing = just ("multiplexor signal '" ++ₛ muxName ++ₛ "' not found in message")
 ... | just muxSig with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
-...   | nothing = just ("failed to extract multiplexor signal '" ++S muxName ++S "'")
+...   | nothing = just ("failed to extract multiplexor signal '" ++ₛ muxName ++ₛ "'")
 ...   | just muxVal =
       -- Check if multiplexor value matches expected value
       -- Note: We compare to rational directly since muxValue is ℕ
@@ -67,7 +45,7 @@ checkMultiplexor frame msg muxName muxValue with findSignalByName muxName msg
           matches = ⌊ muxVal ≟ᵣ expectedVal ⌋
       in if matches
          then nothing  -- Match! Signal is present
-         else just ("multiplexor value mismatch (expected " ++S showℕ muxValue ++S ")")
+         else just ("multiplexor value mismatch (expected " ++ₛ showℕ muxValue ++ₛ ")")
 
 -- Check if signal is present in frame (handles multiplexing)
 -- Returns: nothing if present, just reason if not present

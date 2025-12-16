@@ -10,7 +10,7 @@
 -- Design: Each response type has corresponding JSON structure matching protocol spec.
 module Aletheia.Protocol.Response where
 
-open import Data.String using (String) renaming (_++_ to _++S_)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ)
@@ -69,11 +69,11 @@ errorResponse msg = mkResponse false msg NoData
 -- Convert a byte (Fin 256) to hex string "0xNN"
 -- Uses stdlib's showInBase for proper hex conversion
 byteToHex : Byte → String
-byteToHex b = "0x" ++S hex
+byteToHex b = "0x" ++ₛ hex
   where
     open import Data.Nat.Show using (showInBase)
     open import Data.Nat.Base using (_<ᵇ_; _∸_)
-    open import Data.String using (length; fromList; toList) renaming (_++_ to _++S_)
+    open import Data.String using (length; fromList; toList) renaming (_++_ to _++ₛ_)
     open import Data.List as L using (replicate)
 
     -- Pad string on left with given character to reach minimum length
@@ -90,12 +90,12 @@ bytesToHex : Vec Byte 8 → String
 bytesToHex bytes =
   foldr (λ _ → String) combineBytes "" bytes
   where
-    open import Data.String using (length) renaming (_++_ to _++S_)
+    open import Data.String using (length) renaming (_++_ to _++ₛ_)
     open import Data.Nat.Base using (_≡ᵇ_)
 
     isEmptyString : String → Bool
     isEmptyString s = Data.String.length s ≡ᵇ 0
 
     combineBytes : Byte → String → String
-    combineBytes b acc = if isEmptyString acc then byteToHex b else (byteToHex b ++S " ") ++S acc
+    combineBytes b acc = if isEmptyString acc then byteToHex b else (byteToHex b ++ₛ " ") ++ₛ acc
 

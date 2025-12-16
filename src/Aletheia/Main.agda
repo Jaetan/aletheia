@@ -44,15 +44,35 @@ open import Aletheia.Data.Message as Msg using (Request; Response)
 -- ============================================================================
 
 -- Process a single JSON line and update stream state
+--
+-- Algorithm:
+--   1. Parse JSON string → Maybe JSON
+--   2. Validate JSON is an object with "type" field
+--   3. Route by type: "command" → command handler, "data" → data frame handler
+--   4. Update state machine and generate response
+--   5. Format response as JSON string
+--
+-- Error Handling:
+--   - Graceful degradation: invalid input → error response, state unchanged
+--   - Descriptive error messages at each parsing stage (JSON parse, type field, routing)
+--   - Uses trace variants (*WithTrace) to provide detailed error context
+--
+-- State Threading:
+--   - State flows through: parseJSON_helper → routing → handler → response
+--   - On error: original state returned unchanged
+--   - On success: new state from handler (DBC parse, properties set, stream update)
+--
+-- NOINLINE Pragma:
+--   - Required for MAlonzo FFI: ensures symbol is exported to Haskell
+--   - Without this, Agda might inline the function and break FFI linkage
+--   - Haskell shim calls this by mangled name (detected at build time)
+--
 -- Returns: (new state, JSON response string)
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJSON (toList jsonLine)))
   where
-    open import Aletheia.Protocol.JSON using (JObject; lookupString)
-    open import Data.String using (_≟_) renaming (_++_ to _++S_)
-    open import Relation.Nullary.Decidable using (⌊_⌋)
-    open import Data.Bool using (if_then_else_)
+    open import Data.String using () renaming (_++_ to _++ₛ_)
 
     -- Try to parse command with detailed tracing
     tryParseCommand : List (String × JSON) → StreamState × String
@@ -84,7 +104,7 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
           then trace_dataframe obj
           else if ⌊ msgType ≟ "command" ⌋
                then tryParseCommand obj
-               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("Unknown message type: " ++S msgType))))
+               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
           where
             trace_dataframe : List (String × JSON) → StreamState × String
             trace_dataframe obj with parseDataFrameWithTrace obj

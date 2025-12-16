@@ -10,7 +10,7 @@
 -- Validation: All required fields checked, descriptive error messages on failure.
 module Aletheia.Protocol.Routing where
 
-open import Data.String using (String; _≟_) renaming (_++_ to _++S_)
+open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -69,79 +69,130 @@ listToVec8 (n₀ ∷ n₁ ∷ n₂ ∷ n₃ ∷ n₄ ∷ n₅ ∷ n₆ ∷ n₇ 
     toFin n = n mod 256  -- _mod_ : ℕ → (n : ℕ) {n≢0 : NonZero n} → Fin n
 listToVec8 _ = nothing  -- Wrong length
 
--- Parse StreamCommand from JSON object
+-- ============================================================================
+-- COMMAND PARSERS
+-- ============================================================================
+
+-- Local bind operator for Either (⊎) monad (used by batch parsers)
+_>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
+inj₁ err >>=ₑ _ = inj₁ err
+inj₂ x >>=ₑ f = f x
+
+-- Parse ParseDBC command
+tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
+tryParseDBC obj with lookupByKey "dbc" obj
+... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
+... | just dbc = inj₂ (ParseDBC dbc)
+
+-- Parse SetProperties command
+trySetProperties : List (String × JSON) → String ⊎ StreamCommand
+trySetProperties obj with lookupArray "properties" obj
+... | nothing = inj₁ "SetProperties: missing 'properties' field"
+... | just props = inj₂ (SetProperties props)
+
+-- Parse StartStream command
+tryStartStream : List (String × JSON) → String ⊎ StreamCommand
+tryStartStream _ = inj₂ StartStream
+
+-- Parse BuildFrame command
+tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
+tryBuildFrame obj with lookupByKey "canId" obj
+... | nothing = inj₁ "BuildFrame: missing 'canId' field"
+... | just canIdJSON with lookupArray "signals" obj
+...   | nothing = inj₁ "BuildFrame: missing 'signals' array"
+...   | just signals = inj₂ (BuildFrame canIdJSON signals)
+
+-- Parse ExtractAllSignals command
+tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
+tryExtractAllSignals obj =
+  getCanId >>=ₑ λ canIdJSON →
+  getDataArray >>=ₑ λ bytesJSON →
+  parseBytes bytesJSON >>=ₑ λ byteList →
+  convertToVec byteList >>=ₑ λ bytes →
+  inj₂ (ExtractAllSignals canIdJSON bytes)
+  where
+    getCanId : String ⊎ JSON
+    getCanId with lookupByKey "canId" obj
+    ... | nothing = inj₁ "ExtractAllSignals: missing 'canId' field"
+    ... | just x = inj₂ x
+
+    getDataArray : String ⊎ (List JSON)
+    getDataArray with lookupArray "data" obj
+    ... | nothing = inj₁ "ExtractAllSignals: missing 'data' array"
+    ... | just x = inj₂ x
+
+    parseBytes : List JSON → String ⊎ (List ℕ)
+    parseBytes bytesJSON with parseByteArray bytesJSON
+    ... | nothing = inj₁ "ExtractAllSignals: failed to parse byte array"
+    ... | just x = inj₂ x
+
+    convertToVec : List ℕ → String ⊎ (Vec Byte 8)
+    convertToVec byteList with listToVec8 byteList
+    ... | nothing = inj₁ "ExtractAllSignals: expected 8 bytes"
+    ... | just x = inj₂ x
+
+-- Parse UpdateFrame command
+tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
+tryUpdateFrame obj =
+  getCanId >>=ₑ λ canIdJSON →
+  getDataArray >>=ₑ λ bytesJSON →
+  parseBytes bytesJSON >>=ₑ λ byteList →
+  convertToVec byteList >>=ₑ λ bytes →
+  getSignals >>=ₑ λ signals →
+  inj₂ (UpdateFrame canIdJSON bytes signals)
+  where
+    getCanId : String ⊎ JSON
+    getCanId with lookupByKey "canId" obj
+    ... | nothing = inj₁ "UpdateFrame: missing 'canId' field"
+    ... | just x = inj₂ x
+
+    getDataArray : String ⊎ (List JSON)
+    getDataArray with lookupArray "data" obj
+    ... | nothing = inj₁ "UpdateFrame: missing 'data' array"
+    ... | just x = inj₂ x
+
+    parseBytes : List JSON → String ⊎ (List ℕ)
+    parseBytes bytesJSON with parseByteArray bytesJSON
+    ... | nothing = inj₁ "UpdateFrame: failed to parse byte array"
+    ... | just x = inj₂ x
+
+    convertToVec : List ℕ → String ⊎ (Vec Byte 8)
+    convertToVec byteList with listToVec8 byteList
+    ... | nothing = inj₁ "UpdateFrame: expected 8 bytes"
+    ... | just x = inj₂ x
+
+    getSignals : String ⊎ (List JSON)
+    getSignals with lookupArray "signals" obj
+    ... | nothing = inj₁ "UpdateFrame: missing 'signals' array"
+    ... | just x = inj₂ x
+
+-- Parse EndStream command
+tryEndStream : List (String × JSON) → String ⊎ StreamCommand
+tryEndStream _ = inj₂ EndStream
+
+-- Dispatch table for command parsers
+commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
+commandDispatchTable =
+  ("parseDBC" , tryParseDBC) ∷
+  ("setProperties" , trySetProperties) ∷
+  ("startStream" , tryStartStream) ∷
+  ("buildFrame" , tryBuildFrame) ∷
+  ("extractAllSignals" , tryExtractAllSignals) ∷
+  ("updateFrame" , tryUpdateFrame) ∷
+  ("endStream" , tryEndStream) ∷
+  []
+
+-- Dispatch using table lookup
+dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
+dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
+... | nothing = inj₁ ("Unknown command: " ++ₛ cmdType)
+... | just parser = parser obj
+
+-- Parse StreamCommand from JSON object (with error traces)
 parseCommandWithTrace : List (String × JSON) → String ⊎ StreamCommand
 parseCommandWithTrace obj with lookupString "command" obj
 ... | nothing = inj₁ "Missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
-  where
-    -- Helper parsers for each command type
-    tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
-    tryParseDBC obj with lookupByKey "dbc" obj
-    ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
-    ... | just dbc = inj₂ (ParseDBC dbc)
-
-    trySetProperties : List (String × JSON) → String ⊎ StreamCommand
-    trySetProperties obj with lookupArray "properties" obj
-    ... | nothing = inj₁ "SetProperties: missing 'properties' field"
-    ... | just props = inj₂ (SetProperties props)
-
-    tryStartStream : List (String × JSON) → String ⊎ StreamCommand
-    tryStartStream _ = inj₂ StartStream
-
-    -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
-
-    tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
-    tryBuildFrame obj with lookupByKey "canId" obj
-    ... | nothing = inj₁ "BuildFrame: missing 'canId' field"
-    ... | just canIdJSON with lookupArray "signals" obj
-    ...   | nothing = inj₁ "BuildFrame: missing 'signals' array"
-    ...   | just signals = inj₂ (BuildFrame canIdJSON signals)
-
-    tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
-    tryExtractAllSignals obj with lookupByKey "canId" obj
-    ... | nothing = inj₁ "ExtractAllSignals: missing 'canId' field"
-    ... | just canIdJSON with lookupArray "data" obj
-    ...   | nothing = inj₁ "ExtractAllSignals: missing 'data' array"
-    ...   | just bytesJSON with parseByteArray bytesJSON
-    ...     | nothing = inj₁ "ExtractAllSignals: failed to parse byte array"
-    ...     | just byteList with listToVec8 byteList
-    ...       | nothing = inj₁ "ExtractAllSignals: expected 8 bytes"
-    ...       | just bytes = inj₂ (ExtractAllSignals canIdJSON bytes)
-
-    tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
-    tryUpdateFrame obj with lookupByKey "canId" obj
-    ... | nothing = inj₁ "UpdateFrame: missing 'canId' field"
-    ... | just canIdJSON with lookupArray "data" obj
-    ...   | nothing = inj₁ "UpdateFrame: missing 'data' array"
-    ...   | just bytesJSON with parseByteArray bytesJSON
-    ...     | nothing = inj₁ "UpdateFrame: failed to parse byte array"
-    ...     | just byteList with listToVec8 byteList
-    ...       | nothing = inj₁ "UpdateFrame: expected 8 bytes"
-    ...       | just bytes with lookupArray "signals" obj
-    ...         | nothing = inj₁ "UpdateFrame: missing 'signals' array"
-    ...         | just signals = inj₂ (UpdateFrame canIdJSON bytes signals)
-
-    tryEndStream : List (String × JSON) → String ⊎ StreamCommand
-    tryEndStream _ = inj₂ EndStream
-
-    -- Dispatch table for command parsers
-    commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
-    commandDispatchTable =
-      ("parseDBC" , tryParseDBC) ∷
-      ("setProperties" , trySetProperties) ∷
-      ("startStream" , tryStartStream) ∷
-      ("buildFrame" , tryBuildFrame) ∷
-      ("extractAllSignals" , tryExtractAllSignals) ∷
-      ("updateFrame" , tryUpdateFrame) ∷
-      ("endStream" , tryEndStream) ∷
-      []
-
-    -- Dispatch using table lookup
-    dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
-    dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
-    ... | nothing = inj₁ ("Unknown command: " ++S cmdType)
-    ... | just parser = parser obj
 
 -- Parse StreamCommand from JSON object
 parseCommand : List (String × JSON) → Maybe StreamCommand

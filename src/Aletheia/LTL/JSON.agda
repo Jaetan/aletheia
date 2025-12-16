@@ -26,6 +26,15 @@ open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 
 -- ============================================================================
+-- CONSTANTS
+-- ============================================================================
+
+-- Maximum nesting depth for LTL formula parsing
+-- Prevents infinite recursion and stack overflow on malformed input
+ltl-max-nesting-depth : ℕ
+ltl-max-nesting-depth = 100
+
+-- ============================================================================
 -- SIGNAL PREDICATE PARSING - Factored into helper functions
 -- ============================================================================
 -- Note: lookupRational is now provided by Aletheia.Protocol.JSON
@@ -174,4 +183,4 @@ parseLTL (suc depth) json = parseLTLDispatch depth json
 -- ============================================================================
 
 parseProperty : JSON → Maybe (LTL SignalPredicate)
-parseProperty = parseLTL 100  -- Max nesting depth of 100 (reasonable for LTL formulas)
+parseProperty = parseLTL ltl-max-nesting-depth

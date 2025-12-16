@@ -86,7 +86,7 @@ extractAllSignalsFromMessage dbc frame msg =
 extractAllSignals : DBC → CANFrame → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
   where
-    open import Aletheia.CAN.SignalExtraction using (findMessageById)
+    open import Aletheia.CAN.DBCHelpers using (findMessageById)
 ... | nothing =
     -- Message not found in DBC - return error
     mkExtractionResults [] (("message" , "CAN ID not found in DBC") ∷ []) []

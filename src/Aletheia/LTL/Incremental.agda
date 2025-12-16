@@ -13,6 +13,7 @@ module Aletheia.LTL.Incremental where
 open import Aletheia.Prelude
 open import Data.Nat using (_≤ᵇ_)
 open import Aletheia.LTL.Syntax
+open import Aletheia.LTL.Evaluation using () renaming (evalAtFrame to evalAtFrameWith)
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 
 -- ============================================================================
@@ -252,18 +253,9 @@ stepEval _ _ _ _ curr = Violated (mkCounterexample curr "internal error: formula
 
 -- Evaluate formula at a single frame (handles Atomic, Not, And, Or)
 -- Temporal operators return false (they need the full trace)
--- Structurally recursive on the formula
+-- Delegates to LTL.Evaluation.evalAtFrame with temporalDefault=false
 evalAtFrame : ∀ {A : Set} → A → LTL (A → Bool) → Bool
-evalAtFrame frame (Atomic pred) = pred frame
-evalAtFrame frame (Not φ) = not (evalAtFrame frame φ)
-evalAtFrame frame (And φ ψ) = evalAtFrame frame φ ∧ evalAtFrame frame ψ
-evalAtFrame frame (Or φ ψ) = evalAtFrame frame φ ∨ evalAtFrame frame ψ
-evalAtFrame _ (Next _) = false
-evalAtFrame _ (Always _) = false  -- Needs all frames
-evalAtFrame _ (Eventually _) = false  -- Needs future frames
-evalAtFrame _ (Until _ _) = false
-evalAtFrame _ (EventuallyWithin _ _) = false
-evalAtFrame _ (AlwaysWithin _ _) = false
+evalAtFrame = evalAtFrameWith false
 
 
 -- ============================================================================

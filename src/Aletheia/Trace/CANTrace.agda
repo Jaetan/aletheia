@@ -1,15 +1,12 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe --without-K #-}
 
--- CAN trace types and predicates for temporal logic.
+-- CAN trace types for temporal logic.
 --
--- Purpose: Define trace structure for LTL model checking.
--- Types: Trace (list/colist of TimedFrames), trace predicates.
+-- Purpose: Define timed CAN frame structure for LTL model checking.
+-- Types: TimedFrame (CAN frame with timestamp).
 -- Role: Used by LTL.Incremental and LTL.Coinductive for property checking.
---
--- Design: Supports both finite (List) and infinite (DelayedColist) traces.
 module Aletheia.Trace.CANTrace where
 
-open import Aletheia.Trace.Stream
 open import Aletheia.CAN.Frame
 open import Data.Nat using (ℕ)
 
@@ -22,6 +19,3 @@ record TimedFrame : Set where
   field
     timestamp : Timestamp  -- Time in microseconds since trace start
     frame : CANFrame
-
-CANTrace : Set
-CANTrace = Trace TimedFrame

@@ -18,10 +18,11 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false; if_then_else_; not; _∧_; _∨_)
 open import Data.Nat using (ℕ; zero; suc; _∸_; _≤ᵇ_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.String using (String) renaming (_++_ to _++S_)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Nat.Show using (show)
 
 open import Aletheia.LTL.Syntax
+open import Aletheia.LTL.Evaluation using () renaming (evalAtFrame to evalAtFrameWith)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 -- Prelude not currently needed (previously used case_of_)
 open import Aletheia.Trace.Context using (timestamp)
@@ -80,12 +81,10 @@ record BoundedState : Set where
 -- ============================================================================
 
 -- Evaluate a formula at a single frame (for atomic predicates only)
+-- Temporal operators return true (handled by state machine elsewhere)
+-- Delegates to LTL.Evaluation.evalAtFrame with temporalDefault=true
 evalAtFrame : TimedFrame → LTL (TimedFrame → Bool) → Bool
-evalAtFrame tf (Atomic pred) = pred tf
-evalAtFrame tf (Not ψ) = not (evalAtFrame tf ψ)
-evalAtFrame tf (And ψ₁ ψ₂) = evalAtFrame tf ψ₁ ∧ evalAtFrame tf ψ₂
-evalAtFrame tf (Or ψ₁ ψ₂) = evalAtFrame tf ψ₁ ∨ evalAtFrame tf ψ₂
-evalAtFrame _ _ = true  -- Temporal operators handled by state machine
+evalAtFrame = evalAtFrameWith true
 
 -- ============================================================================
 -- COINDUCTIVE LTL CHECKER
@@ -291,13 +290,13 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
         goEW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
         goEW start frame [] =
           if ((timestamp frame ∸ start) ≤ᵇ window) ∧ evalAtFrame frame ψ then now Pass
-          else now (Fail (mkCounterexample frame ("EventuallyWithin: not satisfied within " ++S show window ++S "ms")))
+          else now (Fail (mkCounterexample frame ("EventuallyWithin: not satisfied within " ++ₛ show window ++ₛ "ms")))
         goEW start frame (next ∷ rest') =
           if (timestamp frame ∸ start) ≤ᵇ window
             then (if evalAtFrame frame ψ
                     then now Pass
                     else (later λ where .force → goEW start next (rest' .force)))
-            else now (Fail (mkCounterexample frame ("EventuallyWithin: window of " ++S show window ++S "ms expired")))
+            else now (Fail (mkCounterexample frame ("EventuallyWithin: window of " ++ₛ show window ++ₛ "ms expired")))
 
     -- AlwaysWithin: must satisfy throughout time window
     go (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
@@ -305,12 +304,12 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
         goAW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
         goAW start frame [] =
           if not ((timestamp frame ∸ start) ≤ᵇ window) ∨ evalAtFrame frame ψ then now Pass
-          else now (Fail (mkCounterexample frame ("AlwaysWithin: failed within " ++S show window ++S "ms window")))
+          else now (Fail (mkCounterexample frame ("AlwaysWithin: failed within " ++ₛ show window ++ₛ "ms window")))
         goAW start frame (next ∷ rest') =
           if (timestamp frame ∸ start) ≤ᵇ window
             then (if evalAtFrame frame ψ
                     then (later λ where .force → goAW start next (rest' .force))
-                    else now (Fail (mkCounterexample frame ("AlwaysWithin: failed at t=" ++S show (timestamp frame)))))
+                    else now (Fail (mkCounterexample frame ("AlwaysWithin: failed at t=" ++ₛ show (timestamp frame)))))
             else now Pass
 
 -- ============================================================================
@@ -603,7 +602,7 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
       where
         aux : List PropertyResult → List (ℕ × LTL SignalPredicate) → Maybe Bool → (List PropertyResult × List (ℕ × LTL SignalPredicate))
         aux decidedRest activeRest (just false) =
-          let reason = "Property violated at t=" ++S show (timestamp frame)
+          let reason = "Property violated at t=" ++ₛ show (timestamp frame)
               ce = mkCounterexampleData (timestamp frame) reason
           in ((Violation idx ce) ∷ decidedRest , activeRest)
         aux decidedRest activeRest (just true) = ((Satisfaction idx) ∷ decidedRest , activeRest)

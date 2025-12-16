@@ -27,6 +27,11 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Relation.Nullary using (Dec; yes; no)
 open import Function using (_∘_)
 
+-- Helper: Check if byte order is big endian
+isBigEndian : ByteOrder → Bool
+isBigEndian BigEndian = true
+isBigEndian LittleEndian = false
+
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
 toSigned : ℕ → ℕ → Bool → ℤ
@@ -107,9 +112,6 @@ extractSignal frame signalDef byteOrder =
   in if valid then just scaledValue else nothing
   where
     open import Data.Vec using (Vec)
-    isBigEndian : ByteOrder → Bool
-    isBigEndian BigEndian = true
-    isBigEndian LittleEndian = false
 
 -- Inject a signal value into a CAN frame
 injectSignal : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
@@ -125,10 +127,6 @@ injectSignal value signalDef byteOrder frame =
   where
     open import Data.Vec using (Vec)
     open import Data.Maybe using (_>>=_)
-
-    isBigEndian : ByteOrder → Bool
-    isBigEndian BigEndian = true
-    isBigEndian LittleEndian = false
 
     injectHelper : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
     injectHelper value signalDef byteOrder frame =

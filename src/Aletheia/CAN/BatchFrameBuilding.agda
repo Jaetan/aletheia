@@ -70,16 +70,8 @@ hasOverlaps (sig ∷ rest) = anyOverlap sig rest ∨ hasOverlaps rest
 -- SIGNAL LOOKUP AND VALIDATION
 -- ============================================================================
 
--- Find signal by name in a message
-findSignalByName : String → DBCMessage → Maybe DBCSignal
-findSignalByName name msg =
-  findFirst (DBCMessage.signals msg)
-  where
-    open import Aletheia.Prelude using (findByPredicate)
-    matchesName : DBCSignal → Bool
-    matchesName sig = ⌊ DBCSignal.name sig ≟ₛ name ⌋
-    findFirst : List DBCSignal → Maybe DBCSignal
-    findFirst signals = findByPredicate matchesName signals
+-- Import shared DBC lookup utilities
+open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 
 -- Lookup signal definitions for a list of (name, value) pairs
 -- Returns Nothing if any signal name is not found
@@ -118,8 +110,6 @@ buildFrame dbc canId signals =
   lookupSignals signals msg >>= λ signalDefs →
   validateAndBuild msg signalDefs
   where
-    open import Aletheia.CAN.SignalExtraction using (findMessageById)
-
     -- Validate no overlaps and build frame
     validateAndBuild : DBCMessage → List (DBCSignal × ℚ) → Maybe (Vec Byte 8)
     validateAndBuild msg signalDefs =
@@ -152,5 +142,3 @@ updateFrame dbc canId frame signals =
         lookupSignals signals msg >>= λ signalDefs →
         injectAll frame signalDefs)  -- Inject updates into existing frame
   else nothing
-  where
-    open import Aletheia.CAN.SignalExtraction using (findMessageById; canIdEquals)
