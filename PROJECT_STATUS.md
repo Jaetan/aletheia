@@ -97,11 +97,11 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 1. ✅ Parser soundness proofs - COMPLETE
    - `Parser/Properties.agda`: 30 proven properties (monad laws, position tracking, parse determinism)
    - `Protocol/JSON/Properties.agda`: 12 proven properties (schema soundness, lookup correctness)
-2. 🚧 LTL semantics correctness proofs - SUBSTANTIALLY COMPLETE (57%)
-   - `LTL/Properties.agda`: 17 proven properties (single-frame, temporal, algebraic)
-   - Completed: Groups A, B, F (evalAtFrame, Always/Eventually/Until/Next soundness, algebraic laws)
-   - Deferred: Groups C, D, E (coinductive semantics, equivalence proofs, signal predicates)
-   - Next: Coinductive proofs in separate module (high complexity, ~550 lines)
+2. 🚧 LTL semantics correctness proofs - SUBSTANTIALLY COMPLETE (70%)
+   - `LTL/Properties.agda`: 21 proven properties (single-frame, temporal, signal, algebraic)
+   - Completed: Groups A, B, E, F (evalAtFrame, temporal soundness, signal predicates, algebraic laws)
+   - Deferred: Groups C, D (coinductive semantics 0/5, equivalence proofs 0/4)
+   - Next: Phase 4 design discussion for stepEval ≡ checkIncremental equivalence proof
 3. ⏸️ DSL translation correctness proofs - NOT STARTED
 4. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
 5. ⏸️ Parser memoization - NOT STARTED
