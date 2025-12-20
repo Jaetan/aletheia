@@ -93,16 +93,23 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 
 **Scope**: Formal correctness proofs and performance optimization
 
-**Goals**:
-- Parser soundness proofs
-- LTL semantics correctness proofs
-- DSL translation correctness proofs
-- Performance optimization (target: 1M frames/sec)
-- Parser memoization
-- Signal caching
-- Predicate short-circuiting
+**Goals** (7 total):
+1. ✅ Parser soundness proofs - COMPLETE
+   - `Parser/Properties.agda`: 30 proven properties (monad laws, position tracking, parse determinism)
+   - `Protocol/JSON/Properties.agda`: 12 proven properties (schema soundness, lookup correctness)
+2. 🚧 LTL semantics correctness proofs - SUBSTANTIALLY COMPLETE (57%)
+   - `LTL/Properties.agda`: 17 proven properties (single-frame, temporal, algebraic)
+   - Completed: Groups A, B, F (evalAtFrame, Always/Eventually/Until/Next soundness, algebraic laws)
+   - Deferred: Groups C, D, E (coinductive semantics, equivalence proofs, signal predicates)
+   - Next: Coinductive proofs in separate module (high complexity, ~550 lines)
+3. ⏸️ DSL translation correctness proofs - NOT STARTED
+4. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
+5. ⏸️ Parser memoization - NOT STARTED
+6. ⏸️ Signal caching - NOT STARTED
+7. ⏸️ Predicate short-circuiting - NOT STARTED
 
 **Status**: In progress (started 2025-12-17)
+**Completion**: 29% (2/7 goals complete, 1 substantially complete)
 
 ---
 
