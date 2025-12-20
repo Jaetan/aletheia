@@ -5,6 +5,29 @@
 -- Purpose: Prove LTL evaluator correctness for streaming protocol verification.
 -- Properties: Single-frame evaluation, temporal operator soundness, semantic equivalence.
 -- Approach: Property-based correctness with structural induction on formulas.
+--
+-- PROOF STRATEGY (Specification → Implementation):
+--
+-- Aletheia has THREE evaluation implementations:
+--   1. checkIncremental (List TimedFrame → Bool) - List-based, finite traces
+--   2. stepEval (LTLEvalState → Frame → StepResult) - Streaming, O(1) memory, ACTUAL IMPLEMENTATION
+--   3. checkColist (Colist Frame → Delay Bool) - Coinductive, infinite streams
+--
+-- This module proves correctness of #1 (checkIncremental - the SPECIFICATION).
+-- The streaming implementation #2 (stepEval) is what Aletheia actually uses in production.
+--
+-- Why prove the specification first?
+--   - checkIncremental is simpler (structural recursion on finite lists)
+--   - Easier to prove correct with standard Agda proof techniques
+--   - Establishes the "ground truth" for what correct LTL evaluation means
+--
+-- The deferred work (Group D) proves: stepEval ≡ checkIncremental
+--   - This shows the ACTUAL streaming implementation matches the proven specification
+--   - Requires reasoning about 19-state LTLEvalState machine
+--   - Much harder: state invariants, transition correctness, equivalence proofs
+--
+-- Current status: Specification proven correct (17 properties)
+-- Remaining work: Prove implementation matches specification (deferred, high complexity)
 module Aletheia.LTL.Properties where
 
 open import Aletheia.LTL.Syntax
@@ -364,25 +387,37 @@ and-commutativity (frame ∷ rest) φ ψ
 -- - Structural recursion and pattern matching throughout
 -- - Existential witnesses for temporal operator soundness (Group B)
 -- - Algebraic laws proven with exhaustive case analysis (Group F)
+-- - Proofs target checkIncremental (list-based SPECIFICATION)
+-- - Actual implementation (stepEval streaming) correctness DEFERRED
 
--- Phase 3 Goal #2 Status: SUBSTANTIALLY COMPLETE (57% of planned properties)
--- - ✅ Core LTL evaluation correctness established
+-- Phase 3 Goal #2 Status: SPECIFICATION PROVEN (57% of planned properties)
+-- - ✅ checkIncremental specification correctness established (17 properties)
 -- - ✅ Temporal operators proven sound with existential witnesses
 -- - ✅ Algebraic laws enable formula optimization
+-- - ⏸️ stepEval implementation equivalence DEFERRED (main gap)
 -- - ⏸️ Coinductive proofs deferred (productivity checking complexity)
--- - ⏸️ Equivalence proofs deferred (depends on coinductive work)
 -- - ⏸️ Signal predicates deferred (requires CAN frame integration)
 
 -- Verification status:
 -- - Phases 1-3 type-check successfully with all properties proven
 -- - Module compiles with --safe --without-K --guardedness flags
--- - Ready for integration into main Aletheia proof chain
+-- - SPECIFICATION (checkIncremental) proven correct
+-- - IMPLEMENTATION (stepEval) equivalence proof deferred to future work
+
+-- Critical gap: The actual streaming implementation (stepEval in LTL.Incremental)
+-- processes frames one-at-a-time with O(1) memory using a 19-state machine.
+-- Proving stepEval ≡ checkIncremental requires:
+--   - State invariants for each LTLEvalState constructor
+--   - Transition correctness (stepEval preserves invariants)
+--   - Equivalence theorem: running stepEval frame-by-frame equals checkIncremental
+-- This is Group D work, estimated 250-400 lines, high complexity.
 
 -- Next steps for Phase 4 (future work):
--- 1. Implement coinductive semantics proofs in separate module
--- 2. Prove bounded-coinductive equivalence on finite traces
--- 3. Add signal predicate correctness properties
--- 4. Integrate with Protocol.StreamState verification
+-- 1. **CRITICAL**: Prove stepEval ≡ checkIncremental (implementation matches spec)
+-- 2. Implement coinductive semantics proofs in separate module
+-- 3. Prove bounded-coinductive equivalence on finite traces
+-- 4. Add signal predicate correctness properties
+-- 5. Integrate with Protocol.StreamState verification
 
 -- End of LTL Properties Module ✅ PHASES 1-3 COMPLETE
 -- ============================================================================
