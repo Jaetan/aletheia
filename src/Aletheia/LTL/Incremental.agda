@@ -264,96 +264,95 @@ evalAtFrame = evalAtFrameWith false
 
 -- Check a formula on a list with early termination
 -- Structurally recursive on both formula and list
-checkIncremental : List TimedFrame → LTL (TimedFrame → Bool) → Bool
-checkIncremental [] _ = true  -- Empty trace: vacuously true
-checkIncremental frames@(first ∷ _) φ = checkFormula frames φ
+-- Main recursive checker (structural on formula)
+-- Takes the start timestamp explicitly for bounded operators
+checkFormula : ℕ → List TimedFrame → LTL (TimedFrame → Bool) → Bool
+
+-- Atomic: check first frame
+checkFormula _ [] (Atomic _) = true  -- Empty = vacuous
+checkFormula _ (tf ∷ _) (Atomic pred) = pred tf
+
+-- Not: invert
+checkFormula start trace (Not ψ) = not (checkFormula start trace ψ)
+
+-- And: both must hold (short-circuit on failure)
+checkFormula start trace (And ψ₁ ψ₂) =
+  if checkFormula start trace ψ₁
+  then checkFormula start trace ψ₂
+  else false
+
+-- Or: either must hold (short-circuit on success)
+checkFormula start trace (Or ψ₁ ψ₂) =
+  if checkFormula start trace ψ₁
+  then true
+  else checkFormula start trace ψ₂
+
+-- Next: check second frame
+checkFormula _ [] (Next _) = true
+checkFormula _ (_ ∷ []) (Next _) = true
+checkFormula start (_ ∷ rest) (Next ψ) = checkFormula start rest ψ
+
+-- Always: must hold on all frames (early termination on violation)
+checkFormula start trace (Always ψ) = goAlways trace
   where
-    start = timestamp first
+    goAlways : List TimedFrame → Bool
+    goAlways [] = true
+    goAlways (tf ∷ rest) =
+      if evalAtFrame tf ψ
+      then goAlways rest  -- Continue checking
+      else false          -- Violated! Early termination
 
-    -- Main recursive checker (structural on formula)
-    checkFormula : List TimedFrame → LTL (TimedFrame → Bool) → Bool
+-- Eventually: must hold somewhere (early termination on satisfaction)
+checkFormula start trace (Eventually ψ) = goEventually trace
+  where
+    goEventually : List TimedFrame → Bool
+    goEventually [] = false  -- Never satisfied
+    goEventually (tf ∷ rest) =
+      if evalAtFrame tf ψ
+      then true               -- Found! Early termination
+      else goEventually rest  -- Keep looking
 
-    -- Atomic: check first frame
-    checkFormula [] (Atomic _) = true  -- Empty = vacuous
-    checkFormula (tf ∷ _) (Atomic pred) = pred tf
+-- Until: φ until ψ
+checkFormula start trace (Until ψ₁ ψ₂) = goUntil trace
+  where
+    goUntil : List TimedFrame → Bool
+    goUntil [] = false  -- ψ₂ never held
+    goUntil (tf ∷ rest) =
+      if evalAtFrame tf ψ₂
+      then true  -- ψ₂ holds, satisfied
+      else if evalAtFrame tf ψ₁
+           then goUntil rest  -- ψ₁ holds, keep waiting
+           else false         -- Neither holds, violated
 
-    -- Not: invert
-    checkFormula trace (Not ψ) = not (checkFormula trace ψ)
+-- EventuallyWithin: must hold within time window
+checkFormula start trace (EventuallyWithin windowMicros ψ) = goEW trace
+  where
+    goEW : List TimedFrame → Bool
+    goEW [] = false
+    goEW (tf ∷ rest) =
+      -- Check time window FIRST
+      if (timestamp tf ∸ start) ≤ᵇ windowMicros
+      then if evalAtFrame tf ψ
+           then true           -- Found within window!
+           else goEW rest      -- Keep looking
+      else false               -- Window expired
 
-    -- And: both must hold (short-circuit on failure)
-    checkFormula trace (And ψ₁ ψ₂) =
-      if checkFormula trace ψ₁
-      then checkFormula trace ψ₂
-      else false
+-- AlwaysWithin: must hold throughout time window
+checkFormula start trace (AlwaysWithin windowMicros ψ) = goAW trace
+  where
+    goAW : List TimedFrame → Bool
+    goAW [] = true
+    goAW (tf ∷ rest) =
+      -- Check time window FIRST
+      if (timestamp tf ∸ start) ≤ᵇ windowMicros
+      then if evalAtFrame tf ψ
+           then goAW rest      -- Still in window, keep checking
+           else false          -- Violated within window!
+      else true                -- Window complete, done checking
 
-    -- Or: either must hold (short-circuit on success)
-    checkFormula trace (Or ψ₁ ψ₂) =
-      if checkFormula trace ψ₁
-      then true
-      else checkFormula trace ψ₂
-
-    -- Next: check second frame
-    checkFormula [] (Next _) = true
-    checkFormula (_ ∷ []) (Next _) = true
-    checkFormula (_ ∷ rest) (Next ψ) = checkFormula rest ψ
-
-    -- Always: must hold on all frames (early termination on violation)
-    checkFormula trace (Always ψ) = goAlways trace
-      where
-        goAlways : List TimedFrame → Bool
-        goAlways [] = true
-        goAlways (tf ∷ rest) =
-          if evalAtFrame tf ψ
-          then goAlways rest  -- Continue checking
-          else false          -- Violated! Early termination
-
-    -- Eventually: must hold somewhere (early termination on satisfaction)
-    checkFormula trace (Eventually ψ) = goEventually trace
-      where
-        goEventually : List TimedFrame → Bool
-        goEventually [] = false  -- Never satisfied
-        goEventually (tf ∷ rest) =
-          if evalAtFrame tf ψ
-          then true               -- Found! Early termination
-          else goEventually rest  -- Keep looking
-
-    -- Until: φ until ψ
-    checkFormula trace (Until ψ₁ ψ₂) = goUntil trace
-      where
-        goUntil : List TimedFrame → Bool
-        goUntil [] = false  -- ψ₂ never held
-        goUntil (tf ∷ rest) =
-          if evalAtFrame tf ψ₂
-          then true  -- ψ₂ holds, satisfied
-          else if evalAtFrame tf ψ₁
-               then goUntil rest  -- ψ₁ holds, keep waiting
-               else false         -- Neither holds, violated
-
-    -- EventuallyWithin: must hold within time window
-    checkFormula trace (EventuallyWithin windowMicros ψ) = goEW trace
-      where
-        goEW : List TimedFrame → Bool
-        goEW [] = false
-        goEW (tf ∷ rest) =
-          -- Check time window FIRST
-          if (timestamp tf ∸ start) ≤ᵇ windowMicros
-          then if evalAtFrame tf ψ
-               then true           -- Found within window!
-               else goEW rest      -- Keep looking
-          else false               -- Window expired
-
-    -- AlwaysWithin: must hold throughout time window
-    checkFormula trace (AlwaysWithin windowMicros ψ) = goAW trace
-      where
-        goAW : List TimedFrame → Bool
-        goAW [] = true
-        goAW (tf ∷ rest) =
-          -- Check time window FIRST
-          if (timestamp tf ∸ start) ≤ᵇ windowMicros
-          then if evalAtFrame tf ψ
-               then goAW rest      -- Still in window, keep checking
-               else false          -- Violated within window!
-          else true                -- Window complete, done checking
+checkIncremental : List TimedFrame → LTL (TimedFrame → Bool) → Bool
+checkIncremental [] φ = checkFormula 0 [] φ  -- Delegate to formula-specific semantics
+checkIncremental frames@(first ∷ _) φ = checkFormula (timestamp first) frames φ
 
 -- ============================================================================
 -- MULTI-PROPERTY CHECKING
