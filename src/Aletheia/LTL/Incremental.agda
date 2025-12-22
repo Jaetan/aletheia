@@ -118,9 +118,10 @@ stepEval : ∀ {Atom : Set}
          → StepResult
 
 -- Atomic: evaluate predicate on current frame
+-- Returns Satisfied (not Continue) because atomic props evaluate at single point
 stepEval (Atomic p) eval AtomicState prev curr =
   if eval prev curr p
-  then Continue AtomicState
+  then Satisfied
   else Violated (mkCounterexample curr "atomic predicate failed")
 
 -- Not: evaluate inner and invert result
