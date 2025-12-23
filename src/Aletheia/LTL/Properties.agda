@@ -97,13 +97,21 @@ foldStepEval φ (f ∷ rest) = later λ where .force → go φ (initState φ) no
     go φ st prev curr rest | Satisfied = now true
 
 -- ============================================================================
--- PHASE 3: ATOMIC CASE EQUIVALENCE (TODO)
+-- PHASE 3: ATOMIC CASE EQUIVALENCE
 -- ============================================================================
 
--- TODO: Prove Atomic predicates are equivalent
--- postulate
---   atomic-fold-equiv : ∀ {i : Size} (p : TimedFrame → Bool) (trace : Colist TimedFrame i)
---     → foldStepEval (Atomic p) trace ≡ checkColist (Atomic p) trace
+-- Prove Atomic predicates are equivalent between foldStepEval and checkColist
+-- After fixing checkColist to evaluate at first frame (not last), this is straightforward
+atomic-fold-equiv : ∀ {i : Size} (p : TimedFrame → Bool) (trace : Colist TimedFrame i)
+  → foldStepEval (Atomic p) trace ≡ checkColist (Atomic p) trace
+
+-- Empty trace: both return 'now true'
+atomic-fold-equiv p [] = refl
+
+-- Non-empty trace: both evaluate predicate at first frame
+atomic-fold-equiv p (f ∷ rest) with p f
+... | true  = refl  -- Both return 'now true'
+... | false = refl  -- Both return 'now false'
 
 -- ============================================================================
 -- PHASE 4: PROPOSITIONAL OPERATORS (TODO)

@@ -111,10 +111,9 @@ checkColist φ (frame ∷ rest) = later λ where .force → go φ frame (rest .f
        → Colist TimedFrame i
        → Delay Bool i
 
-    -- Atomic: just evaluate on last frame
-    go (Atomic pred) frame [] = now (pred frame)
-    go (Atomic pred) frame (next ∷ rest') =
-      later λ where .force → go (Atomic pred) next (rest' .force)
+    -- Atomic: evaluate at current frame (standard LTL semantics)
+    -- Returns immediately - atomics are non-temporal, evaluate at current state
+    go (Atomic pred) frame rest = now (pred frame)
 
     -- Not: negate result
     go (Not ψ) frame colist = Delay.map not (go ψ frame colist)
@@ -215,12 +214,10 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
        → Colist TimedFrame i
        → Delay CheckResult i
 
-    -- Atomic: just evaluate on last frame
-    go (Atomic pred) frame [] =
+    -- Atomic: evaluate at current frame (standard LTL semantics)
+    go (Atomic pred) frame rest =
       if pred frame then now Pass
       else now (Fail (mkCounterexample frame "Atomic predicate failed"))
-    go (Atomic pred) frame (next ∷ rest') =
-      later λ where .force → go (Atomic pred) next (rest' .force)
 
     -- Not: negate result (swap Pass/Fail)
     go (Not ψ) frame colist = Delay.map negate (go ψ frame colist)
@@ -345,9 +342,8 @@ checkDelayedColist φ (frame ∷ rest) = later λ where .force → goDelayed φ 
               → DelayedColist TimedFrame i
               → Delay Bool i
 
-    goDelayed (Atomic pred) frame [] = now (pred frame)
-    goDelayed (Atomic pred) frame (wait rest) = later λ where .force → goDelayed (Atomic pred) frame (rest .force)
-    goDelayed (Atomic pred) frame (next ∷ rest') = later λ where .force → goDelayed (Atomic pred) next (rest' .force)
+    -- Atomic: evaluate at current frame (standard LTL semantics)
+    goDelayed (Atomic pred) frame dc = now (pred frame)
 
     goDelayed (Not ψ) frame dc = Delay.map not (goDelayed ψ frame dc)
       where import Codata.Sized.Delay as Delay
