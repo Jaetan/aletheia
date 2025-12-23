@@ -20,7 +20,7 @@ open import Aletheia.CAN.SignalExtraction
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
-open import Aletheia.LTL.Incremental using (checkListStreaming; checkWithCounterexample; CheckResult; Pass; Fail; Counterexample)
+open import Aletheia.LTL.Incremental using (checkWithCounterexample; CheckResult; Pass; Fail; Counterexample)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
@@ -157,27 +157,12 @@ evalOnFrameWithTrace dbc _ pred timedFrame
 ... | just b = b
 
 -- Check if a trace satisfies an LTL formula
--- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
--- Uses incremental checker with early termination for large traces
--- ChangedBy predicates use previous frame lookup
-checkProperty : DBC → List TimedFrame → LTL SignalPredicate → Bool
-checkProperty dbc frames formula =
-  let -- Transform each SignalPredicate to a predicate on TimedFrame
-      -- Captures trace for ChangedBy previous frame lookup
-      predToFunc : SignalPredicate → (TimedFrame → Bool)
-      predToFunc pred = evalOnFrameWithTrace dbc frames pred
-
-      -- Transform the formula
-      transformedFormula : LTL (TimedFrame → Bool)
-      transformedFormula = mapLTL predToFunc formula
-
-  -- Use incremental checker with early termination
-  in checkListStreaming frames transformedFormula
-
 -- Check property and return counterexample on failure
--- Returns CheckResult with violating frame and reason
-checkPropertyWithCounterexample : DBC → List TimedFrame → LTL SignalPredicate → CheckResult
-checkPropertyWithCounterexample dbc frames formula =
+-- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
+-- Uses list-based checker with counterexample generation
+-- ChangedBy predicates use previous frame lookup via evalOnFrameWithTrace
+checkProperty : DBC → List TimedFrame → LTL SignalPredicate → CheckResult
+checkProperty dbc frames formula =
   let predToFunc : SignalPredicate → (TimedFrame → Bool)
       predToFunc pred = evalOnFrameWithTrace dbc frames pred
 

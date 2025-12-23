@@ -471,13 +471,6 @@ isPass : CheckResult → Bool
 isPass Pass = true
 isPass (Fail _) = false
 
--- Simple wrapper for backward compatibility (used by SignalPredicate module)
--- Converts CheckResult to Bool
-checkListStreaming : List TimedFrame → LTL (TimedFrame → Bool) → Bool
-checkListStreaming frames φ with checkWithCounterexample frames φ
-... | Pass = true
-... | Fail _ = false
-
 -- ============================================================================
 -- NOTE ON MEMORY-BOUNDED STREAMING
 -- ============================================================================
