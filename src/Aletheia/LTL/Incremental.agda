@@ -352,7 +352,7 @@ checkFormula start trace (AlwaysWithin windowMicros ψ) = goAW trace
       else true                -- Window complete, done checking
 
 -- ============================================================================
--- NOTE: checkIncremental, checkMultiple, and checkListStreaming REMOVED
+-- NOTE: checkIncremental and checkMultiple REMOVED
 -- These were reference/specification functions never used in production.
 -- Production uses stepEval (streaming state machine) exclusively.
 -- See: /home/nicolas/.claude/plans/synthetic-honking-goblet.md for rationale.
@@ -470,6 +470,13 @@ getCounterexample (Fail ce) = just ce
 isPass : CheckResult → Bool
 isPass Pass = true
 isPass (Fail _) = false
+
+-- Simple wrapper for backward compatibility (used by SignalPredicate module)
+-- Converts CheckResult to Bool
+checkListStreaming : List TimedFrame → LTL (TimedFrame → Bool) → Bool
+checkListStreaming frames φ with checkWithCounterexample frames φ
+... | Pass = true
+... | Fail _ = false
 
 -- ============================================================================
 -- NOTE ON MEMORY-BOUNDED STREAMING
