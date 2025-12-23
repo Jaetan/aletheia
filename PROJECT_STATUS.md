@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2025-12-17
+**Last Updated**: 2025-12-22
 
 ---
 
@@ -97,19 +97,21 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 1. ✅ Parser soundness proofs - COMPLETE
    - `Parser/Properties.agda`: 30 proven properties (monad laws, position tracking, parse determinism)
    - `Protocol/JSON/Properties.agda`: 12 proven properties (schema soundness, lookup correctness)
-2. 🚧 LTL semantics correctness proofs - SUBSTANTIALLY COMPLETE (70%)
-   - `LTL/Properties.agda`: 21 proven properties (single-frame, temporal, signal, algebraic)
-   - Completed: Groups A, B, E, F (evalAtFrame, temporal soundness, signal predicates, algebraic laws)
-   - Deferred: Groups C, D (coinductive semantics 0/5, equivalence proofs 0/4)
-   - Next: Phase 4 design discussion for stepEval ≡ checkIncremental equivalence proof
+2. 🚧 LTL semantics correctness proofs - STRATEGIC PIVOT (Phase 1 complete)
+   - **Strategic Direction Change** (2025-12-22): Discarded checkIncremental approach
+   - **Previous work** (DISCARDED): 21 properties proving checkIncremental correctness (~1100 lines)
+   - **Reason**: checkIncremental never used in production; semantic mismatch with streaming
+   - **New Goal**: Prove `stepEval ≡ checkColist` (streaming ≡ coinductive semantics)
+   - **Status**: Phase 1 cleanup complete, Phase 2+ coinductive proofs pending
+   - **Plan**: `/home/nicolas/.claude/plans/synthetic-honking-goblet.md` (6 phases, ~25-30 hours)
 3. ⏸️ DSL translation correctness proofs - NOT STARTED
 4. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
 5. ⏸️ Parser memoization - NOT STARTED
 6. ⏸️ Signal caching - NOT STARTED
 7. ⏸️ Predicate short-circuiting - NOT STARTED
 
-**Status**: In progress (started 2025-12-17)
-**Completion**: 29% (2/7 goals complete, 1 substantially complete)
+**Status**: In progress (started 2025-12-17, strategic pivot 2025-12-22)
+**Completion**: 14% (1/7 goals complete, 1 in progress after strategic reset)
 
 ---
 

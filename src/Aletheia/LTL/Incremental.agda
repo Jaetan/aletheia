@@ -351,24 +351,12 @@ checkFormula start trace (AlwaysWithin windowMicros ψ) = goAW trace
            else false          -- Violated within window!
       else true                -- Window complete, done checking
 
-checkIncremental : List TimedFrame → LTL (TimedFrame → Bool) → Bool
-checkIncremental [] φ = checkFormula 0 [] φ  -- Delegate to formula-specific semantics
-checkIncremental frames@(first ∷ _) φ = checkFormula (timestamp first) frames φ
-
 -- ============================================================================
--- MULTI-PROPERTY CHECKING
+-- NOTE: checkIncremental, checkMultiple, and checkListStreaming REMOVED
+-- These were reference/specification functions never used in production.
+-- Production uses stepEval (streaming state machine) exclusively.
+-- See: /home/nicolas/.claude/plans/synthetic-honking-goblet.md for rationale.
 -- ============================================================================
-
--- Check multiple properties on the same trace
--- Each property uses early termination independently
--- Returns list of results in same order as input properties
-checkMultiple : List TimedFrame → List (LTL (TimedFrame → Bool)) → List Bool
-checkMultiple trace [] = []
-checkMultiple trace (φ ∷ rest) = checkIncremental trace φ ∷ checkMultiple trace rest
-
--- Primary interface for streaming check
-checkListStreaming : List TimedFrame → LTL (TimedFrame → Bool) → Bool
-checkListStreaming = checkIncremental
 
 -- ============================================================================
 -- COUNTEREXAMPLE GENERATION (legacy list-based checking)
