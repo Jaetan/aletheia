@@ -44,7 +44,8 @@ open import Codata.Sized.Delay.Bisimilarity as DelayBisim using (_⊢_≈_; Bisi
 import Codata.Sized.Delay.Bisimilarity as DB
 open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (Bool; true; false; if_then_else_; not; _∧_; _∨_)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; inspect; [_])
 
@@ -223,6 +224,103 @@ or-atomic-fold-equiv p q [] = DB.now refl
 
 -- Non-empty case: use copattern matching
 or-atomic-fold-equiv p q (f ∷ rest) = DB.later λ where .force → or-atomic-go-equiv p q f (rest .force)
+
+-- ============================================================================
+-- PHASE 3.3: GENERAL COMPOSITIONAL PROOFS (IN PROGRESS)
+-- ============================================================================
+
+-- Goal: Prove equivalence for ALL LTL formulas using structural induction
+-- Approach: Mutual recursion over formula structure
+-- Status: Propositional operators only (temporal operators deferred to Phase 4)
+
+-- Main theorem: prove foldStepEval ≈ checkColist for all formulas
+-- Uses structural induction - each constructor delegates to helper lemmas
+-- Atomic cases use proven lemmas from Phase 3.1-3.2
+-- Temporal cases postulated (TODO Phase 4)
+
+-- Postulates (TODO: Remove by implementing proofs)
+
+-- Temporal operator proofs (postulated - to be proven in Phase 4)
+postulate
+  next-fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Next φ) trace ≈ checkColist (Next φ) trace
+
+  always-fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Always φ) trace ≈ checkColist (Always φ) trace
+
+  eventually-fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Eventually φ) trace ≈ checkColist (Eventually φ) trace
+
+  until-fold-equiv : ∀ (φ ψ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Until φ ψ) trace ≈ checkColist (Until φ ψ) trace
+
+  eventually-within-fold-equiv : ∀ (n : ℕ) (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (EventuallyWithin n φ) trace ≈ checkColist (EventuallyWithin n φ) trace
+
+  always-within-fold-equiv : ∀ (n : ℕ) (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (AlwaysWithin n φ) trace ≈ checkColist (AlwaysWithin n φ) trace
+
+-- General propositional cases (postulated - TODO Phase 3.3)
+postulate
+  not-general-postulate : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Not φ) trace ≈ checkColist (Not φ) trace
+
+  and-general-postulate : ∀ (φ ψ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (And φ ψ) trace ≈ checkColist (And φ ψ) trace
+
+  or-general-postulate : ∀ (φ ψ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Or φ ψ) trace ≈ checkColist (Or φ ψ) trace
+
+mutual
+  -- Main equivalence theorem for all LTL formulas
+  fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval φ trace ≈ checkColist φ trace
+
+  -- Base case: Atomic predicates (proven in Phase 3.1)
+  fold-equiv (Atomic p) trace = atomic-fold-equiv p trace
+
+  -- Propositional operators (use helper lemmas)
+  fold-equiv (Not φ) trace = not-fold-equiv φ trace
+  fold-equiv (And φ ψ) trace = and-fold-equiv φ ψ trace
+  fold-equiv (Or φ ψ) trace = or-fold-equiv φ ψ trace
+
+  -- Temporal operators (postulated - TODO Phase 4)
+  fold-equiv (Next φ) trace = next-fold-equiv φ trace
+  fold-equiv (Always φ) trace = always-fold-equiv φ trace
+  fold-equiv (Eventually φ) trace = eventually-fold-equiv φ trace
+  fold-equiv (Until φ ψ) trace = until-fold-equiv φ ψ trace
+  fold-equiv (EventuallyWithin n φ) trace = eventually-within-fold-equiv n φ trace
+  fold-equiv (AlwaysWithin n φ) trace = always-within-fold-equiv n φ trace
+
+  -- General Not equivalence (for any φ, not just Atomic)
+  -- NOTE: Full structural induction creates explosion of cases
+  -- For now: prove key propositional cases, postulate rest
+  not-fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Not φ) trace ≈ checkColist (Not φ) trace
+  not-fold-equiv (Atomic p) trace = not-atomic-fold-equiv p trace  -- Base case (proven)
+  -- TODO Phase 3.3: Implement propositional compositions
+  -- TODO Phase 4: Implement temporal compositions
+  not-fold-equiv φ trace = not-general-postulate φ trace  -- Postulate for now
+
+  -- General And equivalence (for any φ, ψ)
+  -- NOTE: Full structural induction creates O(n²) cases
+  -- For now: prove atomic base case, postulate rest
+  and-fold-equiv : ∀ (φ ψ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (And φ ψ) trace ≈ checkColist (And φ ψ) trace
+  and-fold-equiv (Atomic p) (Atomic q) trace = and-atomic-fold-equiv p q trace  -- Base case (proven)
+  -- TODO Phase 3.3: Implement propositional compositions
+  -- TODO Phase 4: Implement temporal compositions
+  and-fold-equiv φ ψ trace = and-general-postulate φ ψ trace  -- Postulate for now
+
+  -- General Or equivalence (for any φ, ψ)
+  -- NOTE: Full structural induction creates O(n²) cases
+  -- For now: prove atomic base case, postulate rest
+  or-fold-equiv : ∀ (φ ψ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+    → ∞ ⊢ foldStepEval (Or φ ψ) trace ≈ checkColist (Or φ ψ) trace
+  or-fold-equiv (Atomic p) (Atomic q) trace = or-atomic-fold-equiv p q trace  -- Base case (proven)
+  -- TODO Phase 3.3: Implement propositional compositions
+  -- TODO Phase 4: Implement temporal compositions
+  or-fold-equiv φ ψ trace = or-general-postulate φ ψ trace  -- Postulate for now
 
 -- ============================================================================
 -- PHASE 5: TEMPORAL OPERATORS (TODO - RESEARCH FIRST)
