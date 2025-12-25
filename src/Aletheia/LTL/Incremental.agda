@@ -128,7 +128,7 @@ stepEval (Atomic p) eval AtomicState prev curr =
 stepEval (Not φ) eval (NotState st) prev curr
   with stepEval φ eval st prev curr
 ... | Continue st' = Continue (NotState st')
-... | Violated _ = Continue (NotState st)  -- Inner violated = outer continues (¬false = true)
+... | Violated _ = Satisfied  -- Inner violated = outer satisfied (¬false = true)
 ... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
 
 -- And: both must hold

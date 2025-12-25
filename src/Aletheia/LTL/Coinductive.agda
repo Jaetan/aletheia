@@ -122,9 +122,9 @@ checkColist φ (frame ∷ rest) = later λ where .force → go φ frame (rest .f
     -- And: check both (short-circuit on false)
     go (And ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
     go (And ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂
-        then (later λ where .force → go (And ψ₁ ψ₂) next (rest' .force))
-        else now false
+      -- Evaluate both on current frame only (non-temporal semantics)
+      -- Temporal operators like Always wrap And to check multiple frames
+      now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
 
     -- Or: check either (short-circuit on true)
     go (Or ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
@@ -232,9 +232,9 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
       if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "And: conjunct failed at end of trace"))
     go (And ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂
-        then (later λ where .force → go (And ψ₁ ψ₂) next (rest' .force))
-        else now (Fail (mkCounterexample frame "And: conjunct failed"))
+      -- Evaluate both on current frame only (non-temporal semantics)
+      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
+      else now (Fail (mkCounterexample frame "And: conjunct failed"))
 
     -- Or: check either (short-circuit on true)
     go (Or ψ₁ ψ₂) frame [] =
@@ -349,11 +349,8 @@ checkDelayedColist φ (frame ∷ rest) = later λ where .force → goDelayed φ 
       where import Codata.Sized.Delay as Delay
 
     goDelayed (And ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
-    goDelayed (And ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (And ψ₁ ψ₂) frame (rest .force)
-    goDelayed (And ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂
-        then (later λ where .force → goDelayed (And ψ₁ ψ₂) next (rest' .force))
-        else now false
+    goDelayed (And ψ₁ ψ₂) frame (wait rest) = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
+    goDelayed (And ψ₁ ψ₂) frame (next ∷ rest') = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
 
     goDelayed (Or ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
     goDelayed (Or ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (Or ψ₁ ψ₂) frame (rest .force)
