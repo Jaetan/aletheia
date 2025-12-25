@@ -37,7 +37,7 @@
 module Aletheia.LTL.Properties where
 
 -- Standard library imports
-open import Size using (Size; ∞)
+open import Size using (Size; ∞; Size<_)
 open import Codata.Sized.Thunk using (Thunk; force)
 open import Codata.Sized.Delay using (Delay; now; later)
 open import Codata.Sized.Delay.Bisimilarity as DelayBisim using (_⊢_≈_; Bisim)
@@ -54,6 +54,43 @@ open import Aletheia.LTL.Syntax
 open import Aletheia.LTL.Incremental
 open import Aletheia.LTL.Coinductive using (checkColist)
 open import Aletheia.Trace.Context using (TimedFrame)
+
+-- ============================================================================
+-- HELPER LEMMAS FOR TEMPORAL OPERATORS (Phase 4)
+-- ============================================================================
+
+-- These lemmas are essential for proving temporal operator equivalences.
+-- They provide general bisimilarity congruence lemmas for Delay operations.
+
+-- Helper: Map congruence for bisimilarity
+-- If d₁ ≈ d₂, then mapping the same function preserves bisimilarity
+-- NOTE: Commented out for now - will add if needed during temporal operator proofs
+-- The issue is that Agda doesn't automatically reduce D.map applications in the
+-- return type, causing unification issues. We may not need this lemma at all.
+-- open import Codata.Sized.Delay as D using (map)
+--
+-- private
+--   map-cong : ∀ {i A B} (f : A → B) {d₁ d₂ : Delay A ∞}
+--     → i ⊢ d₁ ≈ d₂
+--     → i ⊢ D.map f d₁ ≈ D.map f d₂
+--   map-cong f (DB.now {x} refl) = DB.now refl
+--   map-cong f (DB.later {xs} {ys} prf) =
+--     DB.later λ where .force → map-cong f (prf .force)
+
+-- Helper: If-then-else congruence for bisimilarity
+-- Branch on boolean condition while preserving bisimilarity
+private
+  if-cong : ∀ {i} (b : Bool) {d₁ d₂ d₃ d₄ : Delay Bool ∞}
+    → (b ≡ true → i ⊢ d₁ ≈ d₃)
+    → (b ≡ false → i ⊢ d₂ ≈ d₄)
+    → i ⊢ (if b then d₁ else d₂) ≈ (if b then d₃ else d₄)
+  if-cong true  hyp-t hyp-f = hyp-t refl
+  if-cong false hyp-t hyp-f = hyp-f refl
+
+-- Helper: Later congruence for bisimilarity
+-- This is actually just the later constructor of Bisim, included for clarity
+-- If thunks are bisimilar when forced, then delaying them preserves bisimilarity
+-- Note: We use DB.later directly in proofs, this is just documentation
 
 -- ============================================================================
 -- PHASE 2: COINDUCTIVE INFRASTRUCTURE
@@ -323,11 +360,45 @@ mutual
   or-fold-equiv φ ψ trace = or-general-postulate φ ψ trace  -- Postulate for now
 
 -- ============================================================================
+-- PHASE 4: TEMPORAL OPERATORS
+-- ============================================================================
+
+-- Strategy: Prove equivalence for each temporal operator using coinductive reasoning
+-- Key technique: Use structural induction on formula φ + copattern matching for delays
+
+-- Import coinductive checker for reference
+open import Aletheia.LTL.Coinductive as Coinductive using ()
+
+-- Helper: Prove equivalence for Next operator
+-- Next φ means "φ holds at the next frame"
+-- Coinductive: go (Next ψ) frame (next ∷ rest') = later (λ .force → go ψ next rest')
+-- Incremental: stepEval (Next φ) wraps result in NextState
+
+next-go-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (st : LTLEvalState) (f : TimedFrame) (rest : Colist TimedFrame ∞)
+  → st ≡ initState φ
+  → ∞ ⊢ foldStepEval-go (Next φ) (NextState st) nothing f rest
+      ≈ Coinductive.checkColist φ rest
+
+-- Empty rest case: Next φ with no next frame evaluates φ at current frame (infinite extension)
+-- But this requires understanding how go (Next φ) f [] behaves
+next-go-equiv φ st f rest st-eq = {!!}  -- TODO: Pattern match on rest
+
+-- Main theorem: Next operator equivalence
+next-fold-equiv-real : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
+  → ∞ ⊢ foldStepEval (Next φ) trace ≈ checkColist (Next φ) trace
+
+-- Empty trace case: both return 'now true'
+next-fold-equiv-real φ [] = DB.now refl
+
+-- Non-empty trace: use copattern matching
+next-fold-equiv-real φ (f ∷ rest) = {!!}  -- TODO: Use next-go-equiv
+
+-- ============================================================================
 -- PHASE 5: TEMPORAL OPERATORS (TODO - RESEARCH FIRST)
 -- ============================================================================
 
 -- ⚠️ PAUSE before implementation: Research coinductive LTL proofs
--- TODO: Always, Eventually, Until, Next
+-- TODO: Always, Eventually, Until
 -- TODO: EventuallyWithin, AlwaysWithin
 
 -- ============================================================================

@@ -152,24 +152,18 @@ lookupObject = lookupWith getObject
 -- JSON FORMATTER (Structurally recursive on JSON)
 -- ============================================================================
 
--- Escape special characters in strings
-escapeChar : Char → String
-escapeChar '"'  = "\\\""
-escapeChar '\\' = "\\\\"
-escapeChar '\n' = "\\n"
-escapeChar '\t' = "\\t"
-escapeChar c    = fromList (c ∷ [])
-
-escapeString : String → String
-escapeString s = foldr _++ₛ_ "" (map escapeChar (toList s))
-
 -- Format JSON as string (structurally recursive on JSON data type)
--- Format a rational as a JSON object with numerator and denominator
+-- NOTE: JSON strings ≡ Agda Strings at syntax level (no escape characters in our protocol)
+-- Format a rational: integers as decimal notation, non-integers as object
 formatRational : ℚ → String
 formatRational r with Rat.toℚᵘ r
-... | ℚᵘ.mkℚᵘ num denom-1 =
+... | ℚᵘ.mkℚᵘ num Data.Nat.zero =
+      -- Denominator is 1, format as integer
+      IntShow.show num
+... | ℚᵘ.mkℚᵘ num (Data.Nat.suc denom-1) =
+      -- Denominator > 1, format as object for exact representation
       "{\"numerator\": " ++ₛ IntShow.show num ++ₛ
-      ", \"denominator\": " ++ₛ ℕShow.show (Data.Nat.suc denom-1) ++ₛ "}"
+      ", \"denominator\": " ++ₛ ℕShow.show (Data.Nat.suc (Data.Nat.suc denom-1)) ++ₛ "}"
   where
     open import Data.Nat.Show as ℕShow using (show)
 
@@ -178,7 +172,7 @@ formatJSON JNull = "null"
 formatJSON (JBool true) = "true"
 formatJSON (JBool false) = "false"
 formatJSON (JNumber n) = formatRational n
-formatJSON (JString s) = "\"" ++ₛ escapeString s ++ₛ "\""
+formatJSON (JString s) = "\"" ++ₛ s ++ₛ "\""
 formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
   where
     formatJSONList : List JSON → String
@@ -188,7 +182,7 @@ formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
 formatJSON (JObject fields) = "{" ++ₛ formatFields fields ++ₛ"}"
   where
     formatField : String × JSON → String
-    formatField (key , val) = "\"" ++ₛ escapeString key ++ₛ"\": " ++ₛ formatJSON val
+    formatField (key , val) = "\"" ++ₛ key ++ₛ"\": " ++ₛ formatJSON val
 
     formatFields : List (String × JSON) → String
     formatFields [] = ""
@@ -283,22 +277,9 @@ parseRational = buildNumber <$> parseInt <*> optional (char '.' *> some digit)
 parseNumber : Parser JSON
 parseNumber = JNumber <$> parseRational
 
--- Parse a single character inside a JSON string (handles escape sequences)
+-- Parse a single character inside a JSON string (no escape sequences - our protocol uses simple strings)
 parseStringChar : Parser Char
-parseStringChar = parseEscaped <|> parseNormal
-  where
-    parseEscaped : Parser Char
-    parseEscaped = do
-      _ ← char '\\'
-      c ← anyChar
-      pure (if ⌊ c Data.Char.≟ '"' ⌋ then '"'
-            else if ⌊ c Data.Char.≟ '\\' ⌋ then '\\'
-            else if ⌊ c Data.Char.≟ 'n' ⌋ then '\n'
-            else if ⌊ c Data.Char.≟ 't' ⌋ then '\t'
-            else c)  -- Unknown escape, keep as-is
-
-    parseNormal : Parser Char
-    parseNormal = satisfy (λ c → not (⌊ c Data.Char.≟ '"' ⌋ ∨ ⌊ c Data.Char.≟ '\\' ⌋))
+parseStringChar = satisfy (λ c → not ⌊ c Data.Char.≟ '"' ⌋)
 
 parseString : Parser JSON
 parseString = do
