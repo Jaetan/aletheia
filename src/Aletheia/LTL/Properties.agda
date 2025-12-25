@@ -52,7 +52,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym;
 -- Aletheia imports
 open import Aletheia.LTL.Syntax
 open import Aletheia.LTL.Incremental
-open import Aletheia.LTL.Coinductive using (checkColist)
+open import Aletheia.LTL.Coinductive as Coinductive using (checkColist)
 open import Aletheia.Trace.Context using (TimedFrame)
 
 -- ============================================================================
@@ -275,6 +275,28 @@ or-atomic-fold-equiv p q (f ∷ rest) = DB.later λ where .force → or-atomic-g
 -- Atomic cases use proven lemmas from Phase 3.1-3.2
 -- Temporal cases postulated (TODO Phase 4)
 
+-- ============================================================================
+-- AUXILIARY LEMMAS FOR TEMPORAL OPERATORS
+-- ============================================================================
+
+-- These lemmas help bridge the gap between incremental (state-based) and
+-- coinductive (recursive) temporal operator semantics.
+
+-- NOTE: The next-unwrap auxiliary lemma is no longer needed after fixing the Next operator bug.
+-- The bug was that stepEval (Next φ) evaluated φ at the current frame instead of skipping it.
+-- Now that Next correctly skips the first frame (using NextState → NextActive transition),
+-- the proof should work directly without needing a complex state unwrapping lemma.
+-- Keeping the commented-out old approach for reference:
+
+{-
+-- Auxiliary Lemma: NextState Unwrapping (OLD - before bug fix)
+-- Shows that Next operator "passes through" to evaluate the inner formula on the tail.
+next-unwrap : ∀ (φ : LTL (TimedFrame → Bool)) (f : TimedFrame) (next : TimedFrame) (rest : Thunk (Colist TimedFrame) ∞)
+  → ∞ ⊢ foldStepEval-go (Next φ) (NextState (initState φ)) nothing f (next ∷ rest)
+      ≈ foldStepEval φ (next ∷ rest)
+next-unwrap φ f next rest = {!!}
+-}
+
 -- Postulates (TODO: Remove by implementing proofs)
 
 -- Temporal operator proofs (postulated - to be proven in Phase 4)
@@ -357,37 +379,39 @@ mutual
   -- TODO Phase 4: Implement temporal compositions
   or-fold-equiv φ ψ trace = or-general-postulate φ ψ trace  -- Postulate for now
 
-  -- Next operator equivalence (Phase 4 - first temporal operator proven!)
-  -- Next φ evaluates φ on the tail of the trace
-  -- Key insight: foldStepEval-go (Next φ) ... evaluates φ on rest, not Next φ on rest
+  -- Next operator equivalence (Phase 4 - first temporal operator!)
+  -- Next φ skips the first frame, then evaluates φ on the tail
+  -- After bug fix: stepEval (Next φ) with NextState skips frame, transitions to NextActive
   next-fold-equiv : ∀ (φ : LTL (TimedFrame → Bool)) (trace : Colist TimedFrame ∞)
     → ∞ ⊢ foldStepEval (Next φ) trace ≈ checkColist (Next φ) trace
   next-fold-equiv φ [] = DB.now refl  -- Empty trace: both return 'now true'
   next-fold-equiv φ (f ∷ rest) = DB.later λ where .force → next-go-equiv-mut φ f (rest .force)
     where
-      -- Helper for non-empty rest case
-      -- Show: foldStepEval-go (Next φ) (NextState (initState φ)) nothing f rest ≈ checkColist φ rest
+      -- Helper: Prove foldStepEval-go (Next φ) (NextState st) behaves like coinductive Next
+      -- Coinductive Next definition (from Coinductive.agda:131-133, inlined since go is private):
+      --   go (Next ψ) frame [] = now (evalAtFrame frame ψ)
+      --   go (Next ψ) frame (next ∷ rest') = later λ .force → go ψ next (rest' .force)
+      --
+      -- After the bug fix, incremental evaluation:
+      --   stepEval (Next φ) (NextState st) = Continue (NextActive st)  (skips frame)
+      --   stepEval (Next φ) (NextActive st) = [evaluates φ]  (on next frame)
       next-go-equiv-mut : ∀ (φ : LTL (TimedFrame → Bool)) (f : TimedFrame) (rest : Colist TimedFrame ∞)
         → ∞ ⊢ foldStepEval-go (Next φ) (NextState (initState φ)) nothing f rest
-            ≈ checkColist φ rest
-      -- Empty rest: infinite extension semantics
-      next-go-equiv-mut φ f [] = {!!}
-      -- Non-empty rest: This is the KEY CHALLENGE
-      -- We need to show:
-      --   foldStepEval-go (Next φ) (NextState (initState φ)) nothing f (next ∷ rest)
-      --   ≈ checkColist φ (next ∷ rest)
-      --
-      -- The challenge: foldStepEval-go (Next φ) (NextState st) calls stepEval (Next φ)
-      --   which wraps results in NextState, making it NOT directly equal to foldStepEval φ
-      --
-      -- Possible approaches:
-      --   1. Prove that Next "passes through" to φ after one frame
-      --   2. Do case analysis on stepEval φ result and show all cases work
-      --   3. Find a different correspondence between Next and tail evaluation
-      --
-      -- Current attempt: Direct use of fold-equiv doesn't type-check because LHS has
-      --   Next φ with NextState, but RHS expects just φ
-      next-go-equiv-mut φ f (next ∷ rest) = {!!}  -- TODO: Prove state correspondence
+            ≈ checkColist φ rest  -- Note: φ, not Next φ! Coinductive Next skips to φ
+      -- Empty rest: infinite extension
+      -- LHS: foldStepEval-go (Next φ) (NextState (initState φ)) nothing f []
+      --   with stepEval (Next φ) ... (NextState ...) nothing f  | Continue (NextActive (initState φ)) with []
+      --   | [] = now true
+      -- RHS: checkColist φ [] = now true
+      -- Both sides: now true ≈ now true
+      next-go-equiv-mut φ f [] = DB.now refl
+      -- Non-empty rest: stepEval (Next φ) (NextState st) skips f, continues with NextActive
+      -- LHS: foldStepEval-go (Next φ) (NextState (initState φ)) nothing f (next ∷ rest)
+      --   = later λ .force → foldStepEval-go (Next φ) (NextActive (initState φ)) (just f) next (rest .force)
+      -- RHS: checkColist φ (next ∷ rest)
+      --   = later λ .force → [go φ next (rest .force)]
+      -- Need auxiliary lemma: NextActive state evaluates φ correctly
+      next-go-equiv-mut φ f (next ∷ rest) = {!!}  -- TODO: Prove NextActive unwrapping
 
 -- ============================================================================
 -- PHASE 4: TEMPORAL OPERATORS

@@ -54,7 +54,8 @@ data LTLEvalState : Set where
   OrState  : LTLEvalState → LTLEvalState → LTLEvalState
 
   -- Temporal operators
-  NextState : LTLEvalState → LTLEvalState
+  NextState : LTLEvalState → LTLEvalState       -- Waiting to skip first frame
+  NextActive : LTLEvalState → LTLEvalState      -- Skipped, now evaluating inner
 
   -- Always: track if violated
   AlwaysState : LTLEvalState → LTLEvalState
@@ -164,9 +165,14 @@ stepEval (Or φ ψ) eval (OrState st1 st2) prev curr =
   stepEval-or-helper (stepEval φ eval st1 prev curr) (stepEval ψ eval st2 prev curr) st1 st2
 
 -- Next: skip first frame, then evaluate on subsequent frames
+-- First frame: skip it without evaluating, transition to NextActive
 stepEval (Next φ) eval (NextState st) prev curr
+  = Continue (NextActive st)
+
+-- Subsequent frames: evaluate inner formula φ
+stepEval (Next φ) eval (NextActive st) prev curr
   with stepEval φ eval st prev curr
-... | Continue st' = Continue (NextState st')
+... | Continue st' = Continue (NextActive st')
 ... | Violated ce = Violated ce
 ... | Satisfied = Satisfied
 
