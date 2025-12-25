@@ -119,19 +119,13 @@ checkColist φ (frame ∷ rest) = later λ where .force → go φ frame (rest .f
     go (Not ψ) frame colist = Delay.map not (go ψ frame colist)
       where import Codata.Sized.Delay as Delay
 
-    -- And: check both (short-circuit on false)
-    go (And ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
-    go (And ψ₁ ψ₂) frame (next ∷ rest') =
-      -- Evaluate both on current frame only (non-temporal semantics)
-      -- Temporal operators like Always wrap And to check multiple frames
-      now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
+    -- And: check both on current frame (non-temporal semantics)
+    -- Temporal operators like Always wrap And to check multiple frames
+    go (And ψ₁ ψ₂) frame rest = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
 
-    -- Or: check either (short-circuit on true)
-    go (Or ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
-    go (Or ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂
-        then now true
-        else (later λ where .force → go (Or ψ₁ ψ₂) next (rest' .force))
+    -- Or: check either on current frame (non-temporal semantics)
+    -- Temporal operators like Eventually wrap Or to check multiple frames
+    go (Or ψ₁ ψ₂) frame rest = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
 
     -- Next: check next frame (infinite extension: next is same frame at EOF)
     go (Next ψ) frame [] = now (evalAtFrame frame ψ)
@@ -236,14 +230,10 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
       if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "And: conjunct failed"))
 
-    -- Or: check either (short-circuit on true)
-    go (Or ψ₁ ψ₂) frame [] =
+    -- Or: check either on current frame (non-temporal semantics)
+    go (Or ψ₁ ψ₂) frame rest =
       if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂ then now Pass
-      else now (Fail (mkCounterexample frame "Or: both disjuncts failed at end of trace"))
-    go (Or ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂
-        then now Pass
-        else (later λ where .force → go (Or ψ₁ ψ₂) next (rest' .force))
+      else now (Fail (mkCounterexample frame "Or: both disjuncts failed"))
 
     -- Next: check next frame
     go (Next ψ) frame [] =
@@ -352,12 +342,10 @@ checkDelayedColist φ (frame ∷ rest) = later λ where .force → goDelayed φ 
     goDelayed (And ψ₁ ψ₂) frame (wait rest) = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
     goDelayed (And ψ₁ ψ₂) frame (next ∷ rest') = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
 
+    -- Or: check either on current frame (non-temporal semantics)
     goDelayed (Or ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
-    goDelayed (Or ψ₁ ψ₂) frame (wait rest) = later λ where .force → goDelayed (Or ψ₁ ψ₂) frame (rest .force)
-    goDelayed (Or ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂
-        then now true
-        else (later λ where .force → goDelayed (Or ψ₁ ψ₂) next (rest' .force))
+    goDelayed (Or ψ₁ ψ₂) frame (wait rest) = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
+    goDelayed (Or ψ₁ ψ₂) frame (next ∷ rest') = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
 
     goDelayed (Next ψ) frame [] = now (evalAtFrame frame ψ)
     goDelayed (Next ψ) frame (wait rest) = later λ where .force → goDelayed (Next ψ) frame (rest .force)

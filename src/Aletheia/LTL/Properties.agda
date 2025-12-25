@@ -179,24 +179,16 @@ not-atomic-fold-equiv p (f ∷ rest) = DB.later λ where .force → not-atomic-g
 -- And: Both operands must hold
 -- For And (Atomic p) (Atomic q), the result should be (p f ∧ q f)
 
--- Helper: characterize stepEval for And (Atomic p) (Atomic q)
-stepEval-and-atomic-computes : ∀ (p q : TimedFrame → Bool) (f : TimedFrame)
-  → (p f ∧ q f ≡ true → stepEval (And (Atomic p) (Atomic q)) evalAtomicPred (AndState AtomicState AtomicState) nothing f ≡ Satisfied)
-  × (p f ∧ q f ≡ false → ∃[ ce ] stepEval (And (Atomic p) (Atomic q)) evalAtomicPred (AndState AtomicState AtomicState) nothing f ≡ Violated ce)
-stepEval-and-atomic-computes p q f with p f | q f
-... | true  | true  = (λ _ → refl) , (λ ())
-... | true  | false = (λ ()) , (mkCounterexample f "atomic predicate failed" , refl)
-... | false | true  = (λ ()) , (mkCounterexample f "atomic predicate failed" , refl)
-... | false | false = (λ ()) , (mkCounterexample f "atomic predicate failed" , refl)
-
 and-atomic-go-equiv : ∀ (p q : TimedFrame → Bool) (f : TimedFrame) (rest : Colist TimedFrame ∞)
   → ∞ ⊢ foldStepEval-go (And (Atomic p) (Atomic q)) (AndState AtomicState AtomicState) nothing f rest
       ≈ now (p f ∧ q f)
 
--- Pattern match on p f ∧ q f to enable reduction
-and-atomic-go-equiv p q f rest with p f ∧ q f in eq
-... | true  = DB.now refl  -- Both true: foldStepEval-go returns 'now true'
-... | false = DB.now refl  -- At least one false: foldStepEval-go returns 'now false'
+-- Pattern match on p f and q f separately to enable reduction through stepEval-and-helper
+and-atomic-go-equiv p q f rest with p f in eq-p | q f in eq-q
+... | true  | true  = DB.now refl  -- Both satisfied: stepEval-and-helper → Satisfied → now true, RHS is now (true ∧ true) = now true
+... | true  | false = DB.now refl  -- Right violated: stepEval-and-helper → Violated → now false, RHS is now (true ∧ false) = now false
+... | false | true  = DB.now refl  -- Left violated: stepEval-and-helper → Violated → now false, RHS is now (false ∧ true) = now false
+... | false | false = DB.now refl  -- Both violated: stepEval-and-helper → Violated → now false, RHS is now (false ∧ false) = now false
 
 -- Main theorem for And (Atomic p) (Atomic q)
 and-atomic-fold-equiv : ∀ (p q : TimedFrame → Bool) (trace : Colist TimedFrame ∞)

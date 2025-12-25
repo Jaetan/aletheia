@@ -103,6 +103,30 @@ initState (EventuallyWithin _ φ) = EventuallyWithinState 0 (initState φ)
 initState (AlwaysWithin _ φ) = AlwaysWithinState 0 (initState φ)
 
 -- ============================================================================
+-- INCREMENTAL EVALUATION HELPERS
+-- ============================================================================
+
+-- Helper: combine results for And operator (avoids nested with-clauses in stepEval)
+stepEval-and-helper : StepResult → StepResult → LTLEvalState → LTLEvalState → StepResult
+stepEval-and-helper (Violated ce) _ _ _ = Violated ce  -- Left failed
+stepEval-and-helper (Continue st1') (Violated ce) _ _ = Violated ce  -- Right failed
+stepEval-and-helper (Continue st1') (Continue st2') _ _ = Continue (AndState st1' st2')
+stepEval-and-helper (Continue st1') Satisfied st1 _ = Continue (AndState st1' st1)  -- Right satisfied, keep checking left
+stepEval-and-helper Satisfied (Violated ce) _ _ = Violated ce  -- Right failed
+stepEval-and-helper Satisfied (Continue st2') _ st2 = Continue (AndState st2 st2')  -- Left satisfied, keep checking right
+stepEval-and-helper Satisfied Satisfied _ _ = Satisfied  -- Both satisfied
+
+-- Helper: combine results for Or operator (avoids nested with-clauses in stepEval)
+stepEval-or-helper : StepResult → StepResult → LTLEvalState → LTLEvalState → StepResult
+stepEval-or-helper Satisfied _ _ _ = Satisfied  -- Left satisfied
+stepEval-or-helper (Continue st1') Satisfied _ _ = Satisfied  -- Right satisfied
+stepEval-or-helper (Continue st1') (Continue st2') _ _ = Continue (OrState st1' st2')
+stepEval-or-helper (Continue st1') (Violated _) st1 _ = Continue (OrState st1' st1)  -- Right violated, keep checking left
+stepEval-or-helper (Violated _) Satisfied _ _ = Satisfied  -- Right satisfied
+stepEval-or-helper (Violated _) (Continue st2') _ st2 = Continue (OrState st2 st2')  -- Left violated, keep checking right
+stepEval-or-helper (Violated _) (Violated ce) _ _ = Violated ce  -- Both violated
+
+-- ============================================================================
 -- INCREMENTAL EVALUATION
 -- ============================================================================
 
@@ -131,35 +155,13 @@ stepEval (Not φ) eval (NotState st) prev curr
 ... | Violated _ = Satisfied  -- Inner violated = outer satisfied (¬false = true)
 ... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
 
--- And: both must hold
-stepEval (And φ ψ) eval (AndState st1 st2) prev curr
-  with stepEval φ eval st1 prev curr
-... | Violated ce = Violated ce  -- Left failed
-... | Continue st1'
-  with stepEval ψ eval st2 prev curr
-... | Violated ce = Violated ce  -- Right failed
-... | Continue st2' = Continue (AndState st1' st2')
-... | Satisfied = Continue (AndState st1' st2)  -- Right satisfied, keep checking left
-stepEval (And φ ψ) eval (AndState st1 st2) prev curr | Satisfied
-  with stepEval ψ eval st2 prev curr
-... | Violated ce = Violated ce  -- Right failed
-... | Continue st2' = Continue (AndState st1 st2')  -- Left satisfied, keep checking right
-... | Satisfied = Satisfied  -- Both satisfied
+-- And: both must hold (uses helper to avoid nested with-clauses)
+stepEval (And φ ψ) eval (AndState st1 st2) prev curr =
+  stepEval-and-helper (stepEval φ eval st1 prev curr) (stepEval ψ eval st2 prev curr) st1 st2
 
--- Or: either must hold
-stepEval (Or φ ψ) eval (OrState st1 st2) prev curr
-  with stepEval φ eval st1 prev curr
-... | Satisfied = Satisfied  -- Left satisfied
-... | Continue st1'
-  with stepEval ψ eval st2 prev curr
-... | Satisfied = Satisfied  -- Right satisfied
-... | Continue st2' = Continue (OrState st1' st2')
-... | Violated ce2 = Continue (OrState st1' st2)  -- Right violated, keep checking left
-stepEval (Or φ ψ) eval (OrState st1 st2) prev curr | Violated _
-  with stepEval ψ eval st2 prev curr
-... | Satisfied = Satisfied  -- Right satisfied
-... | Continue st2' = Continue (OrState st1 st2')  -- Left violated, keep checking right
-... | Violated ce = Violated ce  -- Both violated
+-- Or: either must hold (uses helper to avoid nested with-clauses)
+stepEval (Or φ ψ) eval (OrState st1 st2) prev curr =
+  stepEval-or-helper (stepEval φ eval st1 prev curr) (stepEval ψ eval st2 prev curr) st1 st2
 
 -- Next: skip first frame, then evaluate on subsequent frames
 stepEval (Next φ) eval (NextState st) prev curr
