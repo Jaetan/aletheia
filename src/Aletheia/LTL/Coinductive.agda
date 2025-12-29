@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K --guardedness --sized-types #-}
+{-# OPTIONS --sized-types --without-K #-}
 
 -- Coinductive LTL semantics over infinite traces (DelayedColist).
 --
@@ -6,13 +6,13 @@
 -- Semantics: Standard LTL semantics (Always = forall frames, Eventually = exists frame, etc.).
 -- Role: Formal semantics foundation; Incremental checker approximates this for finite traces.
 --
--- Design: Uses DelayedColist for infinite traces, guardedness ensures productivity.
+-- Design: Uses DelayedColist for infinite traces, sized types ensure productivity.
 -- NOTE: Uses --sized-types which is incompatible with --safe.
 module Aletheia.LTL.Coinductive where
 
 open import Size using (Size; ∞)
 open import Codata.Sized.Thunk using (Thunk; force)
-open import Codata.Sized.Delay using (Delay; now; later)
+open import Codata.Sized.Delay using (Delay; now; later; bind; zipWith)
 open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false; if_then_else_; not; _∧_; _∨_)
@@ -22,7 +22,7 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Nat.Show using (show)
 
 open import Aletheia.LTL.Syntax
-open import Aletheia.LTL.Evaluation using () renaming (evalAtFrame to evalAtFrameWith)
+open import Aletheia.LTL.Evaluation using (evalAtInfiniteExtension) renaming (evalAtFrame to evalAtFrameWith)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 -- Prelude not currently needed (previously used case_of_)
 open import Aletheia.Trace.Context using (timestamp)
@@ -93,6 +93,99 @@ evalAtFrame = evalAtFrameWith true
 -- Main checker: processes colist, returns delayed result
 -- Uses infinite extension semantics: last frame repeats forever at EOF
 
+-- Recursive LTL evaluator: takes current frame and remaining trace
+-- Extracted to top-level for use in correctness proofs
+-- Evaluates an LTL formula coinductively on a trace (colist of frames)
+evaluateLTLOnTrace : ∀ {i : Size}
+                   → LTL (TimedFrame → Bool)
+                   → TimedFrame
+                   → Colist TimedFrame i
+                   → Delay Bool i
+
+-- Atomic: evaluate at current frame (standard LTL semantics)
+-- Returns immediately - atomics are non-temporal, evaluate at current state
+evaluateLTLOnTrace (Atomic pred) frame rest = now (pred frame)
+
+-- Not: negate result
+evaluateLTLOnTrace (Not ψ) frame colist = Delay.map not (evaluateLTLOnTrace ψ frame colist)
+  where import Codata.Sized.Delay as Delay
+
+-- And: recursively evaluate both operands on trace suffix (standard LTL semantics)
+-- This correctly handles nested temporal operators like And (Always p) (Eventually q)
+evaluateLTLOnTrace (And ψ₁ ψ₂) frame rest =
+  zipWith _∧_ (evaluateLTLOnTrace ψ₁ frame rest) (evaluateLTLOnTrace ψ₂ frame rest)
+
+-- Or: recursively evaluate both operands on trace suffix (standard LTL semantics)
+-- This correctly handles nested temporal operators like Or (Always p) (Eventually q)
+evaluateLTLOnTrace (Or ψ₁ ψ₂) frame rest =
+  zipWith _∨_ (evaluateLTLOnTrace ψ₁ frame rest) (evaluateLTLOnTrace ψ₂ frame rest)
+
+-- Next: check next frame (infinite extension: next is same frame at EOF)
+evaluateLTLOnTrace (Next ψ) frame [] = now (evalAtInfiniteExtension frame ψ)
+evaluateLTLOnTrace (Next ψ) frame (next ∷ rest') =
+  later λ where .force → evaluateLTLOnTrace ψ next (rest' .force)
+
+-- Always: all frames must satisfy (early termination on failure)
+-- Uses recursive trace evaluation for inner formula to support nested temporal operators
+evaluateLTLOnTrace (Always ψ) frame [] = now (evalAtInfiniteExtension frame ψ)
+evaluateLTLOnTrace (Always ψ) frame (next ∷ rest') =
+  bind (evaluateLTLOnTrace ψ frame (next ∷ rest')) λ r →
+    if r
+      then (later λ where .force → evaluateLTLOnTrace (Always ψ) next (rest' .force))
+      else now false
+
+-- Eventually: some frame must satisfy (early termination on success)
+-- Uses recursive trace evaluation for inner formula to support nested temporal operators
+evaluateLTLOnTrace (Eventually ψ) frame [] = now (evalAtInfiniteExtension frame ψ)
+evaluateLTLOnTrace (Eventually ψ) frame (next ∷ rest') =
+  bind (evaluateLTLOnTrace ψ frame (next ∷ rest')) λ r →
+    if r
+      then now true
+      else (later λ where .force → evaluateLTLOnTrace (Eventually ψ) next (rest' .force))
+
+-- Until: ψ₁ holds until ψ₂ (need ψ₂ to eventually hold)
+-- Uses recursive trace evaluation for both inner formulas to support nested temporal operators
+evaluateLTLOnTrace (Until ψ₁ ψ₂) frame [] = now (evalAtInfiniteExtension frame ψ₂)
+evaluateLTLOnTrace (Until ψ₁ ψ₂) frame (next ∷ rest') =
+  bind (evaluateLTLOnTrace ψ₂ frame (next ∷ rest')) λ r₂ →
+    if r₂
+      then now true
+      else bind (evaluateLTLOnTrace ψ₁ frame (next ∷ rest')) λ r₁ →
+             if r₁
+               then (later λ where .force → evaluateLTLOnTrace (Until ψ₁ ψ₂) next (rest' .force))
+               else now false
+
+-- EventuallyWithin: must satisfy within time window
+-- Uses recursive trace evaluation for inner formula to support nested temporal operators
+evaluateLTLOnTrace (EventuallyWithin window ψ) frame colist = goEW (timestamp frame) frame colist
+  where
+    goEW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay Bool i
+    goEW start frame [] =
+      now (((timestamp frame ∸ start) ≤ᵇ window) ∧ evalAtInfiniteExtension frame ψ)
+    goEW start frame (next ∷ rest') =
+      if (timestamp frame ∸ start) ≤ᵇ window
+        then (bind (evaluateLTLOnTrace ψ frame (next ∷ rest')) λ r →
+                if r
+                  then now true
+                  else (later λ where .force → goEW start next (rest' .force)))
+        else now false
+
+-- AlwaysWithin: must satisfy throughout time window
+-- Uses recursive trace evaluation for inner formula to support nested temporal operators
+evaluateLTLOnTrace (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
+  where
+    goAW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay Bool i
+    goAW start frame [] =
+      now (not ((timestamp frame ∸ start) ≤ᵇ window) ∨ evalAtInfiniteExtension frame ψ)
+    goAW start frame (next ∷ rest') =
+      if (timestamp frame ∸ start) ≤ᵇ window
+        then (bind (evaluateLTLOnTrace ψ frame (next ∷ rest')) λ r →
+                if r
+                  then (later λ where .force → goAW start next (rest' .force))
+                  else now false)
+        else now true
+
+-- Main checker for non-empty colists
 checkColist : ∀ {i : Size}
             → LTL (TimedFrame → Bool)
             → Colist TimedFrame i
@@ -101,85 +194,8 @@ checkColist : ∀ {i : Size}
 -- Handle empty trace
 checkColist φ [] = now true  -- Empty trace, vacuously true
 
--- Non-empty trace: use state machine approach
-checkColist φ (frame ∷ rest) = later λ where .force → go φ frame (rest .force)
-  where
-    -- Recursive checker: takes current frame and forced tail
-    go : ∀ {i : Size}
-       → LTL (TimedFrame → Bool)
-       → TimedFrame
-       → Colist TimedFrame i
-       → Delay Bool i
-
-    -- Atomic: evaluate at current frame (standard LTL semantics)
-    -- Returns immediately - atomics are non-temporal, evaluate at current state
-    go (Atomic pred) frame rest = now (pred frame)
-
-    -- Not: negate result
-    go (Not ψ) frame colist = Delay.map not (go ψ frame colist)
-      where import Codata.Sized.Delay as Delay
-
-    -- And: check both on current frame (non-temporal semantics)
-    -- Temporal operators like Always wrap And to check multiple frames
-    go (And ψ₁ ψ₂) frame rest = now (evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂)
-
-    -- Or: check either on current frame (non-temporal semantics)
-    -- Temporal operators like Eventually wrap Or to check multiple frames
-    go (Or ψ₁ ψ₂) frame rest = now (evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂)
-
-    -- Next: check next frame (infinite extension: next is same frame at EOF)
-    go (Next ψ) frame [] = now (evalAtFrame frame ψ)
-    go (Next ψ) frame (next ∷ rest') =
-      later λ where .force → go ψ next (rest' .force)
-
-    -- Always: all frames must satisfy (early termination on failure)
-    go (Always ψ) frame [] = now (evalAtFrame frame ψ)
-    go (Always ψ) frame (next ∷ rest') =
-      if evalAtFrame frame ψ
-        then (later λ where .force → go (Always ψ) next (rest' .force))
-        else now false
-
-    -- Eventually: some frame must satisfy (early termination on success)
-    go (Eventually ψ) frame [] = now (evalAtFrame frame ψ)
-    go (Eventually ψ) frame (next ∷ rest') =
-      if evalAtFrame frame ψ
-        then now true
-        else (later λ where .force → go (Eventually ψ) next (rest' .force))
-
-    -- Until: ψ₁ holds until ψ₂ (need ψ₂ to eventually hold)
-    go (Until ψ₁ ψ₂) frame [] = now (evalAtFrame frame ψ₂)
-    go (Until ψ₁ ψ₂) frame (next ∷ rest') =
-      if evalAtFrame frame ψ₂
-        then now true
-        else if evalAtFrame frame ψ₁
-             then (later λ where .force → go (Until ψ₁ ψ₂) next (rest' .force))
-             else now false
-
-    -- EventuallyWithin: must satisfy within time window
-    go (EventuallyWithin window ψ) frame colist = goEW (timestamp frame) frame colist
-      where
-        goEW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay Bool i
-        goEW start frame [] =
-          now (((timestamp frame ∸ start) ≤ᵇ window) ∧ evalAtFrame frame ψ)
-        goEW start frame (next ∷ rest') =
-          if (timestamp frame ∸ start) ≤ᵇ window
-            then (if evalAtFrame frame ψ
-                    then now true
-                    else (later λ where .force → goEW start next (rest' .force)))
-            else now false
-
-    -- AlwaysWithin: must satisfy throughout time window
-    go (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
-      where
-        goAW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay Bool i
-        goAW start frame [] =
-          now (not ((timestamp frame ∸ start) ≤ᵇ window) ∨ evalAtFrame frame ψ)
-        goAW start frame (next ∷ rest') =
-          if (timestamp frame ∸ start) ≤ᵇ window
-            then (if evalAtFrame frame ψ
-                    then (later λ where .force → goAW start next (rest' .force))
-                    else now false)
-            else now true
+-- Non-empty trace: delay then delegate to evaluateLTLOnTrace
+checkColist φ (frame ∷ rest) = later λ where .force → evaluateLTLOnTrace φ frame (rest .force)
 
 -- ============================================================================
 -- COINDUCTIVE LTL CHECKER WITH COUNTEREXAMPLES
@@ -195,26 +211,26 @@ checkColistCE : ∀ {i : Size}
 checkColistCE φ [] = now Pass  -- Empty trace, vacuously true
 
 -- Non-empty trace
-checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest .force)
+checkColistCE φ (frame ∷ rest) = later λ where .force → goCE φ frame (rest .force)
   where
     -- Helper to create failure result
     fail : TimedFrame → String → Delay CheckResult ∞
     fail tf reason = now (Fail (mkCounterexample tf reason))
 
     -- Recursive checker with counterexample tracking
-    go : ∀ {i : Size}
+    goCE : ∀ {i : Size}
        → LTL (TimedFrame → Bool)
        → TimedFrame
        → Colist TimedFrame i
        → Delay CheckResult i
 
     -- Atomic: evaluate at current frame (standard LTL semantics)
-    go (Atomic pred) frame rest =
+    goCE (Atomic pred) frame rest =
       if pred frame then now Pass
       else now (Fail (mkCounterexample frame "Atomic predicate failed"))
 
     -- Not: negate result (swap Pass/Fail)
-    go (Not ψ) frame colist = Delay.map negate (go ψ frame colist)
+    goCE (Not ψ) frame colist = Delay.map negate (goCE ψ frame colist)
       where
         import Codata.Sized.Delay as Delay
         negate : CheckResult → CheckResult
@@ -222,57 +238,57 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
         negate (Fail _) = Pass
 
     -- And: check both (short-circuit on false)
-    go (And ψ₁ ψ₂) frame [] =
+    goCE (And ψ₁ ψ₂) frame [] =
       if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "And: conjunct failed at end of trace"))
-    go (And ψ₁ ψ₂) frame (next ∷ rest') =
+    goCE (And ψ₁ ψ₂) frame (next ∷ rest') =
       -- Evaluate both on current frame only (non-temporal semantics)
       if evalAtFrame frame ψ₁ ∧ evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "And: conjunct failed"))
 
     -- Or: check either on current frame (non-temporal semantics)
-    go (Or ψ₁ ψ₂) frame rest =
+    goCE (Or ψ₁ ψ₂) frame rest =
       if evalAtFrame frame ψ₁ ∨ evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "Or: both disjuncts failed"))
 
     -- Next: check next frame
-    go (Next ψ) frame [] =
+    goCE (Next ψ) frame [] =
       if evalAtFrame frame ψ then now Pass
       else now (Fail (mkCounterexample frame "Next: predicate failed at end of trace"))
-    go (Next ψ) frame (next ∷ rest') =
-      later λ where .force → go ψ next (rest' .force)
+    goCE (Next ψ) frame (next ∷ rest') =
+      later λ where .force → goCE ψ next (rest' .force)
 
     -- Always: all frames must satisfy (early termination on failure)
-    go (Always ψ) frame [] =
+    goCE (Always ψ) frame [] =
       if evalAtFrame frame ψ then now Pass
       else now (Fail (mkCounterexample frame "Always: predicate failed at end of trace"))
-    go (Always ψ) frame (next ∷ rest') =
+    goCE (Always ψ) frame (next ∷ rest') =
       if evalAtFrame frame ψ
-        then (later λ where .force → go (Always ψ) next (rest' .force))
+        then (later λ where .force → goCE (Always ψ) next (rest' .force))
         else now (Fail (mkCounterexample frame "Always: predicate failed"))
 
     -- Eventually: some frame must satisfy (early termination on success)
-    go (Eventually ψ) frame [] =
+    goCE (Eventually ψ) frame [] =
       if evalAtFrame frame ψ then now Pass
       else now (Fail (mkCounterexample frame "Eventually: predicate never satisfied"))
-    go (Eventually ψ) frame (next ∷ rest') =
+    goCE (Eventually ψ) frame (next ∷ rest') =
       if evalAtFrame frame ψ
         then now Pass
-        else (later λ where .force → go (Eventually ψ) next (rest' .force))
+        else (later λ where .force → goCE (Eventually ψ) next (rest' .force))
 
     -- Until: ψ₁ holds until ψ₂
-    go (Until ψ₁ ψ₂) frame [] =
+    goCE (Until ψ₁ ψ₂) frame [] =
       if evalAtFrame frame ψ₂ then now Pass
       else now (Fail (mkCounterexample frame "Until: ψ₂ never satisfied"))
-    go (Until ψ₁ ψ₂) frame (next ∷ rest') =
+    goCE (Until ψ₁ ψ₂) frame (next ∷ rest') =
       if evalAtFrame frame ψ₂
         then now Pass
         else if evalAtFrame frame ψ₁
-             then (later λ where .force → go (Until ψ₁ ψ₂) next (rest' .force))
+             then (later λ where .force → goCE (Until ψ₁ ψ₂) next (rest' .force))
              else now (Fail (mkCounterexample frame "Until: ψ₁ failed before ψ₂"))
 
     -- EventuallyWithin: must satisfy within time window
-    go (EventuallyWithin window ψ) frame colist = goEW (timestamp frame) frame colist
+    goCE (EventuallyWithin window ψ) frame colist = goEW (timestamp frame) frame colist
       where
         goEW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
         goEW start frame [] =
@@ -286,7 +302,7 @@ checkColistCE φ (frame ∷ rest) = later λ where .force → go φ frame (rest 
             else now (Fail (mkCounterexample frame ("EventuallyWithin: window of " ++ₛ show window ++ₛ "ms expired")))
 
     -- AlwaysWithin: must satisfy throughout time window
-    go (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
+    goCE (AlwaysWithin window ψ) frame colist = goAW (timestamp frame) frame colist
       where
         goAW : ∀ {i : Size} → ℕ → TimedFrame → Colist TimedFrame i → Delay CheckResult i
         goAW start frame [] =
@@ -416,7 +432,7 @@ checkSignalPredicateStream : ∀ {i : Size}
                            → LTL SignalPredicate
                            → DelayedColist TimedFrame i
                            → Delay Bool i
-checkSignalPredicateStream dbc formula stream = go nothing formula stream
+checkSignalPredicateStream dbc formula stream = goSignal nothing formula stream
   where
     -- Eval SignalPredicate on a frame
     evalPred : Maybe TimedFrame → SignalPredicate → TimedFrame → Bool
@@ -437,14 +453,14 @@ checkSignalPredicateStream dbc formula stream = go nothing formula stream
 
     mutual
       -- Helper: threads previous frame through the stream
-      go : ∀ {i : Size}
+      goSignal : ∀ {i : Size}
          → Maybe TimedFrame  -- previous frame (state)
          → LTL SignalPredicate
          → DelayedColist TimedFrame i
          → Delay Bool i
-      go prev φ [] = now true
-      go prev φ (wait rest) = later λ where .force → go prev φ (rest .force)
-      go prev φ (frame ∷ rest) = later λ where .force → goFrame prev φ frame (rest .force)
+      goSignal prev φ [] = now true
+      goSignal prev φ (wait rest) = later λ where .force → goSignal prev φ (rest .force)
+      goSignal prev φ (frame ∷ rest) = later λ where .force → goFrame prev φ frame (rest .force)
 
       -- Process one frame with the formula
       goFrame : ∀ {i : Size}
@@ -454,31 +470,31 @@ checkSignalPredicateStream dbc formula stream = go nothing formula stream
               → DelayedColist TimedFrame i
               → Delay Bool i
 
-      goFrame prev (Atomic pred) frame stream = go (just frame) (Atomic pred) stream
+      goFrame prev (Atomic pred) frame stream = goSignal (just frame) (Atomic pred) stream
       goFrame prev (Not ψ) frame stream = Delay.map not (goFrame prev ψ frame stream)
         where import Codata.Sized.Delay as Delay
       goFrame prev (And ψ₁ ψ₂) frame stream =
         if evalFormula prev (And ψ₁ ψ₂) frame
-          then go (just frame) (And ψ₁ ψ₂) stream
+          then goSignal (just frame) (And ψ₁ ψ₂) stream
           else now false
       goFrame prev (Or ψ₁ ψ₂) frame stream =
         if evalFormula prev (Or ψ₁ ψ₂) frame
           then now true
-          else go (just frame) (Or ψ₁ ψ₂) stream
-      goFrame prev (Next ψ) frame stream = go (just frame) ψ stream
+          else goSignal (just frame) (Or ψ₁ ψ₂) stream
+      goFrame prev (Next ψ) frame stream = goSignal (just frame) ψ stream
       goFrame prev (Always ψ) frame stream =
         if evalFormula prev ψ frame
-          then go (just frame) (Always ψ) stream
+          then goSignal (just frame) (Always ψ) stream
           else now false
       goFrame prev (Eventually ψ) frame stream =
         if evalFormula prev ψ frame
           then now true
-          else go (just frame) (Eventually ψ) stream
+          else goSignal (just frame) (Eventually ψ) stream
       goFrame prev (Until ψ₁ ψ₂) frame stream =
         if evalFormula prev ψ₂ frame
           then now true
           else if evalFormula prev ψ₁ frame
-               then go (just frame) (Until ψ₁ ψ₂) stream
+               then goSignal (just frame) (Until ψ₁ ψ₂) stream
                else now false
       goFrame prev (EventuallyWithin window ψ) frame stream = goEW (timestamp frame) prev ψ frame stream
         where
@@ -526,7 +542,7 @@ checkAllPropertiesIncremental : ∀ {i : Size}
                               → List (ℕ × LTL SignalPredicate)
                               → DelayedColist TimedFrame i
                               → DelayedColist PropertyResult i
-checkAllPropertiesIncremental dbc properties stream = go nothing properties stream
+checkAllPropertiesIncremental dbc properties stream = goAllProps nothing properties stream
   where
     -- Evaluate predicate on frame
     evalPred : Maybe TimedFrame → SignalPredicate → TimedFrame → Bool
@@ -610,15 +626,15 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
 
     mutual
       -- Main loop: process stream with active properties
-      go : ∀ {i : Size}
+      goAllProps : ∀ {i : Size}
          → Maybe TimedFrame  -- previous frame
          → List (ℕ × LTL SignalPredicate)  -- active properties
          → DelayedColist TimedFrame i
          → DelayedColist PropertyResult i
-      go prev [] stream = emitPending [] prev  -- All properties decided
-      go prev props [] = emitPending props prev  -- EndStream reached
-      go prev props (wait rest) = wait λ where .force → go prev props (rest .force)
-      go prev props (frame ∷ rest) = wait λ where .force → processFrame prev props frame (rest .force)
+      goAllProps prev [] stream = emitPending [] prev  -- All properties decided
+      goAllProps prev props [] = emitPending props prev  -- EndStream reached
+      goAllProps prev props (wait rest) = wait λ where .force → goAllProps prev props (rest .force)
+      goAllProps prev props (frame ∷ rest) = wait λ where .force → processFrame prev props frame (rest .force)
 
       -- Process one frame against all active properties
       processFrame : ∀ {i : Size}
@@ -629,7 +645,7 @@ checkAllPropertiesIncremental dbc properties stream = go nothing properties stre
                    → DelayedColist PropertyResult i
       processFrame prev props frame rest =
         let (decided , stillActive) = checkProperties prev props frame
-        in emitResults decided (go (just frame) stillActive rest)
+        in emitResults decided (goAllProps (just frame) stillActive rest)
 
 -- Public API for incremental multi-property checking
 checkAllPropertiesStream : DBC

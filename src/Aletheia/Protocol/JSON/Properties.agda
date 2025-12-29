@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --safe #-}
 
 -- Correctness properties for JSON parser and formatter (Phase 3).
 --

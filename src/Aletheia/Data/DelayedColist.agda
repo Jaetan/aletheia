@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K --guardedness --sized-types #-}
+{-# OPTIONS --sized-types --without-K #-}
 
 -- Coinductive delayed colists for potentially infinite traces.
 --
@@ -9,7 +9,7 @@
 -- Design: DelayedColist A ∞ represents a potentially infinite list of A values.
 -- Each tail is wrapped in Thunk to satisfy guardedness requirements.
 --
--- NOTE: Uses --sized-types and --guardedness (incompatible with --safe).
+-- NOTE: Uses --sized-types (incompatible with --safe due to current limitations).
 module Aletheia.Data.DelayedColist where
 
 open import Size using (Size)

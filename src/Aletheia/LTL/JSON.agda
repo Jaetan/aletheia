@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- JSON parser for LTL formulas with signal predicates.
 --

@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe #-}
 
 -- Stream utilities for infinite trace processing.
 --

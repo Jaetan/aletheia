@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K --guardedness --sized-types #-}
+{-# OPTIONS --sized-types --without-K #-}
 
 -- Streaming protocol state machine and command handlers.
 --
@@ -11,7 +11,7 @@
 -- State machine enforces: DBC must be loaded before properties, properties before streaming.
 -- LTL checking: Incremental stateful evaluation (O(1) memory) with immediate violation reporting.
 --
--- NOTE: Uses --guardedness --sized-types for compatibility with coinductive stream interface in Main.
+-- NOTE: Uses --sized-types for compatibility with coinductive stream interface in Main.
 --       This makes the module incompatible with --safe.
 module Aletheia.Protocol.StreamState where
 

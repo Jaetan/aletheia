@@ -461,6 +461,55 @@ class Property:
         }
         return Property(formula)
 
+    def always(self) -> 'Property':
+        """Property must always hold (globally) - applies to nested formulas
+
+        Returns:
+            Nested temporal property
+
+        Example:
+            # G(F(p)) - infinitely often pattern
+            Signal("Speed").greater_than(100).eventually().always()
+        """
+        formula: AlwaysFormula = {
+            'type': 'always',
+            'formula': self._data
+        }
+        return Property(formula)
+
+    def eventually(self) -> 'Property':
+        """Property must eventually hold - applies to nested formulas
+
+        Returns:
+            Nested temporal property
+
+        Example:
+            # F(G(p)) - eventually always (stability) pattern
+            Signal("Temperature").less_than(70).always().eventually()
+        """
+        formula: EventuallyFormula = {
+            'type': 'eventually',
+            'formula': self._data
+        }
+        return Property(formula)
+
+    def not_(self) -> 'Property':
+        """Logical negation of property - applies to nested formulas
+
+        Returns:
+            Negated property
+
+        Example:
+            # G(¬F(p)) - never occurs pattern
+            fault_eventually = Signal("Fault").equals(1).eventually()
+            fault_eventually.not_().always()
+        """
+        formula: NotFormula = {
+            'type': 'not',
+            'formula': self._data
+        }
+        return Property(formula)
+
     def to_dict(self) -> LTLFormula:
         """Convert to dictionary for use with StreamingClient
 
@@ -472,3 +521,82 @@ class Property:
             client.set_properties([property.to_dict()])
         """
         return self._data
+
+
+# ============================================================================
+# NESTED TEMPORAL OPERATOR HELPERS
+# ============================================================================
+
+def infinitely_often(formula: Property | Predicate) -> Property:
+    """G(F φ) - Property holds infinitely many times
+
+    Standard LTL pattern for liveness properties that must occur repeatedly.
+
+    Args:
+        formula: Property or Predicate that must hold infinitely often
+
+    Returns:
+        Always(Eventually(formula)) property
+
+    Example:
+        # Speed exceeds 100 infinitely often (repeated acceleration)
+        infinitely_often(Signal("Speed").greater_than(100))
+
+        # Equivalent to:
+        Signal("Speed").greater_than(100).eventually().always()
+    """
+    if isinstance(formula, Predicate):
+        inner = formula.eventually()
+    else:
+        inner = formula.eventually()
+    return inner.always()
+
+
+def eventually_always(formula: Property | Predicate) -> Property:
+    """F(G φ) - Property eventually holds forever
+
+    Standard LTL pattern for stability/convergence properties.
+
+    Args:
+        formula: Property or Predicate that must eventually stabilize
+
+    Returns:
+        Eventually(Always(formula)) property
+
+    Example:
+        # Temperature eventually stabilizes below 70 degrees
+        eventually_always(Signal("Temperature").less_than(70))
+
+        # Equivalent to:
+        Signal("Temperature").less_than(70).always().eventually()
+    """
+    if isinstance(formula, Predicate):
+        inner = formula.always()
+    else:
+        inner = formula.always()
+    return inner.eventually()
+
+
+def never(formula: Property | Predicate) -> Property:
+    """G(¬φ) - Property never holds (strongest safety property)
+
+    Equivalent to always(not(formula)) but more readable.
+
+    Args:
+        formula: Property or Predicate that must never hold
+
+    Returns:
+        Always(Not(formula)) property
+
+    Example:
+        # Critical fault never occurs
+        never(Signal("CriticalFault").equals(1))
+
+        # Equivalent to:
+        Signal("CriticalFault").equals(1).not_().always()
+    """
+    if isinstance(formula, Predicate):
+        inner = formula.not_()
+    else:
+        inner = formula.not_()
+    return inner.always()

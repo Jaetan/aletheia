@@ -42,7 +42,7 @@ from .streaming_client import (
     ProcessError,
     ProtocolError,
 )
-from .dsl import Signal, Predicate, Property
+from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .signals import (
     FrameBuilder,
     SignalExtractor,
@@ -58,6 +58,9 @@ __all__ = [
     "Signal",
     "Predicate",
     "Property",
+    "infinitely_often",
+    "eventually_always",
+    "never",
     "FrameBuilder",
     "SignalExtractor",
     "SignalExtractionResult",

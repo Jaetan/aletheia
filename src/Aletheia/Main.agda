@@ -1,4 +1,4 @@
-{-# OPTIONS --no-main --guardedness --sized-types --without-K #-}
+{-# OPTIONS --no-main --sized-types #-}
 
 -- Main entry point for the Aletheia binary (JSON streaming protocol).
 --
@@ -17,7 +17,7 @@
 -- Haskell shim only handles I/O (read line, call processLine, write response).
 --
 -- NOTE: This module uses --sized-types which is incompatible with --safe.
--- This is required because it imports modules with sized types and guardedness.
+-- This is required because it imports modules with sized types.
 module Aletheia.Main where
 
 open import Data.String using (String; toList; _≟_)

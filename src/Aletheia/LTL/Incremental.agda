@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Incremental LTL model checker for finite traces with early termination.
 --
@@ -127,6 +127,7 @@ stepEval-or-helper (Violated _) Satisfied _ _ = Satisfied  -- Right satisfied
 stepEval-or-helper (Violated _) (Continue st2') _ st2 = Continue (OrState st2 st2')  -- Left violated, keep checking right
 stepEval-or-helper (Violated _) (Violated ce) _ _ = Violated ce  -- Both violated
 
+
 -- ============================================================================
 -- INCREMENTAL EVALUATION
 -- ============================================================================
@@ -181,7 +182,7 @@ stepEval (Always φ) eval (AlwaysState st) prev curr
   with stepEval φ eval st prev curr
 ... | Continue st' = Continue (AlwaysState st')
 ... | Violated ce = Violated ce  -- Violation detected
-... | Satisfied = Continue (AlwaysState st)  -- Satisfied on this frame, keep checking
+... | Satisfied = Continue (AlwaysState st)  -- Preserve state!
 
 stepEval (Always _) _ AlwaysFailed _ curr = Violated (mkCounterexample curr "Always already failed")
 
@@ -203,14 +204,14 @@ stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr
   -- ψ doesn't hold yet, check if φ holds (waiting condition)
   with stepEval φ eval st1 prev curr
 ... | Violated ce = Violated ce  -- φ failed before ψ held
-... | Continue st1' = Continue (UntilState st1' st2')
-... | Satisfied = Continue (UntilState st1 st2')  -- φ holds, keep waiting for ψ
+... | Continue st1' = Continue (UntilState st1' st2')  -- Both continuing
+... | Satisfied = Continue (UntilState st1 st2')  -- Preserve st1
 stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr | Violated _
   -- ψ failed, check if φ still holds
   with stepEval φ eval st1 prev curr
 ... | Violated ce = Violated ce  -- Both failed
-... | Continue st1' = Continue (UntilState st1' st2)
-... | Satisfied = Continue (UntilState st1 st2)
+... | Continue st1' = Continue (UntilState st1' st2)  -- Preserve st2
+... | Satisfied = Continue (UntilState st1 st2)  -- Preserve both
 
 stepEval (Until _ _) _ UntilSucceeded _ _ = Satisfied
 stepEval (Until _ _) _ UntilFailed _ curr = Violated (mkCounterexample curr "Until failed")
@@ -229,7 +230,7 @@ stepEval (EventuallyWithin windowMicros φ) eval (EventuallyWithinState startTim
     handleInWindow : StepResult → ℕ → StepResult
     handleInWindow Satisfied _ = Satisfied
     handleInWindow (Continue st') start = Continue (EventuallyWithinState start st')
-    handleInWindow (Violated _) start = Continue (EventuallyWithinState start st)
+    handleInWindow (Violated _) start = Continue (EventuallyWithinState start st)  -- Preserve state
 
 stepEval (EventuallyWithin _ _) _ EventuallyWithinSucceeded _ _ = Satisfied
 stepEval (EventuallyWithin _ _) _ EventuallyWithinFailed _ curr = Violated (mkCounterexample curr "EventuallyWithin: window expired")
@@ -248,7 +249,7 @@ stepEval (AlwaysWithin windowMicros φ) eval (AlwaysWithinState startTime st) pr
     handleInWindow : StepResult → ℕ → StepResult
     handleInWindow (Violated ce) _ = Violated ce
     handleInWindow (Continue st') start = Continue (AlwaysWithinState start st')
-    handleInWindow Satisfied start = Continue (AlwaysWithinState start st)
+    handleInWindow Satisfied start = Continue (AlwaysWithinState start st)  -- Preserve state
 
 stepEval (AlwaysWithin _ _) _ AlwaysWithinSucceeded _ _ = Satisfied
 stepEval (AlwaysWithin _ _) _ AlwaysWithinFailed _ curr = Violated (mkCounterexample curr "AlwaysWithin: violated within window")
@@ -268,216 +269,22 @@ evalAtFrame = evalAtFrameWith false
 
 
 -- ============================================================================
--- MAIN INCREMENTAL CHECKER
--- ============================================================================
-
--- Check a formula on a list with early termination
--- Structurally recursive on both formula and list
--- Main recursive checker (structural on formula)
--- Takes the start timestamp explicitly for bounded operators
-checkFormula : ℕ → List TimedFrame → LTL (TimedFrame → Bool) → Bool
-
--- Atomic: check first frame
-checkFormula _ [] (Atomic _) = true  -- Empty = vacuous
-checkFormula _ (tf ∷ _) (Atomic pred) = pred tf
-
--- Not: invert
-checkFormula start trace (Not ψ) = not (checkFormula start trace ψ)
-
--- And: both must hold (short-circuit on failure)
-checkFormula start trace (And ψ₁ ψ₂) =
-  if checkFormula start trace ψ₁
-  then checkFormula start trace ψ₂
-  else false
-
--- Or: either must hold (short-circuit on success)
-checkFormula start trace (Or ψ₁ ψ₂) =
-  if checkFormula start trace ψ₁
-  then true
-  else checkFormula start trace ψ₂
-
--- Next: check second frame
-checkFormula _ [] (Next _) = true
-checkFormula _ (_ ∷ []) (Next _) = true
-checkFormula start (_ ∷ rest) (Next ψ) = checkFormula start rest ψ
-
--- Always: must hold on all frames (early termination on violation)
-checkFormula start trace (Always ψ) = goAlways trace
-  where
-    goAlways : List TimedFrame → Bool
-    goAlways [] = true
-    goAlways (tf ∷ rest) =
-      if evalAtFrame tf ψ
-      then goAlways rest  -- Continue checking
-      else false          -- Violated! Early termination
-
--- Eventually: must hold somewhere (early termination on satisfaction)
-checkFormula start trace (Eventually ψ) = goEventually trace
-  where
-    goEventually : List TimedFrame → Bool
-    goEventually [] = false  -- Never satisfied
-    goEventually (tf ∷ rest) =
-      if evalAtFrame tf ψ
-      then true               -- Found! Early termination
-      else goEventually rest  -- Keep looking
-
--- Until: φ until ψ
-checkFormula start trace (Until ψ₁ ψ₂) = goUntil trace
-  where
-    goUntil : List TimedFrame → Bool
-    goUntil [] = false  -- ψ₂ never held
-    goUntil (tf ∷ rest) =
-      if evalAtFrame tf ψ₂
-      then true  -- ψ₂ holds, satisfied
-      else if evalAtFrame tf ψ₁
-           then goUntil rest  -- ψ₁ holds, keep waiting
-           else false         -- Neither holds, violated
-
--- EventuallyWithin: must hold within time window
-checkFormula start trace (EventuallyWithin windowMicros ψ) = goEW trace
-  where
-    goEW : List TimedFrame → Bool
-    goEW [] = false
-    goEW (tf ∷ rest) =
-      -- Check time window FIRST
-      if (timestamp tf ∸ start) ≤ᵇ windowMicros
-      then if evalAtFrame tf ψ
-           then true           -- Found within window!
-           else goEW rest      -- Keep looking
-      else false               -- Window expired
-
--- AlwaysWithin: must hold throughout time window
-checkFormula start trace (AlwaysWithin windowMicros ψ) = goAW trace
-  where
-    goAW : List TimedFrame → Bool
-    goAW [] = true
-    goAW (tf ∷ rest) =
-      -- Check time window FIRST
-      if (timestamp tf ∸ start) ≤ᵇ windowMicros
-      then if evalAtFrame tf ψ
-           then goAW rest      -- Still in window, keep checking
-           else false          -- Violated within window!
-      else true                -- Window complete, done checking
-
--- ============================================================================
--- NOTE: checkIncremental and checkMultiple REMOVED
+-- NOTE: Legacy list-based evaluators REMOVED
+-- Removed: checkFormula, checkWithCounterexample, checkIncremental, checkMultiple
 -- These were reference/specification functions never used in production.
 -- Production uses stepEval (streaming state machine) exclusively.
 -- See: /home/nicolas/.claude/plans/synthetic-honking-goblet.md for rationale.
 -- ============================================================================
 
 -- ============================================================================
--- COUNTEREXAMPLE GENERATION (legacy list-based checking)
+-- COUNTEREXAMPLE TYPES
 -- ============================================================================
 
 -- Result of checking with counterexample support
+-- Used by Coinductive.agda's checkColistCE for counterexample generation
 data CheckResult : Set where
   Pass : CheckResult
   Fail : Counterexample → CheckResult
-
--- Check formula and return counterexample on failure
-checkWithCounterexample : List TimedFrame → LTL (TimedFrame → Bool) → CheckResult
-checkWithCounterexample [] _ = Pass  -- Empty trace: vacuously true
-checkWithCounterexample frames@(first ∷ _) φ = checkFormulaCE frames φ
-  where
-    start = timestamp first
-
-    -- Main recursive checker returning counterexamples
-    checkFormulaCE : List TimedFrame → LTL (TimedFrame → Bool) → CheckResult
-
-    -- Atomic: check first frame
-    checkFormulaCE [] (Atomic _) = Pass
-    checkFormulaCE (tf ∷ _) (Atomic pred) =
-      if pred tf then Pass
-      else Fail (mkCounterexample tf "atomic predicate failed")
-
-    -- Not: invert (counterexample from inner becoming pass means outer fails)
-    checkFormulaCE trace (Not ψ) with checkFormulaCE trace ψ
-    ... | Pass = Fail (mkCounterexample first "negation failed (inner property held)")
-    ... | Fail _ = Pass
-
-    -- And: both must hold
-    checkFormulaCE trace (And ψ₁ ψ₂) with checkFormulaCE trace ψ₁
-    ... | Fail ce = Fail ce
-    ... | Pass = checkFormulaCE trace ψ₂
-
-    -- Or: either must hold
-    checkFormulaCE trace (Or ψ₁ ψ₂) with checkFormulaCE trace ψ₁
-    ... | Pass = Pass
-    ... | Fail ce₁ with checkFormulaCE trace ψ₂
-    ...   | Pass = Pass
-    ...   | Fail ce₂ = Fail ce₂  -- Return second counterexample
-
-    -- Next: check second frame
-    checkFormulaCE [] (Next _) = Pass
-    checkFormulaCE (_ ∷ []) (Next _) = Pass
-    checkFormulaCE (_ ∷ rest) (Next ψ) = checkFormulaCE rest ψ
-
-    -- Always: must hold on all frames
-    checkFormulaCE trace (Always ψ) = goAlwaysCE trace
-      where
-        goAlwaysCE : List TimedFrame → CheckResult
-        goAlwaysCE [] = Pass
-        goAlwaysCE (tf ∷ rest) =
-          if evalAtFrame tf ψ
-          then goAlwaysCE rest
-          else Fail (mkCounterexample tf "Always violated")
-
-    -- Eventually: must hold somewhere
-    checkFormulaCE trace (Eventually ψ) = goEventuallyCE trace
-      where
-        goEventuallyCE : List TimedFrame → CheckResult
-        goEventuallyCE [] = Fail (mkCounterexample first "Eventually never satisfied")
-        goEventuallyCE (tf ∷ rest) =
-          if evalAtFrame tf ψ
-          then Pass
-          else goEventuallyCE rest
-
-    -- Until: φ until ψ
-    checkFormulaCE trace (Until ψ₁ ψ₂) = goUntilCE trace
-      where
-        goUntilCE : List TimedFrame → CheckResult
-        goUntilCE [] = Fail (mkCounterexample first "Until: second condition never held")
-        goUntilCE (tf ∷ rest) =
-          if evalAtFrame tf ψ₂
-          then Pass
-          else if evalAtFrame tf ψ₁
-               then goUntilCE rest
-               else Fail (mkCounterexample tf "Until: first condition failed before second held")
-
-    -- EventuallyWithin: must hold within time window
-    checkFormulaCE trace (EventuallyWithin windowMicros ψ) = goEWCE trace
-      where
-        goEWCE : List TimedFrame → CheckResult
-        goEWCE [] = Fail (mkCounterexample first "EventuallyWithin: never satisfied")
-        goEWCE (tf ∷ rest) =
-          if (timestamp tf ∸ start) ≤ᵇ windowMicros
-          then if evalAtFrame tf ψ
-               then Pass
-               else goEWCE rest
-          else Fail (mkCounterexample tf "EventuallyWithin: window expired")
-
-    -- AlwaysWithin: must hold throughout time window
-    checkFormulaCE trace (AlwaysWithin windowMicros ψ) = goAWCE trace
-      where
-        goAWCE : List TimedFrame → CheckResult
-        goAWCE [] = Pass
-        goAWCE (tf ∷ rest) =
-          if (timestamp tf ∸ start) ≤ᵇ windowMicros
-          then if evalAtFrame tf ψ
-               then goAWCE rest
-               else Fail (mkCounterexample tf "AlwaysWithin: violated within window")
-          else Pass
-
--- Helper to extract counterexample if present
-getCounterexample : CheckResult → Maybe Counterexample
-getCounterexample Pass = nothing
-getCounterexample (Fail ce) = just ce
-
--- Helper to check if result is pass
-isPass : CheckResult → Bool
-isPass Pass = true
-isPass (Fail _) = false
 
 -- ============================================================================
 -- NOTE ON MEMORY-BOUNDED STREAMING

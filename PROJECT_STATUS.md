@@ -135,6 +135,14 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 **Scope**: Features driven by user feedback and real-world needs
 
 **Planned**:
+- **Cubical Agda exploration for postulate reduction**
+  - Goal: Reduce 9 postulates (5 generic delay + 4 operator-specific) using cubical type theory
+  - Cubical Agda has built-in function extensionality and path types
+  - May eliminate all 4 operator-specific postulates (always-rhs-when-false, etc.)
+  - Potential to reduce to 0-1 postulates total (funExt becomes provable in cubical)
+  - Trade-offs: Different computational behavior, library compatibility, refactoring effort
+  - See: `docs/EXTENDED_LAMBDA_GUIDE.md` for current postulate status
+  - Reference: Vezzosi et al. (2019) "Cubical Agda: A Dependently Typed Programming Language with Univalence and Higher Inductive Types"
 - Value tables and enumerations
 - DBC pretty-printer
 - Additional validation rules

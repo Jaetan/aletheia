@@ -268,6 +268,41 @@ combined = list1 ++ₗ list2
 
 **Important**: Underscores are invisible in infix usage, but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
 
+### Extended Lambda Equality - Investigation Results (December 2025)
+
+**Problem**: Extended lambdas (`λ where .force → ...`) at different source locations are nominally distinct, blocking certain proofs.
+
+**Root Cause**: Fundamental type theory limitation (nominal vs structural equality), not an Agda bug. Even with K axiom enabled, extended lambdas remain nominally distinct.
+
+**Solution**: Postulate **generic extensionality properties** and prove lemmas as corollaries:
+- **5 generic delay monad postulates**: `funExt`, `bind-cong`, `bind-now`, `later-ext`, `later-cong`
+- **4 operator-specific postulates**: `always-rhs-when-false`, `always-rhs-when-true`, etc.
+- **Total**: 9 postulates (reasonable for verified LTL checker)
+
+**Successfully Proven**: 3 out of 7 Always operator lemmas using generic `later-ext` postulate.
+
+**Theoretical Justification**: Chapman et al. (2015) "Quotienting the Delay Monad by Weak Bisimilarity" also postulates extensionality properties for delay monad bind operations. Our approach is aligned with research best practices.
+
+**Comprehensive Guide**: See [docs/EXTENDED_LAMBDA_GUIDE.md](docs/EXTENDED_LAMBDA_GUIDE.md) for:
+- What are extended lambdas and why they're necessary
+- Why K axiom doesn't help (tested and verified)
+- Patterns that work vs don't work (`later-ext` vs direct lambda comparison)
+- Examples from codebase
+- Experimentation results with `bind-if-later-ext`
+- Research references
+
+**Investigation Plans** (for historical reference):
+- [~/.claude/plans/cosmic-spinning-axolotl.md](~/.claude/plans/cosmic-spinning-axolotl.md) - Comprehensive investigation
+- [~/.claude/plans/ancient-snuggling-rainbow.md](~/.claude/plans/ancient-snuggling-rainbow.md) - Initial investigation
+- [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) - Modularization work
+
+**Key Findings for Future Development**:
+- ✅ **Use `later-ext`** to avoid direct lambda comparison (works at thunk force level)
+- ✅ **Use `bind-now`** to avoid matching on continuations
+- ✅ **Use rewriting** to expose structure before applying lemmas
+- ❌ **Don't try** to prove lambda equality directly - it's nominally blocked
+- ❌ **K axiom doesn't help** - it provides UIP, not lambda equality
+
 ## Troubleshooting
 
 **Build failures**: `cabal run shake -- clean && cabal run shake -- build`

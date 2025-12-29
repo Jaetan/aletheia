@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Signal predicates for LTL properties (equals, lessThan, greaterThan, between, changedBy).
 --
@@ -20,7 +20,7 @@ open import Aletheia.CAN.SignalExtraction
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.DBC.Types
 open import Aletheia.LTL.Syntax using (LTL; mapLTL)
-open import Aletheia.LTL.Incremental using (checkWithCounterexample; CheckResult; Pass; Fail; Counterexample)
+open import Aletheia.LTL.Incremental using (CheckResult; Pass; Fail; Counterexample)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
@@ -156,17 +156,3 @@ evalOnFrameWithTrace dbc _ pred timedFrame
 ... | nothing = false  -- Signal extraction failed
 ... | just b = b
 
--- Check if a trace satisfies an LTL formula
--- Check property and return counterexample on failure
--- Transforms LTL SignalPredicate → LTL (TimedFrame → Bool) and evaluates
--- Uses list-based checker with counterexample generation
--- ChangedBy predicates use previous frame lookup via evalOnFrameWithTrace
-checkProperty : DBC → List TimedFrame → LTL SignalPredicate → CheckResult
-checkProperty dbc frames formula =
-  let predToFunc : SignalPredicate → (TimedFrame → Bool)
-      predToFunc pred = evalOnFrameWithTrace dbc frames pred
-
-      transformedFormula : LTL (TimedFrame → Bool)
-      transformedFormula = mapLTL predToFunc formula
-
-  in checkWithCounterexample frames transformedFormula

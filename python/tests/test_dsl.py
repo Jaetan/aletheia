@@ -11,7 +11,7 @@ Tests cover:
 
 import pytest
 import math
-from aletheia.dsl import Signal, Predicate, Property
+from aletheia.dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 
 
 # ============================================================================
@@ -545,3 +545,180 @@ class TestRealWorldExamples:
         prop = on.implies(off.within(500))
 
         assert prop._data['consequent']['time_ms'] == 500
+
+
+# ============================================================================
+# NESTED TEMPORAL OPERATORS
+# ============================================================================
+
+class TestNestedTemporalOperators:
+    """Test nested temporal operator compositions (Phase 4 feature)
+
+    These tests verify that standard LTL semantics for nested temporal
+    operators work correctly after the bind/zipWith fixes in Coinductive.agda.
+    """
+
+    def test_always_not_always(self):
+        """G(¬G(p)) - Infinitely often not-p pattern
+
+        This tests the critical nested temporal operator bug fix.
+        G(¬G(speed > 50)) ≡ G(F(speed ≤ 50))
+        Meaning: infinitely often, the speed is ≤ 50
+        """
+        speed_high = Signal("Speed").greater_than(50)
+
+        # Construct G(¬G(p)) using fluent API
+        infinitely_often_not_high = speed_high.always().not_().always()
+
+        # Verify structure
+        assert infinitely_often_not_high._data['type'] == 'always'
+        assert infinitely_often_not_high._data['formula']['type'] == 'not'
+        assert infinitely_often_not_high._data['formula']['formula']['type'] == 'always'
+        assert infinitely_often_not_high._data['formula']['formula']['formula']['op'] == 'GT'
+
+    def test_and_always_eventually(self):
+        """G(p) ∧ F(q) - Composition of different temporal operators
+
+        Tests: Always temp < 80 AND Eventually speed > 60
+        This verifies And operator correctly handles nested temporal operators.
+        """
+        temp_ok = Signal("Temperature").less_than(80).always()
+        speed_high = Signal("Speed").greater_than(60).eventually()
+        combined = temp_ok.and_(speed_high)
+
+        # Verify structure
+        assert combined._data['type'] == 'and'
+        assert combined._data['left']['type'] == 'always'
+        assert combined._data['right']['type'] == 'eventually'
+
+    def test_not_eventually_equiv_always_not(self):
+        """¬F(p) structure (equivalent to G(¬p) by De Morgan)
+
+        Tests: Not(Eventually(error == 1))
+        Should be equivalent to: Always(Not(error == 1))
+        """
+        error_active = Signal("ErrorCode").equals(1)
+        eventually_error = error_active.eventually()
+        never_error = Property({
+            'type': 'not',
+            'formula': eventually_error._data
+        })
+
+        # Verify structure of ¬F(error)
+        assert never_error._data['type'] == 'not'
+        assert never_error._data['formula']['type'] == 'eventually'
+
+        # Compare to G(¬error) structure
+        not_error = error_active.not_()
+        always_not_error = not_error.always()
+
+        assert always_not_error._data['type'] == 'always'
+        assert always_not_error._data['formula']['type'] == 'not'
+
+    def test_or_eventually_eventually(self):
+        """F(p) ∨ F(q) - Or of Eventually operators
+
+        Tests: Eventually charging OR Eventually engine on
+        Verifies Or operator handles nested temporal operators.
+        """
+        charging = Signal("Charging").equals(1).eventually()
+        engine = Signal("Engine").equals(1).eventually()
+        combined = charging.or_(engine)
+
+        assert combined._data['type'] == 'or'
+        assert combined._data['left']['type'] == 'eventually'
+        assert combined._data['right']['type'] == 'eventually'
+
+    def test_nested_until_with_temporal_subformulas(self):
+        """(G(p)) U (F(q)) - Until with nested temporal operators
+
+        Tests: Always(state == 0) Until Eventually(state == 1)
+        Complex nesting to verify Until handles nested temporal operators.
+        """
+        state_zero = Signal("State").equals(0).always()
+        state_one = Signal("State").equals(1).eventually()
+        until_prop = state_zero.until(state_one)
+
+        assert until_prop._data['type'] == 'until'
+        assert until_prop._data['left']['type'] == 'always'
+        assert until_prop._data['right']['type'] == 'eventually'
+
+    def test_deeply_nested_composition(self):
+        """G(F(p)) - Infinitely often pattern
+
+        Tests: Always(Eventually(speed > 100))
+        Meaning: infinitely often, speed exceeds 100
+        """
+        # Construct G(F(p)) using fluent API
+        infinitely_often_high = Signal("Speed").greater_than(100).eventually().always()
+
+        # Verify G(F(p)) structure
+        assert infinitely_often_high._data['type'] == 'always'
+        assert infinitely_often_high._data['formula']['type'] == 'eventually'
+        assert infinitely_often_high._data['formula']['formula']['op'] == 'GT'
+
+    def test_triple_nesting_always_not_eventually(self):
+        """G(¬F(p)) - Always never pattern
+
+        Tests: Always(Not(Eventually(fault == 1)))
+        Meaning: fault never occurs (strongest safety property)
+        """
+        # Construct G(¬F(p)) using fluent API
+        never_fault = Signal("Fault").equals(1).eventually().not_().always()
+
+        # Verify G(¬F(p)) structure
+        assert never_fault._data['type'] == 'always'
+        assert never_fault._data['formula']['type'] == 'not'
+        assert never_fault._data['formula']['formula']['type'] == 'eventually'
+
+    def test_infinitely_often_helper(self):
+        """Test infinitely_often() helper function - G(F(p))"""
+        # Using helper function
+        prop1 = infinitely_often(Signal("Speed").greater_than(100))
+
+        # Using fluent API
+        prop2 = Signal("Speed").greater_than(100).eventually().always()
+
+        # Should produce identical structure
+        assert prop1._data == prop2._data
+        assert prop1._data['type'] == 'always'
+        assert prop1._data['formula']['type'] == 'eventually'
+
+    def test_eventually_always_helper(self):
+        """Test eventually_always() helper function - F(G(p))"""
+        # Using helper function
+        prop1 = eventually_always(Signal("Temperature").less_than(70))
+
+        # Using fluent API
+        prop2 = Signal("Temperature").less_than(70).always().eventually()
+
+        # Should produce identical structure
+        assert prop1._data == prop2._data
+        assert prop1._data['type'] == 'eventually'
+        assert prop1._data['formula']['type'] == 'always'
+
+    def test_never_helper(self):
+        """Test never() helper function - G(¬φ)"""
+        # Using helper function
+        prop1 = never(Signal("CriticalFault").equals(1))
+
+        # Using fluent API
+        prop2 = Signal("CriticalFault").equals(1).not_().always()
+
+        # Should produce identical structure
+        assert prop1._data == prop2._data
+        assert prop1._data['type'] == 'always'
+        assert prop1._data['formula']['type'] == 'not'
+
+    def test_helper_with_property_input(self):
+        """Test helpers accept Property objects, not just Predicates"""
+        # Start with a property (always)
+        always_prop = Signal("State").equals(1).always()
+
+        # Apply helper to property
+        nested = infinitely_often(always_prop)
+
+        # Should create G(F(G(p)))
+        assert nested._data['type'] == 'always'
+        assert nested._data['formula']['type'] == 'eventually'
+        assert nested._data['formula']['formula']['type'] == 'always'

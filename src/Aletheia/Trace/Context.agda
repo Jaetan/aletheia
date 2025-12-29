@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K --guardedness #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Trace context with signal extraction and DBC lookup.
 --
