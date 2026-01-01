@@ -79,11 +79,12 @@ data LTLEvalState : Set where
   AlwaysWithinFailed : LTLEvalState
   AlwaysWithinSucceeded : LTLEvalState
 
--- Result of one evaluation step
-data StepResult : Set where
-  Continue : LTLEvalState → StepResult  -- Keep checking
-  Violated : Counterexample → StepResult  -- Property violated
-  Satisfied : StepResult  -- Property satisfied (Eventually)
+-- Result of one evaluation step (parameterized by state type)
+-- Allows comparing observations from different coalgebras (monitor vs defunctionalized LTL)
+data StepResult (S : Set) : Set where
+  Continue : S → StepResult S  -- Keep checking with next state
+  Violated : Counterexample → StepResult S  -- Property violated
+  Satisfied : StepResult S  -- Property satisfied
 
 -- ============================================================================
 -- INITIALIZATION
@@ -108,7 +109,7 @@ initState (AlwaysWithin _ φ) = AlwaysWithinState 0 (initState φ)
 -- ============================================================================
 
 -- Helper: combine results for And operator (avoids nested with-clauses in stepEval)
-stepEval-and-helper : StepResult → StepResult → LTLEvalState → LTLEvalState → StepResult
+stepEval-and-helper : StepResult LTLEvalState → StepResult LTLEvalState → LTLEvalState → LTLEvalState → StepResult LTLEvalState
 stepEval-and-helper (Violated ce) _ _ _ = Violated ce  -- Left failed
 stepEval-and-helper (Continue st1') (Violated ce) _ _ = Violated ce  -- Right failed
 stepEval-and-helper (Continue st1') (Continue st2') _ _ = Continue (AndState st1' st2')
@@ -118,7 +119,7 @@ stepEval-and-helper Satisfied (Continue st2') _ st2 = Continue (AndState st2 st2
 stepEval-and-helper Satisfied Satisfied _ _ = Satisfied  -- Both satisfied
 
 -- Helper: combine results for Or operator (avoids nested with-clauses in stepEval)
-stepEval-or-helper : StepResult → StepResult → LTLEvalState → LTLEvalState → StepResult
+stepEval-or-helper : StepResult LTLEvalState → StepResult LTLEvalState → LTLEvalState → LTLEvalState → StepResult LTLEvalState
 stepEval-or-helper Satisfied _ _ _ = Satisfied  -- Left satisfied
 stepEval-or-helper (Continue st1') Satisfied _ _ = Satisfied  -- Right satisfied
 stepEval-or-helper (Continue st1') (Continue st2') _ _ = Continue (OrState st1' st2')
@@ -141,7 +142,7 @@ stepEval : ∀ {Atom : Set}
          → LTLEvalState                                 -- Current state
          → Maybe TimedFrame                             -- Previous frame (for ChangedBy)
          → TimedFrame                                   -- Current frame
-         → StepResult
+         → StepResult LTLEvalState
 
 -- Atomic: evaluate predicate on current frame
 -- Returns Satisfied (not Continue) because atomic props evaluate at single point
@@ -227,7 +228,7 @@ stepEval (EventuallyWithin windowMicros φ) eval (EventuallyWithinState startTim
      then handleInWindow (stepEval φ eval st prev curr) actualStart
      else Violated (mkCounterexample curr "EventuallyWithin: window expired")
   where
-    handleInWindow : StepResult → ℕ → StepResult
+    handleInWindow : StepResult LTLEvalState → ℕ → StepResult LTLEvalState
     handleInWindow Satisfied _ = Satisfied
     handleInWindow (Continue st') start = Continue (EventuallyWithinState start st')
     handleInWindow (Violated _) start = Continue (EventuallyWithinState start st)  -- Preserve state
@@ -246,7 +247,7 @@ stepEval (AlwaysWithin windowMicros φ) eval (AlwaysWithinState startTime st) pr
      then handleInWindow (stepEval φ eval st prev curr) actualStart
      else Satisfied  -- Window complete, always held
   where
-    handleInWindow : StepResult → ℕ → StepResult
+    handleInWindow : StepResult LTLEvalState → ℕ → StepResult LTLEvalState
     handleInWindow (Violated ce) _ = Violated ce
     handleInWindow (Continue st') start = Continue (AlwaysWithinState start st')
     handleInWindow Satisfied start = Continue (AlwaysWithinState start st)  -- Preserve state
