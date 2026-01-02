@@ -256,7 +256,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
               result = stepEval formula evalPred evalState prev curr
           in handleStepResult result propState rest acc prev curr
           where
-            handleStepResult : StepResult → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → StreamState × Response
+            handleStepResult : StepResult LTLEvalState → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → StreamState × Response
             handleStepResult (Continue newEvalState) prop remaining accum p c =
               let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
               in checkPropsIncremental remaining (updatedProp ∷ accum) p c

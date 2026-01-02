@@ -113,9 +113,9 @@ stepEval-and-helper : StepResult LTLEvalState → StepResult LTLEvalState → LT
 stepEval-and-helper (Violated ce) _ _ _ = Violated ce  -- Left failed
 stepEval-and-helper (Continue st1') (Violated ce) _ _ = Violated ce  -- Right failed
 stepEval-and-helper (Continue st1') (Continue st2') _ _ = Continue (AndState st1' st2')
-stepEval-and-helper (Continue st1') Satisfied st1 _ = Continue (AndState st1' st1)  -- Right satisfied, keep checking left
+stepEval-and-helper (Continue st1') Satisfied _ st2 = Continue (AndState st1' st2)  -- Right satisfied, keep checking left
 stepEval-and-helper Satisfied (Violated ce) _ _ = Violated ce  -- Right failed
-stepEval-and-helper Satisfied (Continue st2') _ st2 = Continue (AndState st2 st2')  -- Left satisfied, keep checking right
+stepEval-and-helper Satisfied (Continue st2') st1 _ = Continue (AndState st1 st2')  -- Left satisfied, keep checking right
 stepEval-and-helper Satisfied Satisfied _ _ = Satisfied  -- Both satisfied
 
 -- Helper: combine results for Or operator (avoids nested with-clauses in stepEval)
@@ -123,9 +123,9 @@ stepEval-or-helper : StepResult LTLEvalState → StepResult LTLEvalState → LTL
 stepEval-or-helper Satisfied _ _ _ = Satisfied  -- Left satisfied
 stepEval-or-helper (Continue st1') Satisfied _ _ = Satisfied  -- Right satisfied
 stepEval-or-helper (Continue st1') (Continue st2') _ _ = Continue (OrState st1' st2')
-stepEval-or-helper (Continue st1') (Violated _) st1 _ = Continue (OrState st1' st1)  -- Right violated, keep checking left
+stepEval-or-helper (Continue st1') (Violated _) _ st2 = Continue (OrState st1' st2)  -- Right violated, keep checking left
 stepEval-or-helper (Violated _) Satisfied _ _ = Satisfied  -- Right satisfied
-stepEval-or-helper (Violated _) (Continue st2') _ st2 = Continue (OrState st2 st2')  -- Left violated, keep checking right
+stepEval-or-helper (Violated _) (Continue st2') st1 _ = Continue (OrState st1 st2')  -- Left violated, keep checking right
 stepEval-or-helper (Violated _) (Violated ce) _ _ = Violated ce  -- Both violated
 
 
