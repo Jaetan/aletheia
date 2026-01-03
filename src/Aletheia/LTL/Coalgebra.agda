@@ -26,21 +26,63 @@ open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 open import Data.Maybe using (Maybe; just; nothing)
 
 -- ============================================================================
--- LTLPROC: Defunctionalized LTL process
+-- LTLPROC: Defunctionalized LTL process with runtime state
 -- ============================================================================
 
--- LTLProc is simply the LTL formula paired with any needed runtime state.
+-- LTLProc is the LTL formula enriched with runtime state for operators that need it.
 --
 -- Design philosophy:
 -- - The formula tells us HOW to react to the next frame
 -- - We pattern match on formula structure to define step behavior
 -- - No coinductive types needed here - coinduction happens at bisimilarity level!
 --
--- For now, LTLProc = LTL formula itself.
--- We may need to add state for operators like EventuallyWithin (startTime tracking).
+-- Runtime state examples:
+-- - Next: modal state (NextWaiting vs NextActive) to track if we've skipped first frame
+-- - EventuallyWithin/AlwaysWithin: startTime tracking (TODO: Phase 3)
+--
+-- This is a proper data type (not type alias) to support modal constructors for Next.
 
-LTLProc : Set
-LTLProc = LTL (TimedFrame → Bool)
+data LTLProc : Set where
+  -- Propositional operators (stateless)
+  Atomic : (TimedFrame → Bool) → LTLProc
+  Not : LTLProc → LTLProc
+  And : LTLProc → LTLProc → LTLProc
+  Or : LTLProc → LTLProc → LTLProc
+
+  -- Next with modal state (two constructors for waiting vs active)
+  NextWaiting : LTLProc → LTLProc  -- Waiting to skip first frame
+  NextActive : LTLProc → LTLProc   -- Evaluating inner formula after skip
+
+  -- Temporal operators (stateless)
+  Always : LTLProc → LTLProc
+  Eventually : LTLProc → LTLProc
+  Until : LTLProc → LTLProc → LTLProc
+
+  -- Bounded temporal operators (will need startTime in Phase 3)
+  EventuallyWithin : ℕ → LTLProc → LTLProc
+  AlwaysWithin : ℕ → LTLProc → LTLProc
+
+-- ============================================================================
+-- CONVERSION: LTLProc → LTL (for monitor interop)
+-- ============================================================================
+
+-- Convert LTLProc back to LTL formula for use with monitor
+-- This extracts the static formula from the runtime state.
+--
+-- Key insight: NextWaitingProc and NextActiveProc both convert to Next φ
+-- because they represent different runtime states of the same formula.
+toLTL : LTLProc → LTL (TimedFrame → Bool)
+toLTL (Atomic p) = Atomic p
+toLTL (Not φ) = Not (toLTL φ)
+toLTL (And φ ψ) = And (toLTL φ) (toLTL ψ)
+toLTL (Or φ ψ) = Or (toLTL φ) (toLTL ψ)
+toLTL (NextWaiting φ) = Next (toLTL φ)   -- Waiting mode → Next formula
+toLTL (NextActive φ) = Next (toLTL φ)    -- Active mode → Next formula
+toLTL (Always φ) = Always (toLTL φ)
+toLTL (Eventually φ) = Eventually (toLTL φ)
+toLTL (Until φ ψ) = Until (toLTL φ) (toLTL ψ)
+toLTL (EventuallyWithin n φ) = EventuallyWithin n (toLTL φ)
+toLTL (AlwaysWithin n φ) = AlwaysWithin n (toLTL φ)
 
 -- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
@@ -92,10 +134,17 @@ stepL (Or φ ψ) prev curr
 ... | Violated _ | Violated ce = Violated ce  -- Both violated
 
 -- Next: skip first frame, then check inner formula
--- This is where we need state! "Have we skipped yet?"
--- For now, simplified: Always returns Continue (Next φ) on first call
--- TODO: This needs refinement - maybe LTLProc needs to track "mode" for Next
-stepL (Next φ) prev curr = Continue (Next φ)  -- Simplified for now
+-- Modal state tracks whether we've skipped the first frame yet
+
+-- Waiting mode: Skip current frame without evaluating, transition to Active
+stepL (NextWaiting φ) prev curr = Continue (NextActive φ)
+
+-- Active mode: Evaluate inner formula (after skip)
+stepL (NextActive φ) prev curr
+  with stepL φ prev curr
+... | Continue φ' = Continue (NextActive φ')  -- Inner continues, stay active
+... | Violated ce = Violated ce               -- Inner violated
+... | Satisfied = Satisfied                   -- Inner satisfied
 
 -- Always: must hold on every frame
 -- This is the key operator! Check φ now, continue checking Always φ forever.

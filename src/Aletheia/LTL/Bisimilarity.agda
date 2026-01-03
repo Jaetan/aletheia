@@ -13,9 +13,12 @@
 module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Always; Eventually; Until)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; AlwaysState; EventuallyState; UntilState; stepEval; initState)
-open import Aletheia.LTL.Coalgebra using (LTLProc; stepL)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; stepEval; initState)
+open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL)
+  renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
+            NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
+            Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
 open import Aletheia.Trace.Context using (TimedFrame)
@@ -35,40 +38,50 @@ open import Data.Maybe using (Maybe; just; nothing)
 data Relate : LTLEvalState → LTLProc → Set where
   -- Atomic predicate states are related
   atomic-relate : ∀ {p : TimedFrame → Bool}
-    → Relate AtomicState (Atomic p)
+    → Relate AtomicState (AtomicProc p)
 
   -- Not states are related if their inner states are related
   not-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
-    → Relate (NotState st) (Not φ)
+    → Relate (NotState st) (NotProc φ)
 
   -- And states are related if both inner states are related
   and-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (AndState st1 st2) (And φ ψ)
+    → Relate (AndState st1 st2) (AndProc φ ψ)
 
   -- Or states are related if both inner states are related
   or-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (OrState st1 st2) (Or φ ψ)
+    → Relate (OrState st1 st2) (OrProc φ ψ)
 
   -- Always states are related if their inner states are related
   always-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
-    → Relate (AlwaysState st) (Always φ)
+    → Relate (AlwaysState st) (AlwaysProc φ)
 
   -- Eventually states are related if their inner states are related
   eventually-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
-    → Relate (EventuallyState st) (Eventually φ)
+    → Relate (EventuallyState st) (EventuallyProc φ)
 
   -- Until states are related if both inner states are related
   until-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (UntilState st1 st2) (Until φ ψ)
+    → Relate (UntilState st1 st2) (UntilProc φ ψ)
+
+  -- Next in waiting mode (before skipping first frame)
+  next-waiting-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+    → Relate st φ
+    → Relate (NextState st) (NextWaitingProc φ)
+
+  -- Next in active mode (after skipping first frame)
+  next-active-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+    → Relate st φ
+    → Relate (NextActive st) (NextActiveProc φ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
@@ -79,11 +92,12 @@ evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → Bool) → B
 evalAtomicPred prev curr p = p curr
 
 -- Prove that related states produce bisimilar observations when stepped with the same frame
+-- Uses toLTL to convert LTLProc to LTL formula for monitor compatibility
 step-bisim : ∀ {st : LTLEvalState} {proc : LTLProc}
   → Relate st proc
   → ∀ (prev : Maybe TimedFrame) (curr : TimedFrame)
   → StepResultBisim Relate
-      (stepEval proc evalAtomicPred st prev curr)
+      (stepEval (toLTL proc) evalAtomicPred st prev curr)
       (stepL proc prev curr)
 
 -- Base case: Atomic predicates
@@ -98,7 +112,7 @@ step-bisim (atomic-relate {p}) prev curr
 -- stepL (Not φ) also inverts the result
 -- If inner results are bisimilar, inverted results are also bisimilar
 step-bisim (not-relate {st} {φ} rel) prev curr
-  with stepEval φ evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
+  with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
 -- Inner violates → Not returns Satisfied
 ... | Violated _ | Violated _ | violated-bisim _
   = satisfied-bisim
@@ -119,8 +133,8 @@ step-bisim (not-relate {st} {φ} rel) prev curr
 -- Propositional operators: And
 -- This is more complex - need to handle all combinations
 step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
-  with stepEval φ evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
-     | stepEval ψ evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+  with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+     | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
 -- Left violated → And violated
 ... | Violated ce1 | Violated ce2 | violated-bisim ceq | _ | _ | _
   = violated-bisim ceq
@@ -167,8 +181,8 @@ step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 -- Propositional operators: Or
 -- Similar structure to And
 step-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
-  with stepEval φ evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
-     | stepEval ψ evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+  with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+     | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
 -- Left satisfied → Or satisfied
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
@@ -223,7 +237,7 @@ step-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 -- We need to show these are bisimilar given that st and φ are related.
 
 step-bisim (always-relate {st} {φ} rel) prev curr
-  with stepEval φ evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
+  with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
 
 -- Case 1: Inner formula violates
 -- Both return Violated with same counterexample
@@ -269,7 +283,7 @@ step-bisim (always-relate {st} {φ} rel) prev curr
 --   | Continue φ' → Continue (Eventually φ')  -- Still checking
 
 step-bisim (eventually-relate {st} {φ} rel) prev curr
-  with stepEval φ evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
+  with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
 
 -- Case 1: Inner formula satisfied
 -- Both return Satisfied (found!)
@@ -330,8 +344,8 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
 -- Now uses flat with-pattern (like And/Or) after refactoring the monitor!
 
 step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
-  with stepEval ψ evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
-     | stepEval φ evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+  with stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+     | stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
 
 -- ψ satisfied → Until satisfied (φ result doesn't matter)
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
@@ -376,6 +390,54 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | _ | _ | _ | Continue _ | Satisfied | ()
 
 -- ============================================================================
+-- Next operator (modal states: waiting vs active)
+-- ============================================================================
+
+-- Next operator: ◯φ means "φ holds at the next state"
+-- The monitor has two modal states:
+--   - NextState st: waiting to skip the first frame
+--   - NextActive st: actively evaluating inner formula after skip
+--
+-- The coalgebra mirrors this with:
+--   - NextWaitingProc φ: waiting mode
+--   - NextActiveProc φ: active mode
+
+-- Case 1: Waiting mode
+-- Both skip the current frame and transition to active mode
+-- Monitor: NextState st → Continue (NextActive st)
+-- Coalgebra: NextWaitingProc φ → Continue (NextActiveProc φ)
+step-bisim (next-waiting-relate {st} {φ} rel) prev curr
+  = continue-bisim (next-active-relate rel)
+
+-- Case 2: Active mode
+-- Both evaluate the inner formula
+-- Monitor: NextActive st, evaluates inner φ
+-- Coalgebra: NextActiveProc φ, evaluates inner φ
+-- Results match because inner states are related
+step-bisim (next-active-relate {st} {φ} rel) prev curr
+  with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
+
+-- Inner continues → both continue in NextActive mode
+... | Continue st' | Continue φ' | continue-bisim rel'
+  = continue-bisim (next-active-relate rel')
+
+-- Inner violated → both violated
+... | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- Inner satisfied → both satisfied
+... | Satisfied | Satisfied | satisfied-bisim
+  = satisfied-bisim
+
+-- Impossible cases (results don't match)
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ | ()
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ | ()
+... | Continue _ | Violated _ | ()
+... | Continue _ | Satisfied | ()
+
+-- ============================================================================
 -- 🎉 SUCCESS! Bisimilarity proven for core LTL operators!
 -- ============================================================================
 
@@ -392,19 +454,19 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 -- ✅ Always φ - must hold at all frames (3 cases, preserves φ when satisfied)
 -- ✅ Eventually φ - must hold at some frame (3 cases, preserves φ when violated)
 -- ✅ Until φ ψ - φ must hold until ψ (refactored to flat with-patterns, 7 valid combinations)
+-- ✅ Next φ - φ holds at next state (modal states: waiting 1 case, active 3 cases)
 --
 -- Key insight: The proof is GENERIC over inner formulas!
--- - always-relate and eventually-relate take ANY relation rel : Relate st φ
+-- - always-relate, eventually-relate, next-waiting-relate, next-active-relate take ANY relation rel : Relate st φ
 -- - By structural induction, this covers ALL formulas built from these operators
--- - Example: Always (Not (And (Atomic p) (Atomic q))) proven via composition
+-- - Example: Always (Not (Next (And (Atomic p) (Atomic q)))) proven via composition
 --
 -- What this means:
--- For any formula φ built from {Atomic, Not, And, Or, Always, Eventually, Until},
+-- For any formula φ built from {Atomic, Not, And, Or, Always, Eventually, Until, Next},
 -- we can construct a bisimilarity proof by structural recursion on φ.
 --
 -- Remaining operators (require state extensions):
--- - Next φ: needs "have we skipped?" flag in LTLProc
--- - EventuallyWithin/AlwaysWithin: need startTime tracking in LTLProc
+-- - EventuallyWithin/AlwaysWithin: need startTime tracking in LTLProc (Phase 3)
 
 -- ============================================================================
 -- VERIFICATION: Complex nested formulas work!
