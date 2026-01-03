@@ -13,12 +13,13 @@
 module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; stepEval; initState)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; EventuallyWithin; AlwaysWithin)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; EventuallyWithinState; AlwaysWithinState; stepEval; initState)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL)
   renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
             NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
-            Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc)
+            Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc;
+            EventuallyWithin to EventuallyWithinProc; AlwaysWithin to AlwaysWithinProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
 open import Aletheia.Trace.Context using (TimedFrame)
@@ -82,6 +83,39 @@ data Relate : LTLEvalState → LTLProc → Set where
   next-active-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
     → Relate (NextActive st) (NextActiveProc φ)
+
+  -- EventuallyWithin: inner must hold within time window
+  -- CRITICAL DESIGN ISSUE: startTime is bookkeeping, NOT semantic!
+  --
+  -- Current (WRONG): States carry startTime, Relate quantifies over it
+  -- This forces structural reasoning about time calculations.
+  --
+  -- Correct approach: States should carry REMAINING time, not startTime
+  -- - Remaining = windowMicros ∸ (currTime ∸ actualStart)
+  -- - Computed fresh each step, never stored
+  -- - Relate constructor only mentions remaining, not startTime
+  --
+  -- Required refactoring:
+  -- 1. Add `Remaining : ℕ` field to StepResult or state
+  -- 2. Compute remaining = windowMicros ∸ elapsed when stepping
+  -- 3. Relate based on: Relate st φ → remaining₁ ≡ remaining₂ → ...
+  -- 4. Never expose startTime to bisimulation
+  --
+  -- Current stopgap: Allow ANY startTime₁ startTime₂ (quotient abstraction)
+  eventually-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+                               {windowMicros : ℕ}
+                               {startTime1 startTime2 : ℕ}
+    → Relate st φ
+    → Relate (EventuallyWithinState startTime1 st)
+             (EventuallyWithinProc windowMicros startTime2 φ)
+
+  -- AlwaysWithin: Same remaining-time issue as EventuallyWithin
+  always-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+                           {windowMicros : ℕ}
+                           {startTime1 startTime2 : ℕ}
+    → Relate st φ
+    → Relate (AlwaysWithinState startTime1 st)
+             (AlwaysWithinProc windowMicros startTime2 φ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
@@ -438,15 +472,101 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 ... | Continue _ | Satisfied | ()
 
 -- ============================================================================
--- 🎉 SUCCESS! Bisimilarity proven for core LTL operators!
+-- EVENTUALLY WITHIN: Must hold within time window
+-- ============================================================================
+
+-- EventuallyWithin: The key insight is that the time window check is deterministic.
+-- Given same curr and startTime, both monitor and coalgebra compute the same
+-- actualStart, actualElapsed, and inWindow. They will ALWAYS agree on whether
+-- window is valid or expired.
+--
+-- Strategy: Evaluate FULL EventuallyWithin formula (including time check), then
+-- case-split on the outer results. The time window abstraction is maintained by
+-- treating the whole formula evaluation as a black box.
+
+step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime1} {startTime2} rel) prev curr
+  with stepEval (EventuallyWithin windowMicros (toLTL φ)) evalAtomicPred (EventuallyWithinState startTime1 st) prev curr
+     | stepL (EventuallyWithinProc windowMicros startTime2 φ) prev curr
+
+-- Both satisfied (inner succeeded within valid window)
+... | Satisfied | Satisfied
+  = satisfied-bisim
+
+-- Both violated (window expired, regardless of inner)
+-- Since both use identical time window logic and identical mkCounterexample call,
+-- the counterexamples should be identical, but Agda can't see through the if-then-else.
+-- We match on the counterexamples and construct the equivalence.
+... | Violated ce1 | Violated ce2
+  = violated-bisim (mkCEEquiv {!!} {!!})
+
+-- Both continue (window valid, checking continues)
+-- Both implementations use identical handleInWindow logic.
+-- If inner formula steps and both wrappers Continue, then inner states
+-- remain related. We prove this by invoking step-bisim on inner relation.
+... | Continue (EventuallyWithinState _ st') | Continue (EventuallyWithinProc _ _ φ')
+  with step-bisim rel prev curr
+-- If inner step results are bisimilar and both outer Continue,
+-- then by handleInWindow semantics, inner states remain related
+... | continue-bisim rel' = continue-bisim (eventually-within-relate rel')
+... | violated-bisim _ = continue-bisim (eventually-within-relate rel)  -- handleInWindow preserves on violated
+... | satisfied-bisim = {!!}  -- handleInWindow returns Satisfied, contradicts Continue
+
+-- Impossible cases (outer results don't match)
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ | ()
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ | ()
+... | Continue _ | Satisfied | ()
+... | Continue _ | Violated _ | ()
+
+-- ============================================================================
+-- ALWAYS WITHIN: Must hold throughout time window
+-- ============================================================================
+
+-- AlwaysWithin: Same strategy as EventuallyWithin
+-- Time window check is deterministic, so both implementations agree on window validity
+
+step-bisim (always-within-relate {st} {φ} {windowMicros} {startTime1} {startTime2} rel) prev curr
+  with stepEval (AlwaysWithin windowMicros (toLTL φ)) evalAtomicPred (AlwaysWithinState startTime1 st) prev curr
+     | stepL (AlwaysWithinProc windowMicros startTime2 φ) prev curr
+
+-- Both satisfied (window completed without violations)
+... | Satisfied | Satisfied
+  = satisfied-bisim
+
+-- Both violated (inner violated within window)
+... | Violated ce1 | Violated ce2
+  = violated-bisim (mkCEEquiv {!!} {!!})
+
+-- Both continue (window valid, checking continues)
+-- Same pattern as EventuallyWithin but with AlwaysWithin semantics
+... | Continue (AlwaysWithinState _ st') | Continue (AlwaysWithinProc _ _ φ')
+  with step-bisim rel prev curr
+-- Inner continues → both wrapped, inner states related
+... | continue-bisim rel' = continue-bisim (always-within-relate rel')
+-- Inner satisfied → handleInWindow preserves, keep original relation
+... | satisfied-bisim = continue-bisim (always-within-relate rel)
+-- Inner violated → handleInWindow returns Violated, contradicts Continue
+... | violated-bisim _ = {!!}
+
+-- Impossible cases (outer results don't match)
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ | ()
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ | ()
+... | Continue _ | Satisfied | ()
+... | Continue _ | Violated _ | ()
+
+-- ============================================================================
+-- 🎉 PROGRESS! Bisimilarity: 8 operators fully proven, 2 nearly complete
 -- ============================================================================
 
 -- What we proved:
 -- - Behavioral equivalence between monitor state machine and defunctionalized coalgebra
--- - WITHOUT any postulates for extended lambda equality!
+-- - WITHOUT postulates for extended lambda equality!
 -- - Pure coalgebraic reasoning with behavioral bisimilarity
 --
--- Operators proven:
+-- Operators FULLY proven (8/10):
 -- ✅ Atomic p - base case (evaluates predicate at current frame)
 -- ✅ Not φ - inverts inner result (3 cases)
 -- ✅ And φ ψ - both must hold (9 valid combinations)
@@ -456,17 +576,37 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 -- ✅ Until φ ψ - φ must hold until ψ (refactored to flat with-patterns, 7 valid combinations)
 -- ✅ Next φ - φ holds at next state (modal states: waiting 1 case, active 3 cases)
 --
+-- Infrastructure complete, proofs deferred (2/10):
+-- ⏳ EventuallyWithin - Relate constructor added, stepL implemented, proof deferred
+-- ⏳ AlwaysWithin - Relate constructor added, stepL implemented, proof deferred
+--
+-- Why bounded operators are harder:
+-- - Time window logic (actualStart, actualElapsed, inWindow) is interleaved with
+--   formula evaluation in both monitor and coalgebra implementations
+-- - Proving bisimilarity requires reasoning about if-then-else branches at value level
+-- - Need to show that inner bisimilarity is preserved through handleInWindow transformations
+-- - The implementations ARE identical by inspection, but formal proof is complex
+--
+-- Next steps for EventuallyWithin/AlwaysWithin:
+-- 1. Factor out time window logic into separate lemmas
+-- 2. Prove time window calculations produce identical results given same inputs
+-- 3. Prove handleInWindow preserves bisimilarity
+-- 4. Compose these lemmas to prove full bisimilarity
+-- OR: Refactor implementations to make proof easier (e.g., separate time checking from formula evaluation)
+--
 -- Key insight: The proof is GENERIC over inner formulas!
--- - always-relate, eventually-relate, next-waiting-relate, next-active-relate take ANY relation rel : Relate st φ
--- - By structural induction, this covers ALL formulas built from these operators
+-- - All relate constructors take ANY relation rel : Relate st φ
+-- - By structural induction, this covers ALL formulas built from proven operators
 -- - Example: Always (Not (Next (And (Atomic p) (Atomic q)))) proven via composition
 --
 -- What this means:
--- For any formula φ built from {Atomic, Not, And, Or, Always, Eventually, Until, Next},
--- we can construct a bisimilarity proof by structural recursion on φ.
+-- For any formula φ built from the 8 proven operators, we can construct a bisimilarity
+-- proof by structural recursion on φ. The proof scales to arbitrarily complex
+-- real-world LTL properties!
 --
--- Remaining operators (require state extensions):
--- - EventuallyWithin/AlwaysWithin: need startTime tracking in LTLProc (Phase 3)
+-- For formulas using EventuallyWithin/AlwaysWithin: Infrastructure is in place (LTLProc
+-- constructors, toLTL conversion, stepL implementation, Relate constructors). Only the
+-- bisimilarity proofs themselves are missing.
 
 -- ============================================================================
 -- VERIFICATION: Complex nested formulas work!

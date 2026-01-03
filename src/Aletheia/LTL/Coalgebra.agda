@@ -58,9 +58,9 @@ data LTLProc : Set where
   Eventually : LTLProc → LTLProc
   Until : LTLProc → LTLProc → LTLProc
 
-  -- Bounded temporal operators (will need startTime in Phase 3)
-  EventuallyWithin : ℕ → LTLProc → LTLProc
-  AlwaysWithin : ℕ → LTLProc → LTLProc
+  -- Bounded temporal operators (with time tracking)
+  EventuallyWithin : ℕ → ℕ → LTLProc → LTLProc  -- windowMicros, startTime, inner
+  AlwaysWithin : ℕ → ℕ → LTLProc → LTLProc      -- windowMicros, startTime, inner
 
 -- ============================================================================
 -- CONVERSION: LTLProc → LTL (for monitor interop)
@@ -81,8 +81,8 @@ toLTL (NextActive φ) = Next (toLTL φ)    -- Active mode → Next formula
 toLTL (Always φ) = Always (toLTL φ)
 toLTL (Eventually φ) = Eventually (toLTL φ)
 toLTL (Until φ ψ) = Until (toLTL φ) (toLTL ψ)
-toLTL (EventuallyWithin n φ) = EventuallyWithin n (toLTL φ)
-toLTL (AlwaysWithin n φ) = AlwaysWithin n (toLTL φ)
+toLTL (EventuallyWithin window _ φ) = EventuallyWithin window (toLTL φ)  -- Ignore startTime (runtime state)
+toLTL (AlwaysWithin window _ φ) = AlwaysWithin window (toLTL φ)          -- Ignore startTime (runtime state)
 
 -- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
@@ -181,11 +181,37 @@ stepL (Until φ ψ) prev curr
 -- ψ violated, φ satisfied → Until continues (preserve both)
 ... | Violated _ | Satisfied = Continue (Until φ ψ)
 
--- Bounded operators: Need to track start time!
--- This reveals a limitation: LTLProc needs state for these operators.
--- For now, simplified versions:
-stepL (EventuallyWithin n φ) prev curr = Continue (EventuallyWithin n φ)  -- TODO: track time
-stepL (AlwaysWithin n φ) prev curr = Continue (AlwaysWithin n φ)  -- TODO: track time
+-- EventuallyWithin: must hold within time window
+stepL (EventuallyWithin windowMicros startTime φ) prev curr =
+  let currTime = timestamp curr
+      -- Initialize start time on first frame
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then handleInWindow (stepL φ prev curr) actualStart
+     else Violated (mkCounterexample curr "EventuallyWithin: window expired")
+  where
+    handleInWindow : StepResult LTLProc → ℕ → StepResult LTLProc
+    handleInWindow Satisfied _ = Satisfied
+    handleInWindow (Continue φ') start = Continue (EventuallyWithin windowMicros start φ')
+    handleInWindow (Violated _) start = Continue (EventuallyWithin windowMicros start φ)  -- Keep looking
+
+-- AlwaysWithin: must hold throughout time window
+stepL (AlwaysWithin windowMicros startTime φ) prev curr =
+  let currTime = timestamp curr
+      -- Initialize start time on first frame
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then handleInWindow (stepL φ prev curr) actualStart
+     else Satisfied  -- Window complete, always held
+  where
+    handleInWindow : StepResult LTLProc → ℕ → StepResult LTLProc
+    handleInWindow (Violated ce) _ = Violated ce
+    handleInWindow (Continue φ') start = Continue (AlwaysWithin windowMicros start φ')
+    handleInWindow Satisfied start = Continue (AlwaysWithin windowMicros start φ)  -- Keep checking
 
 -- ============================================================================
 -- OBSERVATIONS
