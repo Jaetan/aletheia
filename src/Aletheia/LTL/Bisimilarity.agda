@@ -13,8 +13,8 @@
 module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Always; Eventually)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; AlwaysState; EventuallyState; stepEval; initState)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Always; Eventually; Until)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; AlwaysState; EventuallyState; UntilState; stepEval; initState)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
@@ -63,6 +63,12 @@ data Relate : LTLEvalState → LTLProc → Set where
   eventually-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
     → Relate (EventuallyState st) (Eventually φ)
+
+  -- Until states are related if both inner states are related
+  until-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+    → Relate st1 φ
+    → Relate st2 ψ
+    → Relate (UntilState st1 st2) (Until φ ψ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
@@ -292,6 +298,83 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
 ... | Continue _ | Violated _ | ()
 ... | Continue _ | Satisfied | ()
 
+-- Temporal operators: Until
+-- Until φ ψ means "φ holds until ψ becomes true"
+--
+-- stepEval (Until φ ψ) ... (UntilState st1 st2) prev curr:
+--   Check ψ first (goal condition):
+--   | Satisfied → Satisfied
+--   | Continue st2' → check φ (holding condition):
+--       | Violated ce → Violated ce
+--       | Continue st1' → Continue (UntilState st1' st2')
+--       | Satisfied → Continue (UntilState st1 st2')
+--   | Violated _ → check φ:
+--       | Violated ce → Violated ce
+--       | Continue st1' → Continue (UntilState st1' st2)
+--       | Satisfied → Continue (UntilState st1 st2)
+--
+-- stepL (Until φ ψ) prev curr:
+--   Check ψ first:
+--   | Satisfied → Satisfied
+--   | Continue ψ' → check φ:
+--       | Violated ce → Violated ce
+--       | Continue φ' → Continue (Until φ' ψ')
+--       | Satisfied → Continue (Until φ ψ')
+--   | Violated _ → check φ:
+--       | Violated ce → Violated ce
+--       | Continue φ' → Continue (Until φ' ψ)
+--       | Satisfied → Continue (Until φ ψ)
+
+-- Temporal operators: Until
+-- Until φ ψ means "φ must hold until ψ becomes true"
+-- Now uses flat with-pattern (like And/Or) after refactoring the monitor!
+
+step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
+  with stepEval ψ evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+     | stepEval φ evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+
+-- ψ satisfied → Until satisfied (φ result doesn't matter)
+... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
+  = satisfied-bisim
+
+-- ψ continues, φ violated → Until violated
+... | Continue _ | Continue _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- ψ continues, φ continues → Until continues
+... | Continue st2' | Continue ψ' | continue-bisim rel2' | Continue st1' | Continue φ' | continue-bisim rel1'
+  = continue-bisim (until-relate rel1' rel2')
+
+-- ψ continues, φ satisfied → Until continues (preserves φ)
+... | Continue st2' | Continue ψ' | continue-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (until-relate rel1 rel2')
+
+-- ψ violated, φ violated → Until violated
+... | Violated _ | Violated _ | violated-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- ψ violated, φ continues → Until continues (preserves ψ)
+... | Violated _ | Violated _ | violated-bisim _ | Continue st1' | Continue φ' | continue-bisim rel1'
+  = continue-bisim (until-relate rel1' rel2)
+
+-- ψ violated, φ satisfied → Until continues (preserves both)
+... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (until-relate rel1 rel2)
+
+-- Impossible cases (results don't match)
+... | Violated _ | Satisfied | () | _ | _ | _
+... | Violated _ | Continue _ | () | _ | _ | _
+... | Satisfied | Violated _ | () | _ | _ | _
+... | Satisfied | Continue _ | () | _ | _ | _
+... | Continue _ | Violated _ | () | _ | _ | _
+... | Continue _ | Satisfied | () | _ | _ | _
+... | _ | _ | _ | Violated _ | Satisfied | ()
+... | _ | _ | _ | Violated _ | Continue _ | ()
+... | _ | _ | _ | Satisfied | Violated _ | ()
+... | _ | _ | _ | Satisfied | Continue _ | ()
+... | _ | _ | _ | Continue _ | Violated _ | ()
+... | _ | _ | _ | Continue _ | Satisfied | ()
+
 -- ============================================================================
 -- 🎉 SUCCESS! Bisimilarity proven for core LTL operators!
 -- ============================================================================
@@ -308,6 +391,7 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
 -- ✅ Or φ ψ - either must hold (9 valid combinations)
 -- ✅ Always φ - must hold at all frames (3 cases, preserves φ when satisfied)
 -- ✅ Eventually φ - must hold at some frame (3 cases, preserves φ when violated)
+-- ✅ Until φ ψ - φ must hold until ψ (refactored to flat with-patterns, 7 valid combinations)
 --
 -- Key insight: The proof is GENERIC over inner formulas!
 -- - always-relate and eventually-relate take ANY relation rel : Relate st φ
@@ -315,12 +399,11 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
 -- - Example: Always (Not (And (Atomic p) (Atomic q))) proven via composition
 --
 -- What this means:
--- For any formula φ built from {Atomic, Not, And, Or, Always, Eventually},
+-- For any formula φ built from {Atomic, Not, And, Or, Always, Eventually, Until},
 -- we can construct a bisimilarity proof by structural recursion on φ.
 --
 -- Remaining operators (require state extensions):
 -- - Next φ: needs "have we skipped?" flag in LTLProc
--- - Until φ ψ: straightforward extension
 -- - EventuallyWithin/AlwaysWithin: need startTime tracking in LTLProc
 
 -- ============================================================================

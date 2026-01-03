@@ -197,22 +197,24 @@ stepEval (Eventually φ) eval (EventuallyState st) prev curr
 stepEval (Eventually _) _ EventuallySucceeded _ _ = Satisfied
 
 -- Until: φ until ψ
+-- Until: φ must hold until ψ becomes true
+-- Refactored to use flat with-clauses (easier to prove bisimilarity)
 stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr
-  -- Check if ψ holds (satisfaction condition)
-  with stepEval ψ eval st2 prev curr
-... | Satisfied = Satisfied  -- ψ holds, Until satisfied
-... | Continue st2'
-  -- ψ doesn't hold yet, check if φ holds (waiting condition)
-  with stepEval φ eval st1 prev curr
-... | Violated ce = Violated ce  -- φ failed before ψ held
-... | Continue st1' = Continue (UntilState st1' st2')  -- Both continuing
-... | Satisfied = Continue (UntilState st1 st2')  -- Preserve st1
-stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr | Violated _
-  -- ψ failed, check if φ still holds
-  with stepEval φ eval st1 prev curr
-... | Violated ce = Violated ce  -- Both failed
-... | Continue st1' = Continue (UntilState st1' st2)  -- Preserve st2
-... | Satisfied = Continue (UntilState st1 st2)  -- Preserve both
+  with stepEval ψ eval st2 prev curr | stepEval φ eval st1 prev curr
+-- ψ satisfied → Until satisfied (φ result doesn't matter)
+... | Satisfied | _ = Satisfied
+-- ψ continues, φ violated → Until violated
+... | Continue st2' | Violated ce = Violated ce
+-- ψ continues, φ continues → Until continues
+... | Continue st2' | Continue st1' = Continue (UntilState st1' st2')
+-- ψ continues, φ satisfied → Until continues (preserve original φ state)
+... | Continue st2' | Satisfied = Continue (UntilState st1 st2')
+-- ψ violated, φ violated → Until violated
+... | Violated _ | Violated ce = Violated ce
+-- ψ violated, φ continues → Until continues (preserve original ψ state)
+... | Violated _ | Continue st1' = Continue (UntilState st1' st2)
+-- ψ violated, φ satisfied → Until continues (preserve both)
+... | Violated _ | Satisfied = Continue (UntilState st1 st2)
 
 stepEval (Until _ _) _ UntilSucceeded _ _ = Satisfied
 stepEval (Until _ _) _ UntilFailed _ curr = Violated (mkCounterexample curr "Until failed")

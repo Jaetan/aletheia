@@ -113,19 +113,24 @@ stepL (Eventually φ) prev curr
 ... | Continue φ' = Continue (Eventually φ')  -- Still checking inner
 
 -- Until: φ holds until ψ
+-- Until: φ must hold until ψ becomes true
+-- Refactored to use flat with-clauses (easier to prove bisimilarity)
 stepL (Until φ ψ) prev curr
-  with stepL ψ prev curr
-... | Satisfied = Satisfied  -- ψ holds, Until satisfied
-... | Continue ψ'
-  with stepL φ prev curr
-... | Violated ce = Violated ce  -- φ failed before ψ held
-... | Continue φ' = Continue (Until φ' ψ')  -- Both continuing
-... | Satisfied = Continue (Until φ ψ')  -- φ satisfied, preserve formula
-stepL (Until φ ψ) prev curr | Violated _
-  with stepL φ prev curr
-... | Violated ce = Violated ce  -- Both failed
-... | Continue φ' = Continue (Until φ' ψ)  -- Preserve ψ
-... | Satisfied = Continue (Until φ ψ)  -- Preserve both
+  with stepL ψ prev curr | stepL φ prev curr
+-- ψ satisfied → Until satisfied (φ result doesn't matter)
+... | Satisfied | _ = Satisfied
+-- ψ continues, φ violated → Until violated
+... | Continue ψ' | Violated ce = Violated ce
+-- ψ continues, φ continues → Until continues
+... | Continue ψ' | Continue φ' = Continue (Until φ' ψ')
+-- ψ continues, φ satisfied → Until continues (preserve original φ formula)
+... | Continue ψ' | Satisfied = Continue (Until φ ψ')
+-- ψ violated, φ violated → Until violated
+... | Violated _ | Violated ce = Violated ce
+-- ψ violated, φ continues → Until continues (preserve original ψ formula)
+... | Violated _ | Continue φ' = Continue (Until φ' ψ)
+-- ψ violated, φ satisfied → Until continues (preserve both)
+... | Violated _ | Satisfied = Continue (Until φ ψ)
 
 -- Bounded operators: Need to track start time!
 -- This reveals a limitation: LTLProc needs state for these operators.
