@@ -153,16 +153,16 @@ step-bisim (not-relate {st} {φ} rel) prev curr
 -- Inner satisfied → Not returns Violated
 ... | Satisfied | Satisfied | satisfied-bisim
   = violated-bisim (mkCEEquiv refl refl)
--- Inner continues → Not continues with negated inner
-... | Continue st' | Continue φ' | continue-bisim rel'
+-- Inner continues → Not continues with negated inner (both return 0, unbounded)
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (not-relate rel')
 -- Impossible cases
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
+... | Violated _ | Continue _ _ | ()
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
-... | Continue _ | Violated _ | ()
-... | Continue _ | Satisfied | ()
+... | Satisfied | Continue _ _ | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Satisfied | ()
 
 -- Propositional operators: And
 -- This is more complex - need to handle all combinations
@@ -173,20 +173,20 @@ step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Violated ce1 | Violated ce2 | violated-bisim ceq | _ | _ | _
   = violated-bisim ceq
 -- Right violated (left continues) → And violated
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Violated ce1 | Violated ce2 | violated-bisim ceq
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Violated ce1 | Violated ce2 | violated-bisim ceq
   = violated-bisim ceq
--- Both continue → And continues
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Continue st2' | Continue ψ' | continue-bisim rel2'
+-- Both continue → And continues (both return 0, unbounded)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (and-relate rel1' rel2')
 -- Right satisfied, left continues → And continues
 -- Monitor returns: AndState st1' st2 (preserves original right state!)
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (and-relate rel1' rel2)
 -- Left satisfied, right violated → And violated
 ... | Satisfied | Satisfied | satisfied-bisim | Violated ce1 | Violated ce2 | violated-bisim ceq
   = violated-bisim ceq
 -- Left satisfied, right continues → And continues with right
-... | Satisfied | Satisfied | satisfied-bisim | Continue st2' | Continue ψ' | continue-bisim rel2'
+... | Satisfied | Satisfied | satisfied-bisim | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (and-relate rel1 rel2')
 -- Both satisfied → And satisfied
 ... | Satisfied | Satisfied | satisfied-bisim | Satisfied | Satisfied | satisfied-bisim
@@ -195,22 +195,22 @@ step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Violated ce1 | Violated ce2 | violated-bisim ceq | Satisfied | Satisfied | satisfied-bisim
   = violated-bisim ceq
 -- Left violated, right continues → And violated
-... | Violated ce1 | Violated ce2 | violated-bisim ceq | Continue _ | Continue _ | continue-bisim _
+... | Violated ce1 | Violated ce2 | violated-bisim ceq | Continue _ _ | Continue _ _ | continue-bisim _
   = violated-bisim ceq
 -- Impossible cases: left results don't match
 ... | Violated _ | Satisfied | () | _ | _ | _
-... | Violated _ | Continue _ | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
-... | Satisfied | Continue _ | () | _ | _ | _
-... | Continue _ | Violated _ | () | _ | _ | _
-... | Continue _ | Satisfied | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
 -- Impossible cases: right results don't match
 ... | _ | _ | _ | Violated _ | Satisfied | ()
-... | _ | _ | _ | Violated _ | Continue _ | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
-... | _ | _ | _ | Satisfied | Continue _ | ()
-... | _ | _ | _ | Continue _ | Violated _ | ()
-... | _ | _ | _ | Continue _ | Satisfied | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
 
 -- Propositional operators: Or
 -- Similar structure to And
@@ -221,37 +221,37 @@ step-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
 -- Right satisfied (left continues) → Or satisfied
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
--- Both continue → Or continues
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Continue st2' | Continue ψ' | continue-bisim rel2'
+-- Both continue → Or continues (both return 0, unbounded)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (or-relate rel1' rel2')
 -- Right violated, left continues → Or continues with left
-... | Continue st1' | Continue φ' | continue-bisim rel1' | Violated _ | Violated _ | violated-bisim _
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Violated _ | Violated _ | violated-bisim _
   = continue-bisim (or-relate rel1' rel2)
 -- Left violated, right satisfied → Or satisfied
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
 -- Left violated, right continues → Or continues with right
-... | Violated _ | Violated _ | violated-bisim _ | Continue st2' | Continue ψ' | continue-bisim rel2'
+... | Violated _ | Violated _ | violated-bisim _ | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (or-relate rel1 rel2')
 -- Both violated → Or violated (uses right's counterexample)
 ... | Violated _ | Violated _ | violated-bisim _ | Violated _ | Violated _ | violated-bisim ceq
   = violated-bisim ceq
 -- Impossible cases: left results don't match
 ... | Violated _ | Satisfied | () | _ | _ | _
-... | Violated _ | Continue _ | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
-... | Satisfied | Continue _ | () | _ | _ | _
-... | Continue _ | Violated _ | () | _ | _ | _
-... | Continue _ | Satisfied | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
 -- Impossible cases: right results don't match
 ... | _ | _ | _ | Violated _ | Satisfied | ()
-... | _ | _ | _ | Violated _ | Continue _ | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
-... | _ | _ | _ | Satisfied | Continue _ | ()
-... | _ | _ | _ | Continue _ | Violated _ | ()
-... | _ | _ | _ | Continue _ | Satisfied | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
 
 -- Temporal operators: Always
 -- This is the key case!
@@ -286,20 +286,20 @@ step-bisim (always-relate {st} {φ} rel) prev curr
   = continue-bisim (always-relate rel)
 
 -- Case 3: Inner formula continues
--- stepEval returns: Continue (AlwaysState st')
--- stepL returns: Continue (Always φ')
+-- stepEval returns: Continue 0 (AlwaysState st') (unbounded)
+-- stepL returns: Continue 0 (Always φ') (unbounded)
 -- These are related by: always-relate rel' (where rel' relates st' and φ')
-... | Continue st' | Continue φ' | continue-bisim rel'
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (always-relate rel')
 
 -- Impossible cases (where observations don't match)
 -- Agda can prove these are impossible via unification!
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
+... | Violated _ | Continue _ _ | ()
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
-... | Continue _ | Violated _ | ()
-... | Continue _ | Satisfied | ()
+... | Satisfied | Continue _ _ | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Satisfied | ()
 
 -- Temporal operators: Eventually
 -- Eventually φ means "φ holds at some future point"
@@ -332,19 +332,19 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
   = continue-bisim (eventually-relate rel)
 
 -- Case 3: Inner formula continues
--- stepEval returns: Continue (EventuallyState st')
--- stepL returns: Continue (Eventually φ')
+-- stepEval returns: Continue 0 (EventuallyState st') (unbounded)
+-- stepL returns: Continue 0 (Eventually φ') (unbounded)
 -- These are related by: eventually-relate rel' (where rel' relates st' and φ')
-... | Continue st' | Continue φ' | continue-bisim rel'
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (eventually-relate rel')
 
 -- Impossible cases
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
+... | Violated _ | Continue _ _ | ()
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
-... | Continue _ | Violated _ | ()
-... | Continue _ | Satisfied | ()
+... | Satisfied | Continue _ _ | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Satisfied | ()
 
 -- Temporal operators: Until
 -- Until φ ψ means "φ holds until ψ becomes true"
@@ -386,15 +386,15 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   = satisfied-bisim
 
 -- ψ continues, φ violated → Until violated
-... | Continue _ | Continue _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
   = violated-bisim ceq
 
--- ψ continues, φ continues → Until continues
-... | Continue st2' | Continue ψ' | continue-bisim rel2' | Continue st1' | Continue φ' | continue-bisim rel1'
+-- ψ continues, φ continues → Until continues (both return 0, unbounded)
+... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
   = continue-bisim (until-relate rel1' rel2')
 
 -- ψ continues, φ satisfied → Until continues (preserves φ)
-... | Continue st2' | Continue ψ' | continue-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
+... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (until-relate rel1 rel2')
 
 -- ψ violated, φ violated → Until violated
@@ -402,7 +402,7 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   = violated-bisim ceq
 
 -- ψ violated, φ continues → Until continues (preserves ψ)
-... | Violated _ | Violated _ | violated-bisim _ | Continue st1' | Continue φ' | continue-bisim rel1'
+... | Violated _ | Violated _ | violated-bisim _ | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
   = continue-bisim (until-relate rel1' rel2)
 
 -- ψ violated, φ satisfied → Until continues (preserves both)
@@ -411,17 +411,17 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 
 -- Impossible cases (results don't match)
 ... | Violated _ | Satisfied | () | _ | _ | _
-... | Violated _ | Continue _ | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
-... | Satisfied | Continue _ | () | _ | _ | _
-... | Continue _ | Violated _ | () | _ | _ | _
-... | Continue _ | Satisfied | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
 ... | _ | _ | _ | Violated _ | Satisfied | ()
-... | _ | _ | _ | Violated _ | Continue _ | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
-... | _ | _ | _ | Satisfied | Continue _ | ()
-... | _ | _ | _ | Continue _ | Violated _ | ()
-... | _ | _ | _ | Continue _ | Satisfied | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
 
 -- ============================================================================
 -- Next operator (modal states: waiting vs active)
@@ -451,8 +451,8 @@ step-bisim (next-waiting-relate {st} {φ} rel) prev curr
 step-bisim (next-active-relate {st} {φ} rel) prev curr
   with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
 
--- Inner continues → both continue in NextActive mode
-... | Continue st' | Continue φ' | continue-bisim rel'
+-- Inner continues → both continue in NextActive mode (both return 0, unbounded)
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (next-active-relate rel')
 
 -- Inner violated → both violated
@@ -465,11 +465,11 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 
 -- Impossible cases (results don't match)
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
+... | Violated _ | Continue _ _ | ()
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
-... | Continue _ | Violated _ | ()
-... | Continue _ | Satisfied | ()
+... | Satisfied | Continue _ _ | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Satisfied | ()
 
 -- ============================================================================
 -- EVENTUALLY WITHIN: Must hold within time window
@@ -500,10 +500,11 @@ step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime1} {star
   = violated-bisim (mkCEEquiv {!!} {!!})
 
 -- Both continue (window valid, checking continues)
+-- CRITICAL: Both return SAME remaining time (observable equivalence)
 -- Both implementations use identical handleInWindow logic.
 -- If inner formula steps and both wrappers Continue, then inner states
 -- remain related. We prove this by invoking step-bisim on inner relation.
-... | Continue (EventuallyWithinState _ st') | Continue (EventuallyWithinProc _ _ φ')
+... | Continue _ (EventuallyWithinState _ st') | Continue _ (EventuallyWithinProc _ _ φ')
   with step-bisim rel prev curr
 -- If inner step results are bisimilar and both outer Continue,
 -- then by handleInWindow semantics, inner states remain related
@@ -513,11 +514,11 @@ step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime1} {star
 
 -- Impossible cases (outer results don't match)
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
+... | Satisfied | Continue _ _ | ()
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
-... | Continue _ | Satisfied | ()
-... | Continue _ | Violated _ | ()
+... | Violated _ | Continue _ _ | ()
+... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Violated _ | ()
 
 -- ============================================================================
 -- ALWAYS WITHIN: Must hold throughout time window
