@@ -19,7 +19,7 @@
 module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; EventuallyWithin; AlwaysWithin; UntilWithin; ReleaseWithin)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample)
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
@@ -38,7 +38,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 --
 -- Runtime state examples:
 -- - Next: modal state (NextWaiting vs NextActive) to track if we've skipped first frame
--- - EventuallyWithin/AlwaysWithin: startTime tracking (TODO: Phase 3)
+-- - MetricEventually/MetricAlways: startTime tracking (TODO: Phase 3)
 --
 -- This is a proper data type (not type alias) to support modal constructors for Next.
 
@@ -60,10 +60,10 @@ data LTLProc : Set where
   Release : LTLProc → LTLProc → LTLProc  -- Dual of Until: ψ holds until φ releases it
 
   -- Bounded temporal operators (with time tracking)
-  EventuallyWithin : ℕ → ℕ → LTLProc → LTLProc  -- windowMicros, startTime, inner
-  AlwaysWithin : ℕ → ℕ → LTLProc → LTLProc      -- windowMicros, startTime, inner
-  UntilWithin : ℕ → ℕ → LTLProc → LTLProc → LTLProc      -- windowMicros, startTime, φ, ψ
-  ReleaseWithin : ℕ → ℕ → LTLProc → LTLProc → LTLProc    -- windowMicros, startTime, φ, ψ
+  MetricEventuallyProc : ℕ → ℕ → LTLProc → LTLProc  -- windowMicros, startTime, inner
+  MetricAlwaysProc : ℕ → ℕ → LTLProc → LTLProc      -- windowMicros, startTime, inner
+  MetricUntilProc : ℕ → ℕ → LTLProc → LTLProc → LTLProc      -- windowMicros, startTime, φ, ψ
+  MetricReleaseProc : ℕ → ℕ → LTLProc → LTLProc → LTLProc    -- windowMicros, startTime, φ, ψ
 
 -- ============================================================================
 -- CONVERSION: LTLProc → LTL (for monitor interop)
@@ -85,10 +85,10 @@ toLTL (Always φ) = Always (toLTL φ)
 toLTL (Eventually φ) = Eventually (toLTL φ)
 toLTL (Until φ ψ) = Until (toLTL φ) (toLTL ψ)
 toLTL (Release φ ψ) = Release (toLTL φ) (toLTL ψ)
-toLTL (EventuallyWithin window _ φ) = EventuallyWithin window (toLTL φ)  -- Ignore startTime (runtime state)
-toLTL (AlwaysWithin window _ φ) = AlwaysWithin window (toLTL φ)          -- Ignore startTime (runtime state)
-toLTL (UntilWithin window _ φ ψ) = UntilWithin window (toLTL φ) (toLTL ψ)      -- Ignore startTime
-toLTL (ReleaseWithin window _ φ ψ) = ReleaseWithin window (toLTL φ) (toLTL ψ)  -- Ignore startTime
+toLTL (MetricEventuallyProc window _ φ) = MetricEventually window (toLTL φ)  -- Ignore startTime (runtime state)
+toLTL (MetricAlwaysProc window _ φ) = MetricAlways window (toLTL φ)          -- Ignore startTime (runtime state)
+toLTL (MetricUntilProc window _ φ ψ) = MetricUntil window (toLTL φ) (toLTL ψ)      -- Ignore startTime
+toLTL (MetricReleaseProc window _ φ ψ) = MetricRelease window (toLTL φ) (toLTL ψ)  -- Ignore startTime
 
 -- ============================================================================
 -- OBSERVABLE-LEVEL HANDLERS FOR BOUNDED OPERATORS
@@ -98,65 +98,65 @@ toLTL (ReleaseWithin window _ φ ψ) = ReleaseWithin window (toLTL φ) (toLTL ψ
 -- They only pattern match on StepResult observations, not on formula structure.
 -- The formulas (φ, ψ) are used ONLY to reconstruct continuations, not for branching logic.
 
--- EventuallyWithin handler: Continues until inner formula satisfied or window expires
-eventuallyWithinHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
-eventuallyWithinHandler windowMicros start φ Satisfied _ _ = Satisfied
-eventuallyWithinHandler windowMicros start φ (Continue _ φ') _ remaining =
-  Continue remaining (EventuallyWithin windowMicros start φ')
-eventuallyWithinHandler windowMicros start φ (Violated _) _ remaining =
-  Continue remaining (EventuallyWithin windowMicros start φ)  -- Keep looking
+-- MetricEventually handler: Continues until inner formula satisfied or window expires
+metricEventuallyHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+metricEventuallyHandler windowMicros start φ Satisfied _ _ = Satisfied
+metricEventuallyHandler windowMicros start φ (Continue _ φ') _ remaining =
+  Continue remaining (MetricEventuallyProc windowMicros start φ')
+metricEventuallyHandler windowMicros start φ (Violated _) _ remaining =
+  Continue remaining (MetricEventuallyProc windowMicros start φ)  -- Keep looking
 
--- AlwaysWithin handler: Continues while inner formula holds, fails if violated
-alwaysWithinHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
-alwaysWithinHandler windowMicros start φ (Violated ce) _ _ = Violated ce
-alwaysWithinHandler windowMicros start φ (Continue _ φ') _ remaining =
-  Continue remaining (AlwaysWithin windowMicros start φ')
-alwaysWithinHandler windowMicros start φ Satisfied _ remaining =
-  Continue remaining (AlwaysWithin windowMicros start φ)  -- Keep checking
+-- MetricAlways handler: Continues while inner formula holds, fails if violated
+metricAlwaysHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+metricAlwaysHandler windowMicros start φ (Violated ce) _ _ = Violated ce
+metricAlwaysHandler windowMicros start φ (Continue _ φ') _ remaining =
+  Continue remaining (MetricAlwaysProc windowMicros start φ')
+metricAlwaysHandler windowMicros start φ Satisfied _ remaining =
+  Continue remaining (MetricAlwaysProc windowMicros start φ)  -- Keep checking
 
--- UntilWithin handler: φ must hold until ψ becomes true, within window
+-- MetricUntil handler: φ must hold until ψ becomes true, within window
 -- Observable logic: Branch ONLY on StepResult patterns (ψ then φ)
-untilWithinHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
--- ψ satisfied → UntilWithin satisfied
-untilWithinHandler _ _ _ _ Satisfied _ _ _ = Satisfied
--- ψ continues, φ violated → UntilWithin violated
-untilWithinHandler _ _ _ _ (Continue _ ψ') (Violated ce) _ _ = Violated ce
--- ψ continues, φ continues → UntilWithin continues
-untilWithinHandler windowMicros start φ ψ (Continue _ ψ') (Continue _ φ') _ remaining =
-  Continue remaining (UntilWithin windowMicros start φ' ψ')
--- ψ continues, φ satisfied → UntilWithin continues (preserve original φ)
-untilWithinHandler windowMicros start φ ψ (Continue _ ψ') Satisfied _ remaining =
-  Continue remaining (UntilWithin windowMicros start φ ψ')
--- ψ violated, φ violated → UntilWithin violated
-untilWithinHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
--- ψ violated, φ continues → UntilWithin continues (preserve original ψ)
-untilWithinHandler windowMicros start φ ψ (Violated _) (Continue _ φ') _ remaining =
-  Continue remaining (UntilWithin windowMicros start φ' ψ)
--- ψ violated, φ satisfied → UntilWithin continues (preserve both)
-untilWithinHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
-  Continue remaining (UntilWithin windowMicros start φ ψ)
+metricUntilHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+-- ψ satisfied → MetricUntil satisfied
+metricUntilHandler _ _ _ _ Satisfied _ _ _ = Satisfied
+-- ψ continues, φ violated → MetricUntil violated
+metricUntilHandler _ _ _ _ (Continue _ ψ') (Violated ce) _ _ = Violated ce
+-- ψ continues, φ continues → MetricUntil continues
+metricUntilHandler windowMicros start φ ψ (Continue _ ψ') (Continue _ φ') _ remaining =
+  Continue remaining (MetricUntilProc windowMicros start φ' ψ')
+-- ψ continues, φ satisfied → MetricUntil continues (preserve original φ)
+metricUntilHandler windowMicros start φ ψ (Continue _ ψ') Satisfied _ remaining =
+  Continue remaining (MetricUntilProc windowMicros start φ ψ')
+-- ψ violated, φ violated → MetricUntil violated
+metricUntilHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- ψ violated, φ continues → MetricUntil continues (preserve original ψ)
+metricUntilHandler windowMicros start φ ψ (Violated _) (Continue _ φ') _ remaining =
+  Continue remaining (MetricUntilProc windowMicros start φ' ψ)
+-- ψ violated, φ satisfied → MetricUntil continues (preserve both)
+metricUntilHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
+  Continue remaining (MetricUntilProc windowMicros start φ ψ)
 
--- ReleaseWithin handler: ψ must hold until φ releases it, within window
+-- MetricRelease handler: ψ must hold until φ releases it, within window
 -- Observable logic: Branch ONLY on StepResult patterns (φ then ψ)
-releaseWithinHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
--- φ satisfied → ReleaseWithin satisfied (release condition met)
-releaseWithinHandler _ _ _ _ Satisfied _ _ _ = Satisfied
--- φ continues, ψ violated → ReleaseWithin violated (ψ must hold until release)
-releaseWithinHandler _ _ _ _ (Continue _ φ') (Violated ce) _ _ = Violated ce
--- φ continues, ψ continues → ReleaseWithin continues
-releaseWithinHandler windowMicros start φ ψ (Continue _ φ') (Continue _ ψ') _ remaining =
-  Continue remaining (ReleaseWithin windowMicros start φ' ψ')
--- φ continues, ψ satisfied → ReleaseWithin continues (preserve original ψ)
-releaseWithinHandler windowMicros start φ ψ (Continue _ φ') Satisfied _ remaining =
-  Continue remaining (ReleaseWithin windowMicros start φ' ψ)
--- φ violated, ψ violated → ReleaseWithin violated
-releaseWithinHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
--- φ violated, ψ continues → ReleaseWithin continues (preserve original φ)
-releaseWithinHandler windowMicros start φ ψ (Violated _) (Continue _ ψ') _ remaining =
-  Continue remaining (ReleaseWithin windowMicros start φ ψ')
--- φ violated, ψ satisfied → ReleaseWithin continues (preserve both)
-releaseWithinHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
-  Continue remaining (ReleaseWithin windowMicros start φ ψ)
+metricReleaseHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+-- φ satisfied → MetricRelease satisfied (release condition met)
+metricReleaseHandler _ _ _ _ Satisfied _ _ _ = Satisfied
+-- φ continues, ψ violated → MetricRelease violated (ψ must hold until release)
+metricReleaseHandler _ _ _ _ (Continue _ φ') (Violated ce) _ _ = Violated ce
+-- φ continues, ψ continues → MetricRelease continues
+metricReleaseHandler windowMicros start φ ψ (Continue _ φ') (Continue _ ψ') _ remaining =
+  Continue remaining (MetricReleaseProc windowMicros start φ' ψ')
+-- φ continues, ψ satisfied → MetricRelease continues (preserve original ψ)
+metricReleaseHandler windowMicros start φ ψ (Continue _ φ') Satisfied _ remaining =
+  Continue remaining (MetricReleaseProc windowMicros start φ' ψ)
+-- φ violated, ψ violated → MetricRelease violated
+metricReleaseHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- φ violated, ψ continues → MetricRelease continues (preserve original φ)
+metricReleaseHandler windowMicros start φ ψ (Violated _) (Continue _ ψ') _ remaining =
+  Continue remaining (MetricReleaseProc windowMicros start φ ψ')
+-- φ violated, ψ satisfied → MetricRelease continues (preserve both)
+metricReleaseHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
+  Continue remaining (MetricReleaseProc windowMicros start φ ψ)
 
 -- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
@@ -274,48 +274,48 @@ stepL (Release φ ψ) prev curr
 -- φ violated, ψ satisfied → Release continues (preserve both)
 ... | Violated _ | Satisfied = Continue 0 (Release φ ψ)
 
--- EventuallyWithin: must hold within time window
-stepL (EventuallyWithin windowMicros startTime φ) prev curr =
+-- MetricEventually: must hold within time window
+stepL (MetricEventuallyProc windowMicros startTime φ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then eventuallyWithinHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
-     else Violated (mkCounterexample curr "EventuallyWithin: window expired")
+     then metricEventuallyHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
+     else Violated (mkCounterexample curr "MetricEventually: window expired")
 
--- AlwaysWithin: must hold throughout time window
-stepL (AlwaysWithin windowMicros startTime φ) prev curr =
+-- MetricAlways: must hold throughout time window
+stepL (MetricAlwaysProc windowMicros startTime φ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then alwaysWithinHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
+     then metricAlwaysHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
      else Satisfied  -- Window complete, always held
 
--- UntilWithin: φ holds until ψ, within time window
-stepL (UntilWithin windowMicros startTime φ ψ) prev curr =
+-- MetricUntil: φ holds until ψ, within time window
+stepL (MetricUntilProc windowMicros startTime φ ψ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then untilWithinHandler windowMicros actualStart φ ψ (stepL ψ prev curr) (stepL φ prev curr) actualStart remaining
-     else Violated (mkCounterexample curr "UntilWithin: window expired before ψ")
+     then metricUntilHandler windowMicros actualStart φ ψ (stepL ψ prev curr) (stepL φ prev curr) actualStart remaining
+     else Violated (mkCounterexample curr "MetricUntil: window expired before ψ")
 
--- ReleaseWithin: ψ holds until φ releases it, within time window
-stepL (ReleaseWithin windowMicros startTime φ ψ) prev curr =
+-- MetricRelease: ψ holds until φ releases it, within time window
+stepL (MetricReleaseProc windowMicros startTime φ ψ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then releaseWithinHandler windowMicros actualStart φ ψ (stepL φ prev curr) (stepL ψ prev curr) actualStart remaining
+     then metricReleaseHandler windowMicros actualStart φ ψ (stepL φ prev curr) (stepL ψ prev curr) actualStart remaining
      else Satisfied  -- Window complete, ψ held throughout (release not required)
 
 -- ============================================================================
@@ -335,9 +335,9 @@ stepL (ReleaseWithin windowMicros startTime φ ψ) prev curr =
 --    - Define operational behavior directly
 --    - No semantic predicates, no Delay Bool
 --
--- 3. Some operators need state (Next, EventuallyWithin, AlwaysWithin)
+-- 3. Some operators need state (Next, MetricEventually, MetricAlways)
 --    - Next needs "have we skipped yet?" flag
---    - EventuallyWithin/AlwaysWithin need startTime
+--    - MetricEventually/MetricAlways need startTime
 --    - This suggests LTLProc might need to be enriched with runtime state
 --
 -- 4. This is defunctionalization in action!
@@ -351,7 +351,7 @@ stepL (ReleaseWithin windowMicros startTime φ ψ) prev curr =
 
 -- TODO:
 -- 1. Handle Next properly (need mode: Waiting vs Active)
--- 2. Handle EventuallyWithin/AlwaysWithin (need startTime state)
+-- 2. Handle MetricEventually/MetricAlways (need startTime state)
 -- 3. Prove bisimilarity with monitor (starting with Always φ where φ = Atomic p)
 -- 4. Extend to other operators
 

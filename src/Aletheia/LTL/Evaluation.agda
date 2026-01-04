@@ -25,7 +25,7 @@ open import Data.Bool using (Bool; not; _∧_; _∨_)
 --                     - Use 'true' when temporal operators are handled by external state machine
 --
 -- Handles: Atomic, Not, And, Or (structurally recursive)
--- Defers: Next, Always, Eventually, Until, EventuallyWithin, AlwaysWithin
+-- Defers: Next, Always, Eventually, Until, MetricEventually, MetricAlways
 evalAtFrame : ∀ {A : Set} → Bool → A → LTL (A → Bool) → Bool
 evalAtFrame temporalDefault frame (Atomic pred) = pred frame
 evalAtFrame temporalDefault frame (Not φ) = not (evalAtFrame temporalDefault frame φ)
@@ -38,10 +38,10 @@ evalAtFrame temporalDefault _ (Always _) = temporalDefault
 evalAtFrame temporalDefault _ (Eventually _) = temporalDefault
 evalAtFrame temporalDefault _ (Until _ _) = temporalDefault
 evalAtFrame temporalDefault _ (Release _ _) = temporalDefault
-evalAtFrame temporalDefault _ (EventuallyWithin _ _) = temporalDefault
-evalAtFrame temporalDefault _ (AlwaysWithin _ _) = temporalDefault
-evalAtFrame temporalDefault _ (UntilWithin _ _ _) = temporalDefault
-evalAtFrame temporalDefault _ (ReleaseWithin _ _ _) = temporalDefault
+evalAtFrame temporalDefault _ (MetricEventually _ _) = temporalDefault
+evalAtFrame temporalDefault _ (MetricAlways _ _) = temporalDefault
+evalAtFrame temporalDefault _ (MetricUntil _ _ _) = temporalDefault
+evalAtFrame temporalDefault _ (MetricRelease _ _ _) = temporalDefault
 
 -- ============================================================================
 -- INFINITE EXTENSION EVALUATION
@@ -83,7 +83,7 @@ evalAtInfiniteExtension frame (Release φ ψ) = evalAtInfiniteExtension frame φ
 -- Time-bounded operators: strip time bounds on infinite extension
 -- Rationale: On infinite extension of a single frame, time progression is meaningless
 -- The frame either satisfies the inner formula or doesn't
-evalAtInfiniteExtension frame (EventuallyWithin _ φ) = evalAtInfiniteExtension frame φ
-evalAtInfiniteExtension frame (AlwaysWithin _ φ) = evalAtInfiniteExtension frame φ
-evalAtInfiniteExtension frame (UntilWithin _ φ ψ) = evalAtInfiniteExtension frame ψ
-evalAtInfiniteExtension frame (ReleaseWithin _ φ ψ) = evalAtInfiniteExtension frame φ
+evalAtInfiniteExtension frame (MetricEventually _ φ) = evalAtInfiniteExtension frame φ
+evalAtInfiniteExtension frame (MetricAlways _ φ) = evalAtInfiniteExtension frame φ
+evalAtInfiniteExtension frame (MetricUntil _ φ ψ) = evalAtInfiniteExtension frame ψ
+evalAtInfiniteExtension frame (MetricRelease _ φ ψ) = evalAtInfiniteExtension frame φ

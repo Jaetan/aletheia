@@ -6,7 +6,7 @@
 -- Operators:
 --   Propositional: Atomic, Not, And, Or
 --   Unbounded temporal: Next, Always, Eventually, Until, Release
---   Bounded temporal (MTL): EventuallyWithin, AlwaysWithin, UntilWithin, ReleaseWithin
+--   Bounded temporal (MTL): MetricEventually, MetricAlways, MetricUntil, MetricRelease
 -- Role: Core LTL/MTL syntax used by Coinductive/Incremental semantics and JSON parser.
 --
 -- Design: Parametric in predicate type A allows reuse (signal predicates, generic predicates).
@@ -27,10 +27,10 @@ data LTL (Atom : Set) : Set where
   Release : LTL Atom → LTL Atom → LTL Atom  -- Dual of Until: ψ holds until φ releases it
 
   -- Bounded temporal operators (MTL)
-  EventuallyWithin : ℕ → LTL Atom → LTL Atom
-  AlwaysWithin : ℕ → LTL Atom → LTL Atom
-  UntilWithin : ℕ → LTL Atom → LTL Atom → LTL Atom
-  ReleaseWithin : ℕ → LTL Atom → LTL Atom → LTL Atom
+  MetricEventually : ℕ → LTL Atom → LTL Atom  -- Formerly EventuallyWithin
+  MetricAlways : ℕ → LTL Atom → LTL Atom      -- Formerly AlwaysWithin
+  MetricUntil : ℕ → LTL Atom → LTL Atom → LTL Atom      -- Formerly UntilWithin
+  MetricRelease : ℕ → LTL Atom → LTL Atom → LTL Atom    -- Formerly ReleaseWithin
 
 -- Functor map for LTL: transform the atomic type
 mapLTL : ∀ {A B : Set} → (A → B) → LTL A → LTL B
@@ -43,7 +43,7 @@ mapLTL f (Always φ) = Always (mapLTL f φ)
 mapLTL f (Eventually φ) = Eventually (mapLTL f φ)
 mapLTL f (Until φ ψ) = Until (mapLTL f φ) (mapLTL f ψ)
 mapLTL f (Release φ ψ) = Release (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (EventuallyWithin n φ) = EventuallyWithin n (mapLTL f φ)
-mapLTL f (AlwaysWithin n φ) = AlwaysWithin n (mapLTL f φ)
-mapLTL f (UntilWithin n φ ψ) = UntilWithin n (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (ReleaseWithin n φ ψ) = ReleaseWithin n (mapLTL f φ) (mapLTL f ψ)
+mapLTL f (MetricEventually n φ) = MetricEventually n (mapLTL f φ)
+mapLTL f (MetricAlways n φ) = MetricAlways n (mapLTL f φ)
+mapLTL f (MetricUntil n φ ψ) = MetricUntil n (mapLTL f φ) (mapLTL f ψ)
+mapLTL f (MetricRelease n φ ψ) = MetricRelease n (mapLTL f φ) (mapLTL f ψ)

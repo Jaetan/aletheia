@@ -13,15 +13,13 @@
 module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; EventuallyWithin; AlwaysWithin; UntilWithin; ReleaseWithin)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; EventuallyWithinState; AlwaysWithinState; UntilWithinState; ReleaseWithinState; stepEval; initState)
-open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; MetricEventuallyState; MetricAlwaysState; MetricUntilState; MetricReleaseState; stepEval; initState)
+open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL; MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
   renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
             NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
             Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc;
-            Release to ReleaseProc;
-            EventuallyWithin to EventuallyWithinProc; AlwaysWithin to AlwaysWithinProc;
-            UntilWithin to UntilWithinProc; ReleaseWithin to ReleaseWithinProc)
+            Release to ReleaseProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
@@ -96,19 +94,19 @@ data Relate : LTLEvalState → LTLProc → Set where
   --   - Same actualStart on first frame
   --   - Same elapsed time on every frame
   --   - Same remaining time (the only observable quantity)
-  eventually-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+  metric-eventually-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
                                {windowMicros startTime : ℕ}
     → Relate st φ
-    → Relate (EventuallyWithinState startTime st)
-             (EventuallyWithinProc windowMicros startTime φ)
+    → Relate (MetricEventuallyState startTime st)
+             (MetricEventuallyProc windowMicros startTime φ)
 
-  -- AlwaysWithin: Same observable requirement as EventuallyWithin
+  -- MetricAlways: Same observable requirement as MetricEventually
   -- Both sides must have SAME startTime to compute identical remaining time
-  always-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+  metric-always-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
                            {windowMicros startTime : ℕ}
     → Relate st φ
-    → Relate (AlwaysWithinState startTime st)
-             (AlwaysWithinProc windowMicros startTime φ)
+    → Relate (MetricAlwaysState startTime st)
+             (MetricAlwaysProc windowMicros startTime φ)
 
   -- Release states are related if both inner states are related
   release-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
@@ -116,23 +114,23 @@ data Relate : LTLEvalState → LTLProc → Set where
     → Relate st2 ψ
     → Relate (ReleaseState st1 st2) (ReleaseProc φ ψ)
 
-  -- UntilWithin: Bounded Until with observable time tracking
+  -- MetricUntil: Bounded Until with observable time tracking
   -- Same observable requirement as other bounded operators
-  until-within-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+  metric-until-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
                           {windowMicros startTime : ℕ}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (UntilWithinState startTime st1 st2)
-             (UntilWithinProc windowMicros startTime φ ψ)
+    → Relate (MetricUntilState startTime st1 st2)
+             (MetricUntilProc windowMicros startTime φ ψ)
 
-  -- ReleaseWithin: Bounded Release with observable time tracking
+  -- MetricRelease: Bounded Release with observable time tracking
   -- Same observable requirement as other bounded operators
-  release-within-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+  metric-release-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
                             {windowMicros startTime : ℕ}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (ReleaseWithinState startTime st1 st2)
-             (ReleaseWithinProc windowMicros startTime φ ψ)
+    → Relate (MetricReleaseState startTime st1 st2)
+             (MetricReleaseProc windowMicros startTime φ ψ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
@@ -501,7 +499,7 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 -- 3. Both compute: inWindow = (timestamp curr ∸ actualStart) ≤ᵇ windowMicros
 -- 4. Since inputs identical → outputs identical (deterministic computation)
 
-step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+step-bisim (metric-eventually-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window expired on both sides
@@ -513,9 +511,9 @@ step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime} rel) p
 ... | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
 ... | Violated _ | Violated _ | violated-bisim _
-  = continue-bisim (eventually-within-relate rel)  -- Both preserve original state
+  = continue-bisim (metric-eventually-relate rel)  -- Both preserve original state
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
-  = continue-bisim (eventually-within-relate rel')  -- Both step inner state
+  = continue-bisim (metric-eventually-relate rel')  -- Both step inner state
 -- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
@@ -531,7 +529,7 @@ step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime} rel) p
 -- AlwaysWithin: Must hold throughout time window
 -- Observable invariant: Both sides have SAME startTime, therefore compute SAME remaining time
 
-step-bisim (always-within-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+step-bisim (metric-always-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window complete on both sides
@@ -543,9 +541,9 @@ step-bisim (always-within-relate {st} {φ} {windowMicros} {startTime} rel) prev 
 ... | Violated _ | Violated _ | violated-bisim ceq
   = violated-bisim ceq  -- Both propagate same inner violation
 ... | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (always-within-relate rel)  -- Both preserve original state
+  = continue-bisim (metric-always-relate rel)  -- Both preserve original state
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
-  = continue-bisim (always-within-relate rel')  -- Both step inner state
+  = continue-bisim (metric-always-relate rel')  -- Both step inner state
 -- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
@@ -614,7 +612,7 @@ step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 
 -- UntilWithin: φ Until ψ within time window
 -- Same as Until but with time bound, uses observable remaining time
-step-bisim (until-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window expired on both sides
@@ -633,11 +631,11 @@ step-bisim (until-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 
 -- ψ continues, φ continues → UntilWithin continues
 ... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
-  = continue-bisim (until-within-relate rel1' rel2')
+  = continue-bisim (metric-until-relate rel1' rel2')
 
 -- ψ continues, φ satisfied → UntilWithin continues (preserves φ)
 ... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (until-within-relate rel1 rel2')
+  = continue-bisim (metric-until-relate rel1 rel2')
 
 -- ψ violated, φ violated → UntilWithin violated
 -- Observable handlers return φ's counterexample (second StepResult argument)
@@ -646,11 +644,11 @@ step-bisim (until-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 
 -- ψ violated, φ continues → UntilWithin continues (preserves ψ)
 ... | Violated _ | Violated _ | violated-bisim _ | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
-  = continue-bisim (until-within-relate rel1' rel2)
+  = continue-bisim (metric-until-relate rel1' rel2)
 
 -- ψ violated, φ satisfied → UntilWithin continues (preserves both)
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (until-within-relate rel1 rel2)
+  = continue-bisim (metric-until-relate rel1 rel2)
 
 -- Impossible cases
 ... | Violated _ | Satisfied | () | _ | _ | _
@@ -672,7 +670,7 @@ step-bisim (until-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 
 -- ReleaseWithin: φ Release ψ within time window
 -- Same as Release but with time bound, uses observable remaining time
-step-bisim (release-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window complete on both sides
@@ -691,11 +689,11 @@ step-bisim (release-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 
 -- φ continues, ψ continues → ReleaseWithin continues
 ... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
-  = continue-bisim (release-within-relate rel1' rel2')
+  = continue-bisim (metric-release-relate rel1' rel2')
 
 -- φ continues, ψ satisfied → ReleaseWithin continues (preserves ψ)
 ... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (release-within-relate rel1' rel2)
+  = continue-bisim (metric-release-relate rel1' rel2)
 
 -- φ violated, ψ violated → ReleaseWithin violated
 -- Observable handlers return ψ's counterexample (second StepResult argument)
@@ -704,11 +702,11 @@ step-bisim (release-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 
 -- φ violated, ψ continues → ReleaseWithin continues (preserves φ)
 ... | Violated _ | Violated _ | violated-bisim _ | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
-  = continue-bisim (release-within-relate rel1 rel2')
+  = continue-bisim (metric-release-relate rel1 rel2')
 
 -- φ violated, ψ satisfied → ReleaseWithin continues (preserves both)
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (release-within-relate rel1 rel2)
+  = continue-bisim (metric-release-relate rel1 rel2)
 
 -- Impossible cases
 ... | Violated _ | Satisfied | () | _ | _ | _

@@ -76,27 +76,27 @@ data LTLEvalState : Set where
   ReleaseFailed : LTLEvalState
 
   -- Bounded temporal operators: track start time and result
-  EventuallyWithinState : ℕ → LTLEvalState → LTLEvalState  -- startTime
-  EventuallyWithinFailed : LTLEvalState
-  EventuallyWithinSucceeded : LTLEvalState
+  MetricEventuallyState : ℕ → LTLEvalState → LTLEvalState  -- startTime
+  MetricEventuallyFailed : LTLEvalState
+  MetricEventuallySucceeded : LTLEvalState
 
-  AlwaysWithinState : ℕ → LTLEvalState → LTLEvalState  -- startTime
-  AlwaysWithinFailed : LTLEvalState
-  AlwaysWithinSucceeded : LTLEvalState
+  MetricAlwaysState : ℕ → LTLEvalState → LTLEvalState  -- startTime
+  MetricAlwaysFailed : LTLEvalState
+  MetricAlwaysSucceeded : LTLEvalState
 
-  UntilWithinState : ℕ → LTLEvalState → LTLEvalState → LTLEvalState  -- startTime, left, right
-  UntilWithinSucceeded : LTLEvalState
-  UntilWithinFailed : LTLEvalState
+  MetricUntilState : ℕ → LTLEvalState → LTLEvalState → LTLEvalState  -- startTime, left, right
+  MetricUntilSucceeded : LTLEvalState
+  MetricUntilFailed : LTLEvalState
 
-  ReleaseWithinState : ℕ → LTLEvalState → LTLEvalState → LTLEvalState  -- startTime, left, right
-  ReleaseWithinSucceeded : LTLEvalState
-  ReleaseWithinFailed : LTLEvalState
+  MetricReleaseState : ℕ → LTLEvalState → LTLEvalState → LTLEvalState  -- startTime, left, right
+  MetricReleaseSucceeded : LTLEvalState
+  MetricReleaseFailed : LTLEvalState
 
 -- Result of one evaluation step (parameterized by state type)
 -- Allows comparing observations from different coalgebras (monitor vs defunctionalized LTL)
 -- CRITICAL: Continue now carries remaining time as observable for bounded operators
 --   - Unbounded operators (Always, Eventually, Until, etc.): return 0 (no time bound)
---   - Bounded operators (EventuallyWithin, AlwaysWithin): return remaining microseconds
+--   - Bounded operators (MetricEventually, MetricAlways): return remaining microseconds
 data StepResult (S : Set) : Set where
   Continue : ℕ → S → StepResult S  -- remaining time (0 = unbounded) + state
   Violated : Counterexample → StepResult S  -- Property violated
@@ -118,10 +118,10 @@ initState (Always φ) = AlwaysState (initState φ)
 initState (Eventually φ) = EventuallyState (initState φ)
 initState (Until φ ψ) = UntilState (initState φ) (initState ψ)
 initState (Release φ ψ) = ReleaseState (initState φ) (initState ψ)
-initState (EventuallyWithin _ φ) = EventuallyWithinState 0 (initState φ)
-initState (AlwaysWithin _ φ) = AlwaysWithinState 0 (initState φ)
-initState (UntilWithin _ φ ψ) = UntilWithinState 0 (initState φ) (initState ψ)
-initState (ReleaseWithin _ φ ψ) = ReleaseWithinState 0 (initState φ) (initState ψ)
+initState (MetricEventually _ φ) = MetricEventuallyState 0 (initState φ)
+initState (MetricAlways _ φ) = MetricAlwaysState 0 (initState φ)
+initState (MetricUntil _ φ ψ) = MetricUntilState 0 (initState φ) (initState ψ)
+initState (MetricRelease _ φ ψ) = MetricReleaseState 0 (initState φ) (initState ψ)
 
 -- ============================================================================
 -- INCREMENTAL EVALUATION HELPERS
@@ -134,7 +134,7 @@ initState (ReleaseWithin _ φ ψ) = ReleaseWithinState 0 (initState φ) (initSta
 -- Time constraints live in CHILDREN (bounded operators), not PARENTS (compound operators).
 --
 -- Therefore:
---   - Bounded operators (EventuallyWithin, AlwaysWithin) return actual remaining microseconds
+--   - Bounded operators (MetricEventually, MetricAlways) return actual remaining microseconds
 --   - Unbounded operators (And, Or, Not, Always, Eventually, Until, Next) return 0
 --   - Children track their own times; parents don't aggregate!
 
@@ -167,65 +167,65 @@ stepEval-or-helper (Violated _) (Violated ce) _ _ = Violated ce  -- Both violate
 -- They only pattern match on StepResult observations, not on state structure.
 -- The states are used ONLY to reconstruct continuations, not for branching logic.
 
--- EventuallyWithin handler: Continues until inner formula satisfied or window expires
-eventuallyWithinHandlerIncr : ℕ → ℕ → LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
-eventuallyWithinHandlerIncr windowMicros start st Satisfied _ _ = Satisfied
-eventuallyWithinHandlerIncr windowMicros start st (Continue _ st') _ remaining =
-  Continue remaining (EventuallyWithinState start st')
-eventuallyWithinHandlerIncr windowMicros start st (Violated _) _ remaining =
-  Continue remaining (EventuallyWithinState start st)  -- Keep looking
+-- MetricEventually handler: Continues until inner formula satisfied or window expires
+metricEventuallyHandlerIncr : ℕ → ℕ → LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+metricEventuallyHandlerIncr windowMicros start st Satisfied _ _ = Satisfied
+metricEventuallyHandlerIncr windowMicros start st (Continue _ st') _ remaining =
+  Continue remaining (MetricEventuallyState start st')
+metricEventuallyHandlerIncr windowMicros start st (Violated _) _ remaining =
+  Continue remaining (MetricEventuallyState start st)  -- Keep looking
 
--- AlwaysWithin handler: Continues while inner formula holds, fails if violated
-alwaysWithinHandlerIncr : ℕ → ℕ → LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
-alwaysWithinHandlerIncr windowMicros start st (Violated ce) _ _ = Violated ce
-alwaysWithinHandlerIncr windowMicros start st (Continue _ st') _ remaining =
-  Continue remaining (AlwaysWithinState start st')
-alwaysWithinHandlerIncr windowMicros start st Satisfied _ remaining =
-  Continue remaining (AlwaysWithinState start st)  -- Keep checking
+-- MetricAlways handler: Continues while inner formula holds, fails if violated
+metricAlwaysHandlerIncr : ℕ → ℕ → LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+metricAlwaysHandlerIncr windowMicros start st (Violated ce) _ _ = Violated ce
+metricAlwaysHandlerIncr windowMicros start st (Continue _ st') _ remaining =
+  Continue remaining (MetricAlwaysState start st')
+metricAlwaysHandlerIncr windowMicros start st Satisfied _ remaining =
+  Continue remaining (MetricAlwaysState start st)  -- Keep checking
 
--- UntilWithin handler: φ must hold until ψ becomes true, within window
+-- MetricUntil handler: φ must hold until ψ becomes true, within window
 -- Observable logic: Branch ONLY on StepResult patterns (ψ then φ)
-untilWithinHandlerIncr : ℕ → ℕ → LTLEvalState → LTLEvalState → StepResult LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
--- ψ satisfied → UntilWithin satisfied
-untilWithinHandlerIncr _ _ _ _ Satisfied _ _ _ = Satisfied
--- ψ continues, φ violated → UntilWithin violated
-untilWithinHandlerIncr _ _ _ _ (Continue _ st2') (Violated ce) _ _ = Violated ce
--- ψ continues, φ continues → UntilWithin continues
-untilWithinHandlerIncr windowMicros start st1 st2 (Continue _ st2') (Continue _ st1') _ remaining =
-  Continue remaining (UntilWithinState start st1' st2')
--- ψ continues, φ satisfied → UntilWithin continues (preserve original φ)
-untilWithinHandlerIncr windowMicros start st1 st2 (Continue _ st2') Satisfied _ remaining =
-  Continue remaining (UntilWithinState start st1 st2')
--- ψ violated, φ violated → UntilWithin violated
-untilWithinHandlerIncr _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
--- ψ violated, φ continues → UntilWithin continues (preserve original ψ)
-untilWithinHandlerIncr windowMicros start st1 st2 (Violated _) (Continue _ st1') _ remaining =
-  Continue remaining (UntilWithinState start st1' st2)
--- ψ violated, φ satisfied → UntilWithin continues (preserve both)
-untilWithinHandlerIncr windowMicros start st1 st2 (Violated _) Satisfied _ remaining =
-  Continue remaining (UntilWithinState start st1 st2)
+metricUntilHandlerIncr : ℕ → ℕ → LTLEvalState → LTLEvalState → StepResult LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+-- ψ satisfied → MetricUntil satisfied
+metricUntilHandlerIncr _ _ _ _ Satisfied _ _ _ = Satisfied
+-- ψ continues, φ violated → MetricUntil violated
+metricUntilHandlerIncr _ _ _ _ (Continue _ st2') (Violated ce) _ _ = Violated ce
+-- ψ continues, φ continues → MetricUntil continues
+metricUntilHandlerIncr windowMicros start st1 st2 (Continue _ st2') (Continue _ st1') _ remaining =
+  Continue remaining (MetricUntilState start st1' st2')
+-- ψ continues, φ satisfied → MetricUntil continues (preserve original φ)
+metricUntilHandlerIncr windowMicros start st1 st2 (Continue _ st2') Satisfied _ remaining =
+  Continue remaining (MetricUntilState start st1 st2')
+-- ψ violated, φ violated → MetricUntil violated
+metricUntilHandlerIncr _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- ψ violated, φ continues → MetricUntil continues (preserve original ψ)
+metricUntilHandlerIncr windowMicros start st1 st2 (Violated _) (Continue _ st1') _ remaining =
+  Continue remaining (MetricUntilState start st1' st2)
+-- ψ violated, φ satisfied → MetricUntil continues (preserve both)
+metricUntilHandlerIncr windowMicros start st1 st2 (Violated _) Satisfied _ remaining =
+  Continue remaining (MetricUntilState start st1 st2)
 
--- ReleaseWithin handler: ψ must hold until φ releases it, within window
+-- MetricRelease handler: ψ must hold until φ releases it, within window
 -- Observable logic: Branch ONLY on StepResult patterns (φ then ψ)
-releaseWithinHandlerIncr : ℕ → ℕ → LTLEvalState → LTLEvalState → StepResult LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
--- φ satisfied → ReleaseWithin satisfied (release condition met)
-releaseWithinHandlerIncr _ _ _ _ Satisfied _ _ _ = Satisfied
--- φ continues, ψ violated → ReleaseWithin violated (ψ must hold until release)
-releaseWithinHandlerIncr _ _ _ _ (Continue _ st1') (Violated ce) _ _ = Violated ce
--- φ continues, ψ continues → ReleaseWithin continues
-releaseWithinHandlerIncr windowMicros start st1 st2 (Continue _ st1') (Continue _ st2') _ remaining =
-  Continue remaining (ReleaseWithinState start st1' st2')
--- φ continues, ψ satisfied → ReleaseWithin continues (preserve original ψ)
-releaseWithinHandlerIncr windowMicros start st1 st2 (Continue _ st1') Satisfied _ remaining =
-  Continue remaining (ReleaseWithinState start st1' st2)
--- φ violated, ψ violated → ReleaseWithin violated
-releaseWithinHandlerIncr _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
--- φ violated, ψ continues → ReleaseWithin continues (preserve original φ)
-releaseWithinHandlerIncr windowMicros start st1 st2 (Violated _) (Continue _ st2') _ remaining =
-  Continue remaining (ReleaseWithinState start st1 st2')
--- φ violated, ψ satisfied → ReleaseWithin continues (preserve both)
-releaseWithinHandlerIncr windowMicros start st1 st2 (Violated _) Satisfied _ remaining =
-  Continue remaining (ReleaseWithinState start st1 st2)
+metricReleaseHandlerIncr : ℕ → ℕ → LTLEvalState → LTLEvalState → StepResult LTLEvalState → StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+-- φ satisfied → MetricRelease satisfied (release condition met)
+metricReleaseHandlerIncr _ _ _ _ Satisfied _ _ _ = Satisfied
+-- φ continues, ψ violated → MetricRelease violated (ψ must hold until release)
+metricReleaseHandlerIncr _ _ _ _ (Continue _ st1') (Violated ce) _ _ = Violated ce
+-- φ continues, ψ continues → MetricRelease continues
+metricReleaseHandlerIncr windowMicros start st1 st2 (Continue _ st1') (Continue _ st2') _ remaining =
+  Continue remaining (MetricReleaseState start st1' st2')
+-- φ continues, ψ satisfied → MetricRelease continues (preserve original ψ)
+metricReleaseHandlerIncr windowMicros start st1 st2 (Continue _ st1') Satisfied _ remaining =
+  Continue remaining (MetricReleaseState start st1' st2)
+-- φ violated, ψ violated → MetricRelease violated
+metricReleaseHandlerIncr _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- φ violated, ψ continues → MetricRelease continues (preserve original φ)
+metricReleaseHandlerIncr windowMicros start st1 st2 (Violated _) (Continue _ st2') _ remaining =
+  Continue remaining (MetricReleaseState start st1 st2')
+-- φ violated, ψ satisfied → MetricRelease continues (preserve both)
+metricReleaseHandlerIncr windowMicros start st1 st2 (Violated _) Satisfied _ remaining =
+  Continue remaining (MetricReleaseState start st1 st2)
 
 -- ============================================================================
 -- INCREMENTAL EVALUATION
@@ -340,61 +340,61 @@ stepEval (Release φ ψ) eval (ReleaseState st1 st2) prev curr
 stepEval (Release _ _) _ ReleaseSucceeded _ _ = Satisfied
 stepEval (Release _ _) _ ReleaseFailed _ curr = Violated (mkCounterexample curr "Release failed")
 
--- EventuallyWithin: must hold within time window
-stepEval (EventuallyWithin windowMicros φ) eval (EventuallyWithinState startTime st) prev curr =
+-- MetricEventually: must hold within time window
+stepEval (MetricEventually windowMicros φ) eval (MetricEventuallyState startTime st) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then eventuallyWithinHandlerIncr windowMicros actualStart st (stepEval φ eval st prev curr) actualStart remaining
-     else Violated (mkCounterexample curr "EventuallyWithin: window expired")
+     then metricEventuallyHandlerIncr windowMicros actualStart st (stepEval φ eval st prev curr) actualStart remaining
+     else Violated (mkCounterexample curr "MetricEventually: window expired")
 
-stepEval (EventuallyWithin _ _) _ EventuallyWithinSucceeded _ _ = Satisfied
-stepEval (EventuallyWithin _ _) _ EventuallyWithinFailed _ curr = Violated (mkCounterexample curr "EventuallyWithin: window expired")
+stepEval (MetricEventually _ _) _ MetricEventuallySucceeded _ _ = Satisfied
+stepEval (MetricEventually _ _) _ MetricEventuallyFailed _ curr = Violated (mkCounterexample curr "MetricEventually: window expired")
 
--- AlwaysWithin: must hold throughout time window
-stepEval (AlwaysWithin windowMicros φ) eval (AlwaysWithinState startTime st) prev curr =
+-- MetricAlways: must hold throughout time window
+stepEval (MetricAlways windowMicros φ) eval (MetricAlwaysState startTime st) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then alwaysWithinHandlerIncr windowMicros actualStart st (stepEval φ eval st prev curr) actualStart remaining
+     then metricAlwaysHandlerIncr windowMicros actualStart st (stepEval φ eval st prev curr) actualStart remaining
      else Satisfied  -- Window complete, always held
 
-stepEval (AlwaysWithin _ _) _ AlwaysWithinSucceeded _ _ = Satisfied
-stepEval (AlwaysWithin _ _) _ AlwaysWithinFailed _ curr = Violated (mkCounterexample curr "AlwaysWithin: violated within window")
+stepEval (MetricAlways _ _) _ MetricAlwaysSucceeded _ _ = Satisfied
+stepEval (MetricAlways _ _) _ MetricAlwaysFailed _ curr = Violated (mkCounterexample curr "MetricAlways: violated within window")
 
--- UntilWithin: φ must hold until ψ within time window
-stepEval (UntilWithin windowMicros φ ψ) eval (UntilWithinState startTime st1 st2) prev curr =
+-- MetricUntil: φ must hold until ψ within time window
+stepEval (MetricUntil windowMicros φ ψ) eval (MetricUntilState startTime st1 st2) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then untilWithinHandlerIncr windowMicros actualStart st1 st2 (stepEval ψ eval st2 prev curr) (stepEval φ eval st1 prev curr) actualStart remaining
-     else Violated (mkCounterexample curr "UntilWithin: window expired before ψ")
+     then metricUntilHandlerIncr windowMicros actualStart st1 st2 (stepEval ψ eval st2 prev curr) (stepEval φ eval st1 prev curr) actualStart remaining
+     else Violated (mkCounterexample curr "MetricUntil: window expired before ψ")
 
-stepEval (UntilWithin _ _ _) _ UntilWithinSucceeded _ _ = Satisfied
-stepEval (UntilWithin _ _ _) _ UntilWithinFailed _ curr = Violated (mkCounterexample curr "UntilWithin: window expired")
+stepEval (MetricUntil _ _ _) _ MetricUntilSucceeded _ _ = Satisfied
+stepEval (MetricUntil _ _ _) _ MetricUntilFailed _ curr = Violated (mkCounterexample curr "MetricUntil: window expired")
 
--- ReleaseWithin: ψ must hold until φ releases it within time window
-stepEval (ReleaseWithin windowMicros φ ψ) eval (ReleaseWithinState startTime st1 st2) prev curr =
+-- MetricRelease: ψ must hold until φ releases it within time window
+stepEval (MetricRelease windowMicros φ ψ) eval (MetricReleaseState startTime st1 st2) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then releaseWithinHandlerIncr windowMicros actualStart st1 st2 (stepEval φ eval st1 prev curr) (stepEval ψ eval st2 prev curr) actualStart remaining
+     then metricReleaseHandlerIncr windowMicros actualStart st1 st2 (stepEval φ eval st1 prev curr) (stepEval ψ eval st2 prev curr) actualStart remaining
      else Satisfied  -- Window complete, ψ held throughout (or was released)
 
-stepEval (ReleaseWithin _ _ _) _ ReleaseWithinSucceeded _ _ = Satisfied
-stepEval (ReleaseWithin _ _ _) _ ReleaseWithinFailed _ curr = Violated (mkCounterexample curr "ReleaseWithin failed")
+stepEval (MetricRelease _ _ _) _ MetricReleaseSucceeded _ _ = Satisfied
+stepEval (MetricRelease _ _ _) _ MetricReleaseFailed _ curr = Violated (mkCounterexample curr "MetricRelease failed")
 
 -- Catch-all for mismatched formula/state pairs (shouldn't happen if initState is used)
 stepEval _ _ _ _ curr = Violated (mkCounterexample curr "internal error: formula/state mismatch")

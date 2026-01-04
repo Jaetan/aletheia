@@ -134,13 +134,24 @@ parseBinary (suc depth) ctor obj = do
   right ← parseLTL depth rightJSON
   just (ctor left right)
 
--- Parse bounded operator (EventuallyWithin, AlwaysWithin)
+-- Parse bounded operator (MetricEventually, MetricAlways)
 parseBounded zero ctor obj = nothing
 parseBounded (suc depth) ctor obj = do
   timebound ← lookupNat "timebound" obj
   formulaJSON ← lookupByKey "formula" obj
   formula ← parseLTL depth formulaJSON
   just (ctor timebound formula)
+
+-- Parse bounded binary operator (MetricUntil, MetricRelease)
+parseBoundedBinary : ℕ → (ℕ → LTL SignalPredicate → LTL SignalPredicate → LTL SignalPredicate) → List (String × JSON) → Maybe (LTL SignalPredicate)
+parseBoundedBinary zero ctor obj = nothing
+parseBoundedBinary (suc depth) ctor obj = do
+  timebound ← lookupNat "timebound" obj
+  leftJSON ← lookupByKey "left" obj
+  rightJSON ← lookupByKey "right" obj
+  left ← parseLTL depth leftJSON
+  right ← parseLTL depth rightJSON
+  just (ctor timebound left right)
 
 -- Helper: Dispatch to correct operator parser based on type
 -- Note: Using if-then-else instead of dispatch table to maintain termination checking
@@ -155,8 +166,11 @@ dispatchOperator op depth obj =
   else if ⌊ op ≟ "always" ⌋ then parseUnary depth LTL.Always obj
   else if ⌊ op ≟ "eventually" ⌋ then parseUnary depth LTL.Eventually obj
   else if ⌊ op ≟ "until" ⌋ then parseBinary depth LTL.Until obj
-  else if ⌊ op ≟ "eventuallyWithin" ⌋ then parseBounded depth LTL.EventuallyWithin obj
-  else if ⌊ op ≟ "alwaysWithin" ⌋ then parseBounded depth LTL.AlwaysWithin obj
+  else if ⌊ op ≟ "release" ⌋ then parseBinary depth LTL.Release obj
+  else if ⌊ op ≟ "metricEventually" ⌋ then parseBounded depth LTL.MetricEventually obj
+  else if ⌊ op ≟ "metricAlways" ⌋ then parseBounded depth LTL.MetricAlways obj
+  else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinary depth LTL.MetricUntil obj
+  else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinary depth LTL.MetricRelease obj
   else nothing  -- Unknown operator
 
 -- Helper to avoid pattern matching issues
