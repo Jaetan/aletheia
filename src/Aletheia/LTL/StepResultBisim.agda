@@ -57,11 +57,12 @@ data StepResultBisim {S1 S2 : Set} (R : S1 → S2 → Set)
   -- Both satisfied (no additional data to compare)
   satisfied-bisim : StepResultBisim R Satisfied Satisfied
 
-  -- Both continue with related states
+  -- Both continue with related states and SAME remaining time
   -- The states s1 : S1 and s2 : S2 must be related by R
-  continue-bisim : ∀ {s1 : S1} {s2 : S2}
+  -- CRITICAL: Remaining times must be equal (observable equivalence)
+  continue-bisim : ∀ {s1 : S1} {s2 : S2} {r : ℕ}
     → R s1 s2
-    → StepResultBisim R (Continue s1) (Continue s2)
+    → StepResultBisim R (Continue r s1) (Continue r s2)
 
 -- ============================================================================
 -- BASIC PROPERTIES
@@ -72,6 +73,6 @@ data StepResultBisim {S1 S2 : Set} (R : S1 → S2 → Set)
 stepResult-refl : ∀ {S : Set} (sr : StepResult S) → StepResultBisim _≡_ sr sr
 stepResult-refl (Violated ce) = violated-bisim (ceEquiv-refl ce)
 stepResult-refl Satisfied = satisfied-bisim
-stepResult-refl (Continue s) = continue-bisim refl
+stepResult-refl (Continue r s) = continue-bisim refl
 
 -- Note: Symmetry and transitivity can be proven but are not needed for the main proof.

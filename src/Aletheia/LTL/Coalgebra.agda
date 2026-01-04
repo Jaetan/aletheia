@@ -107,7 +107,7 @@ stepL (Atomic p) prev curr =
 -- Not: invert inner result
 stepL (Not φ) prev curr
   with stepL φ prev curr
-... | Continue φ' = Continue (Not φ')
+... | Continue _ φ' = Continue 0 (Not φ')
 ... | Violated _ = Satisfied  -- Inner violated means outer satisfied
 ... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
 
@@ -115,34 +115,34 @@ stepL (Not φ) prev curr
 stepL (And φ ψ) prev curr
   with stepL φ prev curr | stepL ψ prev curr
 ... | Violated ce | _ = Violated ce  -- Left failed
-... | Continue φ' | Violated ce = Violated ce  -- Right failed
-... | Continue φ' | Continue ψ' = Continue (And φ' ψ')  -- Both continue
-... | Continue φ' | Satisfied = Continue (And φ' ψ)  -- Right satisfied, keep checking left
+... | Continue _ φ' | Violated ce = Violated ce  -- Right failed
+... | Continue _ φ' | Continue _ ψ' = Continue 0 (And φ' ψ')  -- Both continue, And is unbounded
+... | Continue _ φ' | Satisfied = Continue 0 (And φ' ψ)  -- Right satisfied, keep checking left
 ... | Satisfied | Violated ce = Violated ce  -- Right failed
-... | Satisfied | Continue ψ' = Continue (And φ ψ')  -- Left satisfied, keep checking right
+... | Satisfied | Continue _ ψ' = Continue 0 (And φ ψ')  -- Left satisfied, keep checking right
 ... | Satisfied | Satisfied = Satisfied  -- Both satisfied
 
 -- Or: either must hold
 stepL (Or φ ψ) prev curr
   with stepL φ prev curr | stepL ψ prev curr
 ... | Satisfied | _ = Satisfied  -- Left satisfied
-... | Continue φ' | Satisfied = Satisfied  -- Right satisfied
-... | Continue φ' | Continue ψ' = Continue (Or φ' ψ')  -- Both continue
-... | Continue φ' | Violated _ = Continue (Or φ' ψ)  -- Right violated, keep checking left
+... | Continue _ φ' | Satisfied = Satisfied  -- Right satisfied
+... | Continue _ φ' | Continue _ ψ' = Continue 0 (Or φ' ψ')  -- Both continue, Or is unbounded
+... | Continue _ φ' | Violated _ = Continue 0 (Or φ' ψ)  -- Right violated, keep checking left
 ... | Violated _ | Satisfied = Satisfied  -- Right satisfied
-... | Violated _ | Continue ψ' = Continue (Or φ ψ')  -- Left violated, keep checking right
+... | Violated _ | Continue _ ψ' = Continue 0 (Or φ ψ')  -- Left violated, keep checking right
 ... | Violated _ | Violated ce = Violated ce  -- Both violated
 
 -- Next: skip first frame, then check inner formula
 -- Modal state tracks whether we've skipped the first frame yet
 
 -- Waiting mode: Skip current frame without evaluating, transition to Active
-stepL (NextWaiting φ) prev curr = Continue (NextActive φ)
+stepL (NextWaiting φ) prev curr = Continue 0 (NextActive φ)
 
 -- Active mode: Evaluate inner formula (after skip)
 stepL (NextActive φ) prev curr
   with stepL φ prev curr
-... | Continue φ' = Continue (NextActive φ')  -- Inner continues, stay active
+... | Continue _ φ' = Continue 0 (NextActive φ')  -- Inner continues, stay active
 ... | Violated ce = Violated ce               -- Inner violated
 ... | Satisfied = Satisfied                   -- Inner satisfied
 
@@ -151,15 +151,15 @@ stepL (NextActive φ) prev curr
 stepL (Always φ) prev curr
   with stepL φ prev curr
 ... | Violated ce = Violated ce  -- φ failed at this frame
-... | Satisfied = Continue (Always φ)  -- φ holds, keep checking on future frames
-... | Continue φ' = Continue (Always φ')  -- φ continues, keep checking
+... | Satisfied = Continue 0 (Always φ)  -- φ holds, keep checking on future frames
+... | Continue _ φ' = Continue 0 (Always φ')  -- φ continues, keep checking
 
 -- Eventually: must hold at some point
 stepL (Eventually φ) prev curr
   with stepL φ prev curr
 ... | Satisfied = Satisfied  -- Found it!
-... | Violated _ = Continue (Eventually φ)  -- Not yet, keep looking
-... | Continue φ' = Continue (Eventually φ')  -- Still checking inner
+... | Violated _ = Continue 0 (Eventually φ)  -- Not yet, keep looking
+... | Continue _ φ' = Continue 0 (Eventually φ')  -- Still checking inner
 
 -- Until: φ holds until ψ
 -- Until: φ must hold until ψ becomes true
@@ -169,17 +169,17 @@ stepL (Until φ ψ) prev curr
 -- ψ satisfied → Until satisfied (φ result doesn't matter)
 ... | Satisfied | _ = Satisfied
 -- ψ continues, φ violated → Until violated
-... | Continue ψ' | Violated ce = Violated ce
+... | Continue _ ψ' | Violated ce = Violated ce
 -- ψ continues, φ continues → Until continues
-... | Continue ψ' | Continue φ' = Continue (Until φ' ψ')
+... | Continue _ ψ' | Continue _ φ' = Continue 0 (Until φ' ψ')
 -- ψ continues, φ satisfied → Until continues (preserve original φ formula)
-... | Continue ψ' | Satisfied = Continue (Until φ ψ')
+... | Continue _ ψ' | Satisfied = Continue 0 (Until φ ψ')
 -- ψ violated, φ violated → Until violated
 ... | Violated _ | Violated ce = Violated ce
 -- ψ violated, φ continues → Until continues (preserve original ψ formula)
-... | Violated _ | Continue φ' = Continue (Until φ' ψ)
+... | Violated _ | Continue _ φ' = Continue 0 (Until φ' ψ)
 -- ψ violated, φ satisfied → Until continues (preserve both)
-... | Violated _ | Satisfied = Continue (Until φ ψ)
+... | Violated _ | Satisfied = Continue 0 (Until φ ψ)
 
 -- EventuallyWithin: must hold within time window
 stepL (EventuallyWithin windowMicros startTime φ) prev curr =
@@ -187,15 +187,16 @@ stepL (EventuallyWithin windowMicros startTime φ) prev curr =
       -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepL φ prev curr) actualStart
+     then handleInWindow (stepL φ prev curr) actualStart remaining
      else Violated (mkCounterexample curr "EventuallyWithin: window expired")
   where
-    handleInWindow : StepResult LTLProc → ℕ → StepResult LTLProc
-    handleInWindow Satisfied _ = Satisfied
-    handleInWindow (Continue φ') start = Continue (EventuallyWithin windowMicros start φ')
-    handleInWindow (Violated _) start = Continue (EventuallyWithin windowMicros start φ)  -- Keep looking
+    handleInWindow : StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+    handleInWindow Satisfied _ _ = Satisfied
+    handleInWindow (Continue _ φ') start remaining = Continue remaining (EventuallyWithin windowMicros start φ')
+    handleInWindow (Violated _) start remaining = Continue remaining (EventuallyWithin windowMicros start φ)  -- Keep looking
 
 -- AlwaysWithin: must hold throughout time window
 stepL (AlwaysWithin windowMicros startTime φ) prev curr =
@@ -203,15 +204,16 @@ stepL (AlwaysWithin windowMicros startTime φ) prev curr =
       -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepL φ prev curr) actualStart
+     then handleInWindow (stepL φ prev curr) actualStart remaining
      else Satisfied  -- Window complete, always held
   where
-    handleInWindow : StepResult LTLProc → ℕ → StepResult LTLProc
-    handleInWindow (Violated ce) _ = Violated ce
-    handleInWindow (Continue φ') start = Continue (AlwaysWithin windowMicros start φ')
-    handleInWindow Satisfied start = Continue (AlwaysWithin windowMicros start φ)  -- Keep checking
+    handleInWindow : StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+    handleInWindow (Violated ce) _ _ = Violated ce
+    handleInWindow (Continue _ φ') start remaining = Continue remaining (AlwaysWithin windowMicros start φ')
+    handleInWindow Satisfied start remaining = Continue remaining (AlwaysWithin windowMicros start φ)  -- Keep checking
 
 -- ============================================================================
 -- OBSERVATIONS

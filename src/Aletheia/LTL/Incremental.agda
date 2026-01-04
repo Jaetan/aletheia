@@ -81,8 +81,11 @@ data LTLEvalState : Set where
 
 -- Result of one evaluation step (parameterized by state type)
 -- Allows comparing observations from different coalgebras (monitor vs defunctionalized LTL)
+-- CRITICAL: Continue now carries remaining time as observable for bounded operators
+--   - Unbounded operators (Always, Eventually, Until, etc.): return 0 (no time bound)
+--   - Bounded operators (EventuallyWithin, AlwaysWithin): return remaining microseconds
 data StepResult (S : Set) : Set where
-  Continue : S → StepResult S  -- Keep checking with next state
+  Continue : ℕ → S → StepResult S  -- remaining time (0 = unbounded) + state
   Violated : Counterexample → StepResult S  -- Property violated
   Satisfied : StepResult S  -- Property satisfied
 
@@ -108,24 +111,35 @@ initState (AlwaysWithin _ φ) = AlwaysWithinState 0 (initState φ)
 -- INCREMENTAL EVALUATION HELPERS
 -- ============================================================================
 
+-- Remaining time semantics (0 = unbounded/infinite time)
+-- Key insight from MTL formal semantics:
+--   (ρ,m)⊨MTL α∧β iff (ρ,m)⊨MTL α and (ρ,m)⊨MTL β
+-- Both α and β evaluated at SAME time point m, each with own time window.
+-- Time constraints live in CHILDREN (bounded operators), not PARENTS (compound operators).
+--
+-- Therefore:
+--   - Bounded operators (EventuallyWithin, AlwaysWithin) return actual remaining microseconds
+--   - Unbounded operators (And, Or, Not, Always, Eventually, Until, Next) return 0
+--   - Children track their own times; parents don't aggregate!
+
 -- Helper: combine results for And operator (avoids nested with-clauses in stepEval)
 stepEval-and-helper : StepResult LTLEvalState → StepResult LTLEvalState → LTLEvalState → LTLEvalState → StepResult LTLEvalState
 stepEval-and-helper (Violated ce) _ _ _ = Violated ce  -- Left failed
-stepEval-and-helper (Continue st1') (Violated ce) _ _ = Violated ce  -- Right failed
-stepEval-and-helper (Continue st1') (Continue st2') _ _ = Continue (AndState st1' st2')
-stepEval-and-helper (Continue st1') Satisfied _ st2 = Continue (AndState st1' st2)  -- Right satisfied, keep checking left
+stepEval-and-helper (Continue _ st1') (Violated ce) _ _ = Violated ce  -- Right failed
+stepEval-and-helper (Continue _ st1') (Continue _ st2') _ _ = Continue 0 (AndState st1' st2')  -- And is unbounded
+stepEval-and-helper (Continue _ st1') Satisfied _ st2 = Continue 0 (AndState st1' st2)  -- And is unbounded
 stepEval-and-helper Satisfied (Violated ce) _ _ = Violated ce  -- Right failed
-stepEval-and-helper Satisfied (Continue st2') st1 _ = Continue (AndState st1 st2')  -- Left satisfied, keep checking right
+stepEval-and-helper Satisfied (Continue _ st2') st1 _ = Continue 0 (AndState st1 st2')  -- And is unbounded
 stepEval-and-helper Satisfied Satisfied _ _ = Satisfied  -- Both satisfied
 
 -- Helper: combine results for Or operator (avoids nested with-clauses in stepEval)
 stepEval-or-helper : StepResult LTLEvalState → StepResult LTLEvalState → LTLEvalState → LTLEvalState → StepResult LTLEvalState
 stepEval-or-helper Satisfied _ _ _ = Satisfied  -- Left satisfied
-stepEval-or-helper (Continue st1') Satisfied _ _ = Satisfied  -- Right satisfied
-stepEval-or-helper (Continue st1') (Continue st2') _ _ = Continue (OrState st1' st2')
-stepEval-or-helper (Continue st1') (Violated _) _ st2 = Continue (OrState st1' st2)  -- Right violated, keep checking left
+stepEval-or-helper (Continue _ st1') Satisfied _ _ = Satisfied  -- Right satisfied
+stepEval-or-helper (Continue _ st1') (Continue _ st2') _ _ = Continue 0 (OrState st1' st2')
+stepEval-or-helper (Continue _ st1') (Violated _) _ st2 = Continue 0 (OrState st1' st2)  -- Right violated, keep checking left
 stepEval-or-helper (Violated _) Satisfied _ _ = Satisfied  -- Right satisfied
-stepEval-or-helper (Violated _) (Continue st2') st1 _ = Continue (OrState st1 st2')  -- Left violated, keep checking right
+stepEval-or-helper (Violated _) (Continue _ st2') st1 _ = Continue 0 (OrState st1 st2')  -- Left violated, keep checking right
 stepEval-or-helper (Violated _) (Violated ce) _ _ = Violated ce  -- Both violated
 
 
@@ -154,7 +168,7 @@ stepEval (Atomic p) eval AtomicState prev curr =
 -- Not: evaluate inner and invert result
 stepEval (Not φ) eval (NotState st) prev curr
   with stepEval φ eval st prev curr
-... | Continue st' = Continue (NotState st')
+... | Continue _ st' = Continue 0 (NotState st')
 ... | Violated _ = Satisfied  -- Inner violated = outer satisfied (¬false = true)
 ... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
 
@@ -169,29 +183,29 @@ stepEval (Or φ ψ) eval (OrState st1 st2) prev curr =
 -- Next: skip first frame, then evaluate on subsequent frames
 -- First frame: skip it without evaluating, transition to NextActive
 stepEval (Next φ) eval (NextState st) prev curr
-  = Continue (NextActive st)
+  = Continue 0 (NextActive st)
 
 -- Subsequent frames: evaluate inner formula φ
 stepEval (Next φ) eval (NextActive st) prev curr
   with stepEval φ eval st prev curr
-... | Continue st' = Continue (NextActive st')
+... | Continue _ st' = Continue 0 (NextActive st')
 ... | Violated ce = Violated ce
 ... | Satisfied = Satisfied
 
 -- Always: must hold on every frame
 stepEval (Always φ) eval (AlwaysState st) prev curr
   with stepEval φ eval st prev curr
-... | Continue st' = Continue (AlwaysState st')
+... | Continue _ st' = Continue 0 (AlwaysState st')
 ... | Violated ce = Violated ce  -- Violation detected
-... | Satisfied = Continue (AlwaysState st)  -- Preserve state!
+... | Satisfied = Continue 0 (AlwaysState st)  -- Preserve state!
 
 stepEval (Always _) _ AlwaysFailed _ curr = Violated (mkCounterexample curr "Always already failed")
 
 -- Eventually: must hold at some point
 stepEval (Eventually φ) eval (EventuallyState st) prev curr
   with stepEval φ eval st prev curr
-... | Continue st' = Continue (EventuallyState st')
-... | Violated _ = Continue (EventuallyState st)  -- Not yet, keep looking
+... | Continue _ st' = Continue 0 (EventuallyState st')
+... | Violated _ = Continue 0 (EventuallyState st)  -- Not yet, keep looking
 ... | Satisfied = Satisfied  -- Found!
 
 stepEval (Eventually _) _ EventuallySucceeded _ _ = Satisfied
@@ -204,17 +218,17 @@ stepEval (Until φ ψ) eval (UntilState st1 st2) prev curr
 -- ψ satisfied → Until satisfied (φ result doesn't matter)
 ... | Satisfied | _ = Satisfied
 -- ψ continues, φ violated → Until violated
-... | Continue st2' | Violated ce = Violated ce
+... | Continue _ st2' | Violated ce = Violated ce
 -- ψ continues, φ continues → Until continues
-... | Continue st2' | Continue st1' = Continue (UntilState st1' st2')
+... | Continue _ st2' | Continue _ st1' = Continue 0 (UntilState st1' st2')
 -- ψ continues, φ satisfied → Until continues (preserve original φ state)
-... | Continue st2' | Satisfied = Continue (UntilState st1 st2')
+... | Continue _ st2' | Satisfied = Continue 0 (UntilState st1 st2')
 -- ψ violated, φ violated → Until violated
 ... | Violated _ | Violated ce = Violated ce
 -- ψ violated, φ continues → Until continues (preserve original ψ state)
-... | Violated _ | Continue st1' = Continue (UntilState st1' st2)
+... | Violated _ | Continue _ st1' = Continue 0 (UntilState st1' st2)
 -- ψ violated, φ satisfied → Until continues (preserve both)
-... | Violated _ | Satisfied = Continue (UntilState st1 st2)
+... | Violated _ | Satisfied = Continue 0 (UntilState st1 st2)
 
 stepEval (Until _ _) _ UntilSucceeded _ _ = Satisfied
 stepEval (Until _ _) _ UntilFailed _ curr = Violated (mkCounterexample curr "Until failed")
@@ -225,15 +239,16 @@ stepEval (EventuallyWithin windowMicros φ) eval (EventuallyWithinState startTim
       -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepEval φ eval st prev curr) actualStart
+     then handleInWindow (stepEval φ eval st prev curr) actualStart remaining
      else Violated (mkCounterexample curr "EventuallyWithin: window expired")
   where
-    handleInWindow : StepResult LTLEvalState → ℕ → StepResult LTLEvalState
-    handleInWindow Satisfied _ = Satisfied
-    handleInWindow (Continue st') start = Continue (EventuallyWithinState start st')
-    handleInWindow (Violated _) start = Continue (EventuallyWithinState start st)  -- Preserve state
+    handleInWindow : StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+    handleInWindow Satisfied _ _ = Satisfied
+    handleInWindow (Continue _ st') start remaining = Continue remaining (EventuallyWithinState start st')
+    handleInWindow (Violated _) start remaining = Continue remaining (EventuallyWithinState start st)  -- Preserve state
 
 stepEval (EventuallyWithin _ _) _ EventuallyWithinSucceeded _ _ = Satisfied
 stepEval (EventuallyWithin _ _) _ EventuallyWithinFailed _ curr = Violated (mkCounterexample curr "EventuallyWithin: window expired")
@@ -244,15 +259,16 @@ stepEval (AlwaysWithin windowMicros φ) eval (AlwaysWithinState startTime st) pr
       -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepEval φ eval st prev curr) actualStart
+     then handleInWindow (stepEval φ eval st prev curr) actualStart remaining
      else Satisfied  -- Window complete, always held
   where
-    handleInWindow : StepResult LTLEvalState → ℕ → StepResult LTLEvalState
-    handleInWindow (Violated ce) _ = Violated ce
-    handleInWindow (Continue st') start = Continue (AlwaysWithinState start st')
-    handleInWindow Satisfied start = Continue (AlwaysWithinState start st)  -- Preserve state
+    handleInWindow : StepResult LTLEvalState → ℕ → ℕ → StepResult LTLEvalState
+    handleInWindow (Violated ce) _ _ = Violated ce
+    handleInWindow (Continue _ st') start remaining = Continue remaining (AlwaysWithinState start st')
+    handleInWindow Satisfied start remaining = Continue remaining (AlwaysWithinState start st)  -- Preserve state
 
 stepEval (AlwaysWithin _ _) _ AlwaysWithinSucceeded _ _ = Satisfied
 stepEval (AlwaysWithin _ _) _ AlwaysWithinFailed _ curr = Violated (mkCounterexample curr "AlwaysWithin: violated within window")
