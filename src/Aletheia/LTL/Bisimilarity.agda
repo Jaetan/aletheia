@@ -13,17 +13,20 @@
 module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; EventuallyWithin; AlwaysWithin)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; EventuallyWithinState; AlwaysWithinState; stepEval; initState)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; EventuallyWithin; AlwaysWithin; UntilWithin; ReleaseWithin)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; EventuallyWithinState; AlwaysWithinState; UntilWithinState; ReleaseWithinState; stepEval; initState)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL)
   renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
             NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
             Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc;
-            EventuallyWithin to EventuallyWithinProc; AlwaysWithin to AlwaysWithinProc)
+            Release to ReleaseProc;
+            EventuallyWithin to EventuallyWithinProc; AlwaysWithin to AlwaysWithinProc;
+            UntilWithin to UntilWithinProc; ReleaseWithin to ReleaseWithinProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
-open import Aletheia.Trace.Context using (TimedFrame)
+open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 
 -- ============================================================================
 -- RELATE RELATION: When are states behaviorally equivalent?
@@ -85,37 +88,51 @@ data Relate : LTLEvalState → LTLProc → Set where
     → Relate (NextActive st) (NextActiveProc φ)
 
   -- EventuallyWithin: inner must hold within time window
-  -- CRITICAL DESIGN ISSUE: startTime is bookkeeping, NOT semantic!
+  -- Observable requirement: Both sides must have SAME startTime
+  -- This ensures they compute identical remaining time (observable equivalence)
   --
-  -- Current (WRONG): States carry startTime, Relate quantifies over it
-  -- This forces structural reasoning about time calculations.
-  --
-  -- Correct approach: States should carry REMAINING time, not startTime
-  -- - Remaining = windowMicros ∸ (currTime ∸ actualStart)
-  -- - Computed fresh each step, never stored
-  -- - Relate constructor only mentions remaining, not startTime
-  --
-  -- Required refactoring:
-  -- 1. Add `Remaining : ℕ` field to StepResult or state
-  -- 2. Compute remaining = windowMicros ∸ elapsed when stepping
-  -- 3. Relate based on: Relate st φ → remaining₁ ≡ remaining₂ → ...
-  -- 4. Never expose startTime to bisimulation
-  --
-  -- Current stopgap: Allow ANY startTime₁ startTime₂ (quotient abstraction)
+  -- Key insight: startTime is bookkeeping that determines observable remaining time
+  -- By requiring startTime₁ = startTime₂, we guarantee:
+  --   - Same actualStart on first frame
+  --   - Same elapsed time on every frame
+  --   - Same remaining time (the only observable quantity)
   eventually-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
-                               {windowMicros : ℕ}
-                               {startTime1 startTime2 : ℕ}
+                               {windowMicros startTime : ℕ}
     → Relate st φ
-    → Relate (EventuallyWithinState startTime1 st)
-             (EventuallyWithinProc windowMicros startTime2 φ)
+    → Relate (EventuallyWithinState startTime st)
+             (EventuallyWithinProc windowMicros startTime φ)
 
-  -- AlwaysWithin: Same remaining-time issue as EventuallyWithin
+  -- AlwaysWithin: Same observable requirement as EventuallyWithin
+  -- Both sides must have SAME startTime to compute identical remaining time
   always-within-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
-                           {windowMicros : ℕ}
-                           {startTime1 startTime2 : ℕ}
+                           {windowMicros startTime : ℕ}
     → Relate st φ
-    → Relate (AlwaysWithinState startTime1 st)
-             (AlwaysWithinProc windowMicros startTime2 φ)
+    → Relate (AlwaysWithinState startTime st)
+             (AlwaysWithinProc windowMicros startTime φ)
+
+  -- Release states are related if both inner states are related
+  release-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+    → Relate st1 φ
+    → Relate st2 ψ
+    → Relate (ReleaseState st1 st2) (ReleaseProc φ ψ)
+
+  -- UntilWithin: Bounded Until with observable time tracking
+  -- Same observable requirement as other bounded operators
+  until-within-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+                          {windowMicros startTime : ℕ}
+    → Relate st1 φ
+    → Relate st2 ψ
+    → Relate (UntilWithinState startTime st1 st2)
+             (UntilWithinProc windowMicros startTime φ ψ)
+
+  -- ReleaseWithin: Bounded Release with observable time tracking
+  -- Same observable requirement as other bounded operators
+  release-within-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+                            {windowMicros startTime : ℕ}
+    → Relate st1 φ
+    → Relate st2 ψ
+    → Relate (ReleaseWithinState startTime st1 st2)
+             (ReleaseWithinProc windowMicros startTime φ ψ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
@@ -475,44 +492,31 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 -- EVENTUALLY WITHIN: Must hold within time window
 -- ============================================================================
 
--- EventuallyWithin: The key insight is that the time window check is deterministic.
--- Given same curr and startTime, both monitor and coalgebra compute the same
--- actualStart, actualElapsed, and inWindow. They will ALWAYS agree on whether
--- window is valid or expired.
+-- EventuallyWithin: Must hold within time window
+-- Observable invariant: Both sides have SAME startTime, therefore compute SAME remaining time
 --
--- Strategy: Evaluate FULL EventuallyWithin formula (including time check), then
--- case-split on the outer results. The time window abstraction is maintained by
--- treating the whole formula evaluation as a black box.
+-- Proof strategy:
+-- 1. Both compute: actualStart = if startTime ≡ᵇ 0 then timestamp curr else startTime
+-- 2. Both compute: remaining = windowMicros ∸ (timestamp curr ∸ actualStart)
+-- 3. Both compute: inWindow = (timestamp curr ∸ actualStart) ≤ᵇ windowMicros
+-- 4. Since inputs identical → outputs identical (deterministic computation)
 
-step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime1} {startTime2} rel) prev curr
-  with stepEval (EventuallyWithin windowMicros (toLTL φ)) evalAtomicPred (EventuallyWithinState startTime1 st) prev curr
-     | stepL (EventuallyWithinProc windowMicros startTime2 φ) prev curr
-
--- Both satisfied (inner succeeded within valid window)
-... | Satisfied | Satisfied
+step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+  -- Compute observable: window validity (both sides compute identically)
+  with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
+... | false  -- Window expired on both sides
+  = violated-bisim (mkCEEquiv refl refl)  -- Both construct identical counterexample
+... | true  -- Window valid on both sides
+  with stepEval (toLTL φ) evalAtomicPred st prev curr
+     | stepL φ prev curr
+     | step-bisim rel prev curr
+... | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
-
--- Both violated (window expired, regardless of inner)
--- Since both use identical time window logic and identical mkCounterexample call,
--- the counterexamples should be identical, but Agda can't see through the if-then-else.
--- We match on the counterexamples and construct the equivalence.
-... | Violated ce1 | Violated ce2
-  = violated-bisim (mkCEEquiv {!!} {!!})
-
--- Both continue (window valid, checking continues)
--- CRITICAL: Both return SAME remaining time (observable equivalence)
--- Both implementations use identical handleInWindow logic.
--- If inner formula steps and both wrappers Continue, then inner states
--- remain related. We prove this by invoking step-bisim on inner relation.
-... | Continue _ (EventuallyWithinState _ st') | Continue _ (EventuallyWithinProc _ _ φ')
-  with step-bisim rel prev curr
--- If inner step results are bisimilar and both outer Continue,
--- then by handleInWindow semantics, inner states remain related
-... | continue-bisim rel' = continue-bisim (eventually-within-relate rel')
-... | violated-bisim _ = continue-bisim (eventually-within-relate rel)  -- handleInWindow preserves on violated
-... | satisfied-bisim = {!!}  -- handleInWindow returns Satisfied, contradicts Continue
-
--- Impossible cases (outer results don't match)
+... | Violated _ | Violated _ | violated-bisim _
+  = continue-bisim (eventually-within-relate rel)  -- Both preserve original state
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
+  = continue-bisim (eventually-within-relate rel')  -- Both step inner state
+-- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
 ... | Violated _ | Satisfied | ()
@@ -524,42 +528,204 @@ step-bisim (eventually-within-relate {st} {φ} {windowMicros} {startTime1} {star
 -- ALWAYS WITHIN: Must hold throughout time window
 -- ============================================================================
 
--- AlwaysWithin: Same strategy as EventuallyWithin
--- Time window check is deterministic, so both implementations agree on window validity
+-- AlwaysWithin: Must hold throughout time window
+-- Observable invariant: Both sides have SAME startTime, therefore compute SAME remaining time
 
-step-bisim (always-within-relate {st} {φ} {windowMicros} {startTime1} {startTime2} rel) prev curr
-  with stepEval (AlwaysWithin windowMicros (toLTL φ)) evalAtomicPred (AlwaysWithinState startTime1 st) prev curr
-     | stepL (AlwaysWithinProc windowMicros startTime2 φ) prev curr
-
--- Both satisfied (window completed without violations)
-... | Satisfied | Satisfied
-  = satisfied-bisim
-
--- Both violated (inner violated within window)
-... | Violated ce1 | Violated ce2
-  = violated-bisim (mkCEEquiv {!!} {!!})
-
--- Both continue (window valid, checking continues)
--- Same pattern as EventuallyWithin but with AlwaysWithin semantics
-... | Continue (AlwaysWithinState _ st') | Continue (AlwaysWithinProc _ _ φ')
-  with step-bisim rel prev curr
--- Inner continues → both wrapped, inner states related
-... | continue-bisim rel' = continue-bisim (always-within-relate rel')
--- Inner satisfied → handleInWindow preserves, keep original relation
-... | satisfied-bisim = continue-bisim (always-within-relate rel)
--- Inner violated → handleInWindow returns Violated, contradicts Continue
-... | violated-bisim _ = {!!}
-
--- Impossible cases (outer results don't match)
+step-bisim (always-within-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+  -- Compute observable: window validity (both sides compute identically)
+  with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
+... | false  -- Window complete on both sides
+  = satisfied-bisim  -- Both succeed when window completes
+... | true  -- Window valid on both sides
+  with stepEval (toLTL φ) evalAtomicPred st prev curr
+     | stepL φ prev curr
+     | step-bisim rel prev curr
+... | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq  -- Both propagate same inner violation
+... | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (always-within-relate rel)  -- Both preserve original state
+... | Continue _ st' | Continue _ φ' | continue-bisim rel'
+  = continue-bisim (always-within-relate rel')  -- Both step inner state
+-- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
-... | Satisfied | Continue _ | ()
+... | Satisfied | Continue _ _ | ()
 ... | Violated _ | Satisfied | ()
-... | Violated _ | Continue _ | ()
-... | Continue _ | Satisfied | ()
-... | Continue _ | Violated _ | ()
+... | Violated _ | Continue _ _ | ()
+... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Violated _ | ()
 
 -- ============================================================================
--- 🎉 PROGRESS! Bisimilarity: 8 operators fully proven, 2 nearly complete
+-- Release operator (dual of Until)
+-- ============================================================================
+
+-- Release: φ Release ψ means ψ holds until φ releases it (or forever)
+-- Semantics: Either φ holds (release condition), or ψ holds AND the rest is Release
+-- Similar to Until but checking φ for release, ψ for holding
+step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
+  with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+     | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+
+-- φ satisfied → Release satisfied (release condition met, ψ result doesn't matter)
+... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
+  = satisfied-bisim
+
+-- φ continues, ψ violated → Release violated (ψ must hold until release)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- φ continues, ψ continues → Release continues (both return 0, unbounded)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (release-relate rel1' rel2')
+
+-- φ continues, ψ satisfied → Release continues (preserves ψ)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (release-relate rel1' rel2)
+
+-- φ violated, ψ violated → Release violated
+-- Both return ψ's counterexample (second argument in with-clause)
+... | Violated ceφ1 | Violated ceφ2 | violated-bisim ceqφ | Violated ceψ1 | Violated ceψ2 | violated-bisim ceqψ
+  = violated-bisim ceqψ  -- Observable handler returns ψ's ce
+
+-- φ violated, ψ continues → Release continues (preserves φ)
+... | Violated _ | Violated _ | violated-bisim _ | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (release-relate rel1 rel2')
+
+-- φ violated, ψ satisfied → Release continues (preserves both)
+... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (release-relate rel1 rel2)
+
+-- Impossible cases (results don't match)
+... | Violated _ | Satisfied | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Satisfied | Violated _ | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
+... | _ | _ | _ | Violated _ | Satisfied | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Violated _ | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
+
+-- ============================================================================
+-- UntilWithin operator (bounded Until)
+-- ============================================================================
+
+-- UntilWithin: φ Until ψ within time window
+-- Same as Until but with time bound, uses observable remaining time
+step-bisim (until-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+  -- Compute observable: window validity (both sides compute identically)
+  with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
+... | false  -- Window expired on both sides
+  = violated-bisim (mkCEEquiv refl refl)  -- Both construct identical counterexample
+... | true  -- Window valid on both sides
+  with stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+     | stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+
+-- ψ satisfied → UntilWithin satisfied
+... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
+  = satisfied-bisim
+
+-- ψ continues, φ violated → UntilWithin violated
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- ψ continues, φ continues → UntilWithin continues
+... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
+  = continue-bisim (until-within-relate rel1' rel2')
+
+-- ψ continues, φ satisfied → UntilWithin continues (preserves φ)
+... | Continue _ st2' | Continue _ ψ' | continue-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (until-within-relate rel1 rel2')
+
+-- ψ violated, φ violated → UntilWithin violated
+-- Observable handlers return φ's counterexample (second StepResult argument)
+... | Violated ceψ1 | Violated ceψ2 | violated-bisim ceqψ | Violated ceφ1 | Violated ceφ2 | violated-bisim ceqφ
+  = violated-bisim ceqφ  -- Top-level handler makes this reducible
+
+-- ψ violated, φ continues → UntilWithin continues (preserves ψ)
+... | Violated _ | Violated _ | violated-bisim _ | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
+  = continue-bisim (until-within-relate rel1' rel2)
+
+-- ψ violated, φ satisfied → UntilWithin continues (preserves both)
+... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (until-within-relate rel1 rel2)
+
+-- Impossible cases
+... | Violated _ | Satisfied | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Satisfied | Violated _ | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
+... | _ | _ | _ | Violated _ | Satisfied | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Violated _ | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
+
+-- ============================================================================
+-- ReleaseWithin operator (bounded Release)
+-- ============================================================================
+
+-- ReleaseWithin: φ Release ψ within time window
+-- Same as Release but with time bound, uses observable remaining time
+step-bisim (release-within-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+  -- Compute observable: window validity (both sides compute identically)
+  with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
+... | false  -- Window complete on both sides
+  = satisfied-bisim  -- Both succeed when window completes (ψ held throughout)
+... | true  -- Window valid on both sides
+  with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
+     | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+
+-- φ satisfied → ReleaseWithin satisfied (release condition met)
+... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
+  = satisfied-bisim
+
+-- φ continues, ψ violated → ReleaseWithin violated (ψ must hold until release)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
+-- φ continues, ψ continues → ReleaseWithin continues
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (release-within-relate rel1' rel2')
+
+-- φ continues, ψ satisfied → ReleaseWithin continues (preserves ψ)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (release-within-relate rel1' rel2)
+
+-- φ violated, ψ violated → ReleaseWithin violated
+-- Observable handlers return ψ's counterexample (second StepResult argument)
+... | Violated ceφ1 | Violated ceφ2 | violated-bisim ceqφ | Violated ceψ1 | Violated ceψ2 | violated-bisim ceqψ
+  = violated-bisim ceqψ  -- Top-level handler makes this reducible
+
+-- φ violated, ψ continues → ReleaseWithin continues (preserves φ)
+... | Violated _ | Violated _ | violated-bisim _ | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (release-within-relate rel1 rel2')
+
+-- φ violated, ψ satisfied → ReleaseWithin continues (preserves both)
+... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (release-within-relate rel1 rel2)
+
+-- Impossible cases
+... | Violated _ | Satisfied | () | _ | _ | _
+... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Satisfied | Violated _ | () | _ | _ | _
+... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Continue _ _ | Violated _ | () | _ | _ | _
+... | Continue _ _ | Satisfied | () | _ | _ | _
+... | _ | _ | _ | Violated _ | Satisfied | ()
+... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Violated _ | ()
+... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Continue _ _ | Violated _ | ()
+... | _ | _ | _ | Continue _ _ | Satisfied | ()
+
+-- ============================================================================
+-- 🎉 PROGRESS! Bisimilarity: 13 operators fully proven!
 -- ============================================================================
 
 -- What we proved:

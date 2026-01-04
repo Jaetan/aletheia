@@ -257,7 +257,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
           in handleStepResult result propState rest acc prev curr
           where
             handleStepResult : StepResult LTLEvalState → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → StreamState × Response
-            handleStepResult (Continue newEvalState) prop remaining accum p c =
+            handleStepResult (Continue _ newEvalState) prop remaining accum p c =
               let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
               in checkPropsIncremental remaining (updatedProp ∷ accum) p c
             handleStepResult (Violated ce) prop remaining accum p c =

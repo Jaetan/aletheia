@@ -19,7 +19,7 @@
 module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; EventuallyWithin; AlwaysWithin)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; EventuallyWithin; AlwaysWithin; UntilWithin; ReleaseWithin)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample)
 open import Aletheia.Trace.Context using (TimedFrame; timestamp)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
@@ -57,10 +57,13 @@ data LTLProc : Set where
   Always : LTLProc → LTLProc
   Eventually : LTLProc → LTLProc
   Until : LTLProc → LTLProc → LTLProc
+  Release : LTLProc → LTLProc → LTLProc  -- Dual of Until: ψ holds until φ releases it
 
   -- Bounded temporal operators (with time tracking)
   EventuallyWithin : ℕ → ℕ → LTLProc → LTLProc  -- windowMicros, startTime, inner
   AlwaysWithin : ℕ → ℕ → LTLProc → LTLProc      -- windowMicros, startTime, inner
+  UntilWithin : ℕ → ℕ → LTLProc → LTLProc → LTLProc      -- windowMicros, startTime, φ, ψ
+  ReleaseWithin : ℕ → ℕ → LTLProc → LTLProc → LTLProc    -- windowMicros, startTime, φ, ψ
 
 -- ============================================================================
 -- CONVERSION: LTLProc → LTL (for monitor interop)
@@ -81,8 +84,79 @@ toLTL (NextActive φ) = Next (toLTL φ)    -- Active mode → Next formula
 toLTL (Always φ) = Always (toLTL φ)
 toLTL (Eventually φ) = Eventually (toLTL φ)
 toLTL (Until φ ψ) = Until (toLTL φ) (toLTL ψ)
+toLTL (Release φ ψ) = Release (toLTL φ) (toLTL ψ)
 toLTL (EventuallyWithin window _ φ) = EventuallyWithin window (toLTL φ)  -- Ignore startTime (runtime state)
 toLTL (AlwaysWithin window _ φ) = AlwaysWithin window (toLTL φ)          -- Ignore startTime (runtime state)
+toLTL (UntilWithin window _ φ ψ) = UntilWithin window (toLTL φ) (toLTL ψ)      -- Ignore startTime
+toLTL (ReleaseWithin window _ φ ψ) = ReleaseWithin window (toLTL φ) (toLTL ψ)  -- Ignore startTime
+
+-- ============================================================================
+-- OBSERVABLE-LEVEL HANDLERS FOR BOUNDED OPERATORS
+-- ============================================================================
+
+-- These handlers work purely at the observable StepResult level.
+-- They only pattern match on StepResult observations, not on formula structure.
+-- The formulas (φ, ψ) are used ONLY to reconstruct continuations, not for branching logic.
+
+-- EventuallyWithin handler: Continues until inner formula satisfied or window expires
+eventuallyWithinHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+eventuallyWithinHandler windowMicros start φ Satisfied _ _ = Satisfied
+eventuallyWithinHandler windowMicros start φ (Continue _ φ') _ remaining =
+  Continue remaining (EventuallyWithin windowMicros start φ')
+eventuallyWithinHandler windowMicros start φ (Violated _) _ remaining =
+  Continue remaining (EventuallyWithin windowMicros start φ)  -- Keep looking
+
+-- AlwaysWithin handler: Continues while inner formula holds, fails if violated
+alwaysWithinHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+alwaysWithinHandler windowMicros start φ (Violated ce) _ _ = Violated ce
+alwaysWithinHandler windowMicros start φ (Continue _ φ') _ remaining =
+  Continue remaining (AlwaysWithin windowMicros start φ')
+alwaysWithinHandler windowMicros start φ Satisfied _ remaining =
+  Continue remaining (AlwaysWithin windowMicros start φ)  -- Keep checking
+
+-- UntilWithin handler: φ must hold until ψ becomes true, within window
+-- Observable logic: Branch ONLY on StepResult patterns (ψ then φ)
+untilWithinHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+-- ψ satisfied → UntilWithin satisfied
+untilWithinHandler _ _ _ _ Satisfied _ _ _ = Satisfied
+-- ψ continues, φ violated → UntilWithin violated
+untilWithinHandler _ _ _ _ (Continue _ ψ') (Violated ce) _ _ = Violated ce
+-- ψ continues, φ continues → UntilWithin continues
+untilWithinHandler windowMicros start φ ψ (Continue _ ψ') (Continue _ φ') _ remaining =
+  Continue remaining (UntilWithin windowMicros start φ' ψ')
+-- ψ continues, φ satisfied → UntilWithin continues (preserve original φ)
+untilWithinHandler windowMicros start φ ψ (Continue _ ψ') Satisfied _ remaining =
+  Continue remaining (UntilWithin windowMicros start φ ψ')
+-- ψ violated, φ violated → UntilWithin violated
+untilWithinHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- ψ violated, φ continues → UntilWithin continues (preserve original ψ)
+untilWithinHandler windowMicros start φ ψ (Violated _) (Continue _ φ') _ remaining =
+  Continue remaining (UntilWithin windowMicros start φ' ψ)
+-- ψ violated, φ satisfied → UntilWithin continues (preserve both)
+untilWithinHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
+  Continue remaining (UntilWithin windowMicros start φ ψ)
+
+-- ReleaseWithin handler: ψ must hold until φ releases it, within window
+-- Observable logic: Branch ONLY on StepResult patterns (φ then ψ)
+releaseWithinHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
+-- φ satisfied → ReleaseWithin satisfied (release condition met)
+releaseWithinHandler _ _ _ _ Satisfied _ _ _ = Satisfied
+-- φ continues, ψ violated → ReleaseWithin violated (ψ must hold until release)
+releaseWithinHandler _ _ _ _ (Continue _ φ') (Violated ce) _ _ = Violated ce
+-- φ continues, ψ continues → ReleaseWithin continues
+releaseWithinHandler windowMicros start φ ψ (Continue _ φ') (Continue _ ψ') _ remaining =
+  Continue remaining (ReleaseWithin windowMicros start φ' ψ')
+-- φ continues, ψ satisfied → ReleaseWithin continues (preserve original ψ)
+releaseWithinHandler windowMicros start φ ψ (Continue _ φ') Satisfied _ remaining =
+  Continue remaining (ReleaseWithin windowMicros start φ' ψ)
+-- φ violated, ψ violated → ReleaseWithin violated
+releaseWithinHandler _ _ _ _ (Violated _) (Violated ce) _ _ = Violated ce
+-- φ violated, ψ continues → ReleaseWithin continues (preserve original φ)
+releaseWithinHandler windowMicros start φ ψ (Violated _) (Continue _ ψ') _ remaining =
+  Continue remaining (ReleaseWithin windowMicros start φ ψ')
+-- φ violated, ψ satisfied → ReleaseWithin continues (preserve both)
+releaseWithinHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining =
+  Continue remaining (ReleaseWithin windowMicros start φ ψ)
 
 -- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
@@ -181,39 +255,68 @@ stepL (Until φ ψ) prev curr
 -- ψ violated, φ satisfied → Until continues (preserve both)
 ... | Violated _ | Satisfied = Continue 0 (Until φ ψ)
 
+-- Release: ψ holds until φ releases it (dual of Until)
+-- φ Release ψ: ψ must hold until φ becomes true (or forever)
+stepL (Release φ ψ) prev curr
+  with stepL φ prev curr | stepL ψ prev curr
+-- φ satisfied → Release satisfied (release condition met)
+... | Satisfied | _ = Satisfied
+-- φ continues, ψ violated → Release violated (ψ must hold until release)
+... | Continue _ φ' | Violated ce = Violated ce
+-- φ continues, ψ continues → Release continues
+... | Continue _ φ' | Continue _ ψ' = Continue 0 (Release φ' ψ')
+-- φ continues, ψ satisfied → Release continues (preserve original ψ)
+... | Continue _ φ' | Satisfied = Continue 0 (Release φ' ψ)
+-- φ violated, ψ violated → Release violated
+... | Violated _ | Violated ce = Violated ce
+-- φ violated, ψ continues → Release continues (preserve original φ)
+... | Violated _ | Continue _ ψ' = Continue 0 (Release φ ψ')
+-- φ violated, ψ satisfied → Release continues (preserve both)
+... | Violated _ | Satisfied = Continue 0 (Release φ ψ)
+
 -- EventuallyWithin: must hold within time window
 stepL (EventuallyWithin windowMicros startTime φ) prev curr =
   let currTime = timestamp curr
-      -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepL φ prev curr) actualStart remaining
+     then eventuallyWithinHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
      else Violated (mkCounterexample curr "EventuallyWithin: window expired")
-  where
-    handleInWindow : StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
-    handleInWindow Satisfied _ _ = Satisfied
-    handleInWindow (Continue _ φ') start remaining = Continue remaining (EventuallyWithin windowMicros start φ')
-    handleInWindow (Violated _) start remaining = Continue remaining (EventuallyWithin windowMicros start φ)  -- Keep looking
 
 -- AlwaysWithin: must hold throughout time window
 stepL (AlwaysWithin windowMicros startTime φ) prev curr =
   let currTime = timestamp curr
-      -- Initialize start time on first frame
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then handleInWindow (stepL φ prev curr) actualStart remaining
+     then alwaysWithinHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining
      else Satisfied  -- Window complete, always held
-  where
-    handleInWindow : StepResult LTLProc → ℕ → ℕ → StepResult LTLProc
-    handleInWindow (Violated ce) _ _ = Violated ce
-    handleInWindow (Continue _ φ') start remaining = Continue remaining (AlwaysWithin windowMicros start φ')
-    handleInWindow Satisfied start remaining = Continue remaining (AlwaysWithin windowMicros start φ)  -- Keep checking
+
+-- UntilWithin: φ holds until ψ, within time window
+stepL (UntilWithin windowMicros startTime φ ψ) prev curr =
+  let currTime = timestamp curr
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then untilWithinHandler windowMicros actualStart φ ψ (stepL ψ prev curr) (stepL φ prev curr) actualStart remaining
+     else Violated (mkCounterexample curr "UntilWithin: window expired before ψ")
+
+-- ReleaseWithin: ψ holds until φ releases it, within time window
+stepL (ReleaseWithin windowMicros startTime φ ψ) prev curr =
+  let currTime = timestamp curr
+      actualStart = if startTime ≡ᵇ 0 then currTime else startTime
+      actualElapsed = currTime ∸ actualStart
+      remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
+      inWindow = actualElapsed ≤ᵇ windowMicros
+  in if inWindow
+     then releaseWithinHandler windowMicros actualStart φ ψ (stepL φ prev curr) (stepL ψ prev curr) actualStart remaining
+     else Satisfied  -- Window complete, ψ held throughout (release not required)
 
 -- ============================================================================
 -- OBSERVATIONS

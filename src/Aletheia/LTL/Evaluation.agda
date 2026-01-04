@@ -37,8 +37,11 @@ evalAtFrame temporalDefault _ (Next _) = temporalDefault
 evalAtFrame temporalDefault _ (Always _) = temporalDefault
 evalAtFrame temporalDefault _ (Eventually _) = temporalDefault
 evalAtFrame temporalDefault _ (Until _ _) = temporalDefault
+evalAtFrame temporalDefault _ (Release _ _) = temporalDefault
 evalAtFrame temporalDefault _ (EventuallyWithin _ _) = temporalDefault
 evalAtFrame temporalDefault _ (AlwaysWithin _ _) = temporalDefault
+evalAtFrame temporalDefault _ (UntilWithin _ _ _) = temporalDefault
+evalAtFrame temporalDefault _ (ReleaseWithin _ _ _) = temporalDefault
 
 -- ============================================================================
 -- INFINITE EXTENSION EVALUATION
@@ -73,8 +76,14 @@ evalAtInfiniteExtension frame (Eventually φ) = evalAtInfiniteExtension frame φ
 -- Since all future frames are the same, ψ either holds now or never
 evalAtInfiniteExtension frame (Until φ ψ) = evalAtInfiniteExtension frame ψ
 
+-- Release: "φ Release ψ" on infinite extension means φ must hold (or ψ holds forever)
+-- Since all future frames are the same, φ either holds now or never
+evalAtInfiniteExtension frame (Release φ ψ) = evalAtInfiniteExtension frame φ
+
 -- Time-bounded operators: strip time bounds on infinite extension
 -- Rationale: On infinite extension of a single frame, time progression is meaningless
 -- The frame either satisfies the inner formula or doesn't
 evalAtInfiniteExtension frame (EventuallyWithin _ φ) = evalAtInfiniteExtension frame φ
 evalAtInfiniteExtension frame (AlwaysWithin _ φ) = evalAtInfiniteExtension frame φ
+evalAtInfiniteExtension frame (UntilWithin _ φ ψ) = evalAtInfiniteExtension frame ψ
+evalAtInfiniteExtension frame (ReleaseWithin _ φ ψ) = evalAtInfiniteExtension frame φ
