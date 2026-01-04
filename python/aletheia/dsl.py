@@ -24,10 +24,13 @@ from .protocols import (
     AlwaysFormula,
     EventuallyFormula,
     NeverFormula,
-    EventuallyWithinFormula,
-    AlwaysWithinFormula,
+    MetricEventuallyFormula,
+    MetricAlwaysFormula,
     ImpliesFormula,
     UntilFormula,
+    ReleaseFormula,
+    MetricUntilFormula,
+    MetricReleaseFormula,
 )
 
 
@@ -246,6 +249,9 @@ class Predicate:
     def within(self, time_ms: int) -> 'Property':
         """Property must hold within time_ms milliseconds
 
+        Uses Metric Eventually (time-bounded eventually operator).
+        More robust than Next for CAN networks with jitter.
+
         Args:
             time_ms: Time bound in milliseconds
 
@@ -255,8 +261,8 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        formula: EventuallyWithinFormula = {
-            'type': 'eventually_within',
+        formula: MetricEventuallyFormula = {
+            'type': 'metricEventually',
             'time_ms': time_ms,
             'formula': self._data
         }
@@ -264,6 +270,9 @@ class Predicate:
 
     def for_at_least(self, time_ms: int) -> 'Property':
         """Property must hold continuously for at least time_ms milliseconds
+
+        Uses Metric Always (time-bounded always operator).
+        Useful for debouncing and stability checks.
 
         Args:
             time_ms: Duration in milliseconds
@@ -274,8 +283,8 @@ class Predicate:
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
-        formula: AlwaysWithinFormula = {
-            'type': 'always_within',
+        formula: MetricAlwaysFormula = {
+            'type': 'metricAlways',
             'time_ms': time_ms,
             'formula': self._data
         }
@@ -456,6 +465,73 @@ class Property:
         """
         formula: UntilFormula = {
             'type': 'until',
+            'left': self._data,
+            'right': other.to_formula()
+        }
+        return Property(formula)
+
+    def release(self, other: 'Property') -> 'Property':
+        """Temporal release: other holds until self releases it (dual of until)
+
+        Args:
+            other: Property that must hold until released
+
+        Returns:
+            Release property
+
+        Example:
+            # Safety interlock: brake must be engaged until ignition releases it
+            ignition_on.release(brake_engaged)
+        """
+        formula: ReleaseFormula = {
+            'type': 'release',
+            'left': self._data,
+            'right': other.to_formula()
+        }
+        return Property(formula)
+
+    def metric_until(self, time_ms: int, other: 'Property') -> 'Property':
+        """Temporal until with time bound: self holds until other, within time_ms
+
+        More robust than Next for checking "next frame" conditions.
+        Tolerates CAN jitter and ECU timing uncertainty.
+
+        Args:
+            time_ms: Time bound in milliseconds
+            other: Property that must eventually hold
+
+        Returns:
+            Metric Until property
+
+        Example:
+            # Speed must stay above 50 until brake within 1000ms
+            speed_ok.metric_until(1000, brake_pressed)
+        """
+        formula: MetricUntilFormula = {
+            'type': 'metricUntil',
+            'time_ms': time_ms,
+            'left': self._data,
+            'right': other.to_formula()
+        }
+        return Property(formula)
+
+    def metric_release(self, time_ms: int, other: 'Property') -> 'Property':
+        """Temporal release with time bound: other holds until self releases it, within time_ms
+
+        Args:
+            time_ms: Time bound in milliseconds
+            other: Property that must hold until released
+
+        Returns:
+            Metric Release property
+
+        Example:
+            # Brake must be engaged until ignition releases it, within 5000ms
+            ignition_on.metric_release(5000, brake_engaged)
+        """
+        formula: MetricReleaseFormula = {
+            'type': 'metricRelease',
+            'time_ms': time_ms,
             'left': self._data,
             'right': other.to_formula()
         }

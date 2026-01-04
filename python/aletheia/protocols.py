@@ -164,16 +164,16 @@ class NeverFormula(TypedDict):
     formula: 'LTLFormula'
 
 
-class EventuallyWithinFormula(TypedDict):
-    """Eventually within time bound: F_{<=t}(formula)"""
-    type: Literal["eventually_within"]
+class MetricEventuallyFormula(TypedDict):
+    """Metric Eventually: F_{<=t}(formula)"""
+    type: Literal["metricEventually"]
     time_ms: int
     formula: 'LTLFormula'
 
 
-class AlwaysWithinFormula(TypedDict):
-    """Always within time bound: G_{<=t}(formula)"""
-    type: Literal["always_within"]
+class MetricAlwaysFormula(TypedDict):
+    """Metric Always: G_{<=t}(formula)"""
+    type: Literal["metricAlways"]
     time_ms: int
     formula: 'LTLFormula'
 
@@ -192,6 +192,29 @@ class UntilFormula(TypedDict):
     right: 'LTLFormula'
 
 
+class ReleaseFormula(TypedDict):
+    """Temporal release: left R right (dual of until)"""
+    type: Literal["release"]
+    left: 'LTLFormula'
+    right: 'LTLFormula'
+
+
+class MetricUntilFormula(TypedDict):
+    """Metric Until: left U_{<=t} right"""
+    type: Literal["metricUntil"]
+    time_ms: int
+    left: 'LTLFormula'
+    right: 'LTLFormula'
+
+
+class MetricReleaseFormula(TypedDict):
+    """Metric Release: left R_{<=t} right"""
+    type: Literal["metricRelease"]
+    time_ms: int
+    left: 'LTLFormula'
+    right: 'LTLFormula'
+
+
 # Union type for all LTL formulas
 LTLFormula = (
     CompareFormula |
@@ -203,10 +226,13 @@ LTLFormula = (
     AlwaysFormula |
     EventuallyFormula |
     NeverFormula |
-    EventuallyWithinFormula |
-    AlwaysWithinFormula |
+    MetricEventuallyFormula |
+    MetricAlwaysFormula |
     ImpliesFormula |
-    UntilFormula
+    UntilFormula |
+    ReleaseFormula |
+    MetricUntilFormula |
+    MetricReleaseFormula
 )
 
 

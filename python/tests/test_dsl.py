@@ -162,13 +162,13 @@ class TestTemporalOperators:
     def test_within(self):
         """Predicate.within() creates bounded temporal property"""
         prop = Signal("BrakePressed").equals(1).within(100)
-        assert prop._data['type'] == 'eventually_within'
+        assert prop._data['type'] == 'metricEventually'
         assert prop._data['time_ms'] == 100
 
     def test_for_at_least(self):
         """Predicate.for_at_least() creates bounded temporal property"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
-        assert prop._data['type'] == 'always_within'
+        assert prop._data['type'] == 'metricAlways'
         assert prop._data['time_ms'] == 50
 
     def test_within_zero_ms(self):
@@ -239,7 +239,7 @@ class TestPredicateLogicalOperators:
         implication = brake.implies(speed_decrease)
 
         assert implication._data['type'] == 'implies'
-        assert implication._data['consequent']['type'] == 'eventually_within'
+        assert implication._data['consequent']['type'] == 'metricEventually'
 
     def test_chained_logical_operators(self):
         """Multiple logical operators can be chained"""
@@ -334,7 +334,7 @@ class TestComposition:
         prop = brake.implies(speed_dec)
 
         assert prop._data['type'] == 'implies'
-        assert prop._data['consequent']['type'] == 'eventually_within'
+        assert prop._data['consequent']['type'] == 'metricEventually'
 
     def test_nested_implications(self):
         """Nested implications work"""
