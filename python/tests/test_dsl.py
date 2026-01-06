@@ -9,9 +9,26 @@ Tests cover:
 - JSON serialization
 """
 
-import pytest
-import math
-from aletheia.dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from typing import cast
+from aletheia.dsl import (
+    Signal, Predicate, Property,
+    infinitely_often, eventually_always, never
+)
+from aletheia.protocols import (
+    CompareFormula,
+    BetweenFormula,
+    ChangedByFormula,
+    AndFormula,
+    OrFormula,
+    NotFormula,
+    AlwaysFormula,
+    EventuallyFormula,
+    NeverFormula,
+    MetricEventuallyFormula,
+    MetricAlwaysFormula,
+    ImpliesFormula,
+    UntilFormula,
+)
 
 
 # ============================================================================
@@ -35,7 +52,8 @@ class TestSignalComparison:
         """Signal.equals() creates correct predicate"""
         pred = Signal("Gear").equals(0)
         assert isinstance(pred, Predicate)
-        assert pred._data == {
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula == {
             'type': 'compare',
             'signal': 'Gear',
             'op': 'EQ',
@@ -45,7 +63,8 @@ class TestSignalComparison:
     def test_less_than(self):
         """Signal.less_than() creates correct predicate"""
         pred = Signal("Speed").less_than(220)
-        assert pred._data == {
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula == {
             'type': 'compare',
             'signal': 'Speed',
             'op': 'LT',
@@ -55,7 +74,8 @@ class TestSignalComparison:
     def test_greater_than(self):
         """Signal.greater_than() creates correct predicate"""
         pred = Signal("Speed").greater_than(5)
-        assert pred._data == {
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula == {
             'type': 'compare',
             'signal': 'Speed',
             'op': 'GT',
@@ -65,7 +85,8 @@ class TestSignalComparison:
     def test_less_than_or_equal(self):
         """Signal.less_than_or_equal() creates correct predicate"""
         pred = Signal("Voltage").less_than_or_equal(14.5)
-        assert pred._data == {
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula == {
             'type': 'compare',
             'signal': 'Voltage',
             'op': 'LE',
@@ -75,7 +96,8 @@ class TestSignalComparison:
     def test_greater_than_or_equal(self):
         """Signal.greater_than_or_equal() creates correct predicate"""
         pred = Signal("Voltage").greater_than_or_equal(11.5)
-        assert pred._data == {
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula == {
             'type': 'compare',
             'signal': 'Voltage',
             'op': 'GE',
@@ -85,7 +107,8 @@ class TestSignalComparison:
     def test_between(self):
         """Signal.between() creates correct predicate"""
         pred = Signal("Voltage").between(11.5, 14.5)
-        assert pred._data == {
+        formula = cast(BetweenFormula, pred.to_formula())
+        assert formula == {
             'type': 'between',
             'signal': 'Voltage',
             'min': 11.5,
@@ -95,7 +118,8 @@ class TestSignalComparison:
     def test_changed_by(self):
         """Signal.changed_by() creates correct predicate"""
         pred = Signal("Speed").changed_by(-10)
-        assert pred._data == {
+        formula = cast(ChangedByFormula, pred.to_formula())
+        assert formula == {
             'type': 'changed_by',
             'signal': 'Speed',
             'delta': -10
@@ -105,34 +129,40 @@ class TestSignalComparison:
     def test_comparison_with_zero(self):
         """Comparison with zero works"""
         pred = Signal("Speed").equals(0)
-        assert pred._data['value'] == 0
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == 0
 
     def test_comparison_with_negative(self):
         """Comparison with negative values works"""
         pred = Signal("Temp").greater_than(-40)
-        assert pred._data['value'] == -40
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == -40
 
     def test_comparison_with_float(self):
         """Comparison with float values works"""
         pred = Signal("Voltage").equals(12.6)
-        assert pred._data['value'] == 12.6
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == 12.6
 
     def test_comparison_with_large_number(self):
         """Comparison with large numbers works"""
         pred = Signal("Counter").less_than(1000000)
-        assert pred._data['value'] == 1000000
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == 1000000
 
     def test_between_min_equals_max(self):
         """between() works when min equals max (single value range)"""
         pred = Signal("Mode").between(5, 5)
-        assert pred._data['min'] == 5
-        assert pred._data['max'] == 5
+        formula = cast(BetweenFormula, pred.to_formula())
+        assert formula['min'] == 5
+        assert formula['max'] == 5
 
     def test_between_reversed_bounds(self):
         """between() accepts reversed bounds (validation in Agda)"""
         pred = Signal("X").between(10, 5)
-        assert pred._data['min'] == 10
-        assert pred._data['max'] == 5
+        formula = cast(BetweenFormula, pred.to_formula())
+        assert formula['min'] == 10
+        assert formula['max'] == 5
 
 
 # ============================================================================
@@ -146,45 +176,54 @@ class TestTemporalOperators:
         """Predicate.always() creates correct property"""
         prop = Signal("Speed").less_than(220).always()
         assert isinstance(prop, Property)
-        assert prop._data['type'] == 'always'
-        assert prop._data['formula']['op'] == 'LT'
+        data = cast(AlwaysFormula, prop.to_dict())
+        assert data['type'] == 'always'
+        formula = cast(CompareFormula, data['formula'])
+        assert formula['op'] == 'LT'
 
     def test_eventually(self):
         """Predicate.eventually() creates correct property"""
         prop = Signal("DoorClosed").equals(1).eventually()
-        assert prop._data['type'] == 'eventually'
+        data = cast(EventuallyFormula, prop.to_dict())
+        assert data['type'] == 'eventually'
 
     def test_never(self):
         """Predicate.never() creates correct property"""
         prop = Signal("ErrorCode").equals(0xFF).never()
-        assert prop._data['type'] == 'never'
+        data = cast(NeverFormula, prop.to_dict())
+        assert data['type'] == 'never'
 
     def test_within(self):
         """Predicate.within() creates bounded temporal property"""
         prop = Signal("BrakePressed").equals(1).within(100)
-        assert prop._data['type'] == 'metricEventually'
-        assert prop._data['time_ms'] == 100
+        data = cast(MetricEventuallyFormula, prop.to_dict())
+        assert data['type'] == 'metricEventually'
+        assert data['time_ms'] == 100
 
     def test_for_at_least(self):
         """Predicate.for_at_least() creates bounded temporal property"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
-        assert prop._data['type'] == 'metricAlways'
-        assert prop._data['time_ms'] == 50
+        data = cast(MetricAlwaysFormula, prop.to_dict())
+        assert data['type'] == 'metricAlways'
+        assert data['time_ms'] == 50
 
     def test_within_zero_ms(self):
         """within(0) is valid (immediate)"""
         prop = Signal("X").equals(1).within(0)
-        assert prop._data['time_ms'] == 0
+        data = cast(MetricEventuallyFormula, prop.to_dict())
+        assert data['time_ms'] == 0
 
     def test_for_at_least_zero_ms(self):
         """for_at_least(0) is valid"""
         prop = Signal("X").equals(1).for_at_least(0)
-        assert prop._data['time_ms'] == 0
+        data = cast(MetricAlwaysFormula, prop.to_dict())
+        assert data['time_ms'] == 0
 
     def test_large_time_bounds(self):
         """Large time bounds work (hours)"""
         prop = Signal("EngineOn").equals(1).for_at_least(3600000)  # 1 hour
-        assert prop._data['time_ms'] == 3600000
+        data = cast(MetricAlwaysFormula, prop.to_dict())
+        assert data['time_ms'] == 3600000
 
 
 # ============================================================================
@@ -201,9 +240,12 @@ class TestPredicateLogicalOperators:
         combined = left.and_(right)
 
         assert isinstance(combined, Predicate)
-        assert combined._data['type'] == 'and'
-        assert combined._data['left']['signal'] == 'LeftDoor'
-        assert combined._data['right']['signal'] == 'RightDoor'
+        formula = cast(AndFormula, combined.to_formula())
+        assert formula['type'] == 'and'
+        left_formula = cast(CompareFormula, formula['left'])
+        right_formula = cast(CompareFormula, formula['right'])
+        assert left_formula['signal'] == 'LeftDoor'
+        assert right_formula['signal'] == 'RightDoor'
 
     def test_or(self):
         """Predicate.or_() combines two predicates"""
@@ -211,15 +253,18 @@ class TestPredicateLogicalOperators:
         error2 = Signal("Error2").equals(1)
         combined = error1.or_(error2)
 
-        assert combined._data['type'] == 'or'
+        formula = cast(OrFormula, combined.to_formula())
+        assert formula['type'] == 'or'
 
     def test_not(self):
         """Predicate.not_() negates predicate"""
         pred = Signal("Enabled").equals(1)
         negated = pred.not_()
 
-        assert negated._data['type'] == 'not'
-        assert negated._data['formula']['signal'] == 'Enabled'
+        formula = cast(NotFormula, negated.to_formula())
+        assert formula['type'] == 'not'
+        inner_formula = cast(CompareFormula, formula['formula'])
+        assert inner_formula['signal'] == 'Enabled'
 
     def test_implies_predicate_to_predicate(self):
         """Predicate.implies() with another Predicate"""
@@ -228,9 +273,12 @@ class TestPredicateLogicalOperators:
         implication = brake.implies(throttle)
 
         assert isinstance(implication, Property)
-        assert implication._data['type'] == 'implies'
-        assert implication._data['antecedent']['signal'] == 'Brake'
-        assert implication._data['consequent']['signal'] == 'Throttle'
+        data = cast(ImpliesFormula, implication.to_dict())
+        assert data['type'] == 'implies'
+        antecedent = cast(CompareFormula, data['antecedent'])
+        consequent = cast(CompareFormula, data['consequent'])
+        assert antecedent['signal'] == 'Brake'
+        assert consequent['signal'] == 'Throttle'
 
     def test_implies_predicate_to_property(self):
         """Predicate.implies() with a Property"""
@@ -238,8 +286,10 @@ class TestPredicateLogicalOperators:
         speed_decrease = Signal("Speed").changed_by(-10).within(100)
         implication = brake.implies(speed_decrease)
 
-        assert implication._data['type'] == 'implies'
-        assert implication._data['consequent']['type'] == 'metricEventually'
+        data = cast(ImpliesFormula, implication.to_dict())
+        assert data['type'] == 'implies'
+        consequent = cast(MetricEventuallyFormula, data['consequent'])
+        assert consequent['type'] == 'metricEventually'
 
     def test_chained_logical_operators(self):
         """Multiple logical operators can be chained"""
@@ -248,16 +298,20 @@ class TestPredicateLogicalOperators:
         c = Signal("C").equals(1)
 
         combined = a.and_(b).and_(c)
-        assert combined._data['type'] == 'and'
-        assert combined._data['left']['type'] == 'and'  # Nested
+        formula = cast(AndFormula, combined.to_formula())
+        assert formula['type'] == 'and'
+        left_formula = cast(AndFormula, formula['left'])
+        assert left_formula['type'] == 'and'  # Nested
 
     def test_not_of_compound(self):
         """not_() works on compound predicates"""
         compound = Signal("A").equals(1).and_(Signal("B").equals(1))
         negated = compound.not_()
 
-        assert negated._data['type'] == 'not'
-        assert negated._data['formula']['type'] == 'and'
+        formula = cast(NotFormula, negated.to_formula())
+        assert formula['type'] == 'not'
+        inner_formula = cast(AndFormula, formula['formula'])
+        assert inner_formula['type'] == 'and'
 
 
 # ============================================================================
@@ -274,7 +328,8 @@ class TestPropertyLogicalOperators:
         combined = speed_ok.and_(voltage_ok)
 
         assert isinstance(combined, Property)
-        assert combined._data['type'] == 'and'
+        data = cast(AndFormula, combined.to_dict())
+        assert data['type'] == 'and'
 
     def test_property_or(self):
         """Property.or_() combines two properties"""
@@ -282,7 +337,8 @@ class TestPropertyLogicalOperators:
         engine = Signal("Engine").equals(1).eventually()
         combined = charging.or_(engine)
 
-        assert combined._data['type'] == 'or'
+        data = cast(OrFormula, combined.to_dict())
+        assert data['type'] == 'or'
 
     def test_property_implies(self):
         """Property.implies() creates implication"""
@@ -290,7 +346,8 @@ class TestPropertyLogicalOperators:
         stopped = Signal("Speed").equals(0).eventually()
         implication = brake.implies(stopped)
 
-        assert implication._data['type'] == 'implies'
+        data = cast(ImpliesFormula, implication.to_dict())
+        assert data['type'] == 'implies'
 
     def test_until(self):
         """Property.until() creates until temporal formula"""
@@ -298,9 +355,12 @@ class TestPropertyLogicalOperators:
         power_acc = Signal("PowerMode").equals(1).eventually()
         until_prop = power_low.until(power_acc)
 
-        assert until_prop._data['type'] == 'until'
-        assert until_prop._data['left']['type'] == 'always'
-        assert until_prop._data['right']['type'] == 'eventually'
+        data = cast(UntilFormula, until_prop.to_dict())
+        assert data['type'] == 'until'
+        left_data = cast(AlwaysFormula, data['left'])
+        right_data = cast(EventuallyFormula, data['right'])
+        assert left_data['type'] == 'always'
+        assert right_data['type'] == 'eventually'
 
 
 # ============================================================================
@@ -313,8 +373,10 @@ class TestComposition:
     def test_fluent_chaining(self):
         """Methods can be chained fluently"""
         prop = Signal("Speed").less_than(220).always()
-        assert prop._data['type'] == 'always'
-        assert prop._data['formula']['op'] == 'LT'
+        data = cast(AlwaysFormula, prop.to_dict())
+        assert data['type'] == 'always'
+        formula = cast(CompareFormula, data['formula'])
+        assert formula['op'] == 'LT'
 
     def test_complex_composition(self):
         """Complex property compositions work"""
@@ -323,8 +385,10 @@ class TestComposition:
         voltage_ok = Signal("Voltage").between(11.5, 14.5)
         combined = speed_ok.and_(voltage_ok).always()
 
-        assert combined._data['type'] == 'always'
-        assert combined._data['formula']['type'] == 'and'
+        data = cast(AlwaysFormula, combined.to_dict())
+        assert data['type'] == 'always'
+        formula = cast(AndFormula, data['formula'])
+        assert formula['type'] == 'and'
 
     def test_implication_with_temporal(self):
         """Implication with temporal operators"""
@@ -333,8 +397,10 @@ class TestComposition:
         speed_dec = Signal("Speed").changed_by(-10).within(100)
         prop = brake.implies(speed_dec)
 
-        assert prop._data['type'] == 'implies'
-        assert prop._data['consequent']['type'] == 'metricEventually'
+        data = cast(ImpliesFormula, prop.to_dict())
+        assert data['type'] == 'implies'
+        consequent = cast(MetricEventuallyFormula, data['consequent'])
+        assert consequent['type'] == 'metricEventually'
 
     def test_nested_implications(self):
         """Nested implications work"""
@@ -346,8 +412,10 @@ class TestComposition:
         inner = b.implies(c.eventually())
         outer = a.implies(inner)
 
-        assert outer._data['type'] == 'implies'
-        assert outer._data['consequent']['type'] == 'implies'
+        data = cast(ImpliesFormula, outer.to_dict())
+        assert data['type'] == 'implies'
+        consequent = cast(ImpliesFormula, data['consequent'])
+        assert consequent['type'] == 'implies'
 
     def test_until_with_complex_formulas(self):
         """until() works with complex properties"""
@@ -355,7 +423,8 @@ class TestComposition:
         right = Signal("State").equals(1).and_(Signal("Ready").equals(1)).eventually()
         prop = left.until(right)
 
-        assert prop._data['type'] == 'until'
+        data = cast(UntilFormula, prop.to_dict())
+        assert data['type'] == 'until'
 
     def test_mixed_temporal_and_logical(self):
         """Mixing temporal and logical operators"""
@@ -364,9 +433,12 @@ class TestComposition:
         eventually_b = Signal("B").equals(1).eventually()
         combined = always_a.and_(eventually_b)
 
-        assert combined._data['type'] == 'and'
-        assert combined._data['left']['type'] == 'always'
-        assert combined._data['right']['type'] == 'eventually'
+        data = cast(AndFormula, combined.to_dict())
+        assert data['type'] == 'and'
+        left_data = cast(AlwaysFormula, data['left'])
+        right_data = cast(EventuallyFormula, data['right'])
+        assert left_data['type'] == 'always'
+        assert right_data['type'] == 'eventually'
 
 
 # ============================================================================
@@ -383,7 +455,9 @@ class TestJSONSerialization:
 
         assert isinstance(data, dict)
         assert data['type'] == 'always'
-        assert data['formula']['signal'] == 'Speed'
+        # data is already AlwaysFormula after to_dict()
+        formula = cast(CompareFormula, data['formula'])
+        assert formula['signal'] == 'Speed'
 
     def test_complex_property_to_dict(self):
         """Complex property serializes correctly"""
@@ -393,7 +467,9 @@ class TestJSONSerialization:
         data = prop.to_dict()
 
         assert data['type'] == 'always'
-        assert data['formula']['type'] == 'and'
+        # data is already AlwaysFormula after to_dict()
+        formula = cast(AndFormula, data['formula'])
+        assert formula['type'] == 'and'
 
     def test_nested_structure(self):
         """Deeply nested structures serialize"""
@@ -403,18 +479,22 @@ class TestJSONSerialization:
             )
         ).always()
 
-        data = prop.to_dict()
-        assert data['formula']['left']['type'] == 'compare'
-        assert data['formula']['right']['type'] == 'and'
+        data = cast(AlwaysFormula, prop.to_dict())
+        formula = cast(AndFormula, data['formula'])
+        left_formula = cast(CompareFormula, formula['left'])
+        right_formula = cast(AndFormula, formula['right'])
+        assert left_formula['type'] == 'compare'
+        assert right_formula['type'] == 'and'
 
     def test_serialization_preserves_values(self):
         """Serialization preserves all values correctly"""
         prop = Signal("Voltage").between(11.5, 14.5).for_at_least(1000)
-        data = prop.to_dict()
+        data = cast(MetricAlwaysFormula, prop.to_dict())
 
         assert data['time_ms'] == 1000
-        assert data['formula']['min'] == 11.5
-        assert data['formula']['max'] == 14.5
+        formula = cast(BetweenFormula, data['formula'])
+        assert formula['min'] == 11.5
+        assert formula['max'] == 14.5
 
 
 # ============================================================================
@@ -428,7 +508,8 @@ class TestEdgeCases:
         """Signal names can contain unicode (validation in Agda)"""
         sig = Signal("Tür_Öffnen")
         pred = sig.equals(1)
-        assert pred._data['signal'] == "Tür_Öffnen"
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['signal'] == "Tür_Öffnen"
 
     def test_signal_with_special_chars(self):
         """Signal names can contain special characters"""
@@ -438,22 +519,26 @@ class TestEdgeCases:
     def test_zero_comparison(self):
         """Zero is a valid comparison value"""
         pred = Signal("Speed").equals(0)
-        assert pred._data['value'] == 0
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == 0
 
     def test_negative_delta(self):
         """Negative delta for changed_by works"""
         pred = Signal("Speed").changed_by(-10)
-        assert pred._data['delta'] == -10
+        formula = cast(ChangedByFormula, pred.to_formula())
+        assert formula['delta'] == -10
 
     def test_fractional_values(self):
         """Fractional values work in comparisons"""
         pred = Signal("Voltage").equals(12.65)
-        assert pred._data['value'] == 12.65
+        formula = cast(CompareFormula, pred.to_formula())
+        assert formula['value'] == 12.65
 
     def test_very_large_time_bound(self):
         """Very large time bounds work"""
         prop = Signal("X").equals(1).within(999999999)
-        assert prop._data['time_ms'] == 999999999
+        data = cast(MetricEventuallyFormula, prop.to_dict())
+        assert data['time_ms'] == 999999999
 
     def test_chaining_same_operators(self):
         """Chaining same operator multiple times"""
@@ -463,7 +548,8 @@ class TestEdgeCases:
         d = Signal("D").equals(1)
 
         result = a.and_(b).and_(c).and_(d)
-        assert result._data['type'] == 'and'
+        formula = cast(AndFormula, result.to_formula())
+        assert formula['type'] == 'and'
 
     def test_property_methods_return_new_objects(self):
         """Property methods return new objects (immutable)"""
@@ -472,7 +558,9 @@ class TestEdgeCases:
         prop2 = base.eventually()
 
         assert prop1 is not prop2
-        assert prop1._data['type'] != prop2._data['type']
+        data1 = prop1.to_dict()
+        data2 = prop2.to_dict()
+        assert data1['type'] != data2['type']
 
 
 # ============================================================================
@@ -485,10 +573,11 @@ class TestRealWorldExamples:
     def test_speed_limit(self):
         """Speed must always be under limit"""
         prop = Signal("Speed").less_than(220).always()
-        data = prop.to_dict()
+        data = cast(AlwaysFormula, prop.to_dict())
 
         assert data['type'] == 'always'
-        assert data['formula']['value'] == 220
+        formula = cast(CompareFormula, data['formula'])
+        assert formula['value'] == 220
 
     def test_brake_safety(self):
         """Brake pressed implies throttle zero"""
@@ -496,20 +585,23 @@ class TestRealWorldExamples:
         throttle = Signal("ThrottlePosition").equals(0)
         prop = brake.implies(throttle)
 
-        assert prop._data['type'] == 'implies'
+        data = cast(ImpliesFormula, prop.to_dict())
+        assert data['type'] == 'implies'
 
     def test_voltage_range(self):
         """Battery voltage stays in safe range"""
         prop = Signal("BatteryVoltage").between(11.5, 14.5).always()
-        data = prop.to_dict()
+        data = cast(AlwaysFormula, prop.to_dict())
 
-        assert data['formula']['min'] == 11.5
-        assert data['formula']['max'] == 14.5
+        formula = cast(BetweenFormula, data['formula'])
+        assert formula['min'] == 11.5
+        assert formula['max'] == 14.5
 
     def test_door_debounce(self):
         """Door closed signal must be stable (debounced)"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
-        assert prop._data['time_ms'] == 50
+        data = cast(MetricAlwaysFormula, prop.to_dict())
+        assert data['time_ms'] == 50
 
     def test_emergency_brake(self):
         """Emergency brake → Speed decreases quickly"""
@@ -517,8 +609,9 @@ class TestRealWorldExamples:
         speed_dec = Signal("Speed").changed_by(-20).within(200)
         prop = emergency.implies(speed_dec)
 
-        data = prop.to_dict()
-        assert data['consequent']['time_ms'] == 200
+        data = cast(ImpliesFormula, prop.to_dict())
+        consequent = cast(MetricEventuallyFormula, data['consequent'])
+        assert consequent['time_ms'] == 200
 
     def test_gear_sequence(self):
         """Gear in park until ignition on"""
@@ -526,7 +619,8 @@ class TestRealWorldExamples:
         ignition = Signal("Ignition").equals(1).eventually()
         prop = park.until(ignition)
 
-        assert prop._data['type'] == 'until'
+        data = cast(UntilFormula, prop.to_dict())
+        assert data['type'] == 'until'
 
     def test_multi_error_detection(self):
         """Multiple error codes can never occur"""
@@ -534,8 +628,11 @@ class TestRealWorldExamples:
         err2 = Signal("ErrorCode2").equals(0xFF).never()
         prop = err1.and_(err2)
 
-        assert prop._data['left']['type'] == 'never'
-        assert prop._data['right']['type'] == 'never'
+        data = cast(AndFormula, prop.to_dict())
+        left_data = cast(NeverFormula, data['left'])
+        right_data = cast(NeverFormula, data['right'])
+        assert left_data['type'] == 'never'
+        assert right_data['type'] == 'never'
 
     def test_turn_signal_pattern(self):
         """Turn signal blinks regularly (simplified)"""
@@ -544,7 +641,9 @@ class TestRealWorldExamples:
         # Simplified: on implies off within 500ms
         prop = on.implies(off.within(500))
 
-        assert prop._data['consequent']['time_ms'] == 500
+        data = cast(ImpliesFormula, prop.to_dict())
+        consequent = cast(MetricEventuallyFormula, data['consequent'])
+        assert consequent['time_ms'] == 500
 
 
 # ============================================================================
@@ -571,10 +670,14 @@ class TestNestedTemporalOperators:
         infinitely_often_not_high = speed_high.always().not_().always()
 
         # Verify structure
-        assert infinitely_often_not_high._data['type'] == 'always'
-        assert infinitely_often_not_high._data['formula']['type'] == 'not'
-        assert infinitely_often_not_high._data['formula']['formula']['type'] == 'always'
-        assert infinitely_often_not_high._data['formula']['formula']['formula']['op'] == 'GT'
+        data = cast(AlwaysFormula, infinitely_often_not_high.to_dict())
+        assert data['type'] == 'always'
+        not_formula = cast(NotFormula, data['formula'])
+        assert not_formula['type'] == 'not'
+        always_formula = cast(AlwaysFormula, not_formula['formula'])
+        assert always_formula['type'] == 'always'
+        compare_formula = cast(CompareFormula, always_formula['formula'])
+        assert compare_formula['op'] == 'GT'
 
     def test_and_always_eventually(self):
         """G(p) ∧ F(q) - Composition of different temporal operators
@@ -587,9 +690,12 @@ class TestNestedTemporalOperators:
         combined = temp_ok.and_(speed_high)
 
         # Verify structure
-        assert combined._data['type'] == 'and'
-        assert combined._data['left']['type'] == 'always'
-        assert combined._data['right']['type'] == 'eventually'
+        data = cast(AndFormula, combined.to_dict())
+        assert data['type'] == 'and'
+        left_data = cast(AlwaysFormula, data['left'])
+        right_data = cast(EventuallyFormula, data['right'])
+        assert left_data['type'] == 'always'
+        assert right_data['type'] == 'eventually'
 
     def test_not_eventually_equiv_always_not(self):
         """¬F(p) structure (equivalent to G(¬p) by De Morgan)
@@ -599,21 +705,27 @@ class TestNestedTemporalOperators:
         """
         error_active = Signal("ErrorCode").equals(1)
         eventually_error = error_active.eventually()
-        never_error = Property({
+        # Create ¬F(p) by wrapping eventually in not
+        not_formula_dict: NotFormula = {
             'type': 'not',
-            'formula': eventually_error._data
-        })
+            'formula': eventually_error.to_dict()
+        }
+        never_error = Property(not_formula_dict)
 
         # Verify structure of ¬F(error)
-        assert never_error._data['type'] == 'not'
-        assert never_error._data['formula']['type'] == 'eventually'
+        data = cast(NotFormula, never_error.to_dict())
+        assert data['type'] == 'not'
+        formula = cast(EventuallyFormula, data['formula'])
+        assert formula['type'] == 'eventually'
 
         # Compare to G(¬error) structure
         not_error = error_active.not_()
         always_not_error = not_error.always()
 
-        assert always_not_error._data['type'] == 'always'
-        assert always_not_error._data['formula']['type'] == 'not'
+        always_data = cast(AlwaysFormula, always_not_error.to_dict())
+        assert always_data['type'] == 'always'
+        not_formula = cast(NotFormula, always_data['formula'])
+        assert not_formula['type'] == 'not'
 
     def test_or_eventually_eventually(self):
         """F(p) ∨ F(q) - Or of Eventually operators
@@ -625,9 +737,12 @@ class TestNestedTemporalOperators:
         engine = Signal("Engine").equals(1).eventually()
         combined = charging.or_(engine)
 
-        assert combined._data['type'] == 'or'
-        assert combined._data['left']['type'] == 'eventually'
-        assert combined._data['right']['type'] == 'eventually'
+        data = cast(OrFormula, combined.to_dict())
+        assert data['type'] == 'or'
+        left_data = cast(EventuallyFormula, data['left'])
+        right_data = cast(EventuallyFormula, data['right'])
+        assert left_data['type'] == 'eventually'
+        assert right_data['type'] == 'eventually'
 
     def test_nested_until_with_temporal_subformulas(self):
         """(G(p)) U (F(q)) - Until with nested temporal operators
@@ -639,9 +754,12 @@ class TestNestedTemporalOperators:
         state_one = Signal("State").equals(1).eventually()
         until_prop = state_zero.until(state_one)
 
-        assert until_prop._data['type'] == 'until'
-        assert until_prop._data['left']['type'] == 'always'
-        assert until_prop._data['right']['type'] == 'eventually'
+        data = cast(UntilFormula, until_prop.to_dict())
+        assert data['type'] == 'until'
+        left_data = cast(AlwaysFormula, data['left'])
+        right_data = cast(EventuallyFormula, data['right'])
+        assert left_data['type'] == 'always'
+        assert right_data['type'] == 'eventually'
 
     def test_deeply_nested_composition(self):
         """G(F(p)) - Infinitely often pattern
@@ -653,9 +771,12 @@ class TestNestedTemporalOperators:
         infinitely_often_high = Signal("Speed").greater_than(100).eventually().always()
 
         # Verify G(F(p)) structure
-        assert infinitely_often_high._data['type'] == 'always'
-        assert infinitely_often_high._data['formula']['type'] == 'eventually'
-        assert infinitely_often_high._data['formula']['formula']['op'] == 'GT'
+        data = cast(AlwaysFormula, infinitely_often_high.to_dict())
+        assert data['type'] == 'always'
+        eventually_formula = cast(EventuallyFormula, data['formula'])
+        assert eventually_formula['type'] == 'eventually'
+        compare_formula = cast(CompareFormula, eventually_formula['formula'])
+        assert compare_formula['op'] == 'GT'
 
     def test_triple_nesting_always_not_eventually(self):
         """G(¬F(p)) - Always never pattern
@@ -667,9 +788,12 @@ class TestNestedTemporalOperators:
         never_fault = Signal("Fault").equals(1).eventually().not_().always()
 
         # Verify G(¬F(p)) structure
-        assert never_fault._data['type'] == 'always'
-        assert never_fault._data['formula']['type'] == 'not'
-        assert never_fault._data['formula']['formula']['type'] == 'eventually'
+        data = cast(AlwaysFormula, never_fault.to_dict())
+        assert data['type'] == 'always'
+        not_formula = cast(NotFormula, data['formula'])
+        assert not_formula['type'] == 'not'
+        eventually_formula = cast(EventuallyFormula, not_formula['formula'])
+        assert eventually_formula['type'] == 'eventually'
 
     def test_infinitely_often_helper(self):
         """Test infinitely_often() helper function - G(F(p))"""
@@ -680,9 +804,11 @@ class TestNestedTemporalOperators:
         prop2 = Signal("Speed").greater_than(100).eventually().always()
 
         # Should produce identical structure
-        assert prop1._data == prop2._data
-        assert prop1._data['type'] == 'always'
-        assert prop1._data['formula']['type'] == 'eventually'
+        assert prop1.to_dict() == prop2.to_dict()
+        data = cast(AlwaysFormula, prop1.to_dict())
+        assert data['type'] == 'always'
+        formula = cast(EventuallyFormula, data['formula'])
+        assert formula['type'] == 'eventually'
 
     def test_eventually_always_helper(self):
         """Test eventually_always() helper function - F(G(p))"""
@@ -693,9 +819,11 @@ class TestNestedTemporalOperators:
         prop2 = Signal("Temperature").less_than(70).always().eventually()
 
         # Should produce identical structure
-        assert prop1._data == prop2._data
-        assert prop1._data['type'] == 'eventually'
-        assert prop1._data['formula']['type'] == 'always'
+        assert prop1.to_dict() == prop2.to_dict()
+        data = cast(EventuallyFormula, prop1.to_dict())
+        assert data['type'] == 'eventually'
+        formula = cast(AlwaysFormula, data['formula'])
+        assert formula['type'] == 'always'
 
     def test_never_helper(self):
         """Test never() helper function - G(¬φ)"""
@@ -706,9 +834,11 @@ class TestNestedTemporalOperators:
         prop2 = Signal("CriticalFault").equals(1).not_().always()
 
         # Should produce identical structure
-        assert prop1._data == prop2._data
-        assert prop1._data['type'] == 'always'
-        assert prop1._data['formula']['type'] == 'not'
+        assert prop1.to_dict() == prop2.to_dict()
+        data = cast(AlwaysFormula, prop1.to_dict())
+        assert data['type'] == 'always'
+        formula = cast(NotFormula, data['formula'])
+        assert formula['type'] == 'not'
 
     def test_helper_with_property_input(self):
         """Test helpers accept Property objects, not just Predicates"""
@@ -719,6 +849,9 @@ class TestNestedTemporalOperators:
         nested = infinitely_often(always_prop)
 
         # Should create G(F(G(p)))
-        assert nested._data['type'] == 'always'
-        assert nested._data['formula']['type'] == 'eventually'
-        assert nested._data['formula']['formula']['type'] == 'always'
+        data = cast(AlwaysFormula, nested.to_dict())
+        assert data['type'] == 'always'
+        eventually_formula = cast(EventuallyFormula, data['formula'])
+        assert eventually_formula['type'] == 'eventually'
+        always_formula = cast(AlwaysFormula, eventually_formula['formula'])
+        assert always_formula['type'] == 'always'
