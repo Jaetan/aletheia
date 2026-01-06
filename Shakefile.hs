@@ -83,6 +83,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "build-haskell" $ do
         need ["build/aletheia"]
 
+    phony "check-properties" $ do
+        putInfo "Type-checking Properties modules (proofs)..."
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Parser/Properties.agda"]
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/DBC/Properties.agda"]
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Protocol/JSON/Properties.agda"]
+        putInfo "All Properties modules type-checked successfully!"
+
     phony "install-python" $ do
         need ["build/aletheia"]
         cmd_ (Cwd "python") "pip3 install -e ."
