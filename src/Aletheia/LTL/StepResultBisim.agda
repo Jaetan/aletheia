@@ -15,7 +15,7 @@ module Aletheia.LTL.StepResultBisim where
 
 open import Aletheia.Prelude
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
-open import Aletheia.Trace.Context using (TimedFrame)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- COUNTEREXAMPLE EQUIVALENCE

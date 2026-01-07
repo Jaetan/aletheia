@@ -14,7 +14,7 @@ open import Aletheia.Prelude
 open import Data.Nat using (_≤ᵇ_)
 open import Aletheia.LTL.Syntax
 open import Aletheia.LTL.Evaluation using () renaming (evalAtFrame to evalAtFrameWith)
-open import Aletheia.Trace.Context using (TimedFrame; timestamp)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
 -- ============================================================================
 -- INCREMENTAL LTL CHECKING (O(1) MEMORY)
@@ -400,7 +400,7 @@ stepEval (MetricRelease _ _ _) _ MetricReleaseFailed _ curr = Violated (mkCounte
 stepEval _ _ _ _ curr = Violated (mkCounterexample curr "internal error: formula/state mismatch")
 
 -- ============================================================================
--- EVALUATE NON-TEMPORAL FORMULAS (legacy list-based checking)
+-- FRAME-LEVEL EVALUATION
 -- ============================================================================
 
 -- Evaluate formula at a single frame (handles Atomic, Not, And, Or)
@@ -408,15 +408,6 @@ stepEval _ _ _ _ curr = Violated (mkCounterexample curr "internal error: formula
 -- Delegates to LTL.Evaluation.evalAtFrame with temporalDefault=false
 evalAtFrame : ∀ {A : Set} → A → LTL (A → Bool) → Bool
 evalAtFrame = evalAtFrameWith false
-
-
--- ============================================================================
--- NOTE: Legacy list-based evaluators REMOVED
--- Removed: checkFormula, checkWithCounterexample, checkIncremental, checkMultiple
--- These were reference/specification functions never used in production.
--- Production uses stepEval (streaming state machine) exclusively.
--- See: /home/nicolas/.claude/plans/synthetic-honking-goblet.md for rationale.
--- ============================================================================
 
 -- ============================================================================
 -- COUNTEREXAMPLE TYPES

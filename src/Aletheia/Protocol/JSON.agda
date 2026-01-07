@@ -153,7 +153,9 @@ lookupObject = lookupWith getObject
 -- ============================================================================
 
 -- Format JSON as string (structurally recursive on JSON data type)
--- NOTE: JSON strings ≡ Agda Strings at syntax level (no escape characters in our protocol)
+-- DESIGN: Escape sequences intentionally unsupported. The Aletheia protocol uses
+--         a constrained JSON subset where strings contain no quotes or escape chars.
+--         This simplifies both code and proofs without limiting protocol functionality.
 -- Format a rational: integers as decimal notation, non-integers as object
 formatRational : ℚ → String
 formatRational r with Rat.toℚᵘ r
@@ -277,7 +279,8 @@ parseRational = buildNumber <$> parseInt <*> optional (char '.' *> some digit)
 parseNumber : Parser JSON
 parseNumber = JNumber <$> parseRational
 
--- Parse a single character inside a JSON string (no escape sequences - our protocol uses simple strings)
+-- Parse a single character inside a JSON string
+-- Accepts all characters except quotes (escape sequences intentionally unsupported)
 parseStringChar : Parser Char
 parseStringChar = satisfy (λ c → not ⌊ c Data.Char.≟ '"' ⌋)
 

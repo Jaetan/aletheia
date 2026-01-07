@@ -15,7 +15,7 @@ module Aletheia.LTL.CoalgebraBisim where
 open import Aletheia.Prelude
 open import Aletheia.LTL.Incremental using (StepResult)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim)
-open import Aletheia.Trace.Context using (TimedFrame)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- COALGEBRA BISIMILARITY (Generic over state types)

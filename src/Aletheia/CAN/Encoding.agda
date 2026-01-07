@@ -149,11 +149,9 @@ injectSignal value signalDef byteOrder frame =
                           else updatedBytes
          in just (record frame { payload = finalBytes })
 
--- Round-trip properties (TODO for Phase 5: prove these)
--- These state the correctness of encoding/decoding:
--- 1. Extracting after injecting gives back the original value
--- 2. The frame payload is preserved through inject/extract cycles
+-- Round-trip correctness properties:
+-- 1. extract-after-inject: Extracting after injecting returns the original value
+-- 2. payload-preservation: Frame payload preserved through inject/extract cycles
 --
--- Note: Cannot use postulate with --safe flag, so proofs must be completed
--- before this can be fully verified. For now, these properties are documented
--- but not formally stated in the type system.
+-- These properties should be proven in Aletheia.CAN.Encoding.Properties module.
+-- Note: --safe flag prevents postulates; all properties must have proofs.

@@ -21,7 +21,7 @@ module Aletheia.LTL.Coalgebra where
 open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample)
-open import Aletheia.Trace.Context using (TimedFrame; timestamp)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 open import Data.Maybe using (Maybe; just; nothing)
 

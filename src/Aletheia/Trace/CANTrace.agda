@@ -19,3 +19,5 @@ record TimedFrame : Set where
   field
     timestamp : Timestamp  -- Time in microseconds since trace start
     frame : CANFrame
+
+open TimedFrame public

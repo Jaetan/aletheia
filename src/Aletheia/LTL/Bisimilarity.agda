@@ -22,7 +22,7 @@ open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL; MetricEventuall
             Release to ReleaseProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
-open import Aletheia.Trace.Context using (TimedFrame; timestamp)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 

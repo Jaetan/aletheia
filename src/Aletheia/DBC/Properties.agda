@@ -12,23 +12,13 @@ module Aletheia.DBC.Properties where
 open import Aletheia.DBC.Types
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; all)
 open import Data.Nat using (ℕ; _<_; _≤_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Bool using (Bool; true; _∧_)
 open import Data.Rational using (ℚ; _≤ᵇ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.Product using (_×_; _,_)
-
--- ============================================================================
--- HELPER FUNCTIONS
--- ============================================================================
-
--- Check if all elements of a list satisfy a predicate
--- Replacement for deprecated Data.List.all
-all : {A : Set} → (A → Bool) → List A → Bool
-all pred [] = true
-all pred (x ∷ xs) = pred x ∧ all pred xs
 
 -- ============================================================================
 -- BASIC STRUCTURAL PROPERTIES
@@ -125,8 +115,4 @@ dbc-well-formed dbc =
    1. Well-formedness preservation: Valid JSON → parsed DBC is well-formed
    2. Signal extraction correctness: Extracted values match signal definitions
    3. Range validation: Signal values within min/max bounds
-
-   Phase 5: Pretty-printer and round-trip properties
-   - Implement: printDBC : DBC → JSON
-   - Prove: parse ∘ print ≡ id (for well-formed DBCs)
 -}
