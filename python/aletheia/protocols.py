@@ -164,6 +164,12 @@ class NeverFormula(TypedDict):
     formula: 'LTLFormula'
 
 
+class NextFormula(TypedDict):
+    """Next: X(formula)"""
+    type: Literal["next"]
+    formula: 'LTLFormula'
+
+
 class MetricEventuallyFormula(TypedDict):
     """Metric Eventually: F_{<=t}(formula)"""
     type: Literal["metricEventually"]
@@ -226,6 +232,7 @@ LTLFormula = (
     AlwaysFormula |
     EventuallyFormula |
     NeverFormula |
+    NextFormula |
     MetricEventuallyFormula |
     MetricAlwaysFormula |
     ImpliesFormula |

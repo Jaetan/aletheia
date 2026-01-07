@@ -1,9 +1,9 @@
 # Aletheia (Ἀλήθεια) Design Document
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
-**Version**: 0.2.0-dev
+**Version**: 0.3.0-dev
 **Status**: Phase 3 - Verification + Performance (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
-**Last Updated**: 2025-12-17
+**Last Updated**: 2026-01-08
 
 ## Project Overview
 
@@ -13,7 +13,7 @@ Aletheia provides mathematically proven tools to verify automotive software by a
 
 ## Architectural Constraints
 
-See [ARCHITECTURAL_ANALYSIS.md](ARCHITECTURAL_ANALYSIS.md) for detailed research findings and decision rationale.
+CAN protocol decisions (extended IDs, multiplexing) were researched during Phase 1→2 transition and are now implemented in Phase 2A/2B.
 
 **Key Decisions**:
 
@@ -75,7 +75,6 @@ See [PROTOCOL.md](PROTOCOL.md) for complete protocol specification, message type
 
 - **[PROTOCOL.md](PROTOCOL.md)** - Complete JSON protocol specification
 - **[PROJECT_STATUS.md](../../PROJECT_STATUS.md)** - Project status and roadmap
-- **[ARCHITECTURAL_ANALYSIS.md](ARCHITECTURAL_ANALYSIS.md)** - Research-backed decisions
 - **[CLAUDE.md](../../CLAUDE.md)** - Development guidelines
 - **[BUILDING.md](../development/BUILDING.md)** - Build instructions
 

@@ -1,8 +1,8 @@
 # Aletheia Python DSL Guide
 
 **Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
-**Version**: 0.2.0-dev (Phase 3)
-**Last Updated**: 2025-12-02
+**Version**: 0.3.0-dev (Phase 3)
+**Last Updated**: 2026-01-08
 
 ---
 
@@ -122,6 +122,50 @@ brake_pressed.within(100)
 Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced door sensor
 ```
 
+#### Next Operator (Use with Caution)
+
+The `Next` operator evaluates a formula at the next frame:
+
+```python
+# Next: property must hold at next frame
+Signal("Speed").less_than(100).next()
+```
+
+**⚠️ WARNING: Next is rarely appropriate for CAN analysis**
+
+**Why Next is problematic:**
+
+1. **Timing Uncertainty**: CAN frames don't arrive at fixed intervals
+   - Variable network load and ECU processing jitter (1-10ms typical)
+   - Priority-based arbitration introduces delays
+   - "Next frame" is ambiguous (next from same ECU? any ECU?)
+
+2. **Brittle Properties**: Next-based properties are fragile
+   - Break with minor timing changes
+   - False positives from normal jitter
+   - Don't capture intended temporal semantics
+
+3. **Non-deterministic Ordering**:
+   - What if a frame is missed or dropped?
+   - Retransmissions complicate frame ordering
+   - Multi-ECU systems have unpredictable interleaving
+
+**Recommended Alternatives:**
+
+| Use Case | Instead of Next | Use This |
+|----------|----------------|----------|
+| Time-bounded response | `brake.next()` | `brake.within(100)` - Within 100ms |
+| State transition timing | `state_a.next()` | `state_a.metric_until(100, state_b)` |
+| Sequence verification | `a.next()` then `b.next()` | `a.until(b)` - a holds until b |
+| Eventual occurrence | `signal.next()` | `signal.eventually()` |
+
+**When Next might be acceptable:**
+- Analyzing synthetic traces with fixed timesteps (testing only)
+- Frame-by-frame debugging (not production verification)
+- Comparing against LTL textbook examples (educational)
+
+**Bottom line:** Always prefer metric operators (`.within()`, `.metric_until()`) over Next for real CAN traces.
+
 ---
 
 ### Logical Composition
@@ -181,6 +225,49 @@ power_off.implies(
     power_start.never().until(power_acc)
 )
 ```
+
+---
+
+### Advanced Temporal Operators
+
+#### Release Operator
+
+The Release operator is the dual of Until: `φ R ψ` means ψ holds until φ releases it (or forever if φ never holds).
+
+```python
+# Brake must stay engaged until ignition turns on
+ignition_on = Signal("Ignition").equals(1).eventually()
+brake_engaged = Signal("Brake").equals(1).always()
+property = ignition_on.release(brake_engaged)
+```
+
+**Semantics**: The right-hand side (brake_engaged) must remain true until the left-hand side (ignition_on) becomes true and "releases" the obligation. If the left side never holds, the right side must hold forever.
+
+#### Metric Until
+
+Time-bounded Until: `φ U_{≤t} ψ` means φ holds until ψ becomes true within t milliseconds.
+
+```python
+# Speed must stay above 50 until brake pressed (within 1 second)
+speed_ok = Signal("Speed").greater_than(50).always()
+brake = Signal("Brake").equals(1).eventually()
+property = speed_ok.metric_until(1000, brake)
+```
+
+**Use case**: State transitions with time constraints. The left property must hold continuously until the right property becomes true, and this must happen within the specified time bound.
+
+#### Metric Release
+
+Time-bounded Release: `φ R_{≤t} ψ` means ψ holds until φ releases it within t milliseconds.
+
+```python
+# Safety: Brake engaged until ignition on (within 5 seconds)
+ignition = Signal("Ignition").equals(1).eventually()
+brake = Signal("Brake").equals(1).always()
+property = ignition.metric_release(5000, brake)
+```
+
+**Use case**: Safety properties with maximum delay constraints. The right property must hold until the left property releases it, with a maximum time bound.
 
 ---
 
@@ -619,6 +706,7 @@ class Predicate:
     def always(self) -> Property
     def eventually(self) -> Property
     def never(self) -> Property
+    def next(self) -> Property  # ⚠️ Rarely useful - see Next Operator warning above
     def within(self, time_ms: int) -> Property
     def for_at_least(self, time_ms: int) -> Property
 
@@ -636,8 +724,15 @@ class Property:
     # Logical operators
     def and_(self, other: Property) -> Property
     def or_(self, other: Property) -> Property
+    def not_(self) -> Property
     def implies(self, other: Union[Property, Predicate]) -> Property
+
+    # Temporal operators
+    def next(self) -> Property  # ⚠️ For nested formulas - see Next Operator warning
     def until(self, other: Property) -> Property
+    def release(self, other: Property) -> Property
+    def metric_until(self, time_ms: int, other: Property) -> Property
+    def metric_release(self, time_ms: int, other: Property) -> Property
 
     # Serialization
     def to_dict(self) -> Dict[str, Any]

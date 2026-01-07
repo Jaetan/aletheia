@@ -91,49 +91,22 @@ Four modules require extensions incompatible with `--safe` for coinductive strea
 
 ## Common Commands
 
-See [Building Aletheia](docs/development/BUILDING.md) for comprehensive build instructions, including:
+See [Building Guide](docs/development/BUILDING.md) for comprehensive build instructions, including:
 - Build system commands (Shake via Cabal)
 - Python virtual environment setup
 - Common development workflows
 - Troubleshooting build issues
 
-Quick reference (see [BUILDING.md](docs/development/BUILDING.md) for detailed instructions):
+Quick reference for development:
 ```bash
-cabal run shake -- build              # Build everything
-python3 -m venv venv && source venv/bin/activate  # Set up Python environment
-python3 -m pytest tests/ -v           # Run tests
-```
+# Type-check a single Agda module
+cd src && agda Aletheia/YourModule.agda
 
-### Agda Development
-
-```bash
-# Type-check a single module (faster than full build)
-cd src
-agda Aletheia/YourModule.agda
-
-# Type-check main entry point (verifies all dependencies)
-# IMPORTANT: Use parallel GHC for complex modules (Protocol, Main)
-agda +RTS -N32 -RTS Aletheia/Main.agda
-
-# Check with verbose output
-agda -v 10 Aletheia/YourModule.agda
-
-# Parallel compilation (recommended for all modules)
-# Uses up to 32 CPU cores for GHC's runtime
-agda +RTS -N32 -RTS Aletheia/YourModule.agda
-```
-
-### Testing
-
-```bash
-# Test the compiled binary
-echo "test" | ./build/aletheia
+# Build everything
+cabal run shake -- build
 
 # Run Python tests
 cd python && python3 -m pytest tests/ -v
-
-# Try examples
-cd examples && python3 simple_verification.py
 ```
 
 ## Architecture (Three-Layer Design)
@@ -144,14 +117,15 @@ See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the th
 
 ## Module Structure
 
-Agda modules are organized by package:
+Agda modules are organized by package. See [README.md](README.md#project-structure) for the complete file tree.
+
+Core packages:
 - **Parser/**: Parser combinators and string utilities
-- **CAN/**: CAN frame encoding/decoding (Endianness, Encoding)
+- **CAN/**: CAN frame encoding/decoding
 - **DBC/**: DBC file parser
-- **LTL/**: Linear Temporal Logic (Syntax, Semantics, Coinductive, Incremental, SignalPredicate)
-- **Trace/**: Trace types (Stream, Context)
+- **LTL/**: Linear Temporal Logic (Syntax, Semantics, Incremental, Coinductive)
+- **Trace/**: Trace types and streaming
 - **Protocol/**: JSON protocol and streaming state machine
-- **Data/**: Utility types (DelayedColist)
 
 See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer architecture diagram.
 
@@ -194,9 +168,9 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 
 ## Requirements
 
-See [BUILDING.md](docs/development/BUILDING.md#prerequisites) for detailed requirements and installation instructions.
+See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed requirements and installation instructions.
 
-Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+ (uses `typing.override`)
+Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+
 
 ## Important Notes
 
@@ -268,41 +242,6 @@ combined = list1 ++ₗ list2
 
 **Important**: Underscores are invisible in infix usage, but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
 
-### Extended Lambda Equality - Investigation Results (December 2025)
-
-**Problem**: Extended lambdas (`λ where .force → ...`) at different source locations are nominally distinct, blocking certain proofs.
-
-**Root Cause**: Fundamental type theory limitation (nominal vs structural equality), not an Agda bug. Even with K axiom enabled, extended lambdas remain nominally distinct.
-
-**Solution**: Postulate **generic extensionality properties** and prove lemmas as corollaries:
-- **5 generic delay monad postulates**: `funExt`, `bind-cong`, `bind-now`, `later-ext`, `later-cong`
-- **4 operator-specific postulates**: `always-rhs-when-false`, `always-rhs-when-true`, etc.
-- **Total**: 9 postulates (reasonable for verified LTL checker)
-
-**Successfully Proven**: 3 out of 7 Always operator lemmas using generic `later-ext` postulate.
-
-**Theoretical Justification**: Chapman et al. (2015) "Quotienting the Delay Monad by Weak Bisimilarity" also postulates extensionality properties for delay monad bind operations. Our approach is aligned with research best practices.
-
-**Comprehensive Guide**: See [docs/EXTENDED_LAMBDA_GUIDE.md](docs/EXTENDED_LAMBDA_GUIDE.md) for:
-- What are extended lambdas and why they're necessary
-- Why K axiom doesn't help (tested and verified)
-- Patterns that work vs don't work (`later-ext` vs direct lambda comparison)
-- Examples from codebase
-- Experimentation results with `bind-if-later-ext`
-- Research references
-
-**Investigation Plans** (for historical reference):
-- [~/.claude/plans/cosmic-spinning-axolotl.md](~/.claude/plans/cosmic-spinning-axolotl.md) - Comprehensive investigation
-- [~/.claude/plans/ancient-snuggling-rainbow.md](~/.claude/plans/ancient-snuggling-rainbow.md) - Initial investigation
-- [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) - Modularization work
-
-**Key Findings for Future Development**:
-- ✅ **Use `later-ext`** to avoid direct lambda comparison (works at thunk force level)
-- ✅ **Use `bind-now`** to avoid matching on continuations
-- ✅ **Use rewriting** to expose structure before applying lemmas
-- ❌ **Don't try** to prove lambda equality directly - it's nominally blocked
-- ❌ **K axiom doesn't help** - it provides UIP, not lambda equality
-
 ## Troubleshooting
 
 **Build failures**: `cabal run shake -- clean && cabal run shake -- build`
@@ -337,6 +276,8 @@ For detailed phase completion status, deliverables, and roadmap, see [PROJECT_ST
 ## For Human Developers
 
 This section provides guidance for developers new to Agda or the Aletheia codebase.
+
+**New to the project?** Start with the [Project Pitch](docs/PITCH.md) to understand why Aletheia exists and what it solves.
 
 ### For Agda Newcomers
 

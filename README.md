@@ -16,16 +16,14 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 ### Prerequisites
 
-See [Building Guide](docs/development/BUILDING.md) for detailed installation instructions.
-
 ### Installation
 
 ```bash
-cabal run shake -- build              # Build the system
-cabal run shake -- install-python     # Install Python package
+# Quick build (see BUILDING.md for detailed instructions)
+cabal run shake -- build
 ```
 
-See [docs/development/BUILDING.md](docs/development/BUILDING.md) for detailed build instructions.
+For complete build instructions, troubleshooting, and development workflow, see [Building Guide](docs/development/BUILDING.md).
 
 ### Basic Usage
 
@@ -95,29 +93,32 @@ aletheia/
 
 ## Documentation
 
-### Getting Started
-- [Building Guide](docs/development/BUILDING.md) - Build instructions and dependencies
-- [Python API Guide](docs/development/PYTHON_API.md) - Complete Python API reference
-- [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Learn batch signal operations
+**📚 [Complete Documentation Index](docs/INDEX.md)** - Full navigation guide
 
-### Project Information
-- [Project Pitch](docs/PITCH.md) - Why Aletheia? Benefits, risks, and honest assessment for teams
-- [Project Status](PROJECT_STATUS.md) - Current phase, deliverables, and roadmap
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to the project
-- [License](LICENSE.md) - BSD 2-Clause License
+### Getting Started
+- [Building Guide](docs/development/BUILDING.md) - Setup and installation
+- [Python API Guide](docs/development/PYTHON_API.md) - Complete DSL reference
+- [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Hands-on examples
 
 ### Architecture & Design
-- [Design Document](docs/architecture/DESIGN.md) - Detailed architecture and formal verification
-- [CLAUDE.md](CLAUDE.md) - Development workflow and project rules
+- [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture
+- [JSON Protocol](docs/architecture/PROTOCOL.md) - Low-level protocol specification
 
-### Examples
-- [Batch Operations Examples](examples/batch_operations/) - 6 complete examples with explanations
+### Contributing
+- [Contributing Guide](CONTRIBUTING.md) - How to contribute
+- [CLAUDE.md](CLAUDE.md) - AI-assisted development
+- [Project Status](PROJECT_STATUS.md) - Current phase and roadmap
+
+### Additional
+- [Project Pitch](docs/PITCH.md) - Why Aletheia?
+- [Examples](examples/) - Sample DBC files and scripts
+- [Integration Tests](tests/integration/INTEGRATION_TESTING.md) - Test suite
 
 ## Project Status
 
-**Current Phase**: Phase 2B Complete + Batch Operations Extension
+**Current Phase**: See [PROJECT_STATUS.md](PROJECT_STATUS.md) for current phase and detailed status
 
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed information on deliverables, quality gates, and roadmap.
+Complete information on deliverables, quality gates, and roadmap available in PROJECT_STATUS.md.
 
 ## Contributing
 

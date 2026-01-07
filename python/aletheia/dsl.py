@@ -31,6 +31,7 @@ from .protocols import (
     ReleaseFormula,
     MetricUntilFormula,
     MetricReleaseFormula,
+    NextFormula,
 )
 
 
@@ -242,6 +243,43 @@ class Predicate:
         """
         formula: NeverFormula = {
             'type': 'never',
+            'formula': self._data
+        }
+        return Property(formula)
+
+    def next(self) -> 'Property':
+        """Property must hold in the next frame (X operator)
+
+        WARNING: The Next operator is rarely useful in CAN analysis due to:
+        - Timing uncertainty: CAN frames don't arrive at fixed intervals
+        - ECU jitter: Processing delays vary unpredictably (1-10ms typical)
+        - Network effects: Retransmissions, priority inversion, bus contention
+        - Ambiguous semantics: "Next frame" from which ECU?
+
+        For time-bounded checks, use .within(time_ms) instead:
+        - More robust: Tolerates jitter and timing variations
+        - Explicit bounds: Clearly states acceptable time window
+        - Better semantics: "Within 100ms" is clearer than "next frame"
+
+        Returns:
+            Temporal property (LTL Next formula)
+
+        Example (discouraged):
+            # Anti-pattern: Assumes next frame arrives immediately
+            Signal("Brake").equals(1).next()
+
+        Better alternatives:
+            # Time-bounded check (recommended)
+            Signal("Brake").equals(1).within(10)  # Within 10ms
+
+            # Eventually (if timing doesn't matter)
+            Signal("Brake").equals(1).eventually()
+
+            # Metric until for state transitions
+            state_a.metric_until(100, state_b)  # Transition within 100ms
+        """
+        formula: NextFormula = {
+            'type': 'next',
             'formula': self._data
         }
         return Property(formula)
@@ -586,6 +624,27 @@ class Property:
         }
         return Property(formula)
 
+    def next(self) -> 'Property':
+        """Apply Next operator to nested formula
+
+        WARNING: Next is rarely useful for CAN analysis.
+        See Predicate.next() docstring for warnings and better alternatives.
+
+        Use this for nested temporal operators like X(G(φ)) - "next, then always".
+
+        Returns:
+            Nested temporal property (X(nested))
+
+        Example:
+            # X(G(p)) - next frame, then always
+            Signal("State").equals(1).always().next()
+        """
+        formula: NextFormula = {
+            'type': 'next',
+            'formula': self._data
+        }
+        return Property(formula)
+
     def to_dict(self) -> LTLFormula:
         """Convert to dictionary for use with StreamingClient
 
@@ -604,9 +663,13 @@ class Property:
 # ============================================================================
 
 def infinitely_often(formula: Property | Predicate) -> Property:
-    """G(F φ) - Property holds infinitely many times
+    """G(F φ) - Property holds infinitely many times (liveness pattern)
 
     Standard LTL pattern for liveness properties that must occur repeatedly.
+    This is NOT a primitive operator, but a composition of Always and Eventually.
+
+    Use this when: You need to verify recurring behaviors (e.g., periodic signals,
+    repeated state transitions, cyclic patterns).
 
     Args:
         formula: Property or Predicate that must hold infinitely often
@@ -618,8 +681,10 @@ def infinitely_often(formula: Property | Predicate) -> Property:
         # Speed exceeds 100 infinitely often (repeated acceleration)
         infinitely_often(Signal("Speed").greater_than(100))
 
-        # Equivalent to:
+        # Equivalent fluent form:
         Signal("Speed").greater_than(100).eventually().always()
+
+    Note: Helper exists for clarity when expressing this common LTL pattern.
     """
     if isinstance(formula, Predicate):
         inner = formula.eventually()
@@ -629,9 +694,13 @@ def infinitely_often(formula: Property | Predicate) -> Property:
 
 
 def eventually_always(formula: Property | Predicate) -> Property:
-    """F(G φ) - Property eventually holds forever
+    """F(G φ) - Property eventually holds forever (stability pattern)
 
     Standard LTL pattern for stability/convergence properties.
+    This is NOT a primitive operator, but a composition of Eventually and Always.
+
+    Use this when: You need to verify that a system reaches a stable state
+    (e.g., temperature stabilization, mode transitions, initialization complete).
 
     Args:
         formula: Property or Predicate that must eventually stabilize
@@ -643,8 +712,10 @@ def eventually_always(formula: Property | Predicate) -> Property:
         # Temperature eventually stabilizes below 70 degrees
         eventually_always(Signal("Temperature").less_than(70))
 
-        # Equivalent to:
+        # Equivalent fluent form:
         Signal("Temperature").less_than(70).always().eventually()
+
+    Note: Helper exists for clarity when expressing this common LTL pattern.
     """
     if isinstance(formula, Predicate):
         inner = formula.always()

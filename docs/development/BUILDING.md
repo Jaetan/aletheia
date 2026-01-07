@@ -108,11 +108,15 @@ agda test.agda
 
 #### 5. Python
 
-**Version**: 3.13.7 (recommended, minimum 3.9)
+**Minimum version: 3.12** (required by package dependencies)
+**Recommended: 3.13.7** (latest stable)
+
+The project uses modern Python type hints with `from __future__ import annotations`.
+
 ```bash
-# Check if Python is installed
+# Check if Python is installed (must be 3.12+)
 python3 --version
-# Should output: Python 3.13.7 (or later)
+# Should output: Python 3.12.0 or higher
 
 # If you need to install Python 3.13.7:
 # - On Ubuntu/Debian: Use deadsnakes PPA

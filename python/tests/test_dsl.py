@@ -24,10 +24,14 @@ from aletheia.protocols import (
     AlwaysFormula,
     EventuallyFormula,
     NeverFormula,
+    NextFormula,
     MetricEventuallyFormula,
     MetricAlwaysFormula,
     ImpliesFormula,
     UntilFormula,
+    ReleaseFormula,
+    MetricUntilFormula,
+    MetricReleaseFormula,
 )
 
 
@@ -224,6 +228,148 @@ class TestTemporalOperators:
         prop = Signal("EngineOn").equals(1).for_at_least(3600000)  # 1 hour
         data = cast(MetricAlwaysFormula, prop.to_dict())
         assert data['time_ms'] == 3600000
+
+
+# ============================================================================
+# NEXT OPERATOR
+# ============================================================================
+
+class TestNextOperator:
+    """Test Next operator (with warnings about brittleness)"""
+
+    def test_predicate_next(self):
+        """Predicate.next() creates NextFormula"""
+        prop = Signal("Speed").less_than(100).next()
+        assert isinstance(prop, Property)
+        data = cast(NextFormula, prop.to_dict())
+        assert data['type'] == 'next'
+        formula = cast(CompareFormula, data['formula'])
+        assert formula['signal'] == 'Speed'
+        assert formula['op'] == 'LT'
+        assert formula['value'] == 100
+
+    def test_property_next(self):
+        """Property.next() creates nested Next formula"""
+        prop = Signal("State").equals(1).always().next()
+        data = cast(NextFormula, prop.to_dict())
+        assert data['type'] == 'next'
+        always_formula = cast(AlwaysFormula, data['formula'])
+        assert always_formula['type'] == 'always'
+
+    def test_next_chaining(self):
+        """Multiple Next operators chain correctly"""
+        prop = Signal("X").equals(1).next().next()
+        data = cast(NextFormula, prop.to_dict())
+        assert data['type'] == 'next'
+        inner = cast(NextFormula, data['formula'])
+        assert inner['type'] == 'next'
+        innermost = cast(CompareFormula, inner['formula'])
+        assert innermost['signal'] == 'X'
+
+
+# ============================================================================
+# RELEASE OPERATOR
+# ============================================================================
+
+class TestReleaseOperator:
+    """Test Release operator (dual of Until)"""
+
+    def test_release_basic(self):
+        """Property.release() creates ReleaseFormula"""
+        left = Signal("Brake").equals(1).always()
+        right = Signal("Ignition").equals(0).always()
+        prop = left.release(right)
+
+        data = cast(ReleaseFormula, prop.to_dict())
+        assert data['type'] == 'release'
+        assert 'left' in data
+        assert 'right' in data
+
+    def test_release_semantics(self):
+        """Release operator: right holds until left releases it"""
+        ignition_on = Signal("Ignition").equals(1).eventually()
+        brake_engaged = Signal("Brake").equals(1).always()
+        prop = ignition_on.release(brake_engaged)
+
+        data = cast(ReleaseFormula, prop.to_dict())
+        assert data['type'] == 'release'
+        left_formula = cast(EventuallyFormula, data['left'])
+        assert left_formula['type'] == 'eventually'
+        right_formula = cast(AlwaysFormula, data['right'])
+        assert right_formula['type'] == 'always'
+
+
+# ============================================================================
+# METRIC UNTIL OPERATOR
+# ============================================================================
+
+class TestMetricUntilOperator:
+    """Test Metric Until operator (time-bounded until)"""
+
+    def test_metric_until_basic(self):
+        """Property.metric_until() creates MetricUntilFormula"""
+        speed_ok = Signal("Speed").greater_than(50).always()
+        brake = Signal("Brake").equals(1).eventually()
+        prop = speed_ok.metric_until(1000, brake)
+
+        data = cast(MetricUntilFormula, prop.to_dict())
+        assert data['type'] == 'metricUntil'
+        assert data['time_ms'] == 1000
+        assert 'left' in data
+        assert 'right' in data
+
+    def test_metric_until_zero_time(self):
+        """metric_until with 0ms is valid"""
+        left = Signal("A").equals(1).always()
+        right = Signal("B").equals(1).eventually()
+        prop = left.metric_until(0, right)
+
+        data = cast(MetricUntilFormula, prop.to_dict())
+        assert data['time_ms'] == 0
+
+    def test_metric_until_large_time(self):
+        """metric_until with large time bound (1 hour)"""
+        left = Signal("X").equals(1).always()
+        right = Signal("Y").equals(1).eventually()
+        prop = left.metric_until(3600000, right)
+
+        data = cast(MetricUntilFormula, prop.to_dict())
+        assert data['time_ms'] == 3600000
+
+
+# ============================================================================
+# METRIC RELEASE OPERATOR
+# ============================================================================
+
+class TestMetricReleaseOperator:
+    """Test Metric Release operator (time-bounded release)"""
+
+    def test_metric_release_basic(self):
+        """Property.metric_release() creates MetricReleaseFormula"""
+        ignition = Signal("Ignition").equals(1).eventually()
+        brake = Signal("Brake").equals(1).always()
+        prop = ignition.metric_release(5000, brake)
+
+        data = cast(MetricReleaseFormula, prop.to_dict())
+        assert data['type'] == 'metricRelease'
+        assert data['time_ms'] == 5000
+        assert 'left' in data
+        assert 'right' in data
+
+    def test_metric_release_edge_cases(self):
+        """Metric release with edge case time bounds"""
+        left = Signal("A").equals(1).eventually()
+        right = Signal("B").equals(1).always()
+
+        # Zero time
+        prop_zero = left.metric_release(0, right)
+        data_zero = cast(MetricReleaseFormula, prop_zero.to_dict())
+        assert data_zero['time_ms'] == 0
+
+        # Large time (24 hours)
+        prop_large = left.metric_release(86400000, right)
+        data_large = cast(MetricReleaseFormula, prop_large.to_dict())
+        assert data_large['time_ms'] == 86400000
 
 
 # ============================================================================

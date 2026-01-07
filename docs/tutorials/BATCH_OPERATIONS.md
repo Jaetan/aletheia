@@ -3,6 +3,11 @@
 **Version**: Phase 2B.1
 **Last Updated**: 2025-12-09
 
+**See Also**:
+- [Python API Guide](../development/PYTHON_API.md) - Complete DSL reference
+- [Design Overview](../architecture/DESIGN.md) - Architecture context
+- [README](../../README.md) - Project overview
+
 ---
 
 ## Table of Contents
@@ -932,20 +937,14 @@ with SignalExtractor(dbc=dbc) as extractor:
 3. **Explore example scripts**: Check `examples/batch_operations/` for full working examples
 4. **Learn about streaming**: See `docs/tutorials/STREAMING.md` for LTL verification
 
-### Getting Help
+## See Also
 
-- **Build issues**: See `docs/development/BUILDING.md`
-- **API questions**: See `docs/development/PYTHON_API.md`
-- **Agda details**: See `docs/architecture/DESIGN.md`
-- **Project status**: See `PROJECT_STATUS.md`
-
-### Related Documentation
-
-- **Streaming Protocol**: For real-time LTL verification
-- **DBC Format**: Understanding CAN database files
-- **Signal Encoding**: How signals map to frame bits
-- **Multiplexing**: Advanced signal multiplexing patterns
+- [Python API Guide](../development/PYTHON_API.md) - Complete Python DSL documentation
+- [Building Guide](../development/BUILDING.md) - Build and setup instructions
+- [Design Overview](../architecture/DESIGN.md) - Three-layer architecture
+- [Documentation Index](../INDEX.md) - All documentation
 
 ---
 
-**End of Tutorial**
+**Tutorial Version**: Phase 2B.1
+**Last Updated**: 2025-12-09
