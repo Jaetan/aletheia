@@ -1,5 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
+-- Signal encoding/decoding with runtime bounds checking (no postulates)
+
 -- Signal extraction and injection from CAN frames (bit-level operations).
 --
 -- Purpose: Extract/inject signal values from 8-byte CAN frames using DBC definitions.
@@ -14,7 +16,9 @@ module Aletheia.CAN.Encoding where
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Endianness
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_)
+open import Aletheia.Data.BitVec
+open import Aletheia.Data.BitVec.Conversion
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_; _<_; _<?_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
@@ -97,9 +101,12 @@ extractSignal frame signalDef byteOrder =
       bytes = if isBigEndian byteOrder
               then swapBytes payload
               else payload
-      -- Extract raw bits
+      -- Extract raw bits as BitVec
+      rawBitVec : BitVec (toℕ bitLength)
+      rawBitVec = extractBits bytes (toℕ startBit)
+      -- Convert BitVec → ℕ at the boundary
       rawBits : ℕ
-      rawBits = extractBits bytes (toℕ startBit) (toℕ bitLength)
+      rawBits = bitVecToℕ rawBitVec
       -- Convert to signed if needed
       signedValue : ℤ
       signedValue = toSigned rawBits (toℕ bitLength) isSigned
@@ -129,29 +136,41 @@ injectSignal value signalDef byteOrder frame =
     open import Data.Maybe using (_>>=_)
 
     injectHelper : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
-    injectHelper value signalDef byteOrder frame =
+    injectHelper value signalDef byteOrder frame
+      with removeScaling value factor offset
+         where open SignalDef signalDef
+    ... | nothing = nothing
+    ... | just rawSigned
+      with fromSigned rawSigned (toℕ bitLength) <? 2 ^ toℕ bitLength
+         where open SignalDef signalDef
+    ...   | no _ = nothing  -- Raw value doesn't fit in bitLength bits
+    ...   | yes bounded =
       let open CANFrame frame
           open SignalDef signalDef
-      in removeScaling value factor offset >>= λ rawSigned →
-         let -- Convert to unsigned
-             rawUnsigned : ℕ
-             rawUnsigned = fromSigned rawSigned (toℕ bitLength)
-             -- Inject bits
-             bytes : Vec Byte 8
-             bytes = if isBigEndian byteOrder
-                     then swapBytes payload
-                     else payload
-             updatedBytes : Vec Byte 8
-             updatedBytes = injectBits bytes (toℕ startBit) rawUnsigned (toℕ bitLength)
-             finalBytes : Vec Byte 8
-             finalBytes = if isBigEndian byteOrder
-                          then swapBytes updatedBytes
-                          else updatedBytes
-         in just (record frame { payload = finalBytes })
+          -- Convert to unsigned with proof
+          rawUnsigned : ℕ
+          rawUnsigned = fromSigned rawSigned (toℕ bitLength)
+          -- Convert ℕ → BitVec with proof
+          rawBitVec : BitVec (toℕ bitLength)
+          rawBitVec = ℕToBitVec rawUnsigned bounded
+          -- Inject bits
+          bytes : Vec Byte 8
+          bytes = if isBigEndian byteOrder
+                  then swapBytes payload
+                  else payload
+          updatedBytes : Vec Byte 8
+          updatedBytes = injectBits bytes (toℕ startBit) rawBitVec
+          finalBytes : Vec Byte 8
+          finalBytes = if isBigEndian byteOrder
+                       then swapBytes updatedBytes
+                       else updatedBytes
+      in just (record frame { payload = finalBytes })
 
--- Round-trip correctness properties:
--- 1. extract-after-inject: Extracting after injecting returns the original value
--- 2. payload-preservation: Frame payload preserved through inject/extract cycles
+-- Round-trip correctness properties defined in Aletheia.CAN.Encoding.Properties:
+-- 1. extractBits-injectBits-roundtrip: Bit-level roundtrip (no ℚ)
+-- 2. fromSigned-toSigned-roundtrip: Integer conversion roundtrip (no ℚ)
+-- 3. removeScaling-applyScaling-roundtrip: Scaling roundtrip (isolated ℚ)
+-- 4. extractSignal-injectSignal-roundtrip: Full pipeline roundtrip
+-- 5. SignalsDisjoint: Non-overlapping signals commute and don't interfere
 --
--- These properties should be proven in Aletheia.CAN.Encoding.Properties module.
--- Note: --safe flag prevents postulates; all properties must have proofs.
+-- Strategy: Two-level proof architecture keeps ℚ proofs isolated and small.

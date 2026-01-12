@@ -12,7 +12,8 @@ module Aletheia.DBC.Properties where
 open import Aletheia.DBC.Types
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
-open import Data.List using (List; []; _∷_; all)
+open import Data.List using (List; []; _∷_)
+open import Data.Bool.ListAction using (all)
 open import Data.Nat using (ℕ; _<_; _≤_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Bool using (Bool; true; _∧_)

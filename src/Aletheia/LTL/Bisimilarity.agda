@@ -206,12 +206,6 @@ step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 -- Both satisfied → And satisfied
 ... | Satisfied | Satisfied | satisfied-bisim | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
--- Left violated, right satisfied → And violated
-... | Violated ce1 | Violated ce2 | violated-bisim ceq | Satisfied | Satisfied | satisfied-bisim
-  = violated-bisim ceq
--- Left violated, right continues → And violated
-... | Violated ce1 | Violated ce2 | violated-bisim ceq | Continue _ _ | Continue _ _ | continue-bisim _
-  = violated-bisim ceq
 -- Impossible cases: left results don't match
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _

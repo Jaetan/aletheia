@@ -86,8 +86,10 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "check-properties" $ do
         putInfo "Type-checking Properties modules (proofs)..."
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Parser/Properties.agda"]
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/CAN/Encoding/Properties.agda"]
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/DBC/Properties.agda"]
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Protocol/JSON/Properties.agda"]
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/LTL/Bisimilarity.agda"]
         putInfo "All Properties modules type-checked successfully!"
 
     phony "install-python" $ do
