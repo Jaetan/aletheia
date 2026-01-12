@@ -32,8 +32,8 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (∃; _×_; _,_)
-open import Data.Empty using (⊥)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong)
+open import Data.Empty using (⊥; ⊥-elim)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; inspect; [_]; subst)
 open import Relation.Nullary using (¬_)
 open import Function using (_∘_; _↔_)
 
@@ -121,23 +121,30 @@ fromSigned-toSigned-roundtrip raw bitLength true bitLength>0 raw-bounded
     ... | zero | ≢0 = ⊥-elim (≢0 refl)  -- Contradiction: can't be zero
     ... | suc n | _ = refl  -- suc (suc n ∸ 1) = suc n ∸ 0 = suc n ✓
 
--- Property: Converting unsigned to signed then back to unsigned preserves value
--- (only for signed interpretation - unsigned interpretation loses negative values)
+-- Sign-aware bounds for signed interpretation
+-- This captures the semantic constraint: values must fit in their signed range
+SignedFits : ℤ → ℕ → Set
+SignedFits (+ n) bitLength = n < 2 ^ (bitLength ∸ 1)  -- Positive: fits in positive range
+SignedFits -[1+ n ] bitLength = suc n ≤ 2 ^ (bitLength ∸ 1)  -- Negative: fits in negative range
+
+-- Property: Converting signed to unsigned then back to signed preserves value
+-- The precondition is now sign-aware: positive values need positive range, negatives need negative range
 toSigned-fromSigned-roundtrip : ∀ (z : ℤ) (bitLength : ℕ)
   → (bitLength > 0)
-  → (fromSigned z bitLength < 2 ^ bitLength)  -- Result fits
+  → SignedFits z bitLength
   → toSigned (fromSigned z bitLength) bitLength true ≡ z
-toSigned-fromSigned-roundtrip (+ n) bitLength bitLength>0 fits =
-  -- fromSigned (+ n) _ = n, then toSigned n bitLength true
-  -- If n < signBitMask, returns + n ✓
-  -- If n ≥ signBitMask, would interpret as negative (wrong!)
-  -- So we need: n < 2 ^ (bitLength ∸ 1)
-  {!!}  -- TODO: Add precondition that positive values fit in positive range
-toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 fits =
+toSigned-fromSigned-roundtrip (+ n) bitLength bitLength>0 n-fits =
+  -- fromSigned (+ n) _ = n
+  -- Since n < 2 ^ (bitLength ∸ 1), we have ¬ (signBitMask ≤ n)
+  -- So isNegative = false, and toSigned returns + n
+  {!!}  -- TODO: Show <⇒¬≥ implies ≤ᵇ returns false, then if returns + n
+toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 n-fits =
   -- fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
-  -- This is ≥ signBitMask (two's complement representation)
-  -- toSigned should recognize it as negative and convert back
-  {!!}  -- TODO: Prove two's complement roundtrip
+  -- toSigned will take negative branch (proven separately)
+  -- Then: -[1+ ((2 ^ bitLength) ∸ ((2 ^ bitLength) ∸ (suc n)) ∸ 1) ]
+  --     = -[1+ (suc n ∸ 1) ]  (by m ∸ (m ∸ k) = k when k ≤ m)
+  --     = -[1+ n ]  (by suc n ∸ 1 = n)
+  {!!}  -- TODO: Apply m∸[m∸n]≡n and simplify
 
 -- Property: fromSigned produces bounded results (for negative numbers)
 -- Note: For positive numbers, the caller must ensure the input fits
