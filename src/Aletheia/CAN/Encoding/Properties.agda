@@ -24,7 +24,7 @@ open import Aletheia.Data.BitVec
 open import Aletheia.Data.BitVec.Conversion
 open import Data.Vec using (Vec)
 open import Data.Fin using (Fin; toℕ)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; 0ℚ; floor)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _/_ to _/ᵣ_)
@@ -56,35 +56,20 @@ open import Function using (_∘_; _↔_)
 -- These proofs work because BitVec = Vec Bool, not ℕ + arithmetic.
 -- Bit independence is structural, not a theorem.
 
-{- TODO Phase 3: Bit-level roundtrip proof
-
-   Property: extractBits-injectBits-roundtrip (NEW ARCHITECTURE)
-   -------------------------------------------------------------
-   Extracting after injecting returns the original bitvector
-
-   NEW SIGNATURE (BitVec-based):
-   ∀ {length} (bytes : Vec Byte 8) (startBit : ℕ) (bits : BitVec length)
-   → (startBit + length ≤ 64)  -- Bits stay within frame
-   → extractBits (injectBits bytes startBit bits) startBit ≡ bits
-
-   Proof strategy (MUCH SIMPLER than arithmetic approach):
-   - Induction on length
-   - Base case ([]): Trivial, both sides return []
-   - Inductive case (b ∷ bs):
-     * extractBits (injectBits bytes start (b ∷ bs)) start
-     * = (testBit (setBit byte idx b) idx) ∷ (extractBits (injectBits bytes' ...) ...)
-     * = b ∷ bs  (by testBit-setBit-same + IH)
-
-   Required lemmas (ALL PROVEN in BitVec module):
-   - testBit-setBit-same : ✅ PROVEN (3 lines, structural induction)
-   - testBit-setBit-diff : ✅ PROVEN (6 lines, structural induction)
-
-   Estimated difficulty: LOW (2-3 hours, just composition)
-   Total proof effort with new architecture: ~3 hours vs 10-14 hours!
-
-   The key insight: Once you give structure a name (BitVec = Vec Bool),
-   the proofs stop fighting you.
--}
+-- ✅ LAYER 1 COMPLETE: extractBits-injectBits-roundtrip PROVEN
+-- See: Aletheia.CAN.Endianness (lines 313-390)
+--
+-- Property: extractBits-injectBits-roundtrip
+-- Signature:
+--   ∀ {length} (bytes : Vec Byte 8) (startBit : ℕ) (bits : BitVec length)
+--   → (startBit + length ≤ 64)  -- CAN frame constraint
+--   → extractBits (injectBits bytes startBit bits) startBit ≡ bits
+--
+-- Proof uses:
+-- - Induction on BitVec length
+-- - testBit-setBit-same from BitVec module (structural)
+-- - m<n*o⇒m/o<n from Data.Nat.DivMod for byte index bounds
+-- - No postulates, full --safe compilation ✅
 
 {- TODO Phase 3: Other bit-level proofs
 
@@ -103,8 +88,7 @@ open import Function using (_∘_; _↔_)
 -- These proofs work with ℕ ↔ ℤ conversion (two's complement).
 -- Still no rational arithmetic.
 
-{- TODO Phase 3: Integer conversion round-trip proofs -}
-
+-- ✅ fromSigned-toSigned-roundtrip PROVEN (lines 110-138)
 -- Property: Converting to signed then back to unsigned preserves value
 -- (for values that fit in the bit width)
 fromSigned-toSigned-roundtrip : ∀ (raw : ℕ) (bitLength : ℕ) (isSigned : Bool)
@@ -137,11 +121,54 @@ fromSigned-toSigned-roundtrip raw bitLength true bitLength>0 raw-bounded
     ... | zero | ≢0 = ⊥-elim (≢0 refl)  -- Contradiction: can't be zero
     ... | suc n | _ = refl  -- suc (suc n ∸ 1) = suc n ∸ 0 = suc n ✓
 
-{- TODO Phase 3: toSigned-fromSigned-roundtrip and fromSigned-bounded
+-- Property: Converting unsigned to signed then back to unsigned preserves value
+-- (only for signed interpretation - unsigned interpretation loses negative values)
+toSigned-fromSigned-roundtrip : ∀ (z : ℤ) (bitLength : ℕ)
+  → (bitLength > 0)
+  → (fromSigned z bitLength < 2 ^ bitLength)  -- Result fits
+  → toSigned (fromSigned z bitLength) bitLength true ≡ z
+toSigned-fromSigned-roundtrip (+ n) bitLength bitLength>0 fits =
+  -- fromSigned (+ n) _ = n, then toSigned n bitLength true
+  -- If n < signBitMask, returns + n ✓
+  -- If n ≥ signBitMask, would interpret as negative (wrong!)
+  -- So we need: n < 2 ^ (bitLength ∸ 1)
+  {!!}  -- TODO: Add precondition that positive values fit in positive range
+toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 fits =
+  -- fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
+  -- This is ≥ signBitMask (two's complement representation)
+  -- toSigned should recognize it as negative and convert back
+  {!!}  -- TODO: Prove two's complement roundtrip
 
-   These require more complex two's complement reasoning.
-   Defer for now while we prove bit-level properties first.
--}
+-- Property: fromSigned produces bounded results (for negative numbers)
+-- Note: For positive numbers, the caller must ensure the input fits
+fromSigned-bounded-neg : ∀ (n : ℕ) (bitLength : ℕ)
+  → (bitLength > 0)
+  → fromSigned -[1+ n ] bitLength < 2 ^ bitLength
+fromSigned-bounded-neg n bitLength bitLength>0 =
+  -- Need to show: (2 ^ bitLength) ∸ (suc n) < 2 ^ bitLength
+  m∸1+n<m (2 ^ bitLength) n (^-positive bitLength)
+  where
+    open import Data.Nat.Properties using (n≤1+n; ≤-refl; <-trans)
+    open import Data.Nat using (_^_)
+
+    -- 2 ^ bitLength > 0 for any bitLength
+    ^-positive : ∀ m → 2 ^ m > 0
+    ^-positive zero = s≤s z≤n
+    ^-positive (suc m) = *-monoʳ-< 2 (^-positive m)
+      where open import Data.Nat.Properties using (*-monoʳ-<)
+
+    -- m ∸ (suc n) < m when m > 0
+    -- Proof: Via auxiliary lemma without m>0 constraint
+    m∸1+n<m : ∀ m n → m > 0 → m ∸ suc n < m
+    m∸1+n<m (suc m) n _ = aux m n
+      where
+        open import Data.Nat.Properties using (≤-refl; <-trans)
+
+        -- Auxiliary: works for all m, n
+        aux : ∀ m n → suc m ∸ suc n < suc m
+        aux m zero = s≤s ≤-refl  -- suc m ∸ 1 = m < suc m
+        aux zero (suc n) = s≤s z≤n  -- 1 ∸ suc (suc n) = 0 < 1
+        aux (suc m) (suc n) = <-trans (aux m n) (s≤s ≤-refl)  -- IH + transitivity
 
 -- ============================================================================
 -- LAYER 3: SCALING PROPERTIES (isolated ℚ lemmas)
