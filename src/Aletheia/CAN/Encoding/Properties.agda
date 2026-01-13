@@ -133,18 +133,89 @@ toSigned-fromSigned-roundtrip : ∀ (z : ℤ) (bitLength : ℕ)
   → (bitLength > 0)
   → SignedFits z bitLength
   → toSigned (fromSigned z bitLength) bitLength true ≡ z
-toSigned-fromSigned-roundtrip (+ n) bitLength bitLength>0 n-fits =
-  -- fromSigned (+ n) _ = n
-  -- Since n < 2 ^ (bitLength ∸ 1), we have ¬ (signBitMask ≤ n)
-  -- So isNegative = false, and toSigned returns + n
-  {!!}  -- TODO: Show <⇒¬≥ implies ≤ᵇ returns false, then if returns + n
-toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 n-fits =
-  -- fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
-  -- toSigned will take negative branch (proven separately)
-  -- Then: -[1+ ((2 ^ bitLength) ∸ ((2 ^ bitLength) ∸ (suc n)) ∸ 1) ]
-  --     = -[1+ (suc n ∸ 1) ]  (by m ∸ (m ∸ k) = k when k ≤ m)
-  --     = -[1+ n ]  (by suc n ∸ 1 = n)
-  {!!}  -- TODO: Apply m∸[m∸n]≡n and simplify
+toSigned-fromSigned-roundtrip (+ n) bitLength bitLength>0 n-fits
+  with (2 ^ (bitLength ∸ 1)) Data.Nat.≤ᵇ n | inspect (Data.Nat._≤ᵇ_ (2 ^ (bitLength ∸ 1))) n
+     where open import Data.Nat using (_≤ᵇ_)
+... | true | [ eq ] =
+  -- Contradiction: ≤ᵇ returned true means signBitMask ≤ n, but we have n < signBitMask
+  ⊥-elim (<⇒≱ n-fits (≤ᵇ⇒≤ (2 ^ (bitLength ∸ 1)) n (subst T (sym eq) tt)))
+  where
+    open import Data.Nat.Properties using (<⇒≱; ≤ᵇ⇒≤)
+    open import Data.Bool using (T)
+    open import Data.Unit using (tt)
+... | false | _ =
+  -- isNegative = false, so toSigned returns + n
+  refl
+toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 n-fits
+  with (2 ^ (bitLength ∸ 1)) Data.Nat.≤ᵇ ((2 ^ bitLength) ∸ (suc n))
+     | inspect (Data.Nat._≤ᵇ_ (2 ^ (bitLength ∸ 1))) ((2 ^ bitLength) ∸ (suc n))
+    where open import Data.Nat using (_≤ᵇ_)
+... | false | [ eq ] =
+  -- Contradiction: should be in negative range
+  ⊥-elim (≤ᵇ-false⇒¬≤ eq (fromSigned-≥-signBit n bitLength bitLength>0 n-fits))
+  where
+    open import Data.Nat.Properties using ()
+    open import Data.Bool using (T)
+
+    -- fromSigned for negative produces value ≥ signBitMask
+    fromSigned-≥-signBit : ∀ n bitLength → bitLength > 0 → suc n ≤ 2 ^ (bitLength ∸ 1)
+      → 2 ^ (bitLength ∸ 1) ≤ (2 ^ bitLength) ∸ (suc n)
+    fromSigned-≥-signBit n (suc bitLength) bitLen>0 n-fits =
+      -- Goal: 2 ^ bitLength ≤ (2 ^ suc bitLength) ∸ (suc n)
+      -- Strategy: Use m+n≤o⇒m≤o∸n with m = 2 ^ bitLength, n = suc n, o = 2 ^ suc bitLength
+      -- Need: 2 ^ bitLength + suc n ≤ 2 ^ suc bitLength
+      m+n≤o⇒m≤o∸n (2 ^ bitLength) sum-bounded
+      where
+        open import Data.Nat.Properties using (m+n≤o⇒m≤o∸n; +-monoʳ-≤)
+
+        -- Power-of-two lemma: 2^(n+1) = 2 * 2^n = 2^n + 2^n
+        -- This is a basic fact about powers of two—we state it once and use it
+        pow2-double : ∀ n → 2 ^ n + 2 ^ n ≡ 2 ^ suc n
+        pow2-double n =
+          trans (cong (λ x → 2 ^ n + x) (sym (+-identityʳ (2 ^ n))))
+                (cong (λ x → 2 ^ n + (2 ^ n + x)) (*-zeroˡ (2 ^ n)))
+          where
+            open import Data.Nat.Properties using (+-identityʳ; *-zeroˡ)
+          -- 2 ^ suc n = 2 * 2 ^ n = 2 ^ n + 2 ^ n + 0 * 2 ^ n (by definition of *)
+          -- Step 1: 2 ^ n + 2 ^ n ≡ 2 ^ n + (2 ^ n + 0) by cong and sym +-identityʳ
+          -- Step 2: 2 ^ n + (2 ^ n + 0) ≡ 2 ^ n + (2 ^ n + 0 * 2 ^ n) by cong and *-zeroˡ
+
+        -- Show: 2 ^ bitLength + suc n ≤ 2 ^ suc bitLength
+        -- Since suc n ≤ 2 ^ bitLength and 2 ^ suc bitLength = 2 ^ bitLength + 2 ^ bitLength
+        sum-bounded : 2 ^ bitLength + suc n ≤ 2 ^ suc bitLength
+        sum-bounded = subst ((2 ^ bitLength + suc n) ≤_) (pow2-double bitLength) (+-monoʳ-≤ (2 ^ bitLength) n-fits)
+
+    -- If ≤ᵇ returns false, then ¬ ≤
+    ≤ᵇ-false⇒¬≤ : ∀ {m n} → (m Data.Nat.≤ᵇ n) ≡ false → m ≤ n → ⊥
+    ≤ᵇ-false⇒¬≤ {m} {n} eq m≤n = subst T eq (≤⇒≤ᵇ m≤n)
+      where
+        open import Data.Nat.Properties using (≤⇒≤ᵇ)
+        -- ≤⇒≤ᵇ : m ≤ n → T (m ≤ᵇ n)
+        -- We have: T (m ≤ᵇ n) from m≤n
+        -- We have: m ≤ᵇ n ≡ false from eq
+        -- So: subst T eq : T (m ≤ᵇ n) → T false
+        -- And T false = ⊥
+... | true | [ eq ] =
+  -- isNegative = true, so toSigned takes negative branch
+  -- Need to show: -[1+ ((2 ^ bitLength) ∸ ((2 ^ bitLength) ∸ (suc n)) ∸ 1) ] ≡ -[1+ n ]
+  cong -[1+_] (trans (cong (_∸ 1) (m∸[m∸n]≡n (<⇒≤ suc-n-bounded))) refl)
+  where
+    open import Data.Nat.Properties using (m∸[m∸n]≡n; <⇒≤)
+    -- suc n ∸ 1 = n by definition, so second trans step is refl
+
+    -- suc n < 2 ^ bitLength (from n-fits: suc n ≤ 2 ^ (bitLength ∸ 1) and bitLength > 0)
+    suc-n-bounded : suc n < 2 ^ bitLength
+    suc-n-bounded = pow2-upper bitLength (suc n) bitLength>0 n-fits
+      where
+        open import Data.Nat.Properties using (≤-<-trans; m<m+n; +-identityʳ; *-zeroˡ)
+
+        -- Infrastructure: values fitting in lower half fit strictly in full range
+        pow2-upper : ∀ m x → m > 0 → x ≤ 2 ^ (m ∸ 1) → x < 2 ^ m
+        pow2-upper zero _ () _
+        pow2-upper (suc m) x _ x-fits =
+          -- x ≤ 2^m, and 2^m < 2^(suc m) by monotonicity, so x < 2^(suc m)
+          ≤-<-trans x-fits (^-monoʳ-< 2 (s≤s (s≤s z≤n)) (n<1+n m))
+          where open import Data.Nat.Properties using (^-monoʳ-<; n<1+n)
 
 -- Property: fromSigned produces bounded results (for negative numbers)
 -- Note: For positive numbers, the caller must ensure the input fits
