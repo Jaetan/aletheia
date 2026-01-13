@@ -35,6 +35,7 @@ open import Data.Product using (∃; _×_; _,_)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; inspect; [_]; subst)
 open import Relation.Nullary using (¬_)
+open import Function using (_⇔_)
 open import Function using (_∘_; _↔_)
 
 -- ============================================================================
@@ -290,16 +291,57 @@ fromSigned-bounded-neg n bitLength bitLength>0 =
    - Straightforward rational arithmetic
    - Estimated difficulty: LOW-MEDIUM (1-2 hours)
 
-   Property: removeScaling-factor-zero-iff-nothing
-   ------------------------------------------------
-   removeScaling returns nothing only when factor is zero
+-}
 
-   ∀ (value factor offset : ℚ)
-   → (removeScaling value factor offset ≡ nothing) ↔ (factor ≡ 0ℚ)
+-- Property: removeScaling-factor-zero-iff-nothing
+-- ------------------------------------------------
+-- removeScaling returns nothing only when factor is zero
+-- This is the API contract: the guard is the ONLY failure mode
 
-   Proof strategy:
-   - Follows from implementation
-   - Estimated difficulty: LOW (1 hour)
+-- Computational direction: factor ≡ 0 implies removeScaling returns nothing
+-- Definition-driven: the isZero guard catches exactly this case
+removeScaling-zero⇒nothing : ∀ (value factor offset : ℚ)
+  → factor ≡ 0ℚ
+  → removeScaling value factor offset ≡ nothing
+removeScaling-zero⇒nothing value factor offset factor≡0 =
+  -- Rewrite factor to 0ℚ, then removeScaling reduces to nothing by definition
+  subst (λ f → removeScaling value f offset ≡ nothing) (sym factor≡0) refl
+  where open import Relation.Binary.PropositionalEquality using (subst; sym)
+
+-- Semantic direction: nothing result implies factor was zero
+-- The real theorem: proves the guard is the ONLY failure mode
+removeScaling-nothing⇒zero : ∀ (value factor offset : ℚ)
+  → removeScaling value factor offset ≡ nothing
+  → factor ≡ 0ℚ
+removeScaling-nothing⇒zero value factor offset result≡nothing =
+  aux (factor ≟ 0ℚ) result≡nothing
+  where
+    open import Data.Rational using (_≟_)
+    open import Relation.Nullary using (Dec; yes; no)
+
+    -- Constructor disjointness: just x ≢ nothing
+    just≢nothing : ∀ {a} {A : Set a} {x : A} → just x ≢ nothing
+    just≢nothing ()
+
+    -- Case analysis on factor's equality with 0
+    aux : Dec (factor ≡ 0ℚ) → removeScaling value factor offset ≡ nothing → factor ≡ 0ℚ
+    aux (yes factor≡0) _ = factor≡0
+    aux (no factor≢0) result≡nothing with factor ≟ 0ℚ
+    ... | yes eq = ⊥-elim (factor≢0 eq)  -- Contradiction: factor≢0 but eq proves factor≡0
+    ... | no  _  = ⊥-elim (just≢nothing result≡nothing)  -- After reduction: just _ ≡ nothing, contradiction
+
+-- Biconditional: removeScaling returns nothing iff factor is zero
+-- This is the complete API contract for removeScaling
+removeScaling-factor-zero-iff-nothing : ∀ (value factor offset : ℚ)
+  → (removeScaling value factor offset ≡ nothing → factor ≡ 0ℚ)
+  × (factor ≡ 0ℚ → removeScaling value factor offset ≡ nothing)
+removeScaling-factor-zero-iff-nothing value factor offset =
+  (removeScaling-nothing⇒zero value factor offset , removeScaling-zero⇒nothing value factor offset)
+
+{- TODO Phase 3: Other scaling proofs (still pending)
+
+   Property: removeScaling-applyScaling-roundtrip (HARD - floor precision)
+   Property: applyScaling-injective (LOW-MEDIUM - rational arithmetic)
 -}
 
 -- ============================================================================
