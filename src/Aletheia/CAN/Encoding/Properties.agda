@@ -338,10 +338,61 @@ removeScaling-factor-zero-iff-nothing : ∀ (value factor offset : ℚ)
 removeScaling-factor-zero-iff-nothing value factor offset =
   (removeScaling-nothing⇒zero value factor offset , removeScaling-zero⇒nothing value factor offset)
 
-{- TODO Phase 3: Other scaling proofs (still pending)
+-- Arithmetic infrastructure: floor of an integer represented as rational is the integer itself
+-- This is the ONLY arithmetic fact needed for the roundtrip proof
+-- This is the firewall: gcd reasoning stops here, never leaks upward
+private
+  floor-int : ∀ (z : ℤ) → floor (z Data.Rational./ 1) ≡ z
+  floor-int z = {!!}  -- TODO: Prove using gcd-zeroʳ and ℤ./-identity (minimal arithmetic firewall)
 
-   Property: removeScaling-applyScaling-roundtrip (HARD - floor precision)
-   Property: applyScaling-injective (LOW-MEDIUM - rational arithmetic)
+  -- Constructor injectivity for Maybe
+  just-injective : ∀ {a} {A : Set a} {x y : A} → just x ≡ just y → x ≡ y
+  just-injective refl = refl
+
+-- Semantic bridge lemma: what does removeScaling ∘ applyScaling evaluate to?
+-- This preserves the definitional connection between the result and floor (raw / 1)
+-- TODO Phase 3: Prove by unfolding definitions under factor ≢ 0
+-- applyScaling raw f o = raw/1 * f + o
+-- removeScaling (raw/1 * f + o) f o = just (floor ((raw/1 * f + o - o) / f))
+--                                    = just (floor (raw/1 * f / f))
+--                                    = just (floor (raw/1))
+-- This is ℚ cancellation, not ℕ arithmetic - semantic, not representational
+private
+  removeScaling-applyScaling-value : ∀ (raw : ℤ) (factor offset : ℚ)
+    → factor ≢ 0ℚ
+    → removeScaling (applyScaling raw factor offset) factor offset
+      ≡ just (floor (raw Data.Rational./ 1))
+  removeScaling-applyScaling-value raw factor offset factor≢0 = {!!}
+
+-- Property: removeScaling-applyScaling-exact
+-- ---------------------------------------------
+-- Applying scaling then removing it returns the original raw value (EXACT)
+-- This is the easy direction: starting from ℤ means floor is identity
+-- Proof strategy: semantic bridge + arithmetic firewall (no pattern matching information loss)
+removeScaling-applyScaling-exact : ∀ (raw : ℤ) (factor offset : ℚ)
+  → factor ≢ 0ℚ
+  → removeScaling (applyScaling raw factor offset) factor offset ≡ just raw
+removeScaling-applyScaling-exact raw factor offset factor≢0 =
+  trans (removeScaling-applyScaling-value raw factor offset factor≢0)
+        (cong just (floor-int raw))
+
+-- Property: applyScaling-injective
+-- ---------------------------------
+-- applyScaling is injective when factor ≠ 0
+-- Proof strategy: use removeScaling as left inverse (no arithmetic needed)
+applyScaling-injective : ∀ (raw₁ raw₂ : ℤ) (factor offset : ℚ)
+  → factor ≢ 0ℚ
+  → applyScaling raw₁ factor offset ≡ applyScaling raw₂ factor offset
+  → raw₁ ≡ raw₂
+applyScaling-injective raw₁ raw₂ factor offset factor≢0 eq =
+  just-injective (trans (sym (removeScaling-applyScaling-exact raw₁ factor offset factor≢0))
+                  (trans (cong (λ x → removeScaling x factor offset) eq)
+                         (removeScaling-applyScaling-exact raw₂ factor offset factor≢0)))
+
+{- TODO Phase 3: Remaining scaling proofs
+
+   Property: applyScaling-removeScaling-bounded (HARD - floor precision)
+   The reverse direction with bounded error due to floor operation
 -}
 
 -- ============================================================================
