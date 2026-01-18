@@ -25,16 +25,25 @@ open import Aletheia.Data.BitVec.Conversion
 open import Data.Vec using (Vec)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
+open import Data.Nat.GCD using (gcd; gcd-zeroʳ)
+open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
+open import Data.Nat.DivMod as ℕ using (n/1≡n; n%1≡0)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
-open import Data.Rational using (ℚ; 0ℚ; floor)
-open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _/_ to _/ᵣ_)
+open import Data.Integer.DivMod as ℤ using (div-pos-is-/ℕ)
+open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; normalize; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ)
+open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
+open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
+open import Data.Rational.Literals using (fromℤ)
+open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; *-comm; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc)
 open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (∃; _×_; _,_)
 open import Data.Empty using (⊥; ⊥-elim)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; inspect; [_]; subst)
-open import Relation.Nullary using (¬_)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; cong₂; inspect; [_]; subst; subst₂)
+open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+open ≡-Reasoning
+open import Relation.Nullary using (¬_; Dec; yes; no)
 open import Function using (_⇔_)
 open import Function using (_∘_; _↔_)
 
@@ -72,16 +81,11 @@ open import Function using (_∘_; _↔_)
 -- - m<n*o⇒m/o<n from Data.Nat.DivMod for byte index bounds
 -- - No postulates, full --safe compilation ✅
 
-{- TODO Phase 3: Other bit-level proofs
-
-   Property: injectBits-preserves-disjoint
-   ----------------------------------------
-   Injecting bits doesn't affect other bit ranges (non-overlap)
-
-   Property: injectBits-commute
-   ----------------------------
-   Injecting multiple values to disjoint ranges commutes
--}
+-- ✅ Additional Layer 1 proofs COMPLETE in Endianness module:
+--   - injectBits-preserves-later-bit: injecting at earlier range preserves later bits
+--   - injectBits-preserves-disjoint: extraction at disjoint range is preserved
+--
+-- Note: injectBits-commute can be derived from injectBits-preserves-disjoint if needed
 
 -- ============================================================================
 -- LAYER 2: INTEGER CONVERSION PROPERTIES (no ℚ)
@@ -255,43 +259,10 @@ fromSigned-bounded-neg n bitLength bitLength>0 =
 -- These are the ONLY proofs involving rational arithmetic.
 -- They are isolated and small.
 
-{- TODO Phase 3: Scaling round-trip proofs
-
-   Property: removeScaling-applyScaling-roundtrip
-   -----------------------------------------------
-   Removing then applying scaling returns original value (modulo floor)
-
-   ∀ (value : ℚ) (factor offset : ℚ)
-   → (factor-nonzero : ¬ (factor ≡ 0ℚ))
-   → removeScaling value factor offset >>= (λ raw →
-       just (applyScaling raw factor offset)) ≡ just value
-     ⊎  -- OR (due to floor precision loss):
-     ∃ λ (raw : ℤ) →
-       removeScaling value factor offset ≡ just raw
-       × (let result = applyScaling raw factor offset
-          in (result +ᵣ factor) ≡ value ⊎ (result -ᵣ factor) ≡ value)
-
-   Proof strategy:
-   - HARD due to floor operation
-   - Exact roundtrip only when (value - offset) / factor has no fractional part
-   - Otherwise, floor introduces bounded error (< 1 * factor)
-   - Estimated difficulty: HIGH (4-6 hours)
-   - Dependencies: Data.Rational.Properties, floor properties
-
-   Property: applyScaling-injective
-   ---------------------------------
-   applyScaling is injective when factor ≠ 0
-
-   ∀ (raw₁ raw₂ : ℤ) (factor offset : ℚ)
-   → (factor-nonzero : ¬ (factor ≡ 0ℚ))
-   → applyScaling raw₁ factor offset ≡ applyScaling raw₂ factor offset
-   → raw₁ ≡ raw₂
-
-   Proof strategy:
-   - Straightforward rational arithmetic
-   - Estimated difficulty: LOW-MEDIUM (1-2 hours)
-
--}
+-- ✅ Layer 3 scaling proofs COMPLETE:
+--   - removeScaling-applyScaling-exact (line 454): ℤ → ℚ → ℤ roundtrip is exact
+--   - applyScaling-injective (line 465): applyScaling is injective when factor ≠ 0
+--   - removeScaling-factor-zero-iff-nothing (line 344): API contract for failure mode
 
 -- Property: removeScaling-factor-zero-iff-nothing
 -- ------------------------------------------------
@@ -342,8 +313,26 @@ removeScaling-factor-zero-iff-nothing value factor offset =
 -- This is the ONLY arithmetic fact needed for the roundtrip proof
 -- This is the firewall: gcd reasoning stops here, never leaks upward
 private
+  -- Arithmetic lemma: floor of integer-as-rational is the integer itself
+  -- Uses canonical ℤ → ℚ embedding (fromℤ) to avoid normalization complexity
+  floor-fromℤ : ∀ (z : ℤ) → floor (fromℤ z) ≡ z
+  floor-fromℤ (+ n) = trans (ℤ.div-pos-is-/ℕ (+ n) 1) (cong +_ (ℕ.n/1≡n n))
+  floor-fromℤ -[1+ n ] with ℕ.n%1≡0 (ℕ.suc n)
+  ... | eq =
+    trans (ℤ.div-pos-is-/ℕ (-[1+ n ]) 1)
+          (aux eq)
+    where
+      aux : ℕ.suc n ℕ.% 1 ≡ 0 → (-[1+ n ]) ℤ./ℕ 1 ≡ -[1+ n ]
+      aux eq rewrite eq | ℕ.n/1≡n (ℕ.suc n) = refl
+
+  -- Prove that z / 1 equals fromℤ z (localizes all gcd/normalization complexity)
+  z/1≡fromℤ : ∀ (z : ℤ) → z Data.Rational./ 1 ≡ fromℤ z
+  z/1≡fromℤ (+ n) = trans (normalize-coprime (coprime-sym (1-coprimeTo n))) (mkℚ-cong refl refl)
+  z/1≡fromℤ -[1+ n ] = trans (cong Data.Rational.-_ (normalize-coprime (coprime-sym (1-coprimeTo (suc n)))))
+                        (trans (mkℚ-cong refl refl) refl)
+
   floor-int : ∀ (z : ℤ) → floor (z Data.Rational./ 1) ≡ z
-  floor-int z = {!!}  -- TODO: Prove using gcd-zeroʳ and ℤ./-identity (minimal arithmetic firewall)
+  floor-int z = trans (cong floor (z/1≡fromℤ z)) (floor-fromℤ z)
 
   -- Constructor injectivity for Maybe
   just-injective : ∀ {a} {A : Set a} {x y : A} → just x ≡ just y → x ≡ y
@@ -358,11 +347,66 @@ private
 --                                    = just (floor (raw/1))
 -- This is ℚ cancellation, not ℕ arithmetic - semantic, not representational
 private
-  removeScaling-applyScaling-value : ∀ (raw : ℤ) (factor offset : ℚ)
+  -- Bridge lemma: division via fromℚᵘ/toℚᵘ equals semantic ÷ᵣ
+  -- This is the ONLY place where representation details appear
+  -- The bridge connects Encoding.divideByFactor to the semantic _÷ᵣ_
+  open import Data.Rational.Unnormalised.Base using () renaming (_÷_ to _÷ᵘ_; _*_ to _*ᵘ_; 1/_ to 1/ᵘ_)
+  open import Data.Rational.Unnormalised.Properties as ℚᵘ using (≃-refl; ≃-trans; ≃-sym; *-cong)
+
+  -- Step 1: toℚᵘ preserves division (up to ≃ᵘ)
+  -- Proof: p ÷ᵣ q = p *ᵣ (1/ q) by definition, then use homomorphisms
+  toℚᵘ-homo-÷ : ∀ (p q : ℚ) .{{_ : NonZero q}} → toℚᵘ (p ÷ᵣ q) ℚᵘ.≃ (toℚᵘ p ÷ᵘ toℚᵘ q)
+  toℚᵘ-homo-÷ p@(mkℚ _ _ _) q@(mkℚ _ _ _) =
+    -- toℚᵘ (p ÷ᵣ q) = toℚᵘ (p *ᵣ 1/ q) ≃ toℚᵘ p *ᵘ toℚᵘ (1/ q) ≃ toℚᵘ p *ᵘ 1/ᵘ (toℚᵘ q) = toℚᵘ p ÷ᵘ toℚᵘ q
+    ≃-trans (toℚᵘ-homo-* p (1/ q)) (*-cong (ℚᵘ.≃-refl {toℚᵘ p}) (toℚᵘ-homo-1/ q))
+
+  -- Step 2: fromℚᵘ converts ≃ᵘ back to ≡
+  ÷-via-ℚᵘ : ∀ (p q : ℚ) .{{_ : NonZero q}} → fromℚᵘ (toℚᵘ p ÷ᵘ toℚᵘ q) ≡ p ÷ᵣ q
+  ÷-via-ℚᵘ p q = trans (fromℚᵘ-cong (≃-sym (toℚᵘ-homo-÷ p q))) (fromℚᵘ-toℚᵘ (p ÷ᵣ q))
+
+  -- Pure ℚ field cancellation lemma: ((x * f + o) - o) ÷ f ≡ x
+  -- This is the ONLY place where rational field laws are used
+  ℚ-cancel : ∀ (x f o : ℚ) → .{{_ : NonZero f}} → ((x *ᵣ f +ᵣ o) -ᵣ o) ÷ᵣ f ≡ x
+  ℚ-cancel x f o = begin
+    ((x *ᵣ f +ᵣ o) -ᵣ o) ÷ᵣ f        ≡⟨ cong (_÷ᵣ f) (+-assoc-cancelʳ (x *ᵣ f) o) ⟩
+    (x *ᵣ f) ÷ᵣ f                     ≡⟨⟩  -- ÷ᵣ unfolds to *ᵣ (1/ f)
+    (x *ᵣ f) *ᵣ (1/ f)                ≡⟨ *-assoc x f (1/ f) ⟩
+    x *ᵣ (f *ᵣ (1/ f))                ≡⟨ cong (x *ᵣ_) (*-inverseʳ f) ⟩
+    x *ᵣ 1ℚ                           ≡⟨ *-identityʳ x ⟩
+    x                                 ∎
+    where
+      -- Helper: (a + b) - b ≡ a (standard derivation from field laws)
+      +-assoc-cancelʳ : ∀ a b → (a +ᵣ b) -ᵣ b ≡ a
+      +-assoc-cancelʳ a b = begin
+        (a +ᵣ b) -ᵣ b      ≡⟨ ℚ-+-assoc a b (-ᵣ b) ⟩
+        a +ᵣ (b -ᵣ b)      ≡⟨ cong (a +ᵣ_) (+-inverseʳ b) ⟩
+        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
+        a                  ∎
+
+  -- Structural lemma: nonzero ℚ has nonzero numerator
+  -- Uses ↥p≡0⇒p≡0 from stdlib which handles coprimality internally
+  ℚ-nonzero⇒num-nonzero : ∀ (q : ℚ) → q ≢ 0ℚ → ℚ.numerator q ≢ + 0
+  ℚ-nonzero⇒num-nonzero q nz num≡0 = nz (↥p≡0⇒p≡0 q num≡0)
+
+  -- Semantic bridge using the pure ℚ cancellation
+  -- Pattern match on factor structure so divideUnnorm reduces to ÷ᵘ automatically
+  -- Then use ÷-via-ℚᵘ to bridge back to ÷ᵣ
+  removeScaling-applyScaling-value :
+    ∀ (raw : ℤ) (factor offset : ℚ)
     → factor ≢ 0ℚ
     → removeScaling (applyScaling raw factor offset) factor offset
       ≡ just (floor (raw Data.Rational./ 1))
-  removeScaling-applyScaling-value raw factor offset factor≢0 = {!!}
+  removeScaling-applyScaling-value raw factor@(mkℚ (+ 0) _ _) offset factor≢0 =
+    ⊥-elim (ℚ-nonzero⇒num-nonzero factor factor≢0 refl)
+  removeScaling-applyScaling-value raw factor@(mkℚ (+ ℕ.suc _) _ _) offset factor≢0 =
+    -- After pattern match, divideUnnorm reduces to ÷ᵘ, and fromℚᵘ (... ÷ᵘ ...) ≡ ... ÷ᵣ ... by ÷-via-ℚᵘ
+    let numer = (applyScaling raw factor offset) -ᵣ offset
+    in cong just (trans (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))
+                        (cong floor (ℚ-cancel (raw Data.Rational./ 1) factor offset {{≢-nonZero factor≢0}})))
+  removeScaling-applyScaling-value raw factor@(mkℚ -[1+ _ ] _ _) offset factor≢0 =
+    let numer = (applyScaling raw factor offset) -ᵣ offset
+    in cong just (trans (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))
+                        (cong floor (ℚ-cancel (raw Data.Rational./ 1) factor offset {{≢-nonZero factor≢0}})))
 
 -- Property: removeScaling-applyScaling-exact
 -- ---------------------------------------------
@@ -389,11 +433,286 @@ applyScaling-injective raw₁ raw₂ factor offset factor≢0 eq =
                   (trans (cong (λ x → removeScaling x factor offset) eq)
                          (removeScaling-applyScaling-exact raw₂ factor offset factor≢0)))
 
-{- TODO Phase 3: Remaining scaling proofs
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAYER A: Floor bounds (arithmetic quarantine)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- These lemmas isolate all floor/division representation details.
+-- They use the same pattern as floor-int: work with ℤ division, then lift to ℚ.
 
-   Property: applyScaling-removeScaling-bounded (HARD - floor precision)
-   The reverse direction with bounded error due to floor operation
--}
+private
+  open import Data.Integer.DivMod as ℤ using ([n/d]*d≤n; n<s[n/ℕd]*d)
+  open import Data.Rational using (*≤*; *<*)  -- Just constructors; types already renamed to _≤ᵣ_, _<ᵣ_
+  open import Data.Rational.Properties using (toℚᵘ-mono-≤; toℚᵘ-cancel-≤; ≤-reflexive)
+
+  -- Floor lower bound: floor(q) / 1 ≤ q
+  -- Strategy: floor q = ↥q ℤ./ ↧q, use [n/d]*d≤n, lift via *≤*
+  floor-lower : ∀ (q : ℚ) → (floor q Data.Rational./ 1) ≤ᵣ q
+  floor-lower q@(mkℚ n d-1 _) = subst (_≤ᵣ q) (sym (z/1≡fromℤ (floor q))) fromℤ-floor-≤
+    where
+      open import Data.Integer.Properties as ℤ using (*-identityʳ)
+
+      d : ℕ
+      d = suc d-1
+
+      -- floor q = n ℤ./ + d (by definition)
+      -- fromℤ (floor q) has ↥ = floor q, ↧ = + 1
+      -- q has ↥ = n, ↧ = + d
+      -- For *≤*: (floor q) * (+ d) ≤ n * (+ 1)
+      -- Since n * (+ 1) ≡ n, need (n ℤ./ + d) * (+ d) ≤ n
+      fromℤ-floor-≤ : fromℤ (floor q) ≤ᵣ q
+      fromℤ-floor-≤ = *≤* (subst ((n ℤ./ + d) ℤ.* + d ℤ.≤_) (sym (ℤ.*-identityʳ n)) ([n/d]*d≤n n (+ d)))
+
+  -- Floor upper bound: q < (floor(q) + 1) / 1
+  -- Strategy: use n<s[n/ℕd]*d, lift via *<*
+  floor-upper : ∀ (q : ℚ) → q <ᵣ ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+  floor-upper q@(mkℚ n d-1 _) = subst (q <ᵣ_) (sym (z/1≡fromℤ (floor q ℤ.+ ℤ.+ 1))) fromℤ-suc-floor->
+    where
+      open import Data.Integer as ℤ using (suc; _<_)
+      open import Data.Integer.Properties as ℤ using (*-identityˡ; +-comm)
+      open import Data.Integer.DivMod as ℤ using (div-pos-is-/ℕ; _/ℕ_)
+      open import Data.Nat as ℕ using () renaming (suc to sucℕ)
+
+      d : ℕ
+      d = sucℕ d-1
+
+      -- floor q + + 1 = suc (floor q) (by +-comm: x + 1 = 1 + x = suc x)
+      floor+1≡suc : floor q ℤ.+ ℤ.+ 1 ≡ ℤ.suc (floor q)
+      floor+1≡suc = +-comm (floor q) (ℤ.+ 1)
+
+      -- suc (n ℤ./ + d) = suc (n /ℕ d) (by div-pos-is-/ℕ)
+      suc-div-eq : ℤ.suc (n ℤ./ + d) ≡ ℤ.suc (n /ℕ d)
+      suc-div-eq = cong ℤ.suc (div-pos-is-/ℕ n d)
+
+      -- For *<*: n * + 1 < (floor q + + 1) * + d
+      -- Step 1: n < suc (n /ℕ d) * + d by n<s[n/ℕd]*d
+      -- Step 2: n ≡ n * + 1 by sym *-identityʳ
+      -- Step 3: suc (n /ℕ d) ≡ suc (floor q) ≡ floor q + + 1
+      fromℤ-suc-floor-> : q <ᵣ fromℤ (floor q ℤ.+ ℤ.+ 1)
+      fromℤ-suc-floor-> = *<* goal
+        where
+          open import Data.Integer.Properties as ℤ using (*-identityʳ)
+
+          -- Step 1: n < suc (n /ℕ d) * + d
+          step1 : ℤ._<_ n (ℤ.suc (n /ℕ d) ℤ.* + d)
+          step1 = n<s[n/ℕd]*d n d
+
+          -- Step 2: suc (n /ℕ d) * + d ≡ (floor q + + 1) * + d
+          -- Since suc x = + 1 + x, and floor q = n ℤ./ + d = n /ℕ d
+          rhs-eq : ℤ.suc (n /ℕ d) ℤ.* + d ≡ (floor q ℤ.+ ℤ.+ 1) ℤ.* + d
+          rhs-eq = cong (ℤ._* + d) (trans (cong ℤ.suc (sym (div-pos-is-/ℕ n d))) (sym floor+1≡suc))
+
+          -- Step 3: n ≡ n * + 1
+          lhs-eq : n ≡ n ℤ.* ℤ.+ 1
+          lhs-eq = sym (ℤ.*-identityʳ n)
+
+          -- Combine: n * + 1 < (floor q + + 1) * + d
+          goal : ℤ._<_ (n ℤ.* ℤ.+ 1) ((floor q ℤ.+ ℤ.+ 1) ℤ.* + d)
+          goal = subst₂ ℤ._<_ lhs-eq rhs-eq step1
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAYER A': Algebraic normalization helpers (quarantined field law plumbing)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- These handle coercions, field identities, and distributes - never seen by Layer C.
+
+private
+  -- (a ÷ f) * f ≡ a (field cancellation)
+  ÷-*-cancel : ∀ (a f : ℚ) .{{_ : NonZero f}} → (a ÷ᵣ f) *ᵣ f ≡ a
+  ÷-*-cancel a f = begin
+    (a ÷ᵣ f) *ᵣ f      ≡⟨⟩  -- ÷ᵣ = *ᵣ (1/ f)
+    (a *ᵣ (1/ f)) *ᵣ f ≡⟨ *-assoc a (1/ f) f ⟩
+    a *ᵣ ((1/ f) *ᵣ f) ≡⟨ cong (a *ᵣ_) (*-inverseˡ f) ⟩
+    a *ᵣ 1ℚ            ≡⟨ *-identityʳ a ⟩
+    a                  ∎
+    where open import Data.Rational.Properties using (*-inverseˡ)
+
+  -- Local: fromℤ (a + b) ≡ fromℤ a + fromℤ b
+  -- Needed because stdlib's fromℤ-homo-+ is not exported in all versions
+  fromℤ-homo-+ : ∀ (a b : ℤ) → fromℤ (a ℤ.+ b) ≡ fromℤ a +ᵣ fromℤ b
+  fromℤ-homo-+ a b = begin
+    fromℤ (a ℤ.+ b)               ≡⟨ sym (fromℚᵘ-toℚᵘ (fromℤ (a ℤ.+ b))) ⟩
+    fromℚᵘ (toℚᵘ (fromℤ (a ℤ.+ b)))  ≡⟨ fromℚᵘ-cong eq-u ⟩
+    fromℚᵘ (toℚᵘ (fromℤ a) ℚᵘ.+ toℚᵘ (fromℤ b)) ≡⟨ fromℚᵘ-cong (≃-sym (toℚᵘ-homo-+ (fromℤ a) (fromℤ b))) ⟩
+    fromℚᵘ (toℚᵘ (fromℤ a +ᵣ fromℤ b)) ≡⟨ fromℚᵘ-toℚᵘ (fromℤ a +ᵣ fromℤ b) ⟩
+    fromℤ a +ᵣ fromℤ b            ∎
+    where
+      open import Data.Rational.Unnormalised.Base as ℚᵘ using () renaming (_+_ to _+ᵘ_)
+      open import Data.Rational.Unnormalised.Properties as ℚᵘ using (≃-sym)
+      open import Data.Rational.Properties using (fromℚᵘ-toℚᵘ; fromℚᵘ-cong; toℚᵘ-homo-+)
+      open import Data.Integer.Properties as ℤ using (*-identityʳ)
+      open import Data.Rational.Unnormalised.Base using (*≡*)
+      -- ℚᵘ equivalence: *≡* constructor requires ↥p * ↧q ≡ ↥q * ↧p
+      -- Left: toℚᵘ (fromℤ (a + b)) = mkℚᵘ (a+b) 1, so ↥ = a+b, ↧ = +1
+      -- Right: mkℚᵘ a 1 + mkℚᵘ b 1 = mkℚᵘ (a*1 + b*1) (1*1), so ↥ = a*1+b*1, ↧ = 1*1
+      -- Need: (a + b) * (1 * 1) ≡ (a * 1 + b * 1) * 1
+      eq-u : toℚᵘ (fromℤ (a ℤ.+ b)) ℚᵘ.≃ (toℚᵘ (fromℤ a) ℚᵘ.+ toℚᵘ (fromℤ b))
+      eq-u = *≡* eq-proof
+        where
+          eq-proof : (a ℤ.+ b) ℤ.* (ℤ.+ 1 ℤ.* ℤ.+ 1) ≡ ((a ℤ.* ℤ.+ 1) ℤ.+ (b ℤ.* ℤ.+ 1)) ℤ.* ℤ.+ 1
+          eq-proof = begin
+            (a ℤ.+ b) ℤ.* (ℤ.+ 1 ℤ.* ℤ.+ 1)          ≡⟨ cong ((a ℤ.+ b) ℤ.*_) refl ⟩
+            (a ℤ.+ b) ℤ.* ℤ.+ 1                       ≡⟨ ℤ.*-identityʳ (a ℤ.+ b) ⟩
+            a ℤ.+ b                                   ≡⟨ cong₂ ℤ._+_ (sym (ℤ.*-identityʳ a)) (sym (ℤ.*-identityʳ b)) ⟩
+            (a ℤ.* ℤ.+ 1) ℤ.+ (b ℤ.* ℤ.+ 1)          ≡⟨ sym (ℤ.*-identityʳ _) ⟩
+            ((a ℤ.* ℤ.+ 1) ℤ.+ (b ℤ.* ℤ.+ 1)) ℤ.* ℤ.+ 1  ∎
+
+  -- (raw + 1)/1 * factor ≡ raw/1 * factor + factor
+  raw+1*f≡raw*f+f : ∀ (raw : ℤ) (f : ℚ) →
+    ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ f ≡ (raw Data.Rational./ 1) *ᵣ f +ᵣ f
+  raw+1*f≡raw*f+f raw f = begin
+    ((raw ℤ.+ ℤ.+ 1) /₁ 1) *ᵣ f             ≡⟨ cong (_*ᵣ f) (z/1≡fromℤ (raw ℤ.+ ℤ.+ 1)) ⟩
+    fromℤ (raw ℤ.+ ℤ.+ 1) *ᵣ f              ≡⟨ cong (λ x → fromℤ x *ᵣ f) (ℤ.+-comm raw (ℤ.+ 1)) ⟩
+    fromℤ (ℤ.+ 1 ℤ.+ raw) *ᵣ f              ≡⟨ cong (_*ᵣ f) (fromℤ-homo-+ (ℤ.+ 1) raw) ⟩
+    (fromℤ (ℤ.+ 1) +ᵣ fromℤ raw) *ᵣ f       ≡⟨ *-distribʳ-+ f (fromℤ (ℤ.+ 1)) (fromℤ raw) ⟩
+    fromℤ (ℤ.+ 1) *ᵣ f +ᵣ fromℤ raw *ᵣ f    ≡⟨ cong₂ _+ᵣ_ (*-identityˡ f) (cong (_*ᵣ f) (sym (z/1≡fromℤ raw))) ⟩
+    f +ᵣ (raw /₁ 1) *ᵣ f                     ≡⟨ ℚ-+-comm f ((raw /₁ 1) *ᵣ f) ⟩
+    (raw /₁ 1) *ᵣ f +ᵣ f                     ∎
+    where
+      open import Data.Rational.Properties using (*-distribʳ-+; *-identityˡ) renaming (+-comm to ℚ-+-comm)
+      open import Data.Integer.Properties as ℤ using (+-comm)
+      _/₁_ = Data.Rational._/_
+
+  -- a ≤ b - c ⟹ a + c ≤ b (shift offset right)
+  ≤-shift-offset : ∀ (a b c : ℚ) → a ≤ᵣ b -ᵣ c → a +ᵣ c ≤ᵣ b
+  ≤-shift-offset a b c a≤b-c = subst (a +ᵣ c ≤ᵣ_) b-c+c≡b (+-monoˡ-≤ c a≤b-c)
+    where
+      open import Data.Rational.Properties using (+-monoˡ-≤) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
+      -- (b - c) + c ≡ b (standard additive cancellation)
+      b-c+c≡b : (b -ᵣ c) +ᵣ c ≡ b
+      b-c+c≡b = begin
+        (b -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc b (-ᵣ c) c ⟩
+        b +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (b +ᵣ_) (ℚ-+-inverseˡ c) ⟩
+        b +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ b ⟩
+        b                  ∎
+
+  -- a - c < b ⟹ a < b + c (shift offset right, strict)
+  <-shift-offset : ∀ (a b c : ℚ) → a -ᵣ c <ᵣ b → a <ᵣ b +ᵣ c
+  <-shift-offset a b c a-c<b = subst (_<ᵣ b +ᵣ c) a-c+c≡a (+-monoˡ-< c a-c<b)
+    where
+      open import Data.Rational.Properties using (+-monoˡ-<) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
+      -- (a - c) + c ≡ a (standard additive cancellation)
+      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
+      a-c+c≡a = begin
+        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
+        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
+        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
+        a                  ∎
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAYER C: Algebraic chain (semantic core)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Given raw = floor((value - offset) / factor), derive bounds on result.
+-- Uses ONLY: floor bounds (Layer A), monotonicity (stdlib), named helpers (Layer A').
+-- NO begin...∎ chains, NO cong, NO coercions.
+
+private
+  -- Note: stdlib naming inconsistency - for (_* r):
+  --   ≤ version: *-monoʳ-≤-nonNeg
+  --   < version: *-monoˡ-<-pos
+  open import Data.Rational.Properties using (+-monoˡ-≤; +-monoʳ-≤; *-monoʳ-≤-nonNeg; *-monoˡ-≤-nonPos; *-monoˡ-<-pos)
+  open import Data.Rational using (Positive; Negative; NonNegative; NonPositive; >-nonZero; <-nonZero; positive; negative)
+
+  scaling-bounds-pos : ∀ (value factor offset : ℚ) (raw : ℤ)
+    → (factor-pos : 0ℚ <ᵣ factor)
+    → floor (_÷ᵣ_ (value -ᵣ offset) factor {{>-nonZero factor-pos}}) ≡ raw
+    → let result = applyScaling raw factor offset
+      in result ≤ᵣ value × value <ᵣ result +ᵣ factor
+  scaling-bounds-pos value factor offset raw factor-pos floor≡raw = left-bound , right-bound
+    where
+      open import Data.Rational.Properties using (≤-reflexive; <-respʳ-≡)
+
+      q : ℚ
+      q = _÷ᵣ_ (value -ᵣ offset) factor {{>-nonZero factor-pos}}
+
+      instance _ : Positive factor
+      _ = positive factor-pos
+
+      -- Step 1: floor bounds with substitution
+      -- floor-lower q : (floor q / 1) ≤ᵣ q
+      -- floor≡raw : floor q ≡ raw, so floor q / 1 ≡ raw / 1 by cong
+      floor/1≡raw/1 : (floor q Data.Rational./ 1) ≡ (raw Data.Rational./ 1)
+      floor/1≡raw/1 = cong (Data.Rational._/ 1) floor≡raw
+
+      raw/1≤q : (raw Data.Rational./ 1) ≤ᵣ q
+      raw/1≤q = subst (_≤ᵣ q) floor/1≡raw/1 (floor-lower q)
+
+      -- floor-upper q : q <ᵣ ((floor q + 1) / 1)
+      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1) ≡ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) Data.Rational./ 1) floor≡raw
+
+      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      q<raw+1/1 = <-respʳ-≡ floor+1/1≡raw+1/1 (floor-upper q)
+
+      -- Step 2: multiply by positive factor (preserves order)
+      -- For positive factor, NonNegative and NonZero are derivable
+      instance
+        _ : NonNegative factor
+        _ = pos⇒nonNeg factor
+          where open import Data.Rational.Properties using (pos⇒nonNeg)
+
+        _ : NonZero factor
+        _ = >-nonZero factor-pos
+
+      raw/1*f≤q*f : (raw Data.Rational./ 1) *ᵣ factor ≤ᵣ q *ᵣ factor
+      raw/1*f≤q*f = *-monoʳ-≤-nonNeg factor raw/1≤q
+
+      q*f<raw+1/1*f : q *ᵣ factor <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor
+      q*f<raw+1/1*f = *-monoˡ-<-pos factor q<raw+1/1
+
+      -- Step 3: cancel division (q * f = value - offset)
+      raw/1*f≤v-o : (raw Data.Rational./ 1) *ᵣ factor ≤ᵣ value -ᵣ offset
+      raw/1*f≤v-o = subst ((raw Data.Rational./ 1) *ᵣ factor ≤ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw/1*f≤q*f
+
+      v-o<raw+1/1*f : value -ᵣ offset <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor
+      v-o<raw+1/1*f = subst (_<ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f<raw+1/1*f
+
+      -- Step 4: shift offset, use raw+1*f identity for upper bound
+      left-bound : applyScaling raw factor offset ≤ᵣ value
+      left-bound = ≤-shift-offset ((raw Data.Rational./ 1) *ᵣ factor) value offset raw/1*f≤v-o
+
+      -- For right bound: v - o < raw/1*f + f, add offset to get v < raw/1*f + f + o
+      -- Then rewrite: (raw/1*f + f) + o = (raw/1*f + o) + f = result + f by commutativity
+      -- raw+1*f≡raw*f+f : (raw+1)/1 * f ≡ raw/1 * f + f
+      v-o<raw/1*f+f : value -ᵣ offset <ᵣ (raw Data.Rational./ 1) *ᵣ factor +ᵣ factor
+      v-o<raw/1*f+f = subst (value -ᵣ offset <ᵣ_) (raw+1*f≡raw*f+f raw factor) v-o<raw+1/1*f
+
+      v<raw/1*f+f+o : value <ᵣ ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset
+      v<raw/1*f+f+o = <-shift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset v-o<raw/1*f+f
+
+      -- (raw/1*f + f) + o = (raw/1*f + o) + f = result + f
+      rearrange : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
+      rearrange = begin
+        ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
+        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
+        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
+        applyScaling raw factor offset +ᵣ factor                  ∎
+        where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
+
+      right-bound : value <ᵣ applyScaling raw factor offset +ᵣ factor
+      right-bound = subst (value <ᵣ_) rearrange v<raw/1*f+f+o
+
+  scaling-bounds-neg : ∀ (value factor offset : ℚ) (raw : ℤ)
+    → (factor-neg : factor <ᵣ 0ℚ)
+    → floor (_÷ᵣ_ (value -ᵣ offset) factor {{<-nonZero factor-neg}}) ≡ raw
+    → let result = applyScaling raw factor offset
+      in result +ᵣ factor <ᵣ value × value ≤ᵣ result
+  scaling-bounds-neg value factor offset raw factor-neg floor≡raw = {!!}  -- Similar structure, reversed order
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAYER D: Structural bridge + final theorem
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Pattern match on factor to extract floor equation, then apply Layer C.
+
+-- The reverse direction: starting from ℚ value, removing then applying scaling
+-- produces a value within one factor of the original
+applyScaling-removeScaling-bounded : ∀ (value factor offset : ℚ) (raw : ℤ)
+  → (factor≢0 : factor ≢ 0ℚ)
+  → removeScaling value factor offset ≡ just raw
+  → let result = applyScaling raw factor offset
+    in (0ℚ <ᵣ factor → result ≤ᵣ value × value <ᵣ result +ᵣ factor)
+     × (factor <ᵣ 0ℚ → result +ᵣ factor <ᵣ value × value ≤ᵣ result)
+applyScaling-removeScaling-bounded value factor offset raw factor≢0 remove≡just = {!!}
+  -- Strategy: pattern match on factor's numerator (like removeScaling-applyScaling-value)
+  -- to make removeScaling reduce, extract floor equation, then call scaling-bounds-pos/neg
 
 -- ============================================================================
 -- LAYER 4: COMPOSITION - FULL ROUNDTRIP
@@ -491,74 +810,40 @@ data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
 Proof Strategy:
 ===============
 
-This module uses postulates for now (Phase 3 cleanup). Actual proofs will be
-added incrementally:
+Phase 3 verification proof status:
 
-LAYER 1 (Bit operations):
-- extractBits-injectBits-roundtrip: Prove by induction on length
-  - Base case (length = 0): trivial
-  - Inductive case: use properties of div, mod, and bit operations
-  - Estimated difficulty: MEDIUM (2-3 hours)
-  - Dependencies: Data.Nat.DivMod properties, bit operation lemmas
+PROOF STATUS BY LAYER:
+======================
 
-- injectBits-preserves-disjoint: Prove by showing bit ranges don't overlap
-  - Use properties of div/mod to show byte indices differ
-  - Estimated difficulty: MEDIUM-HIGH (3-4 hours)
-  - Dependencies: Disjointness of div/mod ranges
+LAYER 0 (BitVec): ✅ COMPLETE
+  - testBit-setBit-same, testBit-setBit-diff, setBit-setBit-comm
+  - Location: Aletheia.Data.BitVec
 
-- injectBits-commute: Follows from injectBits-preserves-disjoint
-  - Estimated difficulty: LOW (1 hour)
-  - Dependencies: Previous two lemmas
+LAYER 1 (Bit operations): ✅ COMPLETE
+  - extractBits-injectBits-roundtrip ✅
+  - injectBits-preserves-earlier-bit ✅
+  - injectBits-preserves-later-bit ✅
+  - injectBits-preserves-disjoint ✅
+  - Location: Aletheia.CAN.Endianness
 
-LAYER 2 (Integer conversion):
-- fromSigned-toSigned-roundtrip: Prove by cases on isSigned
-  - Unsigned case: trivial (identity)
-  - Signed case: two's complement arithmetic
-  - Estimated difficulty: MEDIUM (2-3 hours)
-  - Dependencies: Two's complement properties, Data.Integer lemmas
+LAYER 2 (Integer conversion): ✅ COMPLETE
+  - fromSigned-toSigned-roundtrip ✅
+  - toSigned-fromSigned-roundtrip ✅
+  - fromSigned-bounded-neg ✅
+  - Location: This module (Properties.agda)
 
-- toSigned-fromSigned-roundtrip: Similar to above
-  - Estimated difficulty: MEDIUM (2-3 hours)
+LAYER 3 (Scaling): ✅ COMPLETE (easy direction)
+  - removeScaling-applyScaling-exact ✅ (ℤ → ℚ → ℤ roundtrip)
+  - applyScaling-injective ✅
+  - removeScaling-factor-zero-iff-nothing ✅
+  - Location: This module (Properties.agda)
+  - TODO: applyScaling-removeScaling-bounded (reverse direction, HARD due to floor)
 
-- fromSigned-bounded: Prove by cases on sign of ℤ
-  - Estimated difficulty: LOW (1 hour)
+LAYER 4 (Composition): TODO
+  - extractSignal-injectSignal-roundtrip
+  - Dependencies: Layers 1-3 (all prerequisites now complete)
 
-LAYER 3 (Scaling - the tricky part):
-- removeScaling-applyScaling-roundtrip: HARD DUE TO FLOOR
-  - Exact roundtrip only when (value - offset) / factor has no fractional part
-  - Otherwise, floor introduces bounded error (< 1 * factor)
-  - Estimated difficulty: HIGH (4-6 hours)
-  - Dependencies: Data.Rational.Properties, floor properties
-  - Strategy: Prove bounded error, not exact equality
-
-- applyScaling-injective: Straightforward rational arithmetic
-  - Estimated difficulty: LOW-MEDIUM (1-2 hours)
-  - Dependencies: Data.Rational.Properties
-
-- removeScaling-factor-zero-iff-nothing: Follows from implementation
-  - Estimated difficulty: LOW (1 hour)
-
-LAYER 4 (Composition):
-- extractSignal-injectSignal-roundtrip: Combine all previous lemmas
-  - Estimated difficulty: MEDIUM (2-3 hours)
-  - Dependencies: All layer 1-3 lemmas
-  - Strategy: Expand definitions, apply layer lemmas in sequence
-
-NON-OVERLAP:
-- disjoint-signals-commute: Combine bit-level commutativity
-  - Estimated difficulty: MEDIUM (2-3 hours)
-  - Dependencies: Layer 1 and 4 lemmas
-
-- extract-disjoint-inject: Similar to above
-  - Estimated difficulty: MEDIUM (2-3 hours)
-
-TOTAL ESTIMATED TIME: 25-35 hours of proof work
-
-This is why we start with postulates! Each postulate is:
-- Clearly stated (no hand-waving)
-- Reasonable (follows from known properties)
-- Isolated (doesn't pollute other modules)
-- Documented with proof strategy
-
-Phase 3 proper will fill these in systematically.
+NON-OVERLAP: TODO
+  - disjoint-signals-commute (can use injectBits-preserves-disjoint)
+  - extract-disjoint-inject (can use injectBits-preserves-disjoint)
 -}
