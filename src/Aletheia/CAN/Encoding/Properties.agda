@@ -597,6 +597,32 @@ private
         a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
         a                  ∎
 
+  -- a - c ≤ b ⟹ a ≤ b + c (unshift offset, non-strict)
+  -- Used for: value - offset ≤ raw*f implies value ≤ raw*f + offset = result
+  ≤-unshift-offset : ∀ (a b c : ℚ) → a -ᵣ c ≤ᵣ b → a ≤ᵣ b +ᵣ c
+  ≤-unshift-offset a b c a-c≤b = subst (_≤ᵣ b +ᵣ c) a-c+c≡a (+-monoˡ-≤ c a-c≤b)
+    where
+      open import Data.Rational.Properties using (+-monoˡ-≤) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
+      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
+      a-c+c≡a = begin
+        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
+        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
+        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
+        a                  ∎
+
+  -- b < a - c ⟹ b + c < a (unshift offset, strict, flipped)
+  -- Used for: raw*f+f < value - offset implies raw*f+f + offset < value
+  <-unshift-offset : ∀ (a b c : ℚ) → b <ᵣ a -ᵣ c → b +ᵣ c <ᵣ a
+  <-unshift-offset a b c b<a-c = subst (b +ᵣ c <ᵣ_) a-c+c≡a (+-monoˡ-< c b<a-c)
+    where
+      open import Data.Rational.Properties using (+-monoˡ-<) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
+      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
+      a-c+c≡a = begin
+        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
+        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
+        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
+        a                  ∎
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER C: Algebraic chain (semantic core)
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -606,9 +632,9 @@ private
 
 private
   -- Note: stdlib naming inconsistency - for (_* r):
-  --   ≤ version: *-monoʳ-≤-nonNeg
-  --   < version: *-monoˡ-<-pos
-  open import Data.Rational.Properties using (+-monoˡ-≤; +-monoʳ-≤; *-monoʳ-≤-nonNeg; *-monoˡ-≤-nonPos; *-monoˡ-<-pos)
+  --   ≤ version: *-monoʳ-≤-nonNeg (positive), *-monoʳ-≤-nonPos (negative, reverses)
+  --   < version: *-monoˡ-<-pos (positive), *-monoˡ-<-neg (negative, reverses)
+  open import Data.Rational.Properties using (+-monoˡ-≤; +-monoʳ-≤; *-monoʳ-≤-nonNeg; *-monoʳ-≤-nonPos; *-monoˡ-<-pos; *-monoˡ-<-neg; neg⇒nonPos)
   open import Data.Rational using (Positive; Negative; NonNegative; NonPositive; >-nonZero; <-nonZero; positive; negative)
 
   scaling-bounds-pos : ∀ (value factor offset : ℚ) (raw : ℤ)
@@ -695,7 +721,83 @@ private
     → floor (_÷ᵣ_ (value -ᵣ offset) factor {{<-nonZero factor-neg}}) ≡ raw
     → let result = applyScaling raw factor offset
       in result +ᵣ factor <ᵣ value × value ≤ᵣ result
-  scaling-bounds-neg value factor offset raw factor-neg floor≡raw = {!!}  -- Similar structure, reversed order
+  scaling-bounds-neg value factor offset raw factor-neg floor≡raw = left-bound , right-bound
+    where
+      open import Data.Rational.Properties using (≤-reflexive; <-respʳ-≡)
+
+      q : ℚ
+      q = _÷ᵣ_ (value -ᵣ offset) factor {{<-nonZero factor-neg}}
+
+      instance _ : Negative factor
+      _ = negative factor-neg
+
+      -- Step 1: floor bounds with substitution (same as positive case)
+      floor/1≡raw/1 : (floor q Data.Rational./ 1) ≡ (raw Data.Rational./ 1)
+      floor/1≡raw/1 = cong (Data.Rational._/ 1) floor≡raw
+
+      raw/1≤q : (raw Data.Rational./ 1) ≤ᵣ q
+      raw/1≤q = subst (_≤ᵣ q) floor/1≡raw/1 (floor-lower q)
+
+      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1) ≡ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) Data.Rational./ 1) floor≡raw
+
+      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      q<raw+1/1 = <-respʳ-≡ floor+1/1≡raw+1/1 (floor-upper q)
+
+      -- Step 2: multiply by negative factor (REVERSES order)
+      -- raw/1 ≤ q becomes q*f ≤ raw/1*f
+      -- q < raw+1/1 becomes raw+1/1*f < q*f
+      instance
+        _ : NonPositive factor
+        _ = neg⇒nonPos factor
+
+        _ : NonZero factor
+        _ = <-nonZero factor-neg
+
+      -- *-monoʳ-≤-nonPos : p ≤ q → (p * r) ≥ (q * r) for nonPos r
+      -- So raw/1 ≤ q gives q*f ≤ raw/1*f
+      q*f≤raw/1*f : q *ᵣ factor ≤ᵣ (raw Data.Rational./ 1) *ᵣ factor
+      q*f≤raw/1*f = *-monoʳ-≤-nonPos factor raw/1≤q
+
+      -- *-monoˡ-<-neg : p < q → (p * r) > (q * r) for neg r
+      -- So q < raw+1/1 gives raw+1/1*f < q*f
+      raw+1/1*f<q*f : ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ q *ᵣ factor
+      raw+1/1*f<q*f = *-monoˡ-<-neg factor q<raw+1/1
+
+      -- Step 3: cancel division (q * f = value - offset)
+      -- q*f ≤ raw/1*f becomes value - offset ≤ raw/1*f
+      v-o≤raw/1*f : value -ᵣ offset ≤ᵣ (raw Data.Rational./ 1) *ᵣ factor
+      v-o≤raw/1*f = subst (_≤ᵣ (raw Data.Rational./ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f≤raw/1*f
+
+      -- raw+1/1*f < q*f becomes raw+1/1*f < value - offset
+      raw+1/1*f<v-o : ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ value -ᵣ offset
+      raw+1/1*f<v-o = subst (((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw+1/1*f<q*f
+
+      -- Step 4: unshift offset
+      -- For right bound: value - offset ≤ raw/1*f implies value ≤ raw/1*f + offset = result
+      right-bound : value ≤ᵣ applyScaling raw factor offset
+      right-bound = ≤-unshift-offset value ((raw Data.Rational./ 1) *ᵣ factor) offset v-o≤raw/1*f
+
+      -- For left bound: raw+1/1*f < value - offset
+      -- Convert raw+1/1*f to raw/1*f + f using raw+1*f≡raw*f+f
+      raw/1*f+f<v-o : (raw Data.Rational./ 1) *ᵣ factor +ᵣ factor <ᵣ value -ᵣ offset
+      raw/1*f+f<v-o = subst (_<ᵣ value -ᵣ offset) (raw+1*f≡raw*f+f raw factor) raw+1/1*f<v-o
+
+      -- raw/1*f + f < value - offset implies (raw/1*f + f) + offset < value
+      raw/1*f+f+o<v : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset <ᵣ value
+      raw/1*f+f+o<v = <-unshift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset raw/1*f+f<v-o
+
+      -- Rearrange: (raw/1*f + f) + o = result + f (same as positive case)
+      rearrange : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
+      rearrange = begin
+        ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
+        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
+        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
+        applyScaling raw factor offset +ᵣ factor                  ∎
+        where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
+
+      left-bound : applyScaling raw factor offset +ᵣ factor <ᵣ value
+      left-bound = subst (_<ᵣ value) rearrange raw/1*f+f+o<v
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER D: Structural bridge + final theorem
@@ -710,9 +812,69 @@ applyScaling-removeScaling-bounded : ∀ (value factor offset : ℚ) (raw : ℤ)
   → let result = applyScaling raw factor offset
     in (0ℚ <ᵣ factor → result ≤ᵣ value × value <ᵣ result +ᵣ factor)
      × (factor <ᵣ 0ℚ → result +ᵣ factor <ᵣ value × value ≤ᵣ result)
-applyScaling-removeScaling-bounded value factor offset raw factor≢0 remove≡just = {!!}
-  -- Strategy: pattern match on factor's numerator (like removeScaling-applyScaling-value)
-  -- to make removeScaling reduce, extract floor equation, then call scaling-bounds-pos/neg
+-- Pattern match on factor's numerator to make removeScaling reduce
+-- Zero numerator: contradiction with factor≢0
+applyScaling-removeScaling-bounded value factor@(mkℚ (+ 0) _ _) offset raw factor≢0 _ =
+  ⊥-elim (ℚ-nonzero⇒num-nonzero factor factor≢0 refl)
+-- Positive numerator: use scaling-bounds-pos
+applyScaling-removeScaling-bounded value factor@(mkℚ (+ ℕ.suc _) _ _) offset raw factor≢0 remove≡just =
+  pos-case , neg-absurd
+  where
+    open import Data.Rational.Properties using (<-irrefl; <-trans)
+
+    -- Extract floor equation from remove≡just
+    -- After pattern match, removeScaling reduces to just (floor (divideByFactor ...))
+    -- Use ÷-via-ℚᵘ to bridge divideByFactor to ÷ᵣ
+    numer : ℚ
+    numer = value -ᵣ offset
+
+    floor-eq-raw : floor (fromℚᵘ (toℚᵘ numer ÷ᵘ toℚᵘ factor)) ≡ raw
+    floor-eq-raw = just-injective remove≡just
+
+    floor-eq : floor (numer ÷ᵣ factor) ≡ raw
+    floor-eq = trans (sym (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))) floor-eq-raw
+
+    -- Factor is positive: mkℚ (+ ℕ.suc _) is definitionally positive
+    factor-pos : 0ℚ <ᵣ factor
+    factor-pos = positive⁻¹ factor
+      where open import Data.Rational.Properties using (positive⁻¹)
+
+    -- The positive case: apply scaling-bounds-pos
+    pos-case : 0ℚ <ᵣ factor → applyScaling raw factor offset ≤ᵣ value × value <ᵣ applyScaling raw factor offset +ᵣ factor
+    pos-case _ = scaling-bounds-pos value factor offset raw factor-pos floor-eq
+
+    -- The negative case is absurd: factor is positive so can't be negative
+    neg-absurd : factor <ᵣ 0ℚ → applyScaling raw factor offset +ᵣ factor <ᵣ value × value ≤ᵣ applyScaling raw factor offset
+    neg-absurd factor<0 = ⊥-elim (<-irrefl refl (<-trans factor<0 factor-pos))
+
+-- Negative numerator: use scaling-bounds-neg
+applyScaling-removeScaling-bounded value factor@(mkℚ -[1+ _ ] _ _) offset raw factor≢0 remove≡just =
+  pos-absurd , neg-case
+  where
+    open import Data.Rational.Properties using (<-irrefl; <-trans)
+
+    -- Extract floor equation from remove≡just
+    numer : ℚ
+    numer = value -ᵣ offset
+
+    floor-eq-raw : floor (fromℚᵘ (toℚᵘ numer ÷ᵘ toℚᵘ factor)) ≡ raw
+    floor-eq-raw = just-injective remove≡just
+
+    floor-eq : floor (numer ÷ᵣ factor) ≡ raw
+    floor-eq = trans (sym (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))) floor-eq-raw
+
+    -- Factor is negative: mkℚ -[1+ _ ] is definitionally negative
+    factor-neg : factor <ᵣ 0ℚ
+    factor-neg = negative⁻¹ factor
+      where open import Data.Rational.Properties using (negative⁻¹)
+
+    -- The positive case is absurd: factor is negative so can't be positive
+    pos-absurd : 0ℚ <ᵣ factor → applyScaling raw factor offset ≤ᵣ value × value <ᵣ applyScaling raw factor offset +ᵣ factor
+    pos-absurd 0<factor = ⊥-elim (<-irrefl refl (<-trans factor-neg 0<factor))
+
+    -- The negative case: apply scaling-bounds-neg
+    neg-case : factor <ᵣ 0ℚ → applyScaling raw factor offset +ᵣ factor <ᵣ value × value ≤ᵣ applyScaling raw factor offset
+    neg-case _ = scaling-bounds-neg value factor offset raw factor-neg floor-eq
 
 -- ============================================================================
 -- LAYER 4: COMPOSITION - FULL ROUNDTRIP

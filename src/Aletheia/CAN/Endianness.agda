@@ -24,6 +24,7 @@ open import Data.Nat.DivMod using (m%n<n)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; cong₂; _≢_; inspect; [_])
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Empty using (⊥; ⊥-elim)
@@ -330,6 +331,147 @@ private
                   (trans (cong₂ _+_ mod-eq (cong (_* 8) div-eq))
                     (sym (m≡m%n+[m/n]*n laterPos 8)))
       ... | no neq = cong (λ x → testBit (byteToBitVec x) earlierBitPos) (lookupSafe-updateSafe-diff 8 earlierByteIdx laterByteIdx _ bytes neq)
+
+  -- Symmetric case: injecting at earlier positions doesn't affect later bits
+  -- Precondition: earlierPos + length ≤ laterPos (injection range ends before the checked bit)
+  injectBits-preserves-later-bit :
+    ∀ {length} (bytes : Vec Byte 8) (earlierPos laterPos : ℕ) (bits : BitVec length)
+    → earlierPos + length ≤ laterPos
+    → laterPos < 64
+    → let laterByteIdx = laterPos Nat./ 8
+          laterBitPos = fromℕ< (m%n<n laterPos 8)
+      in testBit (byteToBitVec (lookupSafe 8 laterByteIdx (injectBits bytes earlierPos bits))) laterBitPos
+       ≡ testBit (byteToBitVec (lookupSafe 8 laterByteIdx bytes)) laterBitPos
+  injectBits-preserves-later-bit bytes earlierPos laterPos [] disjoint laterPos<64 = refl
+  injectBits-preserves-later-bit {suc len} bytes earlierPos laterPos (b ∷ bs) disjoint laterPos<64 =
+    trans recursive-preservation first-step-preservation
+    where
+      open import Data.Nat.Properties using (_≟_; ≤-trans; +-suc)
+      open import Data.Nat.DivMod using (m%n<n; m<n*o⇒m/o<n)
+      open import Data.Nat as Nat using (_/_; _%_)
+
+      earlierByteIdx : ℕ
+      earlierByteIdx = earlierPos Nat./ 8
+
+      earlierBitPos : Fin 8
+      earlierBitPos = fromℕ< (m%n<n earlierPos 8)
+
+      laterByteIdx : ℕ
+      laterByteIdx = laterPos Nat./ 8
+
+      laterBitPos : Fin 8
+      laterBitPos = fromℕ< (m%n<n laterPos 8)
+
+      -- First step: update byte at earlierPos with b
+      updatedBytes : Vec Byte 8
+      updatedBytes = updateSafe 8 earlierByteIdx (λ byte → bitVecToByte (setBit (byteToBitVec byte) earlierBitPos b)) bytes
+
+      -- Recursive: suc earlierPos + len ≤ laterPos (from earlierPos + suc len ≤ laterPos via +-suc)
+      rest-disjoint : suc earlierPos + len ≤ laterPos
+      rest-disjoint = subst (_≤ laterPos) (+-suc earlierPos len) disjoint
+
+      -- Recursive step: inject bs at suc earlierPos preserves laterPos
+      recursive-preservation : testBit (byteToBitVec (lookupSafe 8 laterByteIdx (injectBits updatedBytes (suc earlierPos) bs))) laterBitPos
+                             ≡ testBit (byteToBitVec (lookupSafe 8 laterByteIdx updatedBytes)) laterBitPos
+      recursive-preservation = injectBits-preserves-later-bit updatedBytes (suc earlierPos) laterPos bs rest-disjoint laterPos<64
+
+      -- First step: updating byte at earlierPos preserves bit at laterPos
+      -- Key: earlierPos < laterPos (since earlierPos + suc len ≤ laterPos implies earlierPos < laterPos)
+      first-step-preservation : testBit (byteToBitVec (lookupSafe 8 laterByteIdx updatedBytes)) laterBitPos
+                              ≡ testBit (byteToBitVec (lookupSafe 8 laterByteIdx bytes)) laterBitPos
+      first-step-preservation with laterByteIdx ≟ earlierByteIdx
+      ... | yes byteIdx-eq =
+        -- Same byte: chain through earlierByteIdx where the update happened
+        -- LHS: lookupSafe 8 laterByteIdx updatedBytes
+        -- via byteIdx-eq: lookupSafe 8 earlierByteIdx updatedBytes
+        -- via lookupSafe-updateSafe-same: f (lookupSafe 8 earlierByteIdx bytes)
+        -- via byteIdx-eq: f (lookupSafe 8 laterByteIdx bytes)
+        -- Then bit-level reasoning
+        trans (cong (λ idx → testBit (byteToBitVec (lookupSafe 8 idx updatedBytes)) laterBitPos) byteIdx-eq)
+          (trans (cong (λ byte → testBit (byteToBitVec byte) laterBitPos)
+                       (lookupSafe-updateSafe-same (λ byte → bitVecToByte (setBit (byteToBitVec byte) earlierBitPos b)) bytes earlierByteIdx<8))
+            (trans (cong (λ bv → testBit bv laterBitPos) (bitVecToByte-roundtrip (setBit (byteToBitVec (lookupSafe 8 earlierByteIdx bytes)) earlierBitPos b)))
+              (trans (testBit-setBit-diff (byteToBitVec (lookupSafe 8 earlierByteIdx bytes)) earlierBitPos laterBitPos b earlierBitPos≢laterBitPos)
+                (cong (λ idx → testBit (byteToBitVec (lookupSafe 8 idx bytes)) laterBitPos) (sym byteIdx-eq)))))
+        where
+          open import Data.Fin.Properties using (toℕ-injective; toℕ-fromℕ<)
+          open import Data.Nat.DivMod using (m≡m%n+[m/n]*n)
+          open import Data.Nat.Properties using (<⇒≢; ≤-trans; m≤m+n; <-≤-trans)
+
+          -- earlierPos < laterPos from disjoint: earlierPos + suc len ≤ laterPos
+          -- suc earlierPos ≤ suc (earlierPos + len) = earlierPos + suc len ≤ laterPos
+          earlierPos<laterPos : earlierPos < laterPos
+          earlierPos<laterPos = ≤-trans (m≤m+n (suc earlierPos) len) (subst (_≤ laterPos) (+-suc earlierPos len) disjoint)
+
+          -- Derive earlierByteIdx < 8 from earlierPos < laterPos < 64
+          earlierByteIdx<8 : earlierByteIdx < 8
+          earlierByteIdx<8 = m<n*o⇒m/o<n {earlierPos} {8} {8} (<-≤-trans earlierPos<laterPos (<⇒≤ laterPos<64))
+            where open import Data.Nat.Properties using (<⇒≤)
+
+          -- Different bit positions (since earlierPos < laterPos but same byte)
+          earlierBitPos≢laterBitPos : earlierBitPos ≢ laterBitPos
+          earlierBitPos≢laterBitPos eq = <⇒≢ earlierPos<laterPos pos-eq
+            where
+              mod-eq : earlierPos Nat.% 8 ≡ laterPos Nat.% 8
+              mod-eq = trans (sym (toℕ-fromℕ< (m%n<n earlierPos 8)))
+                         (trans (cong toℕ eq) (toℕ-fromℕ< (m%n<n laterPos 8)))
+
+              div-eq : earlierPos Nat./ 8 ≡ laterPos Nat./ 8
+              div-eq = sym byteIdx-eq
+
+              pos-eq : earlierPos ≡ laterPos
+              pos-eq = trans (m≡m%n+[m/n]*n earlierPos 8)
+                         (trans (cong₂ _+_ mod-eq (cong (_* 8) div-eq))
+                           (sym (m≡m%n+[m/n]*n laterPos 8)))
+      ... | no neq = cong (λ x → testBit (byteToBitVec x) laterBitPos) (lookupSafe-updateSafe-diff 8 laterByteIdx earlierByteIdx _ bytes neq)
+
+-- Proof: Injecting bits at a disjoint range preserves extraction at another range
+-- Two cases: injection before extraction, or extraction before injection
+injectBits-preserves-disjoint :
+  ∀ {len₁ len₂} (bytes : Vec Byte 8) (start₁ start₂ : ℕ) (bits : BitVec len₁)
+  → start₁ + len₁ ≤ start₂ ⊎ start₂ + len₂ ≤ start₁  -- disjoint ranges
+  → start₁ + len₁ ≤ 64
+  → start₂ + len₂ ≤ 64
+  → extractBits {len₂} (injectBits bytes start₁ bits) start₂ ≡ extractBits {len₂} bytes start₂
+injectBits-preserves-disjoint {len₁} {zero} bytes start₁ start₂ bits disj bound₁ bound₂ = refl
+-- Case: injection ends before extraction starts
+injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₁ inj-before-ext) bound₁ bound₂ =
+  cong₂ _∷_ first-bit rest-bits
+  where
+    open import Data.Nat.DivMod using (m%n<n)
+    open import Data.Nat as Nat using (_/_)
+    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; ≤-trans; n≤1+n)
+
+    byteIdx = start₂ Nat./ 8
+    bitPos = fromℕ< (m%n<n start₂ 8)
+    start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
+
+    first-bit = injectBits-preserves-later-bit bytes start₁ start₂ bits inj-before-ext start₂<64
+
+    rest-bound₂ = subst (_≤ 64) (+-suc start₂ len₂) bound₂
+    rest-disj = inj₁ (≤-trans inj-before-ext (n≤1+n start₂))
+    rest-bits = injectBits-preserves-disjoint bytes start₁ (suc start₂) bits rest-disj bound₁ rest-bound₂
+
+-- Case: extraction ends before injection starts
+injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₂ ext-before-inj) bound₁ bound₂ =
+  cong₂ _∷_ first-bit rest-bits
+  where
+    open import Data.Nat.DivMod using (m%n<n)
+    open import Data.Nat as Nat using (_/_)
+    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; m+n≤o⇒n≤o)
+
+    byteIdx = start₂ Nat./ 8
+    bitPos = fromℕ< (m%n<n start₂ 8)
+    start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
+
+    -- start₂ + suc len₂ ≤ start₁ ⟹ start₂ < start₂ + suc len₂ ≤ start₁ ⟹ start₂ < start₁
+    start₂<start₁ : start₂ < start₁
+    start₂<start₁ = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) ext-before-inj
+    first-bit = injectBits-preserves-earlier-bit bytes start₂ start₁ bits start₂<start₁ bound₁
+
+    rest-bound₂ = subst (_≤ 64) (+-suc start₂ len₂) bound₂
+    rest-disj = inj₂ (subst (_≤ start₁) (+-suc start₂ len₂) ext-before-inj)
+    rest-bits = injectBits-preserves-disjoint bytes start₁ (suc start₂) bits rest-disj bound₁ rest-bound₂
 
 -- Proof: Extracting after injecting returns the original bitvector
 -- Statement strengthened: ∀ startBit → (polymorphic IH for recursion at suc startBit)
