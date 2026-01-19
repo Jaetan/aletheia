@@ -340,12 +340,11 @@ private
 
 -- Semantic bridge lemma: what does removeScaling ∘ applyScaling evaluate to?
 -- This preserves the definitional connection between the result and floor (raw / 1)
--- TODO Phase 3: Prove by unfolding definitions under factor ≢ 0
+-- PROVEN: removeScaling-applyScaling-value (line 394) and removeScaling-applyScaling-exact (line 416)
 -- applyScaling raw f o = raw/1 * f + o
 -- removeScaling (raw/1 * f + o) f o = just (floor ((raw/1 * f + o - o) / f))
 --                                    = just (floor (raw/1 * f / f))
---                                    = just (floor (raw/1))
--- This is ℚ cancellation, not ℕ arithmetic - semantic, not representational
+--                                    = just (floor (raw/1)) = just raw
 private
   -- Bridge lemma: division via fromℚᵘ/toℚᵘ equals semantic ÷ᵣ
   -- This is the ONLY place where representation details appear
@@ -890,28 +889,185 @@ record WellFormedSignal (sig : SignalDef) : Set where
     factor-nonzero : ¬ (SignalDef.factor sig ≡ 0ℚ)
     ranges-consistent : SignalDef.minimum sig ≤ᵣ SignalDef.maximum sig
 
-{- TODO Phase 3: Full round-trip theorem
+-- ═══════════════════════════════════════════════════════════════════════════
+-- LAYER 4A: Core roundtrip (pure bytes level, no Maybe/guards)
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Chain: extractBits ∘ injectBits → bitVecToℕ ∘ ℕToBitVec → toSigned ∘ fromSigned
 
-   Theorem: extractSignal-injectSignal-roundtrip
-   ----------------------------------------------
-   Extracting after injecting returns the original value
-   This is the main correctness property, built from all layers
+private
+  open import Aletheia.Data.BitVec.Conversion using (bitVec-roundtrip; ℕToBitVec; bitVecToℕ)
+  open import Aletheia.CAN.Endianness using (extractBits-injectBits-roundtrip; swapBytes; swapBytes-involutive)
 
-   ∀ (value : SignalValue) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
-   → WellFormedSignal sig
-   → (value-in-bounds : inBounds value (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
-   → injectSignal value sig byteOrder frame >>= (λ frame' →
-       extractSignal frame' sig byteOrder) ≡ just value
+  -- Helper: SignedFits implies fromSigned is bounded
+  -- This is the direction we need for injectSignal's guard
+  SignedFits-implies-fromSigned-bounded : ∀ (raw : ℤ) (bitLength : ℕ)
+    → bitLength > 0
+    → SignedFits raw bitLength
+    → fromSigned raw bitLength < 2 ^ bitLength
+  SignedFits-implies-fromSigned-bounded (+ n) bitLength bl>0 n<half =
+    -- n < 2^(bl-1) < 2^bl
+    <-trans n<half (half<full bitLength bl>0)
+    where
+      open import Data.Nat.Properties as ℕP using (<-trans; ^-monoʳ-<; n<1+n; ≤-refl)
+      -- 2^(bl-1) < 2^bl follows from 1<2 and bl-1 < bl
+      half<full : ∀ bl → bl > 0 → 2 ^ (bl ∸ 1) < 2 ^ bl
+      half<full (suc bl) _ = ^-monoʳ-< 2 1<2 (n<1+n bl)
+        where
+          1<2 : 1 < 2
+          1<2 = s≤s (s≤s z≤n)
+  SignedFits-implies-fromSigned-bounded -[1+ n ] bitLength bl>0 sucn≤half =
+    -- fromSigned -[1+ n] bl = 2^bl - suc n
+    -- Need: 2^bl - suc n < 2^bl, which is always true when 2^bl > 0
+    m∸sucn<m (2 ^ bitLength) n (m^n>0 2 bitLength)
+    where
+      open import Data.Nat.Properties using (m∸n≤m; m^n>0)
+      -- m ∸ suc n < m when m > 0
+      m∸sucn<m : ∀ m n → m > 0 → m ∸ suc n < m
+      m∸sucn<m (suc m) n _ = s≤s (m∸n≤m m n)
 
-   Proof strategy:
-   - Expand definitions of extractSignal and injectSignal
-   - Apply layer 1-3 lemmas in sequence:
-     1. Bit-level roundtrip (extractBits ∘ injectBits)
-     2. Integer conversion roundtrip (toSigned ∘ fromSigned)
-     3. Scaling roundtrip (applyScaling ∘ removeScaling)
-   - Estimated difficulty: MEDIUM (2-3 hours)
-   - Dependencies: All layer 1-3 lemmas
+  -- Unified constraint: combines what we need for roundtrip
+  -- For unsigned: raw is non-negative
+  -- For signed: raw satisfies SignedFits
+  data RawFits (raw : ℤ) (bitLength : ℕ) : Bool → Set where
+    unsigned-fits : ∀ {n} → raw ≡ + n → n < 2 ^ bitLength → RawFits raw bitLength false
+    signed-fits : SignedFits raw bitLength → RawFits raw bitLength true
+
+  -- Derive fromSigned bound from RawFits
+  RawFits-implies-bounded : ∀ (raw : ℤ) (bitLength : ℕ) (isSigned : Bool)
+    → bitLength > 0
+    → RawFits raw bitLength isSigned
+    → fromSigned raw bitLength < 2 ^ bitLength
+  RawFits-implies-bounded .(+ n) bitLength false bl>0 (unsigned-fits {n} refl n<2^bl) = n<2^bl
+  RawFits-implies-bounded raw bitLength true bl>0 (signed-fits sf) =
+    SignedFits-implies-fromSigned-bounded raw bitLength bl>0 sf
+
+  -- Core roundtrip: at the bytes level, extraction recovers the original raw value
+  -- No Maybe, no guards - just the pure mathematical roundtrip
+  --
+  -- Pipeline:
+  --   raw → fromSigned → ℕToBitVec → injectBits → extractBits → bitVecToℕ → toSigned → raw
+  --
+  -- Unsigned case: raw = + n
+  signal-roundtrip-unsigned :
+    ∀ (n : ℕ) (bytes : Vec Byte 8) (startBit bitLength : ℕ)
+    → (fits-in-frame : startBit + bitLength ≤ 64)
+    → (n<2^bl : n < 2 ^ bitLength)
+    → toSigned (bitVecToℕ (extractBits {bitLength}
+        (injectBits {bitLength} bytes startBit (ℕToBitVec {bitLength} n n<2^bl))
+        startBit)) bitLength false ≡ + n
+  signal-roundtrip-unsigned n bytes startBit bitLength fits-in-frame n<2^bl =
+    cong +_ unsigned-roundtrip
+    where
+      -- Abbreviation for the BitVec
+      bv : BitVec bitLength
+      bv = ℕToBitVec {bitLength} n n<2^bl
+
+      -- Chain: extractBits ∘ injectBits = id (Layer 1)
+      bits-roundtrip : extractBits {bitLength} (injectBits {bitLength} bytes startBit bv) startBit ≡ bv
+      bits-roundtrip = extractBits-injectBits-roundtrip {bitLength} bytes startBit bv fits-in-frame
+
+      -- Chain: bitVecToℕ ∘ ℕToBitVec = id (Layer 1.5)
+      nat-roundtrip : bitVecToℕ bv ≡ n
+      nat-roundtrip = bitVec-roundtrip bitLength n n<2^bl
+
+      -- Combined: extractedUnsigned ≡ n
+      unsigned-roundtrip : bitVecToℕ (extractBits {bitLength} (injectBits {bitLength} bytes startBit bv) startBit) ≡ n
+      unsigned-roundtrip = trans (cong bitVecToℕ bits-roundtrip) nat-roundtrip
+
+  -- Signed case: use toSigned-fromSigned-roundtrip
+  signal-roundtrip-signed :
+    ∀ (raw : ℤ) (bytes : Vec Byte 8) (startBit bitLength : ℕ)
+    → (bitLength>0 : bitLength > 0)
+    → (fits-in-frame : startBit + bitLength ≤ 64)
+    → (sf : SignedFits raw bitLength)
+    → (fits-in-bits : fromSigned raw bitLength < 2 ^ bitLength)
+    → toSigned (bitVecToℕ (extractBits {bitLength}
+        (injectBits {bitLength} bytes startBit (ℕToBitVec {bitLength} (fromSigned raw bitLength) fits-in-bits))
+        startBit)) bitLength true ≡ raw
+  signal-roundtrip-signed raw bytes startBit bitLength bitLength>0 fits-in-frame sf fits-in-bits =
+    signed-proof
+    where
+      -- Abbreviation for the BitVec
+      bv : BitVec bitLength
+      bv = ℕToBitVec {bitLength} (fromSigned raw bitLength) fits-in-bits
+
+      -- Chain: extractBits ∘ injectBits = id (Layer 1)
+      bits-roundtrip : extractBits {bitLength} (injectBits {bitLength} bytes startBit bv) startBit ≡ bv
+      bits-roundtrip = extractBits-injectBits-roundtrip {bitLength} bytes startBit bv fits-in-frame
+
+      -- Chain: bitVecToℕ ∘ ℕToBitVec = id (Layer 1.5)
+      nat-roundtrip : bitVecToℕ bv ≡ fromSigned raw bitLength
+      nat-roundtrip = bitVec-roundtrip bitLength (fromSigned raw bitLength) fits-in-bits
+
+      -- Combined: extractedUnsigned ≡ fromSigned raw bitLength
+      unsigned-roundtrip : bitVecToℕ (extractBits {bitLength} (injectBits {bitLength} bytes startBit bv) startBit) ≡ fromSigned raw bitLength
+      unsigned-roundtrip = trans (cong bitVecToℕ bits-roundtrip) nat-roundtrip
+
+      -- Chain: toSigned ∘ fromSigned = id (Layer 2)
+      signed-proof : toSigned (bitVecToℕ (extractBits {bitLength} (injectBits {bitLength} bytes startBit bv) startBit)) bitLength true ≡ raw
+      signed-proof = trans (cong (λ x → toSigned x bitLength true) unsigned-roundtrip)
+                           (toSigned-fromSigned-roundtrip raw bitLength bitLength>0 sf)
+
+-- ============================================================================
+-- LAYER 4: FULL SIGNAL ROUNDTRIP (through Maybe)
+-- ============================================================================
+-- The full composition: extractSignal ∘ injectSignal = id
+-- This lifts the pure bytes-level roundtrip through Maybe and handles:
+-- - Bounds checking guards
+-- - Scaling operations
+-- - Byte order swapping
+
+{-
+  Strategy: The full roundtrip proof requires showing that:
+  1. injectSignal value sig byteOrder frame = just frame'
+     (when bounds pass, removeScaling succeeds, and raw fits)
+  2. extractSignal frame' sig byteOrder = just value
+     (because we extract the same bits → same raw → same value)
+
+  The key insight is that for a value = applyScaling raw factor offset,
+  removeScaling will return exactly raw (no floor precision loss).
+
+  Endianness handling: swapBytes is involutive, so:
+  - Big-endian: swap → inject → swap → extract → swap
+    The first swap-swap pair cancels, leaving inject → extract
 -}
+
+-- Full roundtrip theorem: extractSignal ∘ injectSignal = id
+-- Preconditions:
+-- 1. value = applyScaling raw factor offset (ensures removeScaling recovers raw exactly)
+-- 2. inBounds value min max ≡ true (bounds check passes)
+-- 3. factor ≢ 0 (well-formed signal)
+-- 4. fits-in-bits: fromSigned raw bitLength < 2^bitLength
+
+-- For now, we state the theorem for the unsigned case (isSigned = false)
+-- The signed case follows the same structure with SignedFits constraint
+
+-- Helper: compute signal value from raw integer
+signalValue : ℤ → SignalDef → ℚ
+signalValue raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
+
+extractSignal-injectSignal-roundtrip-unsigned :
+  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
+  → (n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig))
+  → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
+       extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
+extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok factor≢0 fits-in-frame n<2^bl =
+  -- Proof outline:
+  -- 1. injectSignal value sig byteOrder frame
+  --    - bounds check passes (bounds-ok)
+  --    - removeScaling returns just (+ n) (by removeScaling-applyScaling-exact)
+  --    - n < 2^bitLength (n<2^bl)
+  --    - Returns just frame'
+  -- 2. extractSignal frame' sig byteOrder
+  --    - Extracts the same bits (signal-roundtrip-unsigned + swapBytes-involutive)
+  --    - toSigned gives + n
+  --    - applyScaling gives value
+  --    - bounds check passes (same value, same bounds)
+  --    - Returns just value
+  {!!}  -- TODO: Complete proof
 
 -- ============================================================================
 -- NON-OVERLAP PROPERTIES (bit-level, no ℚ)
