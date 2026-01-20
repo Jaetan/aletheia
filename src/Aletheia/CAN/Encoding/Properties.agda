@@ -1055,19 +1055,54 @@ extractSignal-injectSignal-roundtrip-unsigned :
   → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
        extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
 extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok factor≢0 fits-in-frame n<2^bl =
-  -- Proof outline:
-  -- 1. injectSignal value sig byteOrder frame
-  --    - bounds check passes (bounds-ok)
-  --    - removeScaling returns just (+ n) (by removeScaling-applyScaling-exact)
-  --    - n < 2^bitLength (n<2^bl)
-  --    - Returns just frame'
-  -- 2. extractSignal frame' sig byteOrder
-  --    - Extracts the same bits (signal-roundtrip-unsigned + swapBytes-involutive)
-  --    - toSigned gives + n
-  --    - applyScaling gives value
-  --    - bounds check passes (same value, same bounds)
-  --    - Returns just value
-  {!!}  -- TODO: Complete proof
+  -- The proof unfolds injectSignal step by step, matching with patterns
+  proof
+  where
+    open SignalDef sig
+    open CANFrame frame
+
+    value : ℚ
+    value = signalValue (+ n) sig
+
+    -- Step 1: removeScaling returns just (+ n)
+    remove-eq : removeScaling value factor offset ≡ just (+ n)
+    remove-eq = removeScaling-applyScaling-exact (+ n) factor offset factor≢0
+
+    -- Step 2: fromSigned (+ n) bitLength = n, which is < 2^bitLength
+    fromSigned-n : fromSigned (+ n) (toℕ bitLength) ≡ n
+    fromSigned-n = refl  -- by definition of fromSigned for positive
+
+    -- Step 3: The bounds check on n < 2^bitLength passes
+    fits-check : (n Data.Nat.<? 2 ^ toℕ bitLength) ≡ yes n<2^bl
+    fits-check = dec-yes-irr (n Data.Nat.<? 2 ^ toℕ bitLength) <-irrelevant n<2^bl
+      where
+        open import Relation.Nullary.Decidable using (dec-yes-irr)
+        open import Data.Nat.Properties using (<-irrelevant)
+
+    -- Helper: inBounds returns true (from bounds-ok hypothesis)
+    bounds-true : inBounds value minimum maximum ≡ true
+    bounds-true = bounds-ok
+
+    -- The proof requires helper lemmas to avoid inspect idiom issues.
+    -- Strategy for completing this proof:
+    --
+    -- 1. Add helper: injectSignal-result
+    --    When bounds-ok, removeScaling returns just raw, and raw fits,
+    --    characterize the exact frame' that injectSignal returns.
+    --
+    -- 2. Add helper: extractSignal-on-injected
+    --    Show extractSignal on the characterized frame' returns just value.
+    --
+    -- 3. Combine using the signal-roundtrip-unsigned lemma and
+    --    swapBytes-involutive for endianness.
+    --
+    -- Key completed lemmas available:
+    -- - remove-eq : removeScaling value factor offset ≡ just (+ n)
+    -- - fits-check : (n <? 2^bl) ≡ yes n<2^bl
+    -- - signal-roundtrip-unsigned : bytes-level roundtrip
+    proof : (injectSignal value sig byteOrder frame >>= λ frame' →
+              extractSignal frame' sig byteOrder) ≡ just value
+    proof = {!!}
 
 -- ============================================================================
 -- NON-OVERLAP PROPERTIES (bit-level, no ℚ)
