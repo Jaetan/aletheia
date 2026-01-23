@@ -35,10 +35,10 @@ open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ t
 open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Rational.Literals using (fromℤ)
 open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; *-comm; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc)
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Product using (∃; _×_; _,_)
+open import Data.Product using (∃; _×_; _,_; proj₁; proj₂)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; cong₂; inspect; [_]; subst; subst₂)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
@@ -1046,63 +1046,310 @@ private
 signalValue : ℤ → SignalDef → ℚ
 signalValue raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
 
-extractSignal-injectSignal-roundtrip-unsigned :
+-- ============================================================================
+-- REDUCTION LEMMAS: State exactly what injectSignal/extractSignal compute
+-- ============================================================================
+
+-- Helper: compute the frame that injectSignal produces
+-- Uses injectPayload abstraction to factor out byte order handling
+injectedFrame : ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → n < 2 ^ toℕ (SignalDef.bitLength sig)
+  → CANFrame
+injectedFrame n sig byteOrder frame n<2^bl =
+  record frame { payload = injectPayload (toℕ (SignalDef.startBit sig)) (ℕToBitVec n n<2^bl) byteOrder (CANFrame.payload frame) }
+
+-- Reduction Lemma A: injectSignal reduces to a known frame
+-- This is more useful than existence because it eliminates ∃ from proofs
+injectSignal-reduces-unsigned :
   ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
   → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
-  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
   → (n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig))
-  → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
-       extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
-extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok factor≢0 fits-in-frame n<2^bl =
-  -- The proof unfolds injectSignal step by step, matching with patterns
-  proof
+  → injectSignal (signalValue (+ n) sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl =
+  helper bounds-ok remove-eq fits-check
   where
     open SignalDef sig
     open CANFrame frame
+    open import Relation.Nullary.Decidable using (dec-yes-irr)
+    open import Data.Nat.Properties using (<-irrelevant)
 
     value : ℚ
     value = signalValue (+ n) sig
 
-    -- Step 1: removeScaling returns just (+ n)
     remove-eq : removeScaling value factor offset ≡ just (+ n)
     remove-eq = removeScaling-applyScaling-exact (+ n) factor offset factor≢0
 
-    -- Step 2: fromSigned (+ n) bitLength = n, which is < 2^bitLength
-    fromSigned-n : fromSigned (+ n) (toℕ bitLength) ≡ n
-    fromSigned-n = refl  -- by definition of fromSigned for positive
-
-    -- Step 3: The bounds check on n < 2^bitLength passes
     fits-check : (n Data.Nat.<? 2 ^ toℕ bitLength) ≡ yes n<2^bl
     fits-check = dec-yes-irr (n Data.Nat.<? 2 ^ toℕ bitLength) <-irrelevant n<2^bl
-      where
-        open import Relation.Nullary.Decidable using (dec-yes-irr)
-        open import Data.Nat.Properties using (<-irrelevant)
 
-    -- Helper: inBounds returns true (from bounds-ok hypothesis)
-    bounds-true : inBounds value minimum maximum ≡ true
-    bounds-true = bounds-ok
+    helper : inBounds value minimum maximum ≡ true
+           → removeScaling value factor offset ≡ just (+ n)
+           → (n Data.Nat.<? 2 ^ toℕ bitLength) ≡ yes n<2^bl
+           → injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+    helper bounds-eq remove-eq' fits-eq
+      with inBounds value minimum maximum
+    helper bounds-eq remove-eq' fits-eq | true
+      with removeScaling value factor offset | remove-eq'
+    ... | just .(+ n) | refl
+      with n Data.Nat.<? 2 ^ toℕ bitLength | fits-eq
+    ... | yes .n<2^bl | refl = refl
+    helper () _ _ | false
 
-    -- The proof requires helper lemmas to avoid inspect idiom issues.
-    -- Strategy for completing this proof:
-    --
-    -- 1. Add helper: injectSignal-result
-    --    When bounds-ok, removeScaling returns just raw, and raw fits,
-    --    characterize the exact frame' that injectSignal returns.
-    --
-    -- 2. Add helper: extractSignal-on-injected
-    --    Show extractSignal on the characterized frame' returns just value.
-    --
-    -- 3. Combine using the signal-roundtrip-unsigned lemma and
-    --    swapBytes-involutive for endianness.
-    --
-    -- Key completed lemmas available:
-    -- - remove-eq : removeScaling value factor offset ≡ just (+ n)
-    -- - fits-check : (n <? 2^bl) ≡ yes n<2^bl
-    -- - signal-roundtrip-unsigned : bytes-level roundtrip
-    proof : (injectSignal value sig byteOrder frame >>= λ frame' →
-              extractSignal frame' sig byteOrder) ≡ just value
-    proof = {!!}
+-- Reduction Lemma B: extractSignal on injectedFrame returns the original value
+-- Now uses the refactored extractSignal with computational core
+extractSignal-reduces-unsigned :
+  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (unsigned : SignalDef.isSigned sig ≡ false)
+  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
+  → (n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig))
+  → extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue (+ n) sig)
+
+-- LittleEndian case: no byte swapping
+extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-in-frame n<2^bl =
+  proof
+  where
+    open SignalDef sig
+    open CANFrame frame
+    value : ℚ
+    value = signalValue (+ n) sig
+
+    -- The bytes we extract from: payload of injectedFrame = injectBits payload startBit bv
+    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes = injectBits {toℕ bitLength} payload (toℕ startBit) (ℕToBitVec {toℕ bitLength} n n<2^bl)
+
+    -- extractionBytes (injectedFrame ...) LittleEndian = payload of injectedFrame = injectedBytes
+    -- (This is definitional for LittleEndian)
+
+    -- Core roundtrip: extractSignalCore returns + n for unsigned signals
+    core-eq : extractSignalCore injectedBytes sig ≡ + n
+    core-eq rewrite unsigned = signal-roundtrip-unsigned n payload (toℕ startBit) (toℕ bitLength) fits-in-frame n<2^bl
+
+    -- Scaling: scaleExtracted (+ n) sig = value (definitional)
+    scale-eq : scaleExtracted (+ n) sig ≡ value
+    scale-eq = refl
+
+    -- The proof by rewriting
+    proof : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
+    proof rewrite core-eq | bounds-ok = refl
+
+-- BigEndian case: byte swapping cancels
+extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-frame n<2^bl =
+  proof
+  where
+    open SignalDef sig
+    open CANFrame frame
+    value : ℚ
+    value = signalValue (+ n) sig
+
+    -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
+    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload = swapBytes payload
+
+    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped = injectBits {toℕ bitLength} swappedPayload (toℕ startBit) (ℕToBitVec {toℕ bitLength} n n<2^bl)
+
+    -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
+    swap-cancel : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+    swap-cancel = swapBytes-involutive injectedBytesSwapped
+
+    -- Core roundtrip on the swapped payload
+    core-eq : extractSignalCore injectedBytesSwapped sig ≡ + n
+    core-eq rewrite unsigned = signal-roundtrip-unsigned n swappedPayload (toℕ startBit) (toℕ bitLength) fits-in-frame n<2^bl
+
+    -- The proof by rewriting
+    proof : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
+    proof rewrite swap-cancel | core-eq | bounds-ok = refl
+
+extractSignal-injectSignal-roundtrip-unsigned :
+  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (unsigned : SignalDef.isSigned sig ≡ false)
+  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
+  → (n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig))
+  → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
+       extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
+extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok factor≢0 unsigned fits-in-frame n<2^bl =
+  proof
+  where
+    value : ℚ
+    value = signalValue (+ n) sig
+
+    -- Reduction lemma: injectSignal computes to just (injectedFrame ...)
+    inject-reduces : injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+    inject-reduces = injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl
+
+    -- Reduction lemma: extractSignal on injectedFrame returns just value
+    extract-reduces : extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just value
+    extract-reduces = extractSignal-reduces-unsigned n sig byteOrder frame bounds-ok unsigned fits-in-frame n<2^bl
+
+    -- Compose by rewriting: inject >>= extract = just injectedFrame >>= extract = extract injectedFrame = just value
+    proof : (injectSignal value sig byteOrder frame >>= λ f → extractSignal f sig byteOrder) ≡ just value
+    proof rewrite inject-reduces = extract-reduces
+
+-- ============================================================================
+-- LAYER 4B: SIGNED SIGNAL ROUNDTRIP
+-- ============================================================================
+-- Same pattern as unsigned, but uses SignedFits constraint and toSigned true
+
+-- Reduction Lemma A (Signed): injectSignal reduces to a known frame
+-- The raw value is fromSigned z bitLength, which we prove fits in bitLength bits
+injectSignal-reduces-signed :
+  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (bl>0 : toℕ (SignalDef.bitLength sig) > 0)
+  → (sf : SignedFits z (toℕ (SignalDef.bitLength sig)))
+  → let n = fromSigned z (toℕ (SignalDef.bitLength sig))
+        n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ (SignalDef.bitLength sig)) bl>0 sf
+    in injectSignal (signalValue z sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf =
+  helper bounds-ok remove-eq fits-check
+  where
+    open SignalDef sig
+    open CANFrame frame
+    open import Relation.Nullary.Decidable using (dec-yes-irr)
+    open import Data.Nat.Properties using (<-irrelevant)
+
+    value : ℚ
+    value = signalValue z sig
+
+    n : ℕ
+    n = fromSigned z (toℕ bitLength)
+
+    n<2^bl : n < 2 ^ toℕ bitLength
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ bitLength) bl>0 sf
+
+    remove-eq : removeScaling value factor offset ≡ just z
+    remove-eq = removeScaling-applyScaling-exact z factor offset factor≢0
+
+    fits-check : (n Data.Nat.<? 2 ^ toℕ bitLength) ≡ yes n<2^bl
+    fits-check = dec-yes-irr (n Data.Nat.<? 2 ^ toℕ bitLength) <-irrelevant n<2^bl
+
+    helper : inBounds value minimum maximum ≡ true
+           → removeScaling value factor offset ≡ just z
+           → (n Data.Nat.<? 2 ^ toℕ bitLength) ≡ yes n<2^bl
+           → injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+    helper bounds-eq remove-eq' fits-eq
+      with inBounds value minimum maximum
+    helper bounds-eq remove-eq' fits-eq | true
+      with removeScaling value factor offset | remove-eq'
+    ... | just .z | refl
+      with n Data.Nat.<? 2 ^ toℕ bitLength | fits-eq
+    ... | yes .n<2^bl | refl = refl
+    helper () _ _ | false
+
+-- Reduction Lemma B (Signed): extractSignal on injectedFrame returns the original value
+-- Uses signal-roundtrip-signed which uses toSigned with isSigned = true
+extractSignal-reduces-signed :
+  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (signed : SignalDef.isSigned sig ≡ true)
+  → (bl>0 : toℕ (SignalDef.bitLength sig) > 0)
+  → (sf : SignedFits z (toℕ (SignalDef.bitLength sig)))
+  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
+  → let n = fromSigned z (toℕ (SignalDef.bitLength sig))
+        n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ (SignalDef.bitLength sig)) bl>0 sf
+    in extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue z sig)
+
+-- LittleEndian case: no byte swapping
+extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf fits-in-frame =
+  proof
+  where
+    open SignalDef sig
+    open CANFrame frame
+    value : ℚ
+    value = signalValue z sig
+
+    n : ℕ
+    n = fromSigned z (toℕ bitLength)
+
+    n<2^bl : n < 2 ^ toℕ bitLength
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ bitLength) bl>0 sf
+
+    -- The bytes we extract from
+    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes = injectBits {toℕ bitLength} payload (toℕ startBit) (ℕToBitVec {toℕ bitLength} n n<2^bl)
+
+    -- Core roundtrip: extractSignalCore returns z for signed signals
+    core-eq : extractSignalCore injectedBytes sig ≡ z
+    core-eq rewrite signed = signal-roundtrip-signed z payload (toℕ startBit) (toℕ bitLength) bl>0 fits-in-frame sf n<2^bl
+
+    -- The proof by rewriting
+    proof : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
+    proof rewrite core-eq | bounds-ok = refl
+
+-- BigEndian case: byte swapping cancels
+extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits-in-frame =
+  proof
+  where
+    open SignalDef sig
+    open CANFrame frame
+    value : ℚ
+    value = signalValue z sig
+
+    n : ℕ
+    n = fromSigned z (toℕ bitLength)
+
+    n<2^bl : n < 2 ^ toℕ bitLength
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ bitLength) bl>0 sf
+
+    -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
+    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload = swapBytes payload
+
+    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped = injectBits {toℕ bitLength} swappedPayload (toℕ startBit) (ℕToBitVec {toℕ bitLength} n n<2^bl)
+
+    -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
+    swap-cancel : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+    swap-cancel = swapBytes-involutive injectedBytesSwapped
+
+    -- Core roundtrip on the swapped payload
+    core-eq : extractSignalCore injectedBytesSwapped sig ≡ z
+    core-eq rewrite signed = signal-roundtrip-signed z swappedPayload (toℕ startBit) (toℕ bitLength) bl>0 fits-in-frame sf n<2^bl
+
+    -- The proof by rewriting
+    proof : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
+    proof rewrite swap-cancel | core-eq | bounds-ok = refl
+
+-- Main theorem (Signed): inject then extract returns original value
+extractSignal-injectSignal-roundtrip-signed :
+  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (signed : SignalDef.isSigned sig ≡ true)
+  → (bl>0 : toℕ (SignalDef.bitLength sig) > 0)
+  → (sf : SignedFits z (toℕ (SignalDef.bitLength sig)))
+  → (fits-in-frame : toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64)
+  → (injectSignal (signalValue z sig) sig byteOrder frame >>= λ frame' →
+       extractSignal frame' sig byteOrder) ≡ just (signalValue z sig)
+extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok factor≢0 signed bl>0 sf fits-in-frame =
+  proof
+  where
+    open SignalDef sig
+    value : ℚ
+    value = signalValue z sig
+
+    n : ℕ
+    n = fromSigned z (toℕ bitLength)
+
+    n<2^bl : n < 2 ^ toℕ bitLength
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ bitLength) bl>0 sf
+
+    -- Reduction lemma: injectSignal computes to just (injectedFrame ...)
+    inject-reduces : injectSignal value sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+    inject-reduces = injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf
+
+    -- Reduction lemma: extractSignal on injectedFrame returns just value
+    extract-reduces : extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just value
+    extract-reduces = extractSignal-reduces-signed z sig byteOrder frame bounds-ok signed bl>0 sf fits-in-frame
+
+    -- Compose by rewriting
+    proof : (injectSignal value sig byteOrder frame >>= λ f → extractSignal f sig byteOrder) ≡ just value
+    proof rewrite inject-reduces = extract-reduces
 
 -- ============================================================================
 -- NON-OVERLAP PROPERTIES (bit-level, no ℚ)
@@ -1120,41 +1367,302 @@ data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
       ≤ toℕ (SignalDef.startBit sig₁)
     → SignalsDisjoint sig₁ sig₂
 
-{- TODO Phase 3: Non-overlap proofs
+-- Convert SignalsDisjoint to the ⊎ form needed by injectBits-preserves-disjoint
+SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
+  → toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+  ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+SignalsDisjoint→⊎ (disjoint-left p) = inj₁ p
+SignalsDisjoint→⊎ (disjoint-right p) = inj₂ p
 
-   Theorem: disjoint-signals-commute
-   ----------------------------------
-   Injecting disjoint signals commutes (order doesn't matter)
+-- ============================================================================
+-- extract-disjoint-inject: Extraction unaffected by disjoint injection
+-- ============================================================================
+-- Key insight: Use injectBits-preserves-disjoint at the bit level,
+-- then lift through the signal abstraction layers.
 
-   ∀ (value₁ value₂ : SignalValue) (sig₁ sig₂ : SignalDef) (order : ByteOrder) (frame : CANFrame)
-   → SignalsDisjoint sig₁ sig₂
-   → WellFormedSignal sig₁
-   → WellFormedSignal sig₂
-   → (injectSignal value₁ sig₁ order frame >>= injectSignal value₂ sig₂ order)
-     ≡ (injectSignal value₂ sig₂ order frame >>= injectSignal value₁ sig₁ order)
+-- For unsigned signals (simpler case, demonstrates the pattern)
+extract-disjoint-inject-unsigned :
+  ∀ (n : ℕ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → SignalsDisjoint sig₁ sig₂
+  → (bounds-ok₁ : inBounds (signalValue (+ n) sig₁) (SignalDef.minimum sig₁) (SignalDef.maximum sig₁) ≡ true)
+  → (factor≢0 : SignalDef.factor sig₁ ≢ 0ℚ)
+  → (n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig₁))
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → (injectSignal (signalValue (+ n) sig₁) sig₁ byteOrder frame >>= λ frame' →
+       extractSignal frame' sig₂ byteOrder)
+    ≡ extractSignal frame sig₂ byteOrder
 
-   Proof strategy:
-   - Combine bit-level commutativity (injectBits-commute)
-   - Show endianness swaps don't affect disjointness
-   - Estimated difficulty: MEDIUM (2-3 hours)
+-- LittleEndian case: no byte swapping
+extract-disjoint-inject-unsigned n sig₁ sig₂ LittleEndian frame disj bounds-ok₁ factor≢0 n<2^bl fits₁ fits₂ =
+  proof
+  where
+    open CANFrame frame
 
-   Theorem: extract-disjoint-inject
-   ---------------------------------
-   Extracting a signal is unaffected by injecting a disjoint signal
+    value₁ : ℚ
+    value₁ = signalValue (+ n) sig₁
 
-   ∀ (value : SignalValue) (sig₁ sig₂ : SignalDef) (order : ByteOrder) (frame : CANFrame)
-   → SignalsDisjoint sig₁ sig₂
-   → WellFormedSignal sig₁
-   → WellFormedSignal sig₂
-   → injectSignal value sig₁ order frame >>= (λ frame' →
-       extractSignal frame' sig₂ order)
-     ≡ extractSignal frame sig₂ order
+    -- Reduction: injectSignal computes to just (injectedFrame ...)
+    inject-reduces : injectSignal value₁ sig₁ LittleEndian frame ≡ just (injectedFrame n sig₁ LittleEndian frame n<2^bl)
+    inject-reduces = injectSignal-reduces-unsigned n sig₁ LittleEndian frame bounds-ok₁ factor≢0 n<2^bl
 
-   Proof strategy:
-   - Use injectBits-preserves-disjoint
-   - Show disjointness preserved through scaling/conversion layers
-   - Estimated difficulty: MEDIUM (2-3 hours)
--}
+    -- The injected bytes (LittleEndian: no swap)
+    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes = injectBits {toℕ (SignalDef.bitLength sig₁)} payload (toℕ (SignalDef.startBit sig₁))
+                      (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+
+    -- Disjointness in ⊎ form
+    disj⊎ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+          ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+    disj⊎ = SignalsDisjoint→⊎ disj
+
+    -- Key lemma: extraction at sig₂ is preserved through injection at sig₁
+    bits-preserved : extractBits {toℕ (SignalDef.bitLength sig₂)} injectedBytes (toℕ (SignalDef.startBit sig₂))
+                   ≡ extractBits {toℕ (SignalDef.bitLength sig₂)} payload (toℕ (SignalDef.startBit sig₂))
+    bits-preserved = injectBits-preserves-disjoint payload
+                       (toℕ (SignalDef.startBit sig₁)) (toℕ (SignalDef.startBit sig₂))
+                       (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+                       disj⊎ fits₁ fits₂
+
+    -- extractSignalCore on injectedFrame equals extractSignalCore on original frame
+    core-preserved : extractSignalCore injectedBytes sig₂ ≡ extractSignalCore payload sig₂
+    core-preserved = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ (SignalDef.bitLength sig₂)) (SignalDef.isSigned sig₂))
+                          bits-preserved
+
+    -- Full extraction is preserved (extractSignal is a thin wrapper around extractSignalCore)
+    proof : (injectSignal value₁ sig₁ LittleEndian frame >>= λ frame' → extractSignal frame' sig₂ LittleEndian)
+          ≡ extractSignal frame sig₂ LittleEndian
+    proof rewrite inject-reduces | core-preserved = refl
+
+-- BigEndian case: byte swapping cancels
+extract-disjoint-inject-unsigned n sig₁ sig₂ BigEndian frame disj bounds-ok₁ factor≢0 n<2^bl fits₁ fits₂ =
+  proof
+  where
+    open CANFrame frame
+
+    value₁ : ℚ
+    value₁ = signalValue (+ n) sig₁
+
+    -- Reduction: injectSignal computes to just (injectedFrame ...)
+    inject-reduces : injectSignal value₁ sig₁ BigEndian frame ≡ just (injectedFrame n sig₁ BigEndian frame n<2^bl)
+    inject-reduces = injectSignal-reduces-unsigned n sig₁ BigEndian frame bounds-ok₁ factor≢0 n<2^bl
+
+    -- For BigEndian: payload is swapped, injected, then swapped back
+    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload = swapBytes payload
+
+    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped = injectBits {toℕ (SignalDef.bitLength sig₁)} swappedPayload (toℕ (SignalDef.startBit sig₁))
+                             (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+
+    -- The final payload in injectedFrame is swapBytes injectedBytesSwapped
+    -- When extracting with BigEndian, we swap again: swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
+
+    -- Disjointness in ⊎ form
+    disj⊎ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+          ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+    disj⊎ = SignalsDisjoint→⊎ disj
+
+    -- Key lemma: extraction at sig₂ is preserved (on swapped bytes)
+    bits-preserved : extractBits {toℕ (SignalDef.bitLength sig₂)} injectedBytesSwapped (toℕ (SignalDef.startBit sig₂))
+                   ≡ extractBits {toℕ (SignalDef.bitLength sig₂)} swappedPayload (toℕ (SignalDef.startBit sig₂))
+    bits-preserved = injectBits-preserves-disjoint swappedPayload
+                       (toℕ (SignalDef.startBit sig₁)) (toℕ (SignalDef.startBit sig₂))
+                       (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+                       disj⊎ fits₁ fits₂
+
+    -- Swap cancellation for extraction
+    swap-cancel-injected : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+    swap-cancel-injected = swapBytes-involutive injectedBytesSwapped
+
+    -- extractSignalCore sees injectedBytesSwapped (after double swap cancels)
+    core-preserved : extractSignalCore injectedBytesSwapped sig₂ ≡ extractSignalCore swappedPayload sig₂
+    core-preserved = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ (SignalDef.bitLength sig₂)) (SignalDef.isSigned sig₂))
+                          bits-preserved
+
+    -- Full proof
+    proof : (injectSignal value₁ sig₁ BigEndian frame >>= λ frame' → extractSignal frame' sig₂ BigEndian)
+          ≡ extractSignal frame sig₂ BigEndian
+    proof rewrite inject-reduces | swap-cancel-injected | core-preserved = refl
+
+-- For signed signals (same pattern as unsigned)
+extract-disjoint-inject-signed :
+  ∀ (z : ℤ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → SignalsDisjoint sig₁ sig₂
+  → (bounds-ok₁ : inBounds (signalValue z sig₁) (SignalDef.minimum sig₁) (SignalDef.maximum sig₁) ≡ true)
+  → (factor≢0 : SignalDef.factor sig₁ ≢ 0ℚ)
+  → (bl>0 : toℕ (SignalDef.bitLength sig₁) > 0)
+  → (sf : SignedFits z (toℕ (SignalDef.bitLength sig₁)))
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → (injectSignal (signalValue z sig₁) sig₁ byteOrder frame >>= λ frame' →
+       extractSignal frame' sig₂ byteOrder)
+    ≡ extractSignal frame sig₂ byteOrder
+
+-- LittleEndian case
+extract-disjoint-inject-signed z sig₁ sig₂ LittleEndian frame disj bounds-ok₁ factor≢0 bl>0 sf fits₁ fits₂ =
+  proof
+  where
+    open CANFrame frame
+
+    value₁ : ℚ
+    value₁ = signalValue z sig₁
+
+    n : ℕ
+    n = fromSigned z (toℕ (SignalDef.bitLength sig₁))
+
+    n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig₁)
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ (SignalDef.bitLength sig₁)) bl>0 sf
+
+    inject-reduces : injectSignal value₁ sig₁ LittleEndian frame ≡ just (injectedFrame n sig₁ LittleEndian frame n<2^bl)
+    inject-reduces = injectSignal-reduces-signed z sig₁ LittleEndian frame bounds-ok₁ factor≢0 bl>0 sf
+
+    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes = injectBits {toℕ (SignalDef.bitLength sig₁)} payload (toℕ (SignalDef.startBit sig₁))
+                      (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+
+    disj⊎ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+          ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+    disj⊎ = SignalsDisjoint→⊎ disj
+
+    bits-preserved : extractBits {toℕ (SignalDef.bitLength sig₂)} injectedBytes (toℕ (SignalDef.startBit sig₂))
+                   ≡ extractBits {toℕ (SignalDef.bitLength sig₂)} payload (toℕ (SignalDef.startBit sig₂))
+    bits-preserved = injectBits-preserves-disjoint payload
+                       (toℕ (SignalDef.startBit sig₁)) (toℕ (SignalDef.startBit sig₂))
+                       (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+                       disj⊎ fits₁ fits₂
+
+    core-preserved : extractSignalCore injectedBytes sig₂ ≡ extractSignalCore payload sig₂
+    core-preserved = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ (SignalDef.bitLength sig₂)) (SignalDef.isSigned sig₂))
+                          bits-preserved
+
+    proof : (injectSignal value₁ sig₁ LittleEndian frame >>= λ frame' → extractSignal frame' sig₂ LittleEndian)
+          ≡ extractSignal frame sig₂ LittleEndian
+    proof rewrite inject-reduces | core-preserved = refl
+
+-- BigEndian case
+extract-disjoint-inject-signed z sig₁ sig₂ BigEndian frame disj bounds-ok₁ factor≢0 bl>0 sf fits₁ fits₂ =
+  proof
+  where
+    open CANFrame frame
+
+    value₁ : ℚ
+    value₁ = signalValue z sig₁
+
+    n : ℕ
+    n = fromSigned z (toℕ (SignalDef.bitLength sig₁))
+
+    n<2^bl : n < 2 ^ toℕ (SignalDef.bitLength sig₁)
+    n<2^bl = SignedFits-implies-fromSigned-bounded z (toℕ (SignalDef.bitLength sig₁)) bl>0 sf
+
+    inject-reduces : injectSignal value₁ sig₁ BigEndian frame ≡ just (injectedFrame n sig₁ BigEndian frame n<2^bl)
+    inject-reduces = injectSignal-reduces-signed z sig₁ BigEndian frame bounds-ok₁ factor≢0 bl>0 sf
+
+    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload = swapBytes payload
+
+    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped = injectBits {toℕ (SignalDef.bitLength sig₁)} swappedPayload (toℕ (SignalDef.startBit sig₁))
+                             (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+
+    disj⊎ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+          ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+    disj⊎ = SignalsDisjoint→⊎ disj
+
+    bits-preserved : extractBits {toℕ (SignalDef.bitLength sig₂)} injectedBytesSwapped (toℕ (SignalDef.startBit sig₂))
+                   ≡ extractBits {toℕ (SignalDef.bitLength sig₂)} swappedPayload (toℕ (SignalDef.startBit sig₂))
+    bits-preserved = injectBits-preserves-disjoint swappedPayload
+                       (toℕ (SignalDef.startBit sig₁)) (toℕ (SignalDef.startBit sig₂))
+                       (ℕToBitVec {toℕ (SignalDef.bitLength sig₁)} n n<2^bl)
+                       disj⊎ fits₁ fits₂
+
+    swap-cancel-injected : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+    swap-cancel-injected = swapBytes-involutive injectedBytesSwapped
+
+    core-preserved : extractSignalCore injectedBytesSwapped sig₂ ≡ extractSignalCore swappedPayload sig₂
+    core-preserved = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ (SignalDef.bitLength sig₂)) (SignalDef.isSigned sig₂))
+                          bits-preserved
+
+    proof : (injectSignal value₁ sig₁ BigEndian frame >>= λ frame' → extractSignal frame' sig₂ BigEndian)
+          ≡ extractSignal frame sig₂ BigEndian
+    proof rewrite inject-reduces | swap-cancel-injected | core-preserved = refl
+
+-- ============================================================================
+-- disjoint-signals-commute: Order-independent injection of disjoint signals
+-- ============================================================================
+
+-- Frame-level commutativity using the payloadIso abstraction
+-- This lifts injectPayload-commute to frames uniformly for all byte orders
+injectedFrame-commute :
+  ∀ (n₁ n₂ : ℕ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+    (n₁<2^bl₁ : n₁ < 2 ^ toℕ (SignalDef.bitLength sig₁))
+    (n₂<2^bl₂ : n₂ < 2 ^ toℕ (SignalDef.bitLength sig₂))
+  → SignalsDisjoint sig₁ sig₂
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → injectedFrame n₂ sig₂ byteOrder (injectedFrame n₁ sig₁ byteOrder frame n₁<2^bl₁) n₂<2^bl₂
+    ≡ injectedFrame n₁ sig₁ byteOrder (injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂) n₁<2^bl₁
+injectedFrame-commute n₁ n₂ sig₁ sig₂ bo frame n₁<2^bl₁ n₂<2^bl₂ disj fits₁ fits₂ =
+  cong (λ p → record frame { payload = p }) payload-commute
+  where
+    open import Aletheia.CAN.Endianness using (injectPayload; injectPayload-commute)
+
+    s₁ = toℕ (SignalDef.startBit sig₁)
+    s₂ = toℕ (SignalDef.startBit sig₂)
+    payload = CANFrame.payload frame
+    bits₁ = ℕToBitVec n₁ n₁<2^bl₁
+    bits₂ = ℕToBitVec n₂ n₂<2^bl₂
+
+    -- The payload commutativity follows directly from injectPayload-commute
+    payload-commute : injectPayload s₂ bits₂ bo (injectPayload s₁ bits₁ bo payload)
+                    ≡ injectPayload s₁ bits₁ bo (injectPayload s₂ bits₂ bo payload)
+    payload-commute = injectPayload-commute s₁ s₂ bits₁ bits₂ bo payload (SignalsDisjoint→⊎ disj) fits₁ fits₂
+
+-- Unsigned signals: disjoint injections commute
+disjoint-signals-commute-unsigned :
+  ∀ (n₁ n₂ : ℕ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → SignalsDisjoint sig₁ sig₂
+  → (bounds-ok₁ : inBounds (signalValue (+ n₁) sig₁) (SignalDef.minimum sig₁) (SignalDef.maximum sig₁) ≡ true)
+  → (bounds-ok₂ : inBounds (signalValue (+ n₂) sig₂) (SignalDef.minimum sig₂) (SignalDef.maximum sig₂) ≡ true)
+  → (factor≢0₁ : SignalDef.factor sig₁ ≢ 0ℚ)
+  → (factor≢0₂ : SignalDef.factor sig₂ ≢ 0ℚ)
+  → (n₁<2^bl₁ : n₁ < 2 ^ toℕ (SignalDef.bitLength sig₁))
+  → (n₂<2^bl₂ : n₂ < 2 ^ toℕ (SignalDef.bitLength sig₂))
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → (injectSignal (signalValue (+ n₁) sig₁) sig₁ byteOrder frame >>= λ f₁ →
+       injectSignal (signalValue (+ n₂) sig₂) sig₂ byteOrder f₁)
+    ≡ (injectSignal (signalValue (+ n₂) sig₂) sig₂ byteOrder frame >>= λ f₂ →
+       injectSignal (signalValue (+ n₁) sig₁) sig₁ byteOrder f₂)
+disjoint-signals-commute-unsigned n₁ n₂ sig₁ sig₂ byteOrder frame disj bounds-ok₁ bounds-ok₂ factor≢0₁ factor≢0₂ n₁<2^bl₁ n₂<2^bl₂ fits₁ fits₂ =
+  proof
+  where
+    v₁ = signalValue (+ n₁) sig₁
+    v₂ = signalValue (+ n₂) sig₂
+
+    -- Reduction lemmas
+    inject₁-reduces : injectSignal v₁ sig₁ byteOrder frame ≡ just (injectedFrame n₁ sig₁ byteOrder frame n₁<2^bl₁)
+    inject₁-reduces = injectSignal-reduces-unsigned n₁ sig₁ byteOrder frame bounds-ok₁ factor≢0₁ n₁<2^bl₁
+
+    inject₂-reduces : injectSignal v₂ sig₂ byteOrder frame ≡ just (injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂)
+    inject₂-reduces = injectSignal-reduces-unsigned n₂ sig₂ byteOrder frame bounds-ok₂ factor≢0₂ n₂<2^bl₂
+
+    frame₁ = injectedFrame n₁ sig₁ byteOrder frame n₁<2^bl₁
+    frame₂ = injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂
+
+    inject₂-on-frame₁ : injectSignal v₂ sig₂ byteOrder frame₁ ≡ just (injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂)
+    inject₂-on-frame₁ = injectSignal-reduces-unsigned n₂ sig₂ byteOrder frame₁ bounds-ok₂ factor≢0₂ n₂<2^bl₂
+
+    inject₁-on-frame₂ : injectSignal v₁ sig₁ byteOrder frame₂ ≡ just (injectedFrame n₁ sig₁ byteOrder frame₂ n₁<2^bl₁)
+    inject₁-on-frame₂ = injectSignal-reduces-unsigned n₁ sig₁ byteOrder frame₂ bounds-ok₁ factor≢0₁ n₁<2^bl₁
+
+    -- Frame commutativity from the abstraction
+    frames-equal : injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂ ≡ injectedFrame n₁ sig₁ byteOrder frame₂ n₁<2^bl₁
+    frames-equal = injectedFrame-commute n₁ n₂ sig₁ sig₂ byteOrder frame n₁<2^bl₁ n₂<2^bl₂ disj fits₁ fits₂
+
+    proof : (injectSignal v₁ sig₁ byteOrder frame >>= λ f₁ → injectSignal v₂ sig₂ byteOrder f₁)
+          ≡ (injectSignal v₂ sig₂ byteOrder frame >>= λ f₂ → injectSignal v₁ sig₁ byteOrder f₂)
+    proof rewrite inject₁-reduces | inject₂-reduces | inject₂-on-frame₁ | inject₁-on-frame₂ | frames-equal = refl
 
 -- ============================================================================
 -- IMPLEMENTATION NOTES
@@ -1163,7 +1671,7 @@ data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
 Proof Strategy:
 ===============
 
-Phase 3 verification proof status:
+Phase 3 verification proof status (updated 2026-01-21):
 
 PROOF STATUS BY LAYER:
 ======================
@@ -1183,18 +1691,27 @@ LAYER 2 (Integer conversion): ✅ COMPLETE
   - fromSigned-toSigned-roundtrip ✅
   - toSigned-fromSigned-roundtrip ✅
   - fromSigned-bounded-neg ✅
+  - SignedFits-implies-fromSigned-bounded ✅
   - Location: This module (Properties.agda)
 
-LAYER 3 (Scaling): ✅ COMPLETE (easy direction)
-  - removeScaling-applyScaling-exact ✅ (ℤ → ℚ → ℤ roundtrip)
+LAYER 3 (Scaling): ✅ COMPLETE (both directions)
+  - removeScaling-applyScaling-exact ✅ (ℤ → ℚ → ℤ roundtrip, exact)
+  - applyScaling-removeScaling-bounded ✅ (ℚ → ℤ → ℚ roundtrip, bounded by factor)
   - applyScaling-injective ✅
   - removeScaling-factor-zero-iff-nothing ✅
+  - scaling-bounds-pos ✅, scaling-bounds-neg ✅
   - Location: This module (Properties.agda)
-  - TODO: applyScaling-removeScaling-bounded (reverse direction, HARD due to floor)
 
-LAYER 4 (Composition): TODO
-  - extractSignal-injectSignal-roundtrip
-  - Dependencies: Layers 1-3 (all prerequisites now complete)
+LAYER 4 (Composition): ✅ COMPLETE
+  - extractSignal-injectSignal-roundtrip-unsigned ✅
+  - extractSignal-injectSignal-roundtrip-signed ✅
+  - injectSignal-reduces-unsigned ✅, injectSignal-reduces-signed ✅
+  - extractSignal-reduces-unsigned ✅, extractSignal-reduces-signed ✅
+  - Location: This module (Properties.agda)
+
+  Key refactoring: extractSignal uses pure computational core functions
+  (extractSignalCore, scaleExtracted, extractionBytes) to enable clean
+  rewriting in proofs. See Aletheia.CAN.Encoding for these helpers.
 
 NON-OVERLAP: TODO
   - disjoint-signals-commute (can use injectBits-preserves-disjoint)

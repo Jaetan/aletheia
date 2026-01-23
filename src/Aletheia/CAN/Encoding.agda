@@ -26,15 +26,11 @@ open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ t
 open import Relation.Nullary.Decidable as Dec using (True; toWitness)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
+open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Relation.Nullary using (Dec; yes; no)
 open import Function using (_∘_)
-
--- Helper: Check if byte order is big endian
-isBigEndian : ByteOrder → Bool
-isBigEndian BigEndian = true
-isBigEndian LittleEndian = false
 
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
@@ -91,34 +87,42 @@ removeScaling signalValue factor offset =
 inBounds : ℚ → ℚ → ℚ → Bool
 inBounds value minVal maxVal = (minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal)
 
+-- ============================================================================
+-- COMPUTATIONAL CORE: Pure functions for proof ergonomics
+-- ============================================================================
+-- These are factored out from extractSignal to enable clean rewriting in proofs.
+-- No Maybe, no with, no Dec - just math.
+
+-- Extract raw signed integer from bytes (no bounds check, no scaling)
+extractSignalCore : Vec Byte 8 → SignalDef → ℤ
+extractSignalCore bytes sig =
+  let open SignalDef sig in
+  toSigned
+    (bitVecToℕ (extractBits {toℕ bitLength} bytes (toℕ startBit)))
+    (toℕ bitLength)
+    isSigned
+
+-- Apply scaling to raw extracted value
+scaleExtracted : ℤ → SignalDef → ℚ
+scaleExtracted raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
+
+-- Get the bytes to extract from (handles byte order)
+extractionBytes : CANFrame → ByteOrder → Vec Byte 8
+extractionBytes frame LittleEndian = CANFrame.payload frame
+extractionBytes frame BigEndian = swapBytes (CANFrame.payload frame)
+
+-- ============================================================================
+
 -- Extract a signal from a CAN frame
+-- Now a thin wrapper around the computational core
 extractSignal : CANFrame → SignalDef → ByteOrder → Maybe SignalValue
-extractSignal frame signalDef byteOrder =
-  let open CANFrame frame
-      open SignalDef signalDef
-      -- Apply byte swapping if needed
-      bytes : Data.Vec.Vec Byte 8
-      bytes = if isBigEndian byteOrder
-              then swapBytes payload
-              else payload
-      -- Extract raw bits as BitVec
-      rawBitVec : BitVec (toℕ bitLength)
-      rawBitVec = extractBits bytes (toℕ startBit)
-      -- Convert BitVec → ℕ at the boundary
-      rawBits : ℕ
-      rawBits = bitVecToℕ rawBitVec
-      -- Convert to signed if needed
-      signedValue : ℤ
-      signedValue = toSigned rawBits (toℕ bitLength) isSigned
-      -- Apply scaling
-      scaledValue : ℚ
-      scaledValue = applyScaling signedValue factor offset
-      -- Check bounds
-      valid : Bool
-      valid = inBounds scaledValue minimum maximum
-  in if valid then just scaledValue else nothing
-  where
-    open import Data.Vec using (Vec)
+extractSignal frame sig byteOrder =
+  let bytes = extractionBytes frame byteOrder
+      raw = extractSignalCore bytes sig
+      value = scaleExtracted raw sig
+  in if inBounds value (SignalDef.minimum sig) (SignalDef.maximum sig)
+     then just value
+     else nothing
 
 -- Inject a signal value into a CAN frame
 injectSignal : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame

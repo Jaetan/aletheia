@@ -28,6 +28,9 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; cong₂; _≢_; inspect; [_])
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Unit using (⊤; tt)
+open import Data.List using (List; []; _∷_; _++_)
+open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Function using (_∘_; id)
 
 data ByteOrder : Set where
@@ -138,6 +141,11 @@ injectBits bytes startBit (bitValue ∷ restBits) = injectBits updatedBytes (suc
 -- ============================================================================
 -- BYTE ORDER CONVERSION
 -- ============================================================================
+
+-- Check if byte order is big-endian
+isBigEndian : ByteOrder → Bool
+isBigEndian LittleEndian = false
+isBigEndian BigEndian = true
 
 -- Byte order conversion for multi-byte sequences
 swapBytes : Vec Byte 8 → Vec Byte 8
@@ -537,6 +545,315 @@ extractBits-injectBits-roundtrip {suc len} bytes startBit (b ∷ bs) bound =
     -- Rest bits: by IH at suc startBit (definitional with strengthened statement!)
     rest-bits : extractBits (injectBits bytes startBit (b ∷ bs)) (suc startBit) ≡ bs
     rest-bits = extractBits-injectBits-roundtrip updatedBytes (suc startBit) bs rest-bound
+
+-- ============================================================================
+-- COMMUTATIVITY: Disjoint injections commute
+-- ============================================================================
+-- Key insight: injectBits is semantically "apply a finite map of bit writes".
+-- Disjoint write sets commute trivially once lifted to this abstraction.
+
+-- A single bit write: (absolute position, value)
+BitWrite : Set
+BitWrite = ℕ × Bool
+
+-- Apply a single bit write to the frame
+applyWrite : Vec Byte 8 → BitWrite → Vec Byte 8
+applyWrite bytes (pos , val) = updateSafe 8 byteIdx updateFn bytes
+  where
+    open import Data.Nat.DivMod using (m%n<n)
+    open import Data.Nat as Nat using (_/_)
+    byteIdx = pos Nat./ 8
+    bitPos = fromℕ< (m%n<n pos 8)
+    updateFn = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos val)
+
+-- Apply a list of writes (fold left = first write applied first, matching injectBits)
+applyWrites : Vec Byte 8 → List BitWrite → Vec Byte 8
+applyWrites bytes [] = bytes
+applyWrites bytes (w ∷ ws) = applyWrites (applyWrite bytes w) ws
+
+-- Convert BitVec to a list of writes starting at position s
+writesOf : ∀ {len} → ℕ → BitVec len → List BitWrite
+writesOf s [] = []
+writesOf s (b ∷ bs) = (s , b) ∷ writesOf (suc s) bs
+
+-- Two writes are at different positions
+DiffPos : BitWrite → BitWrite → Set
+DiffPos (p₁ , _) (p₂ , _) = p₁ ≢ p₂
+
+-- All pairs from two lists have different positions
+AllDiffPos : List BitWrite → List BitWrite → Set
+AllDiffPos [] _ = ⊤
+AllDiffPos (w ∷ ws) ws₂ = All (DiffPos w) ws₂ × AllDiffPos ws ws₂
+
+-- All writes within a single list are at distinct positions
+AllDistinct : List BitWrite → Set
+AllDistinct [] = ⊤
+AllDistinct (w ∷ ws) = All (DiffPos w) ws × AllDistinct ws
+
+-- ============================================================================
+-- WRITE-SET LEMMAS (the semantic layer)
+-- ============================================================================
+
+-- Two single writes at different positions commute
+private
+  applyWrite-comm : ∀ bytes w₁ w₂ → DiffPos w₁ w₂
+    → applyWrite (applyWrite bytes w₂) w₁ ≡ applyWrite (applyWrite bytes w₁) w₂
+  applyWrite-comm bytes (p₁ , v₁) (p₂ , v₂) p₁≢p₂ = case-split
+    where
+      open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n)
+      open import Data.Nat as Nat using (_/_; _%_)
+      open import Data.Nat.Properties using (_≟_; <⇒≢)
+      open import Data.Fin.Properties using (toℕ-fromℕ<)
+
+      idx₁ = p₁ Nat./ 8
+      idx₂ = p₂ Nat./ 8
+      bitPos₁ = fromℕ< (m%n<n p₁ 8)
+      bitPos₂ = fromℕ< (m%n<n p₂ 8)
+      f₁ = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos₁ v₁)
+      f₂ = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos₂ v₂)
+
+      -- Different byte indices: use updateSafe commutativity
+      diff-byte : idx₁ ≢ idx₂ → applyWrite (applyWrite bytes (p₂ , v₂)) (p₁ , v₁)
+                              ≡ applyWrite (applyWrite bytes (p₁ , v₁)) (p₂ , v₂)
+      diff-byte neq = updateSafe-comm-diff-lemma idx₁ idx₂ f₁ f₂ bytes neq
+        where
+          updateSafe-comm-diff-lemma : ∀ {n} (i₁ i₂ : ℕ) (g₁ g₂ : Byte → Byte) (bs : Vec Byte n)
+            → i₁ ≢ i₂
+            → updateSafe n i₁ g₁ (updateSafe n i₂ g₂ bs) ≡ updateSafe n i₂ g₂ (updateSafe n i₁ g₁ bs)
+          updateSafe-comm-diff-lemma {zero} _ _ _ _ [] _ = refl
+          updateSafe-comm-diff-lemma {suc n} zero zero _ _ _ neq = ⊥-elim (neq refl)
+          updateSafe-comm-diff-lemma {suc n} zero (suc _) _ _ (b ∷ bs) _ = refl
+          updateSafe-comm-diff-lemma {suc n} (suc _) zero _ _ (b ∷ bs) _ = refl
+          updateSafe-comm-diff-lemma {suc n} (suc i₁) (suc i₂) g₁ g₂ (x ∷ xs) neq =
+            cong (x ∷_) (updateSafe-comm-diff-lemma i₁ i₂ g₁ g₂ xs (λ eq → neq (cong suc eq)))
+
+      -- Same byte index but different bit positions: use setBit commutativity
+      same-byte : idx₁ ≡ idx₂ → applyWrite (applyWrite bytes (p₂ , v₂)) (p₁ , v₁)
+                              ≡ applyWrite (applyWrite bytes (p₁ , v₁)) (p₂ , v₂)
+      same-byte idx-eq = updateSafe-same-compose idx-eq bitPos₁≢bitPos₂
+        where
+          -- p₁ ≢ p₂ and p₁/8 = p₂/8 implies p₁%8 ≢ p₂%8
+          bitPos₁≢bitPos₂ : bitPos₁ ≢ bitPos₂
+          bitPos₁≢bitPos₂ eq = p₁≢p₂ (trans (m≡m%n+[m/n]*n p₁ 8)
+            (trans (cong₂ _+_ (trans (sym (toℕ-fromℕ< (m%n<n p₁ 8)))
+                               (trans (cong toℕ eq) (toℕ-fromℕ< (m%n<n p₂ 8))))
+                             (cong (_* 8) idx-eq))
+              (sym (m≡m%n+[m/n]*n p₂ 8))))
+
+          -- When indices are equal, use function composition and setBit commutativity
+          updateSafe-same-compose : idx₁ ≡ idx₂ → bitPos₁ ≢ bitPos₂
+            → updateSafe 8 idx₁ f₁ (updateSafe 8 idx₂ f₂ bytes)
+            ≡ updateSafe 8 idx₂ f₂ (updateSafe 8 idx₁ f₁ bytes)
+          updateSafe-same-compose idx-eq bp-neq =
+            subst₂ (λ i j → updateSafe 8 i f₁ (updateSafe 8 j f₂ bytes) ≡ updateSafe 8 j f₂ (updateSafe 8 i f₁ bytes))
+                   (sym idx-eq) refl same-idx-proof
+            where
+              open import Relation.Binary.PropositionalEquality using (subst₂)
+
+              updateSafe-same-lemma : ∀ {n} (i : ℕ) (h₁ h₂ : Byte → Byte) (xs : Vec Byte n)
+                → updateSafe n i h₁ (updateSafe n i h₂ xs) ≡ updateSafe n i (h₁ ∘ h₂) xs
+              updateSafe-same-lemma {zero} _ _ _ [] = refl
+              updateSafe-same-lemma {suc _} zero _ _ (x ∷ xs) = refl
+              updateSafe-same-lemma {suc n} (suc i) h₁ h₂ (x ∷ xs) =
+                cong (x ∷_) (updateSafe-same-lemma i h₁ h₂ xs)
+
+              updateSafe-cong-fn-lemma : ∀ {n} (i : ℕ) (h₁ h₂ : Byte → Byte) (xs : Vec Byte n)
+                → (∀ b → h₁ b ≡ h₂ b) → updateSafe n i h₁ xs ≡ updateSafe n i h₂ xs
+              updateSafe-cong-fn-lemma {zero} _ _ _ [] _ = refl
+              updateSafe-cong-fn-lemma {suc _} zero h₁ h₂ (x ∷ xs) eq = cong (_∷ xs) (eq x)
+              updateSafe-cong-fn-lemma {suc n} (suc i) h₁ h₂ (x ∷ xs) eq =
+                cong (x ∷_) (updateSafe-cong-fn-lemma i h₁ h₂ xs eq)
+
+              -- (f₁ ∘ f₂) ≡ (f₂ ∘ f₁) pointwise via setBit commutativity
+              fns-commute : ∀ b → (f₁ ∘ f₂) b ≡ (f₂ ∘ f₁) b
+              fns-commute b =
+                trans (cong (λ bv → bitVecToByte (setBit bv bitPos₁ v₁))
+                            (bitVecToByte-roundtrip (setBit (byteToBitVec b) bitPos₂ v₂)))
+                  (trans (cong bitVecToByte (setBit-setBit-comm (byteToBitVec b) bitPos₂ bitPos₁ v₂ v₁ (bp-neq ∘ sym)))
+                    (sym (cong (λ bv → bitVecToByte (setBit bv bitPos₂ v₂))
+                               (bitVecToByte-roundtrip (setBit (byteToBitVec b) bitPos₁ v₁)))))
+
+              -- Proof when both indices are idx₂
+              same-idx-proof : updateSafe 8 idx₂ f₁ (updateSafe 8 idx₂ f₂ bytes)
+                             ≡ updateSafe 8 idx₂ f₂ (updateSafe 8 idx₂ f₁ bytes)
+              same-idx-proof = trans (updateSafe-same-lemma idx₂ f₁ f₂ bytes)
+                (trans (updateSafe-cong-fn-lemma idx₂ (f₁ ∘ f₂) (f₂ ∘ f₁) bytes fns-commute)
+                  (sym (updateSafe-same-lemma idx₂ f₂ f₁ bytes)))
+
+      case-split : applyWrite (applyWrite bytes (p₂ , v₂)) (p₁ , v₁)
+                 ≡ applyWrite (applyWrite bytes (p₁ , v₁)) (p₂ , v₂)
+      case-split with idx₁ ≟ idx₂
+      ... | yes eq = same-byte eq
+      ... | no neq = diff-byte neq
+
+-- Helper: push a write through a list of disjoint writes
+-- applyWrites (applyWrite bytes w) ws ≡ applyWrite (applyWrites bytes ws) w
+applyWrites-push : ∀ bytes w ws
+  → All (DiffPos w) ws
+  → applyWrites (applyWrite bytes w) ws ≡ applyWrite (applyWrites bytes ws) w
+applyWrites-push bytes w [] [] = refl
+applyWrites-push bytes w (w' ∷ ws) (diff ∷ diffs) =
+  trans (cong (λ frame → applyWrites frame ws) (sym (applyWrite-comm bytes w w' diff)))
+    (applyWrites-push (applyWrite bytes w') w ws diffs)
+
+-- Two disjoint write lists commute (requires both lists are internally distinct)
+applyWrites-comm : ∀ bytes ws₁ ws₂
+  → AllDistinct ws₁
+  → AllDiffPos ws₁ ws₂
+  → applyWrites (applyWrites bytes ws₁) ws₂ ≡ applyWrites (applyWrites bytes ws₂) ws₁
+applyWrites-comm bytes [] ws₂ _ _ = refl
+applyWrites-comm bytes (w ∷ ws₁) ws₂ (w-diff-ws₁ , ws₁-distinct) (w-diff-ws₂ , rest-diff) =
+  trans (applyWrites-comm (applyWrite bytes w) ws₁ ws₂ ws₁-distinct rest-diff)
+    (cong (λ frame → applyWrites frame ws₁) (applyWrites-push bytes w ws₂ w-diff-ws₂))
+
+-- ============================================================================
+-- CONNECTING injectBits TO applyWrites
+-- ============================================================================
+
+-- injectBits is exactly applyWrites with writesOf
+-- This is now trivial since both use left-fold semantics
+injectBits≡applyWrites : ∀ {len} bytes s (bits : BitVec len)
+  → injectBits bytes s bits ≡ applyWrites bytes (writesOf s bits)
+injectBits≡applyWrites bytes s [] = refl
+injectBits≡applyWrites bytes s (b ∷ bs) = injectBits≡applyWrites (applyWrite bytes (s , b)) (suc s) bs
+
+-- writesOf produces internally distinct write lists (consecutive positions)
+writesOf-distinct : ∀ {len} s (bits : BitVec len) → AllDistinct (writesOf s bits)
+writesOf-distinct s [] = tt
+writesOf-distinct s (b ∷ bs) = (all-later-diff s (suc s) bs ≤-refl , writesOf-distinct (suc s) bs)
+  where
+    open import Data.Nat.Properties using (n≤1+n; <⇒≢; ≤-trans; ≤-refl; m≤n⇒m≤1+n)
+
+    -- All positions in writesOf start bs are ≥ start, hence ≠ pos when pos < start
+    all-later-diff : ∀ {len} pos start (bits : BitVec len)
+      → pos < start  -- pos < start means suc pos ≤ start
+      → All (DiffPos (pos , b)) (writesOf start bits)
+    all-later-diff pos start [] _ = []
+    all-later-diff {suc len} pos start (b' ∷ bs') pos<start =
+      (<⇒≢ pos<start) ∷ all-later-diff pos (suc start) bs' (m≤n⇒m≤1+n pos<start)
+
+-- Disjoint ranges produce disjoint write lists
+disjoint-ranges→AllDiffPos : ∀ {len₁ len₂} s₁ s₂ (bits₁ : BitVec len₁) (bits₂ : BitVec len₂)
+  → s₁ + len₁ ≤ s₂ ⊎ s₂ + len₂ ≤ s₁
+  → AllDiffPos (writesOf s₁ bits₁) (writesOf s₂ bits₂)
+disjoint-ranges→AllDiffPos s₁ s₂ [] bits₂ disj = tt
+disjoint-ranges→AllDiffPos {suc len₁} s₁ s₂ (b₁ ∷ bs₁) bits₂ disj = (all-diff , rest)
+  where
+    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; ≤-trans; n≤1+n; <⇒≢)
+
+    -- s₁ is not equal to any position in range [s₂, s₂+len₂)
+    s₁-diff-from-range : ∀ {len} s (bits : BitVec len) → s₁ + suc len₁ ≤ s ⊎ s + len ≤ s₁
+      → All (DiffPos (s₁ , b₁)) (writesOf s bits)
+    s₁-diff-from-range s [] _ = []
+    s₁-diff-from-range {suc len} s (b ∷ bs) disj' = neq ∷ s₁-diff-from-range (suc s) bs rest-disj
+      where
+        neq : s₁ ≢ s
+        neq = case-disj disj'
+          where
+            case-disj : s₁ + suc len₁ ≤ s ⊎ s + suc len ≤ s₁ → s₁ ≢ s
+            case-disj (inj₁ p) = <⇒≢ (<-≤-trans (m<m+n s₁ {suc len₁} (s≤s z≤n)) p)
+            case-disj (inj₂ p) = λ eq → <⇒≢ (<-≤-trans (m<m+n s {suc len} (s≤s z≤n)) p) (sym eq)
+
+        rest-disj : s₁ + suc len₁ ≤ suc s ⊎ suc s + len ≤ s₁
+        rest-disj = case-disj disj'
+          where
+            case-disj : s₁ + suc len₁ ≤ s ⊎ s + suc len ≤ s₁ → s₁ + suc len₁ ≤ suc s ⊎ suc s + len ≤ s₁
+            case-disj (inj₁ p) = inj₁ (≤-trans p (n≤1+n s))
+            case-disj (inj₂ p) = inj₂ (subst (_≤ s₁) (+-suc s len) p)
+
+    all-diff : All (DiffPos (s₁ , b₁)) (writesOf s₂ bits₂)
+    all-diff = s₁-diff-from-range s₂ bits₂ disj
+
+    rest : AllDiffPos (writesOf (suc s₁) bs₁) (writesOf s₂ bits₂)
+    rest = disjoint-ranges→AllDiffPos (suc s₁) s₂ bs₁ bits₂ rest-disj
+      where
+        rest-disj : suc s₁ + len₁ ≤ s₂ ⊎ s₂ + _ ≤ suc s₁
+        rest-disj = case-disj disj
+          where
+            case-disj : s₁ + suc len₁ ≤ s₂ ⊎ s₂ + _ ≤ s₁ → suc s₁ + len₁ ≤ s₂ ⊎ s₂ + _ ≤ suc s₁
+            case-disj (inj₁ p) = inj₁ (subst (_≤ s₂) (+-suc s₁ len₁) p)
+            case-disj (inj₂ p) = inj₂ (≤-trans p (n≤1+n s₁))
+
+-- ============================================================================
+-- MAIN THEOREM (now almost trivial!)
+-- ============================================================================
+
+-- Disjoint bit injections commute
+-- Proof: lift to write-set semantics where commutativity is immediate
+injectBits-commute :
+  ∀ {len₁ len₂} (bytes : Vec Byte 8) (s₁ s₂ : ℕ)
+    (bits₁ : BitVec len₁) (bits₂ : BitVec len₂)
+  → s₁ + len₁ ≤ s₂ ⊎ s₂ + len₂ ≤ s₁  -- disjoint ranges
+  → s₁ + len₁ ≤ 64
+  → s₂ + len₂ ≤ 64
+  → injectBits (injectBits bytes s₁ bits₁) s₂ bits₂
+    ≡ injectBits (injectBits bytes s₂ bits₂) s₁ bits₁
+injectBits-commute bytes s₁ s₂ bits₁ bits₂ disj _ _ =
+  begin
+    injectBits (injectBits bytes s₁ bits₁) s₂ bits₂
+  ≡⟨ cong (λ x → injectBits x s₂ bits₂) (injectBits≡applyWrites bytes s₁ bits₁) ⟩
+    injectBits (applyWrites bytes ws₁) s₂ bits₂
+  ≡⟨ injectBits≡applyWrites (applyWrites bytes ws₁) s₂ bits₂ ⟩
+    applyWrites (applyWrites bytes ws₁) ws₂
+  ≡⟨ applyWrites-comm bytes ws₁ ws₂ (writesOf-distinct s₁ bits₁) (disjoint-ranges→AllDiffPos s₁ s₂ bits₁ bits₂ disj) ⟩
+    applyWrites (applyWrites bytes ws₂) ws₁
+  ≡⟨ sym (injectBits≡applyWrites (applyWrites bytes ws₂) s₁ bits₁) ⟩
+    injectBits (applyWrites bytes ws₂) s₁ bits₁
+  ≡⟨ cong (λ x → injectBits x s₁ bits₁) (sym (injectBits≡applyWrites bytes s₂ bits₂)) ⟩
+    injectBits (injectBits bytes s₂ bits₂) s₁ bits₁
+  ∎
+  where
+    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+    open ≡-Reasoning
+    ws₁ = writesOf s₁ bits₁
+    ws₂ = writesOf s₂ bits₂
+
+-- ============================================================================
+-- PAYLOAD ISOMORPHISM (factors out byte order handling)
+-- ============================================================================
+
+-- The byte order isomorphism: id for LittleEndian, swapBytes for BigEndian
+-- Defined using if to match injectSignal's implementation definitionally
+payloadIso : ByteOrder → Vec Byte 8 → Vec Byte 8
+payloadIso bo bytes = if isBigEndian bo then swapBytes bytes else bytes
+
+-- payloadIso is an involution for any byte order
+payloadIso-involutive : ∀ bo bytes → payloadIso bo (payloadIso bo bytes) ≡ bytes
+payloadIso-involutive LittleEndian bytes = refl
+payloadIso-involutive BigEndian bytes = swapBytes-involutive bytes
+
+-- Inject bits with byte order handling factored out
+-- injectPayload = payloadIso ∘ injectBits ∘ payloadIso
+injectPayload : ∀ {len} → ℕ → BitVec len → ByteOrder → Vec Byte 8 → Vec Byte 8
+injectPayload s bits bo payload =
+  payloadIso bo (injectBits (payloadIso bo payload) s bits)
+
+-- Commutativity of injectPayload: disjoint injections commute uniformly
+-- This is the key lemma - byte order is handled once via payloadIso-involutive
+injectPayload-commute :
+  ∀ {len₁ len₂} s₁ s₂ (bits₁ : BitVec len₁) (bits₂ : BitVec len₂) bo payload
+  → s₁ + len₁ ≤ s₂ ⊎ s₂ + len₂ ≤ s₁
+  → s₁ + len₁ ≤ 64
+  → s₂ + len₂ ≤ 64
+  → injectPayload s₂ bits₂ bo (injectPayload s₁ bits₁ bo payload)
+    ≡ injectPayload s₁ bits₁ bo (injectPayload s₂ bits₂ bo payload)
+injectPayload-commute s₁ s₂ bits₁ bits₂ bo payload disj fits₁ fits₂ =
+  begin
+    injectPayload s₂ bits₂ bo (injectPayload s₁ bits₁ bo payload)
+  ≡⟨⟩  -- expand definitions, use payloadIso-involutive
+    payloadIso bo (injectBits (payloadIso bo (payloadIso bo (injectBits (payloadIso bo payload) s₁ bits₁))) s₂ bits₂)
+  ≡⟨ cong (λ x → payloadIso bo (injectBits x s₂ bits₂)) (payloadIso-involutive bo _) ⟩
+    payloadIso bo (injectBits (injectBits (payloadIso bo payload) s₁ bits₁) s₂ bits₂)
+  ≡⟨ cong (payloadIso bo) (injectBits-commute (payloadIso bo payload) s₁ s₂ bits₁ bits₂ disj fits₁ fits₂) ⟩
+    payloadIso bo (injectBits (injectBits (payloadIso bo payload) s₂ bits₂) s₁ bits₁)
+  ≡⟨ cong (λ x → payloadIso bo (injectBits x s₁ bits₁)) (sym (payloadIso-involutive bo _)) ⟩
+    payloadIso bo (injectBits (payloadIso bo (payloadIso bo (injectBits (payloadIso bo payload) s₂ bits₂))) s₁ bits₁)
+  ≡⟨⟩  -- fold definitions
+    injectPayload s₁ bits₁ bo (injectPayload s₂ bits₂ bo payload)
+  ∎
+  where
+    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+    open ≡-Reasoning
 
 -- ============================================================================
 -- IMPLEMENTATION NOTES
