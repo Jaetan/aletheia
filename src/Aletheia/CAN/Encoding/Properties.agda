@@ -1056,7 +1056,7 @@ injectedFrame : ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame :
   → n < 2 ^ toℕ (SignalDef.bitLength sig)
   → CANFrame
 injectedFrame n sig byteOrder frame n<2^bl =
-  record frame { payload = injectPayload (toℕ (SignalDef.startBit sig)) (ℕToBitVec n n<2^bl) byteOrder (CANFrame.payload frame) }
+  record frame { payload = injectPayload (toℕ (SignalDef.startBit sig)) (ℕToBitVec {toℕ (SignalDef.bitLength sig)} n n<2^bl) byteOrder (CANFrame.payload frame) }
 
 -- Reduction Lemma A: injectSignal reduces to a known frame
 -- This is more useful than existence because it eliminates ∃ from proofs
@@ -1108,35 +1108,47 @@ extractSignal-reduces-unsigned :
 
 -- LittleEndian case: no byte swapping
 extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-in-frame n<2^bl =
-  proof
+  helper core-eq bounds-ok
   where
     open SignalDef sig
     open CANFrame frame
     value : ℚ
     value = signalValue (+ n) sig
 
-    -- The bytes we extract from: payload of injectedFrame = injectBits payload startBit bv
+    -- The bytes we extract from (definitional for LittleEndian via injectPayload)
     injectedBytes : Data.Vec.Vec Byte 8
     injectedBytes = injectBits {toℕ bitLength} payload (toℕ startBit) (ℕToBitVec {toℕ bitLength} n n<2^bl)
-
-    -- extractionBytes (injectedFrame ...) LittleEndian = payload of injectedFrame = injectedBytes
-    -- (This is definitional for LittleEndian)
 
     -- Core roundtrip: extractSignalCore returns + n for unsigned signals
     core-eq : extractSignalCore injectedBytes sig ≡ + n
     core-eq rewrite unsigned = signal-roundtrip-unsigned n payload (toℕ startBit) (toℕ bitLength) fits-in-frame n<2^bl
 
-    -- Scaling: scaleExtracted (+ n) sig = value (definitional)
-    scale-eq : scaleExtracted (+ n) sig ≡ value
-    scale-eq = refl
+    -- Factor out: what extractSignal returns given a raw value
+    resultOf : ℤ → Maybe ℚ
+    resultOf raw = let v = scaleExtracted raw sig
+                   in if inBounds v minimum maximum then just v else nothing
 
-    -- The proof by rewriting
-    proof : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
-    proof rewrite core-eq | bounds-ok = refl
+    -- Helper: prove via composition
+    -- Step 1: extractSignal computes resultOf applied to extractSignalCore
+    -- Step 2: core-eq shows extractSignalCore gives + n
+    -- Step 3: resultOf (+ n) = just value (by bounds-ok)
+    helper : extractSignalCore injectedBytes sig ≡ + n
+           → inBounds value minimum maximum ≡ true
+           → extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
+    helper core-eq' bounds-eq = trans step1 step2
+      where
+        -- extractSignal computes to resultOf (extractSignalCore injectedBytes sig)
+        step1 : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian
+              ≡ resultOf (extractSignalCore injectedBytes sig)
+        step1 = refl
+
+        -- resultOf (extractSignalCore ...) = resultOf (+ n) = just value
+        step2 : resultOf (extractSignalCore injectedBytes sig) ≡ just value
+        step2 rewrite core-eq' | bounds-eq = refl
 
 -- BigEndian case: byte swapping cancels
 extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-frame n<2^bl =
-  proof
+  helper swap-cancel core-eq bounds-ok
   where
     open SignalDef sig
     open CANFrame frame
@@ -1158,9 +1170,33 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     core-eq : extractSignalCore injectedBytesSwapped sig ≡ + n
     core-eq rewrite unsigned = signal-roundtrip-unsigned n swappedPayload (toℕ startBit) (toℕ bitLength) fits-in-frame n<2^bl
 
-    -- The proof by rewriting
-    proof : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
-    proof rewrite swap-cancel | core-eq | bounds-ok = refl
+    -- Factor out: what extractSignal returns given bytes to extract from
+    resultOf : Data.Vec.Vec Byte 8 → Maybe ℚ
+    resultOf bytes = let raw = extractSignalCore bytes sig
+                         v = scaleExtracted raw sig
+                     in if inBounds v minimum maximum then just v else nothing
+
+    -- Helper: compose the equality proofs
+    helper : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+           → extractSignalCore injectedBytesSwapped sig ≡ + n
+           → inBounds value minimum maximum ≡ true
+           → extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
+    helper swap-eq core-eq' bounds-eq = trans step1 (trans step2 step3)
+      where
+        -- extractSignal for BigEndian extracts from swapBytes of the payload
+        -- payload of injectedFrame = swapBytes injectedBytesSwapped
+        -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped)
+        step1 : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian
+              ≡ resultOf (swapBytes (swapBytes injectedBytesSwapped))
+        step1 = refl
+
+        -- swapBytes (swapBytes x) = x
+        step2 : resultOf (swapBytes (swapBytes injectedBytesSwapped)) ≡ resultOf injectedBytesSwapped
+        step2 = cong resultOf swap-eq
+
+        -- resultOf injectedBytesSwapped = just value (via core-eq and bounds-ok)
+        step3 : resultOf injectedBytesSwapped ≡ just value
+        step3 rewrite core-eq' | bounds-eq = refl
 
 extractSignal-injectSignal-roundtrip-unsigned :
   ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
@@ -1256,7 +1292,7 @@ extractSignal-reduces-signed :
 
 -- LittleEndian case: no byte swapping
 extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf fits-in-frame =
-  proof
+  helper core-eq bounds-ok
   where
     open SignalDef sig
     open CANFrame frame
@@ -1277,13 +1313,27 @@ extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf f
     core-eq : extractSignalCore injectedBytes sig ≡ z
     core-eq rewrite signed = signal-roundtrip-signed z payload (toℕ startBit) (toℕ bitLength) bl>0 fits-in-frame sf n<2^bl
 
-    -- The proof by rewriting
-    proof : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
-    proof rewrite core-eq | bounds-ok = refl
+    -- Factor out: what extractSignal returns given a raw value
+    resultOf : ℤ → Maybe ℚ
+    resultOf raw = let v = scaleExtracted raw sig
+                   in if inBounds v minimum maximum then just v else nothing
+
+    -- Helper: prove via composition
+    helper : extractSignalCore injectedBytes sig ≡ z
+           → inBounds value minimum maximum ≡ true
+           → extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian ≡ just value
+    helper core-eq' bounds-eq = trans step1 step2
+      where
+        step1 : extractSignal (injectedFrame n sig LittleEndian frame n<2^bl) sig LittleEndian
+              ≡ resultOf (extractSignalCore injectedBytes sig)
+        step1 = refl
+
+        step2 : resultOf (extractSignalCore injectedBytes sig) ≡ just value
+        step2 rewrite core-eq' | bounds-eq = refl
 
 -- BigEndian case: byte swapping cancels
 extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits-in-frame =
-  proof
+  helper swap-cancel core-eq bounds-ok
   where
     open SignalDef sig
     open CANFrame frame
@@ -1311,9 +1361,28 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     core-eq : extractSignalCore injectedBytesSwapped sig ≡ z
     core-eq rewrite signed = signal-roundtrip-signed z swappedPayload (toℕ startBit) (toℕ bitLength) bl>0 fits-in-frame sf n<2^bl
 
-    -- The proof by rewriting
-    proof : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
-    proof rewrite swap-cancel | core-eq | bounds-ok = refl
+    -- Factor out: what extractSignal returns given bytes to extract from
+    resultOf : Data.Vec.Vec Byte 8 → Maybe ℚ
+    resultOf bytes = let raw = extractSignalCore bytes sig
+                         v = scaleExtracted raw sig
+                     in if inBounds v minimum maximum then just v else nothing
+
+    -- Helper: compose the equality proofs
+    helper : swapBytes (swapBytes injectedBytesSwapped) ≡ injectedBytesSwapped
+           → extractSignalCore injectedBytesSwapped sig ≡ z
+           → inBounds value minimum maximum ≡ true
+           → extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian ≡ just value
+    helper swap-eq core-eq' bounds-eq = trans step1 (trans step2 step3)
+      where
+        step1 : extractSignal (injectedFrame n sig BigEndian frame n<2^bl) sig BigEndian
+              ≡ resultOf (swapBytes (swapBytes injectedBytesSwapped))
+        step1 = refl
+
+        step2 : resultOf (swapBytes (swapBytes injectedBytesSwapped)) ≡ resultOf injectedBytesSwapped
+        step2 = cong resultOf swap-eq
+
+        step3 : resultOf injectedBytesSwapped ≡ just value
+        step3 rewrite core-eq' | bounds-eq = refl
 
 -- Main theorem (Signed): inject then extract returns original value
 extractSignal-injectSignal-roundtrip-signed :
