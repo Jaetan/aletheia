@@ -1664,6 +1664,119 @@ disjoint-signals-commute-unsigned n₁ n₂ sig₁ sig₂ byteOrder frame disj b
           ≡ (injectSignal v₂ sig₂ byteOrder frame >>= λ f₂ → injectSignal v₁ sig₁ byteOrder f₂)
     proof rewrite inject₁-reduces | inject₂-reduces | inject₂-on-frame₁ | inject₁-on-frame₂ | frames-equal = refl
 
+-- Signed signals: disjoint injections commute
+disjoint-signals-commute-signed :
+  ∀ (z₁ z₂ : ℤ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → SignalsDisjoint sig₁ sig₂
+  → (bounds-ok₁ : inBounds (signalValue z₁ sig₁) (SignalDef.minimum sig₁) (SignalDef.maximum sig₁) ≡ true)
+  → (bounds-ok₂ : inBounds (signalValue z₂ sig₂) (SignalDef.minimum sig₂) (SignalDef.maximum sig₂) ≡ true)
+  → (factor≢0₁ : SignalDef.factor sig₁ ≢ 0ℚ)
+  → (factor≢0₂ : SignalDef.factor sig₂ ≢ 0ℚ)
+  → (bl>0₁ : toℕ (SignalDef.bitLength sig₁) > 0)
+  → (bl>0₂ : toℕ (SignalDef.bitLength sig₂) > 0)
+  → (sf₁ : SignedFits z₁ (toℕ (SignalDef.bitLength sig₁)))
+  → (sf₂ : SignedFits z₂ (toℕ (SignalDef.bitLength sig₂)))
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → (injectSignal (signalValue z₁ sig₁) sig₁ byteOrder frame >>= λ f₁ →
+       injectSignal (signalValue z₂ sig₂) sig₂ byteOrder f₁)
+    ≡ (injectSignal (signalValue z₂ sig₂) sig₂ byteOrder frame >>= λ f₂ →
+       injectSignal (signalValue z₁ sig₁) sig₁ byteOrder f₂)
+disjoint-signals-commute-signed z₁ z₂ sig₁ sig₂ byteOrder frame disj bounds-ok₁ bounds-ok₂ factor≢0₁ factor≢0₂ bl>0₁ bl>0₂ sf₁ sf₂ fits₁ fits₂ =
+  proof
+  where
+    v₁ = signalValue z₁ sig₁
+    v₂ = signalValue z₂ sig₂
+
+    -- Raw bit patterns
+    n₁ = fromSigned z₁ (toℕ (SignalDef.bitLength sig₁))
+    n₂ = fromSigned z₂ (toℕ (SignalDef.bitLength sig₂))
+
+    -- Bounds proofs from SignedFits
+    n₁<2^bl₁ : n₁ < 2 ^ toℕ (SignalDef.bitLength sig₁)
+    n₁<2^bl₁ = SignedFits-implies-fromSigned-bounded z₁ (toℕ (SignalDef.bitLength sig₁)) bl>0₁ sf₁
+
+    n₂<2^bl₂ : n₂ < 2 ^ toℕ (SignalDef.bitLength sig₂)
+    n₂<2^bl₂ = SignedFits-implies-fromSigned-bounded z₂ (toℕ (SignalDef.bitLength sig₂)) bl>0₂ sf₂
+
+    -- Reduction lemmas
+    inject₁-reduces : injectSignal v₁ sig₁ byteOrder frame ≡ just (injectedFrame n₁ sig₁ byteOrder frame n₁<2^bl₁)
+    inject₁-reduces = injectSignal-reduces-signed z₁ sig₁ byteOrder frame bounds-ok₁ factor≢0₁ bl>0₁ sf₁
+
+    inject₂-reduces : injectSignal v₂ sig₂ byteOrder frame ≡ just (injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂)
+    inject₂-reduces = injectSignal-reduces-signed z₂ sig₂ byteOrder frame bounds-ok₂ factor≢0₂ bl>0₂ sf₂
+
+    frame₁ = injectedFrame n₁ sig₁ byteOrder frame n₁<2^bl₁
+    frame₂ = injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂
+
+    inject₂-on-frame₁ : injectSignal v₂ sig₂ byteOrder frame₁ ≡ just (injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂)
+    inject₂-on-frame₁ = injectSignal-reduces-signed z₂ sig₂ byteOrder frame₁ bounds-ok₂ factor≢0₂ bl>0₂ sf₂
+
+    inject₁-on-frame₂ : injectSignal v₁ sig₁ byteOrder frame₂ ≡ just (injectedFrame n₁ sig₁ byteOrder frame₂ n₁<2^bl₁)
+    inject₁-on-frame₂ = injectSignal-reduces-signed z₁ sig₁ byteOrder frame₂ bounds-ok₁ factor≢0₁ bl>0₁ sf₁
+
+    -- Frame commutativity from the abstraction (same as unsigned - works on raw ℕ values)
+    frames-equal : injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂ ≡ injectedFrame n₁ sig₁ byteOrder frame₂ n₁<2^bl₁
+    frames-equal = injectedFrame-commute n₁ n₂ sig₁ sig₂ byteOrder frame n₁<2^bl₁ n₂<2^bl₂ disj fits₁ fits₂
+
+    proof : (injectSignal v₁ sig₁ byteOrder frame >>= λ f₁ → injectSignal v₂ sig₂ byteOrder f₁)
+          ≡ (injectSignal v₂ sig₂ byteOrder frame >>= λ f₂ → injectSignal v₁ sig₁ byteOrder f₂)
+    proof rewrite inject₁-reduces | inject₂-reduces | inject₂-on-frame₁ | inject₁-on-frame₂ | frames-equal = refl
+
+-- Mixed signals: unsigned + signed disjoint injections commute
+-- sig₁ is unsigned (value is + n), sig₂ is signed (value is z)
+disjoint-signals-commute-mixed :
+  ∀ (n : ℕ) (z : ℤ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  → SignalsDisjoint sig₁ sig₂
+  → (bounds-ok₁ : inBounds (signalValue (+ n) sig₁) (SignalDef.minimum sig₁) (SignalDef.maximum sig₁) ≡ true)
+  → (bounds-ok₂ : inBounds (signalValue z sig₂) (SignalDef.minimum sig₂) (SignalDef.maximum sig₂) ≡ true)
+  → (factor≢0₁ : SignalDef.factor sig₁ ≢ 0ℚ)
+  → (factor≢0₂ : SignalDef.factor sig₂ ≢ 0ℚ)
+  → (n<2^bl₁ : n < 2 ^ toℕ (SignalDef.bitLength sig₁))
+  → (bl>0₂ : toℕ (SignalDef.bitLength sig₂) > 0)
+  → (sf₂ : SignedFits z (toℕ (SignalDef.bitLength sig₂)))
+  → (fits₁ : toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ 64)
+  → (fits₂ : toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ 64)
+  → (injectSignal (signalValue (+ n) sig₁) sig₁ byteOrder frame >>= λ f₁ →
+       injectSignal (signalValue z sig₂) sig₂ byteOrder f₁)
+    ≡ (injectSignal (signalValue z sig₂) sig₂ byteOrder frame >>= λ f₂ →
+       injectSignal (signalValue (+ n) sig₁) sig₁ byteOrder f₂)
+disjoint-signals-commute-mixed n z sig₁ sig₂ byteOrder frame disj bounds-ok₁ bounds-ok₂ factor≢0₁ factor≢0₂ n<2^bl₁ bl>0₂ sf₂ fits₁ fits₂ =
+  proof
+  where
+    v₁ = signalValue (+ n) sig₁
+    v₂ = signalValue z sig₂
+
+    -- Raw bit pattern for signed signal
+    n₂ = fromSigned z (toℕ (SignalDef.bitLength sig₂))
+
+    n₂<2^bl₂ : n₂ < 2 ^ toℕ (SignalDef.bitLength sig₂)
+    n₂<2^bl₂ = SignedFits-implies-fromSigned-bounded z (toℕ (SignalDef.bitLength sig₂)) bl>0₂ sf₂
+
+    -- Reduction lemmas (unsigned for sig₁, signed for sig₂)
+    inject₁-reduces : injectSignal v₁ sig₁ byteOrder frame ≡ just (injectedFrame n sig₁ byteOrder frame n<2^bl₁)
+    inject₁-reduces = injectSignal-reduces-unsigned n sig₁ byteOrder frame bounds-ok₁ factor≢0₁ n<2^bl₁
+
+    inject₂-reduces : injectSignal v₂ sig₂ byteOrder frame ≡ just (injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂)
+    inject₂-reduces = injectSignal-reduces-signed z sig₂ byteOrder frame bounds-ok₂ factor≢0₂ bl>0₂ sf₂
+
+    frame₁ = injectedFrame n sig₁ byteOrder frame n<2^bl₁
+    frame₂ = injectedFrame n₂ sig₂ byteOrder frame n₂<2^bl₂
+
+    inject₂-on-frame₁ : injectSignal v₂ sig₂ byteOrder frame₁ ≡ just (injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂)
+    inject₂-on-frame₁ = injectSignal-reduces-signed z sig₂ byteOrder frame₁ bounds-ok₂ factor≢0₂ bl>0₂ sf₂
+
+    inject₁-on-frame₂ : injectSignal v₁ sig₁ byteOrder frame₂ ≡ just (injectedFrame n sig₁ byteOrder frame₂ n<2^bl₁)
+    inject₁-on-frame₂ = injectSignal-reduces-unsigned n sig₁ byteOrder frame₂ bounds-ok₁ factor≢0₁ n<2^bl₁
+
+    -- Frame commutativity (works on raw ℕ values regardless of signedness)
+    frames-equal : injectedFrame n₂ sig₂ byteOrder frame₁ n₂<2^bl₂ ≡ injectedFrame n sig₁ byteOrder frame₂ n<2^bl₁
+    frames-equal = injectedFrame-commute n n₂ sig₁ sig₂ byteOrder frame n<2^bl₁ n₂<2^bl₂ disj fits₁ fits₂
+
+    proof : (injectSignal v₁ sig₁ byteOrder frame >>= λ f₁ → injectSignal v₂ sig₂ byteOrder f₁)
+          ≡ (injectSignal v₂ sig₂ byteOrder frame >>= λ f₂ → injectSignal v₁ sig₁ byteOrder f₂)
+    proof rewrite inject₁-reduces | inject₂-reduces | inject₂-on-frame₁ | inject₁-on-frame₂ | frames-equal = refl
+
 -- ============================================================================
 -- IMPLEMENTATION NOTES
 -- ============================================================================
