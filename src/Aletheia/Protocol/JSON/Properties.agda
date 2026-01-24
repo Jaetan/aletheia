@@ -139,12 +139,13 @@ data DBCFileStructure : JSON → Set where
     lookupByKey "messages" obj ≡ just (JArray messages) →
     DBCFileStructure (JObject obj)
 
--- Soundness: parseDBC only succeeds on well-formed DBC JSON objects
-open import Aletheia.DBC.JSONParser using (parseDBC)
+-- Soundness: parseDBCWithErrors only succeeds on well-formed DBC JSON objects
+open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Types using (DBC)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 parseDBC-sound : ∀ (input : JSON) (result : DBC)
-  → parseDBC input ≡ just result
+  → parseDBCWithErrors input ≡ inj₂ result
   → ∃[ obj ] ∃[ version ] ∃[ messages ]
       (input ≡ JObject obj
        × lookupByKey "version" obj ≡ just (JString version)
@@ -171,7 +172,7 @@ parseDBC-sound (JObject obj) result () | just (JObject _) | _
 parseDBC-sound (JObject obj) result () | just JNull | _
 parseDBC-sound (JObject obj) result () | nothing | _  -- no version field
 -- Absurdity cases: input is not an object (5 cases)
--- parseDBC requires JObject input; all other JSON types rejected at entry
+-- parseDBCWithErrors requires JObject input; all other JSON types rejected at entry
 parseDBC-sound JNull result ()
 parseDBC-sound (JBool _) result ()
 parseDBC-sound (JNumber _) result ()
@@ -233,8 +234,8 @@ parseRequest-sound (JArray _) result ()
 --    - lookupByKey-there: Lookup skips non-matching keys
 --
 -- ✅ Schema Soundness (2 major proofs):
---    - parseDBC-sound: DBC parser soundness (12 absurdity cases)
---      Proves: parseDBC success → well-formed DBC structure
+--    - parseDBC-sound: DBC parser soundness (17 absurdity cases)
+--      Proves: parseDBCWithErrors success → well-formed DBC structure
 --      Structure: Object with "version" string and "messages" array
 --    - parseRequest-sound: Line protocol soundness (6 absurdity cases)
 --      Proves: parseRequest success → well-formed protocol message

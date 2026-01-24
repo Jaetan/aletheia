@@ -202,9 +202,3 @@ parseDBCWithErrors (JObject obj) =
     ; messages = messages
     })
 parseDBCWithErrors _ = inj₁ "DBC root must be a JSON object"
-
--- Original Maybe-based interface for backwards compatibility
-parseDBC : JSON → Maybe DBC
-parseDBC json with parseDBCWithErrors json
-... | inj₁ _ = nothing
-... | inj₂ dbc = just dbc
