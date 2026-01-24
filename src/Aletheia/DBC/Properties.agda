@@ -13,16 +13,15 @@ open import Aletheia.DBC.Types
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Data.List using (List; []; _∷_; length)
-open import Data.Bool using (Bool; true; false; _∧_)
-open import Data.Bool.ListAction using (all)
-open import Data.Nat using (ℕ; _<_; _≤_; _+_; suc; zero)
+open import Data.Bool using (Bool; true; false)
+open import Data.Nat using (ℕ; _<_; _+_; suc; zero) renaming (_≤_ to _≤ₙ_)
 open import Data.Nat.Properties using (≤-refl; ≤-trans; _≤?_; _<?_)
 open import Data.Fin using (Fin; toℕ)
-open import Data.Rational using (ℚ; _≤ᵇ_)
+open import Data.Rational using (ℚ; _≤_)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.String using (String; _≟_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
@@ -39,7 +38,7 @@ startBit-bounded sig = toℕ<n (SignalDef.startBit (DBCSignal.signalDef sig))
     open import Data.Fin.Properties using (toℕ<n)
 
 -- Property: Parsed signal bit lengths are always bounded
-bitLength-bounded : ∀ (sig : DBCSignal) → toℕ (SignalDef.bitLength (DBCSignal.signalDef sig)) ≤ 64
+bitLength-bounded : ∀ (sig : DBCSignal) → toℕ (SignalDef.bitLength (DBCSignal.signalDef sig)) ≤ₙ 64
 bitLength-bounded sig = ≤-pred (toℕ<n (SignalDef.bitLength (DBCSignal.signalDef sig)))
   where
     open import Data.Fin.Properties using (toℕ<n)
@@ -56,7 +55,7 @@ messageId-valid (Extended x) = toℕ x
     open import Data.Fin using (toℕ)
 
 -- Property: Parsed DLC values are valid
-dlc-bounded : ∀ (msg : DBCMessage) → toℕ (DBCMessage.dlc msg) ≤ 8
+dlc-bounded : ∀ (msg : DBCMessage) → toℕ (DBCMessage.dlc msg) ≤ₙ 8
 dlc-bounded msg = ≤-pred (toℕ<n (DBCMessage.dlc msg))
   where
     open import Data.Fin.Properties using (toℕ<n)
@@ -70,11 +69,11 @@ dlc-bounded msg = ≤-pred (toℕ<n (DBCMessage.dlc msg))
 data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
   disjoint-left :
     toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁)
-      ≤ toℕ (SignalDef.startBit sig₂)
+      ≤ₙ toℕ (SignalDef.startBit sig₂)
     → SignalsDisjoint sig₁ sig₂
   disjoint-right :
     toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂)
-      ≤ toℕ (SignalDef.startBit sig₁)
+      ≤ₙ toℕ (SignalDef.startBit sig₁)
     → SignalsDisjoint sig₁ sig₂
 
 -- Decidable check for signal disjointness
@@ -197,87 +196,81 @@ messageSignalsValid? : (msg : DBCMessage) → Dec (AllSignalPairsValid (DBCMessa
 messageSignalsValid? msg = allSignalPairsValid? (DBCMessage.signals msg)
 
 -- ============================================================================
--- RUNTIME VALIDATION PROPERTIES (Bool versions for backwards compatibility)
+-- SIGNAL RANGE CONSISTENCY
 -- ============================================================================
 
--- Property: Signal value ranges are consistent (minimum ≤ maximum)
--- This is a runtime check since we can't prove it statically without
--- constraints in the parser
-signal-ranges-consistent : DBCSignal → Bool
-signal-ranges-consistent sig =
+-- A signal's value range is consistent if minimum ≤ maximum
+-- Note: startBit < 64, bitLength ≤ 64, and dlc ≤ 8 are guaranteed by Fin types
+SignalRangeConsistent : DBCSignal → Set
+SignalRangeConsistent sig =
   let open SignalDef (DBCSignal.signalDef sig)
-  in minimum ≤ᵇ maximum
+  in minimum ≤ maximum
 
--- Check all signals in a message have consistent ranges
-message-ranges-consistent : DBCMessage → Bool
-message-ranges-consistent msg =
-  all signal-ranges-consistent (DBCMessage.signals msg)
-
--- Check all messages in a DBC have consistent ranges
-dbc-ranges-consistent : DBC → Bool
-dbc-ranges-consistent dbc =
-  all message-ranges-consistent (DBC.messages dbc)
-
--- ============================================================================
--- VALIDATION INVARIANTS
--- ============================================================================
-
--- Helper: Check if a signal is well-formed
-signal-well-formed : DBCSignal → Bool
-signal-well-formed sig =
+signalRangeConsistent? : (sig : DBCSignal) → Dec (SignalRangeConsistent sig)
+signalRangeConsistent? sig =
   let open SignalDef (DBCSignal.signalDef sig)
-  in (toℕ startBit Data.Nat.<ᵇ 64) ∧
-     (toℕ bitLength Data.Nat.≤ᵇ 64) ∧
-     (minimum Data.Rational.≤ᵇ maximum)
-  where
-    open import Data.Nat using (_<ᵇ_; _≤ᵇ_)
+  in minimum ≤?ᵣ maximum
 
--- Bool version of allSignalPairsValid for easy composition
-message-signals-disjoint : DBCMessage → Bool
-message-signals-disjoint msg = ⌊ allSignalPairsValid? (DBCMessage.signals msg) ⌋
+-- All signals in a list have consistent ranges
+data AllSignalRangesConsistent : List DBCSignal → Set where
+  ranges-nil : AllSignalRangesConsistent []
+  ranges-cons : ∀ {sig rest}
+    → SignalRangeConsistent sig
+    → AllSignalRangesConsistent rest
+    → AllSignalRangesConsistent (sig ∷ rest)
 
--- Helper: Check if a message is well-formed (includes signal disjointness)
-message-well-formed : DBCMessage → Bool
-message-well-formed msg =
-  (toℕ (DBCMessage.dlc msg) Data.Nat.≤ᵇ 8) ∧
-  all signal-well-formed (DBCMessage.signals msg) ∧
-  message-signals-disjoint msg
-  where
-    open import Data.Nat using (_≤ᵇ_)
+allSignalRangesConsistent? : (sigs : List DBCSignal) → Dec (AllSignalRangesConsistent sigs)
+allSignalRangesConsistent? [] = yes ranges-nil
+allSignalRangesConsistent? (sig ∷ rest) with signalRangeConsistent? sig
+... | no ¬valid = no λ where (ranges-cons v _) → ¬valid v
+... | yes valid with allSignalRangesConsistent? rest
+...   | no ¬rest = no λ where (ranges-cons _ r) → ¬rest r
+...   | yes restValid = yes (ranges-cons valid restValid)
 
--- If a DBC parses successfully, all its structural properties hold
--- This now includes: signal overlap validation for all messages
-dbc-well-formed : DBC → Bool
-dbc-well-formed dbc =
-  dbc-ranges-consistent dbc ∧
-  all message-well-formed (DBC.messages dbc)
+-- ============================================================================
+-- COMPLETE MESSAGE VALIDITY
+-- ============================================================================
+
+-- A message is valid if all signal pairs are valid and all ranges are consistent
+data MessageValid (msg : DBCMessage) : Set where
+  message-valid :
+    AllSignalPairsValid (DBCMessage.signals msg)
+    → AllSignalRangesConsistent (DBCMessage.signals msg)
+    → MessageValid msg
+
+messageValid? : (msg : DBCMessage) → Dec (MessageValid msg)
+messageValid? msg with allSignalPairsValid? (DBCMessage.signals msg)
+... | no ¬pairs = no λ where (message-valid p _) → ¬pairs p
+... | yes pairs with allSignalRangesConsistent? (DBCMessage.signals msg)
+...   | no ¬ranges = no λ where (message-valid _ r) → ¬ranges r
+...   | yes ranges = yes (message-valid pairs ranges)
 
 -- ============================================================================
 -- DECIDABLE DBC WELL-FORMEDNESS
 -- ============================================================================
 
--- All messages have valid signal configurations
-data AllMessagesSignalsValid : List DBCMessage → Set where
-  msgs-nil : AllMessagesSignalsValid []
+-- All messages are valid
+data AllMessagesValid : List DBCMessage → Set where
+  msgs-nil : AllMessagesValid []
   msgs-cons : ∀ {msg rest}
-    → AllSignalPairsValid (DBCMessage.signals msg)
-    → AllMessagesSignalsValid rest
-    → AllMessagesSignalsValid (msg ∷ rest)
+    → MessageValid msg
+    → AllMessagesValid rest
+    → AllMessagesValid (msg ∷ rest)
 
-allMessagesSignalsValid? : (msgs : List DBCMessage) → Dec (AllMessagesSignalsValid msgs)
-allMessagesSignalsValid? [] = yes msgs-nil
-allMessagesSignalsValid? (msg ∷ rest) with messageSignalsValid? msg
+allMessagesValid? : (msgs : List DBCMessage) → Dec (AllMessagesValid msgs)
+allMessagesValid? [] = yes msgs-nil
+allMessagesValid? (msg ∷ rest) with messageValid? msg
 ... | no ¬valid = no λ where (msgs-cons v _) → ¬valid v
-... | yes valid with allMessagesSignalsValid? rest
+... | yes valid with allMessagesValid? rest
 ...   | no ¬rest = no λ where (msgs-cons _ r) → ¬rest r
 ...   | yes restValid = yes (msgs-cons valid restValid)
 
--- Full DBC signal configuration validity
-DBCSignalsValid : DBC → Set
-DBCSignalsValid dbc = AllMessagesSignalsValid (DBC.messages dbc)
+-- Full DBC validity: all messages valid
+DBCValid : DBC → Set
+DBCValid dbc = AllMessagesValid (DBC.messages dbc)
 
-dbcSignalsValid? : (dbc : DBC) → Dec (DBCSignalsValid dbc)
-dbcSignalsValid? dbc = allMessagesSignalsValid? (DBC.messages dbc)
+dbcValid? : (dbc : DBC) → Dec (DBCValid dbc)
+dbcValid? dbc = allMessagesValid? (DBC.messages dbc)
 
 -- ============================================================================
 -- PROOF EXTRACTION: From validated DBC to signal disjointness proofs
