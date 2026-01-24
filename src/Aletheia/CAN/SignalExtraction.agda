@@ -11,7 +11,7 @@ module Aletheia.CAN.SignalExtraction where
 
 open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Encoding
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; scaleExtracted; extractionBytes; inBounds)
 open import Aletheia.CAN.ExtractionResult
 open import Aletheia.CAN.DBCHelpers using (canIdEquals; findMessageById; findSignalByName)
 open import Aletheia.DBC.Types
@@ -63,12 +63,18 @@ extractSignalWithContext dbc frame signalName with findMessageById (CANFrame.id 
 ...   | nothing = SignalNotInDBC signalName
 ...   | just sig with checkSignalPresence frame msg sig
 ...     | just reason = SignalNotPresent signalName reason
-...     | nothing with extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
-...       | nothing =
-            -- Extraction failed - could be out of bounds or bit extraction failure
-            -- TODO Phase 3: Distinguish these two cases in extractSignal
-            ExtractionFailed signalName ("value out of bounds or extraction error")
-...       | just value = Success value
+...     | nothing =
+            -- Use core extraction functions to get detailed error info
+            let sigDef = DBCSignal.signalDef sig
+                bo = DBCSignal.byteOrder sig
+                bytes = extractionBytes frame bo
+                raw = extractSignalCore bytes sigDef
+                value = scaleExtracted raw sigDef
+                minVal = SignalDef.minimum sigDef
+                maxVal = SignalDef.maximum sigDef
+            in if inBounds value minVal maxVal
+               then Success value
+               else ValueOutOfBounds signalName value minVal maxVal
 
 -- Backward compatibility: Maybe interface
 extractSignalMaybe : DBC → CANFrame → String → Maybe ℚ

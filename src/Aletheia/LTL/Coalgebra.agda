@@ -38,7 +38,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 --
 -- Runtime state examples:
 -- - Next: modal state (NextWaiting vs NextActive) to track if we've skipped first frame
--- - MetricEventually/MetricAlways: startTime tracking (TODO: Phase 3)
+-- - MetricEventually/MetricAlways: startTime tracking (implemented via *Proc constructors)
 --
 -- This is a proper data type (not type alias) to support modal constructors for Next.
 
@@ -346,13 +346,11 @@ stepL (MetricReleaseProc windowMicros startTime φ ψ) prev curr =
 --    - The continuation is Always φ itself (or Always φ' if inner continues)
 
 -- ============================================================================
--- NEXT STEPS
+-- IMPLEMENTATION STATUS
 -- ============================================================================
 
--- TODO:
--- 1. Handle Next properly (need mode: Waiting vs Active)
--- 2. Handle MetricEventually/MetricAlways (need startTime state)
--- 3. Prove bisimilarity with monitor (starting with Always φ where φ = Atomic p)
--- 4. Extend to other operators
-
--- For now, this gives us the core structure for Always, which is the base case!
+-- ✅ ALL COMPLETE:
+-- 1. Next: Implemented via NextWaiting/NextActive modal states (lines 53-54)
+-- 2. MetricEventually/MetricAlways: Implemented via *Proc constructors with startTime (lines 63-66)
+-- 3. Bisimilarity proofs: Complete in LTL/Bisimilarity.agda (all 13 operators)
+-- 4. All operators covered by structural recursion on Relate relation
