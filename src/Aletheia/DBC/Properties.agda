@@ -273,6 +273,92 @@ dbcValid? : (dbc : DBC) → Dec (DBCValid dbc)
 dbcValid? dbc = allMessagesValid? (DBC.messages dbc)
 
 -- ============================================================================
+-- ERROR REPORTING: Find specific validation failures
+-- ============================================================================
+
+-- These functions walk the structure to find the first error and produce
+-- a human-readable error message. Used when dbcValid? returns `no`.
+
+open import Data.String using () renaming (_++_ to _++ₛ_)
+open import Data.Nat.Show using () renaming (show to showℕ)
+open import Data.Rational.Show using () renaming (show to showℚ)
+open import Data.Maybe using (Maybe; just; nothing)
+
+-- Validation error types
+data ValidationError : Set where
+  SignalsOverlap : String → String → String → ℕ → ℕ → ℕ → ℕ → ValidationError
+    -- sig1-name sig2-name msg-name start1 len1 start2 len2
+  RangeInconsistent : String → String → ℚ → ℚ → ValidationError
+    -- sig-name msg-name minimum maximum
+
+-- Format error as human-readable string
+formatError : ValidationError → String
+formatError (SignalsOverlap sig1 sig2 msgName s1 l1 s2 l2) =
+  "Signal overlap in message '" ++ₛ msgName ++ₛ "': '" ++ₛ
+  sig1 ++ₛ "' (bits " ++ₛ showℕ s1 ++ₛ "-" ++ₛ showℕ (s1 + l1) ++ₛ ") overlaps with '" ++ₛ
+  sig2 ++ₛ "' (bits " ++ₛ showℕ s2 ++ₛ "-" ++ₛ showℕ (s2 + l2) ++ₛ ")"
+formatError (RangeInconsistent sigName msgName minVal maxVal) =
+  "Invalid range in message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ
+  sigName ++ₛ "': minimum (" ++ₛ showℚ minVal ++ₛ ") > maximum (" ++ₛ showℚ maxVal ++ₛ ")"
+
+-- Find first signal with inconsistent range in a list
+findInconsistentRange : String → List DBCSignal → Maybe ValidationError
+findInconsistentRange msgName [] = nothing
+findInconsistentRange msgName (sig ∷ rest) with signalRangeConsistent? sig
+... | yes _ = findInconsistentRange msgName rest
+... | no _ =
+  let open SignalDef (DBCSignal.signalDef sig)
+  in just (RangeInconsistent (DBCSignal.name sig) msgName minimum maximum)
+
+-- Find first pair of overlapping coexisting signals
+findOverlappingPair : String → DBCSignal → List DBCSignal → Maybe ValidationError
+findOverlappingPair msgName sig [] = nothing
+findOverlappingPair msgName sig (other ∷ rest) with signalPairValid? sig other
+... | yes _ = findOverlappingPair msgName sig rest
+... | no _ =
+  let s1 = toℕ (SignalDef.startBit (DBCSignal.signalDef sig))
+      l1 = toℕ (SignalDef.bitLength (DBCSignal.signalDef sig))
+      s2 = toℕ (SignalDef.startBit (DBCSignal.signalDef other))
+      l2 = toℕ (SignalDef.bitLength (DBCSignal.signalDef other))
+  in just (SignalsOverlap (DBCSignal.name sig) (DBCSignal.name other) msgName s1 l1 s2 l2)
+
+-- Find first overlapping pair in signal list (triangular search)
+findOverlappingSignals : String → List DBCSignal → Maybe ValidationError
+findOverlappingSignals msgName [] = nothing
+findOverlappingSignals msgName (sig ∷ rest) with findOverlappingPair msgName sig rest
+... | just err = just err
+... | nothing = findOverlappingSignals msgName rest
+
+-- Find first error in a message (check ranges first, then overlaps)
+findMessageError : DBCMessage → Maybe ValidationError
+findMessageError msg =
+  let msgName = DBCMessage.name msg
+      sigs = DBCMessage.signals msg
+  in case findInconsistentRange msgName sigs of λ where
+       (just err) → just err
+       nothing → findOverlappingSignals msgName sigs
+  where
+    open import Function using (case_of_)
+
+-- Find first error in DBC
+findDBCError : DBC → Maybe ValidationError
+findDBCError dbc = searchMessages (DBC.messages dbc)
+  where
+    searchMessages : List DBCMessage → Maybe ValidationError
+    searchMessages [] = nothing
+    searchMessages (msg ∷ rest) with findMessageError msg
+    ... | just err = just err
+    ... | nothing = searchMessages rest
+
+-- Validate DBC and return either error message or proof
+validateDBC : (dbc : DBC) → String ⊎ DBCValid dbc
+validateDBC dbc with dbcValid? dbc
+... | yes proof = inj₂ proof
+... | no _ with findDBCError dbc
+...   | just err = inj₁ (formatError err)
+...   | nothing = inj₁ "DBC validation failed (unknown error)"  -- Should never happen
+
+-- ============================================================================
 -- PROOF EXTRACTION: From validated DBC to signal disjointness proofs
 -- ============================================================================
 

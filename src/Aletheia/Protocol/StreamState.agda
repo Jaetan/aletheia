@@ -29,10 +29,12 @@ open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec; _∷_; [])
 open import Data.Fin using (Fin; toℕ; fromℕ<; #_)
 open import Data.Integer using (ℤ; +_)
+open import Data.Sum using (_⊎_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (findByPredicate)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
-open import Aletheia.DBC.JSONParser using (parseDBC)
+open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
+open import Aletheia.DBC.Properties using (validateDBC)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; evalPredicateWithPrev)
 open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied)
@@ -133,17 +135,22 @@ makeFrame msgId bytes = record
 -- STATE TRANSITIONS (Command Handlers)
 -- ============================================================================
 
--- Parse DBC command: reset state and parse DBC from JSON
+-- Parse DBC command: reset state, parse DBC from JSON, and validate
 handleParseDBC-State : JSON → StreamState → StreamState × Response
 handleParseDBC-State dbcJSON state =
-  parseHelper (parseDBC dbcJSON)
+  parseHelper (parseDBCWithErrors dbcJSON)
   where
-    parseHelper : Maybe DBC → StreamState × Response
-    parseHelper nothing =
-      (state , Response.Error "Failed to parse DBC JSON")
-    parseHelper (just dbc) =
+    open import Data.Sum using (inj₁; inj₂)
+
+    parseHelper : String ⊎ DBC → StreamState × Response
+    parseHelper (inj₁ parseError) =
+      (state , Response.Error ("DBC parse error: " ++ₛ parseError))
+    parseHelper (inj₂ dbc) with validateDBC dbc
+    ... | inj₁ validationError =
+      (state , Response.Error ("DBC validation failed: " ++ₛ validationError))
+    ... | inj₂ _ =
       let newState = mkStreamState ReadyToStream (just dbc) [] nothing  -- Reset properties and prevFrame
-      in (newState , Response.Success "DBC parsed successfully")
+      in (newState , Response.Success "DBC parsed and validated successfully")
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties-State : List JSON → StreamState → StreamState × Response
