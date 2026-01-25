@@ -365,5 +365,104 @@ validateDBC dbc with dbcValid? dbc
 -- Given a well-formed DBC, extract disjointness proof for any two coexisting signals
 -- This is the payoff: once DBC is validated, we never need to re-check disjointness
 
--- TODO: Add lookup functions that return SignalsDisjoint proof for signals in validated DBC
--- This eliminates threading disjointness hypotheses through all signal operations
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.List.Relation.Unary.Any using (Any; here; there)
+
+-- Extract SignalPairValid from SignalValidAgainstAll
+-- If sig₂ is in the list that sig₁ was validated against, we have the proof
+extractFromValidAgainstAll : ∀ {sig₁ sig₂ sigs}
+  → SignalValidAgainstAll sig₁ sigs
+  → sig₂ ∈ sigs
+  → SignalPairValid sig₁ sig₂
+extractFromValidAgainstAll (valid-cons pv _) (here refl) = pv
+extractFromValidAgainstAll (valid-cons _ rest) (there sig₂∈) = extractFromValidAgainstAll rest sig₂∈
+
+-- CanCoexist is symmetric
+canCoexist-sym : ∀ {p₁ p₂} → CanCoexist p₁ p₂ → CanCoexist p₂ p₁
+canCoexist-sym both-always = both-always
+canCoexist-sym always-left = always-right
+canCoexist-sym always-right = always-left
+canCoexist-sym (different-mux m≢) = different-mux (λ eq → m≢ (sym eq))
+canCoexist-sym (same-mux-same-val m≡ v≡) = same-mux-same-val (sym m≡) (sym v≡)
+
+-- SignalsDisjoint is symmetric
+signalsDisjoint-sym : ∀ {s₁ s₂} → SignalsDisjoint s₁ s₂ → SignalsDisjoint s₂ s₁
+signalsDisjoint-sym (disjoint-left p) = disjoint-right p
+signalsDisjoint-sym (disjoint-right p) = disjoint-left p
+
+-- SignalPairValid is symmetric: if (sig₁, sig₂) is valid, so is (sig₂, sig₁)
+signalPairValid-sym : ∀ {sig₁ sig₂} → SignalPairValid sig₁ sig₂ → SignalPairValid sig₂ sig₁
+signalPairValid-sym (mutually-exclusive ¬coexist) =
+  mutually-exclusive (λ coexist → ¬coexist (canCoexist-sym coexist))
+signalPairValid-sym (disjoint-when-coexist coexist disj) =
+  disjoint-when-coexist (canCoexist-sym coexist) (signalsDisjoint-sym disj)
+
+-- Extract SignalPairValid from AllSignalPairsValid for any two distinct signals
+-- Uses direct pattern matching on membership proofs to determine ordering
+lookupSignalPairValid : ∀ {sig₁ sig₂ sigs}
+  → AllSignalPairsValid sigs
+  → sig₁ ∈ sigs
+  → sig₂ ∈ sigs
+  → sig₁ ≢ sig₂
+  → SignalPairValid sig₁ sig₂
+lookupSignalPairValid {sig₁} {sig₂} allValid sig₁∈ sig₂∈ sig₁≢sig₂ =
+  extractHelper allValid sig₁∈ sig₂∈
+  where
+    -- Walk through both membership proofs to determine ordering and extract
+    extractHelper : ∀ {sigs}
+      → AllSignalPairsValid sigs
+      → sig₁ ∈ sigs
+      → sig₂ ∈ sigs
+      → SignalPairValid sig₁ sig₂
+    -- sig₁ is head, sig₂ is in tail → sig₁ before sig₂
+    extractHelper (pairs-cons againstAll _) (here refl) (there sig₂∈) =
+      extractFromValidAgainstAll againstAll sig₂∈
+    -- sig₂ is head, sig₁ is in tail → sig₂ before sig₁, use symmetry
+    extractHelper (pairs-cons againstAll _) (there sig₁∈) (here refl) =
+      signalPairValid-sym (extractFromValidAgainstAll againstAll sig₁∈)
+    -- Both in tail → recurse
+    extractHelper (pairs-cons _ rest) (there sig₁∈) (there sig₂∈) =
+      extractHelper rest sig₁∈ sig₂∈
+    -- Both point to head → contradiction with sig₁ ≢ sig₂
+    extractHelper _ (here refl) (here refl) = ⊥-elim (sig₁≢sig₂ refl)
+
+-- Extract SignalsDisjoint from SignalPairValid when signals can coexist
+extractDisjointness : ∀ {sig₁ sig₂}
+  → SignalPairValid sig₁ sig₂
+  → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
+  → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+extractDisjointness (mutually-exclusive ¬coexist) coexist = ⊥-elim (¬coexist coexist)
+extractDisjointness (disjoint-when-coexist _ disj) _ = disj
+
+-- ============================================================================
+-- CONVENIENCE: Full lookup from validated message
+-- ============================================================================
+
+-- Extract MessageValid from AllMessagesValid
+extractMessageValid : ∀ {msg msgs}
+  → AllMessagesValid msgs
+  → msg ∈ msgs
+  → MessageValid msg
+extractMessageValid (msgs-cons mv _) (here refl) = mv
+extractMessageValid (msgs-cons _ rest) (there msg∈) = extractMessageValid rest msg∈
+
+-- Extract AllSignalPairsValid from MessageValid
+extractSignalPairs : ∀ {msg} → MessageValid msg → AllSignalPairsValid (DBCMessage.signals msg)
+extractSignalPairs (message-valid pairs _) = pairs
+
+-- Full pipeline: from DBCValid to SignalsDisjoint
+-- Given a valid DBC, a message in it, two distinct coexisting signals in that message,
+-- extract the proof that they are disjoint
+lookupDisjointFromDBC : ∀ {dbc msg sig₁ sig₂}
+  → DBCValid dbc
+  → msg ∈ DBC.messages dbc
+  → sig₁ ∈ DBCMessage.signals msg
+  → sig₂ ∈ DBCMessage.signals msg
+  → sig₁ ≢ sig₂
+  → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
+  → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+lookupDisjointFromDBC dbcValid msg∈ sig₁∈ sig₂∈ sig≢ coexist =
+  let msgValid = extractMessageValid dbcValid msg∈
+      pairsValid = extractSignalPairs msgValid
+      pairValid = lookupSignalPairValid pairsValid sig₁∈ sig₂∈ sig≢
+  in extractDisjointness pairValid coexist

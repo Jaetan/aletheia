@@ -1895,7 +1895,10 @@ LAYER 4 (Composition): ✅ COMPLETE
   (extractSignalCore, scaleExtracted, extractionBytes) to enable clean
   rewriting in proofs. See Aletheia.CAN.Encoding for these helpers.
 
-NON-OVERLAP: TODO
-  - disjoint-signals-commute (can use injectBits-preserves-disjoint)
-  - extract-disjoint-inject (can use injectBits-preserves-disjoint)
+NON-OVERLAP: ✅ COMPLETE
+  - disjoint-signals-commute-unsigned ✅
+  - disjoint-signals-commute-signed ✅
+  - disjoint-signals-commute-mixed ✅
+  - extract-disjoint-inject-unsigned ✅
+  - extract-disjoint-inject-signed ✅
 -}
