@@ -69,40 +69,38 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **31 total modules**: 27 use `--safe`, 4 coinductive without `--safe`
+† **38 total modules**: 35 use `--safe`, 3 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination**:
-- **21 modules**: `--safe --without-K` (pure safe, no coinduction)
-- **1 module**: `--safe --without-K --no-main` (Parser/Combinators)
-- **5 modules**: `--safe --without-K --guardedness` (Trace/Stream, Trace/Context, LTL/Incremental, LTL/JSON, LTL/SignalPredicate)
-- **4 modules**: `--without-K --guardedness --sized-types` (no `--safe` - coinductive)
+**By flag combination** (38 total):
+- **33 modules**: `--safe --without-K` (standard safe modules)
+- **1 module**: `--safe` only (PrecompileStdlib.agda - stdlib cache)
+- **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
+- **3 modules without `--safe`** (all use `--sized-types` for coinduction):
+  - Main.agda: `--no-main --sized-types`
+  - Protocol/StreamState.agda: `--sized-types --without-K`
+  - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (4 of 31)**:
+**Modules not using `--safe` flag (3 of 38)**:
 
-Four modules require extensions incompatible with `--safe` for coinductive stream processing:
+Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
 1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
    - Required for: MAlonzo compilation with coinductive LTL evaluation
    - Safety trade-off: Entry point marshals between Agda and Haskell I/O
 
-2. **LTL/Coinductive.agda** - Uses `--guardedness --sized-types` for infinite trace semantics
-   - Required for: Coinductive streams representing infinite traces
-   - Safety trade-off: Productivity checking via --guardedness instead of --safe
-
-3. **Protocol/StreamState.agda** - Uses `--guardedness --sized-types` for streaming LTL checking
+2. **Protocol/StreamState.agda** - Uses `--sized-types` for streaming LTL checking
    - Required for: Coinductive stream processing of large trace files
-   - Safety trade-off: Productivity checking via --guardedness instead of --safe
+   - Safety trade-off: Sized types for productivity checking instead of --safe
 
-4. **Data/DelayedColist.agda** - Uses `--guardedness --sized-types` for coinductive stream type
+3. **Data/DelayedColist.agda** - Uses `--sized-types` for coinductive stream type
    - Required for: Thunk-based delay in infinite traces
-   - Safety trade-off: Productivity checking via --guardedness instead of --safe
-   - Used by: LTL/Coinductive for infinite trace semantics
+   - Safety trade-off: Sized types for productivity checking instead of --safe
 
-**Rationale**: Coinductive types (required for infinite traces and streaming) need `--guardedness` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
+**Rationale**: Coinductive types (required for infinite traces and streaming) need `--sized-types` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
 
-**Verification Status**: All four modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
+**Verification Status**: All three modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
 
 ## Common Commands
 
@@ -138,7 +136,7 @@ Core packages:
 - **Parser/**: Parser combinators and string utilities
 - **CAN/**: CAN frame encoding/decoding
 - **DBC/**: DBC file parser
-- **LTL/**: Linear Temporal Logic (Syntax, Semantics, Incremental, Coinductive)
+- **LTL/**: Linear Temporal Logic (Syntax, Evaluation, Incremental, Bisimilarity)
 - **Trace/**: Trace types and streaming
 - **Protocol/**: JSON protocol and streaming state machine
 
@@ -277,14 +275,9 @@ combined = list1 ++ₗ list2
 
 ## Implementation Phases
 
-For detailed phase completion status, deliverables, and roadmap, see [PROJECT_STATUS.md](PROJECT_STATUS.md).
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Quick Summary**:
-- ✅ Phase 1: Core Infrastructure (complete)
-- ✅ Phase 2A: LTL Core + Real-World Support (complete)
-- ✅ Phase 2B: Streaming + Counterexamples (complete)
-- ✅ Phase 2B.1: Batch Signal Operations (complete)
-- 🔜 Phase 3: Verification + Performance (next)
+**Current**: Phase 3 - Verification + Performance (43% complete)
 
 ---
 
@@ -308,7 +301,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 27 of 31 Aletheia modules
+  - Used in 35 of 38 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

@@ -153,9 +153,9 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 31
+- Agda modules: 38
 - Python modules: 8
-- Lines of code: ~4,800 Agda + ~4,500 Python
+- Lines of code: ~5,500 Agda + ~4,500 Python
 
 **Testing**:
 - Unit tests: 146 passing
@@ -167,8 +167,8 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 
 **Verification**:
-- Safe modules: 27 of 31 use `--safe --without-K`
-- Coinductive modules: 4 (for infinite trace semantics)
+- Safe modules: 35 of 38 use `--safe` (33 with `--without-K`, 2 variants)
+- Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
 ---
