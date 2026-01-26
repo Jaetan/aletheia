@@ -6,7 +6,7 @@ description:
     Aletheia provides proven-correct CAN frame encoding/decoding and
     LTL verification. This is the Haskell I/O shim that wraps the
     Agda-generated core.
-license:            BSD-3-Clause
+license:            BSD-2-Clause
 author:             Aletheia Team
 maintainer:         aletheia@example.com
 category:           Verification
