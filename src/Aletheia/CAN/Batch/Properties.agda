@@ -41,6 +41,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import Relation.Nullary using (¬_)
 open import Data.Empty using (⊥-elim)
+open import Function using (case_of_)
 
 -- ============================================================================
 -- PROOF ARCHITECTURE: How DBC validation enables batch operation correctness
@@ -131,6 +132,248 @@ open import Data.Empty using (⊥-elim)
 --
 -- These are mechanical but lengthy; the key insight is that DBCValid provides
 -- exactly the disjointness preconditions needed.
+
+-- ============================================================================
+-- PAIRWISE DISJOINTNESS FOR SIGNAL LISTS
+-- ============================================================================
+
+open import Aletheia.CAN.BatchFrameBuilding using (injectOne; injectAll)
+open import Aletheia.CAN.Endianness using (injectBits; extractBits; injectBits-preserves-disjoint; swapBytes)
+open import Data.Maybe using (_>>=_)
+open import Data.Vec using (Vec)
+open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Relation.Binary.PropositionalEquality using (trans; cong; subst; sym)
+
+-- A signal is disjoint from all signals in a list
+data DisjointFromAll (sig : DBCSignal) : List (DBCSignal × ℚ) → Set where
+  dfa-nil : DisjointFromAll sig []
+  dfa-cons : ∀ {s v rest}
+    → SignalsDisjoint (DBCSignal.signalDef sig) (DBCSignal.signalDef s)
+    → DisjointFromAll sig rest
+    → DisjointFromAll sig ((s , v) ∷ rest)
+
+-- All pairs in a signal list are disjoint
+data AllPairsDisjoint : List (DBCSignal × ℚ) → Set where
+  apd-nil : AllPairsDisjoint []
+  apd-cons : ∀ {s v rest}
+    → DisjointFromAll s rest
+    → AllPairsDisjoint rest
+    → AllPairsDisjoint ((s , v) ∷ rest)
+
+-- All signals in a list fit within 64 bits
+data AllSignalsFit : List (DBCSignal × ℚ) → Set where
+  asf-nil : AllSignalsFit []
+  asf-cons : ∀ {s v rest}
+    → toℕ (SignalDef.startBit (DBCSignal.signalDef s)) + toℕ (SignalDef.bitLength (DBCSignal.signalDef s)) ≤ 64
+    → AllSignalsFit rest
+    → AllSignalsFit ((s , v) ∷ rest)
+
+-- ============================================================================
+-- SINGLE INJECTION PRESERVES DISJOINT EXTRACTION
+-- ============================================================================
+
+-- Helper: Signal fit bounds (used in many places)
+signalFits : SignalDef → Set
+signalFits sig = toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64
+
+-- Convert SignalsDisjoint to the ⊎ form for injectBits-preserves-disjoint
+open import Aletheia.DBC.Properties using (SignalsDisjoint; disjoint-left; disjoint-right)
+
+SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
+  → toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
+  ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+SignalsDisjoint→⊎ (disjoint-left p) = inj₁ p
+SignalsDisjoint→⊎ (disjoint-right p) = inj₂ p
+
+-- ============================================================================
+-- THE KEY SEMANTIC PROPERTY
+-- ============================================================================
+--
+-- What we need to prove:
+--
+--   SignalsDisjoint sig₁ sig₂
+--   → injection at sig₁ with bo₁ doesn't affect extraction at sig₂ with bo₂
+--
+-- ANALYSIS BY BYTE ORDER COMBINATION:
+--
+--   Let A = byte range touched by [s₁, s₁+l₁)
+--   Let B = byte range touched by [s₂, s₂+l₂)
+--   Let π = swapBytes (byte reversal)
+--
+--   SignalsDisjoint gives: A ∩ B = ∅ (in logical bit space)
+--
+--   Case LE/LE: inject touches A, extract reads B → need A ∩ B = ∅ ✓
+--   Case BE/BE: inject touches π(A), extract reads π(B) → need π(A) ∩ π(B) = ∅
+--               Since π is bijection and A ∩ B = ∅, we have π(A) ∩ π(B) = ∅ ✓
+--   Case LE/BE: inject touches A, extract reads π(B) → need A ∩ π(B) = ∅
+--               This does NOT follow from A ∩ B = ∅ alone! ✗
+--   Case BE/LE: inject touches π(A), extract reads B → need π(A) ∩ B = ∅
+--               This does NOT follow from A ∩ B = ∅ alone! ✗
+--
+-- COUNTEREXAMPLE for mixed byte orders:
+--   s₁ = 0, l₁ = 8 (byte 0)    with LE → modifies byte 0
+--   s₂ = 56, l₂ = 8 (byte 7)   with BE → reads swapBytes, so reads original byte 0!
+--   SignalsDisjoint holds ([0,8) ∩ [56,64) = ∅) but they DO interfere.
+--
+-- CONCLUSION:
+--   - Same byte order: SignalsDisjoint is SUFFICIENT
+--   - Mixed byte orders: Need stronger condition (physical disjointness)
+--
+-- For now, we require same byte order for batch operations.
+-- CAN messages typically use consistent byte order for all signals anyway.
+--
+-- ============================================================================
+
+-- ============================================================================
+-- SAME BYTE ORDER CONSTRAINT
+-- ============================================================================
+
+-- All signals in a list use the same byte order
+data AllSameByteOrderAs (bo : ByteOrder) : List (DBCSignal × ℚ) → Set where
+  asbo-nil : AllSameByteOrderAs bo []
+  asbo-cons : ∀ {s v rest}
+    → DBCSignal.byteOrder s ≡ bo
+    → AllSameByteOrderAs bo rest
+    → AllSameByteOrderAs bo ((s , v) ∷ rest)
+
+-- ============================================================================
+-- DISJOINTNESS + SAME BYTE ORDER: Concrete single-inject-preserves
+-- ============================================================================
+
+-- Import the key lemma from Endianness
+open import Aletheia.CAN.Endianness using (injectPayload-preserves-disjoint-same; payloadIso; extractBits; injectBits)
+open import Aletheia.Data.BitVec using (BitVec)
+open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
+
+-- ============================================================================
+-- HELPER: extractSignal depends only on the extracted bits
+-- ============================================================================
+
+-- If the extracted bits are the same, extractSignal returns the same result
+-- This is because extractSignalCore, scaleExtracted, and inBounds are all deterministic
+private
+  extractSignal-bits-eq : ∀ frame₁ frame₂ sig bo
+    → extractBits {toℕ (SignalDef.bitLength sig)} (extractionBytes frame₁ bo) (toℕ (SignalDef.startBit sig))
+      ≡ extractBits {toℕ (SignalDef.bitLength sig)} (extractionBytes frame₂ bo) (toℕ (SignalDef.startBit sig))
+    → extractSignal frame₁ sig bo ≡ extractSignal frame₂ sig bo
+  extractSignal-bits-eq frame₁ frame₂ sig bo bits-eq = result-eq
+    where
+      open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned)
+      open SignalDef sig
+
+      bytes₁ = extractionBytes frame₁ bo
+      bytes₂ = extractionBytes frame₂ bo
+
+      -- extractSignalCore uses extractBits, so equal bits → equal core
+      core-eq : extractSignalCore bytes₁ sig ≡ extractSignalCore bytes₂ sig
+      core-eq = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ bitLength) isSigned) bits-eq
+
+      -- scaleExtracted only depends on the core
+      value-eq : scaleExtracted (extractSignalCore bytes₁ sig) sig
+               ≡ scaleExtracted (extractSignalCore bytes₂ sig) sig
+      value-eq = cong (λ core → scaleExtracted core sig) core-eq
+
+      -- inBounds only depends on the value
+      bounds-eq : inBounds (scaleExtracted (extractSignalCore bytes₁ sig) sig) minimum maximum
+                ≡ inBounds (scaleExtracted (extractSignalCore bytes₂ sig) sig) minimum maximum
+      bounds-eq = cong (λ v → inBounds v minimum maximum) value-eq
+
+      -- The final result: if then else with same condition and same branches
+      result-eq : extractSignal frame₁ sig bo ≡ extractSignal frame₂ sig bo
+      result-eq with inBounds (scaleExtracted (extractSignalCore bytes₁ sig) sig) minimum maximum
+                   | inBounds (scaleExtracted (extractSignalCore bytes₂ sig) sig) minimum maximum
+                   | bounds-eq
+      ... | true  | true  | _  = cong just value-eq
+      ... | false | false | _  = refl
+      ... | true  | false | ()
+      ... | false | true  | ()
+
+-- When injection and extraction use the same byte order, SignalsDisjoint suffices
+-- This connects injectSignal-preserves-disjoint-bits to the signal level
+single-inject-preserves-same-bo :
+  ∀ (frame frame' : CANFrame) (s : DBCSignal) (v : ℚ) (sig : DBCSignal)
+  → DBCSignal.byteOrder s ≡ DBCSignal.byteOrder sig  -- SAME byte order
+  → SignalsDisjoint (DBCSignal.signalDef sig) (DBCSignal.signalDef s)
+  → signalFits (DBCSignal.signalDef s)
+  → signalFits (DBCSignal.signalDef sig)
+  → injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame ≡ just frame'
+  → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+    ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+single-inject-preserves-same-bo frame frame' s v sig bo-eq disj fits-s fits-sig inj-eq
+  rewrite sym bo-eq = extractSignal-bits-eq frame' frame sig-sig bo bits-preserved
+  where
+    open import Aletheia.CAN.Encoding using (extractSignal; extractionBytes; injectSignal; injectSignal-preserves-disjoint-bits)
+
+    bo = DBCSignal.byteOrder s
+    sig-s = DBCSignal.signalDef s
+    sig-sig = DBCSignal.signalDef sig
+
+    start-sig = toℕ (SignalDef.startBit sig-sig)
+    len-sig = toℕ (SignalDef.bitLength sig-sig)
+
+    -- Disjointness in ⊎ form (swapped for the lemma signature)
+    disj⊎ : toℕ (SignalDef.startBit sig-s) + toℕ (SignalDef.bitLength sig-s) ≤ start-sig
+          ⊎ start-sig + len-sig ≤ toℕ (SignalDef.startBit sig-s)
+    disj⊎ with SignalsDisjoint→⊎ disj
+    ... | inj₁ p = inj₂ p  -- sig ends before s starts
+    ... | inj₂ p = inj₁ p  -- s ends before sig starts
+
+    -- Use the lemma from Encoding.agda
+    bits-preserved : extractBits {len-sig} (extractionBytes frame' bo) start-sig
+                   ≡ extractBits {len-sig} (extractionBytes frame bo) start-sig
+    bits-preserved = injectSignal-preserves-disjoint-bits v sig-s bo frame frame' start-sig
+                       inj-eq disj⊎ fits-s fits-sig
+
+-- ============================================================================
+-- KEY LEMMA: injectAll preserves extraction at disjoint positions
+-- ============================================================================
+-- Requires: same byte order for all signals, pairwise disjointness, signals fit in 64 bits
+
+injectAll-preserves-disjoint :
+  ∀ (bo : ByteOrder) (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+    (sig : DBCSignal)
+  → DBCSignal.byteOrder sig ≡ bo
+  → AllSameByteOrderAs bo sigs
+  → AllSignalsFit sigs
+  → signalFits (DBCSignal.signalDef sig)
+  → injectAll frame sigs ≡ just frame'
+  → DisjointFromAll sig sigs
+  → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+    ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+
+-- Base case: empty list, frame unchanged
+injectAll-preserves-disjoint bo [] frame .frame sig _ _ _ _ refl dfa-nil = refl
+
+-- Inductive case: inject first, then rest
+injectAll-preserves-disjoint bo ((s , v) ∷ rest) frame frame' sig
+    sig-bo-eq (asbo-cons s-bo-eq rest-bo) (asf-cons s-fits rest-fits) sig-fits eq (dfa-cons disj restDisj)
+  with injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame in injEq
+... | nothing = case eq of λ ()  -- injectOne failed, contradicts eq
+... | just frame₁ = proof
+  where
+    -- injectAll frame₁ rest ≡ just frame'
+    restEq : injectAll frame₁ rest ≡ just frame'
+    restEq with injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame
+    ... | just _ = eq
+    ... | nothing = case injEq of λ ()
+
+    -- By IH: extracting sig from frame' equals extracting from frame₁
+    step1 : extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+          ≡ extractSignal frame₁ (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+    step1 = injectAll-preserves-disjoint bo rest frame₁ frame' sig sig-bo-eq rest-bo rest-fits sig-fits restEq restDisj
+
+    -- Byte orders match: s and sig both use bo
+    bo-match : DBCSignal.byteOrder s ≡ DBCSignal.byteOrder sig
+    bo-match = trans s-bo-eq (sym sig-bo-eq)
+
+    -- Single injection preserves disjoint extraction (same byte order)
+    step2 : extractSignal frame₁ (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+          ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+    step2 = single-inject-preserves-same-bo frame frame₁ s v sig bo-match disj s-fits sig-fits injEq
+
+    proof : extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+          ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
+    proof = trans step1 step2
 
 -- ============================================================================
 -- EXTRACTALLSIGNALS COMPLETENESS

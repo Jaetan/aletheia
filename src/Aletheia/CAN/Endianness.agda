@@ -856,6 +856,36 @@ injectPayload-commute s₁ s₂ bits₁ bits₂ bo payload disj fits₁ fits₂ 
     open ≡-Reasoning
 
 -- ============================================================================
+-- SAME BYTE ORDER: disjoint extraction preserved through injectPayload
+-- ============================================================================
+
+-- When both inject and extract use the same byte order, payloadIso cancels
+-- and we reduce directly to injectBits-preserves-disjoint.
+--
+-- This is the common case: CAN messages typically use consistent byte order.
+
+injectPayload-preserves-disjoint-same :
+  ∀ {len₁ len₂} s₁ s₂ (bits : BitVec len₁) bo payload
+  → s₁ + len₁ ≤ s₂ ⊎ s₂ + len₂ ≤ s₁  -- disjoint ranges
+  → s₁ + len₁ ≤ 64
+  → s₂ + len₂ ≤ 64
+  → extractBits {len₂} (payloadIso bo (injectPayload s₁ bits bo payload)) s₂
+    ≡ extractBits {len₂} (payloadIso bo payload) s₂
+injectPayload-preserves-disjoint-same {len₁} {len₂} s₁ s₂ bits bo payload disj fits₁ fits₂ =
+  begin
+    extractBits {len₂} (payloadIso bo (injectPayload s₁ bits bo payload)) s₂
+  ≡⟨⟩  -- expand injectPayload
+    extractBits {len₂} (payloadIso bo (payloadIso bo (injectBits (payloadIso bo payload) s₁ bits))) s₂
+  ≡⟨ cong (λ x → extractBits {len₂} x s₂) (payloadIso-involutive bo _) ⟩
+    extractBits {len₂} (injectBits (payloadIso bo payload) s₁ bits) s₂
+  ≡⟨ injectBits-preserves-disjoint (payloadIso bo payload) s₁ s₂ bits disj fits₁ fits₂ ⟩
+    extractBits {len₂} (payloadIso bo payload) s₂
+  ∎
+  where
+    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+    open ≡-Reasoning
+
+-- ============================================================================
 -- IMPLEMENTATION NOTES
 -- ============================================================================
 {-

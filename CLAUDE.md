@@ -23,6 +23,21 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - [Implementation Phases](#implementation-phases)
 - [Current Session Progress](#current-session-progress)
 
+## Development Environment
+
+**IMPORTANT: These facts must be preserved across session compression.**
+
+- **Agda binary**: `/home/nicolas/.cabal/bin/agda`
+- **Shell**: `/usr/bin/fish`
+- **Shell config**: Source `/home/nicolas/.config/fish/config.fish` when needed
+- **User binaries**: `/home/nicolas/.local/bin` (accessible)
+- **User libraries**: `/home/nicolas/.local/lib` (accessible)
+
+**Type-checking command**:
+```bash
+/home/nicolas/.cabal/bin/agda +RTS -N32 -RTS /home/nicolas/dev/agda/aletheia/src/Aletheia/YourModule.agda
+```
+
 ## Global Project Rules
 
 ### Agda Module Requirements (MANDATORY)

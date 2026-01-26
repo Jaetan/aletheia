@@ -18,7 +18,7 @@ open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Endianness
 open import Aletheia.Data.BitVec
 open import Aletheia.Data.BitVec.Conversion
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_; _<_; _<?_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_; _<_; _<?_; _≤_)
 open import Data.Fin using (Fin; toℕ)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
@@ -28,9 +28,9 @@ open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans)
 open import Relation.Nullary using (Dec; yes; no)
-open import Function using (_∘_)
+open import Function using (_∘_; case_of_)
 
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
@@ -169,6 +169,93 @@ injectSignal value signalDef byteOrder frame =
                        then swapBytes updatedBytes
                        else updatedBytes
       in just (record frame { payload = finalBytes })
+
+-- ============================================================================
+-- STRUCTURAL LEMMA: injectSignal payload form
+-- ============================================================================
+
+-- When injectSignal succeeds, the payload has the form:
+--   injectPayload startBit rawBitVec bo (payload frame)
+-- for some rawBitVec : BitVec (toℕ bitLength)
+--
+-- This is captured by showing that extraction at a disjoint position is preserved.
+
+open import Aletheia.CAN.Endianness using (injectPayload; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Nat.Properties using (≤-refl)
+
+-- Helper: extractionBytes equals payloadIso (definitional by cases)
+extractionBytes≡payloadIso : ∀ frame bo → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)
+extractionBytes≡payloadIso frame LittleEndian = refl
+extractionBytes≡payloadIso frame BigEndian = refl
+
+-- Helper to extract value from just
+private
+  just-injective : ∀ {A : Set} {x y : A} → just x ≡ just y → x ≡ y
+  just-injective refl = refl
+
+-- Key structural lemma: when injectSignal succeeds, bits at disjoint positions are preserved
+-- The proof mirrors injectSignal's structure using plain with-patterns (no rewrite, no in)
+injectSignal-preserves-disjoint-bits :
+  ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo : ByteOrder) (frame frame' : CANFrame)
+    (start₂ : ℕ)
+  → injectSignal v sig bo frame ≡ just frame'
+  → toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ start₂
+    ⊎ start₂ + len₂ ≤ toℕ (SignalDef.startBit sig)  -- disjoint ranges
+  → toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64
+  → start₂ + len₂ ≤ 64
+  → extractBits {len₂} (extractionBytes frame' bo) start₂
+    ≡ extractBits {len₂} (extractionBytes frame bo) start₂
+injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq disj fits₁ fits₂
+  with inBounds v (SignalDef.minimum sig) (SignalDef.maximum sig)
+... | false = case eq of λ ()
+... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
+...   | nothing = case eq of λ ()
+...   | just rawSigned with fromSigned rawSigned (toℕ (SignalDef.bitLength sig)) <? 2 ^ toℕ (SignalDef.bitLength sig)
+...     | no _ = case eq of λ ()
+...     | yes bounded = core-proof (just-injective (sym eq))
+  where
+    open SignalDef sig
+    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+    open ≡-Reasoning
+
+    origPayload = CANFrame.payload frame
+    start₁ = toℕ startBit
+    len₁ = toℕ bitLength
+
+    -- Define the computed values matching injectSignal's definition exactly
+    rawBitVec = ℕToBitVec (fromSigned rawSigned len₁) bounded
+    bytes = payloadIso bo origPayload
+    updatedBytes = injectBits bytes start₁ rawBitVec
+    finalBytes = payloadIso bo updatedBytes
+
+    -- The frame returned by injectSignal when all conditions succeed
+    expectedFrame = record frame { payload = finalBytes }
+
+    -- Core proof using the fact that frame' = expectedFrame
+    core-proof : frame' ≡ expectedFrame
+               → extractBits {len₂} (extractionBytes frame' bo) start₂
+                 ≡ extractBits {len₂} (extractionBytes frame bo) start₂
+    core-proof frame'-eq =
+      begin
+        extractBits (extractionBytes frame' bo) start₂
+      ≡⟨ cong (λ f → extractBits (extractionBytes f bo) start₂) frame'-eq ⟩
+        extractBits (extractionBytes expectedFrame bo) start₂
+      ≡⟨ cong (λ x → extractBits x start₂) (extractionBytes≡payloadIso expectedFrame bo) ⟩
+        extractBits (payloadIso bo finalBytes) start₂
+      ≡⟨⟩  -- finalBytes = payloadIso bo updatedBytes, unfolds to payloadIso bo (payloadIso bo ...)
+        extractBits (payloadIso bo (payloadIso bo updatedBytes)) start₂
+      ≡⟨ cong (λ x → extractBits x start₂) (payloadIso-involutive bo updatedBytes) ⟩
+        extractBits updatedBytes start₂
+      ≡⟨⟩  -- updatedBytes = injectBits bytes start₁ rawBitVec
+        extractBits (injectBits bytes start₁ rawBitVec) start₂
+      ≡⟨ injectBits-preserves-disjoint bytes start₁ start₂ rawBitVec disj fits₁ fits₂ ⟩
+        extractBits bytes start₂
+      ≡⟨⟩  -- bytes = payloadIso bo origPayload
+        extractBits (payloadIso bo origPayload) start₂
+      ≡⟨ cong (λ x → extractBits x start₂) (sym (extractionBytes≡payloadIso frame bo)) ⟩
+        extractBits (extractionBytes frame bo) start₂
+      ∎
 
 -- Round-trip correctness properties defined in Aletheia.CAN.Encoding.Properties:
 -- 1. extractBits-injectBits-roundtrip: Bit-level roundtrip (no ℚ)

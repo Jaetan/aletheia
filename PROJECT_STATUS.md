@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2025-12-22
+**Last Updated**: 2026-01-27
 
 ---
 
@@ -101,16 +101,19 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
    - `LTL/Bisimilarity.agda`: Proven behavioral bisimilarity between monitor and coalgebra
    - All operators proven: Atomic, Not, And, Or, Next, Always, Eventually, Until, Release, MetricEventually, MetricAlways, MetricUntil, MetricRelease (12/12)
    - No postulates, pure coalgebraic reasoning
-3. 🚧 CAN encoding correctness proofs - IN PROGRESS
-   - `Data/BitVec/Conversion.agda`: bitVec-roundtrip and bitVecToℕ-bounded COMPLETE (no postulates!)
-   - Next: Remove postulate from Endianness, prove ℕToBitVec-injective, then extractBits-injectBits-roundtrip
+3. ✅ CAN encoding correctness proofs - COMPLETE
+   - `Data/BitVec/Conversion.agda`: bitVec-roundtrip and bitVecToℕ-bounded (no postulates!)
+   - `CAN/Endianness.agda`: extractBits-injectBits-roundtrip, injectBits-preserves-disjoint, injectBits-commute
+   - `CAN/Encoding.agda`: injectSignal-preserves-disjoint-bits (key structural lemma)
+   - `CAN/Batch/Properties.agda`: injectAll-preserves-disjoint (batch operations preserve extraction)
+   - Note: Same byte order required for batch proofs; mixed byte order research in Phase 5
 4. ⏸️ DSL translation correctness proofs - NOT STARTED
 5. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
 6. ⏸️ Parser memoization - NOT STARTED
 7. ⏸️ Signal caching - NOT STARTED
 
 **Status**: In progress (started 2025-12-17)
-**Completion**: 29% (2/7 goals complete, 1 in progress)
+**Completion**: 43% (3/7 goals complete)
 
 ---
 
@@ -139,6 +142,9 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Additional validation rules
 - CAN format converters (BLF, ASC, MF4)
 - Frame injection utilities
+
+**Research needed**:
+- Mixed byte order signals: Investigate prevalence of signals with different byte orders (Intel/Motorola) within the same CAN message, based on publicly available DBC files. Current batch proofs assume same byte order; mixed byte orders require different disjointness semantics due to DBC start bit conventions (LSB for Intel, MSB for Motorola).
 
 **Status**: Not started
 
@@ -169,14 +175,16 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 
 ## Next Steps
 
-**Phase 3 Goals**:
-1. Parser soundness proofs (prove parser correctness)
-2. LTL semantics proofs (prove model checker correctness)
-3. DSL translation proofs (prove Python DSL → Agda translation preserves semantics)
-4. Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
-5. Implement parser memoization
-6. Add signal value caching
-7. Optimize predicate evaluation with short-circuiting
+**Phase 3 Remaining Goals**:
+1. ⏸️ DSL translation proofs (prove Python DSL → Agda translation preserves semantics)
+2. ⏸️ Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
+3. ⏸️ Parser memoization
+4. ⏸️ Signal caching
+
+**Completed**:
+- ✅ Parser soundness proofs
+- ✅ LTL semantics proofs (bisimilarity, all operators)
+- ✅ CAN encoding proofs (batch operations, disjointness preservation)
 
 **Future**:
 - Phase 4: Production hardening, documentation, standard library
