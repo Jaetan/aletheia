@@ -31,13 +31,15 @@ class ResponseStatus(str, Enum):
     COMPLETE = "complete"
 
 
-class ComparisonOp(str, Enum):
-    """Comparison operators for signal predicates"""
-    EQ = "EQ"  # Equals
-    LT = "LT"  # Less than
-    GT = "GT"  # Greater than
-    LE = "LE"  # Less than or equal
-    GE = "GE"  # Greater than or equal
+class PredicateType(str, Enum):
+    """Signal predicate types matching Agda JSON schema"""
+    EQUALS = "equals"
+    LESS_THAN = "lessThan"
+    GREATER_THAN = "greaterThan"
+    LESS_THAN_OR_EQUAL = "lessThanOrEqual"
+    GREATER_THAN_OR_EQUAL = "greaterThanOrEqual"
+    BETWEEN = "between"
+    CHANGED_BY = "changedBy"
 
 
 # ============================================================================
@@ -96,146 +98,177 @@ class DBCDefinition(TypedDict):
 
 
 # ============================================================================
-# LTL Formula Types (Predicates)
+# LTL Formula Types - Agda-compatible JSON schema
 # ============================================================================
+# All formulas use "operator" key (not "type").
+# Predicates use {"operator": "atomic", "predicate": {...}} format.
+# Time bounds use "timebound" key (not "time_ms").
+# "never" and "implies" are desugared by Python before sending to Agda.
 
-class CompareFormula(TypedDict):
-    """Comparison predicate: signal op value"""
-    type: Literal["compare"]
+# -- Signal Predicates (inside "predicate" object) --
+
+class EqualsPredicate(TypedDict):
+    """Equals predicate: signal == value"""
+    predicate: Literal["equals"]
     signal: str
-    op: str  # "EQ" | "LT" | "GT" | "LE" | "GE"
     value: float
 
 
-class BetweenFormula(TypedDict):
+class LessThanPredicate(TypedDict):
+    """LessThan predicate: signal < value"""
+    predicate: Literal["lessThan"]
+    signal: str
+    value: float
+
+
+class GreaterThanPredicate(TypedDict):
+    """GreaterThan predicate: signal > value"""
+    predicate: Literal["greaterThan"]
+    signal: str
+    value: float
+
+
+class LessThanOrEqualPredicate(TypedDict):
+    """LessThanOrEqual predicate: signal <= value"""
+    predicate: Literal["lessThanOrEqual"]
+    signal: str
+    value: float
+
+
+class GreaterThanOrEqualPredicate(TypedDict):
+    """GreaterThanOrEqual predicate: signal >= value"""
+    predicate: Literal["greaterThanOrEqual"]
+    signal: str
+    value: float
+
+
+class BetweenPredicate(TypedDict):
     """Between predicate: min <= signal <= max"""
-    type: Literal["between"]
+    predicate: Literal["between"]
     signal: str
     min: float
     max: float
 
 
-class ChangedByFormula(TypedDict):
-    """Changed by predicate: signal changed by delta"""
-    type: Literal["changed_by"]
+class ChangedByPredicate(TypedDict):
+    """ChangedBy predicate: |signal_now - signal_prev| <= delta"""
+    predicate: Literal["changedBy"]
     signal: str
     delta: float
 
 
+SignalPredicate = (
+    EqualsPredicate |
+    LessThanPredicate |
+    GreaterThanPredicate |
+    LessThanOrEqualPredicate |
+    GreaterThanOrEqualPredicate |
+    BetweenPredicate |
+    ChangedByPredicate
+)
+
+
+# -- LTL Formula Types (using "operator" key) --
+
+class AtomicFormula(TypedDict):
+    """Atomic formula wrapping a signal predicate"""
+    operator: Literal["atomic"]
+    predicate: SignalPredicate
+
+
 class AndFormula(TypedDict):
     """Logical AND: left && right"""
-    type: Literal["and"]
+    operator: Literal["and"]
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 class OrFormula(TypedDict):
     """Logical OR: left || right"""
-    type: Literal["or"]
+    operator: Literal["or"]
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 class NotFormula(TypedDict):
     """Logical NOT: !formula"""
-    type: Literal["not"]
+    operator: Literal["not"]
     formula: 'LTLFormula'
 
 
-# ============================================================================
-# LTL Formula Types (Temporal Operators)
-# ============================================================================
-
 class AlwaysFormula(TypedDict):
     """Always (globally): G(formula)"""
-    type: Literal["always"]
+    operator: Literal["always"]
     formula: 'LTLFormula'
 
 
 class EventuallyFormula(TypedDict):
     """Eventually (finally): F(formula)"""
-    type: Literal["eventually"]
-    formula: 'LTLFormula'
-
-
-class NeverFormula(TypedDict):
-    """Never: G(!formula)"""
-    type: Literal["never"]
+    operator: Literal["eventually"]
     formula: 'LTLFormula'
 
 
 class NextFormula(TypedDict):
     """Next: X(formula)"""
-    type: Literal["next"]
+    operator: Literal["next"]
     formula: 'LTLFormula'
 
 
 class MetricEventuallyFormula(TypedDict):
     """Metric Eventually: F_{<=t}(formula)"""
-    type: Literal["metricEventually"]
-    time_ms: int
+    operator: Literal["metricEventually"]
+    timebound: int
     formula: 'LTLFormula'
 
 
 class MetricAlwaysFormula(TypedDict):
     """Metric Always: G_{<=t}(formula)"""
-    type: Literal["metricAlways"]
-    time_ms: int
+    operator: Literal["metricAlways"]
+    timebound: int
     formula: 'LTLFormula'
-
-
-class ImpliesFormula(TypedDict):
-    """Logical implication: antecedent -> consequent"""
-    type: Literal["implies"]
-    antecedent: 'LTLFormula'
-    consequent: 'LTLFormula'
 
 
 class UntilFormula(TypedDict):
     """Temporal until: left U right"""
-    type: Literal["until"]
+    operator: Literal["until"]
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 class ReleaseFormula(TypedDict):
     """Temporal release: left R right (dual of until)"""
-    type: Literal["release"]
+    operator: Literal["release"]
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 class MetricUntilFormula(TypedDict):
     """Metric Until: left U_{<=t} right"""
-    type: Literal["metricUntil"]
-    time_ms: int
+    operator: Literal["metricUntil"]
+    timebound: int
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 class MetricReleaseFormula(TypedDict):
     """Metric Release: left R_{<=t} right"""
-    type: Literal["metricRelease"]
-    time_ms: int
+    operator: Literal["metricRelease"]
+    timebound: int
     left: 'LTLFormula'
     right: 'LTLFormula'
 
 
 # Union type for all LTL formulas
 LTLFormula = (
-    CompareFormula |
-    BetweenFormula |
-    ChangedByFormula |
+    AtomicFormula |
     AndFormula |
     OrFormula |
     NotFormula |
     AlwaysFormula |
     EventuallyFormula |
-    NeverFormula |
     NextFormula |
     MetricEventuallyFormula |
     MetricAlwaysFormula |
-    ImpliesFormula |
     UntilFormula |
     ReleaseFormula |
     MetricUntilFormula |

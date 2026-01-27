@@ -80,6 +80,10 @@ class StreamingClient(BinaryClient):
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field
 
+        Agda's formatRational outputs integers with denominator 1 as plain
+        numbers (e.g. ``0``) and non-integers as
+        ``{"numerator": n, "denominator": d}``.  This helper accepts both.
+
         Args:
             field_name: Name of field for error messages
             raw_value: Raw value from response.get()
@@ -90,8 +94,10 @@ class StreamingClient(BinaryClient):
         Raises:
             AssertionError: If structure is invalid (protocol violation)
         """
+        if isinstance(raw_value, int):
+            return {"numerator": raw_value, "denominator": 1}
         assert isinstance(raw_value, dict), \
-            f"Protocol error: expected {field_name} to be dict"
+            f"Protocol error: expected {field_name} to be int or dict, got {type(raw_value).__name__}"
         value_dict = cast(dict[str, object], raw_value)
         numerator = value_dict.get("numerator")
         denominator = value_dict.get("denominator")

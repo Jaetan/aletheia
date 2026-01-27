@@ -68,6 +68,20 @@ parseBetween obj = do
   maxVal ← lookupRational "max" obj
   just (SignalPredicate.Between signal minVal maxVal)
 
+-- Parse LessThanOrEqual predicate
+parseLessThanOrEqual : List (String × JSON) → Maybe SignalPredicate
+parseLessThanOrEqual obj = do
+  signal ← lookupString "signal" obj
+  value ← lookupRational "value" obj
+  just (SignalPredicate.LessThanOrEqual signal value)
+
+-- Parse GreaterThanOrEqual predicate
+parseGreaterThanOrEqual : List (String × JSON) → Maybe SignalPredicate
+parseGreaterThanOrEqual obj = do
+  signal ← lookupString "signal" obj
+  value ← lookupRational "value" obj
+  just (SignalPredicate.GreaterThanOrEqual signal value)
+
 -- Parse ChangedBy predicate
 parseChangedBy : List (String × JSON) → Maybe SignalPredicate
 parseChangedBy obj = do
@@ -81,6 +95,8 @@ predicateDispatchTable =
   ("equals" , parseEquals) ∷
   ("lessThan" , parseLessThan) ∷
   ("greaterThan" , parseGreaterThan) ∷
+  ("lessThanOrEqual" , parseLessThanOrEqual) ∷
+  ("greaterThanOrEqual" , parseGreaterThanOrEqual) ∷
   ("between" , parseBetween) ∷
   ("changedBy" , parseChangedBy) ∷
   []
@@ -110,6 +126,8 @@ parseBinary : ℕ → (LTL SignalPredicate → LTL SignalPredicate → LTL Signa
             → List (String × JSON) → Maybe (LTL SignalPredicate)
 parseBounded : ℕ → (ℕ → LTL SignalPredicate → LTL SignalPredicate)
              → List (String × JSON) → Maybe (LTL SignalPredicate)
+parseNever : ℕ → List (String × JSON) → Maybe (LTL SignalPredicate)
+parseImplies : ℕ → List (String × JSON) → Maybe (LTL SignalPredicate)
 parseLTLObject : ℕ → List (String × JSON) → Maybe (LTL SignalPredicate)
 
 -- Parse atomic predicate (refactored to avoid nested with clauses)
@@ -142,6 +160,22 @@ parseBounded (suc depth) ctor obj = do
   formula ← parseLTL depth formulaJSON
   just (ctor timebound formula)
 
+-- Parse "never" as Always(Not(formula))
+parseNever zero obj = nothing
+parseNever (suc depth) obj = do
+  formulaJSON ← lookupByKey "formula" obj
+  formula ← parseLTL depth formulaJSON
+  just (LTL.Always (LTL.Not formula))
+
+-- Parse "implies" as Or(Not(antecedent), consequent)
+parseImplies zero obj = nothing
+parseImplies (suc depth) obj = do
+  antJSON ← lookupByKey "antecedent" obj
+  consJSON ← lookupByKey "consequent" obj
+  ant ← parseLTL depth antJSON
+  cons ← parseLTL depth consJSON
+  just (LTL.Or (LTL.Not ant) cons)
+
 -- Parse bounded binary operator (MetricUntil, MetricRelease)
 parseBoundedBinary : ℕ → (ℕ → LTL SignalPredicate → LTL SignalPredicate → LTL SignalPredicate) → List (String × JSON) → Maybe (LTL SignalPredicate)
 parseBoundedBinary zero ctor obj = nothing
@@ -171,6 +205,8 @@ dispatchOperator op depth obj =
   else if ⌊ op ≟ "metricAlways" ⌋ then parseBounded depth LTL.MetricAlways obj
   else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinary depth LTL.MetricUntil obj
   else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinary depth LTL.MetricRelease obj
+  else if ⌊ op ≟ "never" ⌋ then parseNever depth obj
+  else if ⌊ op ≟ "implies" ⌋ then parseImplies depth obj
   else nothing  -- Unknown operator
 
 -- Helper to avoid pattern matching issues

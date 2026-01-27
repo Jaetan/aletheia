@@ -31,8 +31,10 @@ open import Aletheia.Trace.CANTrace using (TimedFrame)
 data SignalPredicate : Set where
   Equals      : (signalName : String) → (value : ℚ) → SignalPredicate
   LessThan    : (signalName : String) → (value : ℚ) → SignalPredicate
-  GreaterThan : (signalName : String) → (value : ℚ) → SignalPredicate
-  Between     : (signalName : String) → (min : ℚ) → (max : ℚ) → SignalPredicate
+  GreaterThan        : (signalName : String) → (value : ℚ) → SignalPredicate
+  LessThanOrEqual    : (signalName : String) → (value : ℚ) → SignalPredicate
+  GreaterThanOrEqual : (signalName : String) → (value : ℚ) → SignalPredicate
+  Between            : (signalName : String) → (min : ℚ) → (max : ℚ) → SignalPredicate
   ChangedBy   : (signalName : String) → (delta : ℚ) → SignalPredicate
 
 -- ============================================================================
@@ -88,6 +90,12 @@ evalPredicate (LessThan sigName value) dbc frame =
 
 evalPredicate (GreaterThan sigName value) dbc frame =
   compareSignal (_>ℚ value) sigName dbc frame
+
+evalPredicate (LessThanOrEqual sigName value) dbc frame =
+  compareSignal (_≤ℚ value) sigName dbc frame
+
+evalPredicate (GreaterThanOrEqual sigName value) dbc frame =
+  compareSignal (_≥ℚ value) sigName dbc frame
 
 evalPredicate (Between sigName minVal maxVal) dbc frame =
   compareSignal (λ sigVal → minVal ≤ℚ sigVal ∧ sigVal ≤ℚ maxVal) sigName dbc frame

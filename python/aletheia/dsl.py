@@ -9,30 +9,38 @@ Usage with StreamingClient:
 
     property = Signal("Speed").less_than(220).always()
     client.set_properties([property.to_dict()])
+
+Output format matches the Agda JSON schema:
+    - All formulas use "operator" key (not "type")
+    - Predicates use {"operator": "atomic", "predicate": {...}} format
+    - Time bounds use "timebound" key (not "time_ms")
+    - "never" desugars to always(not(...))
+    - "implies" desugars to or(not(antecedent), consequent)
 """
 
 from __future__ import annotations
 
 from .protocols import (
     LTLFormula,
-    CompareFormula,
-    BetweenFormula,
-    ChangedByFormula,
+    AtomicFormula,
     AndFormula,
     OrFormula,
     NotFormula,
     AlwaysFormula,
     EventuallyFormula,
-    NeverFormula,
     MetricEventuallyFormula,
     MetricAlwaysFormula,
-    ImpliesFormula,
     UntilFormula,
     ReleaseFormula,
     MetricUntilFormula,
     MetricReleaseFormula,
     NextFormula,
 )
+
+
+def _atomic(predicate: dict) -> AtomicFormula:
+    """Wrap a signal predicate in an atomic formula"""
+    return {'operator': 'atomic', 'predicate': predicate}
 
 
 class Signal:
@@ -58,12 +66,11 @@ class Signal:
         Example:
             Signal("Gear").equals(0)  # Gear is in park
         """
-        formula: CompareFormula = {
-            'type': 'compare',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'equals',
             'signal': self.name,
-            'op': 'EQ',
             'value': value
-        }
+        })
         return Predicate(formula)
 
     def less_than(self, value: float) -> 'Predicate':
@@ -78,12 +85,11 @@ class Signal:
         Example:
             Signal("Speed").less_than(220)  # Speed below 220 km/h
         """
-        formula: CompareFormula = {
-            'type': 'compare',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'lessThan',
             'signal': self.name,
-            'op': 'LT',
             'value': value
-        }
+        })
         return Predicate(formula)
 
     def greater_than(self, value: float) -> 'Predicate':
@@ -98,12 +104,11 @@ class Signal:
         Example:
             Signal("Speed").greater_than(5)  # Vehicle moving
         """
-        formula: CompareFormula = {
-            'type': 'compare',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'greaterThan',
             'signal': self.name,
-            'op': 'GT',
             'value': value
-        }
+        })
         return Predicate(formula)
 
     def less_than_or_equal(self, value: float) -> 'Predicate':
@@ -115,12 +120,11 @@ class Signal:
         Returns:
             Predicate that can be used in temporal operators
         """
-        formula: CompareFormula = {
-            'type': 'compare',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'lessThanOrEqual',
             'signal': self.name,
-            'op': 'LE',
             'value': value
-        }
+        })
         return Predicate(formula)
 
     def greater_than_or_equal(self, value: float) -> 'Predicate':
@@ -132,12 +136,11 @@ class Signal:
         Returns:
             Predicate that can be used in temporal operators
         """
-        formula: CompareFormula = {
-            'type': 'compare',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'greaterThanOrEqual',
             'signal': self.name,
-            'op': 'GE',
             'value': value
-        }
+        })
         return Predicate(formula)
 
     def between(self, min_val: float, max_val: float) -> 'Predicate':
@@ -153,18 +156,18 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
-        formula: BetweenFormula = {
-            'type': 'between',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'between',
             'signal': self.name,
             'min': min_val,
             'max': max_val
-        }
+        })
         return Predicate(formula)
 
     def changed_by(self, delta: float) -> 'Predicate':
         """Signal changed by at least delta (absolute value)
 
-        Checks |signal_now - signal_prev| ≥ |delta|
+        Checks |signal_now - signal_prev| >= |delta|
 
         Args:
             delta: Minimum change magnitude (can be negative for decrease)
@@ -175,11 +178,11 @@ class Signal:
         Example:
             Signal("Speed").changed_by(-10)  # Speed decreased by 10+
         """
-        formula: ChangedByFormula = {
-            'type': 'changed_by',
+        formula: AtomicFormula = _atomic({
+            'predicate': 'changedBy',
             'signal': self.name,
             'delta': delta
-        }
+        })
         return Predicate(formula)
 
 
@@ -212,7 +215,7 @@ class Predicate:
             Signal("Speed").less_than(220).always()
         """
         formula: AlwaysFormula = {
-            'type': 'always',
+            'operator': 'always',
             'formula': self._data
         }
         return Property(formula)
@@ -227,7 +230,7 @@ class Predicate:
             Signal("DoorClosed").equals(1).eventually()
         """
         formula: EventuallyFormula = {
-            'type': 'eventually',
+            'operator': 'eventually',
             'formula': self._data
         }
         return Property(formula)
@@ -235,15 +238,20 @@ class Predicate:
     def never(self) -> 'Property':
         """Property must never hold (always negated)
 
+        Desugars to always(not(formula)) for Agda compatibility.
+
         Returns:
             Temporal property (LTL formula)
 
         Example:
             Signal("ErrorCode").equals(0xFF).never()
         """
-        formula: NeverFormula = {
-            'type': 'never',
-            'formula': self._data
+        formula: AlwaysFormula = {
+            'operator': 'always',
+            'formula': {
+                'operator': 'not',
+                'formula': self._data
+            }
         }
         return Property(formula)
 
@@ -279,7 +287,7 @@ class Predicate:
             state_a.metric_until(100, state_b)  # Transition within 100ms
         """
         formula: NextFormula = {
-            'type': 'next',
+            'operator': 'next',
             'formula': self._data
         }
         return Property(formula)
@@ -300,8 +308,8 @@ class Predicate:
             brake_pressed.implies(speed_decreases.within(100))
         """
         formula: MetricEventuallyFormula = {
-            'type': 'metricEventually',
-            'time_ms': time_ms,
+            'operator': 'metricEventually',
+            'timebound': time_ms,
             'formula': self._data
         }
         return Property(formula)
@@ -322,8 +330,8 @@ class Predicate:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
         formula: MetricAlwaysFormula = {
-            'type': 'metricAlways',
-            'time_ms': time_ms,
+            'operator': 'metricAlways',
+            'timebound': time_ms,
             'formula': self._data
         }
         return Property(formula)
@@ -341,7 +349,7 @@ class Predicate:
             left_ok.and_(right_ok)
         """
         formula: AndFormula = {
-            'type': 'and',
+            'operator': 'and',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -360,7 +368,7 @@ class Predicate:
             error1.or_(error2)
         """
         formula: OrFormula = {
-            'type': 'or',
+            'operator': 'or',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -376,13 +384,15 @@ class Predicate:
             Signal("Enabled").equals(1).not_()
         """
         formula: NotFormula = {
-            'type': 'not',
+            'operator': 'not',
             'formula': self._data
         }
         return Predicate(formula)
 
     def implies(self, other: Property | Predicate) -> Property:
         """Logical implication: if self then other
+
+        Desugars to or(not(self), other) for Agda compatibility.
 
         Args:
             other: Consequent property or predicate
@@ -393,16 +403,18 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        # Get the formula from the other operand
         if isinstance(other, Predicate):
             other_formula = other.to_formula()
         else:
             other_formula = other.to_formula()
 
-        formula: ImpliesFormula = {
-            'type': 'implies',
-            'antecedent': self._data,
-            'consequent': other_formula
+        formula: OrFormula = {
+            'operator': 'or',
+            'left': {
+                'operator': 'not',
+                'formula': self._data
+            },
+            'right': other_formula
         }
         return Property(formula)
 
@@ -439,7 +451,7 @@ class Property:
             speed_ok.and_(voltage_ok)
         """
         formula: AndFormula = {
-            'type': 'and',
+            'operator': 'and',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -458,7 +470,7 @@ class Property:
             charging.or_(engine_running)
         """
         formula: OrFormula = {
-            'type': 'or',
+            'operator': 'or',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -466,6 +478,8 @@ class Property:
 
     def implies(self, other: Property | Predicate) -> Property:
         """Logical implication: if self then other
+
+        Desugars to or(not(self), other) for Agda compatibility.
 
         Args:
             other: Consequent property or predicate
@@ -476,16 +490,18 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        # Get the formula from the other operand
         if isinstance(other, Predicate):
             other_formula = other.to_formula()
         else:
             other_formula = other.to_formula()
 
-        formula: ImpliesFormula = {
-            'type': 'implies',
-            'antecedent': self._data,
-            'consequent': other_formula
+        formula: OrFormula = {
+            'operator': 'or',
+            'left': {
+                'operator': 'not',
+                'formula': self._data
+            },
+            'right': other_formula
         }
         return Property(formula)
 
@@ -502,7 +518,7 @@ class Property:
             power_off.implies(power_start.never().until(power_acc))
         """
         formula: UntilFormula = {
-            'type': 'until',
+            'operator': 'until',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -522,7 +538,7 @@ class Property:
             ignition_on.release(brake_engaged)
         """
         formula: ReleaseFormula = {
-            'type': 'release',
+            'operator': 'release',
             'left': self._data,
             'right': other.to_formula()
         }
@@ -546,8 +562,8 @@ class Property:
             speed_ok.metric_until(1000, brake_pressed)
         """
         formula: MetricUntilFormula = {
-            'type': 'metricUntil',
-            'time_ms': time_ms,
+            'operator': 'metricUntil',
+            'timebound': time_ms,
             'left': self._data,
             'right': other.to_formula()
         }
@@ -568,8 +584,8 @@ class Property:
             ignition_on.metric_release(5000, brake_engaged)
         """
         formula: MetricReleaseFormula = {
-            'type': 'metricRelease',
-            'time_ms': time_ms,
+            'operator': 'metricRelease',
+            'timebound': time_ms,
             'left': self._data,
             'right': other.to_formula()
         }
@@ -586,7 +602,7 @@ class Property:
             Signal("Speed").greater_than(100).eventually().always()
         """
         formula: AlwaysFormula = {
-            'type': 'always',
+            'operator': 'always',
             'formula': self._data
         }
         return Property(formula)
@@ -602,7 +618,7 @@ class Property:
             Signal("Temperature").less_than(70).always().eventually()
         """
         formula: EventuallyFormula = {
-            'type': 'eventually',
+            'operator': 'eventually',
             'formula': self._data
         }
         return Property(formula)
@@ -614,12 +630,12 @@ class Property:
             Negated property
 
         Example:
-            # G(¬F(p)) - never occurs pattern
+            # G(not F(p)) - never occurs pattern
             fault_eventually = Signal("Fault").equals(1).eventually()
             fault_eventually.not_().always()
         """
         formula: NotFormula = {
-            'type': 'not',
+            'operator': 'not',
             'formula': self._data
         }
         return Property(formula)
@@ -630,7 +646,7 @@ class Property:
         WARNING: Next is rarely useful for CAN analysis.
         See Predicate.next() docstring for warnings and better alternatives.
 
-        Use this for nested temporal operators like X(G(φ)) - "next, then always".
+        Use this for nested temporal operators like X(G(phi)) - "next, then always".
 
         Returns:
             Nested temporal property (X(nested))
@@ -640,7 +656,7 @@ class Property:
             Signal("State").equals(1).always().next()
         """
         formula: NextFormula = {
-            'type': 'next',
+            'operator': 'next',
             'formula': self._data
         }
         return Property(formula)
@@ -663,7 +679,7 @@ class Property:
 # ============================================================================
 
 def infinitely_often(formula: Property | Predicate) -> Property:
-    """G(F φ) - Property holds infinitely many times (liveness pattern)
+    """G(F phi) - Property holds infinitely many times (liveness pattern)
 
     Standard LTL pattern for liveness properties that must occur repeatedly.
     This is NOT a primitive operator, but a composition of Always and Eventually.
@@ -694,7 +710,7 @@ def infinitely_often(formula: Property | Predicate) -> Property:
 
 
 def eventually_always(formula: Property | Predicate) -> Property:
-    """F(G φ) - Property eventually holds forever (stability pattern)
+    """F(G phi) - Property eventually holds forever (stability pattern)
 
     Standard LTL pattern for stability/convergence properties.
     This is NOT a primitive operator, but a composition of Eventually and Always.
@@ -725,7 +741,7 @@ def eventually_always(formula: Property | Predicate) -> Property:
 
 
 def never(formula: Property | Predicate) -> Property:
-    """G(¬φ) - Property never holds (strongest safety property)
+    """G(not phi) - Property never holds (strongest safety property)
 
     Equivalent to always(not(formula)) but more readable.
 
