@@ -21,6 +21,7 @@ open import Data.Rational using (ℚ; _/_)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst; trans; _≢_)
 open import Relation.Nullary using (Dec; yes; no)
+open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Function using (_∘_)
 
 -- ============================================================================
@@ -210,6 +211,37 @@ parseRequest-sound (JBool _) result ()
 parseRequest-sound (JNumber _) result ()
 parseRequest-sound (JString _) result ()
 parseRequest-sound (JArray _) result ()
+
+-- ============================================================================
+-- TYPED LOOKUP LEMMAS (for roundtrip proofs)
+-- ============================================================================
+
+-- String decidable equality is reflexive (needed for dispatchOperator if-then-else)
+≟-refl : (s : String) → (⌊ s ≟ s ⌋) ≡ true
+≟-refl s with s ≟ s
+... | yes _ = refl
+... | no s≢s = ⊥-elim (s≢s refl)
+
+-- Typed lookup at head position: lookupString
+lookupString-here : (k : String) (s : String) (rest : List (String × JSON))
+  → lookupString k ((k , JString s) ∷ rest) ≡ just s
+lookupString-here k s rest
+  with lookupByKey k ((k , JString s) ∷ rest) | lookupByKey-here k (JString s) rest
+... | .(just (JString s)) | refl = refl
+
+-- Typed lookup at head position: lookupRational
+lookupRational-here : (k : String) (r : ℚ) (rest : List (String × JSON))
+  → lookupRational k ((k , JNumber r) ∷ rest) ≡ just r
+lookupRational-here k r rest
+  with lookupByKey k ((k , JNumber r) ∷ rest) | lookupByKey-here k (JNumber r) rest
+... | .(just (JNumber r)) | refl = refl
+
+-- Typed lookup at head position: lookupObject
+lookupObject-here : (k : String) (fs : List (String × JSON)) (rest : List (String × JSON))
+  → lookupObject k ((k , JObject fs) ∷ rest) ≡ just fs
+lookupObject-here k fs rest
+  with lookupByKey k ((k , JObject fs) ∷ rest) | lookupByKey-here k (JObject fs) rest
+... | .(just (JObject fs)) | refl = refl
 
 -- ============================================================================
 -- PROOF SUMMARY
