@@ -41,11 +41,6 @@ data ExtractionResult : Set where
 -- HELPER FUNCTIONS
 -- ============================================================================
 
--- Check if extraction succeeded
-isSuccess : ExtractionResult → Bool
-isSuccess (Success _) = true
-isSuccess _ = false
-
 -- Get value from successful extraction (returns Nothing on failure)
 getValue : ExtractionResult → Maybe ℚ
 getValue (Success v) = just v

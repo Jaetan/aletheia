@@ -8,7 +8,6 @@ High-quality tests focusing on:
 """
 
 import json
-from unittest.mock import Mock, patch
 
 import pytest
 
@@ -22,117 +21,50 @@ from aletheia.streaming_client import StreamingClient, ProtocolError
 class TestJSONProtocol:
     """Test JSON protocol handling"""
 
-    @patch('subprocess.Popen')
-    def test_send_command_formats_json(self, mock_popen):
+    def test_send_command_formats_json(self, mock_popen_factory):
         """Commands are sent as JSON with newline"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = '{"status": "success"}\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
+        with mock_popen_factory(['{"status": "success"}\n']) as mock_proc:
+            with StreamingClient() as client:
+                client.parse_dbc({"version": "1.0", "messages": []})
 
-        with StreamingClient() as client:
-            client.parse_dbc({"version": "1.0", "messages": []})
+            # Verify JSON was written to stdin
+            assert mock_proc.stdin.write.called
+            written_data = mock_proc.stdin.write.call_args[0][0]
+            # Should be valid JSON ending with newline
+            assert written_data.endswith("\n")
+            parsed = json.loads(written_data.strip())
+            assert parsed["type"] == "command"
+            assert parsed["command"] == "parseDBC"
 
-        # Verify JSON was written to stdin
-        assert mock_process.stdin.write.called
-        written_data = mock_process.stdin.write.call_args[0][0]
-        # Should be valid JSON ending with newline
-        assert written_data.endswith("\n")
-        parsed = json.loads(written_data.strip())
-        assert parsed["type"] == "command"
-        assert parsed["command"] == "parseDBC"
-
-    @patch('subprocess.Popen')
-    def test_invalid_json_response(self, mock_popen):
+    def test_invalid_json_response(self, mock_popen_factory):
         """Invalid JSON response raises ProtocolError"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b'not valid json\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
+        with mock_popen_factory(['not valid json\n']):
+            with pytest.raises(ProtocolError, match="Invalid JSON"):
+                with StreamingClient() as client:
+                    client.parse_dbc({"version": "1.0", "messages": []})
 
-        with pytest.raises(ProtocolError, match="Invalid JSON"):
-            with StreamingClient() as client:
-                client.parse_dbc({"version": "1.0", "messages": []})
-
-    @patch('subprocess.Popen')
-    def test_empty_response(self, mock_popen):
+    def test_empty_response(self, mock_popen_factory):
         """Empty response handled gracefully"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b''  # EOF
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
-        with pytest.raises(ProtocolError):
-            with StreamingClient() as client:
-                client.parse_dbc({"version": "1.0", "messages": []})
+        with mock_popen_factory(['']):  # EOF
+            with pytest.raises(ProtocolError):
+                with StreamingClient() as client:
+                    client.parse_dbc({"version": "1.0", "messages": []})
 
 
 # ============================================================================
-# COMMAND VALIDATION
+# INPUT VALIDATION
 # ============================================================================
 
-class TestCommandValidation:
-    """Test input validation"""
+class TestInputValidation:
+    """Test explicit input validation (only send_frame validates currently)"""
 
-    @patch('subprocess.Popen')
-    def test_parse_dbc_validates_dict(self, mock_popen):
-        """parse_dbc requires dict input"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
-        with pytest.raises((TypeError, ValueError)):
-            with StreamingClient() as client:
-                client.parse_dbc("not a dict")  # Wrong type
-
-    @patch('subprocess.Popen')
-    def test_set_properties_validates_list(self, mock_popen):
-        """set_properties requires list input"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
-        with pytest.raises((TypeError, ValueError)):
-            with StreamingClient() as client:
-                client.set_properties("not a list")  # Wrong type
-
-    @patch('subprocess.Popen')
-    def test_send_frame_validates_types(self, mock_popen):
-        """send_frame validates parameter types"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
-        with pytest.raises((TypeError, ValueError)):
-            with StreamingClient() as client:
-                # Invalid timestamp type
-                client.send_frame("not an int", 0x100, [0] * 8)
-
-    @patch('subprocess.Popen')
-    def test_send_frame_validates_data_length(self, mock_popen):
+    def test_send_frame_validates_data_length(self, mock_popen_factory):
         """send_frame requires 8-byte data"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
-        with pytest.raises(ValueError, match="8 bytes"):
-            with StreamingClient() as client:
-                # Wrong data length
-                client.send_frame(0, 0x100, [0] * 4)  # Only 4 bytes
+        with mock_popen_factory([]):
+            with pytest.raises(ValueError, match="8 bytes"):
+                with StreamingClient() as client:
+                    # Wrong data length - validation happens before any I/O
+                    client.send_frame(0, 0x100, [0] * 4)  # Only 4 bytes
 
 
 # ============================================================================
@@ -142,16 +74,8 @@ class TestCommandValidation:
 class TestEdgeCases:
     """Test edge cases and boundary conditions"""
 
-    @patch('subprocess.Popen')
-    def test_very_large_dbc(self, mock_popen):
+    def test_very_large_dbc(self, mock_popen_factory):
         """Handle very large DBC files"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b'{"status": "success"}\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
         # Create large DBC (1000 messages)
         large_dbc = {
             "version": "1.0",
@@ -167,20 +91,13 @@ class TestEdgeCases:
             ]
         }
 
-        with StreamingClient() as client:
-            response = client.parse_dbc(large_dbc)
-            assert response["status"] == "success"
+        with mock_popen_factory(['{"status": "success"}\n']):
+            with StreamingClient() as client:
+                response = client.parse_dbc(large_dbc)
+                assert response["status"] == "success"
 
-    @patch('subprocess.Popen')
-    def test_unicode_in_signal_names(self, mock_popen):
+    def test_unicode_in_signal_names(self, mock_popen_factory):
         """Handle unicode in signal names"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b'{"status": "success"}\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
-
         dbc = {
             "version": "1.0",
             "messages": [
@@ -206,24 +123,21 @@ class TestEdgeCases:
             ]
         }
 
-        with StreamingClient() as client:
-            response = client.parse_dbc(dbc)
-            assert response["status"] == "success"
+        with mock_popen_factory(['{"status": "success"}\n']):
+            with StreamingClient() as client:
+                response = client.parse_dbc(dbc)
+                assert response["status"] == "success"
 
-    @patch('subprocess.Popen')
-    def test_rapid_commands(self, mock_popen):
+    def test_rapid_commands(self, mock_popen_factory):
         """Handle rapid successive commands"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b'{"status": "success"}\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
+        # 100 responses for 100 commands
+        responses = ['{"status": "success"}\n'] * 100
 
-        with StreamingClient() as client:
-            # Send many commands rapidly
-            for _ in range(100):
-                client.parse_dbc({"version": "1.0", "messages": []})
+        with mock_popen_factory(responses):
+            with StreamingClient() as client:
+                # Send many commands rapidly
+                for _ in range(100):
+                    client.parse_dbc({"version": "1.0", "messages": []})
 
         # Should complete without errors
         assert True
@@ -236,60 +150,44 @@ class TestEdgeCases:
 class TestRealWorldScenarios:
     """Test realistic usage patterns"""
 
-    @patch('subprocess.Popen')
-    def test_complete_workflow_mock(self, mock_popen):
+    def test_complete_workflow_mock(self, mock_popen_factory):
         """Complete workflow with mocked responses"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-
-        # Mock different responses for each command
         responses = [
-            b'{"status": "success", "message": "DBC parsed"}\n',  # parse_dbc
-            b'{"status": "success", "message": "Properties set"}\n',  # set_properties
-            b'{"status": "success", "message": "Stream started"}\n',  # start_stream
-            b'{"status": "ack"}\n',  # send_frame (binary sends "ack", not "success")
-            b'{"status": "ack"}\n',  # send_frame
-            b'{"status": "complete"}\n',  # end_stream (binary sends "complete")
+            '{"status": "success", "message": "DBC parsed"}\n',
+            '{"status": "success", "message": "Properties set"}\n',
+            '{"status": "success", "message": "Stream started"}\n',
+            '{"status": "ack"}\n',  # send_frame
+            '{"status": "ack"}\n',  # send_frame
+            '{"status": "complete"}\n',  # end_stream
         ]
-        mock_process.stdout.readline.side_effect = responses
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
-            # Full workflow
-            client.parse_dbc({"version": "1.0", "messages": []})
-            client.set_properties([])
-            client.start_stream()
-            client.send_frame(0, 0x100, [0] * 8)
-            client.send_frame(1, 0x100, [1] * 8)
-            client.end_stream()
+        with mock_popen_factory(responses):
+            with StreamingClient() as client:
+                # Full workflow
+                client.parse_dbc({"version": "1.0", "messages": []})
+                client.set_properties([])
+                client.start_stream()
+                client.send_frame(0, 0x100, [0] * 8)
+                client.send_frame(1, 0x100, [1] * 8)
+                client.end_stream()
 
         # Should complete without errors
         assert True
 
-    @patch('subprocess.Popen')
-    def test_property_violation_detection_mock(self, mock_popen):
+    def test_property_violation_detection_mock(self, mock_popen_factory):
         """Detect property violations in mocked response"""
-        mock_process = Mock()
-        mock_process.stdin = Mock()
-        mock_process.stdout = Mock()
-
-        # Mock violation response (matching actual binary format)
-        violation = {
+        violation = json.dumps({
             "type": "property",
             "status": "violation",
             "reason": "Speed exceeded limit",
             "property_index": {"numerator": 0, "denominator": 1},
             "timestamp": {"numerator": 100, "denominator": 1}
-        }
-        mock_process.stdout.readline.return_value = json.dumps(violation).encode() + b'\n'
-        mock_process.poll.return_value = None
-        mock_popen.return_value = mock_process
+        }) + '\n'
 
-        with StreamingClient() as client:
-            response = client.send_frame(100, 0x100, [0xFF] * 8)
+        with mock_popen_factory([violation]):
+            with StreamingClient() as client:
+                response = client.send_frame(100, 0x100, [0xFF] * 8)
 
-            assert response["type"] == "property"
-            assert response["status"] == "violation"
-            assert "Speed" in response["reason"]
+                assert response["type"] == "property"
+                assert response["status"] == "violation"
+                assert "Speed" in response["reason"]

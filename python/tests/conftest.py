@@ -78,21 +78,33 @@ def _sample_can_frame():
 def _mock_popen_factory():
     """Factory fixture for creating mock Popen with configurable responses.
 
+    Patches aletheia.binary_client.subprocess.Popen by default (where the
+    import lives). Also patches get_binary_path to avoid filesystem checks.
+
     Usage:
         def test_something(mock_popen_factory):
-            with mock_popen_factory([b'{"status": "success"}\\n']) as mock_popen:
-                # mock_popen is the patched subprocess.Popen
+            with mock_popen_factory(['{"status": "success"}\\n']) as mock_proc:
+                # mock_proc is the mock process object
+                # mock_proc.stdin.write.call_args shows what was written
                 ...
+
+    Args (to create_mock_popen):
+        responses: List of response strings for stdout.readline()
+        patch_path: Override the patch target (default: binary_client path)
     """
     @contextmanager
-    def create_mock_popen(responses: list[bytes]):
+    def create_mock_popen(
+        responses: list[str],
+        patch_path: str = 'aletheia.binary_client.subprocess.Popen'
+    ):
         process = Mock()
         process.stdin = Mock()
         process.stdout = Mock()
+        process.stderr = Mock()
         process.stdout.readline.side_effect = responses
         process.poll.return_value = None
-        with patch('subprocess.Popen', return_value=process) as mock_popen:
-            mock_popen.mock_process = process  # Expose for additional configuration
-            yield mock_popen
+        with patch(patch_path, return_value=process):
+            with patch('aletheia.binary_utils.get_binary_path', return_value='/fake/aletheia'):
+                yield process
 
     return create_mock_popen
