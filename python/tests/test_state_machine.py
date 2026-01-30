@@ -8,11 +8,9 @@ State Machine:
     Streaming → (end_stream) → Complete
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
-from aletheia import StreamingClient, ProcessError
-from aletheia.streaming_client import ProtocolError
+from aletheia import StreamingClient
 
 
 # ============================================================================
@@ -28,38 +26,32 @@ class TestValidTransitions:
         mock_process = Mock()
         mock_process.stdin = Mock()
         mock_process.stdout = Mock()
-        responses = [
+        mock_process.stdout.readline.side_effect = [
             b'{"status": "success", "message": "DBC parsed"}\n',
             b'{"status": "success", "message": "Properties set"}\n',
             b'{"status": "success", "message": "Stream started"}\n',
             b'{"status": "ack"}\n',
             b'{"status": "complete"}\n',
         ]
-        mock_process.stdout.readline.side_effect = responses
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
         with StreamingClient() as client:
             # Transition: Initial → DBCLoaded
-            resp1 = client.parse_dbc(sample_dbc)
-            assert resp1["status"] == "success"
+            assert client.parse_dbc(sample_dbc)["status"] == "success"
 
             # Transition: DBCLoaded → PropertiesSet
-            resp2 = client.set_properties([sample_property.to_dict()])
-            assert resp2["status"] == "success"
+            assert client.set_properties([sample_property.to_dict()])["status"] == "success"
 
             # Transition: PropertiesSet → Streaming
-            resp3 = client.start_stream()
-            assert resp3["status"] == "success"
+            assert client.start_stream()["status"] == "success"
 
             # Transition: Streaming → Streaming (multiple frames allowed)
             ts, can_id, data = sample_can_frame
-            resp4 = client.send_frame(ts, can_id, data)
-            assert resp4["status"] == "ack"
+            assert client.send_frame(ts, can_id, data)["status"] == "ack"
 
             # Transition: Streaming → Complete
-            resp5 = client.end_stream()
-            assert resp5["status"] == "complete"
+            assert client.end_stream()["status"] == "complete"
 
     @patch('subprocess.Popen')
     def test_minimal_workflow(self, mock_popen, sample_dbc):
@@ -125,7 +117,7 @@ class TestInvalidTransitions:
     """Test invalid state transitions are rejected"""
 
     @patch('subprocess.Popen')
-    def test_send_frame_before_start_stream(self, mock_popen, sample_dbc, sample_can_frame):
+    def test_send_frame_before_start_stream(self, mock_popen, sample_can_frame):
         """Cannot send frame before starting stream (caught by Agda state machine)"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -279,11 +271,17 @@ class TestStateEdgeCases:
         mock_process = Mock()
         mock_process.stdin = Mock()
         mock_process.stdout = Mock()
+        violation_response = (
+            b'{"type": "property", "status": "violation", '
+            b'"reason": "Speed exceeded", '
+            b'"property_index": {"numerator": 0, "denominator": 1}, '
+            b'"timestamp": {"numerator": 1000, "denominator": 1}}\n'
+        )
         responses = [
             b'{"status": "success"}\n',  # parse_dbc
             b'{"status": "success"}\n',  # set_properties
             b'{"status": "success"}\n',  # start_stream
-            b'{"type": "property", "status": "violation", "reason": "Speed exceeded", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 1000, "denominator": 1}}\n',
+            violation_response,
             b'{"status": "complete"}\n',  # end_stream
         ]
         mock_process.stdout.readline.side_effect = responses

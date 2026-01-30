@@ -69,12 +69,12 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **38 total modules**: 35 use `--safe`, 3 coinductive without `--safe`
+† **40 total modules**: 37 use `--safe`, 3 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (38 total):
-- **33 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (40 total):
+- **35 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe` only (PrecompileStdlib.agda - stdlib cache)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **3 modules without `--safe`** (all use `--sized-types` for coinduction):
@@ -82,7 +82,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
   - Protocol/StreamState.agda: `--sized-types --without-K`
   - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (3 of 38)**:
+**Modules not using `--safe` flag (3 of 40)**:
 
 Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
@@ -120,6 +120,12 @@ cabal run shake -- build
 
 # Run Python tests
 cd python && python3 -m pytest tests/ -v
+
+# Run type checking (MUST run from python/ directory)
+cd python && basedpyright aletheia/
+
+# Run linting (MUST run from python/ directory)
+cd python && pylint aletheia/
 ```
 
 ## Architecture (Three-Layer Design)
@@ -301,7 +307,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 35 of 38 Aletheia modules
+  - Used in 37 of 40 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

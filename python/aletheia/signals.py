@@ -14,6 +14,7 @@ Classes:
 from __future__ import annotations
 
 import copy
+from types import MappingProxyType
 from typing import override, cast
 
 from .binary_client import BinaryClient
@@ -130,6 +131,16 @@ class FrameBuilder(BinaryClient):
             "dbc": dbc
         }
         _ = self._send_command(parse_cmd)
+
+    @property
+    def can_id(self) -> int:
+        """CAN message ID for this builder"""
+        return self._can_id
+
+    @property
+    def signals(self) -> MappingProxyType[str, float]:
+        """Read-only view of configured signal values"""
+        return MappingProxyType(self._signals)
 
     def _get_signals_copy(self) -> dict[str, float]:
         """Get a copy of the current signals dict

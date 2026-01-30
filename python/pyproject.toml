@@ -35,9 +35,12 @@ dev = [
 [tool.basedpyright]
 # Strict type checking for code we control
 typeCheckingMode = "strict"
-reportUnknownMemberType = "none"  # Allow unknown types from third-party libraries without stubs (cantools)
-reportUnknownArgumentType = "none"  # Allow unknown argument types from external libs (cantools)
-reportUnknownVariableType = "error"  # Require type annotations for our code
+stubPath = "stubs"
+venvPath = ".."
+venv = ".venv"
+reportUnknownMemberType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
 reportExplicitAny = "error"  # Force explicit structure definitions instead of Any
 reportPrivateUsage = "error"  # Disallow accessing private members
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation

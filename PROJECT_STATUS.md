@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-01-30
 
 ---
 
@@ -107,13 +107,16 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
    - `CAN/Encoding.agda`: injectSignal-preserves-disjoint-bits (key structural lemma)
    - `CAN/Batch/Properties.agda`: injectAll-preserves-disjoint (batch operations preserve extraction)
    - Note: Same byte order required for batch proofs; mixed byte order research in Phase 5
-4. ⏸️ DSL translation correctness proofs - NOT STARTED
+4. ✅ DSL translation correctness proofs - COMPLETE
+   - `LTL/JSON/Format.agda`: formatSignalPredicate, formatLTL, ltlDepth functions
+   - `LTL/JSON/Properties.agda`: Roundtrip and completeness proofs
+   - Proven: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just φ
 5. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
 6. ⏸️ Parser memoization - NOT STARTED
 7. ⏸️ Signal caching - NOT STARTED
 
 **Status**: In progress (started 2025-12-17)
-**Completion**: 43% (3/7 goals complete)
+**Completion**: 57% (4/7 goals complete)
 
 ---
 
@@ -153,7 +156,7 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 38
+- Agda modules: 40
 - Python modules: 8
 - Lines of code: ~5,500 Agda + ~4,500 Python
 
@@ -167,7 +170,7 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 
 **Verification**:
-- Safe modules: 35 of 38 use `--safe` (33 with `--without-K`, 2 variants)
+- Safe modules: 37 of 40 use `--safe` (35 with `--without-K`, 2 variants)
 - Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
@@ -176,15 +179,15 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 ## Next Steps
 
 **Phase 3 Remaining Goals**:
-1. ⏸️ DSL translation proofs (prove Python DSL → Agda translation preserves semantics)
-2. ⏸️ Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
-3. ⏸️ Parser memoization
-4. ⏸️ Signal caching
+1. ⏸️ Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
+2. ⏸️ Parser memoization
+3. ⏸️ Signal caching
 
 **Completed**:
 - ✅ Parser soundness proofs
 - ✅ LTL semantics proofs (bisimilarity, all operators)
 - ✅ CAN encoding proofs (batch operations, disjointness preservation)
+- ✅ DSL translation proofs (roundtrip, completeness)
 
 **Future**:
 - Phase 4: Production hardening, documentation, standard library

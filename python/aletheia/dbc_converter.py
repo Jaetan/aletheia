@@ -19,6 +19,7 @@ from .protocols import (
 
 try:
     import cantools
+    import cantools.database.can
 except ImportError as exc:
     raise ImportError(
         "cantools is required for DBC conversion. " +
@@ -102,10 +103,9 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     db = cantools.database.load_file(str(dbc_path))
 
     # Convert to JSON structure
-    # type: ignore comments below are for cantools.Database attributes (no type stubs available)
     dbc_def: DBCDefinition = {
-        "version": db.version if db.version else "1.0",  # type: ignore[attr-defined]
-        "messages": [message_to_json(msg) for msg in db.messages]  # type: ignore[attr-defined]
+        "version": db.version if db.version else "1.0",
+        "messages": [message_to_json(msg) for msg in db.messages]
     }
     return dbc_def
 

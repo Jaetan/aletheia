@@ -35,10 +35,11 @@ from .protocols import (
     MetricUntilFormula,
     MetricReleaseFormula,
     NextFormula,
+    SignalPredicate,
 )
 
 
-def _atomic(predicate: dict) -> AtomicFormula:
+def _atomic(predicate: SignalPredicate) -> AtomicFormula:
     """Wrap a signal predicate in an atomic formula"""
     return {'operator': 'atomic', 'predicate': predicate}
 

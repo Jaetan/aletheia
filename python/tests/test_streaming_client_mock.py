@@ -7,11 +7,12 @@ High-quality tests focusing on:
 - Real-world usage scenarios
 """
 
-import pytest
 import json
 from unittest.mock import Mock, patch
 
-from aletheia.streaming_client import StreamingClient, AletheiaError, ProtocolError
+import pytest
+
+from aletheia.streaming_client import StreamingClient, ProtocolError
 
 
 # ============================================================================
@@ -27,28 +28,21 @@ class TestJSONProtocol:
         mock_process = Mock()
         mock_process.stdin = Mock()
         mock_process.stdout = Mock()
-        mock_process.stdout.readline.return_value = b'{"status": "success"}\n'
+        mock_process.stdout.readline.return_value = '{"status": "success"}\n'
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
         with StreamingClient() as client:
-            # Mock the internal method to check JSON format
-            original_send = client._send_command
-            sent_data = []
-
-            def capture_send(cmd):
-                # Capture what would be sent
-                json_str = json.dumps(cmd)
-                sent_data.append(json_str)
-                return original_send(cmd)
-
-            client._send_command = capture_send
             client.parse_dbc({"version": "1.0", "messages": []})
 
-            # Check JSON was formatted
-            assert len(sent_data) > 0
-            parsed = json.loads(sent_data[0])
-            assert "type" in parsed
+        # Verify JSON was written to stdin
+        assert mock_process.stdin.write.called
+        written_data = mock_process.stdin.write.call_args[0][0]
+        # Should be valid JSON ending with newline
+        assert written_data.endswith("\n")
+        parsed = json.loads(written_data.strip())
+        assert parsed["type"] == "command"
+        assert parsed["command"] == "parseDBC"
 
     @patch('subprocess.Popen')
     def test_invalid_json_response(self, mock_popen):
@@ -228,7 +222,7 @@ class TestEdgeCases:
 
         with StreamingClient() as client:
             # Send many commands rapidly
-            for i in range(100):
+            for _ in range(100):
                 client.parse_dbc({"version": "1.0", "messages": []})
 
         # Should complete without errors

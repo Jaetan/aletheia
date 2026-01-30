@@ -8,11 +8,12 @@ Tests cover:
 - Error handling: Invalid inputs, missing files
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
+import pytest
 
 from aletheia.dbc_converter import (
     signal_to_json,
@@ -51,7 +52,7 @@ class TestSignalConversion:
         assert result["startBit"] == 0
         assert result["length"] == 16
         assert result["byteOrder"] == "little_endian"
-        assert result["signed"] == False
+        assert result["signed"] is False
         assert result["factor"] == 0.01
         assert result["offset"] == 0
         assert result["minimum"] == 0
@@ -95,7 +96,7 @@ class TestSignalConversion:
 
         result = signal_to_json(signal)
 
-        assert result["signed"] == True
+        assert result["signed"] is True
         assert result["offset"] == -40
 
     def test_signal_without_unit(self):
@@ -254,7 +255,7 @@ class TestMessageConversion:
         result = message_to_json(message)
 
         assert result["id"] == 0x1FFFFFFF
-        assert result["extended"] == True
+        assert result["extended"] is True
 
     def test_message_no_sender(self):
         """Message without sender"""
@@ -475,7 +476,7 @@ class TestFileIO:
             assert output_file.exists()
 
             # Check file contents
-            file_data = json.loads(output_file.read_text())
+            file_data = json.loads(output_file.read_text(encoding="utf-8"))
             assert file_data["version"] == "1.0"
         finally:
             Path(output_path).unlink(missing_ok=True)
@@ -589,7 +590,7 @@ class TestIntegrationStyle:
         assert sig["startBit"] == 0
         assert sig["length"] == 16
         assert sig["byteOrder"] == "little_endian"
-        assert sig["signed"] == False
+        assert sig["signed"] is False
         assert sig["factor"] == 0.01
         assert sig["offset"] == 0
         assert sig["minimum"] == 0
@@ -625,4 +626,4 @@ class TestIntegrationStyle:
 
         assert len(result["messages"]) == 2
         assert "extended" not in result["messages"][0]
-        assert result["messages"][1]["extended"] == True
+        assert result["messages"][1]["extended"] is True

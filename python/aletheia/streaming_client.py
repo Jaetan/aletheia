@@ -116,10 +116,10 @@ class StreamingClient(BinaryClient):
         super().__init__(shutdown_timeout=shutdown_timeout)
 
     @override
-    def __enter__(self):
+    def __enter__(self) -> "StreamingClient":
         """Start the subprocess when entering context"""
         self._start_subprocess()
-        return super().__enter__()
+        return self
 
     @override
     def _send_command(self, command: Command) -> Response:

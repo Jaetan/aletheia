@@ -13,7 +13,7 @@ Centralizes:
 import json
 import subprocess
 from pathlib import Path
-from typing import cast
+from typing import Self, cast
 
 from .binary_utils import get_binary_path
 from .protocols import Command, Response
@@ -66,7 +66,7 @@ class BinaryClient:
             bufsize=1  # Line buffered
         )
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         """Context manager entry"""
         return self
 

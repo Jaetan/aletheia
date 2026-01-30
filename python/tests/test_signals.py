@@ -8,13 +8,15 @@ Note: These are unit tests that mock subprocess communication.
 Integration tests with the actual binary are in test_integration.py.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, mock_open
+
 from aletheia import FrameBuilder, SignalExtractor, SignalExtractionResult
 
 
-@pytest.fixture
-def mock_subprocess():
+@pytest.fixture(name="mock_subprocess")
+def _mock_subprocess():
     """Mock subprocess.Popen for FrameBuilder/SignalExtractor"""
     with patch('aletheia.binary_client.subprocess.Popen') as mock_popen:
         # Create mock process
@@ -31,8 +33,8 @@ def mock_subprocess():
         yield mock_proc
 
 
-@pytest.fixture
-def mock_binary_path():
+@pytest.fixture(name="mock_binary_path")
+def _mock_binary_path():
     """Mock binary path check"""
     with patch('aletheia.binary_utils.get_binary_path') as mock_path:
         mock_path.return_value = '/fake/path/to/aletheia'
@@ -142,11 +144,12 @@ class TestSignalExtractionResult:
         assert "absent=3" in repr_str
 
 
+@pytest.mark.usefixtures("mock_subprocess", "mock_binary_path")
 class TestFrameBuilder:
     """Tests for FrameBuilder class"""
 
-    @pytest.fixture
-    def sample_dbc(self):
+    @pytest.fixture(name="sample_dbc")
+    def _sample_dbc(self):
         """Sample DBC definition"""
         return {
             "version": "1.0",
@@ -188,55 +191,54 @@ class TestFrameBuilder:
             ]
         }
 
-    def test_init(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_init(self, sample_dbc):
         """Test FrameBuilder initialization"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
-            assert builder._can_id == 0x100
-            assert builder._dbc == sample_dbc
-            assert builder._signals == {}
+            assert builder.can_id == 0x100
+            assert builder.signals == {}
 
-    def test_set_single_signal(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_set_single_signal(self, sample_dbc):
         """Test setting a single signal"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
             new_builder = builder.set("EngineSpeed", 2000.0)
 
             # Original builder unchanged (immutable)
-            assert builder._signals == {}
+            assert builder.signals == {}
 
             # New builder has signal
-            assert new_builder._signals == {"EngineSpeed": 2000.0}
+            assert new_builder.signals == {"EngineSpeed": 2000.0}
 
-    def test_set_multiple_signals_chained(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_set_multiple_signals_chained(self, sample_dbc):
         """Test chaining multiple set() calls"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
             final_builder = (builder
                 .set("EngineSpeed", 2000.0)
                 .set("EngineTemp", 90.0))
 
-            assert final_builder._signals["EngineSpeed"] == 2000.0
-            assert final_builder._signals["EngineTemp"] == 90.0
-            assert len(final_builder._signals) == 2
+            assert final_builder.signals["EngineSpeed"] == 2000.0
+            assert final_builder.signals["EngineTemp"] == 90.0
+            assert len(final_builder.signals) == 2
 
-    def test_immutability(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_immutability(self, sample_dbc):
         """Test that set() doesn't modify original builder"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder1:
             builder2 = builder1.set("EngineSpeed", 2000.0)
             builder3 = builder2.set("EngineTemp", 90.0)
 
             # Each builder is independent
-            assert len(builder1._signals) == 0
-            assert len(builder2._signals) == 1
-            assert len(builder3._signals) == 2
+            assert len(builder1.signals) == 0
+            assert len(builder2.signals) == 1
+            assert len(builder3.signals) == 2
 
-    def test_set_overwrites_value(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_set_overwrites_value(self, sample_dbc):
         """Test that set() on same signal overwrites value"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
             builder = builder.set("EngineSpeed", 2000.0)
             builder = builder.set("EngineSpeed", 2500.0)
 
-            assert builder._signals["EngineSpeed"] == 2500.0
+            assert builder.signals["EngineSpeed"] == 2500.0
 
-    def test_build(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_build(self, sample_dbc, mock_subprocess):
         """Test that build() calls Agda binary and returns frame"""
         # Mock buildFrame response (using decimal, not hex - JSON doesn't support hex)
         mock_subprocess.stdout.readline.side_effect = [
@@ -250,7 +252,7 @@ class TestFrameBuilder:
 
             assert frame == [64, 31, 130, 90, 0, 0, 0, 0]
 
-    def test_repr(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_repr(self, sample_dbc):
         """Test string representation"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
             builder = (builder
@@ -263,11 +265,12 @@ class TestFrameBuilder:
             assert "EngineTemp" in repr_str
 
 
+@pytest.mark.usefixtures("mock_subprocess", "mock_binary_path")
 class TestSignalExtractor:
     """Tests for SignalExtractor class"""
 
-    @pytest.fixture
-    def sample_dbc(self):
+    @pytest.fixture(name="sample_dbc")
+    def _sample_dbc(self):
         """Sample DBC definition"""
         return {
             "version": "1.0",
@@ -284,12 +287,13 @@ class TestSignalExtractor:
             ]
         }
 
-    def test_init(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_init(self, sample_dbc):
         """Test SignalExtractor initialization"""
         with SignalExtractor(dbc=sample_dbc) as extractor:
-            assert extractor._dbc == sample_dbc
+            # Extractor is ready to use (DBC loaded during init)
+            assert repr(extractor) == "SignalExtractor(dbc=loaded)"
 
-    def test_extract_validates_frame_length(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_extract_validates_frame_length(self, sample_dbc):
         """Test extract() rejects non-8-byte frames"""
         with SignalExtractor(dbc=sample_dbc) as extractor:
             with pytest.raises(ValueError, match="must be 8 bytes"):
@@ -298,7 +302,7 @@ class TestSignalExtractor:
             with pytest.raises(ValueError, match="must be 8 bytes"):
                 extractor.extract(can_id=0x100, data=[0] * 10)
 
-    def test_extract(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_extract(self, sample_dbc, mock_subprocess):
         """Test extract() calls Agda binary and returns SignalExtractionResult"""
         # Mock extractAllSignals response
         mock_subprocess.stdout.readline.side_effect = [
@@ -313,7 +317,7 @@ class TestSignalExtractor:
             assert result.errors == {}
             assert result.absent == []
 
-    def test_update_validates_frame_length(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_update_validates_frame_length(self, sample_dbc):
         """Test update() rejects non-8-byte frames"""
         with SignalExtractor(dbc=sample_dbc) as extractor:
             with pytest.raises(ValueError, match="must be 8 bytes"):
@@ -323,7 +327,7 @@ class TestSignalExtractor:
                     signals={"Speed": 100.0}
                 )
 
-    def test_update(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_update(self, sample_dbc, mock_subprocess):
         """Test update() calls Agda binary and returns updated frame"""
         # Mock updateFrame response (using decimal, not hex - JSON doesn't support hex)
         mock_subprocess.stdout.readline.side_effect = [
@@ -340,7 +344,7 @@ class TestSignalExtractor:
 
             assert updated_frame == [100, 0, 0, 0, 0, 0, 0, 0]
 
-    def test_repr(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_repr(self, sample_dbc):
         """Test string representation"""
         with SignalExtractor(dbc=sample_dbc) as extractor:
             repr_str = repr(extractor)
@@ -348,11 +352,12 @@ class TestSignalExtractor:
             assert "dbc=loaded" in repr_str
 
 
+@pytest.mark.usefixtures("mock_subprocess", "mock_binary_path")
 class TestAPIUsagePatterns:
     """Integration-style tests for API usage patterns"""
 
-    @pytest.fixture
-    def sample_dbc(self):
+    @pytest.fixture(name="sample_dbc")
+    def _sample_dbc(self):
         """Sample DBC definition"""
         return {
             "version": "1.0",
@@ -390,7 +395,7 @@ class TestAPIUsagePatterns:
         assert speed == 120.5
         assert gear == 1.0  # Used default
 
-    def test_builder_fluent_interface(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_builder_fluent_interface(self, sample_dbc):
         """Test fluent interface pattern"""
         # This pattern should be ergonomic and readable
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as builder:
@@ -399,10 +404,10 @@ class TestAPIUsagePatterns:
                 .set("Temp", 85.0)
                 .set("Pressure", 100.0))
 
-            assert len(builder._signals) == 3
-            assert builder._signals["Speed"] == 120.0
+            assert len(builder.signals) == 3
+            assert builder.signals["Speed"] == 120.0
 
-    def test_builder_reuse(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_builder_reuse(self, sample_dbc):
         """Test reusing a builder for similar frames"""
         with FrameBuilder(can_id=0x100, dbc=sample_dbc) as base_builder:
             # Create multiple frames with same base but different values
@@ -410,10 +415,10 @@ class TestAPIUsagePatterns:
             frame2_builder = base_builder.set("Speed", 120.0).set("Temp", 90.0)
 
             # Builders are independent
-            assert frame1_builder._signals["Speed"] == 100.0
-            assert frame2_builder._signals["Speed"] == 120.0
+            assert frame1_builder.signals["Speed"] == 100.0
+            assert frame2_builder.signals["Speed"] == 120.0
 
-    def test_separation_of_concerns(self, sample_dbc, mock_subprocess, mock_binary_path):
+    def test_separation_of_concerns(self, sample_dbc):
         """Test that signals module is independent from streaming"""
         # Can create signal tools without StreamingClient
         with SignalExtractor(dbc=sample_dbc) as extractor:
@@ -423,6 +428,7 @@ class TestAPIUsagePatterns:
                 assert builder is not None
 
 
+@pytest.mark.usefixtures("mock_subprocess", "mock_binary_path")
 class TestEdgeCases:
     """Tests for edge cases and error conditions"""
 
@@ -439,17 +445,17 @@ class TestEdgeCases:
         assert len(result.absent) == 3
         assert result.has_errors()
 
-    def test_builder_with_zero_signals(self, mock_subprocess, mock_binary_path):
+    def test_builder_with_zero_signals(self):
         """Test builder with no signals set"""
         with FrameBuilder(can_id=0x100, dbc={}) as builder:
-            assert len(builder._signals) == 0
+            assert len(builder.signals) == 0
 
-    def test_builder_with_floating_point_precision(self, mock_subprocess, mock_binary_path):
+    def test_builder_with_floating_point_precision(self):
         """Test builder handles floating point values correctly"""
         with FrameBuilder(can_id=0x100, dbc={}) as builder:
             builder = builder.set("Signal", 123.456789)
 
-            assert builder._signals["Signal"] == 123.456789
+            assert builder.signals["Signal"] == 123.456789
 
     def test_extraction_result_empty_strings(self):
         """Test extraction result with empty signal names (invalid but should handle)"""
@@ -460,16 +466,16 @@ class TestEdgeCases:
         )
         assert result.get("", default=1.0) == 0.0
 
-    def test_builder_special_can_ids(self, mock_subprocess, mock_binary_path):
+    def test_builder_special_can_ids(self):
         """Test builder with various CAN ID values"""
         # Standard 11-bit ID
         with FrameBuilder(can_id=0x7FF, dbc={}) as builder1:
-            assert builder1._can_id == 0x7FF
+            assert builder1.can_id == 0x7FF
 
         # Extended 29-bit ID
         with FrameBuilder(can_id=0x1FFFFFFF, dbc={}) as builder2:
-            assert builder2._can_id == 0x1FFFFFFF
+            assert builder2.can_id == 0x1FFFFFFF
 
         # Zero ID (valid)
         with FrameBuilder(can_id=0x000, dbc={}) as builder3:
-            assert builder3._can_id == 0x000
+            assert builder3.can_id == 0x000
