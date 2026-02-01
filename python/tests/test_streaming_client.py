@@ -1,11 +1,15 @@
 """Integration tests for Phase 2B JSON streaming client"""
 
+from typing import cast
+
 import pytest
+
+from aletheia.protocols import AlwaysFormula, DBCDefinition, ErrorResponse
 from aletheia.streaming_client import StreamingClient
 
 
 # Sample minimal DBC for testing (JSON format for streaming protocol)
-MINIMAL_DBC = {
+MINIMAL_DBC: DBCDefinition = {
     "version": "1.0",
     "messages": [
         {
@@ -33,19 +37,19 @@ MINIMAL_DBC = {
 }
 
 
-def test_parse_dbc():
+def test_parse_dbc() -> None:
     """Test parsing DBC file"""
     with StreamingClient() as client:
         response = client.parse_dbc(MINIMAL_DBC)
         assert response["status"] == "success"
-        assert "DBC parsed" in response["message"]
+        assert "DBC parsed" in response.get("message", "")
 
 
-def test_full_streaming_workflow():
+def test_full_streaming_workflow() -> None:
     """Test complete streaming workflow: ParseDBC → SetProperties → StartStream → DataFrame → EndStream"""
 
     # Simple LTL property: Speed signal must always be less than 200
-    property_json = {
+    property_json: AlwaysFormula = {
         "operator": "always",
         "formula": {
             "operator": "atomic",
@@ -88,11 +92,11 @@ def test_full_streaming_workflow():
         assert response["status"] == "complete"
 
 
-def test_property_violation():
+def test_property_violation() -> None:
     """Test that property violations are detected"""
 
     # Property: Speed must always be less than 100
-    property_json = {
+    property_json: AlwaysFormula = {
         "operator": "always",
         "formula": {
             "operator": "atomic",
@@ -131,24 +135,26 @@ def test_property_violation():
             assert prop_idx == 0  # Plain integer format
 
 
-def test_state_machine_error_dataframe_before_start():
+def test_state_machine_error_dataframe_before_start() -> None:
     """Test that sending DataFrame before StartStream returns error"""
     with StreamingClient() as client:
         client.parse_dbc(MINIMAL_DBC)
         client.set_properties([])
 
         # Try to send frame without calling start_stream()
-        response = client.send_frame(
+        raw_response = client.send_frame(
             timestamp=1000,
             can_id=0x100,  # 256 decimal
             data=[0, 0, 0, 0, 0, 0, 0, 0]
         )
+        # Cast to ErrorResponse since we expect an error here
+        response = cast(ErrorResponse, raw_response)
 
         assert response["status"] == "error"
         assert "StartStream" in response["message"]
 
 
-def test_invalid_frame_data():
+def test_invalid_frame_data() -> None:
     """Test that invalid frame data (not 8 bytes) raises ValueError"""
     with StreamingClient() as client:
         with pytest.raises(ValueError, match="exactly 8 bytes"):

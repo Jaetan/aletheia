@@ -8,9 +8,23 @@ Note: These are unit tests that mock subprocess communication.
 Integration tests with the actual binary are in test_integration.py.
 """
 
+# DBC fixtures share required JSON structure (version, messages, id, name, dlc)
+# pylint: disable=duplicate-code
+
 import pytest
 
 from aletheia import FrameBuilder, SignalExtractor, SignalExtractionResult
+from aletheia.protocols import DBCDefinition
+from tests.conftest import MockPopenFactory
+
+# Fixtures are collected by pytest via the @pytest.fixture decorator.
+__all__ = ["_engine_dbc", "_minimal_dbc", "_empty_dbc"]
+
+
+@pytest.fixture(name="empty_dbc")
+def _empty_dbc() -> DBCDefinition:
+    """Empty DBC with no messages, for edge case testing."""
+    return {"version": "1.0", "messages": []}
 
 
 # ============================================================================
@@ -18,7 +32,7 @@ from aletheia import FrameBuilder, SignalExtractor, SignalExtractionResult
 # ============================================================================
 
 @pytest.fixture(name="engine_dbc")
-def _engine_dbc():
+def _engine_dbc() -> DBCDefinition:
     """Automotive DBC with full signal specifications.
 
     This fixture includes factor, offset, unit, and range fields that are
@@ -67,11 +81,10 @@ def _engine_dbc():
 
 
 @pytest.fixture(name="minimal_dbc")
-def _minimal_dbc():
+def _minimal_dbc() -> DBCDefinition:
     """Minimal DBC with basic signal definitions.
 
-    Use this for tests that don't need full signal specifications.
-    Signals only have name, startBit, and length.
+    All fields are present as required by the protocol, but with simple default values.
     """
     return {
         "version": "1.0",
@@ -80,10 +93,47 @@ def _minimal_dbc():
                 "id": 0x100,
                 "name": "TestMessage",
                 "dlc": 8,
+                "sender": "TestECU",
                 "signals": [
-                    {"name": "Speed", "startBit": 0, "length": 16},
-                    {"name": "Temp", "startBit": 16, "length": 8},
-                    {"name": "Pressure", "startBit": 24, "length": 8}
+                    {
+                        "name": "Speed",
+                        "startBit": 0,
+                        "length": 16,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 65535.0,
+                        "unit": "",
+                        "presence": "always"
+                    },
+                    {
+                        "name": "Temp",
+                        "startBit": 16,
+                        "length": 8,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 255.0,
+                        "unit": "",
+                        "presence": "always"
+                    },
+                    {
+                        "name": "Pressure",
+                        "startBit": 24,
+                        "length": 8,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 255.0,
+                        "unit": "",
+                        "presence": "always"
+                    }
                 ]
             }
         ]
@@ -196,14 +246,18 @@ class TestSignalExtractionResult:
 class TestFrameBuilder:
     """Tests for FrameBuilder class"""
 
-    def test_init(self, engine_dbc, mock_popen_factory):
+    def test_init(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test FrameBuilder initialization"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder:
                 assert builder.can_id == 0x100
                 assert builder.signals == {}
 
-    def test_set_single_signal(self, engine_dbc, mock_popen_factory):
+    def test_set_single_signal(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test setting a single signal"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder:
@@ -215,7 +269,9 @@ class TestFrameBuilder:
                 # New builder has signal
                 assert new_builder.signals == {"EngineSpeed": 2000.0}
 
-    def test_set_multiple_signals_chained(self, engine_dbc, mock_popen_factory):
+    def test_set_multiple_signals_chained(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test chaining multiple set() calls"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder:
@@ -227,7 +283,9 @@ class TestFrameBuilder:
                 assert final_builder.signals["EngineTemp"] == 90.0
                 assert len(final_builder.signals) == 2
 
-    def test_immutability(self, engine_dbc, mock_popen_factory):
+    def test_immutability(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test that set() doesn't modify original builder"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder1:
@@ -239,7 +297,9 @@ class TestFrameBuilder:
                 assert len(builder2.signals) == 1
                 assert len(builder3.signals) == 2
 
-    def test_set_overwrites_value(self, engine_dbc, mock_popen_factory):
+    def test_set_overwrites_value(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test that set() on same signal overwrites value"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder:
@@ -248,7 +308,9 @@ class TestFrameBuilder:
 
                 assert builder.signals["EngineSpeed"] == 2500.0
 
-    def test_build(self, engine_dbc, mock_popen_factory):
+    def test_build(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test that build() calls Agda binary and returns frame"""
         responses = [
             '{"status":"success","message":"DBC parsed"}\n',
@@ -261,7 +323,9 @@ class TestFrameBuilder:
 
                 assert frame == [64, 31, 130, 90, 0, 0, 0, 0]
 
-    def test_repr(self, engine_dbc, mock_popen_factory):
+    def test_repr(
+        self, engine_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test string representation"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=engine_dbc) as builder:
@@ -278,14 +342,18 @@ class TestFrameBuilder:
 class TestSignalExtractor:
     """Tests for SignalExtractor class"""
 
-    def test_init(self, minimal_dbc, mock_popen_factory):
+    def test_init(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test SignalExtractor initialization"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with SignalExtractor(dbc=minimal_dbc) as extractor:
                 # Extractor is ready to use (DBC loaded during init)
                 assert repr(extractor) == "SignalExtractor(dbc=loaded)"
 
-    def test_extract_validates_frame_length(self, minimal_dbc, mock_popen_factory):
+    def test_extract_validates_frame_length(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test extract() rejects non-8-byte frames"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with SignalExtractor(dbc=minimal_dbc) as extractor:
@@ -295,7 +363,9 @@ class TestSignalExtractor:
                 with pytest.raises(ValueError, match="must be 8 bytes"):
                     extractor.extract(can_id=0x100, data=[0] * 10)
 
-    def test_extract(self, minimal_dbc, mock_popen_factory):
+    def test_extract(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test extract() calls Agda binary and returns SignalExtractionResult"""
         responses = [
             '{"status":"success","message":"DBC parsed"}\n',
@@ -309,7 +379,9 @@ class TestSignalExtractor:
                 assert result.errors == {}
                 assert result.absent == []
 
-    def test_update_validates_frame_length(self, minimal_dbc, mock_popen_factory):
+    def test_update_validates_frame_length(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test update() rejects non-8-byte frames"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with SignalExtractor(dbc=minimal_dbc) as extractor:
@@ -320,7 +392,9 @@ class TestSignalExtractor:
                         signals={"Speed": 100.0}
                     )
 
-    def test_update(self, minimal_dbc, mock_popen_factory):
+    def test_update(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test update() calls Agda binary and returns updated frame"""
         responses = [
             '{"status":"success","message":"DBC parsed"}\n',
@@ -336,7 +410,9 @@ class TestSignalExtractor:
 
                 assert updated_frame == [100, 0, 0, 0, 0, 0, 0, 0]
 
-    def test_repr(self, minimal_dbc, mock_popen_factory):
+    def test_repr(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test string representation"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with SignalExtractor(dbc=minimal_dbc) as extractor:
@@ -348,7 +424,7 @@ class TestSignalExtractor:
 class TestAPIUsagePatterns:
     """Integration-style tests for API usage patterns"""
 
-    def test_extraction_result_workflow(self):
+    def test_extraction_result_workflow(self) -> None:
         """Test typical workflow with extraction results"""
         # Simulate extraction results
         result = SignalExtractionResult(
@@ -368,7 +444,9 @@ class TestAPIUsagePatterns:
         assert speed == 120.5
         assert gear == 1.0  # Used default
 
-    def test_builder_fluent_interface(self, minimal_dbc, mock_popen_factory):
+    def test_builder_fluent_interface(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test fluent interface pattern"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=minimal_dbc) as builder:
@@ -380,7 +458,9 @@ class TestAPIUsagePatterns:
                 assert len(builder.signals) == 3
                 assert builder.signals["Speed"] == 120.0
 
-    def test_builder_reuse(self, minimal_dbc, mock_popen_factory):
+    def test_builder_reuse(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test reusing a builder for similar frames"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
             with FrameBuilder(can_id=0x100, dbc=minimal_dbc) as base_builder:
@@ -392,7 +472,9 @@ class TestAPIUsagePatterns:
                 assert frame1_builder.signals["Speed"] == 100.0
                 assert frame2_builder.signals["Speed"] == 120.0
 
-    def test_separation_of_concerns(self, minimal_dbc, mock_popen_factory):
+    def test_separation_of_concerns(
+        self, minimal_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test that signals module is independent from streaming"""
         # Need two responses: one for extractor, one for builder
         responses = [
@@ -410,7 +492,7 @@ class TestAPIUsagePatterns:
 class TestEdgeCases:
     """Tests for edge cases and error conditions"""
 
-    def test_extraction_result_with_mixed_states(self):
+    def test_extraction_result_with_mixed_states(self) -> None:
         """Test extraction result with all three categories"""
         result = SignalExtractionResult(
             values={"A": 1.0, "B": 2.0},
@@ -423,21 +505,25 @@ class TestEdgeCases:
         assert len(result.absent) == 3
         assert result.has_errors()
 
-    def test_builder_with_zero_signals(self, mock_popen_factory):
+    def test_builder_with_zero_signals(
+        self, empty_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test builder with no signals set"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
-            with FrameBuilder(can_id=0x100, dbc={}) as builder:
+            with FrameBuilder(can_id=0x100, dbc=empty_dbc) as builder:
                 assert len(builder.signals) == 0
 
-    def test_builder_with_floating_point_precision(self, mock_popen_factory):
+    def test_builder_with_floating_point_precision(
+        self, empty_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test builder handles floating point values correctly"""
         with mock_popen_factory(['{"status":"success","message":"DBC parsed"}\n']):
-            with FrameBuilder(can_id=0x100, dbc={}) as builder:
+            with FrameBuilder(can_id=0x100, dbc=empty_dbc) as builder:
                 builder = builder.set("Signal", 123.456789)
 
                 assert builder.signals["Signal"] == 123.456789
 
-    def test_extraction_result_empty_strings(self):
+    def test_extraction_result_empty_strings(self) -> None:
         """Test extraction result with empty signal names (invalid but should handle)"""
         result = SignalExtractionResult(
             values={"": 0.0},
@@ -446,7 +532,9 @@ class TestEdgeCases:
         )
         assert result.get("", default=1.0) == 0.0
 
-    def test_builder_special_can_ids(self, mock_popen_factory):
+    def test_builder_special_can_ids(
+        self, empty_dbc: DBCDefinition, mock_popen_factory: MockPopenFactory
+    ) -> None:
         """Test builder with various CAN ID values"""
         # Need 3 responses for 3 builders
         responses = [
@@ -456,13 +544,13 @@ class TestEdgeCases:
         ]
         with mock_popen_factory(responses):
             # Standard 11-bit ID
-            with FrameBuilder(can_id=0x7FF, dbc={}) as builder1:
+            with FrameBuilder(can_id=0x7FF, dbc=empty_dbc) as builder1:
                 assert builder1.can_id == 0x7FF
 
             # Extended 29-bit ID
-            with FrameBuilder(can_id=0x1FFFFFFF, dbc={}) as builder2:
+            with FrameBuilder(can_id=0x1FFFFFFF, dbc=empty_dbc) as builder2:
                 assert builder2.can_id == 0x1FFFFFFF
 
             # Zero ID (valid)
-            with FrameBuilder(can_id=0x000, dbc={}) as builder3:
+            with FrameBuilder(can_id=0x000, dbc=empty_dbc) as builder3:
                 assert builder3.can_id == 0x000

@@ -4,16 +4,40 @@ Provides common setup and mock configurations to eliminate duplication
 across test files.
 """
 
-from contextlib import contextmanager
+from collections.abc import Callable, Generator
+from contextlib import contextmanager, AbstractContextManager
+from dataclasses import dataclass
 from unittest.mock import Mock, patch
 
 import pytest
 
 from aletheia import Signal, StreamingClient
+from aletheia.dsl import Property
+from aletheia.protocols import DBCDefinition
+
+
+@dataclass(frozen=True)
+class CANFrame:
+    """CAN frame test data with named fields for clarity."""
+    timestamp: int
+    can_id: int
+    data: list[int]
+
+# Fixtures are collected by pytest via the @pytest.fixture decorator.
+# Exporting them signals they are part of this module's public API.
+__all__ = [
+    "CANFrame",
+    "_mock_process",
+    "_mock_streaming_client",
+    "_sample_dbc",
+    "_sample_property",
+    "_sample_can_frame",
+    "_mock_popen_factory",
+]
 
 
 @pytest.fixture(name="mock_process")
-def _mock_process():
+def _mock_process() -> Mock:
     """Mock subprocess.Popen process with standard success response"""
     process = Mock()
     process.stdin = Mock()
@@ -24,7 +48,7 @@ def _mock_process():
 
 
 @pytest.fixture(name="mock_streaming_client")
-def _mock_streaming_client(mock_process):
+def _mock_streaming_client(mock_process: Mock) -> Generator[StreamingClient, None, None]:
     """Mock StreamingClient with subprocess patched"""
     with patch('subprocess.Popen', return_value=mock_process):
         with StreamingClient() as client:
@@ -32,7 +56,7 @@ def _mock_streaming_client(mock_process):
 
 
 @pytest.fixture(name="sample_dbc")
-def _sample_dbc():
+def _sample_dbc() -> DBCDefinition:
     """Sample DBC JSON structure for testing"""
     return {
         "version": "1.0",
@@ -63,19 +87,27 @@ def _sample_dbc():
 
 
 @pytest.fixture(name="sample_property")
-def _sample_property():
+def _sample_property() -> Property:
     """Sample LTL property for testing"""
     return Signal("Speed").less_than(220).always()
 
 
 @pytest.fixture(name="sample_can_frame")
-def _sample_can_frame():
-    """Sample CAN frame data (timestamp, id, data)"""
-    return (1000, 0x100, [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
+def _sample_can_frame() -> CANFrame:
+    """Sample CAN frame data for testing"""
+    return CANFrame(
+        timestamp=1000,
+        can_id=0x100,
+        data=[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
+    )
+
+
+# Type alias for the mock factory callable
+MockPopenFactory = Callable[[list[str]], AbstractContextManager[Mock]]
 
 
 @pytest.fixture(name="mock_popen_factory")
-def _mock_popen_factory():
+def _mock_popen_factory() -> MockPopenFactory:
     """Factory fixture for creating mock Popen with configurable responses.
 
     Patches aletheia.binary_client.subprocess.Popen by default (where the
@@ -96,7 +128,7 @@ def _mock_popen_factory():
     def create_mock_popen(
         responses: list[str],
         patch_path: str = 'aletheia.binary_client.subprocess.Popen'
-    ):
+    ) -> Generator[Mock, None, None]:
         process = Mock()
         process.stdin = Mock()
         process.stdout = Mock()

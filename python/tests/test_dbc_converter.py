@@ -11,6 +11,7 @@ Tests cover:
 import json
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,6 +22,7 @@ from aletheia.dbc_converter import (
     dbc_to_json,
     convert_dbc_file
 )
+from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
 
 
 # ============================================================================
@@ -30,7 +32,7 @@ from aletheia.dbc_converter import (
 class TestSignalConversion:
     """Test signal_to_json function"""
 
-    def test_basic_signal(self):
+    def test_basic_signal(self) -> None:
         """Basic signal converts correctly"""
         signal = Mock()
         signal.name = "Speed"
@@ -46,7 +48,9 @@ class TestSignalConversion:
         signal.multiplexer_ids = None
         signal.multiplexer_signal = None
 
-        result = signal_to_json(signal)
+        raw_result = signal_to_json(signal)
+        # Cast to DBCSignalAlways since signal has no multiplexer
+        result = cast(DBCSignalAlways, raw_result)
 
         assert result["name"] == "Speed"
         assert result["startBit"] == 0
@@ -60,7 +64,7 @@ class TestSignalConversion:
         assert result["unit"] == "kph"
         assert result["presence"] == "always"
 
-    def test_signal_big_endian(self):
+    def test_signal_big_endian(self) -> None:
         """Big endian signal converts correctly"""
         signal = Mock()
         signal.name = "EngineSpeed"
@@ -79,7 +83,7 @@ class TestSignalConversion:
 
         assert result["byteOrder"] == "big_endian"
 
-    def test_signal_signed(self):
+    def test_signal_signed(self) -> None:
         """Signed signal converts correctly"""
         signal = Mock()
         signal.name = "Temperature"
@@ -99,7 +103,7 @@ class TestSignalConversion:
         assert result["signed"] is True
         assert result["offset"] == -40
 
-    def test_signal_without_unit(self):
+    def test_signal_without_unit(self) -> None:
         """Signal without unit uses empty string"""
         signal = Mock()
         signal.name = "Status"
@@ -118,7 +122,7 @@ class TestSignalConversion:
 
         assert result["unit"] == ""
 
-    def test_signal_multiplexed_with_value(self):
+    def test_signal_multiplexed_with_value(self) -> None:
         """Multiplexed signal with specific value"""
         signal = Mock()
         signal.name = "MultiplexedSignal"
@@ -134,14 +138,16 @@ class TestSignalConversion:
         signal.multiplexer_ids = [5, 6, 7]  # Multiple values
         signal.multiplexer_signal = "Multiplexor"
 
-        result = signal_to_json(signal)
+        raw_result = signal_to_json(signal)
+        # Cast to DBCSignalMultiplexed since signal has multiplexer values
+        result = cast(DBCSignalMultiplexed, raw_result)
 
         # Should use first multiplexer value
         assert result["multiplexor"] == "Multiplexor"
         assert result["multiplex_value"] == 5
         assert "presence" not in result
 
-    def test_signal_multiplexed_no_values(self):
+    def test_signal_multiplexed_no_values(self) -> None:
         """Multiplexed signal without specific values"""
         signal = Mock()
         signal.name = "SomeSignal"
@@ -157,12 +163,14 @@ class TestSignalConversion:
         signal.multiplexer_ids = []  # Empty list
         signal.multiplexer_signal = "Mux"
 
-        result = signal_to_json(signal)
+        raw_result = signal_to_json(signal)
+        # Empty multiplexer_ids means it's treated as always present
+        result = cast(DBCSignalAlways, raw_result)
 
         # Treated as always present
         assert result["presence"] == "always"
 
-    def test_signal_zero_scale_and_offset(self):
+    def test_signal_zero_scale_and_offset(self) -> None:
         """Signal with zero scale and offset"""
         signal = Mock()
         signal.name = "RawValue"
@@ -182,7 +190,7 @@ class TestSignalConversion:
         assert result["factor"] == 1
         assert result["offset"] == 0
 
-    def test_signal_fractional_scale(self):
+    def test_signal_fractional_scale(self) -> None:
         """Signal with fractional scale factor"""
         signal = Mock()
         signal.name = "Voltage"
@@ -209,7 +217,7 @@ class TestSignalConversion:
 class TestMessageConversion:
     """Test message_to_json function"""
 
-    def test_basic_message(self):
+    def test_basic_message(self) -> None:
         """Basic message with signals"""
         signal1 = Mock()
         signal1.name = "Speed"
@@ -242,7 +250,7 @@ class TestMessageConversion:
         assert result["signals"][0]["name"] == "Speed"
         assert "extended" not in result
 
-    def test_message_extended_frame(self):
+    def test_message_extended_frame(self) -> None:
         """Extended frame message"""
         message = Mock()
         message.frame_id = 0x1FFFFFFF
@@ -255,9 +263,9 @@ class TestMessageConversion:
         result = message_to_json(message)
 
         assert result["id"] == 0x1FFFFFFF
-        assert result["extended"] is True
+        assert result.get("extended") is True
 
-    def test_message_no_sender(self):
+    def test_message_no_sender(self) -> None:
         """Message without sender"""
         message = Mock()
         message.frame_id = 0x200
@@ -271,9 +279,9 @@ class TestMessageConversion:
 
         assert result["sender"] == ""
 
-    def test_message_multiple_signals(self):
+    def test_message_multiple_signals(self) -> None:
         """Message with multiple signals"""
-        signals = []
+        signals: list[Mock] = []
         for i in range(3):
             sig = Mock()
             sig.name = f"Signal{i}"
@@ -304,7 +312,7 @@ class TestMessageConversion:
         assert result["signals"][1]["name"] == "Signal1"
         assert result["signals"][2]["name"] == "Signal2"
 
-    def test_message_short_dlc(self):
+    def test_message_short_dlc(self) -> None:
         """Message with DLC less than 8"""
         message = Mock()
         message.frame_id = 0x400
@@ -318,7 +326,7 @@ class TestMessageConversion:
 
         assert result["dlc"] == 4
 
-    def test_message_multiple_senders(self):
+    def test_message_multiple_senders(self) -> None:
         """Message with multiple senders (uses first)"""
         message = Mock()
         message.frame_id = 0x500
@@ -341,7 +349,7 @@ class TestDBCConversion:
     """Test dbc_to_json function"""
 
     @patch('cantools.database.load_file')
-    def test_basic_dbc(self, mock_load):
+    def test_basic_dbc(self, mock_load: Mock) -> None:
         """Basic DBC file conversion"""
         # Mock database
         db = Mock()
@@ -379,7 +387,7 @@ class TestDBCConversion:
         assert result["messages"][0]["name"] == "VehicleSpeed"
 
     @patch('cantools.database.load_file')
-    def test_dbc_no_version(self, mock_load):
+    def test_dbc_no_version(self, mock_load: Mock) -> None:
         """DBC without version uses default"""
         db = Mock()
         db.version = None  # No version
@@ -391,12 +399,12 @@ class TestDBCConversion:
         assert result["version"] == "1.0"  # Default
 
     @patch('cantools.database.load_file')
-    def test_dbc_multiple_messages(self, mock_load):
+    def test_dbc_multiple_messages(self, mock_load: Mock) -> None:
         """DBC with multiple messages"""
         db = Mock()
         db.version = "2.0"
 
-        messages = []
+        messages: list[Mock] = []
         for i in range(5):
             msg = Mock()
             msg.frame_id = 0x100 + i
@@ -417,7 +425,7 @@ class TestDBCConversion:
         assert result["messages"][4]["name"] == "Message4"
 
     @patch('cantools.database.load_file')
-    def test_dbc_empty(self, mock_load):
+    def test_dbc_empty(self, mock_load: Mock) -> None:
         """Empty DBC file"""
         db = Mock()
         db.version = "1.0"
@@ -438,7 +446,7 @@ class TestFileIO:
     """Test convert_dbc_file function"""
 
     @patch('cantools.database.load_file')
-    def test_convert_to_string(self, mock_load):
+    def test_convert_to_string(self, mock_load: Mock) -> None:
         """Convert DBC to JSON string"""
         db = Mock()
         db.version = "1.0"
@@ -453,7 +461,7 @@ class TestFileIO:
         assert data["messages"] == []
 
     @patch('cantools.database.load_file')
-    def test_convert_to_file(self, mock_load):
+    def test_convert_to_file(self, mock_load: Mock) -> None:
         """Convert DBC and write to file"""
         db = Mock()
         db.version = "1.0"
@@ -482,7 +490,7 @@ class TestFileIO:
             Path(output_path).unlink(missing_ok=True)
 
     @patch('cantools.database.load_file')
-    def test_json_formatting(self, mock_load):
+    def test_json_formatting(self, mock_load: Mock) -> None:
         """JSON output is formatted with indentation"""
         db = Mock()
         db.version = "1.0"
@@ -504,7 +512,7 @@ class TestErrorHandling:
     """Test error handling and edge cases"""
 
     @patch('cantools.database.load_file')
-    def test_invalid_dbc_file(self, mock_load):
+    def test_invalid_dbc_file(self, mock_load: Mock) -> None:
         """Invalid DBC file raises exception"""
         mock_load.side_effect = Exception("Invalid DBC format")
 
@@ -512,14 +520,14 @@ class TestErrorHandling:
             dbc_to_json("invalid.dbc")
 
     @patch('cantools.database.load_file')
-    def test_missing_file(self, mock_load):
+    def test_missing_file(self, mock_load: Mock) -> None:
         """Missing file raises FileNotFoundError"""
         mock_load.side_effect = FileNotFoundError("File not found")
 
         with pytest.raises(FileNotFoundError, match="File not found"):
             dbc_to_json("nonexistent.dbc")
 
-    def test_pathlib_path_support(self):
+    def test_pathlib_path_support(self) -> None:
         """Function accepts pathlib.Path objects"""
         with patch('cantools.database.load_file') as mock_load:
             db = Mock()
@@ -543,7 +551,7 @@ class TestIntegrationStyle:
     """Integration-style tests with realistic data"""
 
     @patch('cantools.database.load_file')
-    def test_realistic_automotive_message(self, mock_load):
+    def test_realistic_automotive_message(self, mock_load: Mock) -> None:
         """Realistic automotive CAN message"""
         # Create realistic signal (vehicle speed)
         speed_signal = Mock()
@@ -585,7 +593,8 @@ class TestIntegrationStyle:
         assert msg["dlc"] == 8
         assert msg["sender"] == "VehicleController"
 
-        sig = msg["signals"][0]
+        # Cast signal to DBCSignalAlways since it has no multiplexer
+        sig = cast(DBCSignalAlways, msg["signals"][0])
         assert sig["name"] == "VehicleSpeed"
         assert sig["startBit"] == 0
         assert sig["length"] == 16
@@ -599,7 +608,7 @@ class TestIntegrationStyle:
         assert sig["presence"] == "always"
 
     @patch('cantools.database.load_file')
-    def test_mixed_standard_and_extended_frames(self, mock_load):
+    def test_mixed_standard_and_extended_frames(self, mock_load: Mock) -> None:
         """DBC with both standard and extended frames"""
         std_msg = Mock()
         std_msg.frame_id = 0x100
@@ -626,4 +635,4 @@ class TestIntegrationStyle:
 
         assert len(result["messages"]) == 2
         assert "extended" not in result["messages"][0]
-        assert result["messages"][1]["extended"] is True
+        assert result["messages"][1].get("extended") is True

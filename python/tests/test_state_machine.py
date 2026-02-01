@@ -11,6 +11,9 @@ State Machine:
 from unittest.mock import Mock, patch
 
 from aletheia import StreamingClient
+from aletheia.dsl import Property
+from aletheia.protocols import DBCDefinition
+from tests.conftest import CANFrame
 
 
 # ============================================================================
@@ -21,7 +24,13 @@ class TestValidTransitions:
     """Test valid state transitions through the protocol"""
 
     @patch('subprocess.Popen')
-    def test_complete_happy_path(self, mock_popen, sample_dbc, sample_property, sample_can_frame):
+    def test_complete_happy_path(
+        self,
+        mock_popen: Mock,
+        sample_dbc: DBCDefinition,
+        sample_property: Property,
+        sample_can_frame: CANFrame
+    ) -> None:
         """Test complete valid workflow: parse → set → start → send → end"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -47,14 +56,16 @@ class TestValidTransitions:
             assert client.start_stream()["status"] == "success"
 
             # Transition: Streaming → Streaming (multiple frames allowed)
-            ts, can_id, data = sample_can_frame
-            assert client.send_frame(ts, can_id, data)["status"] == "ack"
+            frame = sample_can_frame
+            assert client.send_frame(frame.timestamp, frame.can_id, frame.data)["status"] == "ack"
 
             # Transition: Streaming → Complete
             assert client.end_stream()["status"] == "complete"
 
     @patch('subprocess.Popen')
-    def test_minimal_workflow(self, mock_popen, sample_dbc):
+    def test_minimal_workflow(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Test minimal valid workflow: parse → set → start → end (no frames)"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -77,7 +88,12 @@ class TestValidTransitions:
             assert result["status"] == "complete"
 
     @patch('subprocess.Popen')
-    def test_multiple_frames_in_streaming_state(self, mock_popen, sample_dbc, sample_can_frame):
+    def test_multiple_frames_in_streaming_state(
+        self,
+        mock_popen: Mock,
+        sample_dbc: DBCDefinition,
+        sample_can_frame: CANFrame
+    ) -> None:
         """Test sending multiple frames while in streaming state"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -101,9 +117,9 @@ class TestValidTransitions:
             client.start_stream()
 
             # Send multiple frames
-            ts, can_id, data = sample_can_frame
+            frame = sample_can_frame
             for i in range(3):
-                resp = client.send_frame(ts + i, can_id, data)
+                resp = client.send_frame(frame.timestamp + i, frame.can_id, frame.data)
                 assert resp["status"] == "ack"
 
             client.end_stream()
@@ -117,7 +133,9 @@ class TestInvalidTransitions:
     """Test invalid state transitions are rejected"""
 
     @patch('subprocess.Popen')
-    def test_send_frame_before_start_stream(self, mock_popen, sample_can_frame):
+    def test_send_frame_before_start_stream(
+        self, mock_popen: Mock, sample_can_frame: CANFrame
+    ) -> None:
         """Cannot send frame before starting stream (caught by Agda state machine)"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -129,12 +147,12 @@ class TestInvalidTransitions:
         with StreamingClient() as client:
             # Try to send frame without starting stream
             # The Agda side will return an error
-            ts, can_id, data = sample_can_frame
-            resp = client.send_frame(ts, can_id, data)
+            frame = sample_can_frame
+            resp = client.send_frame(frame.timestamp, frame.can_id, frame.data)
             assert resp["status"] == "error"
 
     @patch('subprocess.Popen')
-    def test_start_stream_before_parse_dbc(self, mock_popen):
+    def test_start_stream_before_parse_dbc(self, mock_popen: Mock) -> None:
         """Cannot start stream before parsing DBC"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -149,7 +167,9 @@ class TestInvalidTransitions:
             assert resp["status"] == "error"
 
     @patch('subprocess.Popen')
-    def test_start_stream_before_set_properties(self, mock_popen, sample_dbc):
+    def test_start_stream_before_set_properties(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Cannot start stream before setting properties"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -169,7 +189,9 @@ class TestInvalidTransitions:
             assert resp["status"] == "error"
 
     @patch('subprocess.Popen')
-    def test_parse_dbc_twice(self, mock_popen, sample_dbc):
+    def test_parse_dbc_twice(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Cannot parse DBC twice"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -191,7 +213,9 @@ class TestInvalidTransitions:
             assert resp2["status"] == "error"
 
     @patch('subprocess.Popen')
-    def test_set_properties_twice(self, mock_popen, sample_dbc):
+    def test_set_properties_twice(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Cannot set properties twice"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -215,7 +239,9 @@ class TestInvalidTransitions:
             assert resp2["status"] == "error"
 
     @patch('subprocess.Popen')
-    def test_end_stream_before_start_stream(self, mock_popen, sample_dbc):
+    def test_end_stream_before_start_stream(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Cannot end stream before starting it"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -245,7 +271,9 @@ class TestStateEdgeCases:
     """Test edge cases in state management"""
 
     @patch('subprocess.Popen')
-    def test_empty_properties_list_allowed(self, mock_popen, sample_dbc):
+    def test_empty_properties_list_allowed(
+        self, mock_popen: Mock, sample_dbc: DBCDefinition
+    ) -> None:
         """Empty properties list is valid (no checks needed)"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -266,7 +294,12 @@ class TestStateEdgeCases:
             client.start_stream()
 
     @patch('subprocess.Popen')
-    def test_property_violation_during_streaming(self, mock_popen, sample_dbc, sample_can_frame):
+    def test_property_violation_during_streaming(
+        self,
+        mock_popen: Mock,
+        sample_dbc: DBCDefinition,
+        sample_can_frame: CANFrame
+    ) -> None:
         """Property violation response during streaming is valid"""
         mock_process = Mock()
         mock_process.stdin = Mock()
@@ -294,9 +327,9 @@ class TestStateEdgeCases:
             client.start_stream()
 
             # Send frame that triggers violation
-            ts, can_id, data = sample_can_frame
-            resp = client.send_frame(ts, can_id, data)
-            assert resp["type"] == "property"
+            frame = sample_can_frame
+            resp = client.send_frame(frame.timestamp, frame.can_id, frame.data)
+            assert resp.get("type") == "property"
             assert resp["status"] == "violation"
 
             # Can still end stream after violation
