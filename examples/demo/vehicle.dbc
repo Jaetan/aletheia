@@ -1,0 +1,20 @@
+VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: ECU BrakingSystem
+
+BO_ 256 VehicleDynamics: 8 ECU
+ SG_ VehicleSpeed : 0|16@1+ (0.01,0) [0|655.35] "kph" Vector__XXX
+ SG_ Acceleration : 16|16@1- (0.001,0) [-32.768|32.767] "m/s2" Vector__XXX
+
+BO_ 512 BrakeStatus: 8 BrakingSystem
+ SG_ BrakePressure : 0|16@1+ (0.1,0) [0|6553.5] "kPa" Vector__XXX
+ SG_ BrakeActive : 16|1@1+ (1,0) [0|1] "" Vector__XXX
+
+CM_ SG_ 256 VehicleSpeed "Vehicle speed in kilometers per hour";
+CM_ SG_ 256 Acceleration "Vehicle longitudinal acceleration";
+CM_ SG_ 512 BrakePressure "Brake system pressure";
+CM_ SG_ 512 BrakeActive "Brake pedal pressed indicator";
