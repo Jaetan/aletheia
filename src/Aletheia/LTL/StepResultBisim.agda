@@ -14,7 +14,7 @@
 module Aletheia.LTL.StepResultBisim where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
@@ -64,6 +64,12 @@ data StepResultBisim {S1 S2 : Set} (R : S1 → S2 → Set)
     → R s1 s2
     → StepResultBisim R (Continue r s1) (Continue r s2)
 
+  -- Both inconclusive with related states
+  -- (signal unknown, can't determine result yet)
+  inconclusive-bisim : ∀ {s1 : S1} {s2 : S2}
+    → R s1 s2
+    → StepResultBisim R (Inconclusive s1) (Inconclusive s2)
+
 -- ============================================================================
 -- BASIC PROPERTIES
 -- ============================================================================
@@ -74,5 +80,6 @@ stepResult-refl : ∀ {S : Set} (sr : StepResult S) → StepResultBisim _≡_ sr
 stepResult-refl (Violated ce) = violated-bisim (ceEquiv-refl ce)
 stepResult-refl Satisfied = satisfied-bisim
 stepResult-refl (Continue r s) = continue-bisim refl
+stepResult-refl (Inconclusive s) = inconclusive-bisim refl
 
 -- Note: Symmetry and transitivity can be proven but are not needed for the main proof.

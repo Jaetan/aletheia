@@ -30,14 +30,15 @@ open import Data.Vec using (Vec; _∷_; [])
 open import Data.Fin using (Fin; toℕ; fromℕ<; #_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Sum using (_⊎_)
+open import Function using (case_of_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (findByPredicate)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Properties using (validateDBC)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; evalPredicateWithPrev)
-open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; ThreeVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
+open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied; Inconclusive)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupObject; formatJSON; getRational; getObject; lookupRational)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as RatShow using ()
@@ -79,10 +80,11 @@ record StreamState : Set where
     dbc : Maybe DBC
     properties : List PropertyState    -- Properties with incremental eval state
     prevFrame : Maybe TimedFrame       -- Previous frame for ChangedBy predicate
+    signalCache : SignalCache          -- Last-known signal values for three-valued semantics
 
 -- Initial empty state
 initialState : StreamState
-initialState = mkStreamState WaitingForDBC nothing [] nothing
+initialState = mkStreamState WaitingForDBC nothing [] nothing emptyCache
 
 -- ============================================================================
 -- HELPER FUNCTIONS
@@ -94,6 +96,32 @@ findMessageByName name dbc = findByPredicate matchesName (DBC.messages dbc)
   where
     matchesName : DBCMessage → Bool
     matchesName msg = ⌊ DBCMessage.name msg ≟ₛ name ⌋
+
+-- ============================================================================
+-- SIGNAL CACHE UPDATES
+-- ============================================================================
+
+-- Update cache with all signals extractable from a frame
+-- Iterates through all messages in DBC, finds matching message by ID,
+-- then extracts and caches all its signals
+updateCacheFromFrame : DBC → SignalCache → ℕ → CANFrame → SignalCache
+updateCacheFromFrame dbc cache ts frame =
+  updateFromMessage (findMessageById (CANFrame.id frame) dbc)
+  where
+    open import Aletheia.LTL.SignalPredicate using (extractSignalValue)
+
+    -- Update cache with all signals from a message
+    updateSignals : List DBCSignal → SignalCache → SignalCache
+    updateSignals [] c = c
+    updateSignals (sig ∷ sigs) c =
+      let sigName = DBCSignal.name sig
+      in case extractSignalValue sigName dbc frame of λ where
+        nothing  → updateSignals sigs c
+        (just v) → updateSignals sigs (updateCache sigName v ts c)
+
+    updateFromMessage : Maybe DBCMessage → SignalCache
+    updateFromMessage nothing = cache  -- No matching message, keep cache unchanged
+    updateFromMessage (just msg) = updateSignals (DBCMessage.signals msg) cache
 
 -- ============================================================================
 -- HELPER FUNCTIONS FOR FRAME CONSTRUCTION
@@ -149,7 +177,7 @@ handleParseDBC-State dbcJSON state =
     ... | inj₁ validationError =
       (state , Response.Error ("DBC validation failed: " ++ₛ validationError))
     ... | inj₂ _ =
-      let newState = mkStreamState ReadyToStream (just dbc) [] nothing  -- Reset properties and prevFrame
+      let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache  -- Reset properties, prevFrame, and cache
       in (newState , Response.Success "DBC parsed and validated successfully")
 
 -- Set properties command: parse JSON properties to LTL
@@ -161,7 +189,7 @@ handleSetProperties-State propJSONs state with StreamState.phase state
     -- Parse all properties and index them with initialized eval state
     parseAllProperties : List JSON → ℕ → List PropertyState → StreamState × Response
     parseAllProperties [] idx acc =
-      let newState = mkStreamState ReadyToStream (StreamState.dbc state) acc nothing  -- Reset prevFrame when setting properties
+      let newState = mkStreamState ReadyToStream (StreamState.dbc state) acc nothing emptyCache  -- Reset prevFrame and cache when setting properties
       in (newState , Response.Success "Properties set successfully")
     parseAllProperties (json ∷ rest) idx acc with parseProperty json
     ... | nothing = (state , Response.Error ("Failed to parse property " ++ₛ showℕ idx))
@@ -175,7 +203,7 @@ handleStartStream-State : StreamState → StreamState × Response
 handleStartStream-State state with StreamState.phase state
 ... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before StartStream")
 ... | ReadyToStream =
-  let newState = mkStreamState Streaming (StreamState.dbc state) (StreamState.properties state) nothing
+  let newState = mkStreamState Streaming (StreamState.dbc state) (StreamState.properties state) nothing (StreamState.signalCache state)
   in (newState , Response.Success "Streaming started")
 ... | Streaming = (state , Response.Error "Already streaming")
 
@@ -183,7 +211,7 @@ handleStartStream-State state with StreamState.phase state
 handleEndStream-State : StreamState → StreamState × Response
 handleEndStream-State state with StreamState.phase state
 ... | Streaming =
-  let newState = mkStreamState ReadyToStream (StreamState.dbc state) (StreamState.properties state) (StreamState.prevFrame state)
+  let newState = mkStreamState ReadyToStream (StreamState.dbc state) (StreamState.properties state) (StreamState.prevFrame state) (StreamState.signalCache state)
   in (newState , Response.Complete)
 ... | _ = (state , Response.Error "Not currently streaming")
 
@@ -238,48 +266,58 @@ handleDataFrame state timestamp frame with StreamState.phase state
     open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
     open import Aletheia.LTL.Incremental using (Counterexample)
 
-    -- Evaluator function for stepEval (uses evalPredicateWithPrev)
-    evalPred : Maybe TimedFrame → TimedFrame → SignalPredicate → Bool
-    evalPred prev curr pred = evalPredicateWithPrev dbc prev pred curr
+    -- Current cache from state
+    currentCache : SignalCache
+    currentCache = StreamState.signalCache state
+
+    -- Evaluator function for stepEval (three-valued with cache lookup)
+    evalPred : Maybe TimedFrame → TimedFrame → SignalPredicate → ThreeVal
+    evalPred prev curr pred = evalPredicateTV dbc currentCache pred (TimedFrame.frame curr)
 
     processFrame : DBC → StreamState × Response
     processFrame dbc =
       let timedFrame = record { timestamp = timestamp ; frame = frame }
           prev = StreamState.prevFrame state
-      in checkPropsIncremental (StreamState.properties state) [] prev timedFrame
+          -- Update cache with signals from current frame before evaluating
+          updatedCache = updateCacheFromFrame dbc currentCache timestamp frame
+      in checkPropsIncremental (StreamState.properties state) [] prev timedFrame updatedCache
       where
         -- Incrementally check all properties and update their states
         -- acc: accumulator for updated properties (reversed order)
-        checkPropsIncremental : List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → StreamState × Response
-        checkPropsIncremental [] acc prev curr =
+        checkPropsIncremental : List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → SignalCache → StreamState × Response
+        checkPropsIncremental [] acc prev curr cache =
           -- All properties checked, no violations
           let updatedProps = reverse acc
-              newState = mkStreamState Streaming (just dbc) updatedProps (just curr)
+              newState = mkStreamState Streaming (just dbc) updatedProps (just curr) cache
           in (newState , Response.Ack)
-        checkPropsIncremental (propState ∷ rest) acc prev curr =
+        checkPropsIncremental (propState ∷ rest) acc prev curr cache =
           let formula = PropertyState.formula propState
               evalState = PropertyState.evalState propState
               idx = PropertyState.index propState
               result = stepEval formula evalPred evalState prev curr
-          in handleStepResult result propState rest acc prev curr
+          in handleStepResult result propState rest acc prev curr cache
           where
-            handleStepResult : StepResult LTLEvalState → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → StreamState × Response
-            handleStepResult (Continue _ newEvalState) prop remaining accum p c =
+            handleStepResult : StepResult LTLEvalState → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → SignalCache → StreamState × Response
+            handleStepResult (Continue _ newEvalState) prop remaining accum p c cache =
               let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
-              in checkPropsIncremental remaining (updatedProp ∷ accum) p c
-            handleStepResult (Violated ce) prop remaining accum p c =
+              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
+            handleStepResult (Violated ce) prop remaining accum p c cache =
               -- Property violated, return immediately with current state
               let open Counterexample ce
                   ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
                   violation = PR.PropertyResult.Violation (PropertyState.index prop) ceData
                   -- Reconstruct properties list (violated property keeps old state)
                   allProps = reverse accum ++ₗ (prop ∷ remaining)
-                  newState = mkStreamState Streaming (just dbc) allProps (just c)
+                  newState = mkStreamState Streaming (just dbc) allProps (just c) cache
               in (newState , Response.PropertyResponse violation)
-            handleStepResult Satisfied prop remaining accum p c =
+            handleStepResult Satisfied prop remaining accum p c cache =
               -- Eventually satisfied, keep checking other properties
               let updatedProp = prop  -- Keep same state (satisfied terminal state)
-              in checkPropsIncremental remaining (updatedProp ∷ accum) p c
+              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
+            handleStepResult (Inconclusive newEvalState) prop remaining accum p c cache =
+              -- Signal unknown - continue checking, will resolve when signal observed or at deadline/end-of-stream
+              let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
+              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
 
 -- ============================================================================
 -- BATCH SIGNAL OPERATIONS HANDLERS (Phase 2B.1)

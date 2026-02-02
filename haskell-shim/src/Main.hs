@@ -68,7 +68,7 @@ coinductiveStreamLoop = do
 
     -- Call Agda processStream (initial state + input colist → output colist)
     -- Use du_ version (erased Size parameter)
-    let outputColist = Agda.du_processStream_104 AgdaStreamState.d_initialState_50 inputColist
+    let outputColist = Agda.du_processStream_104 AgdaStreamState.d_initialState_54 inputColist
 
     -- Consume and print output colist
     consumeOutputColist outputColist

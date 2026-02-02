@@ -16,7 +16,9 @@ open import Data.Nat.Coprimality using (sym; 1-coprimeTo)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate)
+open import Aletheia.LTL.SignalPredicate as VP using (Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between)
+open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
 
 -- ============================================================================
 -- NATURAL TO RATIONAL (proof-friendly)
@@ -29,26 +31,42 @@ open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
 ℕtoℚ n = mkℚ (+ n) 0 (sym (1-coprimeTo n))
 
 -- ============================================================================
+-- VALUE PREDICATE FORMATTER
+-- ============================================================================
+
+-- Format a ValuePredicate as a list of JSON fields (canonical order).
+formatValuePredicateFields : ValuePredicate → List (String × JSON)
+formatValuePredicateFields (Equals s v) =
+  ("predicate" , JString "equals") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+formatValuePredicateFields (LessThan s v) =
+  ("predicate" , JString "lessThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+formatValuePredicateFields (GreaterThan s v) =
+  ("predicate" , JString "greaterThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+formatValuePredicateFields (LessThanOrEqual s v) =
+  ("predicate" , JString "lessThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+formatValuePredicateFields (GreaterThanOrEqual s v) =
+  ("predicate" , JString "greaterThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+formatValuePredicateFields (Between s min max) =
+  ("predicate" , JString "between") ∷ ("signal" , JString s) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
+
+-- ============================================================================
+-- DELTA PREDICATE FORMATTER
+-- ============================================================================
+
+-- Format a DeltaPredicate as a list of JSON fields (canonical order).
+formatDeltaPredicateFields : DeltaPredicate → List (String × JSON)
+formatDeltaPredicateFields (ChangedBy s d) =
+  ("predicate" , JString "changedBy") ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
+
+-- ============================================================================
 -- SIGNAL PREDICATE FORMATTER
 -- ============================================================================
 
 -- Format a SignalPredicate as a list of JSON fields (canonical order).
 -- Field order matches what the parser expects: "predicate" first, then signal/value fields.
 formatSignalPredicateFields : SignalPredicate → List (String × JSON)
-formatSignalPredicateFields (SignalPredicate.Equals s v) =
-  ("predicate" , JString "equals") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
-formatSignalPredicateFields (SignalPredicate.LessThan s v) =
-  ("predicate" , JString "lessThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
-formatSignalPredicateFields (SignalPredicate.GreaterThan s v) =
-  ("predicate" , JString "greaterThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
-formatSignalPredicateFields (SignalPredicate.LessThanOrEqual s v) =
-  ("predicate" , JString "lessThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
-formatSignalPredicateFields (SignalPredicate.GreaterThanOrEqual s v) =
-  ("predicate" , JString "greaterThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
-formatSignalPredicateFields (SignalPredicate.Between s min max) =
-  ("predicate" , JString "between") ∷ ("signal" , JString s) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
-formatSignalPredicateFields (SignalPredicate.ChangedBy s d) =
-  ("predicate" , JString "changedBy") ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
+formatSignalPredicateFields (ValueP vp) = formatValuePredicateFields vp
+formatSignalPredicateFields (DeltaP dp) = formatDeltaPredicateFields dp
 
 -- Format a SignalPredicate as a JSON object
 formatSignalPredicate : SignalPredicate → JSON

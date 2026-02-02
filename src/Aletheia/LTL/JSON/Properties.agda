@@ -28,7 +28,9 @@ open import Data.Empty using (⊥-elim)
 open import Aletheia.Protocol.JSON
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate)
+open import Aletheia.LTL.SignalPredicate as VP using (Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between)
+open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
 open import Aletheia.LTL.JSON
 open import Aletheia.LTL.JSON.Format
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
@@ -53,13 +55,13 @@ getNat-ℕtoℚ n with 1 ∣? n
 -- type strings are concrete (only signal name and value are variables).
 predicate-roundtrip : (p : SignalPredicate)
   → parseSignalPredicate (formatSignalPredicateFields p) ≡ just p
-predicate-roundtrip (SignalPredicate.Equals s v) = refl
-predicate-roundtrip (SignalPredicate.LessThan s v) = refl
-predicate-roundtrip (SignalPredicate.GreaterThan s v) = refl
-predicate-roundtrip (SignalPredicate.LessThanOrEqual s v) = refl
-predicate-roundtrip (SignalPredicate.GreaterThanOrEqual s v) = refl
-predicate-roundtrip (SignalPredicate.Between s min max) = refl
-predicate-roundtrip (SignalPredicate.ChangedBy s d) = refl
+predicate-roundtrip (ValueP (Equals s v)) = refl
+predicate-roundtrip (ValueP (LessThan s v)) = refl
+predicate-roundtrip (ValueP (GreaterThan s v)) = refl
+predicate-roundtrip (ValueP (LessThanOrEqual s v)) = refl
+predicate-roundtrip (ValueP (GreaterThanOrEqual s v)) = refl
+predicate-roundtrip (ValueP (Between s min max)) = refl
+predicate-roundtrip (DeltaP (ChangedBy s d)) = refl
 
 -- ============================================================================
 -- LTL ROUNDTRIP (combined with depth monotonicity)

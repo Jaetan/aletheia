@@ -85,10 +85,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-properties" $ do
         putInfo "Type-checking Properties modules (proofs)..."
+        -- Parser and protocol proofs
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Parser/Properties.agda"]
-        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/CAN/Encoding/Properties.agda"]
-        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/DBC/Properties.agda"]
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/Protocol/JSON/Properties.agda"]
+        -- CAN encoding and batch proofs
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/CAN/Encoding/Properties.agda"]
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/CAN/Batch/Properties.agda"]
+        -- DBC proofs
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/DBC/Properties.agda"]
+        -- LTL proofs (bisimilarity transitively checks CoalgebraBisim and StepResultBisim)
+        cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/LTL/JSON/Properties.agda"]
         cmd_ (Cwd "src") "agda" ["+RTS", "-N32", "-RTS", "Aletheia/LTL/Bisimilarity.agda"]
         putInfo "All Properties modules type-checked successfully!"
 

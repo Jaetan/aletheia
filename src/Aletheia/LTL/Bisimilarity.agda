@@ -14,13 +14,14 @@ module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; MetricEventuallyState; MetricAlwaysState; MetricUntilState; MetricReleaseState; stepEval; initState)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; MetricEventuallyState; MetricAlwaysState; MetricUntilState; MetricReleaseState; stepEval; initState)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL; MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
   renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
             NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
             Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc;
             Release to ReleaseProc)
-open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; CounterexampleEquiv; mkCEEquiv)
+open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; inconclusive-bisim; CounterexampleEquiv; mkCEEquiv)
+open import Aletheia.LTL.SignalPredicate using (ThreeVal; True; False; Unknown)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -39,7 +40,7 @@ open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 
 data Relate : LTLEvalState → LTLProc → Set where
   -- Atomic predicate states are related
-  atomic-relate : ∀ {p : TimedFrame → Bool}
+  atomic-relate : ∀ {p : TimedFrame → ThreeVal}
     → Relate AtomicState (AtomicProc p)
 
   -- Not states are related if their inner states are related
@@ -137,7 +138,7 @@ data Relate : LTLEvalState → LTLProc → Set where
 -- ============================================================================
 
 -- Helper: Predicate evaluator for the monitor (needed for stepEval)
-evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → Bool) → Bool
+evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → ThreeVal) → ThreeVal
 evalAtomicPred prev curr p = p curr
 
 -- Prove that related states produce bisimilar observations when stepped with the same frame
@@ -150,11 +151,12 @@ step-bisim : ∀ {st : LTLEvalState} {proc : LTLProc}
       (stepL proc prev curr)
 
 -- Base case: Atomic predicates
--- Both evaluate p at current frame, return Satisfied or Violated
+-- Both evaluate p at current frame, return Satisfied, Violated, or Inconclusive
 step-bisim (atomic-relate {p}) prev curr
   with p curr
-... | true = satisfied-bisim
-... | false = violated-bisim (mkCEEquiv refl refl)
+... | True    = satisfied-bisim
+... | False   = violated-bisim (mkCEEquiv refl refl)
+... | Unknown = inconclusive-bisim atomic-relate  -- Signal not yet observed
 
 -- Propositional operators: Not
 -- stepEval (Not φ) ... (NotState st) inverts the result
@@ -171,96 +173,144 @@ step-bisim (not-relate {st} {φ} rel) prev curr
 -- Inner continues → Not continues with negated inner (both return 0, unbounded)
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (not-relate rel')
+-- Inner inconclusive → Not is inconclusive (unknown negated is still unknown)
+... | Inconclusive st' | Inconclusive φ' | inconclusive-bisim rel'
+  = inconclusive-bisim (not-relate rel')
 -- Impossible cases
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Continue _ _ | Violated _ | ()
 ... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Continue _ _ | ()
 
--- Propositional operators: And
--- This is more complex - need to handle all combinations
+-- Propositional operators: And (Kleene logic)
+-- This is more complex - need to handle all combinations including Inconclusive
 step-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
      | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
--- Left violated → And violated
+-- Violated cases (short-circuit: False ∧ _ = False)
 ... | Violated ce1 | Violated ce2 | violated-bisim ceq | _ | _ | _
   = violated-bisim ceq
--- Right violated (left continues) → And violated
 ... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Violated ce1 | Violated ce2 | violated-bisim ceq
   = violated-bisim ceq
--- Both continue → And continues (both return 0, unbounded)
-... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
-  = continue-bisim (and-relate rel1' rel2')
--- Right satisfied, left continues → And continues
--- Monitor returns: AndState st1' st2 (preserves original right state!)
-... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
-  = continue-bisim (and-relate rel1' rel2)
--- Left satisfied, right violated → And violated
 ... | Satisfied | Satisfied | satisfied-bisim | Violated ce1 | Violated ce2 | violated-bisim ceq
   = violated-bisim ceq
--- Left satisfied, right continues → And continues with right
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Violated ce1 | Violated ce2 | violated-bisim ceq
+  = violated-bisim ceq
+-- Inconclusive cases (neither violated, Unknown ∧ _ = Unknown when not False)
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (and-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = inconclusive-bisim (and-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = inconclusive-bisim (and-relate rel1' rel2)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (and-relate rel1' rel2')
+... | Satisfied | Satisfied | satisfied-bisim | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (and-relate rel1 rel2')
+-- Normal cases (neither violated, neither inconclusive)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (and-relate rel1' rel2')
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = continue-bisim (and-relate rel1' rel2)
 ... | Satisfied | Satisfied | satisfied-bisim | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (and-relate rel1 rel2')
--- Both satisfied → And satisfied
 ... | Satisfied | Satisfied | satisfied-bisim | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
 -- Impossible cases: left results don't match
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 -- Impossible cases: right results don't match
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
--- Propositional operators: Or
--- Similar structure to And
+-- Propositional operators: Or (Kleene logic)
+-- Similar structure to And, but dual: True ∨ _ = True
 step-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
      | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
--- Left satisfied → Or satisfied
+-- Satisfied cases (short-circuit: True ∨ _ = True)
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
--- Right satisfied (left continues) → Or satisfied
 ... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
--- Both continue → Or continues (both return 0, unbounded)
-... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
-  = continue-bisim (or-relate rel1' rel2')
--- Right violated, left continues → Or continues with left
-... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Violated _ | Violated _ | violated-bisim _
-  = continue-bisim (or-relate rel1' rel2)
--- Left violated, right satisfied → Or satisfied
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
--- Left violated, right continues → Or continues with right
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Satisfied | Satisfied | satisfied-bisim
+  = satisfied-bisim
+-- Inconclusive cases (neither satisfied, neither both violated)
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (or-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = inconclusive-bisim (or-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Violated _ | Violated _ | violated-bisim _
+  = inconclusive-bisim (or-relate rel1' rel2)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (or-relate rel1' rel2')
+... | Violated _ | Violated _ | violated-bisim _ | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2'
+  = inconclusive-bisim (or-relate rel1 rel2')
+-- Normal cases (neither satisfied, neither inconclusive)
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = continue-bisim (or-relate rel1' rel2')
+... | Continue _ st1' | Continue _ φ' | continue-bisim rel1' | Violated _ | Violated _ | violated-bisim _
+  = continue-bisim (or-relate rel1' rel2)
 ... | Violated _ | Violated _ | violated-bisim _ | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
   = continue-bisim (or-relate rel1 rel2')
--- Both violated → Or violated (uses right's counterexample)
 ... | Violated _ | Violated _ | violated-bisim _ | Violated _ | Violated _ | violated-bisim ceq
   = violated-bisim ceq
 -- Impossible cases: left results don't match
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 -- Impossible cases: right results don't match
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- Temporal operators: Always
 -- This is the key case!
@@ -301,14 +351,25 @@ step-bisim (always-relate {st} {φ} rel) prev curr
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (always-relate rel')
 
+-- Case 4: Inner formula inconclusive (SAFETY: Unknown → Violated)
+-- Both return Violated (can't confirm safety holds)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+
 -- Impossible cases (where observations don't match)
 -- Agda can prove these are impossible via unification!
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Continue _ _ | Violated _ | ()
 ... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Continue _ _ | ()
 
 -- Temporal operators: Eventually
 -- Eventually φ means "φ holds at some future point"
@@ -347,13 +408,24 @@ step-bisim (eventually-relate {st} {φ} rel) prev curr
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (eventually-relate rel')
 
+-- Case 4: Inner formula inconclusive (LIVENESS: propagate, will fail at end-of-stream)
+-- Both return Inconclusive (still waiting for satisfaction)
+... | Inconclusive st' | Inconclusive φ' | inconclusive-bisim rel'
+  = inconclusive-bisim (eventually-relate rel')
+
 -- Impossible cases
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Continue _ _ | Violated _ | ()
 ... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Continue _ _ | ()
 
 -- Temporal operators: Until
 -- Until φ ψ means "φ holds until ψ becomes true"
@@ -394,6 +466,15 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
 
+-- φ inconclusive → Violated (SAFETY: φ must hold, regardless of ψ)
+-- Need to enumerate ψ cases explicitly (ψ=Satisfied already handled above)
+... | Violated _ | Violated _ | violated-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+
 -- ψ continues, φ violated → Until violated
 ... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
   = violated-bisim ceq
@@ -418,19 +499,39 @@ step-bisim (until-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (until-relate rel1 rel2)
 
+-- ψ inconclusive, φ ok → propagate (LIVENESS: ψ must eventually, keep waiting)
+... | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2' | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
+  = inconclusive-bisim (until-relate rel1' rel2')
+... | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
+  = inconclusive-bisim (until-relate rel1 rel2')
+... | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2' | Violated _ | Violated _ | violated-bisim _
+  = inconclusive-bisim (until-relate rel1 rel2')  -- φ failed but ψ unknown, propagate
+
 -- Impossible cases (results don't match)
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- Next operator (modal states: waiting vs active)
@@ -472,13 +573,23 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 ... | Satisfied | Satisfied | satisfied-bisim
   = satisfied-bisim
 
+-- Inner inconclusive → both inconclusive (propagate)
+... | Inconclusive st' | Inconclusive φ' | inconclusive-bisim rel'
+  = inconclusive-bisim (next-active-relate rel')
+
 -- Impossible cases (results don't match)
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Continue _ _ | Violated _ | ()
 ... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- EVENTUALLY WITHIN: Must hold within time window
@@ -496,9 +607,29 @@ step-bisim (next-active-relate {st} {φ} rel) prev curr
 step-bisim (metric-eventually-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
-... | false  -- Window expired on both sides
-  = violated-bisim (mkCEEquiv refl refl)  -- Both construct identical counterexample
-... | true  -- Window valid on both sides
+... | false  -- Window expired on both sides: handleDeadline
+  with stepEval (toLTL φ) evalAtomicPred st prev curr
+     | stepL φ prev curr
+     | step-bisim rel prev curr
+... | Satisfied | Satisfied | satisfied-bisim = satisfied-bisim  -- Made it just in time
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- Signal unknown at deadline
+... | Violated _ | Violated _ | violated-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- Window expired
+... | Continue _ _ | Continue _ _ | continue-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- Window expired
+-- Impossible: inner results don't match
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
+... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Continue _ _ | ()
+step-bisim (metric-eventually-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+  | true  -- Window valid on both sides
   with stepEval (toLTL φ) evalAtomicPred st prev curr
      | stepL φ prev curr
      | step-bisim rel prev curr
@@ -508,13 +639,21 @@ step-bisim (metric-eventually-relate {st} {φ} {windowMicros} {startTime} rel) p
   = continue-bisim (metric-eventually-relate rel)  -- Both preserve original state
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (metric-eventually-relate rel')  -- Both step inner state
+... | Inconclusive st' | Inconclusive φ' | inconclusive-bisim rel'
+  = inconclusive-bisim (metric-eventually-relate rel')  -- LIVENESS: propagate
 -- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Continue _ _ | Satisfied | ()
 ... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- ALWAYS WITHIN: Must hold throughout time window
@@ -538,13 +677,21 @@ step-bisim (metric-always-relate {st} {φ} {windowMicros} {startTime} rel) prev 
   = continue-bisim (metric-always-relate rel)  -- Both preserve original state
 ... | Continue _ st' | Continue _ φ' | continue-bisim rel'
   = continue-bisim (metric-always-relate rel')  -- Both step inner state
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)  -- SAFETY: Inconclusive → Violated
 -- Impossible: inner results don't match
 ... | Satisfied | Violated _ | ()
 ... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
 ... | Violated _ | Satisfied | ()
 ... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
 ... | Continue _ _ | Satisfied | ()
 ... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- Release operator (dual of Until)
@@ -552,7 +699,8 @@ step-bisim (metric-always-relate {st} {φ} {windowMicros} {startTime} rel) prev 
 
 -- Release: φ Release ψ means ψ holds until φ releases it (or forever)
 -- Semantics: Either φ holds (release condition), or ψ holds AND the rest is Release
--- Similar to Until but checking φ for release, ψ for holding
+-- ψ has SAFETY role (must hold) → Inconclusive = Violated
+-- φ has LIVENESS role (release) → Inconclusive = propagate
 step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
      | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
@@ -560,6 +708,15 @@ step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 -- φ satisfied → Release satisfied (release condition met, ψ result doesn't matter)
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
+
+-- ψ inconclusive → Violated (SAFETY: ψ must hold, regardless of φ)
+-- Need to enumerate φ cases explicitly (φ=Satisfied already handled above)
+... | Violated _ | Violated _ | violated-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
 
 -- φ continues, ψ violated → Release violated (ψ must hold until release)
 ... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
@@ -586,19 +743,41 @@ step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (release-relate rel1 rel2)
 
+-- φ inconclusive, ψ ok → propagate (LIVENESS: φ releases eventually)
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = inconclusive-bisim (release-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = inconclusive-bisim (release-relate rel1' rel2)
+-- φ inconclusive, ψ violated → Violated (ψ is safety, must hold)
+-- Both implementations create identical new counterexamples, so use refl
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Violated _ | Violated _ | violated-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+
 -- Impossible cases (results don't match)
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- UntilWithin operator (bounded Until)
@@ -606,18 +785,47 @@ step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 
 -- UntilWithin: φ Until ψ within time window
 -- Same as Until but with time bound, uses observable remaining time
+-- φ has SAFETY role (must hold): Inconclusive → Violated
+-- ψ has LIVENESS role (must eventually): Inconclusive → propagate
 step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
-... | false  -- Window expired on both sides
-  = violated-bisim (mkCEEquiv refl refl)  -- Both construct identical counterexample
-... | true  -- Window valid on both sides
+... | false  -- Window expired on both sides: handleDeadline on ψResult
+  with stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
+... | Satisfied | Satisfied | satisfied-bisim = satisfied-bisim  -- ψ satisfied just in time
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- ψ signal unknown at deadline
+... | Violated _ | Violated _ | violated-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- Window expired
+... | Continue _ _ | Continue _ _ | continue-bisim _ = violated-bisim (mkCEEquiv refl refl)  -- Window expired
+-- Impossible: ψ results don't match
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
+... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Continue _ _ | ()
+step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+  | true  -- Window valid on both sides
   with stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
      | stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
 
 -- ψ satisfied → UntilWithin satisfied
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
+
+-- φ inconclusive → Violated (SAFETY: φ must hold, regardless of ψ)
+-- Need to enumerate ψ cases explicitly (ψ=Satisfied already handled above)
+... | Violated _ | Violated _ | violated-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
 
 -- ψ continues, φ violated → UntilWithin violated
 ... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
@@ -644,19 +852,40 @@ step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (metric-until-relate rel1 rel2)
 
+-- ψ inconclusive, φ ok (not violated) → propagate (LIVENESS: ψ must eventually)
+... | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2' | Continue _ st1' | Continue _ φ' | continue-bisim rel1'
+  = inconclusive-bisim (metric-until-relate rel1' rel2')
+... | Inconclusive st2' | Inconclusive ψ' | inconclusive-bisim rel2' | Satisfied | Satisfied | satisfied-bisim
+  = inconclusive-bisim (metric-until-relate rel1 rel2')
+-- ψ inconclusive, φ violated → Violated (safety violation takes precedence)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
 -- Impossible cases
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- ReleaseWithin operator (bounded Release)
@@ -664,6 +893,8 @@ step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 
 -- ReleaseWithin: φ Release ψ within time window
 -- Same as Release but with time bound, uses observable remaining time
+-- ψ has SAFETY role (must hold): Inconclusive → Violated
+-- φ has LIVENESS role (release): Inconclusive → propagate
 step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
@@ -676,6 +907,15 @@ step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 -- φ satisfied → ReleaseWithin satisfied (release condition met)
 ... | Satisfied | Satisfied | satisfied-bisim | _ | _ | _
   = satisfied-bisim
+
+-- ψ inconclusive → Violated (SAFETY: ψ must hold, regardless of φ)
+-- Need to enumerate φ cases explicitly (φ=Satisfied already handled above)
+... | Violated _ | Violated _ | violated-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Continue _ _ | Continue _ _ | continue-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Inconclusive _ | Inconclusive _ | inconclusive-bisim _
+  = violated-bisim (mkCEEquiv refl refl)
 
 -- φ continues, ψ violated → ReleaseWithin violated (ψ must hold until release)
 ... | Continue _ _ | Continue _ _ | continue-bisim _ | Violated _ | Violated _ | violated-bisim ceq
@@ -702,19 +942,40 @@ step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 ... | Violated _ | Violated _ | violated-bisim _ | Satisfied | Satisfied | satisfied-bisim
   = continue-bisim (metric-release-relate rel1 rel2)
 
+-- φ inconclusive, ψ ok → propagate (LIVENESS: φ releases eventually)
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Continue _ st2' | Continue _ ψ' | continue-bisim rel2'
+  = inconclusive-bisim (metric-release-relate rel1' rel2')
+... | Inconclusive st1' | Inconclusive φ' | inconclusive-bisim rel1' | Satisfied | Satisfied | satisfied-bisim
+  = inconclusive-bisim (metric-release-relate rel1' rel2)
+-- φ inconclusive, ψ violated → Violated (ψ is safety, must hold)
+... | Inconclusive _ | Inconclusive _ | inconclusive-bisim _ | Violated _ | Violated _ | violated-bisim ceq
+  = violated-bisim ceq
+
 -- Impossible cases
 ... | Violated _ | Satisfied | () | _ | _ | _
 ... | Violated _ | Continue _ _ | () | _ | _ | _
+... | Violated _ | Inconclusive _ | () | _ | _ | _
 ... | Satisfied | Violated _ | () | _ | _ | _
 ... | Satisfied | Continue _ _ | () | _ | _ | _
+... | Satisfied | Inconclusive _ | () | _ | _ | _
 ... | Continue _ _ | Violated _ | () | _ | _ | _
 ... | Continue _ _ | Satisfied | () | _ | _ | _
+... | Continue _ _ | Inconclusive _ | () | _ | _ | _
+... | Inconclusive _ | Violated _ | () | _ | _ | _
+... | Inconclusive _ | Satisfied | () | _ | _ | _
+... | Inconclusive _ | Continue _ _ | () | _ | _ | _
 ... | _ | _ | _ | Violated _ | Satisfied | ()
 ... | _ | _ | _ | Violated _ | Continue _ _ | ()
+... | _ | _ | _ | Violated _ | Inconclusive _ | ()
 ... | _ | _ | _ | Satisfied | Violated _ | ()
 ... | _ | _ | _ | Satisfied | Continue _ _ | ()
+... | _ | _ | _ | Satisfied | Inconclusive _ | ()
 ... | _ | _ | _ | Continue _ _ | Violated _ | ()
 ... | _ | _ | _ | Continue _ _ | Satisfied | ()
+... | _ | _ | _ | Continue _ _ | Inconclusive _ | ()
+... | _ | _ | _ | Inconclusive _ | Violated _ | ()
+... | _ | _ | _ | Inconclusive _ | Satisfied | ()
+... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
 -- 🎉 PROGRESS! Bisimilarity: 13 operators fully proven!
