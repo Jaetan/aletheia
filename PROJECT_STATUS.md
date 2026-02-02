@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-02-03
 
 ---
 
@@ -111,12 +111,17 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
    - `LTL/JSON/Format.agda`: formatSignalPredicate, formatLTL, ltlDepth functions
    - `LTL/JSON/Properties.agda`: Roundtrip and completeness proofs
    - Proven: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just φ
-5. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
-6. ⏸️ Parser memoization - NOT STARTED
-7. ⏸️ Signal caching - NOT STARTED
+5. ✅ Three-valued signal semantics - COMPLETE
+   - `LTL/SignalPredicate.agda`: ThreeVal (True/False/Unknown), Kleene logic, SignalCache
+   - `LTL/Incremental.agda`: Inconclusive state, safety vs liveness semantics
+   - `LTL/Coalgebra.agda`: Mirrored Inconclusive handling for bisimilarity
+   - `LTL/Bisimilarity.agda`: All 13 operator proofs updated for Inconclusive
+   - Key improvement: No frame filtering needed - Unknown signals continue monitoring
+6. ⏸️ Performance optimization (target: 1M frames/sec) - NOT STARTED
+7. ⏸️ Parser memoization - NOT STARTED
 
 **Status**: In progress (started 2025-12-17)
-**Completion**: 57% (4/7 goals complete)
+**Completion**: 71% (5/7 goals complete)
 
 ---
 
@@ -161,7 +166,7 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Lines of code: ~5,500 Agda + ~4,500 Python
 
 **Testing**:
-- Unit tests: 146 passing
+- Unit tests: 164 passing
 - Integration tests: Memory profiling, streaming protocol validation
 
 **Performance**:
@@ -181,13 +186,13 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 **Phase 3 Remaining Goals**:
 1. ⏸️ Performance optimization (target: 1M frames/sec, currently ~10K frames/sec)
 2. ⏸️ Parser memoization
-3. ⏸️ Signal caching
 
 **Completed**:
 - ✅ Parser soundness proofs
 - ✅ LTL semantics proofs (bisimilarity, all operators)
 - ✅ CAN encoding proofs (batch operations, disjointness preservation)
 - ✅ DSL translation proofs (roundtrip, completeness)
+- ✅ Three-valued signal semantics (signal caching, Inconclusive handling)
 
 **Future**:
 - Phase 4: Production hardening, documentation, standard library
