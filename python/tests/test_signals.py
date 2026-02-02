@@ -398,7 +398,7 @@ class TestSignalExtractor:
         """Test update() calls Agda binary and returns updated frame"""
         responses = [
             '{"status":"success","message":"DBC parsed"}\n',
-            '{"status":"success","frame":[100,0,0,0,0,0,0,0]}\n'
+            '{"status":"success","data":[100,0,0,0,0,0,0,0]}\n'
         ]
         with mock_popen_factory(responses):
             with SignalExtractor(dbc=minimal_dbc) as extractor:

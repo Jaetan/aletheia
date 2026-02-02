@@ -349,7 +349,7 @@ class UpdateFrameCommand(TypedDict):
     type: Literal["command"]
     command: Literal["updateFrame"]
     canId: int
-    frame: list[int]
+    data: list[int]
     signals: list[SignalValue]
 
 

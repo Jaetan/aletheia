@@ -255,6 +255,33 @@ class SignalExtractor(BinaryClient):
     """
 
     @staticmethod
+    def _parse_rational(value_raw: object) -> float:
+        """Parse a value that may be a number or a rational string like '72/1'."""
+        if isinstance(value_raw, (int, float)):
+            return float(value_raw)
+        if isinstance(value_raw, str):
+            # Parse rational string like "72/1" or "-5/2"
+            if "/" in value_raw:
+                parts = value_raw.split("/")
+                if len(parts) == 2:
+                    try:
+                        numerator = int(parts[0])
+                        denominator = int(parts[1])
+                        if denominator != 0:
+                            return numerator / denominator
+                    except ValueError:
+                        pass
+            # Try parsing as plain number string
+            try:
+                return float(value_raw)
+            except ValueError:
+                pass
+        raise AssertionError(
+            f"Protocol error: expected signal value to be number or rational string, "
+            f"got {type(value_raw).__name__}: {value_raw!r}"
+        )
+
+    @staticmethod
     def _parse_values_list(values_data: list[object]) -> dict[str, float]:
         """Parse signal values list from response"""
         values: dict[str, float] = {}
@@ -266,9 +293,7 @@ class SignalExtractor(BinaryClient):
             assert isinstance(name_raw, str), \
                 f"Protocol error: expected signal name to be str, got {type(name_raw)}"
             value_raw = item_dict.get("value")
-            assert isinstance(value_raw, (int, float)), \
-                f"Protocol error: expected signal value to be number, got {type(value_raw)}"
-            values[name_raw] = float(value_raw)
+            values[name_raw] = SignalExtractor._parse_rational(value_raw)
         return values
 
     @staticmethod
@@ -415,7 +440,7 @@ class SignalExtractor(BinaryClient):
             "type": "command",
             "command": "updateFrame",
             "canId": can_id,
-            "frame": frame,
+            "data": frame,
             "signals": signals_json
         }
         response = self._send_command(update_cmd)
@@ -426,10 +451,10 @@ class SignalExtractor(BinaryClient):
             raise RuntimeError(f"Update frame failed: {error_msg}")
 
         # Extract updated frame from response
-        if "frame" not in response:
-            raise RuntimeError("Invalid response: missing 'frame' field")
+        if "data" not in response:
+            raise RuntimeError("Invalid response: missing 'data' field")
 
-        frame_data = response["frame"]
+        frame_data = response["data"]
         # Runtime validation of JSON data (response is from json.loads via _send_command)
         # TypedDict describes expected structure but json.loads can return anything
         if not isinstance(frame_data, list) or len(frame_data) != 8:  # pyright: ignore[reportUnnecessaryIsInstance]
