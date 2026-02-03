@@ -5,7 +5,8 @@ This directory contains example DBC files and verification scripts demonstrating
 ## Files
 
 - `example.dbc` - Sample DBC file with engine and brake signals (standard Vector DBC format)
-- `simple_verification.py` - Complete verification example using StreamingClient API
+- `simple_verification.py` - Complete verification example using AletheiaClient API
+- `demo/` - Additional demos: drive log generation, DBC validation, frame injection
 
 ## Running Examples
 

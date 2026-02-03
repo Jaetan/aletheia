@@ -14,10 +14,10 @@ cabal run shake -- install-python  # Install Python package
 
 ## Usage
 
-The Aletheia Python API provides a streaming interface with a fluent DSL for defining LTL properties. See the main README and package docstrings for complete examples.
+The Aletheia Python API provides a unified client with streaming LTL verification and signal operations. See the main README and package docstrings for complete examples.
 
 ```python
-from aletheia import StreamingClient, Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 
 # Load DBC specification
@@ -27,22 +27,22 @@ dbc_json = dbc_to_json("vehicle.dbc")
 speed_limit = Signal("Speed").less_than(220).always()
 
 # Stream CAN frames and check properties
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
 
     for timestamp, can_id, data in can_trace:
         response = client.send_frame(timestamp, can_id, data)
-        if response.get("type") == "property":
-            print(f"Violation: {response['message']}")
+        if response.get("status") == "violation":
+            print(f"Violation: {response['reason']}")
 
     client.end_stream()
 ```
 
 For more details, see:
 - Package docstrings: `python3 -c "import aletheia; help(aletheia)"`
-- Integration tests: `python/tests/test_streaming_client.py`
+- Tests: `python/tests/test_unified_client.py`
 - Main README: `../README.md`
 
 ## Testing

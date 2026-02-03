@@ -265,8 +265,8 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: Just the compiled bina
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
-- Python API with batch signal operations
-- 146 passing tests
+- Python API with signal operations
+- Comprehensive test suite
 - ~10K frames/sec throughput
 
 **Next steps**:

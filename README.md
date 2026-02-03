@@ -28,7 +28,7 @@ For complete build instructions, troubleshooting, and development workflow, see 
 ### Basic Usage
 
 ```python
-from aletheia import StreamingClient, Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 
 # Load DBC specification (converts .dbc to JSON)
@@ -39,46 +39,39 @@ speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
 # Stream CAN frames and check properties
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
     client.start_stream()
 
     for timestamp, can_id, data in can_trace:
         response = client.send_frame(timestamp, can_id, data)
-        if response.get("type") == "property":
-            print(f"Violation: {response['message']}")
+        if response.get("status") == "violation":
+            print(f"Violation: {response['reason']}")
 
     client.end_stream()
 ```
 
 See [Python API Guide](docs/development/PYTHON_API.md) for complete API reference and examples.
 
-### Batch Signal Operations
+### Signal Operations
 
-Aletheia also provides standalone tools for building and extracting CAN signals:
+AletheiaClient also provides signal extraction and frame building:
 
 ```python
-from aletheia import FrameBuilder, SignalExtractor
-from aletheia.dbc_converter import dbc_to_json
+with AletheiaClient() as client:
+    client.parse_dbc(dbc_json)
 
-dbc = dbc_to_json("vehicle.dbc")
+    # Build a frame from signal values
+    frame = client.build_frame(can_id=0x100, signals={"Speed": 72.0})
 
-# Build a CAN frame from signals
-with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
-    frame = (builder
-        .set("EngineSpeed", 2000)
-        .set("EngineTemp", 90)
-        .set("Throttle", 75)
-        .build())
+    # Extract signals from a frame
+    result = client.extract_signals(can_id=0x100, data=frame)
+    speed = result.get("Speed")  # 72.0
 
-# Extract all signals from a frame
-with SignalExtractor(dbc=dbc) as extractor:
-    result = extractor.extract(can_id=0x100, data=frame)
-    speed = result.get("EngineSpeed")  # 2000.0
+    # Update specific signals in a frame
+    modified = client.update_frame(can_id=0x100, frame=frame, signals={"Speed": 130.0})
 ```
-
-See [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) for detailed usage and [examples](examples/batch_operations/).
 
 ## Project Structure
 
@@ -88,7 +81,7 @@ aletheia/
 ├── haskell-shim/        # Minimal I/O layer
 ├── python/              # User-facing Python API
 ├── docs/                # Documentation
-└── examples/            # Sample DBC files and traces
+└── examples/            # Sample DBC files and demos
 ```
 
 ## Documentation
@@ -98,7 +91,6 @@ aletheia/
 ### Getting Started
 - [Building Guide](docs/development/BUILDING.md) - Setup and installation
 - [Python API Guide](docs/development/PYTHON_API.md) - Complete DSL reference
-- [Batch Operations Tutorial](docs/tutorials/BATCH_OPERATIONS.md) - Hands-on examples
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture
@@ -111,8 +103,7 @@ aletheia/
 
 ### Additional
 - [Project Pitch](docs/PITCH.md) - Why Aletheia?
-- [Examples](examples/) - Sample DBC files and scripts
-- [Integration Tests](tests/integration/INTEGRATION_TESTING.md) - Test suite
+- [Examples](examples/) - Sample DBC files and demos
 
 ## Project Status
 

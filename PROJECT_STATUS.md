@@ -79,11 +79,11 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Performance tuning (parallel GHC)
 - Comprehensive documentation
 
-**Extension - Batch Signal Operations**:
-- FrameBuilder: Build/update CAN frames with multiple signals
-- SignalExtractor: Extract all signals with partitioned results
+**Extension - Signal Operations**:
+- AletheiaClient: Unified client with streaming + signal operations
+- Build/update CAN frames with multiple signals
+- Extract all signals with partitioned results
 - Rich result objects (values/errors/absent signals)
-- 32 unit tests
 
 **Status**: 100% Complete
 
@@ -166,7 +166,7 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 - Lines of code: ~5,500 Agda + ~4,500 Python
 
 **Testing**:
-- Unit tests: 164 passing
+- Unit tests: 129 passing
 - Integration tests: Memory profiling, streaming protocol validation
 
 **Performance**:

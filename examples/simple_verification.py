@@ -10,7 +10,7 @@ This example demonstrates:
 """
 
 from pathlib import Path
-from aletheia import StreamingClient, Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 
 
@@ -50,7 +50,7 @@ def main():
     # Start streaming protocol
     print("Starting verification with streaming protocol...")
     try:
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             # Initialize: parse DBC and set properties
             client.parse_dbc(dbc_json)
             client.set_properties(properties)

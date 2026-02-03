@@ -12,7 +12,6 @@ Start here if you're new to Aletheia:
 2. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
 3. **[Building Guide](development/BUILDING.md)** - Setup and installation instructions
 4. **[Python API Guide](development/PYTHON_API.md)** - Complete Python DSL reference
-5. **[Batch Operations Tutorial](tutorials/BATCH_OPERATIONS.md)** - First hands-on tutorial
 
 ---
 
@@ -49,7 +48,7 @@ Want to contribute to Aletheia?
 Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
-- **[Batch Operations Tutorial](tutorials/BATCH_OPERATIONS.md)** - 6 complete examples with explanations
+- **[Demo Scripts](../examples/demo/)** - DBC validation, frame injection, and drive simulation
 - **[Integration Testing](../tests/integration/INTEGRATION_TESTING.md)** - Test suite documentation
 
 ---
@@ -72,23 +71,26 @@ aletheia/
 ├── LICENSE.md                         # Legal
 ├── .session-state.md                  # Session recovery (internal)
 │
-└── docs/
-    ├── INDEX.md                       # THIS FILE - Documentation navigation
-    ├── PITCH.md                       # Elevator pitch
-    │
-    ├── architecture/
-    │   ├── DESIGN.md                  # Architecture overview
-    │   └── PROTOCOL.md                # JSON protocol spec
-    │
-    ├── development/
-    │   ├── BUILDING.md                # Build instructions
-    │   └── PYTHON_API.md              # Python API reference
-    │
-    └── tutorials/
-        └── BATCH_OPERATIONS.md        # Tutorial with examples
+├── docs/
+│   ├── INDEX.md                       # THIS FILE - Documentation navigation
+│   ├── PITCH.md                       # Elevator pitch
+│   │
+│   ├── architecture/
+│   │   ├── DESIGN.md                  # Architecture overview
+│   │   └── PROTOCOL.md                # JSON protocol spec
+│   │
+│   └── development/
+│       ├── BUILDING.md                # Build instructions
+│       └── PYTHON_API.md              # Python API reference
+│
+└── examples/
+    └── demo/                          # Example scripts
+        ├── dbc_validation.py          # DBC parsing and validation
+        ├── demo.py                    # Drive log generator
+        └── frame_injection.py         # Signal extraction and modification
 ```
 
 ---
 
-**Last Updated**: 2026-01-08
+**Last Updated**: 2026-02-03
 **Maintained By**: Aletheia Team
