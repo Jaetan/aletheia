@@ -97,7 +97,7 @@ print("\n" + "=" * 60)
 print("SECTION 3: Running on Real Data")
 print("=" * 60)
 
-from aletheia import StreamingClient
+from aletheia import AletheiaClient
 from drive_log import NORMAL_DRIVE
 
 # No filtering needed! Three-valued semantics handles frames without the signal.
@@ -110,7 +110,7 @@ print("\nNote: Sending ALL frames (no filtering by CAN ID needed)")
 # Check the speed limit property against the normal drive
 print("\nChecking speed limit property (speed < 120 always)...")
 
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
@@ -124,10 +124,10 @@ with StreamingClient() as client:
     result = client.end_stream()
 
 if not violations:
-    print("\n✓ Property HOLDS on this drive")
+    print("\n  Property HOLDS on this drive")
     print("  The speed never exceeded 120 kph throughout the recording.")
 else:
-    print(f"\n✗ Property VIOLATED: {len(violations)} violation(s)")
+    print(f"\n  Property VIOLATED: {len(violations)} violation(s)")
 
 
 # =============================================================================
@@ -146,7 +146,7 @@ print(f"Loaded faulty drive log: {len(OVERSPEED_DRIVE)} frames")
 # Check the same property against the overspeed drive
 print("\nChecking speed limit against faulty drive...")
 
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
@@ -161,11 +161,11 @@ with StreamingClient() as client:
     result = client.end_stream()
 
 if violations:
-    print(f"\n✗ Property VIOLATED!")
+    print(f"\n  Property VIOLATED!")
     print(f"  {len(violations)} violation(s) detected")
     print("\n  The checker found the exact points where speed >= 120 kph.")
 else:
-    print("\n✓ Property holds (unexpected)")
+    print("\n  Property holds (unexpected)")
 
 
 # =============================================================================

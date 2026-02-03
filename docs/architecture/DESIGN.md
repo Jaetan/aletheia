@@ -31,7 +31,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 ```
 ┌─────────────────────────────────────────┐
 │ Python Layer (python/)                  │
-│ - User-facing API (StreamingClient, DSL)│
+│ - User-facing API (AletheiaClient, DSL)│
 │ - Subprocess communication via JSON     │
 │ - Simple wrapper around binary           │
 └──────────────┬──────────────────────────┘

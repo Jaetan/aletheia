@@ -146,7 +146,7 @@ Agda (all logic + proofs)
 
 1. Load a DBC file:
    ```python
-   from aletheia import StreamingClient
+   from aletheia import AletheiaClient
    from aletheia.dbc_converter import dbc_to_json
 
    dbc = dbc_to_json("vehicle.dbc")
@@ -159,7 +159,7 @@ Agda (all logic + proofs)
 
 3. Stream CAN frames:
    ```python
-   with StreamingClient() as client:
+   with AletheiaClient() as client:
        client.parse_dbc(dbc)
        client.set_properties([speed_limit.to_dict()])
        client.start_stream()

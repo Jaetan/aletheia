@@ -1,23 +1,32 @@
 """Aletheia - Formally verified CAN frame analysis with LTL
 
-JSON Streaming Protocol (Phase 2B.1)
-====================================
+AletheiaClient
+==============
 
-The primary interface is StreamingClient for incremental LTL checking:
+AletheiaClient provides streaming LTL checking and signal operations:
 
-    from aletheia import StreamingClient, Signal
+    from aletheia import AletheiaClient, Signal
 
-    with StreamingClient() as client:
+    with AletheiaClient() as client:
         client.parse_dbc(dbc_json)
-        client.set_properties([
-            Signal("Speed").less_than(220).always().to_dict()
-        ])
+
+        # Signal operations work anytime after DBC loaded
+        result = client.extract_signals(can_id=0x100, data=frame_bytes)
+        speed = result.get("VehicleSpeed", 0.0)
+
+        # Build frames from signal values
+        frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 50.0})
+
+        # Update specific signals in a frame
+        modified = client.update_frame(can_id=0x100, frame=data, signals={"VehicleSpeed": 130.0})
+
+        # Streaming LTL checking
+        client.set_properties([Signal("Speed").less_than(220).always().to_dict()])
         client.start_stream()
 
         for frame in can_trace:
+            # Signal ops work while streaming too!
             response = client.send_frame(timestamp, can_id, data)
-            if response.get("type") == "property":
-                print(f"Violation: {response}")
 
         client.end_stream()
 
@@ -36,32 +45,29 @@ Use the fluent Signal interface to build properties:
     brake.implies(speed_decreases.within(100))
 """
 
-from .streaming_client import (
-    StreamingClient,
+from .client import (
+    AletheiaClient,
     AletheiaError,
     ProcessError,
     ProtocolError,
-)
-from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
-from .signals import (
-    FrameBuilder,
-    SignalExtractor,
     SignalExtractionResult,
 )
+from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 
 __version__ = "0.3.0"
 __all__ = [
-    "StreamingClient",
+    # Client
+    "AletheiaClient",
+    "SignalExtractionResult",
+    # Exceptions
     "AletheiaError",
     "ProcessError",
     "ProtocolError",
+    # DSL
     "Signal",
     "Predicate",
     "Property",
     "infinitely_often",
     "eventually_always",
     "never",
-    "FrameBuilder",
-    "SignalExtractor",
-    "SignalExtractionResult",
 ]

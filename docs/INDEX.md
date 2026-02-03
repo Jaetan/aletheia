@@ -20,7 +20,7 @@ Start here if you're new to Aletheia:
 
 Complete API documentation:
 
-- **[Python API Guide](development/PYTHON_API.md)** - Signal DSL, temporal operators, StreamingClient
+- **[Python API Guide](development/PYTHON_API.md)** - Signal DSL, temporal operators, AletheiaClient
 - **[JSON Protocol Specification](architecture/PROTOCOL.md)** - Low-level protocol for advanced users
 
 ---

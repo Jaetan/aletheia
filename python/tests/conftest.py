@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from aletheia import Signal, StreamingClient
+from aletheia import AletheiaClient, Signal
 from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition
 
@@ -28,7 +28,7 @@ class CANFrame:
 __all__ = [
     "CANFrame",
     "_mock_process",
-    "_mock_streaming_client",
+    "_mock_client",
     "_sample_dbc",
     "_sample_property",
     "_sample_can_frame",
@@ -47,11 +47,11 @@ def _mock_process() -> Mock:
     return process
 
 
-@pytest.fixture(name="mock_streaming_client")
-def _mock_streaming_client(mock_process: Mock) -> Generator[StreamingClient, None, None]:
-    """Mock StreamingClient with subprocess patched"""
+@pytest.fixture(name="mock_client")
+def _mock_client(mock_process: Mock) -> Generator[AletheiaClient, None, None]:
+    """Mock AletheiaClient with subprocess patched"""
     with patch('subprocess.Popen', return_value=mock_process):
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             yield client
 
 

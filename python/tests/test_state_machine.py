@@ -1,4 +1,4 @@
-"""State machine tests for StreamingClient protocol
+"""State machine tests for AletheiaClient protocol
 
 Tests all valid and invalid state transitions to ensure correct protocol enforcement.
 
@@ -10,7 +10,7 @@ State Machine:
 
 from unittest.mock import Mock, patch
 
-from aletheia import StreamingClient
+from aletheia import AletheiaClient
 from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition
 from tests.conftest import CANFrame
@@ -45,7 +45,7 @@ class TestValidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             # Transition: Initial → DBCLoaded
             assert client.parse_dbc(sample_dbc)["status"] == "success"
 
@@ -80,7 +80,7 @@ class TestValidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             client.set_properties([])
             client.start_stream()
@@ -111,7 +111,7 @@ class TestValidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             client.set_properties([])
             client.start_stream()
@@ -144,7 +144,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             # Try to send frame without starting stream
             # The Agda side will return an error
             frame = sample_can_frame
@@ -161,7 +161,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             # Try to start stream without DBC
             resp = client.start_stream()
             assert resp["status"] == "error"
@@ -182,7 +182,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             # Try to start stream without setting properties
             resp = client.start_stream()
@@ -204,7 +204,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             resp1 = client.parse_dbc(sample_dbc)
             assert resp1["status"] == "success"
 
@@ -229,7 +229,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             resp1 = client.set_properties([])
             assert resp1["status"] == "success"
@@ -255,7 +255,7 @@ class TestInvalidTransitions:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             client.set_properties([])
             # Try to end stream without starting
@@ -287,7 +287,7 @@ class TestStateEdgeCases:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             resp = client.set_properties([])  # Empty list
             assert resp["status"] == "success"
@@ -321,7 +321,7 @@ class TestStateEdgeCases:
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
 
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             client.parse_dbc(sample_dbc)
             client.set_properties([])
             client.start_stream()

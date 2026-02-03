@@ -21,8 +21,7 @@ Requirements:
 - Aletheia binary must be built: `cabal run shake -- build`
 """
 
-import json
-from aletheia import StreamingClient
+from aletheia import AletheiaClient
 
 
 def create_valid_dbc() -> dict:
@@ -218,7 +217,7 @@ def test_dbc(name: str, dbc: dict, expect_valid: bool) -> bool:
     print(f"Expected: {'Valid' if expect_valid else 'Invalid'}")
 
     try:
-        with StreamingClient() as client:
+        with AletheiaClient() as client:
             response = client.parse_dbc(dbc)
 
             if response.get("status") == "success":

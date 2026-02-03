@@ -2,14 +2,14 @@
 
 **Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
 **Version**: 0.3.0-dev (Phase 3)
-**Last Updated**: 2026-01-08
+**Last Updated**: 2026-02-03
 
 ---
 
 ## Quick Start
 
 ```python
-from aletheia import StreamingClient, Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 
 # Load DBC file (converts .dbc to JSON automatically)
@@ -19,7 +19,7 @@ dbc_json = dbc_to_json("vehicle.dbc")
 property = Signal("Speed").less_than(250).always()
 
 # Check CAN frames against property
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([property.to_dict()])
     client.start_stream()
@@ -28,7 +28,7 @@ with StreamingClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("type") == "property":
-            print(f"⚠️  Violation at {response['timestamp']}: {response['reason']}")
+            print(f"Violation at {response['timestamp']}: {response['reason']}")
             break
 
     client.end_stream()
@@ -53,11 +53,11 @@ Signal("Gear").equals(0)                    # Gear is in park (0)
 # Relational operators
 Signal("Speed").less_than(220)              # Speed < 220 km/h
 Signal("Speed").greater_than(0)             # Speed > 0
-Signal("Speed").less_than_or_equal(200)     # Speed ≤ 200
-Signal("Speed").greater_than_or_equal(60)   # Speed ≥ 60
+Signal("Speed").less_than_or_equal(200)     # Speed <= 200
+Signal("Speed").greater_than_or_equal(60)   # Speed >= 60
 
 # Range checking
-Signal("BatteryVoltage").between(11.5, 14.5)  # 11.5 ≤ voltage ≤ 14.5
+Signal("BatteryVoltage").between(11.5, 14.5)  # 11.5 <= voltage <= 14.5
 ```
 
 #### Change Detection
@@ -68,7 +68,7 @@ Signal("Speed").changed_by(-10)  # Speed decreased by 10+ km/h
 Signal("RPM").changed_by(500)    # RPM increased or decreased by 500+
 ```
 
-**Note**: `changed_by` checks `|value_now - value_prev| ≥ |delta|`
+**Note**: `changed_by` checks `|value_now - value_prev| >= |delta|`
 
 ---
 
@@ -131,7 +131,7 @@ The `Next` operator evaluates a formula at the next frame:
 Signal("Speed").less_than(100).next()
 ```
 
-**⚠️ WARNING: Next is rarely appropriate for CAN analysis**
+**WARNING: Next is rarely appropriate for CAN analysis**
 
 **Why Next is problematic:**
 
@@ -232,7 +232,7 @@ power_off.implies(
 
 #### Release Operator
 
-The Release operator is the dual of Until: `φ R ψ` means ψ holds until φ releases it (or forever if φ never holds).
+The Release operator is the dual of Until: `phi R psi` means psi holds until phi releases it (or forever if phi never holds).
 
 ```python
 # Brake must stay engaged until ignition turns on
@@ -245,7 +245,7 @@ property = ignition_on.release(brake_engaged)
 
 #### Metric Until
 
-Time-bounded Until: `φ U_{≤t} ψ` means φ holds until ψ becomes true within t milliseconds.
+Time-bounded Until: `phi U_{<=t} psi` means phi holds until psi becomes true within t milliseconds.
 
 ```python
 # Speed must stay above 50 until brake pressed (within 1 second)
@@ -258,7 +258,7 @@ property = speed_ok.metric_until(1000, brake)
 
 #### Metric Release
 
-Time-bounded Release: `φ R_{≤t} ψ` means ψ holds until φ releases it within t milliseconds.
+Time-bounded Release: `phi R_{<=t} psi` means psi holds until phi releases it within t milliseconds.
 
 ```python
 # Safety: Brake engaged until ignition on (within 5 seconds)
@@ -276,7 +276,7 @@ property = ignition.metric_release(5000, brake)
 ### Example 1: Speed Limit Checking
 
 ```python
-from aletheia import StreamingClient, Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 
 # Load DBC
@@ -286,7 +286,7 @@ dbc = dbc_to_json("vehicle.dbc")
 property = Signal("Speed").less_than(250).always()
 
 # Check CAN trace
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([property.to_dict()])
     client.start_stream()
@@ -295,11 +295,11 @@ with StreamingClient() as client:
         response = client.send_frame(timestamp, can_id, data)
 
         if response.get("type") == "property":
-            print(f"⚠️  Speed limit exceeded at {timestamp}µs")
+            print(f"Speed limit exceeded at {timestamp}us")
             print(f"   Reason: {response['reason']}")
             break
         else:
-            print(f"✓ Frame at {timestamp}µs: OK")
+            print(f"Frame at {timestamp}us: OK")
 
     client.end_stream()
 ```
@@ -323,7 +323,7 @@ properties = [
     Signal("EngineTemp").greater_than(90).eventually()
 ]
 
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([p.to_dict() for p in properties])
     client.start_stream()
@@ -350,7 +350,7 @@ speed_decreasing = Signal("Speed").changed_by(-5)  # Decreased by at least 5 km/
 
 property = brake_pressed.implies(speed_decreasing.within(100))
 
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([property.to_dict()])
     client.start_stream()
@@ -368,11 +368,11 @@ with StreamingClient() as client:
     client.end_stream()
 
     if violations:
-        print(f"⚠️  Brake safety violations: {len(violations)}")
+        print(f"Brake safety violations: {len(violations)}")
         for v in violations:
-            print(f"   - {v['timestamp']}µs: {v['reason']}")
+            print(f"   - {v['timestamp']}us: {v['reason']}")
     else:
-        print("✓ Brake safety property satisfied")
+        print("Brake safety property satisfied")
 ```
 
 ---
@@ -390,7 +390,7 @@ property = power_off.implies(
     power_start.never().until(power_acc)
 )
 
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([property.to_dict()])
     client.start_stream()
@@ -399,7 +399,7 @@ with StreamingClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("type") == "property":
-            print("⚠️  Invalid power mode transition detected")
+            print("Invalid power mode transition detected")
             print(f"   Timestamp: {response['timestamp']}")
             print(f"   Reason: {response['reason']}")
             break
@@ -409,30 +409,34 @@ with StreamingClient() as client:
 
 ---
 
-## StreamingClient API
+## AletheiaClient API
+
+`AletheiaClient` is the unified client for streaming LTL checking and signal operations. It manages a single subprocess for all operations.
 
 ### Context Manager
 
 ```python
-with StreamingClient() as client:
+with AletheiaClient() as client:
     # Subprocess runs during this block
     client.parse_dbc(dbc_json)
+
+    # Signal operations work anytime after DBC loaded
+    result = client.extract_signals(can_id=0x100, data=frame_bytes)
+
+    # Streaming LTL checking
     client.set_properties([property.to_dict()])
     client.start_stream()
-
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
-        # Process response...
-
     client.end_stream()
 # Subprocess automatically cleaned up
 ```
 
 ### Methods
 
-#### `parse_dbc(dbc_json: Dict) → Dict`
+#### `parse_dbc(dbc_json: Dict) -> Dict`
 
-Load DBC structure from JSON dictionary.
+Load DBC structure from JSON dictionary. Must be called first.
 
 ```python
 from aletheia.dbc_converter import dbc_to_json
@@ -442,7 +446,7 @@ response = client.parse_dbc(dbc)
 assert response["status"] == "success"
 ```
 
-#### `set_properties(properties: List[Dict]) → Dict`
+#### `set_properties(properties: List[Dict]) -> Dict`
 
 Set LTL properties to check (use `.to_dict()` on DSL properties).
 
@@ -456,16 +460,16 @@ response = client.set_properties([p.to_dict() for p in properties])
 assert response["status"] == "success"
 ```
 
-#### `start_stream() → Dict`
+#### `start_stream() -> Dict`
 
-Begin streaming mode.
+Begin streaming mode for LTL checking.
 
 ```python
 response = client.start_stream()
 assert response["status"] == "success"
 ```
 
-#### `send_frame(timestamp: int, can_id: int, data: List[int]) → Dict`
+#### `send_frame(timestamp: int, can_id: int, data: List[int]) -> Dict`
 
 Send a CAN frame for incremental checking.
 
@@ -490,25 +494,59 @@ Send a CAN frame for incremental checking.
 }
 ```
 
-**Example**:
-```python
-response = client.send_frame(
-    timestamp=1000,
-    can_id=256,
-    data=[0xE8, 0x03, 0, 0, 0, 0, 0, 0]
-)
-
-if response.get("type") == "property":
-    print(f"Violation: {response['reason']}")
-```
-
-#### `end_stream() → Dict`
+#### `end_stream() -> Dict`
 
 End streaming and get final results.
 
 ```python
 response = client.end_stream()
 assert response["status"] == "complete"
+```
+
+---
+
+## Signal Operations
+
+Signal operations work anytime after DBC is loaded - both inside and outside streaming mode.
+
+#### `extract_signals(can_id: int, data: List[int]) -> SignalExtractionResult`
+
+Extract all signals from a CAN frame.
+
+```python
+result = client.extract_signals(can_id=0x100, data=[0x20, 0x1C, 0, 0, 0, 0, 0, 0])
+speed = result.get("VehicleSpeed", default=0.0)
+print(f"Speed: {speed} kph")
+
+# Check for errors
+if result.has_errors():
+    print(f"Errors: {result.errors}")
+
+# Check absent signals (multiplexed signals not present in this frame)
+print(f"Absent: {result.absent}")
+```
+
+#### `update_frame(can_id: int, frame: List[int], signals: Dict[str, float]) -> List[int]`
+
+Update specific signals in an existing frame. Returns a new frame (immutable).
+
+```python
+original = [0x20, 0x1C, 0, 0, 0, 0, 0, 0]
+modified = client.update_frame(
+    can_id=0x100,
+    frame=original,
+    signals={"VehicleSpeed": 130.0}
+)
+# original unchanged, modified has new speed value
+```
+
+#### `build_frame(can_id: int, signals: Dict[str, float]) -> List[int]`
+
+Build a CAN frame from signal values (starts with zero-filled frame).
+
+```python
+frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
+# Returns 8-byte frame with VehicleSpeed encoded
 ```
 
 ---
@@ -569,52 +607,12 @@ dbc_json = {
 
 ---
 
-## Batch Signal Operations
-
-**Note**: Batch operations are independent from streaming verification. They provide a standalone toolbox for building, extracting, and updating CAN frames.
-
-For comprehensive tutorial with examples and detailed API documentation, see the [Batch Operations Guide](../tutorials/BATCH_OPERATIONS.md).
-
-### Quick API Reference
-
-**Frame Building**:
-```python
-from aletheia import FrameBuilder
-
-with FrameBuilder(can_id=0x100, dbc=dbc) as builder:
-    frame = builder.set("Speed", 60).set("Temp", 90).build()
-```
-
-**Signal Extraction**:
-```python
-from aletheia import SignalExtractor
-
-with SignalExtractor(dbc=dbc) as extractor:
-    result = extractor.extract(can_id=0x100, data=frame)
-    speed = result.get("Speed", default=0.0)
-```
-
-**Frame Updates**:
-```python
-with SignalExtractor(dbc=dbc) as extractor:
-    updated = extractor.update(can_id=0x100, frame=original,
-                               signals={"Speed": 80})
-```
-
-See the [complete tutorial](../tutorials/BATCH_OPERATIONS.md) for:
-- 10+ usage examples with explanations
-- Full API documentation
-- Performance tips and best practices
-- Common patterns and error handling
-
----
-
 ## Error Handling
 
 ### Binary Not Found
 
 ```python
-from aletheia.streaming_client import get_binary_path
+from aletheia.binary_utils import get_binary_path
 
 try:
     binary = get_binary_path()
@@ -651,12 +649,12 @@ if response.get("status") == "error":
 
 For traces with millions of frames:
 
-1. **Use StreamingClient** (incremental processing)
+1. **Use AletheiaClient** (incremental processing)
 2. **Don't load full trace into memory**
 3. **Early termination** on first violation
 
 ```python
-with StreamingClient() as client:
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     client.set_properties([property.to_dict()])
     client.start_stream()
@@ -706,7 +704,7 @@ class Predicate:
     def always(self) -> Property
     def eventually(self) -> Property
     def never(self) -> Property
-    def next(self) -> Property  # ⚠️ Rarely useful - see Next Operator warning above
+    def next(self) -> Property  # Rarely useful - see Next Operator warning above
     def within(self, time_ms: int) -> Property
     def for_at_least(self, time_ms: int) -> Property
 
@@ -728,7 +726,7 @@ class Property:
     def implies(self, other: Union[Property, Predicate]) -> Property
 
     # Temporal operators
-    def next(self) -> Property  # ⚠️ For nested formulas - see Next Operator warning
+    def next(self) -> Property  # For nested formulas - see Next Operator warning
     def until(self, other: Property) -> Property
     def release(self, other: Property) -> Property
     def metric_until(self, time_ms: int, other: Property) -> Property

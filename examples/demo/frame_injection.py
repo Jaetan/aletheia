@@ -21,7 +21,7 @@ Requirements:
 
 from pathlib import Path
 
-from aletheia import Signal, StreamingClient, SignalExtractor
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
 from drive_log import NORMAL_DRIVE, VEHICLE_DYNAMICS_ID
 
@@ -64,14 +64,17 @@ def main() -> None:
     print(f"\nPlan: Inject overspeed fault at frame #{target_frame_index}")
     print(f"      (the {target_speed_frame_num}th speed frame at {original_frame.timestamp_ms}ms)")
 
-    # Prepare the modified frame data using SignalExtractor
-    print("\n" + "-" * 70)
-    print("PREPARING INJECTION")
-    print("-" * 70)
+    # Use unified client for everything (single subprocess)
+    with AletheiaClient() as client:
+        client.parse_dbc(dbc)
 
-    with SignalExtractor(dbc=dbc) as extractor:
+        # Prepare the modified frame data
+        print("\n" + "-" * 70)
+        print("PREPARING INJECTION")
+        print("-" * 70)
+
         # Extract original speed
-        original_result = extractor.extract(
+        original_result = client.extract_signals(
             can_id=original_frame.can_id,
             data=list(original_frame.data)
         )
@@ -82,7 +85,7 @@ def main() -> None:
 
         # Prepare modified frame (130 kph, exceeding 120 limit)
         injected_speed = 130.0
-        modified_data = extractor.update(
+        modified_data = client.update_frame(
             can_id=original_frame.can_id,
             frame=list(original_frame.data),
             signals={"VehicleSpeed": injected_speed}
@@ -91,15 +94,13 @@ def main() -> None:
         print(f"  Data: {[f'0x{b:02X}' for b in modified_data]}")
         print(f"  VehicleSpeed: {injected_speed:.1f} kph (exceeds 120 limit)")
 
-    # Stream with real-time injection
-    print("\n" + "-" * 70)
-    print("STREAMING WITH REAL-TIME INJECTION")
-    print("-" * 70)
-    print(f"\nStreaming {len(NORMAL_DRIVE)} frames...")
-    print(f"Will inject modified frame at index {target_frame_index}\n")
+        # Stream with real-time injection (same client, same process!)
+        print("\n" + "-" * 70)
+        print("STREAMING WITH REAL-TIME INJECTION")
+        print("-" * 70)
+        print(f"\nStreaming {len(NORMAL_DRIVE)} frames...")
+        print(f"Will inject modified frame at index {target_frame_index}\n")
 
-    with StreamingClient() as client:
-        client.parse_dbc(dbc)
         client.set_properties([speed_limit.to_dict()])
         client.start_stream()
 
@@ -159,7 +160,7 @@ def main() -> None:
     print("=" * 70)
     print(f"""
 What this demo showed:
-  - Single streaming session (no restart)
+  - Single AletheiaClient handles BOTH signal ops AND streaming
   - Frame #{target_frame_index} was modified ON-THE-FLY during streaming
   - Original speed: {original_speed:.1f} kph -> Injected: {injected_speed:.1f} kph
   - Aletheia detected the violation IMMEDIATELY at the injected frame
