@@ -365,6 +365,79 @@ class AletheiaClient(BinaryClient):
 
         raise ProtocolError(f"Unexpected response status: {status}")
 
+    def send_frames_batch(
+        self,
+        frames: list[tuple[int, int, list[int]]]
+    ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
+        """Send multiple CAN frames in a batch for better throughput.
+
+        This method amortizes IPC overhead by sending all frames before reading
+        responses. Use this for high-throughput scenarios.
+
+        Args:
+            frames: List of (timestamp, can_id, data) tuples where:
+                - timestamp: Timestamp in microseconds
+                - can_id: CAN ID (11-bit standard)
+                - data: 8-byte payload as list of integers [0-255]
+
+        Returns:
+            List of responses (AckResponse, PropertyViolationResponse, or ErrorResponse)
+            in same order as input frames.
+
+        Raises:
+            ValueError: If any frame data is not exactly 8 bytes
+            ProtocolError: If response status is unexpected
+        """
+        # Validate all frames first
+        for i, (_, _, data) in enumerate(frames):
+            if len(data) != 8:
+                raise ValueError(f"Frame {i}: data must be exactly 8 bytes, got {len(data)}")
+
+        # Build all frame commands
+        commands: list[DataFrame] = []
+        for timestamp, can_id, data in frames:
+            frame: DataFrame = {
+                "type": "data",
+                "timestamp": timestamp,
+                "id": can_id,
+                "data": data
+            }
+            commands.append(frame)
+
+        # Send batch and get responses
+        raw_responses = self._send_batch(commands)  # type: ignore[arg-type]
+
+        # Parse responses
+        results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
+        for response in raw_responses:
+            status = response.get("status")
+
+            if status == "ack":
+                results.append({"status": ResponseStatus.ACK})
+            elif status == "violation":
+                prop_index = self._validate_rational("property_index", response.get("property_index"))
+                ts_rational = self._validate_rational("timestamp", response.get("timestamp"))
+                result_violation: PropertyViolationResponse = {
+                    "status": "violation",
+                    "type": "property",
+                    "property_index": prop_index,
+                    "timestamp": ts_rational
+                }
+                reason = response.get("reason")
+                if isinstance(reason, str):
+                    result_violation["reason"] = reason
+                results.append(result_violation)
+            elif status == "error":
+                message = response.get("message")
+                result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
+                if isinstance(message, str):
+                    result_error["message"] = message
+                results.append(result_error)
+            else:
+                raise ProtocolError(f"Unexpected response status: {status}")
+
+        return results
+
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode.
 

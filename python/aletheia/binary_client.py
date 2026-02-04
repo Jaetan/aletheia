@@ -138,3 +138,59 @@ class BinaryClient:
         # Type-safe cast after runtime validation (isinstance check ensures correctness)
         # Cast through object first as basedpyright requires for unrelated type conversions
         return cast(Response, cast(object, parsed))
+
+    def _send_batch(self, commands: list[Command], chunk_size: int = 50) -> list[Response]:
+        """Send multiple commands and receive all responses (batched I/O).
+
+        This amortizes IPC overhead by writing multiple commands before reading responses.
+        Uses chunked processing to avoid pipe buffer deadlocks.
+
+        Args:
+            commands: List of commands to send
+            chunk_size: Max commands to write before reading (default: 50)
+                        Smaller values are safer, larger values reduce IPC overhead
+
+        Returns:
+            List of responses in same order as commands
+
+        Raises:
+            RuntimeError: If subprocess not running or command fails
+        """
+        if not self._proc or not self._proc.stdin or not self._proc.stdout:
+            raise RuntimeError("Subprocess not running")
+
+        if not commands:
+            return []
+
+        responses: list[Response] = []
+
+        # Process in chunks to avoid pipe buffer deadlock
+        for chunk_start in range(0, len(commands), chunk_size):
+            chunk = commands[chunk_start:chunk_start + chunk_size]
+
+            # Write chunk of commands
+            for command in chunk:
+                json_line = json.dumps(command)
+                _ = self._proc.stdin.write(json_line + "\n")
+            self._proc.stdin.flush()
+
+            # Read chunk of responses
+            for _ in chunk:
+                response_line = self._proc.stdout.readline()
+                if not response_line:
+                    if self._proc.poll() is not None:
+                        stderr = self._proc.stderr.read() if self._proc.stderr else ""
+                        raise RuntimeError(f"Binary process terminated: {stderr}")
+                    raise RuntimeError("No response from binary")
+
+                try:
+                    parsed = json.loads(response_line)  # pyright: ignore[reportAny]
+                except json.JSONDecodeError as e:
+                    raise RuntimeError(f"Invalid JSON response: {response_line!r} - {e}") from e
+
+                if not isinstance(parsed, dict):
+                    raise RuntimeError(f"Expected JSON object, got {type(parsed).__name__}")  # pyright: ignore[reportAny]
+
+                responses.append(cast(Response, cast(object, parsed)))
+
+        return responses
