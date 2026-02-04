@@ -57,3 +57,4 @@ c.log
 /test_*.yaml
 /debug_*.py
 /tmp_*.yaml
+*.hp
