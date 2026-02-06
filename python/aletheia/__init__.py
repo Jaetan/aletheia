@@ -54,6 +54,7 @@ from .client import (
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from .yaml_loader import load_checks
 
 __version__ = "0.3.2"
 __all__ = [
@@ -67,6 +68,8 @@ __all__ = [
     # Check API
     "Check",
     "CheckResult",
+    # YAML loader
+    "load_checks",
     # DSL
     "Signal",
     "Predicate",
