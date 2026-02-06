@@ -52,6 +52,7 @@ from .client import (
     ProtocolError,
     SignalExtractionResult,
 )
+from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 
 __version__ = "0.3.2"
@@ -63,6 +64,9 @@ __all__ = [
     "AletheiaError",
     "ProcessError",
     "ProtocolError",
+    # Check API
+    "Check",
+    "CheckResult",
     # DSL
     "Signal",
     "Predicate",
