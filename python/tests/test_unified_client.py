@@ -198,6 +198,36 @@ class TestAletheiaClientMixedOperations:
             client.end_stream()
 
 
+class TestAletheiaClientLifecycle:
+    """Test GHC RTS lifecycle with multiple sequential clients."""
+
+    def test_sequential_clients(self, simple_dbc: dict) -> None:
+        """Multiple sequential clients in one process should work."""
+        for _ in range(3):
+            with AletheiaClient() as client:
+                response = client.parse_dbc(simple_dbc)
+                assert response.get("status") == "success"
+
+    def test_restart_stream(self, simple_dbc: dict) -> None:
+        """Stream can be restarted after end_stream."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties(
+                [Signal("TestSignal").less_than(65535).always().to_dict()]
+            )
+
+            # First stream
+            client.start_stream()
+            client.send_frame(timestamp=0, can_id=256, data=[1, 0, 0, 0, 0, 0, 0, 0])
+            client.end_stream()
+
+            # Second stream (same client, same DBC)
+            client.start_stream()
+            resp = client.send_frame(timestamp=1, can_id=256, data=[2, 0, 0, 0, 0, 0, 0, 0])
+            assert resp.get("status") == "ack"
+            client.end_stream()
+
+
 class TestAletheiaClientWithDemoDBC:
     """Tests using the demo vehicle DBC."""
 

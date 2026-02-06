@@ -16,7 +16,6 @@ open import Data.List using (List; []; _∷_; length)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _<_; _+_; suc; zero) renaming (_≤_ to _≤ₙ_)
 open import Data.Nat.Properties using (≤-refl; ≤-trans; _≤?_; _<?_)
-open import Data.Fin using (Fin; toℕ)
 open import Data.Rational using (ℚ; _≤_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.String using (String; _≟_)
@@ -31,35 +30,16 @@ open import Data.Empty using (⊥; ⊥-elim)
 -- BASIC STRUCTURAL PROPERTIES
 -- ============================================================================
 
--- Property: Parsed signal start bits are always bounded
-startBit-bounded : ∀ (sig : DBCSignal) → toℕ (SignalDef.startBit (DBCSignal.signalDef sig)) < 64
-startBit-bounded sig = toℕ<n (SignalDef.startBit (DBCSignal.signalDef sig))
-  where
-    open import Data.Fin.Properties using (toℕ<n)
+-- Note: Signal start bits, bit lengths, DLC, and CAN IDs are now ℕ.
+-- Bounds are enforced at construction sites (% 64, % 65, % 9, % 2048)
+-- rather than by Fin types. The proofs that relied on Fin bounds
+-- (startBit-bounded, bitLength-bounded, dlc-bounded, messageId-valid)
+-- have been removed as they are no longer type-level guarantees.
 
--- Property: Parsed signal bit lengths are always bounded
-bitLength-bounded : ∀ (sig : DBCSignal) → toℕ (SignalDef.bitLength (DBCSignal.signalDef sig)) ≤ₙ 64
-bitLength-bounded sig = ≤-pred (toℕ<n (SignalDef.bitLength (DBCSignal.signalDef sig)))
-  where
-    open import Data.Fin.Properties using (toℕ<n)
-    open import Data.Nat.Properties using (≤-pred)
-
--- Property: Parsed message IDs are always valid (bounded by CANId type)
--- Standard IDs: < 2048 (11-bit)
--- Extended IDs: < 536870912 (29-bit)
--- This property is trivially true by construction of CANId type
-messageId-valid : ∀ (id : CANId) → ℕ
-messageId-valid (Standard x) = toℕ x
-messageId-valid (Extended x) = toℕ x
-  where
-    open import Data.Fin using (toℕ)
-
--- Property: Parsed DLC values are valid
-dlc-bounded : ∀ (msg : DBCMessage) → toℕ (DBCMessage.dlc msg) ≤ₙ 8
-dlc-bounded msg = ≤-pred (toℕ<n (DBCMessage.dlc msg))
-  where
-    open import Data.Fin.Properties using (toℕ<n)
-    open import Data.Nat.Properties using (≤-pred)
+-- Extractors for CAN ID values (now just identity since fields are ℕ)
+messageId-value : CANId → ℕ
+messageId-value (Standard x) = x
+messageId-value (Extended x) = x
 
 -- ============================================================================
 -- SIGNAL DISJOINTNESS
@@ -68,21 +48,21 @@ dlc-bounded msg = ≤-pred (toℕ<n (DBCMessage.dlc msg))
 -- Two signals are disjoint if their bit ranges don't overlap
 data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
   disjoint-left :
-    toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁)
-      ≤ₙ toℕ (SignalDef.startBit sig₂)
+    SignalDef.startBit sig₁ + SignalDef.bitLength sig₁
+      ≤ₙ SignalDef.startBit sig₂
     → SignalsDisjoint sig₁ sig₂
   disjoint-right :
-    toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂)
-      ≤ₙ toℕ (SignalDef.startBit sig₁)
+    SignalDef.startBit sig₂ + SignalDef.bitLength sig₂
+      ≤ₙ SignalDef.startBit sig₁
     → SignalsDisjoint sig₁ sig₂
 
 -- Decidable check for signal disjointness
 signalsDisjoint? : (sig₁ sig₂ : SignalDef) → Dec (SignalsDisjoint sig₁ sig₂)
 signalsDisjoint? sig₁ sig₂ =
-  let s₁ = toℕ (SignalDef.startBit sig₁)
-      l₁ = toℕ (SignalDef.bitLength sig₁)
-      s₂ = toℕ (SignalDef.startBit sig₂)
-      l₂ = toℕ (SignalDef.bitLength sig₂)
+  let s₁ = SignalDef.startBit sig₁
+      l₁ = SignalDef.bitLength sig₁
+      s₂ = SignalDef.startBit sig₂
+      l₂ = SignalDef.bitLength sig₂
   in case (s₁ + l₁) ≤? s₂ of λ where
        (yes p) → yes (disjoint-left p)
        (no ¬p) → case (s₂ + l₂) ≤? s₁ of λ where
@@ -200,7 +180,7 @@ messageSignalsValid? msg = allSignalPairsValid? (DBCMessage.signals msg)
 -- ============================================================================
 
 -- A signal's value range is consistent if minimum ≤ maximum
--- Note: startBit < 64, bitLength ≤ 64, and dlc ≤ 8 are guaranteed by Fin types
+-- Note: startBit < 64, bitLength ≤ 64, and dlc ≤ 8 are enforced at construction sites
 SignalRangeConsistent : DBCSignal → Set
 SignalRangeConsistent sig =
   let open SignalDef (DBCSignal.signalDef sig)
@@ -316,10 +296,10 @@ findOverlappingPair msgName sig [] = nothing
 findOverlappingPair msgName sig (other ∷ rest) with signalPairValid? sig other
 ... | yes _ = findOverlappingPair msgName sig rest
 ... | no _ =
-  let s1 = toℕ (SignalDef.startBit (DBCSignal.signalDef sig))
-      l1 = toℕ (SignalDef.bitLength (DBCSignal.signalDef sig))
-      s2 = toℕ (SignalDef.startBit (DBCSignal.signalDef other))
-      l2 = toℕ (SignalDef.bitLength (DBCSignal.signalDef other))
+  let s1 = SignalDef.startBit (DBCSignal.signalDef sig)
+      l1 = SignalDef.bitLength (DBCSignal.signalDef sig)
+      s2 = SignalDef.startBit (DBCSignal.signalDef other)
+      l2 = SignalDef.bitLength (DBCSignal.signalDef other)
   in just (SignalsOverlap (DBCSignal.name sig) (DBCSignal.name other) msgName s1 l1 s2 l2)
 
 -- Find first overlapping pair in signal list (triangular search)

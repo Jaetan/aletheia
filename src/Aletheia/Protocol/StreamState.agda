@@ -27,7 +27,6 @@ open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Char using (Char)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec; _∷_; [])
-open import Data.Fin using (Fin; toℕ; fromℕ<; #_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Sum using (_⊎_)
 open import Function using (case_of_)
@@ -141,13 +140,11 @@ parseSignalList (obj ∷ rest) = do
 -- Create zero-filled frame with given message ID
 makeZeroFrame : CANId → CANFrame
 makeZeroFrame msgId =
-  let zero : Byte
-      zero = # 0
-      zeros : Vec Byte 8
-      zeros = zero ∷ zero ∷ zero ∷ zero ∷ zero ∷ zero ∷ zero ∷ zero ∷ []
+  let zeros : Vec Byte 8
+      zeros = 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ []
   in record
     { id = msgId
-    ; dlc = # 8
+    ; dlc = 8
     ; payload = zeros
     }
 
@@ -155,7 +152,7 @@ makeZeroFrame msgId =
 makeFrame : CANId → Vec Byte 8 → CANFrame
 makeFrame msgId bytes = record
   { id = msgId
-  ; dlc = # 8
+  ; dlc = 8
   ; payload = bytes
   }
 
@@ -330,14 +327,14 @@ handleBuildFrame-State canIdJSON signalsJSON state =
   where
     open import Aletheia.Protocol.JSON using (getNat)
     open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat.DivMod using (_mod_)
+    open import Data.Nat using (_%_)
 
     buildHelper : Maybe DBC → StreamState × Response
     buildHelper nothing = (state , Response.Error "DBC not loaded")
     buildHelper (just dbc) with getNat canIdJSON
     ... | nothing = (state , Response.Error "Invalid CAN ID")
     ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+          let canId = CANId.Standard (canIdNat % standard-can-id-max)
           in parseSignals canId signalsJSON
       where
         parseSignals : CANId → List JSON → StreamState × Response
@@ -354,14 +351,14 @@ handleExtractAllSignals-State canIdJSON bytes state =
   where
     open import Aletheia.Protocol.JSON using (getNat)
     open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat.DivMod using (_mod_)
+    open import Data.Nat using (_%_)
 
     extractHelper : Maybe DBC → StreamState × Response
     extractHelper nothing = (state , Response.Error "DBC not loaded")
     extractHelper (just dbc) with getNat canIdJSON
     ... | nothing = (state , Response.Error "Invalid CAN ID")
     ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+          let canId = CANId.Standard (canIdNat % standard-can-id-max)
               frame = makeFrame canId bytes
               results = extractAllSignals dbc frame
           in (state , Response.ExtractionResultsResponse
@@ -376,14 +373,14 @@ handleUpdateFrame-State canIdJSON bytes signalsJSON state =
   where
     open import Aletheia.Protocol.JSON using (getNat)
     open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat.DivMod using (_mod_)
+    open import Data.Nat using (_%_)
 
     updateHelper : Maybe DBC → StreamState × Response
     updateHelper nothing = (state , Response.Error "DBC not loaded")
     updateHelper (just dbc) with getNat canIdJSON
     ... | nothing = (state , Response.Error "Invalid CAN ID")
     ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat mod standard-can-id-max)
+          let canId = CANId.Standard (canIdNat % standard-can-id-max)
               frame = makeFrame canId bytes
           in parseSignals canId signalsJSON frame
       where

@@ -6,7 +6,8 @@
 -- Types: DBC (top-level), Message (CAN message definition), Signal (signal within message).
 -- Role: Core data structure used throughout CAN processing and verification.
 --
--- Design: Matches DBC file format with type-safe representations (Fin for bounds).
+-- Design: Matches DBC file format with type-safe representations.
+-- All numeric fields use ℕ for O(1) MAlonzo allocation.
 module Aletheia.DBC.Types where
 
 open import Aletheia.CAN.Frame
@@ -14,7 +15,6 @@ open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Endianness
 open import Data.String using (String)
 open import Data.List using (List)
-open import Data.Fin using (Fin)
 open import Data.Nat using (ℕ)
 
 -- Signal presence model for multiplexing
@@ -35,7 +35,7 @@ record DBCMessage : Set where
   field
     id : CANId
     name : String
-    dlc : Fin 9
+    dlc : ℕ
     sender : String
     signals : List DBCSignal
 

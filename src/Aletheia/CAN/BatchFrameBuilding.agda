@@ -22,8 +22,6 @@ open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Vec using (Vec)
 open import Data.Vec as Vec using (replicate)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; _≡ᵇ_; _∸_)
-open import Data.Nat.DivMod using (_mod_)
-open import Data.Fin using (Fin; toℕ)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
 open import Data.Bool.Properties using (∨-zeroʳ; ∨-identityʳ)
 open import Relation.Nullary.Decidable using (⌊_⌋)
@@ -49,10 +47,10 @@ signalsOverlap : DBCSignal → DBCSignal → Bool
 signalsOverlap sig1 sig2 =
   let def1 = DBCSignal.signalDef sig1
       def2 = DBCSignal.signalDef sig2
-      start1 = toℕ (SignalDef.startBit def1)
-      len1 = toℕ (SignalDef.bitLength def1)
-      start2 = toℕ (SignalDef.startBit def2)
-      len2 = toℕ (SignalDef.bitLength def2)
+      start1 = SignalDef.startBit def1
+      len1 = SignalDef.bitLength def1
+      start2 = SignalDef.startBit def2
+      len2 = SignalDef.bitLength def2
   in rangesOverlap start1 len1 start2 len2
 
 -- Check if any signal in a list overlaps with a given signal
@@ -118,9 +116,9 @@ buildFrame dbc canId signals =
          then nothing  -- Signals overlap, reject
          else -- Build frame from validated signals (no overlaps)
            let emptyPayload : Vec Byte 8
-               emptyPayload = Vec.replicate 8 (0 mod 256)
+               emptyPayload = Vec.replicate 8 0
                emptyFrame : CANFrame
-               emptyFrame = record { id = canId ; dlc = 8 mod 9 ; payload = emptyPayload }
+               emptyFrame = record { id = canId ; dlc = 8 ; payload = emptyPayload }
            in injectAll emptyFrame signalDefs >>= λ finalFrame →
               just (CANFrame.payload finalFrame)
 

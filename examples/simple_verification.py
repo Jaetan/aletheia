@@ -2,6 +2,10 @@
 """
 Simple verification example using Aletheia's JSON streaming protocol.
 
+Aletheia supports both offline validation (replaying recorded logs) and
+online validation (checking a live CAN stream in real time). The API is
+the same in both cases — call send_frame() once per frame.
+
 This example demonstrates:
 1. Converting a .dbc file to JSON format
 2. Defining LTL properties using the Signal DSL

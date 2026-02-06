@@ -35,7 +35,6 @@ open import Data.List.Relation.Unary.Any using (Any; here; there)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; ∃)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _≤_)
-open import Data.Fin using (toℕ)
 open import Data.Rational using (ℚ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
@@ -164,7 +163,7 @@ data AllPairsDisjoint : List (DBCSignal × ℚ) → Set where
 data AllSignalsFit : List (DBCSignal × ℚ) → Set where
   asf-nil : AllSignalsFit []
   asf-cons : ∀ {s v rest}
-    → toℕ (SignalDef.startBit (DBCSignal.signalDef s)) + toℕ (SignalDef.bitLength (DBCSignal.signalDef s)) ≤ 64
+    → SignalDef.startBit (DBCSignal.signalDef s) + SignalDef.bitLength (DBCSignal.signalDef s) ≤ 64
     → AllSignalsFit rest
     → AllSignalsFit ((s , v) ∷ rest)
 
@@ -174,14 +173,14 @@ data AllSignalsFit : List (DBCSignal × ℚ) → Set where
 
 -- Helper: Signal fit bounds (used in many places)
 signalFits : SignalDef → Set
-signalFits sig = toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64
+signalFits sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
 
 -- Convert SignalsDisjoint to the ⊎ form for injectBits-preserves-disjoint
 open import Aletheia.DBC.Properties using (SignalsDisjoint; disjoint-left; disjoint-right)
 
 SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
-  → toℕ (SignalDef.startBit sig₁) + toℕ (SignalDef.bitLength sig₁) ≤ toℕ (SignalDef.startBit sig₂)
-  ⊎ toℕ (SignalDef.startBit sig₂) + toℕ (SignalDef.bitLength sig₂) ≤ toℕ (SignalDef.startBit sig₁)
+  → SignalDef.startBit sig₁ + SignalDef.bitLength sig₁ ≤ SignalDef.startBit sig₂
+  ⊎ SignalDef.startBit sig₂ + SignalDef.bitLength sig₂ ≤ SignalDef.startBit sig₁
 SignalsDisjoint→⊎ (disjoint-left p) = inj₁ p
 SignalsDisjoint→⊎ (disjoint-right p) = inj₂ p
 
@@ -253,8 +252,8 @@ open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
 -- This is because extractSignalCore, scaleExtracted, and inBounds are all deterministic
 private
   extractSignal-bits-eq : ∀ frame₁ frame₂ sig bo
-    → extractBits {toℕ (SignalDef.bitLength sig)} (extractionBytes frame₁ bo) (toℕ (SignalDef.startBit sig))
-      ≡ extractBits {toℕ (SignalDef.bitLength sig)} (extractionBytes frame₂ bo) (toℕ (SignalDef.startBit sig))
+    → extractBits {SignalDef.bitLength sig} (extractionBytes frame₁ bo) (SignalDef.startBit sig)
+      ≡ extractBits {SignalDef.bitLength sig} (extractionBytes frame₂ bo) (SignalDef.startBit sig)
     → extractSignal frame₁ sig bo ≡ extractSignal frame₂ sig bo
   extractSignal-bits-eq frame₁ frame₂ sig bo bits-eq = result-eq
     where
@@ -266,7 +265,7 @@ private
 
       -- extractSignalCore uses extractBits, so equal bits → equal core
       core-eq : extractSignalCore bytes₁ sig ≡ extractSignalCore bytes₂ sig
-      core-eq = cong (λ bits → toSigned (bitVecToℕ bits) (toℕ bitLength) isSigned) bits-eq
+      core-eq = cong (λ bits → toSigned (bitVecToℕ bits) bitLength isSigned) bits-eq
 
       -- scaleExtracted only depends on the core
       value-eq : scaleExtracted (extractSignalCore bytes₁ sig) sig
@@ -308,12 +307,12 @@ single-inject-preserves-same-bo frame frame' s v sig bo-eq disj fits-s fits-sig 
     sig-s = DBCSignal.signalDef s
     sig-sig = DBCSignal.signalDef sig
 
-    start-sig = toℕ (SignalDef.startBit sig-sig)
-    len-sig = toℕ (SignalDef.bitLength sig-sig)
+    start-sig = SignalDef.startBit sig-sig
+    len-sig = SignalDef.bitLength sig-sig
 
     -- Disjointness in ⊎ form (swapped for the lemma signature)
-    disj⊎ : toℕ (SignalDef.startBit sig-s) + toℕ (SignalDef.bitLength sig-s) ≤ start-sig
-          ⊎ start-sig + len-sig ≤ toℕ (SignalDef.startBit sig-s)
+    disj⊎ : SignalDef.startBit sig-s + SignalDef.bitLength sig-s ≤ start-sig
+          ⊎ start-sig + len-sig ≤ SignalDef.startBit sig-s
     disj⊎ with SignalsDisjoint→⊎ disj
     ... | inj₁ p = inj₂ p  -- sig ends before s starts
     ... | inj₂ p = inj₁ p  -- s ends before sig starts

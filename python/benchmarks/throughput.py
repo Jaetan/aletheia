@@ -3,7 +3,7 @@
 Throughput Benchmark
 
 Measures frames per second through the full Aletheia pipeline:
-Python -> subprocess IPC -> Haskell shim -> MAlonzo/Agda -> back
+Python -> FFI (ctypes) -> Haskell/MAlonzo/Agda -> back
 
 Usage:
     python3 throughput.py [--frames N] [--runs N] [--warmup N]

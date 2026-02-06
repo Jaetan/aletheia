@@ -17,7 +17,6 @@ open import Data.List using (List)
 open import Data.Maybe using (Maybe)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (_≡ᵇ_)
-open import Data.Fin using (toℕ)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (findByPredicate)
 
@@ -29,8 +28,8 @@ open import Aletheia.Prelude using (findByPredicate)
 -- Standard IDs only match other Standard IDs with same value
 -- Extended IDs only match other Extended IDs with same value
 canIdEquals : CANId → CANId → Bool
-canIdEquals (Standard x) (Standard y) = toℕ x ≡ᵇ toℕ y
-canIdEquals (Extended x) (Extended y) = toℕ x ≡ᵇ toℕ y
+canIdEquals (Standard x) (Standard y) = x ≡ᵇ y
+canIdEquals (Extended x) (Extended y) = x ≡ᵇ y
 canIdEquals _ _ = false
 
 -- ============================================================================

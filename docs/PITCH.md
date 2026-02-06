@@ -70,18 +70,18 @@ Aletheia provides:
 Aletheia uses a three-layer architecture:
 
 ```
-Python (user-facing API)
+Python (user-facing API, ctypes)
+   ↓ FFI (shared library)
+Haskell (FFI wrapper → libaletheia-ffi.so)
    ↓
-Haskell (minimal I/O shim, <100 lines)
-   ↓
-Agda (all logic + proofs)
+Agda (all logic + proofs, compiled via MAlonzo)
 ```
 
 **Why these technologies?**
 
 - **Agda**: Dependently-typed proof assistant. Code that type-checks is mathematically proven correct. Used in aerospace, cryptography, and compilers.
-- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Facebook, Standard Chartered, IOHK).
-- **Python**: Familiar interface for automotive engineers. All complexity hidden.
+- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Facebook, Standard Chartered, IOHK). Compiled to a shared library loaded directly by Python.
+- **Python**: Familiar interface for automotive engineers. All complexity hidden behind ctypes FFI.
 
 **Proven track record**:
 - Agda: Used to verify cryptographic protocols (e.g., TLS 1.3 formal analysis)
@@ -98,7 +98,7 @@ Agda (all logic + proofs)
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented in BUILDING.md. Works on Linux (tested Ubuntu/Debian). |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Medium | Current: ~10K frames/sec. Target: 1M frames/sec (Phase 3). Sufficient for offline analysis. |
+| **Performance** | Formal verification adds overhead | Low | Current: ~9,200 frames/sec (108 us/frame) via FFI. Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Python API is stable. Core changes rare. Can contract experts if needed. |
 
 **Mitigation strategy**:
@@ -205,10 +205,10 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Current: ~10K frames/sec (sufficient for offline analysis of hour-long traces). Phase 3 targets 1M frames/sec for real-time use cases.
+A: Current: ~9,200 frames/sec (108 us/frame) with streaming LTL checking. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
 
 **Q: Dependencies?**
-A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: Just the compiled binary. Python: 3.12+. No exotic dependencies.
+A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
 
 ---
 
@@ -265,12 +265,12 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: Just the compiled bina
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
-- Python API with signal operations
-- Comprehensive test suite
-- ~10K frames/sec throughput
+- Python API with signal operations (FFI, no subprocess)
+- Comprehensive test suite (120 tests, 0.18s)
+- ~9,200 frames/sec throughput (108 us/frame)
 
 **Next steps**:
-- Phase 3: Formal correctness proofs and performance optimization (1M frames/sec target)
+- Phase 3: Formal correctness proofs and further performance optimization
 - Phase 4: Production hardening, user docs, standard library of checks
 - Phase 5: Optional extensions (value tables, format converters, advanced validation)
 
@@ -287,7 +287,7 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
 **Limitations**:
-- Performance: ~10K frames/sec (sufficient for offline, not real-time yet)
+- Performance: ~9,200 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis)
 - Standard CAN only (no CAN-FD until Phase 5)
 - Learning curve for Agda core maintenance (Python API is easy)
 - Small ecosystem (fewer community resources than pure Python tools)
@@ -300,7 +300,6 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 
 **Not ideal for**:
 - Rapid prototyping (use Python/pandas initially)
-- Real-time CAN monitoring (wait for Phase 3 performance work)
 - Teams requiring 100% Python stack
 - Projects with no formal verification requirements
 

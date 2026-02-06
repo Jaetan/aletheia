@@ -8,13 +8,14 @@
 
 ## Overview
 
-Aletheia uses a line-delimited JSON protocol for bidirectional communication between Python and the Agda/Haskell binary. Each message is a single JSON object on one line, terminated by a newline.
+Aletheia uses a JSON protocol for communication between Python and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI function calls.
 
 **Communication Model**:
-- Python sends commands and data frames over stdin
-- Binary sends responses over stdout
-- One JSON object per line (line-delimited)
+- Python sends JSON commands via `aletheia_process()` (ctypes FFI call)
+- Haskell returns JSON responses as C strings
+- One JSON object per call (request-response)
 - Sequential processing (no threading or queuing)
+- No subprocess or IPC — everything runs in-process via `libaletheia-ffi.so`
 
 **State Machine**:
 ```
@@ -665,16 +666,16 @@ Used in responses for exact representation.
 
 ## Implementation Notes
 
-### Line-Delimited JSON
-- Each message is exactly one line (no embedded newlines)
-- Lines are terminated with `\n`
-- Haskell uses `hGetLine` for buffering
-- Python uses `readline()` and `write(json + "\n")`
+### JSON over FFI
+- Each message is a JSON string passed via `aletheia_process(state, json_bytes)`
+- Response is a JSON string returned as a C string (freed with `aletheia_free_str`)
+- No newline delimiters needed — each FFI call is one complete message
+- State is managed via `StablePtr (IORef StreamState)` on the Haskell side
 
 ### Sequential Processing
-- Binary processes messages sequentially
+- Calls are processed sequentially within the same process
 - No threading or queuing
-- Commands block until complete
+- Each FFI call blocks until complete and returns immediately
 - Data frames return ack or violation immediately
 
 ### State Validation

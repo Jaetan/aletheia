@@ -21,12 +21,10 @@ open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _%_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.Nat.DivMod using (_mod_)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ; +_)
-open import Data.Fin using (Fin)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
@@ -116,8 +114,8 @@ parseSignal context obj =
         inj₂ (record
           { name = name
           ; signalDef = record
-              { startBit = startBit mod 64
-              ; bitLength = bitLength mod 65
+              { startBit = startBit % 64
+              ; bitLength = bitLength % 65
               ; isSigned = isSigned
               ; factor = factor
               ; offset = offset
@@ -143,13 +141,13 @@ parseSignalList context (_ ∷ _) idx =
 parseCANId : String → ℕ → List (String × JSON) → String ⊎ CANId
 parseCANId context rawId obj with lookupBool "extended" obj
 ... | just true = if rawId Data.Nat.<ᵇ extended-can-id-max
-                   then inj₂ (Extended (rawId mod extended-can-id-max))
+                   then inj₂ (Extended (rawId % extended-can-id-max))
                    else inj₁ (context ++ₛ ": extended CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 536870911)")
 ... | just false = if rawId Data.Nat.<ᵇ standard-can-id-max
-                    then inj₂ (Standard (rawId mod standard-can-id-max))
+                    then inj₂ (Standard (rawId % standard-can-id-max))
                     else inj₁ (context ++ₛ ": standard CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 2047)")
 ... | nothing = if rawId Data.Nat.<ᵇ standard-can-id-max
-                 then inj₂ (Standard (rawId mod standard-can-id-max))
+                 then inj₂ (Standard (rawId % standard-can-id-max))
                  else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
   where
     open import Data.Nat using (_<ᵇ_)
@@ -175,7 +173,7 @@ parseMessage obj =
         then inj₂ (record
           { id = msgId
           ; name = name
-          ; dlc = rawDlc mod 9
+          ; dlc = rawDlc % 9
           ; sender = sender
           ; signals = signals
           })

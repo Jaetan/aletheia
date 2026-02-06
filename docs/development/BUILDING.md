@@ -1,7 +1,7 @@
 # Building Aletheia
 
 ---
-**Version**: 0.3.1
+**Version**: 0.3.2
 **Last Updated**: 2025-12-05
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
@@ -243,7 +243,7 @@ cd ..
 
 # Verify installation
 python3 -c "import aletheia; print(aletheia.__version__)"
-# Should output: 0.3.1
+# Should output: 0.3.2
 ```
 
 ### 6. Run Tests

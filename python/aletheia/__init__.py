@@ -54,7 +54,7 @@ from .client import (
 )
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __all__ = [
     # Client
     "AletheiaClient",

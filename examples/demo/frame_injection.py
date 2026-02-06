@@ -10,7 +10,7 @@ when CAN frames are modified mid-stream. The scenario:
 4. Verify that Aletheia detects the violation at the exact injected frame
 
 This is useful for:
-- Fault injection testing in real-time streams
+- Fault injection testing in both offline logs and live (online) streams
 - Verifying that safety monitors catch anomalies immediately
 - Testing edge cases without physical hardware
 - Debugging by isolating specific frames
@@ -64,7 +64,7 @@ def main() -> None:
     print(f"\nPlan: Inject overspeed fault at frame #{target_frame_index}")
     print(f"      (the {target_speed_frame_num}th speed frame at {original_frame.timestamp_ms}ms)")
 
-    # Use unified client for everything (single subprocess)
+    # Use unified client for everything (single process, FFI)
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
 
@@ -166,8 +166,9 @@ What this demo showed:
   - Aletheia detected the violation IMMEDIATELY at the injected frame
 
 Use cases:
-  - Real-time fault injection during live CAN streams
-  - Testing safety monitors without replaying entire logs
+  - Online: fault injection during live CAN streams (real-time monitoring)
+  - Offline: injecting faults into recorded logs for post-hoc analysis
+  - Testing safety monitors without physical hardware
   - Injecting specific faults at precise timestamps
   - Security testing: verify monitors catch malicious modifications
 """)

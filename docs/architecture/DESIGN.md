@@ -1,7 +1,7 @@
 # Aletheia (Ἀλήθεια) Design Document
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
-**Version**: 0.3.1
+**Version**: 0.3.2
 **Status**: Phase 3 - Verification + Performance (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
 **Last Updated**: 2026-02-03
 

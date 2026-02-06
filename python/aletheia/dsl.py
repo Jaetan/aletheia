@@ -4,8 +4,8 @@ Provides fluent interface for expressing temporal properties:
     Signal("Speed").less_than(220).always()
     brake_pressed.implies(speed_decreases.within(100))
 
-Usage with StreamingClient:
-    from aletheia import StreamingClient, Signal
+Usage with AletheiaClient:
+    from aletheia import AletheiaClient, Signal
 
     property = Signal("Speed").less_than(220).always()
     client.set_properties([property.to_dict()])
@@ -663,7 +663,7 @@ class Property:
         return Property(formula)
 
     def to_dict(self) -> LTLFormula:
-        """Convert to dictionary for use with StreamingClient
+        """Convert to dictionary for use with AletheiaClient
 
         Returns:
             Dictionary representation suitable for JSON serialization

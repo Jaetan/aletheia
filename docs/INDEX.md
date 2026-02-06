@@ -49,7 +49,6 @@ Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
 - **[Demo Scripts](../examples/demo/)** - DBC validation, frame injection, and drive simulation
-- **[Integration Testing](../tests/integration/INTEGRATION_TESTING.md)** - Test suite documentation
 
 ---
 

@@ -19,7 +19,6 @@ open import Aletheia.CAN.Endianness
 open import Aletheia.Data.BitVec
 open import Aletheia.Data.BitVec.Conversion
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_; _<_; _<?_; _≤_)
-open import Data.Fin using (Fin; toℕ)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
@@ -98,8 +97,8 @@ extractSignalCore : Vec Byte 8 → SignalDef → ℤ
 extractSignalCore bytes sig =
   let open SignalDef sig in
   toSigned
-    (bitVecToℕ (extractBits {toℕ bitLength} bytes (toℕ startBit)))
-    (toℕ bitLength)
+    (bitVecToℕ (extractBits {bitLength} bytes (startBit)))
+    (bitLength)
     isSigned
 
 -- Apply scaling to raw extracted value
@@ -145,7 +144,7 @@ injectSignal value signalDef byteOrder frame =
          where open SignalDef signalDef
     ... | nothing = nothing
     ... | just rawSigned
-      with fromSigned rawSigned (toℕ bitLength) <? 2 ^ toℕ bitLength
+      with fromSigned rawSigned (bitLength) <? 2 ^ bitLength
          where open SignalDef signalDef
     ...   | no _ = nothing  -- Raw value doesn't fit in bitLength bits
     ...   | yes bounded =
@@ -153,9 +152,9 @@ injectSignal value signalDef byteOrder frame =
           open SignalDef signalDef
           -- Convert to unsigned with proof
           rawUnsigned : ℕ
-          rawUnsigned = fromSigned rawSigned (toℕ bitLength)
+          rawUnsigned = fromSigned rawSigned (bitLength)
           -- Convert ℕ → BitVec with proof
-          rawBitVec : BitVec (toℕ bitLength)
+          rawBitVec : BitVec (bitLength)
           rawBitVec = ℕToBitVec rawUnsigned bounded
           -- Inject bits
           bytes : Vec Byte 8
@@ -163,7 +162,7 @@ injectSignal value signalDef byteOrder frame =
                   then swapBytes payload
                   else payload
           updatedBytes : Vec Byte 8
-          updatedBytes = injectBits bytes (toℕ startBit) rawBitVec
+          updatedBytes = injectBits bytes (startBit) rawBitVec
           finalBytes : Vec Byte 8
           finalBytes = if isBigEndian byteOrder
                        then swapBytes updatedBytes
@@ -176,7 +175,7 @@ injectSignal value signalDef byteOrder frame =
 
 -- When injectSignal succeeds, the payload has the form:
 --   injectPayload startBit rawBitVec bo (payload frame)
--- for some rawBitVec : BitVec (toℕ bitLength)
+-- for some rawBitVec : BitVec (bitLength)
 --
 -- This is captured by showing that extraction at a disjoint position is preserved.
 
@@ -200,9 +199,9 @@ injectSignal-preserves-disjoint-bits :
   ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo : ByteOrder) (frame frame' : CANFrame)
     (start₂ : ℕ)
   → injectSignal v sig bo frame ≡ just frame'
-  → toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ start₂
-    ⊎ start₂ + len₂ ≤ toℕ (SignalDef.startBit sig)  -- disjoint ranges
-  → toℕ (SignalDef.startBit sig) + toℕ (SignalDef.bitLength sig) ≤ 64
+  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ start₂
+    ⊎ start₂ + len₂ ≤ SignalDef.startBit sig  -- disjoint ranges
+  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
   → start₂ + len₂ ≤ 64
   → extractBits {len₂} (extractionBytes frame' bo) start₂
     ≡ extractBits {len₂} (extractionBytes frame bo) start₂
@@ -211,7 +210,7 @@ injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq 
 ... | false = case eq of λ ()
 ... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
 ...   | nothing = case eq of λ ()
-...   | just rawSigned with fromSigned rawSigned (toℕ (SignalDef.bitLength sig)) <? 2 ^ toℕ (SignalDef.bitLength sig)
+...   | just rawSigned with fromSigned rawSigned (SignalDef.bitLength sig) <? 2 ^ SignalDef.bitLength sig
 ...     | no _ = case eq of λ ()
 ...     | yes bounded = core-proof (just-injective (sym eq))
   where
@@ -220,8 +219,8 @@ injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq 
     open ≡-Reasoning
 
     origPayload = CANFrame.payload frame
-    start₁ = toℕ startBit
-    len₁ = toℕ bitLength
+    start₁ = startBit
+    len₁ = bitLength
 
     -- Define the computed values matching injectSignal's definition exactly
     rawBitVec = ℕToBitVec (fromSigned rawSigned len₁) bounded

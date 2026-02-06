@@ -18,10 +18,8 @@ open import Data.Integer using (ℤ)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; toList)
-open import Data.Nat using (ℕ; _≤?_; _<_; s≤s; z≤n; _≤_)
-open import Data.Nat.DivMod using (_mod_)
+open import Data.Nat using (ℕ; _≤?_; _<_; s≤s; z≤n; _≤_; _%_)
 open import Data.Nat.Show as ℕShow using (show)
-open import Data.Fin using (Fin; toℕ; fromℕ<)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
@@ -62,11 +60,11 @@ parseByteArray (jn ∷ rest) = do
 -- Convert List ℕ to Vec Byte 8 (if length is exactly 8)
 listToVec8 : List ℕ → Maybe (Vec Byte 8)
 listToVec8 (n₀ ∷ n₁ ∷ n₂ ∷ n₃ ∷ n₄ ∷ n₅ ∷ n₆ ∷ n₇ ∷ []) =
-  just (toFin n₀ Data.Vec.∷ toFin n₁ Data.Vec.∷ toFin n₂ Data.Vec.∷ toFin n₃ Data.Vec.∷
-        toFin n₄ Data.Vec.∷ toFin n₅ Data.Vec.∷ toFin n₆ Data.Vec.∷ toFin n₇ Data.Vec.∷ Data.Vec.[])
+  just (toByte n₀ Data.Vec.∷ toByte n₁ Data.Vec.∷ toByte n₂ Data.Vec.∷ toByte n₃ Data.Vec.∷
+        toByte n₄ Data.Vec.∷ toByte n₅ Data.Vec.∷ toByte n₆ Data.Vec.∷ toByte n₇ Data.Vec.∷ Data.Vec.[])
   where
-    toFin : ℕ → Byte
-    toFin n = n mod 256  -- _mod_ : ℕ → (n : ℕ) {n≢0 : NonZero n} → Fin n
+    toByte : ℕ → Byte
+    toByte n = n % 256  -- _%_ returns ℕ (O(1) via remInt), not Fin n
 listToVec8 _ = nothing  -- Wrong length
 
 -- ============================================================================
@@ -218,8 +216,8 @@ parseDataFrameWithTrace obj with lookupNat "timestamp" obj
     buildFrame : ℕ → ℕ → Vec Byte 8 → Maybe (String ⊎ (ℕ × CANFrame))
     buildFrame timestamp canId bytes =
       let frame = record
-            { id = CANId.Standard (canId mod standard-can-id-max)
-            ; dlc = 8 mod 9  -- DLC = 8 (fixed for now)
+            { id = CANId.Standard (canId % standard-can-id-max)
+            ; dlc = 8
             ; payload = bytes
             }
       in just (inj₂ (timestamp , frame))
@@ -233,8 +231,8 @@ parseDataFrame obj = do
   byteList ← parseByteArray bytesJSON
   bytes ← listToVec8 byteList
   let frame = record
-        { id = CANId.Standard (canId mod standard-can-id-max)
-        ; dlc = 8 mod 9  -- DLC = 8 (fixed for now)
+        { id = CANId.Standard (canId % standard-can-id-max)
+        ; dlc = 8
         ; payload = bytes
         }
   just (timestamp , frame)

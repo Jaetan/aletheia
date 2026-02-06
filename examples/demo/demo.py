@@ -4,6 +4,11 @@
 This script demonstrates Aletheia's capabilities for the team presentation.
 Run sections interactively or execute the whole script.
 
+Aletheia supports both offline validation (analyzing recorded CAN logs after
+the fact) and online validation (checking properties against a live CAN stream
+in real time). This demo shows offline analysis, but the same API works for
+online use — just call send_frame() as frames arrive from the bus.
+
 Requirements:
 - Aletheia binary must be built: `cabal run shake -- build`
 - Run from the examples/demo directory or adjust paths
@@ -261,7 +266,8 @@ Key points:
   - Python is just the interface; guarantees come from the verified core
 
 Where this fits:
-  - Offline analysis of recorded logs
+  - Offline validation of recorded logs (post-hoc analysis)
+  - Online validation of live CAN streams (real-time monitoring)
   - CI/CD pipelines for regression testing
   - System testing and validation
   - Debugging timing-related issues

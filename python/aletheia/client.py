@@ -1,10 +1,7 @@
-"""Unified Aletheia Client
+"""Aletheia Client
 
-Provides a single client that combines streaming LTL checking with signal
-extraction and encoding operations over a single subprocess.
-
-This is more efficient than using separate StreamingClient and SignalExtractor
-instances, which each spawn their own subprocess.
+Provides signal extraction, frame building, and streaming LTL checking
+via a shared library (FFI) that calls the formally verified Agda core.
 
 Example:
     from aletheia import AletheiaClient, Signal
@@ -36,9 +33,11 @@ Example:
 
 from __future__ import annotations
 
-from typing import override, cast
+import ctypes
+import json
+from pathlib import Path
+from typing import Self, override, cast
 
-from .binary_client import BinaryClient
 from .protocols import (
     DBCDefinition,
     LTLFormula,
@@ -62,13 +61,76 @@ from .protocols import (
     SignalValue,
 )
 
+# Module-level RTS management: GHC RTS can only be initialized once per process.
+# We reference-count clients so hs_init() is called on first use.
+_rts_lib: ctypes.CDLL | None = None
+_rts_refcount: int = 0
+
+
+def _rts_acquire(lib: ctypes.CDLL) -> None:
+    """Increment RTS reference count, initializing on first use."""
+    global _rts_lib, _rts_refcount  # noqa: PLW0603
+    if _rts_refcount == 0:
+        lib.hs_init.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_void_p]
+        lib.hs_init.restype = None
+        argc = ctypes.c_int(0)
+        lib.hs_init(ctypes.byref(argc), None)
+        _rts_lib = lib
+    _rts_refcount += 1
+
+
+def _rts_release() -> None:
+    """Decrement RTS reference count.
+
+    Note: We intentionally never call hs_exit() because GHC RTS does not
+    support reinitialization after shutdown. The RTS is cleaned up on
+    process exit. This allows multiple sequential AletheiaClient
+    instances in the same process (e.g., benchmarking).
+    """
+    global _rts_refcount  # noqa: PLW0603
+    if _rts_refcount > 0:
+        _rts_refcount -= 1
+
+
+def _find_ffi_library() -> Path:
+    """Locate the libaletheia-ffi.so shared library.
+
+    Search order:
+    1. build/libaletheia-ffi.so (project root)
+    2. haskell-shim/dist-newstyle/**/libaletheia-ffi.so (Cabal build dir)
+
+    Returns:
+        Path to the shared library
+
+    Raises:
+        FileNotFoundError: If library not found
+    """
+    module_dir = Path(__file__).parent
+    repo_root = module_dir.parent.parent
+
+    # Check project build dir first
+    build_path = repo_root / "build" / "libaletheia-ffi.so"
+    if build_path.exists():
+        return build_path
+
+    # Search Cabal dist-newstyle
+    cabal_dir = repo_root / "haskell-shim" / "dist-newstyle"
+    if cabal_dir.exists():
+        for so_file in cabal_dir.rglob("libaletheia-ffi.so"):
+            return so_file
+
+    raise FileNotFoundError(
+        "libaletheia-ffi.so not found. Build with: "
+        "cd haskell-shim && cabal build aletheia-ffi"
+    )
+
 
 class AletheiaError(Exception):
     """Base exception for all Aletheia errors"""
 
 
 class ProcessError(AletheiaError):
-    """Subprocess-related errors (not running, terminated unexpectedly, etc.)"""
+    """FFI or shared library errors"""
 
 
 class ProtocolError(AletheiaError):
@@ -117,11 +179,11 @@ class SignalExtractionResult:
         )
 
 
-class AletheiaClient(BinaryClient):
-    """Unified client for streaming LTL checking and signal operations.
+class AletheiaClient:
+    """Client for streaming LTL checking and signal operations.
 
-    Combines the functionality of StreamingClient, SignalExtractor, and
-    FrameBuilder in a single subprocess for efficiency.
+    Uses ctypes to load libaletheia-ffi.so and call Haskell/Agda functions
+    directly via FFI — no subprocess overhead.
 
     Protocol state machine:
     1. parse_dbc() - Load DBC definition (required first)
@@ -137,6 +199,76 @@ class AletheiaClient(BinaryClient):
 
     Signal operations work both inside and outside streaming mode.
     """
+
+    def __init__(self) -> None:
+        self._lib: ctypes.CDLL | None = None
+        self._state: ctypes.c_void_p | None = None
+
+    def __enter__(self) -> Self:
+        """Load shared library and initialize Haskell RTS."""
+        lib_path = _find_ffi_library()
+        self._lib = ctypes.CDLL(str(lib_path))
+
+        # Set up function signatures
+        self._lib.aletheia_init.argtypes = []
+        self._lib.aletheia_init.restype = ctypes.c_void_p
+        self._lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        self._lib.aletheia_process.restype = ctypes.c_void_p
+        self._lib.aletheia_free_str.argtypes = [ctypes.c_void_p]
+        self._lib.aletheia_free_str.restype = None
+        self._lib.aletheia_close.argtypes = [ctypes.c_void_p]
+        self._lib.aletheia_close.restype = None
+
+        # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
+        _rts_acquire(self._lib)
+
+        # Create Aletheia state
+        self._state = ctypes.c_void_p(self._lib.aletheia_init())
+
+        return self
+
+    def close(self) -> None:
+        """Free state and release RTS reference."""
+        if self._lib is not None and self._state is not None:
+            self._lib.aletheia_close(self._state)
+            self._state = None
+
+        if self._lib is not None:
+            _rts_release()
+            self._lib = None
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        self.close()
+
+    def _send_command(self, command: Command) -> Response:
+        """Send command via FFI."""
+        if self._lib is None or self._state is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
+
+        json_bytes = json.dumps(command).encode("utf-8")
+        result_ptr = self._lib.aletheia_process(self._state, json_bytes)
+
+        result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+        if result_bytes is None:
+            raise ProtocolError("FFI returned null pointer")
+
+        result_str = result_bytes.decode("utf-8")
+        self._lib.aletheia_free_str(result_ptr)
+
+        parsed = json.loads(result_str)
+        if not isinstance(parsed, dict):
+            raise ProtocolError(f"Expected JSON object, got {type(parsed).__name__}")
+
+        return cast(Response, cast(object, parsed))
+
+    def _send_batch(self, commands: list[Command]) -> list[Response]:
+        """Send multiple commands via FFI."""
+        return [self._send_command(cmd) for cmd in commands]
 
     @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
@@ -178,31 +310,6 @@ class AletheiaClient(BinaryClient):
             f"Protocol error: expected signal value to be number or rational string, "
             f"got {type(value_raw).__name__}: {value_raw!r}"
         )
-
-    def __init__(self, shutdown_timeout: float = 5.0):
-        """Initialize the client (does not start subprocess yet).
-
-        Args:
-            shutdown_timeout: Timeout in seconds for graceful shutdown (default: 5.0)
-        """
-        super().__init__(shutdown_timeout=shutdown_timeout)
-
-    @override
-    def __enter__(self) -> "AletheiaClient":
-        """Start the subprocess when entering context."""
-        self._start_subprocess()
-        return self
-
-    @override
-    def _send_command(self, command: Command) -> Response:
-        """Send a command and receive response."""
-        try:
-            return super()._send_command(command)
-        except RuntimeError as e:
-            error_msg = str(e)
-            if "not running" in error_msg or "terminated" in error_msg:
-                raise ProcessError(error_msg) from e
-            raise ProtocolError(error_msg) from e
 
     # =========================================================================
     # DBC and Properties
@@ -369,10 +476,7 @@ class AletheiaClient(BinaryClient):
         self,
         frames: list[tuple[int, int, list[int]]]
     ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
-        """Send multiple CAN frames in a batch for better throughput.
-
-        This method amortizes IPC overhead by sending all frames before reading
-        responses. Use this for high-throughput scenarios.
+        """Send multiple CAN frames in a batch.
 
         Args:
             frames: List of (timestamp, can_id, data) tuples where:
@@ -381,8 +485,7 @@ class AletheiaClient(BinaryClient):
                 - data: 8-byte payload as list of integers [0-255]
 
         Returns:
-            List of responses (AckResponse, PropertyViolationResponse, or ErrorResponse)
-            in same order as input frames.
+            List of responses in same order as input frames.
 
         Raises:
             ValueError: If any frame data is not exactly 8 bytes

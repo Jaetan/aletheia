@@ -17,7 +17,6 @@ open import Data.Rational using (ℚ)
 open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; []; _∷_; foldr)
 open import Data.Nat using (ℕ; _/_; _%_)
-open import Data.Fin using (Fin; toℕ)
 open import Data.List using (List)
 open import Data.Char using (Char)
 open import Aletheia.CAN.Frame using (Byte)
@@ -66,7 +65,7 @@ successResponse msg dat = mkResponse true msg dat
 errorResponse : String → Response
 errorResponse msg = mkResponse false msg NoData
 
--- Convert a byte (Fin 256) to hex string "0xNN"
+-- Convert a byte (ℕ) to hex string "0xNN"
 -- Uses stdlib's showInBase for proper hex conversion
 byteToHex : Byte → String
 byteToHex b = "0x" ++ₛ hex
@@ -83,7 +82,7 @@ byteToHex b = "0x" ++ₛ hex
           padding = if len <ᵇ minLen then minLen ∸ len else 0
       in fromList (L.replicate padding c L.++ toList s)
 
-    hex = padLeft '0' 2 (showInBase 16 (toℕ b))
+    hex = padLeft '0' 2 (showInBase 16 b)
 
 -- Convert Vec Byte 8 to space-separated hex string "0x12 0x34 0x56 ..."
 bytesToHex : Vec Byte 8 → String

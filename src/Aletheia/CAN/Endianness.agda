@@ -20,7 +20,7 @@ open import Data.Fin using (Fin; toℕ; fromℕ<) renaming (zero to fzero; suc t
 open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; _≡ᵇ_; z≤n; s≤s)
 open import Data.Nat as Nat using (_/_; _%_)
-open import Data.Nat.DivMod using (m%n<n)
+open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -40,36 +40,17 @@ data ByteOrder : Set where
 -- BYTE <-> BITVEC CONVERSION
 -- ============================================================================
 
--- Extract a byte to a natural number (for compatibility)
+-- Extract a byte to a natural number (identity since Byte = ℕ)
 byteToℕ : Byte → ℕ
-byteToℕ = toℕ
+byteToℕ b = b
 
--- Convert a byte (Fin 256) to an 8-bit bitvector
+-- Convert a byte (ℕ) to an 8-bit bitvector (uses mod 256 for bounds)
 byteToBitVec : Byte → BitVec 8
-byteToBitVec b = ℕToBitVec (toℕ b) (byte-bounded b)
-  where
-    open import Data.Nat.Properties using (≤⇒≤″; ≤″⇒≤)
-    open import Data.Fin.Properties using (toℕ<n)
+byteToBitVec b = ℕToBitVec (b Nat.% 256) (m%n<n b 256)
 
-    -- Byte values are < 256 = 2^8
-    byte-bounded : ∀ (b : Byte) → toℕ b < 2 ^ 8
-    byte-bounded b = subst (toℕ b <_) (sym 2^8≡256) (toℕ<n b)
-      where
-        2^8≡256 : 2 ^ 8 ≡ 256
-        2^8≡256 = refl
-
--- Convert an 8-bit bitvector to a byte (Fin 256)
+-- Convert an 8-bit bitvector to a byte (ℕ)
 bitVecToByte : BitVec 8 → Byte
-bitVecToByte bits = fromℕ< {bitVecToℕ bits} (bitVec-to-byte-bounded bits)
-  where
-    open import Data.Nat.Properties using (≤⇒≤″; ≤″⇒≤)
-
-    -- BitVec 8 converts to ℕ < 256
-    bitVec-to-byte-bounded : ∀ (bits : BitVec 8) → bitVecToℕ bits < 256
-    bitVec-to-byte-bounded bits = subst (bitVecToℕ bits <_) 2^8≡256 (bitVecToℕ-bounded bits)
-      where
-        2^8≡256 : 2 ^ 8 ≡ 256
-        2^8≡256 = refl
+bitVecToByte bits = bitVecToℕ bits
 
 -- ============================================================================
 -- BIT EXTRACTION AND INJECTION (STRUCTURAL)
@@ -78,7 +59,7 @@ bitVecToByte bits = fromℕ< {bitVecToℕ bits} (bitVec-to-byte-bounded bits)
 -- Helper: Safe lookup (returns 0 if out of bounds)
 private
   lookupSafe : (n : ℕ) → ℕ → Vec Byte n → Byte
-  lookupSafe zero _ _ = fzero
+  lookupSafe zero _ _ = 0
   lookupSafe (suc n) zero (b ∷ _) = b
   lookupSafe (suc n) (suc m) (_ ∷ bs) = lookupSafe n m bs
 
@@ -161,19 +142,9 @@ swapBytes-involutive bytes = reverse-involutive bytes
 -- BYTE ↔ BITVEC ROUNDTRIP PROOFS
 -- ============================================================================
 
--- Proof: Byte → BitVec → Byte roundtrip
-byteToBitVec-roundtrip : ∀ (b : Byte) → bitVecToByte (byteToBitVec b) ≡ b
-byteToBitVec-roundtrip b = toℕ-injective (trans (toℕ-fromℕ< _) (bitVec-roundtrip 8 (toℕ b) (byte-bounded b)))
-  where
-    open import Data.Fin.Properties using (toℕ-injective; toℕ-fromℕ<)
-    open import Data.Nat.Properties using (≤⇒≤″; ≤″⇒≤)
-
-    byte-bounded : ∀ (b : Byte) → toℕ b < 2 ^ 8
-    byte-bounded b = subst (toℕ b <_) (sym 2^8≡256) (toℕ<n b)
-      where
-        open import Data.Fin.Properties using (toℕ<n)
-        2^8≡256 : 2 ^ 8 ≡ 256
-        2^8≡256 = refl
+-- Proof: Byte → BitVec → Byte roundtrip (modular: result is b % 256)
+byteToBitVec-roundtrip : ∀ (b : Byte) → bitVecToByte (byteToBitVec b) ≡ b Nat.% 256
+byteToBitVec-roundtrip b = bitVec-roundtrip 8 (b Nat.% 256) (m%n<n b 256)
 
 -- Proof: BitVec → Byte → BitVec roundtrip
 -- Custom congruence for ℕToBitVec that handles dependent bound proof
@@ -184,15 +155,10 @@ private
 
 bitVecToByte-roundtrip : ∀ (bits : BitVec 8) → byteToBitVec (bitVecToByte bits) ≡ bits
 bitVecToByte-roundtrip bits =
-  trans (ℕToBitVec-cong {n = toℕ (bitVecToByte bits)} {m = bitVecToℕ bits}
-                         {pn = byte-bounded (bitVecToByte bits)}
-                         {pm = bitVecToℕ-bounded bits}
-                         (toℕ-fromℕ< (bitVecToℕ-bounded bits)))
+  trans (ℕToBitVec-cong {pn = m%n<n (bitVecToℕ bits) 256}
+                        {pm = bitVecToℕ-bounded bits}
+                        (m<n⇒m%n≡m (bitVecToℕ-bounded bits)))
     (bitVec-roundtrip-reverse 8 bits (bitVecToℕ-bounded bits))
-  where
-    open import Data.Fin.Properties using (toℕ<n)
-    byte-bounded : ∀ (b : Byte) → toℕ b < 2 ^ 8
-    byte-bounded b = subst (toℕ b <_) (sym refl) (toℕ<n b)
 
 -- ============================================================================
 -- EXTRACTBITS-INJECTBITS ROUNDTRIP PROOF
