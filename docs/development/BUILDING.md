@@ -1,7 +1,7 @@
 # Building Aletheia
 
 ---
-**Version**: 1.0.0
+**Version**: 0.3.1
 **Last Updated**: 2025-12-05
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
@@ -195,32 +195,34 @@ The project uses Shake for building, which is managed via Cabal:
 # Ensure you're in the project root directory
 cd /path/to/aletheia
 
-# Build everything (Agda → Haskell → binary)
+# Build everything (Agda → Haskell → shared library)
 cabal run shake -- build
 
 # This will:
 # 1. Compile Agda sources to Haskell (MAlonzo)
 # 2. Create symlink for MAlonzo output
-# 3. Build Haskell binary with Cabal
+# 3. Build Haskell shared library with Cabal
 #
 # First build takes ~1 minute (compiles standard library)
 # Subsequent builds are much faster (only changed modules)
 ```
 
-**Expected output:**
-```
-Compiling Agda to Haskell (this may take a few minutes)...
-Creating symlink: haskell-shim/MAlonzo -> ../build/MAlonzo
-Building Haskell executable...
-Binary created: build/aletheia
-Build completed in XX.XXs
+### 3b. Build the FFI Shared Library
+
+The Python client loads `libaletheia-ffi.so` via ctypes:
+```bash
+# Build the shared library
+cd haskell-shim && cabal build aletheia-ffi
+
+# The library is built in haskell-shim/dist-newstyle/
+# Python's AletheiaClient auto-discovers it there
 ```
 
 ### 4. Verify the Build
 ```bash
-# Test the binary
-echo "test" | ./build/aletheia
-# Should output: Echo: test
+# Verify the shared library was built
+python3 -c "from aletheia.client import _find_ffi_library; print(_find_ffi_library())"
+# Should print path to libaletheia-ffi.so
 ```
 
 ### 5. Install Python Package
@@ -241,7 +243,7 @@ cd ..
 
 # Verify installation
 python3 -c "import aletheia; print(aletheia.__version__)"
-# Should output: 0.1.0
+# Should output: 0.3.1
 ```
 
 ### 6. Run Tests
@@ -270,9 +272,11 @@ cd /path/to/aletheia
 source venv/bin/activate
 
 # Build commands
-cabal run shake -- build              # Build everything
+cabal run shake -- build              # Build Agda → Haskell (MAlonzo)
 cabal run shake -- build-agda         # Compile Agda only
 cabal run shake -- build-haskell      # Compile Haskell only
+# Build FFI shared library (needed for Python):
+# cd haskell-shim && cabal build aletheia-ffi && cd ..
 cabal run shake -- install-python     # Install Python package
 cabal run shake -- clean              # Remove build artifacts
 ```
@@ -311,7 +315,7 @@ source venv/bin/activate
 
 # Build and test
 shake build
-echo "test" | ./build/aletheia
+cd haskell-shim && cabal build aletheia-ffi && cd ..
 
 # Python development
 cd python
@@ -371,14 +375,13 @@ cabal run shake -- build-agda
 ls build/MAlonzo/Code/Aletheia/Main.hs  # Should exist
 ```
 
-### Python Can't Find Binary
+### Python Can't Find Shared Library
 
-**Error**: `FileNotFoundError: Binary not found`
+**Error**: `FileNotFoundError: libaletheia-ffi.so not found`
 
-**Solution**: Build the Haskell binary first:
+**Solution**: Build the FFI shared library:
 ```bash
-cabal run shake -- build
-ls -l build/aletheia  # Should exist and be executable
+cd haskell-shim && cabal build aletheia-ffi
 ```
 
 ### Shake Module Not Found
@@ -484,7 +487,7 @@ If you encounter issues not covered here:
 1. Check that all prerequisites are installed with correct versions
 2. Verify Python virtual environment is active: `which python3`
 3. Try a clean build: `cabal run shake -- clean && cabal run shake -- build`
-4. Verify file permissions: `ls -la build/aletheia` should show executable bit
+4. Verify shared library: `python3 -c "from aletheia.client import _find_ffi_library; print(_find_ffi_library())"`
 5. Check the project structure matches the expected layout
 
 ## Summary of Key Commands
@@ -499,8 +502,8 @@ cabal build shake
 # Regular development workflow
 cd /path/to/aletheia
 source venv/bin/activate         # Activate Python environment
-cabal run shake -- build          # Build everything
-echo "test" | ./build/aletheia    # Test binary
+cabal run shake -- build          # Build Agda → Haskell
+cd haskell-shim && cabal build aletheia-ffi && cd ..  # Build shared library
 
 # Python development
 cd python
@@ -521,5 +524,6 @@ deactivate                       # Deactivate virtual environment
 ---
 
 **Build system working correctly? ✓**
+**FFI shared library built? ✓**
 **Virtual environment configured? ✓**
-**Ready for Phase 2 development!**
+**Ready for development!**

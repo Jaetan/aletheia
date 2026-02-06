@@ -1,7 +1,7 @@
 # Aletheia Python DSL Guide
 
 **Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
-**Version**: 0.3.0-dev (Phase 3)
+**Version**: 0.3.1
 **Last Updated**: 2026-02-03
 
 ---
@@ -411,13 +411,13 @@ with AletheiaClient() as client:
 
 ## AletheiaClient API
 
-`AletheiaClient` is the unified client for streaming LTL checking and signal operations. It manages a single subprocess for all operations.
+`AletheiaClient` is the unified client for streaming LTL checking and signal operations. It loads `libaletheia-ffi.so` via ctypes and calls the Agda/Haskell core directly via FFI.
 
 ### Context Manager
 
 ```python
 with AletheiaClient() as client:
-    # Subprocess runs during this block
+    # Shared library loaded, GHC RTS initialized
     client.parse_dbc(dbc_json)
 
     # Signal operations work anytime after DBC loaded
@@ -429,7 +429,7 @@ with AletheiaClient() as client:
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
     client.end_stream()
-# Subprocess automatically cleaned up
+# State freed, RTS reference released
 ```
 
 ### Methods
@@ -609,16 +609,17 @@ dbc_json = {
 
 ## Error Handling
 
-### Binary Not Found
+### Shared Library Not Found
 
 ```python
-from aletheia.binary_utils import get_binary_path
-
+# AletheiaClient auto-discovers libaletheia-ffi.so.
+# If not found, it raises FileNotFoundError:
 try:
-    binary = get_binary_path()
+    with AletheiaClient() as client:
+        pass
 except FileNotFoundError as e:
     print(f"Error: {e}")
-    print("Build the binary with: cabal run shake -- build")
+    print("Build with: cd haskell-shim && cabal build aletheia-ffi")
 ```
 
 ### Invalid Frame Data
@@ -671,8 +672,9 @@ with AletheiaClient() as client:
 
 ### Current Performance
 
-- **Phase 2B**: 100K frames/sec target
-- **Phase 3 goal**: 1M frames/sec with optimizations
+- **Streaming LTL (3 properties)**: 9,229 fps (108 us/frame)
+- **Signal Extraction**: 8,184 fps
+- **Frame Building**: 5,868 fps
 
 ---
 

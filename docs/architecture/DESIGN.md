@@ -1,7 +1,7 @@
 # Aletheia (Ἀλήθεια) Design Document
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
-**Version**: 0.3.0-dev
+**Version**: 0.3.1
 **Status**: Phase 3 - Verification + Performance (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
 **Last Updated**: 2026-02-03
 
@@ -32,14 +32,15 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 ┌─────────────────────────────────────────┐
 │ Python Layer (python/)                  │
 │ - User-facing API (AletheiaClient, DSL)│
-│ - Subprocess communication via JSON     │
-│ - Simple wrapper around binary           │
+│ - Loads shared library via ctypes       │
+│ - JSON protocol over FFI calls          │
 └──────────────┬──────────────────────────┘
-               │ JSON over stdin/stdout
+               │ ctypes FFI (JSON strings)
 ┌──────────────▼──────────────────────────┐
-│ Haskell Shim (haskell-shim/)            │
-│ - Minimal I/O layer (<100 lines)        │
-│ - Only handles stdin/stdout             │
+│ Haskell FFI (haskell-shim/)             │
+│ - AletheiaFFI.hs: foreign export ccall  │
+│ - Compiled to libaletheia-ffi.so        │
+│ - State via StablePtr (IORef)           │
 │ - Calls MAlonzo-generated Agda code     │
 └──────────────┬──────────────────────────┘
                │ Direct function calls
@@ -62,8 +63,8 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 **Phase 2B** implements a JSON-based streaming protocol for processing large CAN traces with O(1) memory.
 
 **Key Design**:
-- Line-delimited JSON over stdin/stdout
-- Synchronous Python subprocess communication
+- JSON protocol over direct FFI calls (ctypes → shared library)
+- No subprocess or IPC overhead — function calls within the same process
 - Sequential message processing (no threading)
 - Incremental LTL checking with immediate violation reporting
 

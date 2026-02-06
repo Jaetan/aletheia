@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               aletheia
-version:            0.3.0.0
+version:            0.3.1.0
 synopsis:           Formally verified CAN frame analysis
 description:        
     Aletheia provides proven-correct CAN frame encoding/decoding and
@@ -12,8 +12,9 @@ maintainer:         aletheia@example.com
 category:           Verification
 build-type:         Simple
 
-executable aletheia
-    main-is:          Main.hs
+foreign-library aletheia-ffi
+    type:             native-shared
+    other-modules:    AletheiaFFI
     hs-source-dirs:   src, .
     build-depends:
         base >= 4.14 && < 5,
@@ -21,10 +22,10 @@ executable aletheia
     default-language: Haskell2010
     ghc-options:
         -O2
-        -threaded
-        -rtsopts
-        -with-rtsopts=-N
-        -- Suppress warnings for generated MAlonzo code
+        -funfolding-use-threshold=200
+        -fmax-simplifier-iterations=10
+        -fsplit-sections
+        -fspec-constr-count=10
         -Wno-unused-imports
         -Wno-missing-signatures
         -Wno-unused-matches
