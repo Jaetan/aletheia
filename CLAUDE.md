@@ -170,8 +170,11 @@ cd src && agda Aletheia/Parser/Combinators.agda
 # 3. Full build when ready
 cd .. && cabal run shake -- build
 
-# 4. Test
-echo "test" | ./build/aletheia
+# 4. Build FFI shared library
+cd haskell-shim && cabal build aletheia-ffi && cd ..
+
+# 5. Run Python tests
+cd python && python3 -m pytest tests/ -v
 ```
 
 ### Incremental Builds
@@ -181,8 +184,9 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 ## Key Files
 
 - **aletheia.agda-lib**: Agda library configuration (depends on standard-library-2.3)
-- **Shakefile.hs**: Custom build system orchestrating Agda → Haskell → binary
-- **haskell-shim/aletheia.cabal**: Haskell package definition
+- **Shakefile.hs**: Custom build system orchestrating Agda → Haskell → shared library
+- **haskell-shim/aletheia.cabal**: Haskell package definition (includes `foreign-library aletheia-ffi`)
+- **haskell-shim/src/AletheiaFFI.hs**: FFI exports for Python ctypes integration
 - **python/pyproject.toml**: Python package configuration
 
 ## Requirements
@@ -206,16 +210,16 @@ Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+
 
 ### MAlonzo FFI and Name Mangling
 
-MAlonzo mangles function names (e.g., `processCommand` → `d_processCommand_28`). The build system auto-detects mismatches and provides exact fix commands:
+MAlonzo mangles function names (e.g., `processJSONLine` → `d_processJSONLine_4`). The build system auto-detects mismatches and provides exact fix commands:
 
 ```bash
 cabal run shake -- build
 # If mismatch: ERROR with sed command to fix it
 ```
 
-**When it triggers**: Rarely - only when adding/removing Agda definitions before `processCommand` in Main.agda.
+**When it triggers**: Rarely - only when adding/removing Agda definitions before `processJSONLine` in Main.agda.
 
-**Best Practice**: Keep Haskell shim minimal (currently 74 lines), update mangled names when needed. Alternative solutions (COMPILE pragmas, FFI modules) would compromise `--safe` guarantees.
+**Best Practice**: Keep `AletheiaFFI.hs` minimal, update mangled names when needed. Alternative solutions (COMPILE pragmas) would compromise `--safe` guarantees.
 
 ### Virtual Environment
 
@@ -223,12 +227,15 @@ See [BUILDING.md](docs/development/BUILDING.md#2-set-up-python-virtual-environme
 
 Quick reference: Create with `python3 -m venv venv`, activate with `source venv/bin/activate`
 
-### Haskell Shim Philosophy
+### Haskell FFI Layer
 
-The Haskell shim (haskell-shim/src/Main.hs) should remain minimal:
-- Current: 74 lines
-- Target: <100 lines
-- Purpose: I/O only (stdin/stdout, buffering)
+The Haskell FFI layer is a single file:
+- **AletheiaFFI.hs** (~68 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
+
+**Design**:
+- AletheiaFFI.hs wraps `processJSONLine` with C-callable exports
+- State managed via `StablePtr (IORef StreamState)`
+- Python loads the `.so` via ctypes — no subprocess overhead
 - Never add business logic here
 
 ### Module Organization
@@ -283,7 +290,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 3 - Verification + Performance (57% complete)
+**Current**: Phase 3 - Verification + Performance (complete)
 
 ---
 
