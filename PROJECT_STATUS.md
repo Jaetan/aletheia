@@ -1,18 +1,19 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-03
+**Last Updated**: 2026-02-06
 
 ---
 
 ## Current Position
 
-**Phase 3 - Verification + Performance** 🚧
+**Phase 4 - Production Hardening** 🚧
 
-Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on formal correctness proofs and performance optimization.
+Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
+(automotive technicians, test engineers) and production-ready for deployment.
 
-**Status**: Phase 3 in progress
+**Status**: Phase 4 in progress
 
-**Previous Release**: v0.1.0-alpha (Phase 2 complete)
+**Latest Release**: v0.3.2 (Phase 3 complete)
 
 ---
 
@@ -126,18 +127,71 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 
 ---
 
-### Phase 4: Production Hardening ⏳ PLANNED
+### Phase 4: Production Hardening 🚧 IN PROGRESS
 
-**Scope**: User-facing polish and robustness
+**Scope**: Make Aletheia usable by non-developers and production-ready for deployment
 
-**Planned**:
-- Comprehensive error messages
-- User documentation and tutorials
-- Standard library of common LTL checks
-- Edge case handling
-- Production deployment guides
+**Design principle**: Four tiers of user interface, all compiling to the same
+verified core:
 
-**Status**: Not started
+| Tier | User | Interface |
+|------|------|-----------|
+| Excel | Technician | Fill in numbers in spreadsheet templates, press Run |
+| YAML | Test engineer | Edit declarative config files (version-controllable, CI/CD) |
+| Check API | Scripter | `Check.signal("Speed").never_exceeds(220)` |
+| DSL | Developer | `Signal("Speed").less_than(220).always()` (full LTL) |
+
+**Goals** (8 total):
+
+1. ⏳ Check API — high-level property library (`python/aletheia/checks.py`)
+   - Pre-built, parameterized automotive check patterns (range safety, rate limiting,
+     response time, debounce, heartbeat/timeout, startup sequences)
+   - Fluent API: `Check.signal("Speed").never_exceeds(220)` returns a `Property`
+   - Industry vocabulary: "check", "never_exceeds", "stays_between", "when/then/within"
+   - Designed for technicians: domain language, no LTL knowledge required
+   - Each check includes docstring showing equivalent manual DSL form
+
+2. ⏳ YAML loader (`python/aletheia/yaml_loader.py`)
+   - Declarative check definitions in YAML files
+   - Schema: signal + condition + value/limits + time constraint + severity
+   - Supports simple checks and when/then response-time checks
+   - Loadable via `load_checks("checks.yaml")` or CLI
+
+3. ⏳ Excel loader (`python/aletheia/excel_loader.py`)
+   - Read DBC definitions from Excel (Message ID, Signal Name, Start Bit, etc.)
+   - Read check definitions from Excel (Signal, Condition, Limit, Time, Severity)
+   - Provide downloadable .xlsx templates with headers and validation hints
+   - Full workflow: `aletheia check --dbc vehicle.xlsx --checks tests.xlsx --log drive.csv`
+   - Dependency: `openpyxl` (lightweight, standard)
+
+4. ⏳ CLI tool (`python -m aletheia`)
+   - `aletheia check` — run checks from YAML/Excel against a CAN log file
+   - `aletheia extract` — extract signals from a single frame
+   - `aletheia signals` — list signals in a DBC (or Excel)
+   - No Python scripting required for common workflows
+
+5. ⏳ CAN log reader (`python/aletheia/readers.py`)
+   - CSV reader (lowest common denominator)
+   - Vector ASC reader (common text-based format)
+   - Bridge the gap between "I have a log file" and "I'm checking properties"
+
+6. ⏳ Richer violation diagnostics
+   - Include signal values at point of violation (not just property index + timestamp)
+   - Human-readable violation summaries
+   - Structured JSON output for CI/CD integration
+
+7. ⏳ Deployment guide (`docs/DEPLOYMENT.md`)
+   - Docker: Dockerfile example, multi-stage build, sysinfo.py sizing
+   - systemd: service file for long-running monitor
+   - CI/CD: GitHub Actions / GitLab CI snippets
+   - Logging: structured JSON output for violations
+
+8. ⏳ Tutorial / cookbook (`docs/TUTORIAL.md`)
+   - End-to-end walkthrough for each tier (Excel, YAML, Check API, DSL)
+   - Oriented toward learning (vs demo scripts which are presentation-oriented)
+   - Separate paths for technicians and developers
+
+**Status**: In progress (started 2026-02-06)
 
 ---
 
@@ -184,9 +238,11 @@ Phase 2 is complete and released as v0.1.0-alpha. Moving to Phase 3 focusing on 
 
 ## Next Steps
 
+**Current**:
+- Phase 4: Production hardening — property library, CLI, log readers, diagnostics, deployment, tutorial
+
 **Future**:
-- Phase 4: Production hardening, documentation, standard library
-- Phase 5: Optional extensions (value tables, format converters)
+- Phase 5: Optional extensions (value tables, format converters, CAN-FD)
 
 ---
 

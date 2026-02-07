@@ -6,22 +6,43 @@ This directory contains example DBC files and verification scripts demonstrating
 
 - `example.dbc` - Sample DBC file with engine and brake signals (standard Vector DBC format)
 - `simple_verification.py` - Complete verification example using AletheiaClient API
-- `demo/` - Additional demos: drive log generation, DBC validation, frame injection
+- `demo/` - Demo scripts for presentations and walkthroughs
+
+### Demo Scripts (`demo/`)
+
+**Four-tier interface demos** (no FFI/build required):
+- `demo_check_api.py` - Check API fluent interface (9 checks, all condition types)
+- `demo_yaml_loader.py` - YAML loader with `demo_checks.yaml`
+- `demo_excel_loader.py` - Excel loader: templates, checks, DBC from spreadsheets
+- `demo_all_interfaces.py` - Equivalence proof: DSL == Check API == YAML == Excel
+
+**Streaming demos** (require `cabal run shake -- build`):
+- `demo.py` - Full presentation: DBC loading, property definition, streaming, fault injection
+- `dbc_validation.py` - DBC validation (overlap detection, range consistency, multiplexing)
+- `frame_injection.py` - Real-time frame injection during streaming
+
+**Support files**:
+- `vehicle.dbc` - DBC file for streaming demos
+- `drive_log.py` - Sample CAN frame generators (normal + overspeed drives)
+- `demo_checks.yaml` - YAML check definitions (companion to YAML demo)
 
 ## Running Examples
 
 See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) for build instructions.
 
 ```bash
-# From repository root, ensure everything is built and venv is active
-source venv/bin/activate
+# Activate venv
+source .venv/bin/activate.fish  # fish
+# source .venv/bin/activate      # bash/zsh
 
-# Install package in development mode
-cd python && pip install -e ".[dev]" && cd ..
+# Four-tier demos (no build required)
+python3 examples/demo/demo_check_api.py
+python3 examples/demo/demo_yaml_loader.py
+python3 examples/demo/demo_excel_loader.py
+python3 examples/demo/demo_all_interfaces.py
 
-# Run simple example
-cd examples
-python3 simple_verification.py
+# Streaming demos (require built FFI library)
+cd examples/demo && python3 demo.py
 ```
 
 ## Example DBC Structure

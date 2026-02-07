@@ -17,14 +17,8 @@ from .protocols import (
     DBCDefinition,
 )
 
-try:
-    import cantools
-    import cantools.database.can
-except ImportError as exc:
-    raise ImportError(
-        "cantools is required for DBC conversion. " +
-        "Install it with: pip install cantools"
-    ) from exc
+import cantools
+import cantools.database.can
 
 
 def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:

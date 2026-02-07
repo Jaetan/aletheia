@@ -1,0 +1,90 @@
+# Aletheia Signal Checks — YAML Format
+#
+# This file defines the same 9 checks as the Check API demo,
+# in a declarative format suitable for version control and CI/CD.
+#
+# Usage:
+#   from aletheia import load_checks
+#   checks = load_checks("demo_checks.yaml")
+#   client.set_properties([c.to_dict() for c in checks])
+
+checks:
+  # ── Simple signal checks ──────────────────────────────────────────
+
+  - name: "Speed limit"
+    signal: VehicleSpeed
+    condition: never_exceeds
+    value: 220
+    severity: safety
+
+  - name: "Battery voltage range"
+    signal: BatteryVoltage
+    condition: stays_between
+    min: 11.5
+    max: 14.5
+    severity: warning
+
+  - name: "Coolant temperature settling"
+    signal: CoolantTemp
+    condition: settles_between
+    min: 80
+    max: 100
+    within_ms: 5000
+    severity: info
+
+  - name: "Fault code exclusion"
+    signal: FaultCode
+    condition: never_equals
+    value: 255
+    severity: critical
+
+  - name: "Parking brake engaged"
+    signal: ParkingBrake
+    condition: equals
+    value: 1
+    severity: info
+
+  - name: "Battery voltage floor"
+    signal: BatteryVoltage
+    condition: never_below
+    value: 11.0
+    severity: critical
+
+  # ── When/Then causal checks ───────────────────────────────────────
+
+  - name: "Brake light response"
+    when:
+      signal: BrakePedal
+      condition: exceeds
+      value: 50
+    then:
+      signal: BrakeLight
+      condition: equals
+      value: 1
+    within_ms: 100
+    severity: safety
+
+  - name: "Engine start response"
+    when:
+      signal: Ignition
+      condition: equals
+      value: 1
+    then:
+      signal: EngineRPM
+      condition: exceeds
+      value: 500
+    within_ms: 2000
+    severity: warning
+
+  - name: "Fuel warning activation"
+    when:
+      signal: FuelLevel
+      condition: drops_below
+      value: 10
+    then:
+      signal: FuelWarning
+      condition: stays_between
+      min: 1
+      max: 1
+    within_ms: 50
+    severity: info

@@ -54,6 +54,7 @@ from .client import (
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
 from .yaml_loader import load_checks
 
 __version__ = "0.3.2"
@@ -68,6 +69,10 @@ __all__ = [
     # Check API
     "Check",
     "CheckResult",
+    # Excel loader
+    "load_checks_from_excel",
+    "load_dbc_from_excel",
+    "create_template",
     # YAML loader
     "load_checks",
     # DSL
