@@ -1,8 +1,11 @@
 # Aletheia Python DSL Guide
 
-**Purpose**: Complete guide to using Aletheia's Python DSL for CAN frame analysis and LTL verification.
+**Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
 **Version**: 0.3.2
-**Last Updated**: 2026-02-03
+**Last Updated**: 2026-02-07
+
+> **Higher-level interfaces**: If you don't need full LTL control, see the
+> [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.
 
 ---
 
@@ -27,8 +30,8 @@ with AletheiaClient() as client:
     for frame in can_trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
-        if response.get("type") == "property":
-            print(f"Violation at {response['timestamp']}: {response['reason']}")
+        if response.get("status") == "violation":
+            print(f"Violation at {response['timestamp']}")
             break
 
     client.end_stream()
@@ -294,9 +297,8 @@ with AletheiaClient() as client:
     for timestamp, can_id, data in frames:
         response = client.send_frame(timestamp, can_id, data)
 
-        if response.get("type") == "property":
+        if response.get("status") == "violation":
             print(f"Speed limit exceeded at {timestamp}us")
-            print(f"   Reason: {response['reason']}")
             break
         else:
             print(f"Frame at {timestamp}us: OK")
@@ -331,7 +333,7 @@ with AletheiaClient() as client:
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
-        if response.get("type") == "property":
+        if response.get("status") == "violation":
             prop_idx = response["property_index"]["numerator"]
             print(f"Property {prop_idx} violated at {response['timestamp']}")
 
@@ -359,10 +361,9 @@ with AletheiaClient() as client:
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
-        if response.get("type") == "property":
+        if response.get("status") == "violation":
             violations.append({
                 "timestamp": response["timestamp"],
-                "reason": response["reason"]
             })
 
     client.end_stream()
@@ -370,7 +371,7 @@ with AletheiaClient() as client:
     if violations:
         print(f"Brake safety violations: {len(violations)}")
         for v in violations:
-            print(f"   - {v['timestamp']}us: {v['reason']}")
+            print(f"   - {v['timestamp']}us")
     else:
         print("Brake safety property satisfied")
 ```
@@ -398,10 +399,9 @@ with AletheiaClient() as client:
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
-        if response.get("type") == "property":
+        if response.get("status") == "violation":
             print("Invalid power mode transition detected")
             print(f"   Timestamp: {response['timestamp']}")
-            print(f"   Reason: {response['reason']}")
             break
 
     client.end_stream()
@@ -663,7 +663,7 @@ with AletheiaClient() as client:
     for frame in read_trace_incrementally("huge_trace.log"):
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
-        if response.get("type") == "property":
+        if response.get("status") == "violation":
             print(f"First violation at {response['timestamp']}")
             break  # Early termination
 
@@ -703,12 +703,12 @@ class Signal:
 ```python
 class Predicate:
     # Temporal operators
-    def always(self) -> Property
-    def eventually(self) -> Property
-    def never(self) -> Property
-    def next(self) -> Property  # Rarely useful - see Next Operator warning above
-    def within(self, time_ms: int) -> Property
-    def for_at_least(self, time_ms: int) -> Property
+    def always(self) -> Property        # G(p)
+    def eventually(self) -> Property    # F(p)
+    def never(self) -> Property         # G(not p)
+    def next(self) -> Property          # X(p) — rarely useful, see warning above
+    def within(self, time_ms: int) -> Property       # F_{<=t}(p)
+    def for_at_least(self, time_ms: int) -> Property  # G_{<=t}(p)
 
     # Logical operators
     def and_(self, other: Predicate) -> Predicate
@@ -727,7 +727,9 @@ class Property:
     def not_(self) -> Property
     def implies(self, other: Union[Property, Predicate]) -> Property
 
-    # Temporal operators
+    # Temporal operators (for nesting: G(F(p)), F(G(p)), etc.)
+    def always(self) -> Property
+    def eventually(self) -> Property
     def next(self) -> Property  # For nested formulas - see Next Operator warning
     def until(self, other: Property) -> Property
     def release(self, other: Property) -> Property
@@ -735,13 +737,14 @@ class Property:
     def metric_release(self, time_ms: int, other: Property) -> Property
 
     # Serialization
-    def to_dict(self) -> Dict[str, Any]
+    def to_dict(self) -> LTLFormula
 ```
 
 ---
 
 ## See Also
 
+- **[Interface Guide](INTERFACES.md)** - Check API, YAML loader, Excel loader (higher-level interfaces)
 - [PROTOCOL.md](../architecture/PROTOCOL.md) - JSON protocol specification
 - [DESIGN.md](../architecture/DESIGN.md) - System architecture
 - [BUILDING.md](BUILDING.md) - Build instructions

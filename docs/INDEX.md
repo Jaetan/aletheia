@@ -11,7 +11,8 @@ Start here if you're new to Aletheia:
 1. **[README](../README.md)** - Project overview and quick start
 2. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
 3. **[Building Guide](development/BUILDING.md)** - Setup and installation instructions
-4. **[Python API Guide](development/PYTHON_API.md)** - Complete Python DSL reference
+4. **[Interface Guide](development/INTERFACES.md)** - Check API, YAML, Excel (recommended starting point)
+5. **[Python API Guide](development/PYTHON_API.md)** - Raw DSL and AletheiaClient reference
 
 ---
 
@@ -19,7 +20,8 @@ Start here if you're new to Aletheia:
 
 Complete API documentation:
 
-- **[Python API Guide](development/PYTHON_API.md)** - Signal DSL, temporal operators, AletheiaClient
+- **[Interface Guide](development/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
+- **[Python API Guide](development/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
 - **[JSON Protocol Specification](architecture/PROTOCOL.md)** - Low-level protocol for advanced users
 
 ---
@@ -48,7 +50,7 @@ Want to contribute to Aletheia?
 Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
-- **[Demo Scripts](../examples/demo/)** - DBC validation, frame injection, and drive simulation
+- **[Demo Scripts](../examples/demo/)** - Interface demos, DBC validation, frame injection, drive simulation
 
 ---
 
@@ -80,7 +82,8 @@ aletheia/
 │   │
 │   └── development/
 │       ├── BUILDING.md                # Build instructions
-│       └── PYTHON_API.md              # Python API reference
+│       ├── INTERFACES.md              # Check API, YAML, Excel loaders
+│       └── PYTHON_API.md              # Raw DSL and AletheiaClient reference
 │
 └── examples/
     └── demo/                          # Example scripts
@@ -91,5 +94,5 @@ aletheia/
 
 ---
 
-**Last Updated**: 2026-02-03
+**Last Updated**: 2026-02-07
 **Maintained By**: Aletheia Team

@@ -52,7 +52,28 @@ with AletheiaClient() as client:
     client.end_stream()
 ```
 
-See [Python API Guide](docs/development/PYTHON_API.md) for complete API reference and examples.
+See [Python API Guide](docs/development/PYTHON_API.md) for the complete DSL reference.
+
+### Higher-Level Interfaces
+
+For users who don't need full LTL control, Aletheia provides three
+higher-level interfaces that compile to the same verified core:
+
+```python
+from aletheia import Check, load_checks, load_checks_from_excel
+
+# Check API — industry vocabulary
+Check.signal("Speed").never_exceeds(220)
+Check.when("BrakePedal").exceeds(50).then("BrakeLight").equals(1).within(100)
+
+# YAML — declarative config files
+checks = load_checks("checks.yaml")
+
+# Excel — spreadsheet templates for technicians
+checks = load_checks_from_excel("checks.xlsx")
+```
+
+See [Interface Guide](docs/development/INTERFACES.md) for end-to-end workflows.
 
 ### Signal Operations
 
@@ -90,7 +111,8 @@ aletheia/
 
 ### Getting Started
 - [Building Guide](docs/development/BUILDING.md) - Setup and installation
-- [Python API Guide](docs/development/PYTHON_API.md) - Complete DSL reference
+- [Interface Guide](docs/development/INTERFACES.md) - Check API, YAML, Excel loaders
+- [Python API Guide](docs/development/PYTHON_API.md) - Raw DSL and AletheiaClient reference
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture

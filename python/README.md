@@ -41,9 +41,9 @@ with AletheiaClient() as client:
 ```
 
 For more details, see:
-- Package docstrings: `python3 -c "import aletheia; help(aletheia)"`
-- Tests: `python/tests/test_unified_client.py`
-- Main README: `../README.md`
+- [Interface Guide](../docs/development/INTERFACES.md) - Check API, YAML, Excel loaders
+- [Python API Guide](../docs/development/PYTHON_API.md) - Raw DSL and AletheiaClient reference
+- Tests: `python/tests/`
 
 ## Testing
 
