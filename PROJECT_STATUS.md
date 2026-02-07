@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-06
+**Last Updated**: 2026-02-07
 
 ---
 
@@ -143,26 +143,26 @@ verified core:
 
 **Goals** (8 total):
 
-1. ⏳ Check API — high-level property library (`python/aletheia/checks.py`)
-   - Pre-built, parameterized automotive check patterns (range safety, rate limiting,
-     response time, debounce, heartbeat/timeout, startup sequences)
-   - Fluent API: `Check.signal("Speed").never_exceeds(220)` returns a `Property`
-   - Industry vocabulary: "check", "never_exceeds", "stays_between", "when/then/within"
-   - Designed for technicians: domain language, no LTL knowledge required
-   - Each check includes docstring showing equivalent manual DSL form
+1. ✅ Check API — high-level property library (`python/aletheia/checks.py`) — COMPLETE
+   - 6 simple conditions: `never_exceeds`, `never_below`, `stays_between`, `never_equals`, `equals`, `settles_between`
+   - 3 when/then trigger/response patterns with `.within(ms)` deadline
+   - Fluent API: `Check.signal("Speed").never_exceeds(220)` returns `CheckResult`
+   - Metadata: `.named()` and `.severity()` chainable setters
+   - Industry vocabulary: no LTL knowledge required
 
-2. ⏳ YAML loader (`python/aletheia/yaml_loader.py`)
+2. ✅ YAML loader (`python/aletheia/yaml_loader.py`) — COMPLETE
    - Declarative check definitions in YAML files
-   - Schema: signal + condition + value/limits + time constraint + severity
+   - Schema: signal + condition + value/min/max + within_ms + severity
    - Supports simple checks and when/then response-time checks
-   - Loadable via `load_checks("checks.yaml")` or CLI
+   - `load_checks()` accepts file path or inline YAML string
+   - Clear error messages referencing check names
 
-3. ⏳ Excel loader (`python/aletheia/excel_loader.py`)
-   - Read DBC definitions from Excel (Message ID, Signal Name, Start Bit, etc.)
-   - Read check definitions from Excel (Signal, Condition, Limit, Time, Severity)
-   - Provide downloadable .xlsx templates with headers and validation hints
-   - Full workflow: `aletheia check --dbc vehicle.xlsx --checks tests.xlsx --log drive.csv`
-   - Dependency: `openpyxl` (lightweight, standard)
+3. ✅ Excel loader (`python/aletheia/excel_loader.py`) — COMPLETE
+   - `load_dbc_from_excel()`: DBC definitions from spreadsheet (hex/decimal message IDs, multiplexed signals)
+   - `load_checks_from_excel()`: Simple checks + when/then checks from two sheets
+   - `create_template()`: Generates blank .xlsx with bold headers and three sheets (DBC, Checks, When-Then)
+   - Row-level error messages, openpyxl type stubs for strict type checking
+   - Dependency: `openpyxl>=3.1` (added to pyproject.toml)
 
 4. ⏳ CLI tool (`python -m aletheia`)
    - `aletheia check` — run checks from YAML/Excel against a CAN log file
@@ -191,7 +191,14 @@ verified core:
    - Oriented toward learning (vs demo scripts which are presentation-oriented)
    - Separate paths for technicians and developers
 
-**Status**: In progress (started 2026-02-06)
+**Documentation**: Interface Guide (`docs/development/INTERFACES.md`) with Check API, YAML, and Excel
+end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
+
+**Demos**: 4 demo scripts + 1 YAML data file in `examples/demo/`:
+- `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`
+
+**Status**: In progress (started 2026-02-06, Goals 1-3 complete as of 2026-02-07)
+**Completion**: 37.5% (3/8 goals complete)
 
 ---
 
@@ -217,11 +224,11 @@ verified core:
 
 **Codebase**:
 - Agda modules: 40
-- Python modules: 8
-- Lines of code: ~5,500 Agda + ~4,500 Python
+- Python modules: 11
+- Lines of code: ~5,500 Agda + ~6,000 Python
 
 **Testing**:
-- Unit tests: 120 passing (0.17s via FFI)
+- Unit tests: 228 passing (0.30s via FFI)
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -239,7 +246,7 @@ verified core:
 ## Next Steps
 
 **Current**:
-- Phase 4: Production hardening — property library, CLI, log readers, diagnostics, deployment, tutorial
+- Phase 4: Production hardening — Goals 1-3 complete (Check API, YAML, Excel). Remaining: CLI, CAN log reader, diagnostics, deployment guide, tutorial
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)
