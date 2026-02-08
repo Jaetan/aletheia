@@ -2,8 +2,8 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 0.3.2
-**Status**: Phase 3 - Verification + Performance (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
-**Last Updated**: 2026-02-03
+**Status**: Phase 4 - Production Hardening (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
+**Last Updated**: 2026-02-08
 
 ## Project Overview
 
@@ -20,7 +20,7 @@ CAN protocol decisions (extended IDs, multiplexing) were researched during Phase
 | Constraint | Decision | Phase |
 |------------|----------|-------|
 | **8-byte CAN frames** | ✅ Keep fixed | Phase 5 (if requested) |
-| **Extended 29-bit CAN IDs** | ✅ Implemented | Phase 1 |
+| **Extended 29-bit CAN IDs** | ✅ Implemented | Phase 2A |
 | **Signal multiplexing** | ✅ Implemented | Phase 2A |
 | **CAN-FD support** | ❌ Deferred | Phase 5 (if requested) |
 
@@ -31,7 +31,9 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 ```
 ┌─────────────────────────────────────────┐
 │ Python Layer (python/)                  │
-│ - User-facing API (AletheiaClient, DSL)│
+│ - User-facing API (AletheiaClient)      │
+│ - Four interface tiers:                 │
+│   Check API / YAML / Excel / DSL        │
 │ - Loads shared library via ctypes       │
 │ - JSON protocol over FFI calls          │
 └──────────────┬──────────────────────────┘
@@ -52,7 +54,8 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - DBC parser                            │
 │ - LTL model checker                     │
 │ - All correctness proofs                │
-│ - Compiled with --safe flag             │
+│ - 37/40 modules use --safe flag         │
+│ - 3 coinductive modules use --sized-types│
 └─────────────────────────────────────────┘
 ```
 
@@ -75,8 +78,9 @@ See [PROTOCOL.md](PROTOCOL.md) for complete protocol specification, message type
 ## Documentation
 
 - **[PROTOCOL.md](PROTOCOL.md)** - Complete JSON protocol specification
+- **[INTERFACES.md](../development/INTERFACES.md)** - Check API, YAML, Excel interface guide
+- **[PYTHON_API.md](../development/PYTHON_API.md)** - Python DSL and client reference
 - **[PROJECT_STATUS.md](../../PROJECT_STATUS.md)** - Project status and roadmap
-- **[CLAUDE.md](../../CLAUDE.md)** - Development guidelines
 - **[BUILDING.md](../development/BUILDING.md)** - Build instructions
 
 ---

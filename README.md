@@ -8,13 +8,12 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs
 - **CAN Frame Processing**: Proven correct encoding/decoding of CAN signals
-- **LTL Verification**: Model checking of temporal properties over CAN traces
-- **Python Interface**: Simple API for automotive engineers
+- **LTL Verification**: Streaming model checker with O(1) memory (~9,200 fps)
+- **Four Interface Tiers**: Check API, YAML, Excel, and full LTL DSL
+- **Python Interface**: ctypes FFI — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world DBC files with clear warnings
 
 ## Quick Start
-
-### Prerequisites
 
 ### Installation
 
@@ -47,7 +46,8 @@ with AletheiaClient() as client:
     for timestamp, can_id, data in can_trace:
         response = client.send_frame(timestamp, can_id, data)
         if response.get("status") == "violation":
-            print(f"Violation: {response['reason']}")
+            ts = response['timestamp']['numerator']
+            print(f"Violation at {ts}us")
 
     client.end_stream()
 ```

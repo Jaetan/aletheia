@@ -2,7 +2,7 @@
 
 ---
 **Version**: 0.3.2
-**Last Updated**: 2025-12-05
+**Last Updated**: 2026-02-08
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
 
@@ -146,15 +146,10 @@ pyenv global 3.13.7
 
 ## Building Aletheia
 
-### 1. Extract the Repository
+### 1. Clone the Repository
 ```bash
-# If from tarball
-tar xzf aletheia-scaffold.tar.gz
+git clone <repository-url>
 cd aletheia
-
-# If from git (future)
-# git clone <repository-url>
-# cd aletheia
 ```
 
 ### 2. Set Up Python Virtual Environment
@@ -162,16 +157,14 @@ cd aletheia
 **IMPORTANT**: Always use a virtual environment to avoid conflicts with system Python packages.
 ```bash
 # Create virtual environment
-python3.13 -m venv venv
+python3 -m venv .venv
 
 # Activate the virtual environment
-source venv/bin/activate  # On Linux/macOS
-# Or on Windows WSL:
-# source venv/bin/activate
+source .venv/bin/activate
 
 # Verify you're in the virtual environment
 which python3
-# Should show: /path/to/aletheia/venv/bin/python3
+# Should show: /path/to/aletheia/.venv/bin/python3
 
 # Upgrade pip in the virtual environment
 pip install --upgrade pip setuptools wheel
@@ -180,7 +173,7 @@ pip install --upgrade pip setuptools wheel
 **Note**: You need to activate the virtual environment every time you work on the project:
 ```bash
 cd /path/to/aletheia
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 To deactivate when done:
@@ -190,32 +183,23 @@ deactivate
 
 ### 3. Build All Components
 
-The project uses Shake for building, which is managed via Cabal:
+The project uses [Shake](https://shakebuild.com/) as its build system. Shake is declared as a
+Cabal dependency in `shake.cabal` at the project root, so **no separate installation is needed** —
+`cabal run shake` fetches and builds Shake automatically on first use.
+
 ```bash
 # Ensure you're in the project root directory
 cd /path/to/aletheia
 
-# Build everything (Agda → Haskell → shared library)
+# Build everything (Agda → Haskell → libaletheia-ffi.so)
 cabal run shake -- build
 
 # This will:
 # 1. Compile Agda sources to Haskell (MAlonzo)
-# 2. Create symlink for MAlonzo output
-# 3. Build Haskell shared library with Cabal
+# 2. Build shared library via Cabal → build/libaletheia-ffi.so
 #
-# First build takes ~1 minute (compiles standard library)
+# First build takes ~1 minute (compiles standard library + Shake itself)
 # Subsequent builds are much faster (only changed modules)
-```
-
-### 3b. Build the FFI Shared Library
-
-The Python client loads `libaletheia-ffi.so` via ctypes:
-```bash
-# Build the shared library
-cd haskell-shim && cabal build aletheia-ffi
-
-# The library is built in haskell-shim/dist-newstyle/
-# Python's AletheiaClient auto-discovers it there
 ```
 
 ### 4. Verify the Build
@@ -231,7 +215,7 @@ python3 -c "from aletheia.client import _find_ffi_library; print(_find_ffi_libra
 ```bash
 # Verify virtual environment is active
 which python3
-# Should show: /path/to/aletheia/venv/bin/python3
+# Should show: /path/to/aletheia/.venv/bin/python3
 
 # Install Python package using Shake
 cabal run shake -- install-python
@@ -249,18 +233,109 @@ python3 -c "import aletheia; print(aletheia.__version__)"
 ### 6. Run Tests
 ```bash
 # Ensure virtual environment is active
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install test dependencies
 cd python
 pip install -e ".[dev]"
 
-# Run smoke tests
+# Run tests
 python3 -m pytest tests/ -v
 
-# Try example (will fail until Phase 2, but shows the structure)
+# Try an example
 cd ../examples
 python3 simple_verification.py
+```
+
+### 7. System Installation (Optional)
+
+For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
+as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
+runtime — only Python 3.12+.
+
+#### Prerequisites
+
+```bash
+# patchelf is required to patch shared library RUNPATH
+sudo apt install patchelf      # Ubuntu/Debian
+# brew install patchelf        # macOS
+# sudo dnf install patchelf    # Fedora
+```
+
+#### Install
+
+```bash
+# Install to ~/.local (default)
+cabal run shake -- install
+
+# Install to a custom prefix
+PREFIX=/opt/aletheia cabal run shake -- install
+
+# Install + add shell alias for activating the venv
+CONFIGURE_SHELL=1 cabal run shake -- install
+```
+
+#### Installed Layout
+
+```
+$PREFIX/
+├── lib/aletheia/
+│   ├── libaletheia-ffi.so              # patched RUNPATH=$ORIGIN
+│   ├── libHSbase-*.so, libHSrts-*.so   # bundled GHC runtime (~31 MB)
+│   ├── venv/                           # Python 3.12+ venv with aletheia
+│   └── manifest.txt                    # for uninstall
+├── share/doc/aletheia/                 # documentation
+└── share/aletheia/examples/            # example scripts
+```
+
+#### Activate and Use
+
+```bash
+# bash/zsh
+source ~/.local/lib/aletheia/venv/bin/activate
+python3 -c "from aletheia import AletheiaClient; print('OK')"
+deactivate
+
+# fish
+source ~/.local/lib/aletheia/venv/bin/activate.fish
+python3 -c "from aletheia import AletheiaClient; print('OK')"
+deactivate
+```
+
+If you installed with `CONFIGURE_SHELL=1`, you can use:
+```bash
+aletheia-env   # alias that activates the venv
+```
+
+#### Uninstall
+
+```bash
+cabal run shake -- uninstall                          # default prefix
+PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
+```
+
+#### Docker Multi-Stage Build
+
+```dockerfile
+# Stage 1: Build with GHC + Agda
+FROM haskell:9.6.7 AS builder
+
+RUN cabal update && cabal install Agda-2.8.0
+RUN apt-get update && apt-get install -y patchelf python3 python3-venv
+
+WORKDIR /build
+COPY . .
+RUN cabal run shake -- build
+RUN PREFIX=/opt/aletheia cabal run shake -- install
+
+# Stage 2: Runtime (no GHC needed)
+FROM python:3.13-slim
+
+COPY --from=builder /opt/aletheia /opt/aletheia
+
+# Activate and use
+ENV PATH="/opt/aletheia/lib/aletheia/venv/bin:$PATH"
+RUN python3 -c "from aletheia import AletheiaClient; print('OK')"
 ```
 
 ## Common Build Commands
@@ -269,16 +344,16 @@ python3 simple_verification.py
 cd /path/to/aletheia
 
 # Activate Python virtual environment (for Python commands)
-source venv/bin/activate
+source .venv/bin/activate
 
 # Build commands
-cabal run shake -- build              # Build Agda → Haskell (MAlonzo)
-cabal run shake -- build-agda         # Compile Agda only
-cabal run shake -- build-haskell      # Compile Haskell only
-# Build FFI shared library (needed for Python):
-# cd haskell-shim && cabal build aletheia-ffi && cd ..
-cabal run shake -- install-python     # Install Python package
+cabal run shake -- build              # Full pipeline: Agda → Haskell → libaletheia-ffi.so
+cabal run shake -- build-agda         # Compile Agda to Haskell only (no .so)
+cabal run shake -- install-python     # Build + install Python package (pip install -e .)
+cabal run shake -- check-properties   # Type-check all proof modules
 cabal run shake -- clean              # Remove build artifacts
+cabal run shake -- install            # System install (default: ~/.local)
+cabal run shake -- uninstall          # Remove system install
 ```
 
 ## Creating Convenient Aliases (Optional)
@@ -292,7 +367,7 @@ alias shake='cabal run shake --'
 
 # Function to activate aletheia environment
 aletheia-env() {
-    cd /path/to/aletheia && source venv/bin/activate
+    cd /path/to/aletheia && source .venv/bin/activate
 }
 
 # Reload shell
@@ -308,18 +383,14 @@ shake clean       # Clean build
 ```bash
 # Starting a work session
 cd /path/to/aletheia
-source venv/bin/activate
+source .venv/bin/activate
 
 # Make changes to Agda/Haskell/Python code
 # ... edit files ...
 
 # Build and test
-shake build
-cd haskell-shim && cabal build aletheia-ffi && cd ..
-
-# Python development
-cd python
-pytest tests/ -v
+cabal run shake -- build
+cd python && python3 -m pytest tests/ -v
 
 # When done
 deactivate
@@ -331,14 +402,11 @@ deactivate
 
 **Error**: `pip: command not found` after activating venv
 
-**Solution**: Ensure venv was created with the correct Python version:
+**Solution**: Ensure venv was created with a supported Python version (3.12+):
 ```bash
-# Remove old venv
-rm -rf venv
-
-# Create new venv with Python 3.13
-python3.13 -m venv venv
-source venv/bin/activate
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
 pip install --upgrade pip
 ```
 
@@ -347,7 +415,7 @@ pip install --upgrade pip
 **Solution**: Verify virtual environment is active:
 ```bash
 which python3
-# Should show: .../aletheia/venv/bin/python3
+# Should show: .../aletheia/.venv/bin/python3
 # NOT: /usr/bin/python3 or similar system path
 ```
 
@@ -379,9 +447,9 @@ ls build/MAlonzo/Code/Aletheia/Main.hs  # Should exist
 
 **Error**: `FileNotFoundError: libaletheia-ffi.so not found`
 
-**Solution**: Build the FFI shared library:
+**Solution**: Build with Shake (produces `build/libaletheia-ffi.so`):
 ```bash
-cd haskell-shim && cabal build aletheia-ffi
+cabal run shake -- build
 ```
 
 ### Shake Module Not Found
@@ -413,8 +481,10 @@ cabal run shake -- build  # Only rebuilds affected modules
 For faster iteration when developing Agda code:
 ```bash
 cd src
-agda Aletheia/YourModule.agda  # Type-check only
+agda +RTS -N -RTS Aletheia/YourModule.agda  # Type-check only (parallel)
 ```
+
+**Important**: Always use `+RTS -N -RTS` for parallel type-checking. Without it, modules like `StreamState.agda` and `Main.agda` can take >2 minutes instead of ~17 seconds.
 
 ### Verbose Build Output
 ```bash
@@ -433,8 +503,8 @@ cabal run shake -- build
 ### Checking Individual Modules
 ```bash
 cd src
-agda Aletheia/Main.agda              # Check Main and all dependencies
-agda Aletheia/Protocol/Command.agda  # Check just Command module
+agda +RTS -N -RTS Aletheia/Main.agda              # Check Main and all dependencies
+agda +RTS -N -RTS Aletheia/Protocol/Command.agda  # Check just Command module
 ```
 
 ## Platform-Specific Notes
@@ -475,10 +545,10 @@ agda Aletheia/Protocol/Command.agda  # Check just Command module
 
 After successful build:
 
-1. **Read the architecture**: See [CLAUDE.md](../../CLAUDE.md)
-2. **Review design decisions**: See [DESIGN.md](../architecture/DESIGN.md)
-3. **Try examples**: Check `examples/` directory
-4. **Start developing**: Begin with Phase 2 (parser combinators)
+1. **Try examples**: `python3 examples/simple_verification.py`
+2. **Read the interfaces**: See [INTERFACES.md](INTERFACES.md) (Check API, YAML, Excel)
+3. **Review architecture**: See [DESIGN.md](../architecture/DESIGN.md)
+4. **Read the project pitch**: See [PITCH.md](../PITCH.md) for why Aletheia exists
 
 ## Getting Help
 
@@ -493,22 +563,17 @@ If you encounter issues not covered here:
 ## Summary of Key Commands
 ```bash
 # Initial setup (once)
-python3.13 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install --upgrade pip setuptools wheel
+cd python && pip install -e ".[dev]" && cd ..
 cabal update
-cabal build shake
 
 # Regular development workflow
 cd /path/to/aletheia
-source venv/bin/activate         # Activate Python environment
-cabal run shake -- build          # Build Agda → Haskell
-cd haskell-shim && cabal build aletheia-ffi && cd ..  # Build shared library
-
-# Python development
-cd python
-pip install -e ".[dev]"          # Install with dev dependencies
-python3 -m pytest tests/ -v      # Run tests
+source .venv/bin/activate         # Activate Python environment
+cabal run shake -- build          # Full pipeline → build/libaletheia-ffi.so
+cd python && python3 -m pytest tests/ -v  # Run tests
 
 # When done
 deactivate                       # Deactivate virtual environment
@@ -517,8 +582,8 @@ deactivate                       # Deactivate virtual environment
 ## Virtual Environment Best Practices
 
 1. **Always activate** the virtual environment before running Python commands
-2. **Never commit** the `venv/` directory to git (already in `.gitignore`)
-3. **Recreate venv** if you upgrade Python: `rm -rf venv && python3.13 -m venv venv`
+2. **Never commit** the `.venv/` directory to git (already in `.gitignore`)
+3. **Recreate venv** if you upgrade Python: `rm -rf .venv && python3 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
 4. **Document dependencies**: When adding Python packages, update `python/pyproject.toml`
 
 ---

@@ -58,3 +58,6 @@ c.log
 /debug_*.py
 /tmp_*.yaml
 *.hp
+
+# Generated install config
+python/aletheia/_install_config.py

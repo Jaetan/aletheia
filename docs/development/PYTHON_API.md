@@ -31,7 +31,8 @@ with AletheiaClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("status") == "violation":
-            print(f"Violation at {response['timestamp']}")
+            ts = response['timestamp']['numerator']
+            print(f"Violation at {ts}us")
             break
 
     client.end_stream()
@@ -298,10 +299,9 @@ with AletheiaClient() as client:
         response = client.send_frame(timestamp, can_id, data)
 
         if response.get("status") == "violation":
-            print(f"Speed limit exceeded at {timestamp}us")
+            ts = response['timestamp']['numerator']
+            print(f"Speed limit exceeded at {ts}us")
             break
-        else:
-            print(f"Frame at {timestamp}us: OK")
 
     client.end_stream()
 ```
@@ -335,7 +335,8 @@ with AletheiaClient() as client:
 
         if response.get("status") == "violation":
             prop_idx = response["property_index"]["numerator"]
-            print(f"Property {prop_idx} violated at {response['timestamp']}")
+            ts = response["timestamp"]["numerator"]
+            print(f"Property {prop_idx} violated at {ts}us")
 
     client.end_stream()
 ```
@@ -362,16 +363,14 @@ with AletheiaClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("status") == "violation":
-            violations.append({
-                "timestamp": response["timestamp"],
-            })
+            violations.append(response["timestamp"]["numerator"])
 
     client.end_stream()
 
     if violations:
         print(f"Brake safety violations: {len(violations)}")
-        for v in violations:
-            print(f"   - {v['timestamp']}us")
+        for ts in violations:
+            print(f"   - {ts}us")
     else:
         print("Brake safety property satisfied")
 ```
@@ -400,8 +399,8 @@ with AletheiaClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("status") == "violation":
-            print("Invalid power mode transition detected")
-            print(f"   Timestamp: {response['timestamp']}")
+            ts = response['timestamp']['numerator']
+            print(f"Invalid power mode transition at {ts}us")
             break
 
     client.end_stream()
@@ -490,9 +489,11 @@ Send a CAN frame for incremental checking.
     "status": "violation",
     "property_index": {"numerator": 0, "denominator": 1},
     "timestamp": {"numerator": 1000, "denominator": 1},
-    "reason": "Always violated"
+    "reason": "Always violated"   # optional, may be absent
 }
 ```
+
+**Note**: `property_index` and `timestamp` are rational numbers (Agda `ℚ`). Access the integer value via `["numerator"]` — the denominator is always 1.
 
 #### `end_stream() -> Dict`
 
@@ -553,56 +554,13 @@ frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
 
 ## Converting .dbc Files
 
-Use `cantools` to convert `.dbc` files:
-
-```bash
-pip install cantools
-```
+`cantools` is installed automatically as a dependency:
 
 ```python
 from aletheia.dbc_converter import dbc_to_json
 
 # Convert .dbc file to Aletheia JSON format
 dbc_json = dbc_to_json("vehicle.dbc")
-```
-
-**Manual conversion** (if dbc_converter unavailable):
-
-```python
-import cantools
-import json
-
-db = cantools.database.load_file("vehicle.dbc")
-
-dbc_json = {
-    "version": "1.0",
-    "messages": [
-        {
-            "id": msg.frame_id,
-            "name": msg.name,
-            "dlc": 8,
-            "extended": msg.is_extended_frame,
-            "sender": msg.senders[0] if msg.senders else "Unknown",
-            "signals": [
-                {
-                    "name": sig.name,
-                    "startBit": sig.start,
-                    "length": sig.length,
-                    "byteOrder": "little_endian" if sig.byte_order == "little_endian" else "big_endian",
-                    "signed": sig.is_signed,
-                    "factor": sig.scale,
-                    "offset": sig.offset,
-                    "minimum": sig.minimum if sig.minimum is not None else 0.0,
-                    "maximum": sig.maximum if sig.maximum is not None else 0.0,
-                    "unit": sig.unit or "",
-                    "presence": "always"
-                }
-                for sig in msg.signals
-            ]
-        }
-        for msg in db.messages
-    ]
-}
 ```
 
 ---
@@ -619,7 +577,7 @@ try:
         pass
 except FileNotFoundError as e:
     print(f"Error: {e}")
-    print("Build with: cd haskell-shim && cabal build aletheia-ffi")
+    print("Build with: cabal run shake -- build")
 ```
 
 ### Invalid Frame Data
@@ -664,7 +622,8 @@ with AletheiaClient() as client:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
 
         if response.get("status") == "violation":
-            print(f"First violation at {response['timestamp']}")
+            ts = response['timestamp']['numerator']
+            print(f"First violation at {ts}us")
             break  # Early termination
 
     client.end_stream()

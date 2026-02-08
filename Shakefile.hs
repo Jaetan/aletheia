@@ -1,12 +1,15 @@
 import Development.Shake
 import Development.Shake.FilePath
-import System.Directory (createDirectoryLink, removePathForcibly, doesDirectoryExist)
+import System.Directory (createDirectoryLink, removePathForcibly,
+                         getHomeDirectory, createDirectoryIfMissing,
+                         removeDirectoryRecursive)
 import System.Info (os)
-import System.Process (readProcess)
-import Data.List (isInfixOf)
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode(..))
+import Data.List (isInfixOf, isPrefixOf)
 import Data.Maybe (listToMaybe)
 import Data.Char (isSpace)
-import Control.Monad (when)
+import Control.Monad (when, unless, forM_)
 import GHC.Conc (getNumProcessors)
 
 -- | Trim whitespace from both ends of a string
@@ -71,6 +74,41 @@ checkFFIName malonzoFile ffiFile = do
             putWarn "Could not extract mangled name from MAlonzo output (might be OK if function signature changed)"
         (_, Nothing) ->
             putWarn "Could not extract function name from FFI wrapper (might be OK if imports changed)"
+
+-- | Get GHC runtime .so dependencies for a shared library.
+-- Runs ldd and filters for libraries under GHC's lib directory.
+getGhcDeps :: FilePath -> Action [FilePath]
+getGhcDeps soPath = do
+    Stdout ghcLibDir <- cmd "ghc" "--print-libdir"
+    let ghcBase = strip ghcLibDir
+    Stdout lddOutput <- cmd "ldd" soPath
+    let deps = [ resolvedPath
+               | line <- lines lddOutput
+               , let ws = words line
+               , length ws >= 3
+               , ws !! 1 == "=>"
+               , let resolvedPath = ws !! 2
+               , ghcBase `isPrefixOf` resolvedPath
+               ]
+    return deps
+
+-- | Check that patchelf and Python 3.12+ are available.
+checkPrerequisites :: Action ()
+checkPrerequisites = do
+    Exit patchelfCode <- cmd Shell "command -v patchelf >/dev/null 2>&1"
+    case patchelfCode of
+        ExitSuccess -> return ()
+        ExitFailure _ -> error $ unlines
+            [ "patchelf is required for install but not found."
+            , "Install it with:"
+            , "  Ubuntu/Debian: sudo apt install patchelf"
+            , "  macOS:         brew install patchelf"
+            , "  Fedora:        sudo dnf install patchelf"
+            ]
+    Exit pyCode <- cmd Shell "python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)'"
+    case pyCode of
+        ExitSuccess -> return ()
+        ExitFailure _ -> error "Python 3.12+ is required. Check your python3 version."
 
 main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
@@ -183,3 +221,183 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             else do
                 cmd_ (Cwd "haskell-shim") "cp" trimmedPath ("../" ++ out)
                 putInfo $ "Shared library created: " ++ out
+
+    -- =========================================================================
+    -- Install / Uninstall targets
+    -- =========================================================================
+
+    phony "install" $ do
+        need ["build/libaletheia-ffi.so"]
+
+        -- Read PREFIX (default: ~/.local)
+        home <- liftIO getHomeDirectory
+        prefixEnv <- liftIO $ lookupEnv "PREFIX"
+        let prefix = maybe (home </> ".local") id prefixEnv
+        configShellEnv <- liftIO $ lookupEnv "CONFIGURE_SHELL"
+        let configShell = configShellEnv == Just "1"
+
+        -- Check prerequisites
+        checkPrerequisites
+
+        let libDir     = prefix </> "lib" </> "aletheia"
+        let docDir     = prefix </> "share" </> "doc" </> "aletheia"
+        let exampleDir = prefix </> "share" </> "aletheia" </> "examples"
+        let venvDir    = libDir </> "venv"
+        let venvPython = venvDir </> "bin" </> "python3"
+        let venvPip    = venvDir </> "bin" </> "pip"
+
+        -- Create directory tree
+        putInfo $ "Installing to " ++ prefix ++ " ..."
+        liftIO $ createDirectoryIfMissing True libDir
+        liftIO $ createDirectoryIfMissing True docDir
+        liftIO $ createDirectoryIfMissing True exampleDir
+
+        -- Copy main shared library
+        putInfo "Copying shared library..."
+        cmd_ "cp" "build/libaletheia-ffi.so" libDir
+
+        -- Bundle GHC runtime dependencies
+        putInfo "Bundling GHC runtime libraries..."
+        ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
+        forM_ ghcDeps $ \dep ->
+            cmd_ "cp" "-L" dep libDir
+
+        -- Patch RUNPATH on all .so files so they find each other via $ORIGIN
+        putInfo "Patching RUNPATH on shared libraries..."
+        Stdout soFiles <- cmd Shell ("find " ++ libDir ++ " -name '*.so*' -type f")
+        forM_ (filter (not . null) (lines soFiles)) $ \f ->
+            cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
+
+        -- Create Python venv
+        putInfo "Creating Python virtual environment..."
+        cmd_ "python3" "-m" "venv" venvDir
+        cmd_ venvPip "install" "--upgrade" "pip" "setuptools" "wheel"
+
+        -- Install aletheia Python package (non-editable)
+        putInfo "Installing aletheia Python package..."
+        cmd_ venvPip "install" "./python"
+
+        -- Find site-packages and write _install_config.py
+        Stdout sitePackages <- cmd venvPython "-c"
+            "import site; print(site.getsitepackages()[0])"
+        let siteDir = strip sitePackages
+        let configFile = siteDir </> "aletheia" </> "_install_config.py"
+        let soAbsPath = libDir </> "libaletheia-ffi.so"
+        putInfo $ "Writing install config: " ++ configFile
+        liftIO $ writeFile configFile $
+            "LIBRARY_PATH = " ++ show soAbsPath ++ "\n"
+
+        -- Copy documentation
+        putInfo "Copying documentation..."
+        cmd_ Shell ("cp -r docs/* " ++ docDir ++ "/")
+        -- Copy root doc files that exist
+        forM_ ["README.md", "CONTRIBUTING.md", "LICENSE.md", "LICENSE"] $ \f -> do
+            rootDocExists <- doesFileExist f
+            when rootDocExists $ cmd_ "cp" f docDir
+
+        -- Copy examples
+        putInfo "Copying examples..."
+        examplesExist <- doesDirectoryExist "examples"
+        when examplesExist $ do
+            cmd_ Shell ("cp -r examples/* " ++ exampleDir ++ "/")
+            cmd_ Shell ("find " ++ exampleDir ++ " -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true")
+
+        -- Write manifest for uninstall
+        let manifestFile = libDir </> "manifest.txt"
+        liftIO $ writeFile manifestFile $ unlines
+            [ prefix </> "lib" </> "aletheia"
+            , prefix </> "share" </> "doc" </> "aletheia"
+            , prefix </> "share" </> "aletheia"
+            ]
+
+        -- Optionally configure shell aliases
+        when configShell $ do
+            putInfo "Configuring shell aliases..."
+            let venvActivate     = venvDir </> "bin" </> "activate"
+            let venvActivateFish = venvDir </> "bin" </> "activate.fish"
+            let marker = "# Added by aletheia install"
+
+            -- bash
+            let bashrc = home </> ".bashrc"
+            bashExists <- doesFileExist bashrc
+            when bashExists $ do
+                Stdout bashContent <- cmd Shell ("cat " ++ bashrc)
+                unless (marker `isInfixOf` bashContent) $ do
+                    liftIO $ appendFile bashrc $ unlines
+                        [ "", marker
+                        , "alias aletheia-env='source " ++ venvActivate ++ "'"
+                        ]
+                    putInfo $ "  Added alias to " ++ bashrc
+
+            -- zsh
+            let zshrc = home </> ".zshrc"
+            zshExists <- doesFileExist zshrc
+            when zshExists $ do
+                Stdout zshContent <- cmd Shell ("cat " ++ zshrc)
+                unless (marker `isInfixOf` zshContent) $ do
+                    liftIO $ appendFile zshrc $ unlines
+                        [ "", marker
+                        , "alias aletheia-env='source " ++ venvActivate ++ "'"
+                        ]
+                    putInfo $ "  Added alias to " ++ zshrc
+
+            -- fish
+            let fishConfig = home </> ".config" </> "fish" </> "config.fish"
+            fishExists <- doesFileExist fishConfig
+            when fishExists $ do
+                Stdout fishContent <- cmd Shell ("cat " ++ fishConfig)
+                unless (marker `isInfixOf` fishContent) $ do
+                    liftIO $ appendFile fishConfig $ unlines
+                        [ "", marker
+                        , "alias aletheia-env 'source " ++ venvActivateFish ++ "'"
+                        ]
+                    putInfo $ "  Added alias to " ++ fishConfig
+
+        -- Success banner
+        putInfo ""
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo "  Aletheia installed successfully!"
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo ""
+        putInfo $ "  Location: " ++ prefix
+        putInfo ""
+        putInfo "  Activate the environment:"
+        putInfo $ "    bash/zsh: source " ++ venvDir </> "bin" </> "activate"
+        putInfo $ "    fish:     source " ++ venvDir </> "bin" </> "activate.fish"
+        putInfo ""
+        putInfo "  Then use:"
+        putInfo "    python3 -c \"from aletheia import AletheiaClient; print('OK')\""
+        putInfo ""
+        putInfo "  Uninstall:"
+        putInfo $ "    " ++ (if prefixEnv /= Nothing then "PREFIX=" ++ prefix ++ " " else "")
+              ++ "cabal run shake -- uninstall"
+        putInfo ""
+
+    phony "uninstall" $ do
+        -- Read PREFIX (default: ~/.local)
+        home <- liftIO getHomeDirectory
+        prefixEnv <- liftIO $ lookupEnv "PREFIX"
+        let prefix = maybe (home </> ".local") id prefixEnv
+        let manifestFile = prefix </> "lib" </> "aletheia" </> "manifest.txt"
+
+        manifestExists <- doesFileExist manifestFile
+        if manifestExists
+            then do
+                manifestContent <- liftIO $ readFile manifestFile
+                let dirs = filter (not . null) (lines manifestContent)
+                forM_ dirs $ \dir -> do
+                    dirExists <- doesDirectoryExist dir
+                    when dirExists $ do
+                        putInfo $ "Removing " ++ dir ++ " ..."
+                        liftIO $ removeDirectoryRecursive dir
+                -- Clean up empty parent dirs
+                let shareAletheiaDir = prefix </> "share" </> "aletheia"
+                shareExists <- doesDirectoryExist shareAletheiaDir
+                when shareExists $
+                    liftIO $ removeDirectoryRecursive shareAletheiaDir
+                putInfo ""
+                putInfo "Aletheia uninstalled successfully."
+                putInfo ""
+            else do
+                putInfo $ "No manifest found at " ++ manifestFile
+                putInfo "Nothing to uninstall."

@@ -134,7 +134,8 @@ with AletheiaClient() as client:
         response = client.send_frame(timestamp, can_id, data)
         if response.get("status") == "violation":
             idx = response["property_index"]["numerator"]
-            print(f"Check {idx} violated at {response['timestamp']}")
+            ts = response["timestamp"]["numerator"]
+            print(f"Check {idx} violated at {ts}us")
 
     client.end_stream()
 ```

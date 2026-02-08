@@ -80,13 +80,13 @@ Agda (all logic + proofs, compiled via MAlonzo)
 **Why these technologies?**
 
 - **Agda**: Dependently-typed proof assistant. Code that type-checks is mathematically proven correct. Used in aerospace, cryptography, and compilers.
-- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Facebook, Standard Chartered, IOHK). Compiled to a shared library loaded directly by Python.
+- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Meta, Standard Chartered, IOHK). Compiled to a shared library loaded directly by Python.
 - **Python**: Familiar interface for automotive engineers. All complexity hidden behind ctypes FFI.
 
 **Proven track record**:
-- Agda: Used to verify cryptographic protocols (e.g., TLS 1.3 formal analysis)
-- Haskell: Used in production at scale (>1M LoC codebases)
-- This stack: Similar to Cryptol (NSA) and other high-assurance tools
+- Agda: Used in verified compilers (Agda-to-Haskell compiler itself), verified data structures, and verified network protocols
+- Haskell: Used in production at scale (>1M LoC codebases at Meta, Standard Chartered, IOHK)
+- Formal methods stack: Same class of tools as CompCert (verified C compiler) and seL4 (verified microkernel)
 
 ---
 
@@ -103,7 +103,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 **Mitigation strategy**:
 - Python API provides stable interface (no Agda knowledge required for users)
-- Core logic is feature-complete for Phase 2 (changes infrequent)
+- Core logic is feature-complete for Phase 3 (changes infrequent)
 - Comprehensive documentation (BUILDING.md, CLAUDE.md, examples/)
 - Standard library dependencies only (no exotic packages)
 
@@ -142,33 +142,46 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 **What you don't need to know**: Agda, Haskell, formal verification theory.
 
-**Typical workflow**:
+**Four ways to define checks** (all compile to the same verified core):
 
-1. Load a DBC file:
-   ```python
-   from aletheia import AletheiaClient
-   from aletheia.dbc_converter import dbc_to_json
+```python
+# Check API — recommended for most users
+from aletheia import Check
+speed_limit = Check.signal("Speed").never_exceeds(220)
 
-   dbc = dbc_to_json("vehicle.dbc")
-   ```
+# YAML — declarative, version-controllable
+from aletheia import load_checks
+checks = load_checks("checks.yaml")
 
-2. Define temporal properties:
-   ```python
-   speed_limit = Signal("Speed").less_than(220).always()
-   ```
+# Excel — for technicians who prefer spreadsheets
+from aletheia import load_checks_from_excel
+checks = load_checks_from_excel("tests.xlsx")
 
-3. Stream CAN frames:
-   ```python
-   with AletheiaClient() as client:
-       client.parse_dbc(dbc)
-       client.set_properties([speed_limit.to_dict()])
-       client.start_stream()
+# DSL — full LTL control for developers
+from aletheia import Signal
+speed_limit = Signal("Speed").less_than(220).always()
+```
 
-       for frame in can_trace:
-           response = client.send_frame(...)
-           if response.get("type") == "property":
-               print(f"Violation: {response['message']}")
-   ```
+**Streaming workflow**:
+
+```python
+from aletheia import AletheiaClient, Check
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+checks = [Check.signal("Speed").never_exceeds(220)]
+
+with AletheiaClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([c.to_dict() for c in checks])
+    client.start_stream()
+
+    for frame in can_trace:
+        response = client.send_frame(...)
+        if response.get("status") == "violation":
+            ts = response['timestamp']['numerator']
+            print(f"Violation at {ts}us")
+```
 
 **Learning curve**: If you can use `requests` or `pandas`, you can use Aletheia.
 
@@ -183,19 +196,19 @@ Agda (all logic + proofs, compiled via MAlonzo)
 **Integration questions**:
 
 **Q: How does this fit into our CI/CD pipeline?**
-A: Aletheia is a command-line tool. Integrate like any Python test suite. Run `pytest tests/` in CI.
+A: Aletheia is a Python library. Integrate like any Python test suite. Run `pytest tests/` in CI. Checks can also be defined in YAML for version-controlled CI configurations.
 
 **Q: What's the maintenance burden?**
-A: Python API: Standard Python maintenance. Agda core: Rarely changes (feature-complete for Phase 2). Build system: Shake + Cabal, documented in BUILDING.md.
+A: Python API: Standard Python maintenance. Agda core: Rarely changes (feature-complete since Phase 3). Build system: Shake + Cabal, documented in BUILDING.md.
 
 **Q: What if the original developer leaves?**
 A: Documentation includes:
 - BUILDING.md: Complete build instructions
 - CLAUDE.md: AI-assisted development guide (430+ lines)
 - CONTRIBUTING.md: Contribution guidelines
-- Examples: 6+ complete examples with explanations
+- Examples: 10+ scripts covering all four interface tiers
 
-The core is stable. Most changes will be Python-side (adding properties, integrating with tools).
+The core is stable. Most changes will be Python-side (adding checks, integrating with tools).
 
 **Q: Can we extend it?**
 A: Yes. Extension points:
@@ -247,7 +260,7 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (
 
 **Yellow light if**:
 - Only non-critical applications (testing may suffice)
-- Extremely tight performance requirements (wait for Phase 3 optimizations)
+- Extremely tight performance requirements beyond ~9,200 fps
 - Team strongly resistant to new technologies
 
 **Red light if**:
@@ -261,18 +274,19 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (
 
 ## Current Status
 
-**Phase 2 Complete** ✅
+**Phase 3 Complete, Phase 4 In Progress** ✅
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
+- Formal correctness proofs (parser, CAN encoding, LTL bisimilarity, DSL roundtrip)
 - Python API with signal operations (FFI, no subprocess)
-- Comprehensive test suite (120 tests, 0.18s)
+- Four-tier interface: Check API, YAML, Excel, DSL (Phase 4 Goals 1-3 complete)
+- Comprehensive test suite (228 tests, 0.30s)
 - ~9,200 frames/sec throughput (108 us/frame)
 
 **Next steps**:
-- Phase 3: Formal correctness proofs and further performance optimization
-- Phase 4: Production hardening, user docs, standard library of checks
-- Phase 5: Optional extensions (value tables, format converters, advanced validation)
+- Phase 4 (remaining): CLI tool, CAN log reader, diagnostics, deployment guide, tutorial
+- Phase 5: Optional extensions (value tables, format converters, CAN-FD)
 
 See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 
@@ -287,9 +301,9 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
 **Limitations**:
-- Performance: ~9,200 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis)
+- Performance: ~9,200 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis, but not multi-bus)
 - Standard CAN only (no CAN-FD until Phase 5)
-- Learning curve for Agda core maintenance (Python API is easy)
+- Learning curve for Agda core maintenance (Python API and Check API are easy)
 - Small ecosystem (fewer community resources than pure Python tools)
 
 **Best fit for**:
@@ -312,7 +326,7 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 git clone <repository>
 cd aletheia
 cabal run shake -- build
-source venv/bin/activate
+source .venv/bin/activate
 python examples/simple_verification.py
 ```
 
@@ -320,9 +334,10 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 
 **Questions?**
 
-- Technical: See [CLAUDE.md](../CLAUDE.md)
+- Interfaces: See [Interface Guide](development/INTERFACES.md) (Check API, YAML, Excel)
+- Python API: See [Python API Guide](development/PYTHON_API.md)
+- Architecture: See [Architecture Overview](architecture/DESIGN.md)
 - Contributing: See [CONTRIBUTING.md](../CONTRIBUTING.md)
-- Architecture: See [docs/architecture/DESIGN.md](architecture/DESIGN.md)
 
 ---
 
