@@ -40,8 +40,8 @@ def measure_latencies(
     client: AletheiaClient,
     operation: str,
     num_ops: int,
-    frame: list[int],
-    signals: dict[str, float] | None = None,
+    frame: bytearray,
+    signals: dict[str, float] = {},
 ) -> list[float]:
     """Measure latency for each operation."""
     latencies = []
@@ -106,7 +106,7 @@ def main():
     print(f"Warmup: {args.warmup:,}")
 
     dbc = load_dbc()
-    frame = [0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00]
+    frame = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
     signals = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
 
     properties = [

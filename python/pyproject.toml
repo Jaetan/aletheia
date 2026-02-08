@@ -22,8 +22,12 @@ classifiers = [
 dependencies = [
     "cantools>=39.0",
     "openpyxl>=3.1",
+    "python-can>=4.0",
     "pyyaml>=6.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["aletheia*"]
 
 [project.optional-dependencies]
 dev = [
@@ -44,4 +48,5 @@ reportUnknownArgumentType = "error"
 reportUnknownVariableType = "error"
 reportExplicitAny = "error"  # Force explicit structure definitions instead of Any
 reportPrivateUsage = "error"  # Disallow accessing private members
+reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation

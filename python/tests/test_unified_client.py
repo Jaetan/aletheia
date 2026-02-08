@@ -67,7 +67,7 @@ class TestAletheiaClientBasics:
         """Test signal extraction."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            result = client.extract_signals(can_id=256, data=[100, 0, 0, 0, 0, 0, 0, 0])
+            result = client.extract_signals(can_id=256, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
             assert result.get("TestSignal") == 100.0
 
     def test_build_frame(self, simple_dbc: dict) -> None:
@@ -84,7 +84,7 @@ class TestAletheiaClientBasics:
         """Test frame updating."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            original = [50, 0, 0, 0, 0, 0, 0, 0]
+            original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(can_id=256, frame=original, signals={"TestSignal": 200.0})
             assert len(updated) == 8
             # Verify
@@ -109,7 +109,7 @@ class TestAletheiaClientStreaming:
                 response = client.send_frame(
                     timestamp=i * 1000,
                     can_id=256,
-                    data=[i * 10, 0, 0, 0, 0, 0, 0, 0]  # Values 0-90
+                    data=bytearray([i * 10, 0, 0, 0, 0, 0, 0, 0])  # Values 0-90
                 )
                 assert response.get("status") == "ack"
 
@@ -129,7 +129,7 @@ class TestAletheiaClientStreaming:
             response = client.send_frame(
                 timestamp=1000,
                 can_id=256,
-                data=[200, 0, 0, 0, 0, 0, 0, 0]
+                data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
             )
             assert response.get("status") == "violation"
 
@@ -149,14 +149,14 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Send a frame
-            client.send_frame(timestamp=1000, can_id=256, data=[50, 0, 0, 0, 0, 0, 0, 0])
+            client.send_frame(timestamp=1000, can_id=256, data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]))
 
             # Extract signals while streaming (should work!)
-            result = client.extract_signals(can_id=256, data=[100, 0, 0, 0, 0, 0, 0, 0])
+            result = client.extract_signals(can_id=256, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
             assert result.get("TestSignal") == 100.0
 
             # Continue streaming
-            client.send_frame(timestamp=2000, can_id=256, data=[60, 0, 0, 0, 0, 0, 0, 0])
+            client.send_frame(timestamp=2000, can_id=256, data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]))
 
             client.end_stream()
 
@@ -170,7 +170,7 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Update a frame while streaming
-            original = [50, 0, 0, 0, 0, 0, 0, 0]
+            original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(can_id=256, frame=original, signals={"TestSignal": 75.0})
 
             # Send the updated frame
@@ -218,12 +218,12 @@ class TestAletheiaClientLifecycle:
 
             # First stream
             client.start_stream()
-            client.send_frame(timestamp=0, can_id=256, data=[1, 0, 0, 0, 0, 0, 0, 0])
+            client.send_frame(timestamp=0, can_id=256, data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]))
             client.end_stream()
 
             # Second stream (same client, same DBC)
             client.start_stream()
-            resp = client.send_frame(timestamp=1, can_id=256, data=[2, 0, 0, 0, 0, 0, 0, 0])
+            resp = client.send_frame(timestamp=1, can_id=256, data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]))
             assert resp.get("status") == "ack"
             client.end_stream()
 

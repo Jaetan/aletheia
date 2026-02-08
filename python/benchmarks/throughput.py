@@ -42,7 +42,7 @@ def benchmark_streaming(dbc: dict, num_frames: int, num_properties: int = 3) -> 
     properties = [p.to_dict() for p in all_properties[:num_properties]]
 
     # Test frame: EngineSpeed=2000rpm, EngineTemp=90C
-    frame = [0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00]
+    frame = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
@@ -65,7 +65,7 @@ def benchmark_signal_extraction(dbc: dict, num_frames: int) -> float:
 
     Returns extractions per second.
     """
-    frame = [0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00]
+    frame = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     with AletheiaClient() as client:
         client.parse_dbc(dbc)

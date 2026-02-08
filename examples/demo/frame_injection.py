@@ -76,7 +76,7 @@ def main() -> None:
         # Extract original speed
         original_result = client.extract_signals(
             can_id=original_frame.can_id,
-            data=list(original_frame.data)
+            data=original_frame.data
         )
         original_speed = original_result.get("VehicleSpeed", 0.0)
         print(f"\nOriginal frame #{target_frame_index}:")
@@ -87,7 +87,7 @@ def main() -> None:
         injected_speed = 130.0
         modified_data = client.update_frame(
             can_id=original_frame.can_id,
-            frame=list(original_frame.data),
+            frame=original_frame.data,
             signals={"VehicleSpeed": injected_speed}
         )
         print(f"\nPrepared injection:")
@@ -111,7 +111,7 @@ def main() -> None:
                 data = modified_data
                 print(f"  [{i:3d}] >> INJECTING modified frame (speed={injected_speed} kph)")
             else:
-                data = list(frame.data)
+                data = frame.data
 
             response = client.send_frame(frame.timestamp_us, frame.can_id, data)
 

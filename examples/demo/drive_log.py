@@ -17,35 +17,35 @@ class CANFrame:
     """A single CAN frame with timestamp."""
     timestamp_us: int  # Microseconds
     can_id: int
-    data: list[int]
+    data: bytearray
 
     @property
     def timestamp_ms(self) -> int:
         return self.timestamp_us // 1000
 
 
-def encode_speed(speed_kph: float) -> list[int]:
+def encode_speed(speed_kph: float) -> bytearray:
     """Encode vehicle speed into CAN frame data.
 
     Speed signal: 16-bit little-endian, factor 0.01, offset 0
     """
     raw = int(speed_kph / 0.01)
-    return [raw & 0xFF, (raw >> 8) & 0xFF, 0, 0, 0, 0, 0, 0]
+    return bytearray([raw & 0xFF, (raw >> 8) & 0xFF, 0, 0, 0, 0, 0, 0])
 
 
-def encode_brake(pressure_kpa: float, active: bool = False) -> list[int]:
+def encode_brake(pressure_kpa: float, active: bool = False) -> bytearray:
     """Encode brake status into CAN frame data.
 
     BrakePressure: 16-bit little-endian, factor 0.1, offset 0
     BrakeActive: 1-bit at bit 16
     """
     raw_pressure = int(pressure_kpa / 0.1)
-    return [
+    return bytearray([
         raw_pressure & 0xFF,
         (raw_pressure >> 8) & 0xFF,
         1 if active else 0,
         0, 0, 0, 0, 0
-    ]
+    ])
 
 
 # CAN IDs from the DBC

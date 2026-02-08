@@ -67,14 +67,14 @@ def main():
             # Frame 1: Normal engine status (Speed=2000rpm, Temp=90°C)
             # EngineSpeed: 2000/0.25 = 8000 (0x1F40) → bytes [0x40, 0x1F]
             # EngineTemp: (90+40)/1 = 130 (0x82) → byte [0x82]
-            frame1 = bytes([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
+            frame1 = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
             response1 = client.send_frame(timestamp=100, can_id=0x100, data=frame1)
             print(f"  t=100ms, ID=0x100: {response1}")
 
             # Frame 2: Normal brake status (Pressure=50bar, Pressed=1)
             # BrakePressure: 50/0.1 = 500 (0x01F4) → bytes [0xF4, 0x01]
             # BrakePressed: 1 → byte [0x01]
-            frame2 = bytes([0xF4, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
+            frame2 = bytearray([0xF4, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
             response2 = client.send_frame(timestamp=200, can_id=0x200, data=frame2)
             print(f"  t=200ms, ID=0x200: {response2}")
 

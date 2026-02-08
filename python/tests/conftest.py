@@ -15,7 +15,7 @@ class CANFrame:
     """CAN frame test data with named fields for clarity."""
     timestamp: int
     can_id: int
-    data: list[int]
+    data: bytearray
 
 
 __all__ = [
@@ -69,5 +69,5 @@ def _sample_can_frame() -> CANFrame:
     return CANFrame(
         timestamp=1000,
         can_id=0x100,
-        data=[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
+        data=bytearray([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
     )

@@ -55,6 +55,7 @@ from .client import (
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
+from .can_log import load_can_log, iter_can_log
 from .yaml_loader import load_checks
 
 __version__ = "0.3.2"
@@ -73,6 +74,9 @@ __all__ = [
     "load_checks_from_excel",
     "load_dbc_from_excel",
     "create_template",
+    # CAN log reader
+    "load_can_log",
+    "iter_can_log",
     # YAML loader
     "load_checks",
     # DSL

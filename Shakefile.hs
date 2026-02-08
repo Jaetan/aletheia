@@ -285,7 +285,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let soAbsPath = libDir </> "libaletheia-ffi.so"
         putInfo $ "Writing install config: " ++ configFile
         liftIO $ writeFile configFile $
-            "LIBRARY_PATH = " ++ show soAbsPath ++ "\n"
+            "from pathlib import Path\n\nLIBRARY_PATH: Path = Path(" ++ show soAbsPath ++ ")\n"
 
         -- Copy documentation
         putInfo "Copying documentation..."
