@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08
 
 ---
 
@@ -170,10 +170,12 @@ verified core:
    - `aletheia signals` — list signals in a DBC (or Excel)
    - No Python scripting required for common workflows
 
-5. ⏳ CAN log reader (`python/aletheia/readers.py`)
-   - CSV reader (lowest common denominator)
-   - Vector ASC reader (common text-based format)
-   - Bridge the gap between "I have a log file" and "I'm checking properties"
+5. ✅ CAN log reader (`python/aletheia/can_log.py`) — COMPLETE
+   - `load_can_log()` (eager) and `iter_can_log()` (lazy iterator) via `python-can`
+   - Supports ASC, BLF, CSV, candump .log, MF4, TRC with auto-detection
+   - Returns `tuple[int, int, bytearray]` — feeds directly to `send_frame()`
+   - Full public API migrated from `list[int]` to `bytearray`
+   - Options: `skip_error_frames`, `skip_remote_frames`, `strict_dlc`, `on_error`
 
 6. ⏳ Richer violation diagnostics
    - Include signal values at point of violation (not just property index + timestamp)
@@ -197,8 +199,8 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 **Demos**: 4 demo scripts + 1 YAML data file in `examples/demo/`:
 - `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`
 
-**Status**: In progress (started 2026-02-06, Goals 1-3 complete as of 2026-02-07)
-**Completion**: 37.5% (3/8 goals complete)
+**Status**: In progress (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08)
+**Completion**: 50% (4/8 goals complete)
 
 ---
 
@@ -228,7 +230,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~5,500 Agda + ~6,000 Python
 
 **Testing**:
-- Unit tests: 228 passing (0.30s via FFI)
+- Unit tests: 264 passing (0.30s via FFI)
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -246,7 +248,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Next Steps
 
 **Current**:
-- Phase 4: Production hardening — Goals 1-3 complete (Check API, YAML, Excel). Remaining: CLI, CAN log reader, diagnostics, deployment guide, tutorial
+- Phase 4: Production hardening — Goals 1-3 + 5 complete (Check API, YAML, Excel, CAN log reader). Remaining: CLI, diagnostics, deployment guide, tutorial
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)

@@ -19,6 +19,18 @@ class Message:
     is_extended_id: bool
     channel: int | str | None
 
+    def __init__(
+        self,
+        timestamp: float = ...,
+        arbitration_id: int = ...,
+        data: bytearray | bytes | None = ...,
+        dlc: int | None = ...,
+        is_error_frame: bool = ...,
+        is_remote_frame: bool = ...,
+        is_extended_id: bool = ...,
+        channel: int | str | None = ...,
+    ) -> None: ...
+
 
 class LogReader(Iterator[Message]):
     """Read CAN messages from a log file.
