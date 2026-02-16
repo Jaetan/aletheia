@@ -398,6 +398,9 @@ class PropertyViolationResponse(TypedDict):
     property_index: RationalNumber
     timestamp: RationalNumber
     reason: NotRequired[str]  # Optional reason field from binary
+    signal_name: NotRequired[str]  # Enriched: primary signal name
+    actual_value: NotRequired[float | None]  # Enriched: signal value at violation
+    condition: NotRequired[str]  # Enriched: e.g. "< 200"
 
 
 class CompleteResponse(TypedDict):

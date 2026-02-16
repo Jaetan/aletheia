@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-16
 
 ---
 
@@ -164,11 +164,12 @@ verified core:
    - Row-level error messages, openpyxl type stubs for strict type checking
    - Dependency: `openpyxl>=3.1` (added to pyproject.toml)
 
-4. ⏳ CLI tool (`python -m aletheia`)
+4. ✅ CLI tool (`python -m aletheia`) — COMPLETE
    - `aletheia check` — run checks from YAML/Excel against a CAN log file
    - `aletheia extract` — extract signals from a single frame
    - `aletheia signals` — list signals in a DBC (or Excel)
-   - No Python scripting required for common workflows
+   - Exit codes: 0=pass, 1=violations, 2=error; `--json` flag for structured output
+   - 41 tests (pure-Python + FFI integration)
 
 5. ✅ CAN log reader (`python/aletheia/can_log.py`) — COMPLETE
    - `load_can_log()` (eager) and `iter_can_log()` (lazy iterator) via `python-can`
@@ -177,10 +178,12 @@ verified core:
    - Full public API migrated from `list[int]` to `bytearray`
    - Options: `skip_error_frames`, `skip_remote_frames`, `strict_dlc`, `on_error`
 
-6. ⏳ Richer violation diagnostics
-   - Include signal values at point of violation (not just property index + timestamp)
-   - Human-readable violation summaries
-   - Structured JSON output for CI/CD integration
+6. ✅ Richer violation diagnostics — COMPLETE
+   - `CheckResult` carries `signal_name` and `condition_desc` from all builders
+   - `AletheiaClient.send_frame()` auto-enriches violations: extracts signal value, builds human-readable reason
+   - Bounded extraction cache (256 unique frames) keeps throughput above 8,000 fps target
+   - `PropertyViolationResponse` extended with `signal_name`, `actual_value`, `condition` fields
+   - CLI and all consumers get enriched violations for free via client-level enrichment
 
 7. ⏳ Deployment guide (`docs/DEPLOYMENT.md`)
    - Docker: Dockerfile example, multi-stage build, sysinfo.py sizing
@@ -196,11 +199,12 @@ verified core:
 **Documentation**: Interface Guide (`docs/development/INTERFACES.md`) with Check API, YAML, and Excel
 end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
-**Demos**: 4 demo scripts + 1 YAML data file in `examples/demo/`:
-- `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`
+**Demos**: 7 demo scripts + data files in `examples/demo/`:
+- `demo.py` (main presentation), `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`, `dbc_validation.py`, `frame_injection.py`
+- `demo_workbook.xlsx` (persistent Excel workbook for live demo)
 
-**Status**: In progress (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08)
-**Completion**: 50% (4/8 goals complete)
+**Status**: In progress (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08, Goal 4 complete 2026-02-15, Goal 6 complete 2026-02-16)
+**Completion**: 75% (6/8 goals complete)
 
 ---
 
@@ -230,7 +234,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~5,500 Agda + ~6,000 Python
 
 **Testing**:
-- Unit tests: 264 passing (0.30s via FFI)
+- Unit tests: 317 passing (0.57s via FFI)
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -248,7 +252,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Next Steps
 
 **Current**:
-- Phase 4: Production hardening — Goals 1-3 + 5 complete (Check API, YAML, Excel, CAN log reader). Remaining: CLI, diagnostics, deployment guide, tutorial
+- Phase 4: Production hardening — Goals 1-6 complete (Check API, YAML, Excel, CLI, CAN log reader, diagnostics). Remaining: deployment guide, tutorial
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)

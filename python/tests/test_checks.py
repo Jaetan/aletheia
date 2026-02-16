@@ -221,6 +221,13 @@ class TestCheckMetadata:
         assert result.name is None
         assert result.check_severity is None
 
+    def test_diagnostic_metadata_absent_from_to_dict(self) -> None:
+        """signal_name and condition_desc are NOT included in the LTL dict."""
+        result = Check.signal("Speed").never_exceeds(220)
+        d = result.to_dict()
+        assert "signal_name" not in d  # type: ignore[operator]
+        assert "condition_desc" not in d  # type: ignore[operator]
+
     def test_to_property_returns_property(self) -> None:
         """to_property() unwraps to a Property with matching dict"""
         result = Check.signal("Speed").never_exceeds(220)
@@ -319,3 +326,71 @@ class TestCheckEquivalence:
             .to_dict()
         )
         assert check == dsl
+
+
+# ============================================================================
+# Diagnostic metadata
+# ============================================================================
+
+class TestCheckDiagnostics:
+    """Test signal_name and condition_desc on all check builders."""
+
+    def test_never_exceeds(self) -> None:
+        r = Check.signal("Speed").never_exceeds(220)
+        assert r.signal_name == "Speed"
+        assert r.condition_desc == "< 220"
+
+    def test_never_below(self) -> None:
+        r = Check.signal("Voltage").never_below(11.5)
+        assert r.signal_name == "Voltage"
+        assert r.condition_desc == ">= 11.5"
+
+    def test_stays_between(self) -> None:
+        r = Check.signal("V").stays_between(11.5, 14.5)
+        assert r.signal_name == "V"
+        assert r.condition_desc == "between 11.5 and 14.5"
+
+    def test_never_equals(self) -> None:
+        r = Check.signal("Err").never_equals(0xFF)
+        assert r.signal_name == "Err"
+        assert r.condition_desc == f"!= {0xFF}"
+
+    def test_equals_always(self) -> None:
+        r = Check.signal("Gear").equals(0).always()
+        assert r.signal_name == "Gear"
+        assert r.condition_desc == "= 0"
+
+    def test_settles_between_within(self) -> None:
+        r = Check.signal("Temp").settles_between(60, 80).within(500)
+        assert r.signal_name == "Temp"
+        assert r.condition_desc == "between 60 and 80 within 500ms"
+
+    def test_when_then_equals(self) -> None:
+        r = Check.when("Brake").exceeds(50).then("Light").equals(1).within(100)
+        assert r.signal_name == "Light"
+        assert r.condition_desc == "= 1 within 100ms"
+
+    def test_when_then_exceeds(self) -> None:
+        r = Check.when("Ignition").equals(1).then("RPM").exceeds(500).within(2000)
+        assert r.signal_name == "RPM"
+        assert r.condition_desc == "> 500 within 2000ms"
+
+    def test_when_then_stays_between(self) -> None:
+        r = Check.when("Fuel").drops_below(10).then("Warn").stays_between(1, 1).within(50)
+        assert r.signal_name == "Warn"
+        assert r.condition_desc == "between 1 and 1 within 50ms"
+
+    def test_raw_property_defaults_none(self) -> None:
+        """Raw Property wrapped in CheckResult has no diagnostic metadata."""
+        r = CheckResult(Signal("X").less_than(5).always())
+        assert r.signal_name is None
+        assert r.condition_desc is None
+
+    def test_metadata_preserved_through_named_severity(self) -> None:
+        """Diagnostic metadata survives .named() and .severity() chaining."""
+        r = (
+            Check.signal("Speed").never_exceeds(220)
+            .named("Speed limit").severity("critical")
+        )
+        assert r.signal_name == "Speed"
+        assert r.condition_desc == "< 220"

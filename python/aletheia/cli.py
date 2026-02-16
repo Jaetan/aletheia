@@ -42,13 +42,15 @@ _EXIT_OK = 0
 _EXIT_VIOLATIONS = 1
 _EXIT_ERROR = 2
 
-
 class _Violation(TypedDict):
     check_index: int
     check_name: str
     severity: str
     timestamp_us: int
     reason: str
+    signal_name: str
+    actual_value: float | None
+    condition: str
 
 
 # ============================================================================
@@ -312,7 +314,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 def _build_violation(
     response: PropertyViolationResponse, checks: list[CheckResult],
 ) -> _Violation:
-    """Extract violation details from a property violation response."""
+    """Extract violation details from an (already enriched) violation response."""
     prop_index = rational_to_int(response["property_index"])
     violation_ts = rational_to_int(response["timestamp"])
 
@@ -323,14 +325,16 @@ def _build_violation(
         check_name = f"Check #{prop_index}"
         severity = ""
 
-    result: _Violation = {
+    return {
         "check_index": prop_index,
         "check_name": check_name,
         "severity": severity,
         "timestamp_us": violation_ts,
         "reason": response.get("reason", ""),
+        "signal_name": response.get("signal_name", ""),
+        "actual_value": response.get("actual_value"),
+        "condition": response.get("condition", ""),
     }
-    return result
 
 
 def _run_checks(
@@ -351,6 +355,7 @@ def _run_checks(
         if resp["status"] != "success":
             _die(f"set properties failed: {resp.get('message', 'unknown error')}")
 
+        client.set_check_diagnostics(checks)
         client.start_stream()
 
         violations: list[_Violation] = []

@@ -42,11 +42,22 @@ python3 scaling.py                 # Full benchmark
 python3 scaling.py --quick         # Faster, reduced iterations
 ```
 
+### `violations.py` - Violation enrichment overhead
+
+Measures the cost of diagnostic enrichment (signal extraction on violations) under
+different violation rates.  Tests both the `AletheiaClient.send_frame()` path and
+the full CLI `_run_checks()` pipeline with a bounded extraction cache (256 entries).
+
+```bash
+python3 violations.py              # Default: 10K frames, 5 runs
+python3 violations.py --frames 50000 --runs 3
+```
+
 ## Running All Benchmarks
 
 ```bash
 cd python/benchmarks
-python3 throughput.py && python3 latency.py && python3 scaling.py --quick
+python3 throughput.py && python3 latency.py && python3 violations.py && python3 scaling.py --quick
 ```
 
 ## Current Performance

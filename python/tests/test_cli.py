@@ -356,7 +356,7 @@ class TestCheckCommand:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Violation detected -- exit code 1."""
+        """Violation detected -- exit code 1, enriched reason in text output."""
         asc_file = tmp_path / "fail.asc"
         # EngineSpeed raw = 4000 -> physical = 4000 * 0.25 = 1000.0 rpm (> 200)
         _write_asc(asc_file, [
@@ -376,7 +376,9 @@ class TestCheckCommand:
         ])
         assert code == 1
         out = capsys.readouterr().out
-        assert "violations found" in out.lower() or "violation" in out.lower()
+        assert "violation" in out.lower()
+        assert "EngineSpeed" in out
+        assert "1000.0" in out
 
     def test_violation_json(
         self,
@@ -412,6 +414,11 @@ class TestCheckCommand:
         v = data["violations"][0]
         assert v["check_name"] == "Speed limit"
         assert v["severity"] == "critical"
+        assert v["signal_name"] == "EngineSpeed"
+        assert v["actual_value"] == 1000.0
+        assert v["condition"] == "< 200.0"
+        assert "EngineSpeed" in v["reason"]
+        assert "1000.0" in v["reason"]
 
     def test_missing_log_file(
         self,

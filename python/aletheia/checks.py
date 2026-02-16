@@ -35,6 +35,8 @@ class CheckResult:
         self._property: Property = prop
         self.name: str | None = None
         self.check_severity: str | None = None
+        self.signal_name: str | None = None
+        self.condition_desc: str | None = None
 
     # -- chainable setters ---------------------------------------------------
 
@@ -66,12 +68,21 @@ class CheckResult:
 class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
     """Intermediate holding a predicate that needs a temporal quantifier."""
 
-    def __init__(self, prop: Property) -> None:
+    def __init__(
+        self, prop: Property,
+        signal_name: str | None = None,
+        condition_desc: str | None = None,
+    ) -> None:
         self._property = prop
+        self._signal_name = signal_name
+        self._condition_desc = condition_desc
 
     def always(self) -> CheckResult:
         """The predicate must hold at every time step."""
-        return CheckResult(self._property)
+        result = CheckResult(self._property)
+        result.signal_name = self._signal_name
+        result.condition_desc = self._condition_desc
+        return result
 
 
 class SettlesBuilder:  # pylint: disable=too-few-public-methods
@@ -88,7 +99,10 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
         Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
         """
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._signal_name
+        result.condition_desc = f"between {self._lo} and {self._hi} within {time_ms}ms"
+        return result
 
 
 class CheckSignal:
@@ -102,29 +116,41 @@ class CheckSignal:
     def never_exceeds(self, value: float) -> CheckResult:
         """``Signal(s).less_than(value).always()`` — G(s < v)"""
         prop = Signal(self._name).less_than(value).always()
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._name
+        result.condition_desc = f"< {value}"
+        return result
 
     def never_below(self, value: float) -> CheckResult:
         """``Signal(s).greater_than_or_equal(value).always()`` — G(s >= v)"""
         prop = Signal(self._name).greater_than_or_equal(value).always()
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._name
+        result.condition_desc = f">= {value}"
+        return result
 
     def stays_between(self, lo: float, hi: float) -> CheckResult:
         """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)"""
         prop = Signal(self._name).between(lo, hi).always()
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._name
+        result.condition_desc = f"between {lo} and {hi}"
+        return result
 
     def never_equals(self, value: float) -> CheckResult:
         """``Signal(s).equals(value).never()`` — G(not(s == v))"""
         prop = Signal(self._name).equals(value).never()
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._name
+        result.condition_desc = f"!= {value}"
+        return result
 
     # -- two-step methods (need another call to finish) ----------------------
 
     def equals(self, value: float) -> CheckSignalPredicate:
         """Begin an ``equals(v).always()`` chain."""
         prop = Signal(self._name).equals(value).always()
-        return CheckSignalPredicate(prop)
+        return CheckSignalPredicate(prop, self._name, f"= {value}")
 
     def settles_between(self, lo: float, hi: float) -> SettlesBuilder:
         """Begin a ``settles_between(lo, hi).within(ms)`` chain."""
@@ -138,16 +164,25 @@ class CheckSignal:
 class ThenCondition:  # pylint: disable=too-few-public-methods
     """Holds trigger + then predicates; needs ``.within(ms)`` to finish."""
 
-    def __init__(self, trigger: Predicate, then_pred: Predicate) -> None:
+    def __init__(
+        self, trigger: Predicate, then_pred: Predicate,
+        then_signal: str | None = None, then_desc: str | None = None,
+    ) -> None:
         self._trigger = trigger
         self._then_pred = then_pred
+        self._then_signal = then_signal
+        self._then_desc = then_desc
 
     def within(self, time_ms: int) -> CheckResult:
         """``G(trigger → F≤t(then_predicate))``"""
         prop = self._trigger.implies(
             self._then_pred.within(time_ms)
         ).always()
-        return CheckResult(prop)
+        result = CheckResult(prop)
+        result.signal_name = self._then_signal
+        if self._then_desc is not None:
+            result.condition_desc = f"{self._then_desc} within {time_ms}ms"
+        return result
 
 
 class ThenSignal:
@@ -160,17 +195,19 @@ class ThenSignal:
     def equals(self, value: float) -> ThenCondition:
         """Then-signal equals *value*."""
         pred = Signal(self._then_name).equals(value)
-        return ThenCondition(self._trigger, pred)
+        return ThenCondition(self._trigger, pred, self._then_name, f"= {value}")
 
     def exceeds(self, value: float) -> ThenCondition:
         """Then-signal exceeds *value*."""
         pred = Signal(self._then_name).greater_than(value)
-        return ThenCondition(self._trigger, pred)
+        return ThenCondition(self._trigger, pred, self._then_name, f"> {value}")
 
     def stays_between(self, lo: float, hi: float) -> ThenCondition:
         """Then-signal stays between *lo* and *hi*."""
         pred = Signal(self._then_name).between(lo, hi)
-        return ThenCondition(self._trigger, pred)
+        return ThenCondition(
+            self._trigger, pred, self._then_name, f"between {lo} and {hi}",
+        )
 
 
 class WhenCondition:  # pylint: disable=too-few-public-methods
