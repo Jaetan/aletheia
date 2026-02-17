@@ -539,4 +539,4 @@ All produce:
 
 - **[Python API Guide](PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
 - **[Demo scripts](../../examples/demo/)** - Runnable demos for each interface tier
-- [BUILDING.md](BUILDING.md) - Build instructions
+- [BUILDING.md](../development/BUILDING.md) - Build instructions

@@ -25,10 +25,11 @@ This directory contains example DBC files and verification scripts demonstrating
 - `vehicle.dbc` - DBC file for streaming demos
 - `drive_log.py` - Sample CAN frame generators (normal + overspeed drives)
 - `demo_checks.yaml` - YAML check definitions (companion to YAML demo)
+- `demo_workbook.xlsx` - Persistent Excel workbook for live demos
 
 ## Running Examples
 
-See [../docs/development/BUILDING.md](../docs/development/BUILDING.md) for build instructions.
+See [Building Guide](../docs/development/BUILDING.md) for build instructions.
 
 ```bash
 # Activate venv

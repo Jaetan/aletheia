@@ -546,7 +546,7 @@ agda +RTS -N -RTS Aletheia/Protocol/Command.agda  # Check just Command module
 After successful build:
 
 1. **Try examples**: `python3 examples/simple_verification.py`
-2. **Read the interfaces**: See [INTERFACES.md](INTERFACES.md) (Check API, YAML, Excel)
+2. **Read the interfaces**: See [INTERFACES.md](../reference/INTERFACES.md) (Check API, YAML, Excel)
 3. **Review architecture**: See [DESIGN.md](../architecture/DESIGN.md)
 4. **Read the project pitch**: See [PITCH.md](../PITCH.md) for why Aletheia exists
 

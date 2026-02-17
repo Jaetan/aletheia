@@ -6,13 +6,21 @@
 
 ## For New Users
 
-Start here if you're new to Aletheia:
+Start here:
 
-1. **[README](../README.md)** - Project overview and quick start
-2. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
-3. **[Building Guide](development/BUILDING.md)** - Setup and installation instructions
-4. **[Interface Guide](development/INTERFACES.md)** - Check API, YAML, Excel (recommended starting point)
-5. **[Python API Guide](development/PYTHON_API.md)** - Raw DSL and AletheiaClient reference
+1. **[Quick Start](guides/QUICKSTART.md)** - 5 minutes from zero to a working verification
+2. **[README](../README.md)** - Project overview
+3. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
+
+---
+
+## Guides
+
+Learn Aletheia step by step:
+
+- **[Quick Start](guides/QUICKSTART.md)** - 5-minute path: define checks, run, interpret results
+- **[Tutorials](guides/TUTORIAL.md)** - End-to-end walkthroughs for four audience paths (Technician, Test Engineer, Python Scripter, Developer)
+- **[Cookbook](guides/COOKBOOK.md)** - Problem-driven recipes: signal bounds, causal checks, CAN logs, signal operations, CLI patterns
 
 ---
 
@@ -20,9 +28,10 @@ Start here if you're new to Aletheia:
 
 Complete API documentation:
 
-- **[Interface Guide](development/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
-- **[Python API Guide](development/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
-- **[JSON Protocol Specification](architecture/PROTOCOL.md)** - Low-level protocol for advanced users
+- **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
+- **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
+- **[CLI Reference](reference/CLI.md)** - `python -m aletheia` subcommands: check, extract, signals
+- **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
 ---
 
@@ -34,23 +43,32 @@ Understand how Aletheia works:
 
 ---
 
-## Contributing
+## Development
 
-Want to contribute to Aletheia?
+Build and contribute:
 
-1. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-2. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-3. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
-4. **[Building Guide](development/BUILDING.md)** - Build system and development workflow
+1. **[Building Guide](development/BUILDING.md)** - Setup, installation, and development workflow
+2. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+3. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+4. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
 
 ---
 
-## Examples & Tutorials
+## Examples
 
 Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
-- **[Demo Scripts](../examples/demo/)** - Interface demos, DBC validation, frame injection, drive simulation
+- **[Demo Scripts](../examples/demo/)** - 8 demo scripts + support files:
+  - `demo_check_api.py` - Check API fluent interface (9 checks, all condition types)
+  - `demo_yaml_loader.py` - YAML loader with `demo_checks.yaml`
+  - `demo_excel_loader.py` - Excel loader: templates, checks, DBC from spreadsheets
+  - `demo_all_interfaces.py` - Equivalence proof: DSL == Check API == YAML == Excel
+  - `demo.py` - Full presentation: DBC loading, streaming, fault injection
+  - `dbc_validation.py` - DBC validation (overlap detection, range consistency)
+  - `frame_injection.py` - Real-time frame injection during streaming
+  - `drive_log.py` - Sample CAN frame generators
+  - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
 
 ---
 
@@ -70,29 +88,35 @@ aletheia/
 ├── CONTRIBUTING.md                    # Contribution guidelines
 ├── PROJECT_STATUS.md                  # Phase tracking
 ├── LICENSE.md                         # Legal
-├── .session-state.md                  # Session recovery (internal)
 │
 ├── docs/
-│   ├── INDEX.md                       # THIS FILE - Documentation navigation
+│   ├── INDEX.md                       # THIS FILE - Navigation hub
 │   ├── PITCH.md                       # Elevator pitch
+│   │
+│   ├── guides/
+│   │   ├── QUICKSTART.md              # 5-minute quick start
+│   │   ├── TUTORIAL.md                # End-to-end walkthroughs
+│   │   └── COOKBOOK.md                 # Problem-driven recipes
+│   │
+│   ├── reference/
+│   │   ├── INTERFACES.md              # Check API, YAML, Excel
+│   │   ├── PYTHON_API.md              # Raw DSL and AletheiaClient
+│   │   └── CLI.md                     # CLI subcommands
 │   │
 │   ├── architecture/
 │   │   ├── DESIGN.md                  # Architecture overview
 │   │   └── PROTOCOL.md                # JSON protocol spec
 │   │
 │   └── development/
-│       ├── BUILDING.md                # Build instructions
-│       ├── INTERFACES.md              # Check API, YAML, Excel loaders
-│       └── PYTHON_API.md              # Raw DSL and AletheiaClient reference
+│       └── BUILDING.md                # Build instructions
 │
 └── examples/
-    └── demo/                          # Example scripts
-        ├── dbc_validation.py          # DBC parsing and validation
-        ├── demo.py                    # Drive log generator
-        └── frame_injection.py         # Signal extraction and modification
+    ├── example.dbc                    # Sample DBC file
+    ├── simple_verification.py         # Standalone verification example
+    └── demo/                          # Demo scripts + support files
 ```
 
 ---
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-17
 **Maintained By**: Aletheia Team

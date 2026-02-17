@@ -196,7 +196,7 @@ verified core:
    - Oriented toward learning (vs demo scripts which are presentation-oriented)
    - Separate paths for technicians and developers
 
-**Documentation**: Interface Guide (`docs/development/INTERFACES.md`) with Check API, YAML, and Excel
+**Documentation**: Interface Guide (`docs/reference/INTERFACES.md`) with Check API, YAML, and Excel
 end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 **Demos**: 7 demo scripts + data files in `examples/demo/`:

@@ -280,12 +280,15 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL bisimilarity, DSL roundtrip)
 - Python API with signal operations (FFI, no subprocess)
-- Four-tier interface: Check API, YAML, Excel, DSL (Phase 4 Goals 1-3 complete)
-- Comprehensive test suite (228 tests, 0.30s)
+- Four-tier interface: Check API, YAML, Excel, DSL (Phase 4 Goals 1-6 complete)
+- CLI tool (`python -m aletheia check/extract/signals`)
+- CAN log reader (BLF, ASC, CSV, MF4, TRC via python-can)
+- Enriched violation diagnostics (signal name, value, condition)
+- Comprehensive test suite (317 tests, 0.57s)
 - ~9,200 frames/sec throughput (108 us/frame)
 
 **Next steps**:
-- Phase 4 (remaining): CLI tool, CAN log reader, diagnostics, deployment guide, tutorial
+- Phase 4 (remaining): deployment guide, documentation
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)
 
 See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
@@ -334,8 +337,8 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 
 **Questions?**
 
-- Interfaces: See [Interface Guide](development/INTERFACES.md) (Check API, YAML, Excel)
-- Python API: See [Python API Guide](development/PYTHON_API.md)
+- Interfaces: See [Interface Guide](reference/INTERFACES.md) (Check API, YAML, Excel)
+- Python API: See [Python API Guide](reference/PYTHON_API.md)
 - Architecture: See [Architecture Overview](architecture/DESIGN.md)
 - Contributing: See [CONTRIBUTING.md](../CONTRIBUTING.md)
 

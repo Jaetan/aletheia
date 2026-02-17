@@ -52,7 +52,7 @@ with AletheiaClient() as client:
     client.end_stream()
 ```
 
-See [Python API Guide](docs/development/PYTHON_API.md) for the complete DSL reference.
+See [Python API Guide](docs/reference/PYTHON_API.md) for the complete DSL reference.
 
 ### Higher-Level Interfaces
 
@@ -73,7 +73,7 @@ checks = load_checks("checks.yaml")
 checks = load_checks_from_excel("checks.xlsx")
 ```
 
-See [Interface Guide](docs/development/INTERFACES.md) for end-to-end workflows.
+See [Interface Guide](docs/reference/INTERFACES.md) for end-to-end workflows.
 
 ### Signal Operations
 
@@ -110,9 +110,17 @@ aletheia/
 **📚 [Complete Documentation Index](docs/INDEX.md)** - Full navigation guide
 
 ### Getting Started
+- [Quick Start](docs/guides/QUICKSTART.md) - 5-minute tutorial
 - [Building Guide](docs/development/BUILDING.md) - Setup and installation
-- [Interface Guide](docs/development/INTERFACES.md) - Check API, YAML, Excel loaders
-- [Python API Guide](docs/development/PYTHON_API.md) - Raw DSL and AletheiaClient reference
+
+### Guides
+- [Tutorials](docs/guides/TUTORIAL.md) - End-to-end walkthroughs (Technician, Test Engineer, Scripter, Developer)
+- [Cookbook](docs/guides/COOKBOOK.md) - Problem-driven recipes
+
+### Reference
+- [Interface Guide](docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
+- [Python API Guide](docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference
+- [CLI Reference](docs/reference/CLI.md) - `python -m aletheia` subcommands
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture

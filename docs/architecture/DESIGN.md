@@ -78,8 +78,8 @@ See [PROTOCOL.md](PROTOCOL.md) for complete protocol specification, message type
 ## Documentation
 
 - **[PROTOCOL.md](PROTOCOL.md)** - Complete JSON protocol specification
-- **[INTERFACES.md](../development/INTERFACES.md)** - Check API, YAML, Excel interface guide
-- **[PYTHON_API.md](../development/PYTHON_API.md)** - Python DSL and client reference
+- **[INTERFACES.md](../reference/INTERFACES.md)** - Check API, YAML, Excel interface guide
+- **[PYTHON_API.md](../reference/PYTHON_API.md)** - Python DSL and client reference
 - **[PROJECT_STATUS.md](../../PROJECT_STATUS.md)** - Project status and roadmap
 - **[BUILDING.md](../development/BUILDING.md)** - Build instructions
 

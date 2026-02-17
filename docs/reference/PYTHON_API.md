@@ -2,10 +2,11 @@
 
 **Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
 **Version**: 0.3.2
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-17
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
 > [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.
+> **CLI**: See the [CLI Reference](CLI.md) for command-line usage.
 
 ---
 
@@ -468,14 +469,14 @@ response = client.start_stream()
 assert response["status"] == "success"
 ```
 
-#### `send_frame(timestamp: int, can_id: int, data: List[int]) -> Dict`
+#### `send_frame(timestamp: int, can_id: int, data: bytearray | List[int]) -> Dict`
 
 Send a CAN frame for incremental checking.
 
 **Parameters**:
 - `timestamp`: Microseconds (integer)
 - `can_id`: 0-2047 (standard) or 0-536870911 (extended)
-- `data`: 8-byte payload `[0-255]`
+- `data`: 8-byte payload as `bytearray` or `list[int]` (values 0-255)
 
 **Returns** (acknowledged):
 ```python
@@ -701,9 +702,78 @@ class Property:
 
 ---
 
+## CAN Log Reader
+
+Read industry-standard CAN log files directly into Aletheia.
+
+### `load_can_log(path, **kwargs) -> list[CANFrameTuple]`
+
+Load all CAN frames from a log file into memory.
+
+```python
+from aletheia.can_log import load_can_log
+
+frames = load_can_log("drive.blf")
+# frames is list[(timestamp_us, arbitration_id, bytearray)]
+```
+
+### `iter_can_log(path, **kwargs) -> Iterator[CANFrameTuple]`
+
+Lazily iterate CAN frames from a log file (O(1) memory).
+
+```python
+from aletheia.can_log import iter_can_log
+
+for ts, can_id, data in iter_can_log("highway.asc"):
+    response = client.send_frame(ts, can_id, data)
+```
+
+**Parameters** (both functions):
+- `path`: Path to CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)
+- `skip_error_frames`: Skip CAN error frames (default `True`)
+- `skip_remote_frames`: Skip remote transmission requests (default `True`)
+- `strict_dlc`: Raise `ValueError` if DLC != 8 (default `False`; pads/truncates)
+- `on_error`: `"skip"` (default) or `"raise"` for corrupt frames
+
+**Supported formats**: `.asc`, `.blf`, `.csv`, `.log`, `.mf4`, `.trc` (via python-can).
+
+---
+
+## Enriched Violations
+
+Register check metadata for automatic violation enrichment.
+
+### `set_check_diagnostics(checks: list[CheckResult]) -> None`
+
+Call after `set_properties()` with the same check list:
+
+```python
+client.set_properties([c.to_dict() for c in checks])
+client.set_check_diagnostics(checks)
+```
+
+When enabled, `send_frame()` violation responses include extra fields:
+
+```python
+{
+    "status": "violation",
+    "property_index": {"numerator": 0, "denominator": 1},
+    "timestamp": {"numerator": 4523000, "denominator": 1},
+    "reason": "Always violated",
+    "signal_name": "VehicleSpeed",       # enriched
+    "actual_value": 225.5,               # enriched
+    "condition": "never_exceeds(220)"    # enriched
+}
+```
+
+Without diagnostics, only `property_index`, `timestamp`, and `reason` are present.
+
+---
+
 ## See Also
 
 - **[Interface Guide](INTERFACES.md)** - Check API, YAML loader, Excel loader (higher-level interfaces)
+- **[CLI Reference](CLI.md)** - Command-line interface
 - [PROTOCOL.md](../architecture/PROTOCOL.md) - JSON protocol specification
 - [DESIGN.md](../architecture/DESIGN.md) - System architecture
-- [BUILDING.md](BUILDING.md) - Build instructions
+- [BUILDING.md](../development/BUILDING.md) - Build instructions

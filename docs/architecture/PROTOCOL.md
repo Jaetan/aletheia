@@ -694,4 +694,4 @@ Used in responses for exact representation.
 
 - [DESIGN.md](DESIGN.md) - Overall architecture and design decisions
 - [PROJECT_STATUS.md](../../PROJECT_STATUS.md) - Phase completion status and milestones
-- [PYTHON_API.md](../development/PYTHON_API.md) - Python client library
+- [PYTHON_API.md](../reference/PYTHON_API.md) - Python client library

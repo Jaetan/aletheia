@@ -41,8 +41,8 @@ with AletheiaClient() as client:
 ```
 
 For more details, see:
-- [Interface Guide](../docs/development/INTERFACES.md) - Check API, YAML, Excel loaders
-- [Python API Guide](../docs/development/PYTHON_API.md) - Raw DSL and AletheiaClient reference
+- [Interface Guide](../docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
+- [Python API Guide](../docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference
 - Tests: `python/tests/`
 
 ## Testing
