@@ -20,11 +20,13 @@ module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample; mkCounterexample)
-open import Aletheia.LTL.SignalPredicate using (ThreeVal; True; False; Unknown)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample; mkCounterexample; FinalVerdict; Holds; Fails)
+open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
+open import Data.Bool using (Bool; true; false; _∨_)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.String using (String; _++_)
 
 -- ============================================================================
 -- LTLPROC: Defunctionalized LTL process with runtime state
@@ -45,7 +47,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 
 data LTLProc : Set where
   -- Propositional operators (stateless)
-  Atomic : (TimedFrame → ThreeVal) → LTLProc
+  Atomic : (TimedFrame → SignalVal) → LTLProc
   Not : LTLProc → LTLProc
   And : LTLProc → LTLProc → LTLProc
   Or : LTLProc → LTLProc → LTLProc
@@ -54,17 +56,18 @@ data LTLProc : Set where
   NextWaiting : LTLProc → LTLProc  -- Waiting to skip first frame
   NextActive : LTLProc → LTLProc   -- Evaluating inner formula after skip
 
-  -- Temporal operators (stateless)
-  Always : LTLProc → LTLProc
+  -- Temporal operators
+  -- Safety operators carry a Bool: true = inner was resolved (True/False) at least once
+  Always : Bool → LTLProc → LTLProc
   Eventually : LTLProc → LTLProc
   Until : LTLProc → LTLProc → LTLProc
-  Release : LTLProc → LTLProc → LTLProc  -- Dual of Until: ψ holds until φ releases it
+  Release : Bool → LTLProc → LTLProc → LTLProc  -- Dual of Until: ψ holds until φ releases it
 
   -- Bounded temporal operators (with time tracking)
   MetricEventuallyProc : ℕ → ℕ → LTLProc → LTLProc  -- windowMicros, startTime, inner
-  MetricAlwaysProc : ℕ → ℕ → LTLProc → LTLProc      -- windowMicros, startTime, inner
+  MetricAlwaysProc : Bool → ℕ → ℕ → LTLProc → LTLProc      -- resolved, windowMicros, startTime, inner
   MetricUntilProc : ℕ → ℕ → LTLProc → LTLProc → LTLProc      -- windowMicros, startTime, φ, ψ
-  MetricReleaseProc : ℕ → ℕ → LTLProc → LTLProc → LTLProc    -- windowMicros, startTime, φ, ψ
+  MetricReleaseProc : Bool → ℕ → ℕ → LTLProc → LTLProc → LTLProc    -- resolved, windowMicros, startTime, φ, ψ
 
 -- ============================================================================
 -- CONVERSION: LTLProc → LTL (for monitor interop)
@@ -75,21 +78,51 @@ data LTLProc : Set where
 --
 -- Key insight: NextWaitingProc and NextActiveProc both convert to Next φ
 -- because they represent different runtime states of the same formula.
-toLTL : LTLProc → LTL (TimedFrame → ThreeVal)
+toLTL : LTLProc → LTL (TimedFrame → SignalVal)
 toLTL (Atomic p) = Atomic p
 toLTL (Not φ) = Not (toLTL φ)
 toLTL (And φ ψ) = And (toLTL φ) (toLTL ψ)
 toLTL (Or φ ψ) = Or (toLTL φ) (toLTL ψ)
 toLTL (NextWaiting φ) = Next (toLTL φ)   -- Waiting mode → Next formula
 toLTL (NextActive φ) = Next (toLTL φ)    -- Active mode → Next formula
-toLTL (Always φ) = Always (toLTL φ)
+toLTL (Always _ φ) = Always (toLTL φ)
 toLTL (Eventually φ) = Eventually (toLTL φ)
 toLTL (Until φ ψ) = Until (toLTL φ) (toLTL ψ)
-toLTL (Release φ ψ) = Release (toLTL φ) (toLTL ψ)
+toLTL (Release _ φ ψ) = Release (toLTL φ) (toLTL ψ)
 toLTL (MetricEventuallyProc window _ φ) = MetricEventually window (toLTL φ)  -- Ignore startTime (runtime state)
-toLTL (MetricAlwaysProc window _ φ) = MetricAlways window (toLTL φ)          -- Ignore startTime (runtime state)
+toLTL (MetricAlwaysProc _ window _ φ) = MetricAlways window (toLTL φ)          -- Ignore resolved, startTime (runtime state)
 toLTL (MetricUntilProc window _ φ ψ) = MetricUntil window (toLTL φ) (toLTL ψ)      -- Ignore startTime
-toLTL (MetricReleaseProc window _ φ ψ) = MetricRelease window (toLTL φ) (toLTL ψ)  -- Ignore startTime
+toLTL (MetricReleaseProc _ window _ φ ψ) = MetricRelease window (toLTL φ) (toLTL ψ)  -- Ignore resolved, startTime
+
+-- ============================================================================
+-- INITIALIZATION: LTL formula → initial LTLProc
+-- ============================================================================
+
+-- Convert an LTL formula to its initial LTLProc state.
+-- This is the coalgebra-side dual of `initState` in Incremental.agda.
+--
+-- Key correspondence (proven by init-relate in Bisimilarity.agda):
+--   initState φ   ~   initProc φ     (related by Relate)
+--
+-- Design choices mirror initState exactly:
+--   - Safety operators start with resolved=false
+--   - Bounded operators start with startTime=0
+--   - Next starts in waiting mode
+
+initProc : LTL (TimedFrame → SignalVal) → LTLProc
+initProc (Atomic p)            = Atomic p
+initProc (Not φ)               = Not (initProc φ)
+initProc (And φ ψ)             = And (initProc φ) (initProc ψ)
+initProc (Or φ ψ)              = Or (initProc φ) (initProc ψ)
+initProc (Next φ)              = NextWaiting (initProc φ)
+initProc (Always φ)            = Always false (initProc φ)
+initProc (Eventually φ)        = Eventually (initProc φ)
+initProc (Until φ ψ)           = Until (initProc φ) (initProc ψ)
+initProc (Release φ ψ)         = Release false (initProc φ) (initProc ψ)
+initProc (MetricEventually w φ)    = MetricEventuallyProc w 0 (initProc φ)
+initProc (MetricAlways w φ)        = MetricAlwaysProc false w 0 (initProc φ)
+initProc (MetricUntil w φ ψ)      = MetricUntilProc w 0 (initProc φ) (initProc ψ)
+initProc (MetricRelease w φ ψ)    = MetricReleaseProc false w 0 (initProc φ) (initProc ψ)
 
 -- ============================================================================
 -- OBSERVABLE-LEVEL HANDLERS FOR BOUNDED OPERATORS
@@ -112,14 +145,15 @@ metricEventuallyHandler windowMicros start φ (Inconclusive φ') _ _ =
 
 -- MetricAlways handler: Continues while inner formula holds, fails if violated
 -- Safety operator: Inconclusive = Violated (can't confirm safety holds)
-metricAlwaysHandler : ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → TimedFrame → StepResult LTLProc
-metricAlwaysHandler windowMicros start φ (Violated ce) _ _ _ = Violated ce
-metricAlwaysHandler windowMicros start φ (Inconclusive _) _ _ curr =
+-- Bool resolved tracks whether inner was resolved at least once.
+metricAlwaysHandler : Bool → ℕ → ℕ → LTLProc → StepResult LTLProc → ℕ → ℕ → TimedFrame → StepResult LTLProc
+metricAlwaysHandler resolved windowMicros start φ (Violated ce) _ _ _ = Violated ce
+metricAlwaysHandler resolved windowMicros start φ (Inconclusive _) _ _ curr =
   Violated (mkCounterexample curr "MetricAlways: signal unknown during interval")
-metricAlwaysHandler windowMicros start φ (Continue _ φ') _ remaining _ =
-  Continue remaining (MetricAlwaysProc windowMicros start φ')
-metricAlwaysHandler windowMicros start φ Satisfied _ remaining _ =
-  Continue remaining (MetricAlwaysProc windowMicros start φ)  -- Keep checking
+metricAlwaysHandler resolved windowMicros start φ (Continue _ φ') _ remaining _ =
+  Continue remaining (MetricAlwaysProc resolved windowMicros start φ')
+metricAlwaysHandler resolved windowMicros start φ Satisfied _ remaining _ =
+  Continue remaining (MetricAlwaysProc true windowMicros start φ)  -- Mark resolved!
 
 -- MetricUntil handler: φ must hold until ψ becomes true, within window
 -- φ is safety (must hold): Inconclusive → Violated
@@ -155,33 +189,34 @@ metricUntilHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining _
 -- MetricRelease handler: ψ must hold until φ releases it, within window
 -- ψ is safety (must hold): Inconclusive → Violated
 -- φ is liveness (release): Inconclusive → propagate
-metricReleaseHandler : ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → TimedFrame → StepResult LTLProc
+-- Bool resolved tracks whether ψ was resolved at least once.
+metricReleaseHandler : Bool → ℕ → ℕ → LTLProc → LTLProc → StepResult LTLProc → StepResult LTLProc → ℕ → ℕ → TimedFrame → StepResult LTLProc
 -- φ satisfied → MetricRelease satisfied (release condition met)
-metricReleaseHandler _ _ _ _ Satisfied _ _ _ _ = Satisfied
+metricReleaseHandler _ _ _ _ _ Satisfied _ _ _ _ = Satisfied
 -- ψ inconclusive → Violated (safety)
-metricReleaseHandler _ _ _ _ _ (Inconclusive _) _ _ curr =
+metricReleaseHandler _ _ _ _ _ _ (Inconclusive _) _ _ curr =
   Violated (mkCounterexample curr "MetricRelease: ψ signal unknown (safety violation)")
 -- ψ violated → Violated
-metricReleaseHandler _ _ _ _ (Continue _ _) (Violated ce) _ _ _ = Violated ce
-metricReleaseHandler _ _ _ _ (Violated _) (Violated ce) _ _ _ = Violated ce
-metricReleaseHandler _ _ _ _ (Inconclusive _) (Violated ce) _ _ _ = Violated ce
--- φ inconclusive, ψ ok → propagate
-metricReleaseHandler windowMicros start φ ψ (Inconclusive φ') (Continue _ ψ') _ _ _ =
-  Inconclusive (MetricReleaseProc windowMicros start φ' ψ')
-metricReleaseHandler windowMicros start φ ψ (Inconclusive φ') Satisfied _ _ _ =
-  Inconclusive (MetricReleaseProc windowMicros start φ' ψ)
--- φ continues, ψ continues → MetricRelease continues
-metricReleaseHandler windowMicros start φ ψ (Continue _ φ') (Continue _ ψ') _ remaining _ =
-  Continue remaining (MetricReleaseProc windowMicros start φ' ψ')
--- φ continues, ψ satisfied → MetricRelease continues (preserve original ψ)
-metricReleaseHandler windowMicros start φ ψ (Continue _ φ') Satisfied _ remaining _ =
-  Continue remaining (MetricReleaseProc windowMicros start φ' ψ)
--- φ violated, ψ continues → MetricRelease continues (preserve original φ)
-metricReleaseHandler windowMicros start φ ψ (Violated _) (Continue _ ψ') _ remaining _ =
-  Continue remaining (MetricReleaseProc windowMicros start φ ψ')
--- φ violated, ψ satisfied → MetricRelease continues (preserve both)
-metricReleaseHandler windowMicros start φ ψ (Violated _) Satisfied _ remaining _ =
-  Continue remaining (MetricReleaseProc windowMicros start φ ψ)
+metricReleaseHandler _ _ _ _ _ (Continue _ _) (Violated ce) _ _ _ = Violated ce
+metricReleaseHandler _ _ _ _ _ (Violated _) (Violated ce) _ _ _ = Violated ce
+metricReleaseHandler _ _ _ _ _ (Inconclusive _) (Violated ce) _ _ _ = Violated ce
+-- φ inconclusive, ψ ok → propagate (preserve resolved flag)
+metricReleaseHandler resolved windowMicros start φ ψ (Inconclusive φ') (Continue _ ψ') _ _ _ =
+  Inconclusive (MetricReleaseProc resolved windowMicros start φ' ψ')
+metricReleaseHandler resolved windowMicros start φ ψ (Inconclusive φ') Satisfied _ _ _ =
+  Inconclusive (MetricReleaseProc true windowMicros start φ' ψ)
+-- φ continues, ψ continues → MetricRelease continues (preserve resolved flag)
+metricReleaseHandler resolved windowMicros start φ ψ (Continue _ φ') (Continue _ ψ') _ remaining _ =
+  Continue remaining (MetricReleaseProc resolved windowMicros start φ' ψ')
+-- φ continues, ψ satisfied → MetricRelease continues (mark resolved!)
+metricReleaseHandler resolved windowMicros start φ ψ (Continue _ φ') Satisfied _ remaining _ =
+  Continue remaining (MetricReleaseProc true windowMicros start φ' ψ)
+-- φ violated, ψ continues → MetricRelease continues (preserve resolved flag)
+metricReleaseHandler resolved windowMicros start φ ψ (Violated _) (Continue _ ψ') _ remaining _ =
+  Continue remaining (MetricReleaseProc resolved windowMicros start φ ψ')
+-- φ violated, ψ satisfied → MetricRelease continues (mark resolved!)
+metricReleaseHandler resolved windowMicros start φ ψ (Violated _) Satisfied _ remaining _ =
+  Continue remaining (MetricReleaseProc true windowMicros start φ ψ)
 
 -- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
@@ -202,6 +237,7 @@ stepL (Atomic p) prev curr with p curr
 ... | True    = Satisfied
 ... | False   = Violated (mkCounterexample curr "atomic predicate failed")
 ... | Unknown = Inconclusive (Atomic p)  -- Signal not yet observed
+... | Pending = Continue 0 (Atomic p)    -- Not enough data yet (e.g., first delta observation)
 
 -- Not: invert inner result
 stepL (Not φ) prev curr
@@ -268,11 +304,12 @@ stepL (NextActive φ) prev curr
 -- Always: must hold on every frame (SAFETY operator)
 -- This is the key operator! Check φ now, continue checking Always φ forever.
 -- Safety semantics: Inconclusive = Violated (can't confirm property holds)
-stepL (Always φ) prev curr
+-- Bool tracks whether inner formula was resolved (True/False) at least once.
+stepL (Always resolved φ) prev curr
   with stepL φ prev curr
 ... | Violated ce = Violated ce  -- φ failed at this frame
-... | Satisfied = Continue 0 (Always φ)  -- φ holds, keep checking on future frames
-... | Continue _ φ' = Continue 0 (Always φ')  -- φ continues, keep checking
+... | Satisfied = Continue 0 (Always true φ)  -- φ holds, mark resolved!
+... | Continue _ φ' = Continue 0 (Always resolved φ')  -- φ continues, preserve flag
 ... | Inconclusive _ = Violated (mkCounterexample curr "Always: signal unknown (safety violation)")
 
 -- Eventually: must hold at some point (LIVENESS operator)
@@ -313,7 +350,8 @@ stepL (Until φ ψ) prev curr
 -- Release: ψ must hold until φ releases it (dual of Until)
 -- ψ has SAFETY role (must hold) → Inconclusive = Violated
 -- φ has LIVENESS role (release) → Inconclusive = propagate
-stepL (Release φ ψ) prev curr
+-- Bool tracks whether ψ was resolved at least once.
+stepL (Release resolved φ ψ) prev curr
   with stepL φ prev curr | stepL ψ prev curr
 -- φ satisfied → Release satisfied (release condition met)
 ... | Satisfied | _ = Satisfied
@@ -321,19 +359,19 @@ stepL (Release φ ψ) prev curr
 ... | _ | Inconclusive _ = Violated (mkCounterexample curr "Release: ψ signal unknown (safety violation)")
 -- φ continues, ψ violated → Release violated (ψ must hold until release)
 ... | Continue _ φ' | Violated ce = Violated ce
--- φ continues, ψ continues → Release continues
-... | Continue _ φ' | Continue _ ψ' = Continue 0 (Release φ' ψ')
--- φ continues, ψ satisfied → Release continues (preserve original ψ)
-... | Continue _ φ' | Satisfied = Continue 0 (Release φ' ψ)
+-- φ continues, ψ continues → Release continues (preserve resolved flag)
+... | Continue _ φ' | Continue _ ψ' = Continue 0 (Release resolved φ' ψ')
+-- φ continues, ψ satisfied → Release continues (mark resolved!)
+... | Continue _ φ' | Satisfied = Continue 0 (Release true φ' ψ)
 -- φ violated, ψ violated → Release violated
 ... | Violated _ | Violated ce = Violated ce
--- φ violated, ψ continues → Release continues (preserve original φ)
-... | Violated _ | Continue _ ψ' = Continue 0 (Release φ ψ')
--- φ violated, ψ satisfied → Release continues (preserve both)
-... | Violated _ | Satisfied = Continue 0 (Release φ ψ)
--- φ inconclusive, ψ ok → propagate
-... | Inconclusive φ' | Continue _ ψ' = Inconclusive (Release φ' ψ')
-... | Inconclusive φ' | Satisfied = Inconclusive (Release φ' ψ)
+-- φ violated, ψ continues → Release continues (preserve resolved flag)
+... | Violated _ | Continue _ ψ' = Continue 0 (Release resolved φ ψ')
+-- φ violated, ψ satisfied → Release continues (mark resolved!)
+... | Violated _ | Satisfied = Continue 0 (Release true φ ψ)
+-- φ inconclusive, ψ ok → propagate (preserve resolved flag)
+... | Inconclusive φ' | Continue _ ψ' = Inconclusive (Release resolved φ' ψ')
+... | Inconclusive φ' | Satisfied = Inconclusive (Release true φ' ψ)
 -- φ inconclusive, ψ violated → Violated (ψ is safety, must hold)
 ... | Inconclusive _ | Violated _ = Violated (mkCounterexample curr "Release: ψ violated while φ unknown")
 
@@ -356,14 +394,14 @@ stepL (MetricEventuallyProc windowMicros startTime φ) prev curr =
     handleDeadline _ = Violated (mkCounterexample curr "MetricEventually: window expired")
 
 -- MetricAlways: must hold throughout time window
-stepL (MetricAlwaysProc windowMicros startTime φ) prev curr =
+stepL (MetricAlwaysProc resolved windowMicros startTime φ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then metricAlwaysHandler windowMicros actualStart φ (stepL φ prev curr) actualStart remaining curr
+     then metricAlwaysHandler resolved windowMicros actualStart φ (stepL φ prev curr) actualStart remaining curr
      else Satisfied  -- Window complete, always held
 
 -- MetricUntil: φ holds until ψ, within time window
@@ -386,14 +424,14 @@ stepL (MetricUntilProc windowMicros startTime φ ψ) prev curr =
     handleDeadline _ = Violated (mkCounterexample curr "MetricUntil: window expired before ψ")
 
 -- MetricRelease: ψ holds until φ releases it, within time window
-stepL (MetricReleaseProc windowMicros startTime φ ψ) prev curr =
+stepL (MetricReleaseProc resolved windowMicros startTime φ ψ) prev curr =
   let currTime = timestamp curr
       actualStart = if startTime ≡ᵇ 0 then currTime else startTime
       actualElapsed = currTime ∸ actualStart
       remaining = windowMicros ∸ actualElapsed  -- OBSERVABLE remaining time
       inWindow = actualElapsed ≤ᵇ windowMicros
   in if inWindow
-     then metricReleaseHandler windowMicros actualStart φ ψ (stepL φ prev curr) (stepL ψ prev curr) actualStart remaining curr
+     then metricReleaseHandler resolved windowMicros actualStart φ ψ (stepL φ prev curr) (stepL ψ prev curr) actualStart remaining curr
      else Satisfied  -- Window complete, ψ held throughout (release not required)
 
 -- ============================================================================
@@ -424,6 +462,71 @@ stepL (MetricReleaseProc windowMicros startTime φ ψ) prev curr =
 --    - The continuation is Always φ itself (or Always φ' if inner continues)
 
 -- ============================================================================
+-- END-OF-STREAM FINALIZATION
+-- ============================================================================
+
+-- Determine the final verdict for a formula that was still in Continue
+-- state when the stream ended. This is the coalgebra-side dual of
+-- `finalizeEval` in Incremental.agda.
+--
+-- Key principle: LTLProc never stores terminal states (those are returned
+-- as Violated/Satisfied directly). So finalizeL only handles active formulas.
+
+finalizeL : LTLProc → FinalVerdict
+
+-- Atomic still active at end-of-stream → never resolved
+finalizeL (Atomic _) = Fails "predicate never resolved at end of stream"
+
+-- Propositional: compose inner results
+finalizeL (Not φ) with finalizeL φ
+... | Holds   = Fails "Not: inner satisfied at end of stream"
+... | Fails _ = Holds
+
+finalizeL (And φ ψ) with finalizeL φ
+... | Fails r = Fails r
+... | Holds with finalizeL ψ
+...   | Fails r = Fails r
+...   | Holds   = Holds
+
+finalizeL (Or φ ψ) with finalizeL φ
+... | Holds = Holds
+... | Fails _ with finalizeL ψ
+...   | Holds   = Holds
+...   | Fails r = Fails r
+
+-- Next: if still waiting → violated
+finalizeL (NextWaiting _) = Fails "Next: no next frame available at end of stream"
+finalizeL (NextActive φ) = finalizeL φ
+
+-- Always (SAFETY): resolved=true → Holds; resolved=false → Fails
+finalizeL (Always false _) = Fails "Always: inner formula never resolved (safety violation)"
+finalizeL (Always true _)  = Holds
+
+-- Eventually (LIVENESS): still active → never satisfied
+finalizeL (Eventually _) = Fails "Eventually: never satisfied before end of stream"
+
+-- Until (LIVENESS): ψ must eventually hold; still active → Fails
+finalizeL (Until _ _) = Fails "Until: ψ never satisfied before end of stream"
+
+-- Release (SAFETY): ψ must hold; resolved=true → Holds
+finalizeL (Release false _ _) = Fails "Release: ψ never resolved (safety violation)"
+finalizeL (Release true _ _)  = Holds
+
+-- MetricEventually: still active → never satisfied
+finalizeL (MetricEventuallyProc _ _ _) = Fails "MetricEventually: never satisfied within window before end of stream"
+
+-- MetricAlways (SAFETY): resolved=true → Holds
+finalizeL (MetricAlwaysProc false _ _ _) = Fails "MetricAlways: inner formula never resolved (safety violation)"
+finalizeL (MetricAlwaysProc true _ _ _)  = Holds
+
+-- MetricUntil: still active → ψ never satisfied
+finalizeL (MetricUntilProc _ _ _ _) = Fails "MetricUntil: ψ never satisfied within window before end of stream"
+
+-- MetricRelease (SAFETY): resolved=true → Holds
+finalizeL (MetricReleaseProc false _ _ _ _) = Fails "MetricRelease: ψ never resolved (safety violation)"
+finalizeL (MetricReleaseProc true _ _ _ _)  = Holds
+
+-- ============================================================================
 -- IMPLEMENTATION STATUS
 -- ============================================================================
 
@@ -432,3 +535,4 @@ stepL (MetricReleaseProc windowMicros startTime φ ψ) prev curr =
 -- 2. MetricEventually/MetricAlways: Implemented via *Proc constructors with startTime (lines 63-66)
 -- 3. Bisimilarity proofs: Complete in LTL/Bisimilarity.agda (all 13 operators)
 -- 4. All operators covered by structural recursion on Relate relation
+-- 5. finalizeL: End-of-stream finalization, dual of finalizeEval

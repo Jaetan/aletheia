@@ -22,6 +22,23 @@ class SignalPresence(str, Enum):
     # Multiplexed signals use dictionary format, not enum
 
 
+class IssueSeverity(str, Enum):
+    """Validation issue severity"""
+    ERROR = "error"
+    WARNING = "warning"
+
+
+class IssueCode(str, Enum):
+    """Validation issue codes matching Agda IssueCode enum"""
+    DUPLICATE_MESSAGE_ID = "duplicate_message_id"
+    DUPLICATE_SIGNAL_NAME = "duplicate_signal_name"
+    FACTOR_ZERO = "factor_zero"
+    MULTIPLEXOR_NOT_FOUND = "multiplexor_not_found"
+    MULTIPLEXOR_NOT_ALWAYS_PRESENT = "multiplexor_not_always_present"
+    GLOBAL_NAME_COLLISION = "global_name_collision"
+    MIN_EXCEEDS_MAX = "min_exceeds_max"
+
+
 class ResponseStatus(str, Enum):
     """Response status from Aletheia binary"""
     SUCCESS = "success"
@@ -29,6 +46,7 @@ class ResponseStatus(str, Enum):
     ACK = "ack"
     VIOLATED = "violation"  # Note: binary sends "violation" not "violated"
     COMPLETE = "complete"
+    VALIDATION = "validation"
 
 
 class PredicateType(str, Enum):
@@ -353,6 +371,13 @@ class UpdateFrameCommand(TypedDict):
     signals: list[SignalValue]
 
 
+class ValidateDBCCommand(TypedDict):
+    """Validate a parsed DBC definition"""
+    type: Literal["command"]
+    command: Literal["validateDBC"]
+    dbc: DBCDefinition
+
+
 class DataFrame(TypedDict):
     """CAN data frame"""
     type: Literal["data"]
@@ -370,6 +395,7 @@ Command = (
     BuildFrameCommand |
     ExtractSignalsCommand |
     UpdateFrameCommand |
+    ValidateDBCCommand |
     DataFrame
 )
 
@@ -403,9 +429,22 @@ class PropertyViolationResponse(TypedDict):
     condition: NotRequired[str]  # Enriched: e.g. "< 200"
 
 
+class PropertyResultEntry(TypedDict):
+    """A single property finalization result at end-of-stream"""
+    type: Literal["property"]
+    status: str  # "violation" | "satisfaction"
+    property_index: RationalNumber
+    timestamp: NotRequired[RationalNumber]  # Only for violations
+    reason: NotRequired[str]  # Only for violations
+    signal_name: NotRequired[str]  # Enriched: primary signal name
+    actual_value: NotRequired[float | None]  # Enriched: signal value
+    condition: NotRequired[str]  # Enriched: e.g. "< 200"
+
+
 class CompleteResponse(TypedDict):
-    """Stream complete response"""
+    """Stream complete response with per-property finalization results"""
     status: ResponseStatus  # ResponseStatus.COMPLETE
+    results: list[PropertyResultEntry]
 
 
 class BuildFrameResponse(TypedDict):
@@ -428,6 +467,20 @@ class UpdateFrameResponse(TypedDict):
     frame: list[int]
 
 
+class ValidationIssue(TypedDict):
+    """A single DBC validation issue"""
+    severity: str  # "error" | "warning"
+    code: str  # IssueCode value (snake_case)
+    detail: str
+
+
+class ValidationResponse(TypedDict):
+    """Response from validateDBC command"""
+    status: Literal["validation"]
+    has_errors: bool
+    issues: list[ValidationIssue]
+
+
 # Union type for all responses
 Response = (
     SuccessResponse |
@@ -437,5 +490,6 @@ Response = (
     CompleteResponse |
     BuildFrameResponse |
     ExtractSignalsResponse |
-    UpdateFrameResponse
+    UpdateFrameResponse |
+    ValidationResponse
 )

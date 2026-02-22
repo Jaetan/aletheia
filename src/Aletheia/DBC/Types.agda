@@ -43,3 +43,30 @@ record DBC : Set where
   field
     version : String
     messages : List DBCMessage
+
+-- ============================================================================
+-- VALIDATION ISSUE TYPES
+-- ============================================================================
+
+-- Severity of a validation issue
+data IssueSeverity : Set where
+  IsError   : IssueSeverity
+  IsWarning : IssueSeverity
+
+-- Structural codes for validation issues (type-safe enum, not stringly-typed)
+data IssueCode : Set where
+  DuplicateMessageId          : IssueCode
+  DuplicateSignalName         : IssueCode
+  FactorZero                  : IssueCode
+  MultiplexorNotFound         : IssueCode
+  MultiplexorNotAlwaysPresent : IssueCode
+  GlobalNameCollision         : IssueCode
+  MinExceedsMax               : IssueCode
+
+-- A single validation issue
+record ValidationIssue : Set where
+  constructor mkIssue
+  field
+    severity : IssueSeverity
+    code     : IssueCode
+    detail   : String   -- Human-readable description

@@ -28,8 +28,10 @@ from .protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
+    PropertyResultEntry,
     PropertyViolationResponse,
     RationalNumber,
+    ValidationIssue,
 )
 from .yaml_loader import load_checks
 
@@ -237,6 +239,58 @@ def _cmd_signals(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
+# Subcommand: validate
+# ============================================================================
+
+def _print_validation_text(issues: list[ValidationIssue], has_errors: bool) -> None:
+    """Print validation issues in human-readable text format."""
+    if not issues:
+        print("Validation passed: no issues found")
+        return
+
+    errors = [i for i in issues if i["severity"] == "error"]
+    warnings = [i for i in issues if i["severity"] == "warning"]
+
+    if has_errors:
+        print(f"Validation FAILED: {len(errors)} errors, {len(warnings)} warnings")
+    else:
+        print(f"Validation passed with {len(warnings)} warnings")
+    print()
+
+    for i, issue in enumerate(issues, 1):
+        sev = issue["severity"].upper()
+        code = issue["code"]
+        detail = issue["detail"]
+        print(f"  {i}. [{sev}] {code}: {detail}")
+
+    print()
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    """Validate a DBC definition for structural issues."""
+    dbc = _load_dbc(args)
+
+    with AletheiaClient() as client:
+        result = client.validate_dbc(dbc)
+
+    issues = result["issues"]
+    has_errors = result["has_errors"]
+
+    if getattr(args, "json", False):
+        out = {
+            "status": "fail" if has_errors else "pass",
+            "has_errors": has_errors,
+            "total_issues": len(issues),
+            "issues": issues,
+        }
+        print(json.dumps(out, indent=2))
+    else:
+        _print_validation_text(issues, has_errors)
+
+    return _EXIT_VIOLATIONS if has_errors else _EXIT_OK
+
+
+# ============================================================================
 # Subcommand: extract
 # ============================================================================
 
@@ -337,25 +391,57 @@ def _build_violation(
     }
 
 
+def _build_eos_violation(
+    result: PropertyResultEntry, checks: list[CheckResult],
+) -> _Violation:
+    """Extract violation details from an end-of-stream finalization result."""
+    prop_index = rational_to_int(result["property_index"])
+
+    if 0 <= prop_index < len(checks):
+        check_name = checks[prop_index].name or f"Check #{prop_index}"
+        severity = checks[prop_index].check_severity or ""
+    else:
+        check_name = f"Check #{prop_index}"
+        severity = ""
+
+    reason = result.get("reason", "end-of-stream violation")
+    signal_name = result.get("signal_name", "")
+    condition = result.get("condition", "")
+    if signal_name and condition:
+        reason = f"{signal_name} violated {condition} ({reason})"
+
+    return {
+        "check_index": prop_index,
+        "check_name": check_name,
+        "severity": severity,
+        "timestamp_us": 0,  # End-of-stream has no specific timestamp
+        "reason": reason,
+        "signal_name": signal_name,
+        "actual_value": result.get("actual_value"),
+        "condition": condition,
+    }
+
+
 def _run_checks(
     dbc: DBCDefinition,
     checks: list[CheckResult],
     logfile: str,
+    default_checks: list[CheckResult] | None = None,
 ) -> tuple[list[_Violation], int]:
     """Stream a CAN log through the Aletheia engine.
 
     Returns (violations, total_frames).
     """
-    with AletheiaClient() as client:
+    all_checks = (default_checks or []) + checks
+    with AletheiaClient(default_checks=default_checks) as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
             _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
 
-        resp = client.set_properties([c.to_dict() for c in checks])
+        resp = client.add_checks(checks)
         if resp["status"] != "success":
             _die(f"set properties failed: {resp.get('message', 'unknown error')}")
 
-        client.set_check_diagnostics(checks)
         client.start_stream()
 
         violations: list[_Violation] = []
@@ -366,9 +452,13 @@ def _run_checks(
             response = client.send_frame(ts, can_id, data)
             if response["status"] == "violation":
                 violation_resp = cast(PropertyViolationResponse, response)
-                violations.append(_build_violation(violation_resp, checks))
+                violations.append(_build_violation(violation_resp, all_checks))
 
-        client.end_stream()
+        end_resp = client.end_stream()
+        # Collect end-of-stream violations from finalization
+        for result in end_resp.get("results", []):
+            if result.get("status") == "violation":
+                violations.append(_build_eos_violation(result, all_checks))
 
     return violations, total_frames
 
@@ -407,16 +497,30 @@ def _print_violation(index: int, v: _Violation) -> None:
     print()
 
 
+def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
+    """Load default checks from --defaults flag, if provided."""
+    defaults_path: str | None = getattr(args, "defaults", None)
+    if defaults_path is None:
+        return []
+    p = Path(defaults_path)
+    if not p.exists():
+        _die(f"defaults file not found: {defaults_path}")
+    if p.suffix == ".xlsx":
+        return load_checks_from_excel(p)
+    return load_checks(p)
+
+
 def _cmd_check(args: argparse.Namespace) -> int:
     """Run LTL checks against a CAN log file."""
     dbc = _load_dbc(args)
     checks = _load_checks_from_args(args)
+    default_checks = _load_defaults(args)
     logfile: str = args.logfile
 
     if not Path(logfile).exists():
         _die(f"log file not found: {logfile}")
 
-    violations, total_frames = _run_checks(dbc, checks, logfile)
+    violations, total_frames = _run_checks(dbc, checks, logfile, default_checks)
 
     if getattr(args, "json", False):
         status = "pass" if not violations else "violations"
@@ -430,13 +534,20 @@ def _cmd_check(args: argparse.Namespace) -> int:
     else:
         dbc_label = getattr(args, "dbc", None) or getattr(args, "excel", None) or "?"
         checks_label = getattr(args, "checks", None) or getattr(args, "excel", None) or "?"
+        total_checks = len(default_checks) + len(checks)
         print("Aletheia — CAN Signal Verification")
         print()
         print(f"DBC:    {dbc_label}")
-        print(f"Checks: {checks_label} ({len(checks)} checks)")
+        if default_checks:
+            print(
+                f"Checks: {checks_label} ({len(checks)} checks"
+                + f" + {len(default_checks)} defaults)"
+            )
+        else:
+            print(f"Checks: {checks_label} ({len(checks)} checks)")
         print(f"Log:    {logfile}")
         print()
-        _print_check_results(violations, total_frames, len(checks))
+        _print_check_results(violations, total_frames, total_checks)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
 
@@ -461,8 +572,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("logfile", help="CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)")
     p_check.add_argument("--dbc", help=".dbc file for signal definitions")
     p_check.add_argument("--checks", help=".yaml or .xlsx file with check definitions")
+    p_check.add_argument("--defaults", help=".yaml or .xlsx file with default checks (prepended)")
     p_check.add_argument("--excel", help=".xlsx workbook with DBC + Checks sheets")
     p_check.add_argument("--json", action="store_true", help="output as JSON")
+
+    # -- validate ------------------------------------------------------------
+    p_validate = subparsers.add_parser(
+        "validate",
+        help="validate a DBC definition for structural issues",
+    )
+    p_validate.add_argument("--dbc", help=".dbc file for signal definitions")
+    p_validate.add_argument("--excel", help=".xlsx workbook with DBC sheet")
+    p_validate.add_argument("--json", action="store_true", help="output as JSON")
 
     # -- extract -------------------------------------------------------------
     p_extract = subparsers.add_parser(
@@ -494,6 +615,7 @@ _COMMANDS = {
     "check": _cmd_check,
     "extract": _cmd_extract,
     "signals": _cmd_signals,
+    "validate": _cmd_validate,
 }
 
 

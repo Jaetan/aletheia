@@ -35,9 +35,10 @@ open import Aletheia.Prelude using (findByPredicate)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Properties using (validateDBC)
+open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; ThreeVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
-open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied; Inconclusive)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
+open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied; Inconclusive; FinalVerdict; Holds; Fails; finalizeEval)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupObject; formatJSON; getRational; getObject; lookupRational)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as RatShow using ()
@@ -161,6 +162,9 @@ makeFrame msgId bytes = record
 -- ============================================================================
 
 -- Parse DBC command: reset state, parse DBC from JSON, and validate
+-- Two-layer validation:
+--   Layer 1: DBC/Properties.validateDBC — signal overlap + range consistency (first-error)
+--   Layer 2: DBC/Validator.validateDBCFull — structural checks (all issues at once)
 handleParseDBC-State : JSON → StreamState → StreamState × Response
 handleParseDBC-State dbcJSON state =
   parseHelper (parseDBCWithErrors dbcJSON)
@@ -174,8 +178,13 @@ handleParseDBC-State dbcJSON state =
     ... | inj₁ validationError =
       (state , Response.Error ("DBC validation failed: " ++ₛ validationError))
     ... | inj₂ _ =
-      let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache  -- Reset properties, prevFrame, and cache
-      in (newState , Response.Success "DBC parsed and validated successfully")
+      -- Layer 2: run comprehensive structural validator
+      let issues = validateDBCFull dbc
+      in if hasAnyError issues
+         then (state , Response.Error ("DBC structural validation failed: "
+                ++ₛ formatIssuesText (errorIssues issues)))
+         else let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache
+              in (newState , Response.Success "DBC parsed and validated successfully")
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties-State : List JSON → StreamState → StreamState × Response
@@ -204,12 +213,26 @@ handleStartStream-State state with StreamState.phase state
   in (newState , Response.Success "Streaming started")
 ... | Streaming = (state , Response.Error "Already streaming")
 
--- End stream command: transition back to ready state
+-- End stream command: finalize all properties and transition back to ready state
 handleEndStream-State : StreamState → StreamState × Response
 handleEndStream-State state with StreamState.phase state
 ... | Streaming =
   let newState = mkStreamState ReadyToStream (StreamState.dbc state) (StreamState.properties state) (StreamState.prevFrame state) (StreamState.signalCache state)
-  in (newState , Response.Complete)
+      results = finalizeProperties (StreamState.properties state)
+  in (newState , Response.Complete results)
+  where
+    open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
+    -- Convert FinalVerdict to PropertyResult
+    verdictToResult : ℕ → FinalVerdict → PR.PropertyResult
+    verdictToResult idx Holds = PR.PropertyResult.Satisfaction idx
+    verdictToResult idx (Fails reason) = PR.PropertyResult.Violation idx (mkCounterexampleData 0 reason)
+
+    -- Finalize each property: Holds → Satisfaction, Fails → Violation
+    finalizeProperties : List PropertyState → List PR.PropertyResult
+    finalizeProperties [] = []
+    finalizeProperties (propState ∷ rest) =
+      verdictToResult (PropertyState.index propState) (finalizeEval (PropertyState.evalState propState))
+      ∷ finalizeProperties rest
 ... | _ = (state , Response.Error "Not currently streaming")
 
 -- ============================================================================
@@ -268,7 +291,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
     currentCache = StreamState.signalCache state
 
     -- Evaluator function for stepEval (three-valued with cache lookup)
-    evalPred : Maybe TimedFrame → TimedFrame → SignalPredicate → ThreeVal
+    evalPred : Maybe TimedFrame → TimedFrame → SignalPredicate → SignalVal
     evalPred prev curr pred = evalPredicateTV dbc currentCache pred (TimedFrame.frame curr)
 
     processFrame : DBC → StreamState × Response
@@ -392,6 +415,23 @@ handleUpdateFrame-State canIdJSON bytes signalsJSON state =
         ...   | just updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
 
 -- ============================================================================
+-- VALIDATE DBC HANDLER (read-only probe, does NOT update state)
+-- ============================================================================
+
+-- Validate DBC structure: parse JSON, then run comprehensive validator
+handleValidateDBC-State : JSON → StreamState → StreamState × Response
+handleValidateDBC-State dbcJSON state =
+  parseHelper (parseDBCWithErrors dbcJSON)
+  where
+    open import Data.Sum using (inj₁; inj₂)
+
+    parseHelper : String ⊎ DBC → StreamState × Response
+    parseHelper (inj₁ parseErr) =
+      (state , Response.Error ("DBC parse error: " ++ₛ parseErr))
+    parseHelper (inj₂ dbc) =
+      (state , Response.ValidationResponse (validateDBCFull dbc))
+
+-- ============================================================================
 -- STREAM COMMAND DISPATCHER
 -- ============================================================================
 
@@ -404,3 +444,4 @@ processStreamCommand (BuildFrame canIdJSON signalsJSON) state = handleBuildFrame
 processStreamCommand (ExtractAllSignals canIdJSON bytes) state = handleExtractAllSignals-State canIdJSON bytes state
 processStreamCommand (UpdateFrame canIdJSON bytes signalsJSON) state = handleUpdateFrame-State canIdJSON bytes signalsJSON state
 processStreamCommand EndStream state = handleEndStream-State state
+processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC-State dbcJSON state

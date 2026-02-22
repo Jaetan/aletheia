@@ -53,11 +53,15 @@ from .protocols import (
     BuildFrameCommand,
     ExtractSignalsCommand,
     UpdateFrameCommand,
+    ValidateDBCCommand,
     SuccessResponse,
     CompleteResponse,
     AckResponse,
     PropertyViolationResponse,
+    PropertyResultEntry,
     ErrorResponse,
+    ValidationIssue,
+    ValidationResponse,
     RationalNumber,
     SignalValue,
 )
@@ -229,11 +233,14 @@ class AletheiaClient:
     Signal operations work both inside and outside streaming mode.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self, default_checks: list[CheckResult] | None = None,
+    ) -> None:
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
         self._diags: dict[int, _CheckDiag] = {}
         self._signal_cache: ExtractionCache = {}
+        self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
@@ -378,6 +385,45 @@ class AletheiaClient:
 
         raise ProtocolError(f"Unexpected response status: {status}")
 
+    def validate_dbc(self, dbc: DBCDefinition) -> ValidationResponse:
+        """Run structural validation on a DBC definition.
+
+        Returns all issues found (not just the first). Does not modify
+        client state — this is a read-only check.
+
+        Args:
+            dbc: DBC structure (use dbc_converter.dbc_to_json())
+
+        Returns:
+            ValidationResponse with status, has_errors, and issues list
+        """
+        cmd: ValidateDBCCommand = {
+            "type": "command",
+            "command": "validateDBC",
+            "dbc": dbc
+        }
+        response = self._send_command(cmd)
+        status = response.get("status")
+
+        if status == "validation":
+            issues_raw = response.get("issues", [])
+            assert isinstance(issues_raw, list), \
+                "Protocol error: expected 'issues' to be a list"
+            issues: list[ValidationIssue] = [
+                cast(ValidationIssue, issue) for issue in issues_raw
+            ]
+            return {
+                "status": "validation",
+                "has_errors": bool(response.get("has_errors", False)),
+                "issues": issues,
+            }
+
+        if status == "error":
+            message = response.get("message", "Unknown error")
+            raise ProtocolError(f"validateDBC failed: {message}")
+
+        raise ProtocolError(f"Unexpected response status: {status}")
+
     def set_properties(self, properties: list[LTLFormula]) -> SuccessResponse | ErrorResponse:
         """Set LTL properties to check. Must be called before start_stream().
 
@@ -427,6 +473,26 @@ class AletheiaClient:
             cond = check.condition_desc
             if sig and cond:
                 self._diags[i] = _CheckDiag(signal_name=sig, condition_desc=cond)
+
+    def add_checks(
+        self, checks: list[CheckResult],
+    ) -> SuccessResponse | ErrorResponse:
+        """Set LTL checks, merging with registered default checks.
+
+        Combines ``default_checks`` (from constructor) with *checks*,
+        calls ``set_properties()`` + ``set_check_diagnostics()`` atomically.
+
+        Args:
+            checks: Session-specific checks to add after defaults.
+
+        Returns:
+            SuccessResponse or ErrorResponse from ``set_properties()``.
+        """
+        all_checks = self._default_checks + checks
+        response = self.set_properties([c.to_dict() for c in all_checks])
+        if response.get("status") == "success":
+            self.set_check_diagnostics(all_checks)
+        return response
 
     # =========================================================================
     # Streaming LTL Checking
@@ -609,10 +675,19 @@ class AletheiaClient:
         return [self._parse_frame_response(r) for r in raw_responses]
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
-        """End streaming mode.
+        """End streaming mode and finalize all properties.
 
         Returns:
-            CompleteResponse or ErrorResponse
+            CompleteResponse with per-property finalization results, or
+            ErrorResponse if not currently streaming.
+
+        The ``results`` list contains one entry per property:
+        - ``status="satisfaction"`` if the property held on the finite trace
+        - ``status="violation"`` if the property failed at end-of-stream
+          (e.g., safety property never resolved, liveness never satisfied)
+
+        Violations are enriched with ``signal_name``, ``actual_value``, and
+        ``condition`` when check diagnostics have been registered.
         """
         cmd: EndStreamCommand = {
             "type": "command",
@@ -623,7 +698,8 @@ class AletheiaClient:
         message = response.get("message")
 
         if status == "complete":
-            return {"status": ResponseStatus.COMPLETE}
+            results = self._parse_finalization_results(response)
+            return {"status": ResponseStatus.COMPLETE, "results": results}
 
         if status == "error":
             result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
@@ -632,6 +708,62 @@ class AletheiaClient:
             return result_error
 
         raise ProtocolError(f"Unexpected response status: {status}")
+
+    def _parse_finalization_results(
+        self, response: Response,
+    ) -> list[PropertyResultEntry]:
+        """Parse end-of-stream property finalization results."""
+        raw_results = response.get("results", [])
+        if not isinstance(raw_results, list):
+            return []
+        entries: list[PropertyResultEntry] = []
+        for raw in raw_results:
+            if not isinstance(raw, dict):
+                continue
+            entry_status = raw.get("status", "")
+            prop_index = self._to_rational(raw.get("property_index"))
+            result_entry: PropertyResultEntry = {
+                "type": "property",
+                "status": entry_status,
+                "property_index": prop_index,
+            }
+            if entry_status == "violation":
+                ts = raw.get("timestamp")
+                if ts is not None:
+                    result_entry["timestamp"] = self._to_rational(ts)
+                reason = raw.get("reason")
+                if isinstance(reason, str):
+                    result_entry["reason"] = reason
+                # Enrich with diagnostics
+                self._enrich_finalization_result(result_entry)
+            entries.append(result_entry)
+        return entries
+
+    @staticmethod
+    def _to_rational(value: object) -> RationalNumber:
+        """Convert a JSON value (int or {numerator, denominator}) to RationalNumber."""
+        if isinstance(value, dict):
+            return {
+                "numerator": value.get("numerator", 0),
+                "denominator": value.get("denominator", 1),
+            }
+        if isinstance(value, (int, float)):
+            return {"numerator": int(value), "denominator": 1}
+        return {"numerator": 0, "denominator": 1}
+
+    def _enrich_finalization_result(
+        self, result: PropertyResultEntry,
+    ) -> None:
+        """Enrich an end-of-stream violation with signal diagnostics."""
+        if not self._diags:
+            return
+        prop_index_r = result["property_index"]
+        idx = prop_index_r["numerator"] // prop_index_r["denominator"]
+        diag = self._diags.get(idx)
+        if diag is None:
+            return
+        result["signal_name"] = diag.signal_name
+        result["condition"] = diag.condition_desc
 
     # =========================================================================
     # Signal Operations (available anytime after DBC loaded)

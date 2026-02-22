@@ -18,6 +18,7 @@ open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.JSON using (JSON)
+open import Aletheia.DBC.Types using (ValidationIssue)
 
 -- ============================================================================
 -- STREAMING PROTOCOL COMMANDS (Phase 2B)
@@ -56,6 +57,10 @@ data StreamCommand : Set where
   -- End stream and emit final property results
   EndStream : StreamCommand
 
+  -- Validate DBC structure and return all issues (read-only, does not change state)
+  -- Args: DBC JSON structure
+  ValidateDBC : JSON → StreamCommand
+
 -- ============================================================================
 -- REQUEST TYPES
 -- ============================================================================
@@ -90,5 +95,8 @@ data Response : Set where
   -- Acknowledgment (for data frames that don't trigger property results)
   Ack : Response
 
-  -- Stream complete (all properties decided, sent after EndStream)
-  Complete : Response
+  -- Stream complete with finalization results for all properties
+  Complete : List PropertyResult → Response
+
+  -- Validation results from validateDBC command (read-only probe)
+  ValidationResponse : List ValidationIssue → Response

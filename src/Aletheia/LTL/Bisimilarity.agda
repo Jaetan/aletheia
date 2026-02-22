@@ -14,18 +14,20 @@ module Aletheia.LTL.Bisimilarity where
 
 open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; MetricEventuallyState; MetricAlwaysState; MetricUntilState; MetricReleaseState; stepEval; initState)
-open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL; MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Inconclusive; Counterexample; LTLEvalState; AtomicState; NotState; AndState; OrState; NextState; NextActive; AlwaysState; EventuallyState; UntilState; ReleaseState; MetricEventuallyState; MetricAlwaysState; MetricUntilState; MetricReleaseState; stepEval; initState; FinalVerdict; Holds; Fails; finalizeEval)
+open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; toLTL; finalizeL; initProc; MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
   renaming (Atomic to AtomicProc; Not to NotProc; And to AndProc; Or to OrProc;
             NextWaiting to NextWaitingProc; NextActive to NextActiveProc;
             Always to AlwaysProc; Eventually to EventuallyProc; Until to UntilProc;
             Release to ReleaseProc)
 open import Aletheia.LTL.StepResultBisim using (StepResultBisim; violated-bisim; satisfied-bisim; continue-bisim; inconclusive-bisim; CounterexampleEquiv; mkCEEquiv)
-open import Aletheia.LTL.SignalPredicate using (ThreeVal; True; False; Unknown)
+open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending)
 open import Aletheia.LTL.CoalgebraBisim using (CoalgebraBisim)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
+open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 -- ============================================================================
 -- RELATE RELATION: When are states behaviorally equivalent?
@@ -40,7 +42,7 @@ open import Data.Nat using (_∸_; _≤ᵇ_; _≡ᵇ_)
 
 data Relate : LTLEvalState → LTLProc → Set where
   -- Atomic predicate states are related
-  atomic-relate : ∀ {p : TimedFrame → ThreeVal}
+  atomic-relate : ∀ {p : TimedFrame → SignalVal}
     → Relate AtomicState (AtomicProc p)
 
   -- Not states are related if their inner states are related
@@ -61,9 +63,10 @@ data Relate : LTLEvalState → LTLProc → Set where
     → Relate (OrState st1 st2) (OrProc φ ψ)
 
   -- Always states are related if their inner states are related
-  always-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+  -- Both sides carry the same resolved flag
+  always-relate : ∀ {resolved : Bool} {st : LTLEvalState} {φ : LTLProc}
     → Relate st φ
-    → Relate (AlwaysState st) (AlwaysProc φ)
+    → Relate (AlwaysState resolved st) (AlwaysProc resolved φ)
 
   -- Eventually states are related if their inner states are related
   eventually-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
@@ -102,18 +105,19 @@ data Relate : LTLEvalState → LTLProc → Set where
              (MetricEventuallyProc windowMicros startTime φ)
 
   -- MetricAlways: Same observable requirement as MetricEventually
-  -- Both sides must have SAME startTime to compute identical remaining time
-  metric-always-relate : ∀ {st : LTLEvalState} {φ : LTLProc}
+  -- Both sides must have SAME startTime and resolved flag
+  metric-always-relate : ∀ {resolved : Bool} {st : LTLEvalState} {φ : LTLProc}
                            {windowMicros startTime : ℕ}
     → Relate st φ
-    → Relate (MetricAlwaysState startTime st)
-             (MetricAlwaysProc windowMicros startTime φ)
+    → Relate (MetricAlwaysState resolved startTime st)
+             (MetricAlwaysProc resolved windowMicros startTime φ)
 
   -- Release states are related if both inner states are related
-  release-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+  -- Both sides carry the same resolved flag
+  release-relate : ∀ {resolved : Bool} {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (ReleaseState st1 st2) (ReleaseProc φ ψ)
+    → Relate (ReleaseState resolved st1 st2) (ReleaseProc resolved φ ψ)
 
   -- MetricUntil: Bounded Until with observable time tracking
   -- Same observable requirement as other bounded operators
@@ -125,20 +129,20 @@ data Relate : LTLEvalState → LTLProc → Set where
              (MetricUntilProc windowMicros startTime φ ψ)
 
   -- MetricRelease: Bounded Release with observable time tracking
-  -- Same observable requirement as other bounded operators
-  metric-release-relate : ∀ {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
+  -- Both sides must have SAME resolved flag and startTime
+  metric-release-relate : ∀ {resolved : Bool} {st1 st2 : LTLEvalState} {φ ψ : LTLProc}
                             {windowMicros startTime : ℕ}
     → Relate st1 φ
     → Relate st2 ψ
-    → Relate (MetricReleaseState startTime st1 st2)
-             (MetricReleaseProc windowMicros startTime φ ψ)
+    → Relate (MetricReleaseState resolved startTime st1 st2)
+             (MetricReleaseProc resolved windowMicros startTime φ ψ)
 
 -- ============================================================================
 -- STEP BISIMILARITY: Related states produce bisimilar observations
 -- ============================================================================
 
 -- Helper: Predicate evaluator for the monitor (needed for stepEval)
-evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → ThreeVal) → ThreeVal
+evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → SignalVal) → SignalVal
 evalAtomicPred prev curr p = p curr
 
 -- Prove that related states produce bisimilar observations when stepped with the same frame
@@ -157,6 +161,7 @@ step-bisim (atomic-relate {p}) prev curr
 ... | True    = satisfied-bisim
 ... | False   = violated-bisim (mkCEEquiv refl refl)
 ... | Unknown = inconclusive-bisim atomic-relate  -- Signal not yet observed
+... | Pending = continue-bisim atomic-relate       -- Not enough data yet
 
 -- Propositional operators: Not
 -- stepEval (Not φ) ... (NotState st) inverts the result
@@ -329,7 +334,7 @@ step-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
 --
 -- We need to show these are bisimilar given that st and φ are related.
 
-step-bisim (always-relate {st} {φ} rel) prev curr
+step-bisim (always-relate {_} {st} {φ} rel) prev curr
   with stepEval (toLTL φ) evalAtomicPred st prev curr | stepL φ prev curr | step-bisim rel prev curr
 
 -- Case 1: Inner formula violates
@@ -662,7 +667,7 @@ step-bisim (metric-eventually-relate {st} {φ} {windowMicros} {startTime} rel) p
 -- AlwaysWithin: Must hold throughout time window
 -- Observable invariant: Both sides have SAME startTime, therefore compute SAME remaining time
 
-step-bisim (metric-always-relate {st} {φ} {windowMicros} {startTime} rel) prev curr
+step-bisim (metric-always-relate {_} {st} {φ} {windowMicros} {startTime} rel) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window complete on both sides
@@ -701,7 +706,7 @@ step-bisim (metric-always-relate {st} {φ} {windowMicros} {startTime} rel) prev 
 -- Semantics: Either φ holds (release condition), or ψ holds AND the rest is Release
 -- ψ has SAFETY role (must hold) → Inconclusive = Violated
 -- φ has LIVENESS role (release) → Inconclusive = propagate
-step-bisim (release-relate {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
+step-bisim (release-relate {_} {st1} {st2} {φ} {ψ} rel1 rel2) prev curr
   with stepEval (toLTL φ) evalAtomicPred st1 prev curr | stepL φ prev curr | step-bisim rel1 prev curr
      | stepEval (toLTL ψ) evalAtomicPred st2 prev curr | stepL ψ prev curr | step-bisim rel2 prev curr
 
@@ -895,7 +900,7 @@ step-bisim (metric-until-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime}
 -- Same as Release but with time bound, uses observable remaining time
 -- ψ has SAFETY role (must hold): Inconclusive → Violated
 -- φ has LIVENESS role (release): Inconclusive → propagate
-step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
+step-bisim (metric-release-relate {_} {st1} {st2} {φ} {ψ} {windowMicros} {startTime} rel1 rel2) prev curr
   -- Compute observable: window validity (both sides compute identically)
   with (timestamp curr ∸ (if startTime ≡ᵇ 0 then timestamp curr else startTime)) ≤ᵇ windowMicros
 ... | false  -- Window complete on both sides
@@ -978,7 +983,7 @@ step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 ... | _ | _ | _ | Inconclusive _ | Continue _ _ | ()
 
 -- ============================================================================
--- 🎉 PROGRESS! Bisimilarity: 13 operators fully proven!
+-- Bisimilarity: ALL 14 operators fully proven!
 -- ============================================================================
 
 -- What we proved:
@@ -986,47 +991,51 @@ step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 -- - WITHOUT postulates for extended lambda equality!
 -- - Pure coalgebraic reasoning with behavioral bisimilarity
 --
--- Operators FULLY proven (8/10):
+-- Per-frame stepping (step-bisim):
 -- ✅ Atomic p - base case (evaluates predicate at current frame)
--- ✅ Not φ - inverts inner result (3 cases)
--- ✅ And φ ψ - both must hold (9 valid combinations)
--- ✅ Or φ ψ - either must hold (9 valid combinations)
--- ✅ Always φ - must hold at all frames (3 cases, preserves φ when satisfied)
--- ✅ Eventually φ - must hold at some frame (3 cases, preserves φ when violated)
--- ✅ Until φ ψ - φ must hold until ψ (refactored to flat with-patterns, 7 valid combinations)
--- ✅ Next φ - φ holds at next state (modal states: waiting 1 case, active 3 cases)
+-- ✅ Not φ - inverts inner result
+-- ✅ And φ ψ - both must hold (Kleene logic, 9 valid combinations)
+-- ✅ Or φ ψ - either must hold (Kleene logic, 9 valid combinations)
+-- ✅ Always φ - must hold at all frames, with resolved flag tracking
+-- ✅ Eventually φ - must hold at some frame
+-- ✅ Until φ ψ - φ must hold until ψ (7 valid combinations)
+-- ✅ Release φ ψ - dual of Until, with resolved flag tracking
+-- ✅ Next φ - φ holds at next state (modal states: waiting + active)
+-- ✅ MetricEventually φ - bounded eventually (window logic + inner bisimilarity)
+-- ✅ MetricAlways φ - bounded always (window logic + resolved flag)
+-- ✅ MetricUntil φ ψ - bounded until (window logic + 11 cases)
+-- ✅ MetricRelease φ ψ - bounded release (window logic + resolved flag)
 --
--- Infrastructure complete, proofs deferred (2/10):
--- ⏳ EventuallyWithin - Relate constructor added, stepL implemented, proof deferred
--- ⏳ AlwaysWithin - Relate constructor added, stepL implemented, proof deferred
---
--- Why bounded operators are harder:
--- - Time window logic (actualStart, actualElapsed, inWindow) is interleaved with
---   formula evaluation in both monitor and coalgebra implementations
--- - Proving bisimilarity requires reasoning about if-then-else branches at value level
--- - Need to show that inner bisimilarity is preserved through handleInWindow transformations
--- - The implementations ARE identical by inspection, but formal proof is complex
---
--- Next steps for EventuallyWithin/AlwaysWithin:
--- 1. Factor out time window logic into separate lemmas
--- 2. Prove time window calculations produce identical results given same inputs
--- 3. Prove handleInWindow preserves bisimilarity
--- 4. Compose these lemmas to prove full bisimilarity
--- OR: Refactor implementations to make proof easier (e.g., separate time checking from formula evaluation)
+-- End-of-stream finalization (finalize-bisim):
+-- ✅ All 14 operators: finalizeEval st ≡ finalizeL proc when Relate st proc
 --
 -- Key insight: The proof is GENERIC over inner formulas!
 -- - All relate constructors take ANY relation rel : Relate st φ
 -- - By structural induction, this covers ALL formulas built from proven operators
 -- - Example: Always (Not (Next (And (Atomic p) (Atomic q)))) proven via composition
+
+-- ============================================================================
+-- TRUST BOUNDARY: Signal predicate evaluation
+-- ============================================================================
+
+-- The proofs above are PARAMETRIC over the atomic predicate evaluator:
+--   evalAtomicPred : Maybe TimedFrame → TimedFrame → (TimedFrame → SignalVal) → SignalVal
+-- Both coalgebras receive the same predicate function `p : TimedFrame → SignalVal`,
+-- so bisimilarity holds for ALL possible predicates — not just correct ones.
 --
--- What this means:
--- For any formula φ built from the 8 proven operators, we can construct a bisimilarity
--- proof by structural recursion on φ. The proof scales to arbitrarily complex
--- real-world LTL properties!
+-- This is strictly stronger than proving correctness for a specific predicate.
+-- The LTL engine is generic; it guarantees temporal logic semantics regardless
+-- of what the predicate computes.
 --
--- For formulas using EventuallyWithin/AlwaysWithin: Infrastructure is in place (LTLProc
--- constructors, toLTL conversion, stepL implementation, Relate constructors). Only the
--- bisimilarity proofs themselves are missing.
+-- Whether predicates correctly evaluate CAN signals (extraction, scaling,
+-- comparison) is a SEPARATE concern, covered by:
+--   - CAN/Encoding.agda: injectSignal-preserves-disjoint-bits
+--   - CAN/Endianness.agda: extractBits-injectBits-roundtrip
+--   - CAN/Batch/Properties.agda: injectAll-preserves-disjoint
+--   - Data/BitVec/Conversion.agda: bitVec-roundtrip, bitVecToℕ-bounded
+--
+-- Together: LTL bisimilarity + CAN encoding proofs cover the full pipeline
+-- from raw CAN frames to temporal verdict, with no gap between the layers.
 
 -- ============================================================================
 -- VERIFICATION: Complex nested formulas work!
@@ -1042,6 +1051,126 @@ step-bisim (metric-release-relate {st1} {st2} {φ} {ψ} {windowMicros} {startTim
 -- And the Relate proof:
 --   always-relate (not-relate (eventually-relate (and-relate atomic-relate atomic-relate)))
 --
--- This shows that for ANY formula built from {Atomic, Not, And, Or, Always, Eventually},
+-- This shows that for ANY formula built from the 14 proven operators,
 -- we can mechanically construct both the initial state and the bisimilarity relation!
+
+-- ============================================================================
+-- FINALIZE BISIMILARITY: End-of-stream verdict is the same on both sides
+-- ============================================================================
+
+-- Prove that finalizeEval (evaluator) and finalizeL (coalgebra) produce
+-- the same FinalVerdict when the states are related.
+--
+-- This completes the end-to-end correctness: bisimilar stepping during
+-- the stream AND the same final verdict at end of stream.
+
+finalize-bisim : ∀ {st : LTLEvalState} {proc : LTLProc}
+  → Relate st proc
+  → finalizeEval st ≡ finalizeL proc
+
+-- Atomic: both return Fails
+finalize-bisim (atomic-relate {p}) = refl
+
+-- Not: compose inner result
+finalize-bisim (not-relate {st} {φ} rel)
+  with finalizeEval st | finalizeL φ | finalize-bisim rel
+... | Holds   | .Holds   | refl = refl
+... | Fails _ | .(Fails _) | refl = refl
+
+-- And: compose left, then right
+finalize-bisim (and-relate {st1} {st2} {φ} {ψ} rel1 rel2)
+  with finalizeEval st1 | finalizeL φ | finalize-bisim rel1
+... | Fails r | .(Fails r) | refl = refl
+... | Holds   | .Holds     | refl
+  with finalizeEval st2 | finalizeL ψ | finalize-bisim rel2
+...   | Fails r | .(Fails r) | refl = refl
+...   | Holds   | .Holds     | refl = refl
+
+-- Or: compose left, then right
+finalize-bisim (or-relate {st1} {st2} {φ} {ψ} rel1 rel2)
+  with finalizeEval st1 | finalizeL φ | finalize-bisim rel1
+... | Holds   | .Holds     | refl = refl
+... | Fails _ | .(Fails _) | refl
+  with finalizeEval st2 | finalizeL ψ | finalize-bisim rel2
+...   | Holds   | .Holds     | refl = refl
+...   | Fails r | .(Fails r) | refl = refl
+
+-- Always: resolved flag determines verdict (same on both sides)
+finalize-bisim (always-relate {false} _) = refl
+finalize-bisim (always-relate {true} _) = refl
+
+-- Eventually: both return Fails
+finalize-bisim (eventually-relate _) = refl
+
+-- Until: both return Fails
+finalize-bisim (until-relate _ _) = refl
+
+-- Next waiting: both return Fails
+finalize-bisim (next-waiting-relate _) = refl
+
+-- Next active: delegate to inner
+finalize-bisim (next-active-relate rel) = finalize-bisim rel
+
+-- MetricEventually: both return Fails
+finalize-bisim (metric-eventually-relate _) = refl
+
+-- MetricAlways: resolved flag determines verdict
+finalize-bisim (metric-always-relate {false} _) = refl
+finalize-bisim (metric-always-relate {true} _) = refl
+
+-- Release: resolved flag determines verdict
+finalize-bisim (release-relate {false} _ _) = refl
+finalize-bisim (release-relate {true} _ _) = refl
+
+-- MetricUntil: both return Fails
+finalize-bisim (metric-until-relate _ _) = refl
+
+-- MetricRelease: resolved flag determines verdict
+finalize-bisim (metric-release-relate {false} _ _) = refl
+finalize-bisim (metric-release-relate {true} _ _) = refl
+
+-- ============================================================================
+-- INIT-RELATE: Initial states are related
+-- ============================================================================
+
+-- Prove that `initState φ` (evaluator) and `initProc φ` (coalgebra) are
+-- related by `Relate` for any LTL formula φ.
+--
+-- This completes the proof chain:
+--   1. init-relate:    starting states are related
+--   2. step-bisim:     each frame preserves relatedness
+--   3. finalize-bisim: final verdict is identical
+--
+-- Together, these three proofs establish end-to-end correctness:
+-- for any LTL formula, the incremental evaluator and the defunctionalized
+-- coalgebra produce identical observations on every frame and the same
+-- final verdict at end of stream.
+
+init-relate : ∀ (φ : LTL (TimedFrame → SignalVal))
+  → Relate (initState φ) (initProc φ)
+
+-- Atomic: AtomicState ~ AtomicProc p
+init-relate (Atomic p) = atomic-relate
+
+-- Propositional: structural recursion
+init-relate (Not φ)   = not-relate (init-relate φ)
+init-relate (And φ ψ) = and-relate (init-relate φ) (init-relate ψ)
+init-relate (Or φ ψ)  = or-relate (init-relate φ) (init-relate ψ)
+
+-- Next: starts in waiting mode on both sides
+init-relate (Next φ) = next-waiting-relate (init-relate φ)
+
+-- Unbounded temporal: structural recursion
+-- Safety operators start with resolved=false on both sides
+init-relate (Always φ)    = always-relate (init-relate φ)
+init-relate (Eventually φ) = eventually-relate (init-relate φ)
+init-relate (Until φ ψ)   = until-relate (init-relate φ) (init-relate ψ)
+init-relate (Release φ ψ) = release-relate (init-relate φ) (init-relate ψ)
+
+-- Bounded temporal: both sides start with startTime=0
+-- Safety operators start with resolved=false on both sides
+init-relate (MetricEventually _ φ)    = metric-eventually-relate (init-relate φ)
+init-relate (MetricAlways _ φ)        = metric-always-relate (init-relate φ)
+init-relate (MetricUntil _ φ ψ)       = metric-until-relate (init-relate φ) (init-relate ψ)
+init-relate (MetricRelease _ φ ψ)     = metric-release-relate (init-relate φ) (init-relate ψ)
 

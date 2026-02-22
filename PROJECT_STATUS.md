@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-16
+**Last Updated**: 2026-02-21
 
 ---
 
@@ -99,7 +99,8 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
    - `Protocol/JSON/Properties.agda`: 12 proven properties (schema soundness, lookup correctness)
 2. ✅ LTL semantics correctness proofs - COMPLETE
    - `LTL/Bisimilarity.agda`: Proven behavioral bisimilarity between monitor and coalgebra
-   - All operators proven: Atomic, Not, And, Or, Next, Always, Eventually, Until, Release, MetricEventually, MetricAlways, MetricUntil, MetricRelease (12/12)
+   - `step-bisim`: All 14 operators proven (Atomic, Not, And, Or, Next, Always, Eventually, Until, Release, MetricEventually, MetricAlways, MetricUntil, MetricRelease, NextActive)
+   - `finalize-bisim`: All 14 operators proven — `finalizeEval st ≡ finalizeL proc` (propositional equality)
    - No postulates, pure coalgebraic reasoning
 3. ✅ CAN encoding correctness proofs - COMPLETE
    - `Data/BitVec/Conversion.agda`: bitVec-roundtrip and bitVecToℕ-bounded (no postulates!)
@@ -112,7 +113,7 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
    - `LTL/JSON/Properties.agda`: Roundtrip and completeness proofs
    - Proven: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just φ
 5. ✅ Three-valued signal semantics - COMPLETE
-   - `LTL/SignalPredicate.agda`: ThreeVal (True/False/Unknown), Kleene logic, SignalCache
+   - `LTL/SignalPredicate.agda`: SignalVal (True/False/Unknown/Pending), Kleene logic, SignalCache
    - `LTL/Incremental.agda`: Inconclusive state, safety vs liveness semantics
    - `LTL/Coalgebra.agda`: Mirrored Inconclusive handling for bisimilarity
    - `LTL/Bisimilarity.agda`: All 13 operator proofs updated for Inconclusive
@@ -141,7 +142,7 @@ verified core:
 | Check API | Scripter | `Check.signal("Speed").never_exceeds(220)` |
 | DSL | Developer | `Signal("Speed").less_than(220).always()` (full LTL) |
 
-**Goals** (8 total):
+**Goals** (11 total):
 
 1. ✅ Check API — high-level property library (`python/aletheia/checks.py`) — COMPLETE
    - 6 simple conditions: `never_exceeds`, `never_below`, `stays_between`, `never_equals`, `equals`, `settles_between`
@@ -168,6 +169,7 @@ verified core:
    - `aletheia check` — run checks from YAML/Excel against a CAN log file
    - `aletheia extract` — extract signals from a single frame
    - `aletheia signals` — list signals in a DBC (or Excel)
+   - `aletheia validate` — validate DBC for structural issues
    - Exit codes: 0=pass, 1=violations, 2=error; `--json` flag for structured output
    - 41 tests (pure-Python + FFI integration)
 
@@ -185,26 +187,73 @@ verified core:
    - `PropertyViolationResponse` extended with `signal_name`, `actual_value`, `condition` fields
    - CLI and all consumers get enriched violations for free via client-level enrichment
 
-7. ⏳ Deployment guide (`docs/DEPLOYMENT.md`)
-   - Docker: Dockerfile example, multi-stage build, sysinfo.py sizing
-   - systemd: service file for long-running monitor
-   - CI/CD: GitHub Actions / GitLab CI snippets
-   - Logging: structured JSON output for violations
+7. ✅ Deployment guide + install/uninstall — COMPLETE (Shakefile, `cabal run shake -- install`)
 
-8. ⏳ Tutorial / cookbook (`docs/TUTORIAL.md`)
-   - End-to-end walkthrough for each tier (Excel, YAML, Check API, DSL)
-   - Oriented toward learning (vs demo scripts which are presentation-oriented)
-   - Separate paths for technicians and developers
+8. ✅ Tutorial / cookbook — COMPLETE (`docs/guides/TUTORIAL.md`, `docs/guides/COOKBOOK.md`, `docs/guides/QUICKSTART.md`)
+
+9. ✅ DBC Validator — COMPLETE (not yet committed)
+   - Agda: `DBC/Validator.agda` (new), `DBC/Types.agda`, `Data/Message.agda`, `Protocol/Routing.agda`, `Protocol/StreamState.agda`
+   - `validateDBCFull : DBC → List ValidationIssue` — 7 structural checks, all issues accumulated
+   - `IssueCode` enum: `DuplicateMessageId | DuplicateSignalName | FactorZero | MultiplexorNotFound | MultiplexorNotAlwaysPresent | GlobalNameCollision | MinExceedsMax`
+   - Decidable types throughout (`_≟-CANId_`, `any?`, `_∈?_`)
+   - Dual-layer validation: `parseDBC` runs both `validateDBC` + `validateDBCFull`
+   - Python: `client.validate_dbc()`, `cli validate` subcommand, 11 FFI integration tests
+   - 335 total tests pass, 0 regressions
+
+10. ✅ Signal staleness bug demo — COMPLETE
+    - Engine ECU freeze scenario: FrameCounter counter frozen
+    - Demo files: `engine_ecu_sim.py`, `test_engine_naive.py`, `demo_ltl_bug.py`
+    - 8 naive unit tests that pass against buggy ECU ✓
+    - Aletheia LTL catches 34 frozen alive counter violations ✓
+
+11. ✅ Default properties + `add_checks()` API — COMPLETE
+    - `AletheiaClient(default_checks=[...])` constructor param
+    - `add_checks()` merges defaults + session checks atomically
+    - `--defaults` CLI argument wired in `_cmd_check()` via `_load_defaults()`
+    - `_run_checks()` accepts `default_checks` param, uses `add_checks()`
+    - 9 FFI integration tests in `test_default_checks.py`, all pass
+
+**End-of-stream property finalization** ✅ COMPLETE
+- Added Bool resolved flag to safety operators (Always, Release, MetricAlways, MetricRelease)
+- `finalizeEval : LTLEvalState → FinalVerdict` determines Holds/Fails at end-of-stream
+- `handleEndStream-State` calls `finalizeEval` on each property
+- `Response.Complete` now carries `List PropertyResult` with per-property verdicts
+- 7 integration tests verify all finalization behaviors
+- Renamed `ThreeVal` → `SignalVal` (now 4 constructors: True, False, Unknown, Pending)
 
 **Documentation**: Interface Guide (`docs/reference/INTERFACES.md`) with Check API, YAML, and Excel
 end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
-**Demos**: 7 demo scripts + data files in `examples/demo/`:
-- `demo.py` (main presentation), `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`, `dbc_validation.py`, `frame_injection.py`
+**Demos**: 10 demo scripts + data files in `examples/demo/`:
+- `demo.py` (main presentation), `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`, `dbc_validation.py`, `frame_injection.py`, `drive_log.py`
+- `engine_ecu_sim.py`, `test_engine_naive.py`, `demo_ltl_bug.py` (staleness demo)
 - `demo_workbook.xlsx` (persistent Excel workbook for live demo)
 
-**Status**: In progress (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08, Goal 4 complete 2026-02-15, Goal 6 complete 2026-02-16)
-**Completion**: 75% (6/8 goals complete)
+**Status**: Complete (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08, Goal 4 complete 2026-02-15, Goal 6 complete 2026-02-16, Goals 7-8 complete 2026-02-17, Goal 9 complete 2026-02-19, Goals 10 + EOS fix complete 2026-02-21, Goal 11 complete 2026-02-22)
+**Completion**: 100% (11/11 goals complete)
+
+---
+
+### Streaming Verification Gaps 🔍 TRACKED
+
+Comprehensive audit of all bisimilarity and streaming proofs identified 6 gaps.
+Ordered by impact descending; within same impact, easiest to hardest.
+
+| # | Gap | Impact | Difficulty | Status |
+|---|-----|--------|------------|--------|
+| A | `init-relate`: prove `initState φ` relates to initial `LTLProc` | HIGH | EASY | ✅ Complete |
+| B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | Pending (unblocked) |
+| C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | Pending |
+| F | Satisfied/Violated terminal state idempotence | LOW | EASY | Pending |
+| E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
+| D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | Pending |
+
+**Current proof coverage** (zero postulates, zero holes):
+- `init-relate`: 14/14 operators proven (initial states are related)
+- `step-bisim`: 14/14 operators proven (per-frame bisimilarity)
+- `finalize-bisim`: 14/14 operators proven (end-of-stream verdict equality)
+- Signal predicate trust boundary documented (parametric by design)
+- All proof modules use `--safe --without-K`
 
 ---
 
@@ -229,12 +278,12 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 40
+- Agda modules: 41 (was 40, +1 Validator.agda)
 - Python modules: 11
-- Lines of code: ~5,500 Agda + ~6,000 Python
+- Lines of code: ~5,700 Agda + ~6,200 Python
 
 **Testing**:
-- Unit tests: 317 passing (0.57s via FFI)
+- Unit tests: 344 passing (via FFI)
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -243,7 +292,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 
 **Verification**:
-- Safe modules: 37 of 40 use `--safe` (35 with `--without-K`, 2 variants)
+- Safe modules: 38 of 41 use `--safe` (36 with `--without-K`, 2 variants)
 - Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
@@ -252,7 +301,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Next Steps
 
 **Current**:
-- Phase 4: Production hardening — Goals 1-6 complete (Check API, YAML, Excel, CLI, CAN log reader, diagnostics). Remaining: deployment guide, tutorial
+- Close streaming verification gaps (A→B→C→F→E→D), starting with `init-relate` (Gap A).
+- Update docs (PYTHON_API.md, CLI.md) for new features.
+- Additional DBC validation checks to research and implement.
+- Refactor `CAN/DBCHelpers.agda` to use decidable types instead of raw `Bool`.
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)

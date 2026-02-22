@@ -8,11 +8,12 @@
 --
 -- Design: Operates on physical values (ℚ) after signal extraction and scaling.
 --
--- Three-Valued Logic:
---   ThreeVal represents predicate evaluation results with explicit Unknown state.
---   - Known true  : signal observed, predicate holds
---   - Known false : signal observed, predicate violated
---   - Unknown     : signal never observed (no cached value available)
+-- Signal Evaluation Values:
+--   SignalVal represents predicate evaluation results with explicit Unknown/Pending states.
+--   - True    : signal observed, predicate holds
+--   - False   : signal observed, predicate violated
+--   - Unknown : signal never observed (no cached value available)
+--   - Pending : not enough data yet (delta predicates with no previous value)
 --
 --   This enables last-known-value semantics where signals persist in a cache
 --   and Unknown only occurs when a signal has never been seen.
@@ -33,16 +34,17 @@ open import Aletheia.LTL.Syntax using (LTL; mapLTL)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
--- THREE-VALUED LOGIC (Kleene strong three-valued logic)
+-- SIGNAL EVALUATION VALUES (Extended Kleene logic)
 -- ============================================================================
 
--- Three-valued logic for predicate evaluation.
--- Uses Kleene's strong three-valued logic semantics.
+-- Signal predicate evaluation results.
+-- Extends Kleene's strong three-valued logic with Pending for delta predicates.
 --
 -- Truth values:
 --   True    → predicate definitely holds
 --   False   → predicate definitely violated
 --   Unknown → signal never observed, truth value undetermined
+--   Pending → not enough data yet (e.g., delta predicate with no previous value)
 --
 -- Propagation through LTL operators:
 --   - Safety (always): Unknown means "no violation yet" → Continue
@@ -50,55 +52,69 @@ open import Aletheia.Trace.CANTrace using (TimedFrame)
 --   - Bounded safety (for_at_least): Unknown during interval → Violated
 --
 -- Kleene semantics for connectives:
---   ¬ Unknown = Unknown
+--   ¬ Unknown = Unknown,  ¬ Pending = Pending
 --   True  ∧ Unknown = Unknown    False ∧ Unknown = False  (short-circuit)
 --   True  ∨ Unknown = True       False ∨ Unknown = Unknown (short-circuit)
 
-data ThreeVal : Set where
-  True    : ThreeVal
-  False   : ThreeVal
-  Unknown : ThreeVal
+data SignalVal : Set where
+  True    : SignalVal
+  False   : SignalVal
+  Unknown : SignalVal
+  Pending : SignalVal  -- Not enough data yet (e.g., delta predicate with no previous value)
 
--- Decidable equality on ThreeVal
-_≟TV_ : (x y : ThreeVal) → Dec (x ≡ y)
+-- Decidable equality on SignalVal
+_≟TV_ : (x y : SignalVal) → Dec (x ≡ y)
 True    ≟TV True    = yes refl
 True    ≟TV False   = no λ ()
 True    ≟TV Unknown = no λ ()
+True    ≟TV Pending = no λ ()
 False   ≟TV True    = no λ ()
 False   ≟TV False   = yes refl
 False   ≟TV Unknown = no λ ()
+False   ≟TV Pending = no λ ()
 Unknown ≟TV True    = no λ ()
 Unknown ≟TV False   = no λ ()
 Unknown ≟TV Unknown = yes refl
+Unknown ≟TV Pending = no λ ()
+Pending ≟TV True    = no λ ()
+Pending ≟TV False   = no λ ()
+Pending ≟TV Unknown = no λ ()
+Pending ≟TV Pending = yes refl
 
--- Negation: ¬ Unknown = Unknown
-notTV : ThreeVal → ThreeVal
+-- Negation: ¬ Unknown = Unknown, ¬ Pending = Pending
+notTV : SignalVal → SignalVal
 notTV True    = False
 notTV False   = True
 notTV Unknown = Unknown
+notTV Pending = Pending
 
 -- Conjunction with short-circuit semantics
-_∧TV_ : ThreeVal → ThreeVal → ThreeVal
+-- Pending behaves like Unknown in Kleene logic
+_∧TV_ : SignalVal → SignalVal → SignalVal
 False   ∧TV _       = False
 _       ∧TV False   = False
 True    ∧TV y       = y
 x       ∧TV True    = x
+Pending ∧TV _       = Pending
+_       ∧TV Pending = Pending
 Unknown ∧TV Unknown = Unknown
 
 -- Disjunction with short-circuit semantics
-_∨TV_ : ThreeVal → ThreeVal → ThreeVal
+_∨TV_ : SignalVal → SignalVal → SignalVal
 True    ∨TV _       = True
 _       ∨TV True    = True
 False   ∨TV y       = y
 x       ∨TV False   = x
+Pending ∨TV _       = Pending
+_       ∨TV Pending = Pending
 Unknown ∨TV Unknown = Unknown
 
 -- Implication: a → b ≡ ¬a ∨ b
-_→TV_ : ThreeVal → ThreeVal → ThreeVal
+_→TV_ : SignalVal → SignalVal → SignalVal
 a →TV b = notTV a ∨TV b
 
--- Lift Bool to ThreeVal (for comparison results)
-fromBool : Bool → ThreeVal
+-- Lift Bool to SignalVal (for comparison results)
+fromBool : Bool → SignalVal
 fromBool true  = True
 fromBool false = False
 
@@ -235,14 +251,14 @@ getSignalValue sigName dbc cache frame =
     nothing  → Data.Maybe.map CachedSignal.value (lookupCache sigName cache)
 
 -- Evaluate value predicate with cache fallback
-evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → ThreeVal
+evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → SignalVal
 evalValuePredicateTV dbc cache vp frame =
   case getSignalValue (valuePredicateSignal vp) dbc cache frame of λ where
     (just v) → fromBool (evalValuePredicate vp v)
     nothing  → Unknown
 
 -- Evaluate delta predicate with cache
-evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → ThreeVal
+evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → SignalVal
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
       currVal = getSignalValue sigName dbc cache frame
@@ -250,11 +266,11 @@ evalDeltaPredicateTV dbc cache dp frame =
   in case currVal of λ where
     nothing   → Unknown
     (just cv) → case prevVal of λ where
-      nothing   → True  -- First observation: vacuously satisfied
+      nothing   → Pending  -- First observation: no previous value to compare
       (just pv) → fromBool (evalDeltaPredicate dp pv cv)
 
 -- Evaluate any signal predicate with cache
-evalPredicateTV : DBC → SignalCache → SignalPredicate → CANFrame → ThreeVal
+evalPredicateTV : DBC → SignalCache → SignalPredicate → CANFrame → SignalVal
 evalPredicateTV dbc cache (ValueP vp) frame = evalValuePredicateTV dbc cache vp frame
 evalPredicateTV dbc cache (DeltaP dp) frame = evalDeltaPredicateTV dbc cache dp frame
 

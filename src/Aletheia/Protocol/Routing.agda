@@ -30,6 +30,10 @@ open import Aletheia.Data.Message
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.Endianness using (byteToℕ)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
+open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
+  IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero;
+  MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision;
+  MinExceedsMax; ValidationIssue)
 
 -- ============================================================================
 -- JSON → REQUEST PARSING
@@ -168,6 +172,12 @@ tryUpdateFrame obj =
 tryEndStream : List (String × JSON) → String ⊎ StreamCommand
 tryEndStream _ = inj₂ EndStream
 
+-- Parse ValidateDBC command
+tryValidateDBC : List (String × JSON) → String ⊎ StreamCommand
+tryValidateDBC obj with lookupByKey "dbc" obj
+... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
+... | just dbc = inj₂ (ValidateDBC dbc)
+
 -- Dispatch table for command parsers
 commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
 commandDispatchTable =
@@ -178,6 +188,7 @@ commandDispatchTable =
   ("extractAllSignals" , tryExtractAllSignals) ∷
   ("updateFrame" , tryUpdateFrame) ∷
   ("endStream" , tryEndStream) ∷
+  ("validateDBC" , tryValidateDBC) ∷
   []
 
 -- Dispatch using table lookup
@@ -334,7 +345,41 @@ formatResponse Ack =
   JObject (
     ("status" , JString "ack") ∷
     [])
-formatResponse Complete =
+formatResponse (Complete results) =
   JObject (
     ("status" , JString "complete") ∷
+    ("results" , JArray (map formatPropertyResult results)) ∷
     [])
+formatResponse (ValidationResponse issues) =
+  JObject (
+    ("status"     , JString "validation") ∷
+    ("has_errors" , JBool (hasErrors issues)) ∷
+    ("issues"     , JArray (map formatValidationIssue issues)) ∷
+    [])
+  where
+    formatIssueSeverity : IssueSeverity → String
+    formatIssueSeverity IsError   = "error"
+    formatIssueSeverity IsWarning = "warning"
+
+    formatIssueCode : IssueCode → String
+    formatIssueCode DuplicateMessageId          = "duplicate_message_id"
+    formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
+    formatIssueCode FactorZero                  = "factor_zero"
+    formatIssueCode MultiplexorNotFound         = "multiplexor_not_found"
+    formatIssueCode MultiplexorNotAlwaysPresent = "multiplexor_not_always_present"
+    formatIssueCode GlobalNameCollision         = "global_name_collision"
+    formatIssueCode MinExceedsMax               = "min_exceeds_max"
+
+    formatValidationIssue : ValidationIssue → JSON
+    formatValidationIssue issue =
+      JObject (
+        ("severity" , JString (formatIssueSeverity (ValidationIssue.severity issue))) ∷
+        ("code"     , JString (formatIssueCode (ValidationIssue.code issue))) ∷
+        ("detail"   , JString (ValidationIssue.detail issue)) ∷
+        [])
+
+    hasErrors : List ValidationIssue → Bool
+    hasErrors []         = false
+    hasErrors (i ∷ rest) with ValidationIssue.severity i
+    ... | IsError   = true
+    ... | IsWarning = hasErrors rest
