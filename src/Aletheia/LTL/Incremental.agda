@@ -590,3 +590,80 @@ finalizeEval (MetricReleaseState false _ _ _) = Fails "MetricRelease: ψ never r
 finalizeEval (MetricReleaseState true _ _ _)  = Holds
 finalizeEval MetricReleaseSucceeded = Holds
 finalizeEval MetricReleaseFailed    = Fails "MetricRelease: already violated"
+
+-- ============================================================================
+-- TERMINAL STATE IDEMPOTENCE
+-- ============================================================================
+--
+-- Once stepEval reaches a terminal state (XxxSucceeded / XxxFailed), it
+-- returns the same terminal StepResult on every subsequent frame, regardless
+-- of evaluator, previous frame, or current frame.
+--
+-- This is a definitional property: each terminal clause in stepEval ignores
+-- its arguments. Every case is refl.
+--
+-- The proofs are grouped by operator. Each terminal state gets one lemma.
+
+-- Always
+step-AlwaysFailed : ∀ {A} (φ : LTL A) eval prev curr
+  → stepEval (Always φ) eval AlwaysFailed prev curr ≡ Violated (mkCounterexample curr "Always already failed")
+step-AlwaysFailed _ _ _ _ = refl
+
+-- Eventually
+step-EventuallySucceeded : ∀ {A} (φ : LTL A) eval prev curr
+  → stepEval (Eventually φ) eval EventuallySucceeded prev curr ≡ Satisfied
+step-EventuallySucceeded _ _ _ _ = refl
+
+-- Until
+step-UntilSucceeded : ∀ {A} (φ ψ : LTL A) eval prev curr
+  → stepEval (Until φ ψ) eval UntilSucceeded prev curr ≡ Satisfied
+step-UntilSucceeded _ _ _ _ _ = refl
+
+step-UntilFailed : ∀ {A} (φ ψ : LTL A) eval prev curr
+  → stepEval (Until φ ψ) eval UntilFailed prev curr ≡ Violated (mkCounterexample curr "Until failed")
+step-UntilFailed _ _ _ _ _ = refl
+
+-- Release
+step-ReleaseSucceeded : ∀ {A} (φ ψ : LTL A) eval prev curr
+  → stepEval (Release φ ψ) eval ReleaseSucceeded prev curr ≡ Satisfied
+step-ReleaseSucceeded _ _ _ _ _ = refl
+
+step-ReleaseFailed : ∀ {A} (φ ψ : LTL A) eval prev curr
+  → stepEval (Release φ ψ) eval ReleaseFailed prev curr ≡ Violated (mkCounterexample curr "Release failed")
+step-ReleaseFailed _ _ _ _ _ = refl
+
+-- MetricEventually
+step-MetricEventuallySucceeded : ∀ {A} (w : ℕ) (φ : LTL A) eval prev curr
+  → stepEval (MetricEventually w φ) eval MetricEventuallySucceeded prev curr ≡ Satisfied
+step-MetricEventuallySucceeded _ _ _ _ _ = refl
+
+step-MetricEventuallyFailed : ∀ {A} (w : ℕ) (φ : LTL A) eval prev curr
+  → stepEval (MetricEventually w φ) eval MetricEventuallyFailed prev curr ≡ Violated (mkCounterexample curr "MetricEventually: window expired")
+step-MetricEventuallyFailed _ _ _ _ _ = refl
+
+-- MetricAlways
+step-MetricAlwaysSucceeded : ∀ {A} (w : ℕ) (φ : LTL A) eval prev curr
+  → stepEval (MetricAlways w φ) eval MetricAlwaysSucceeded prev curr ≡ Satisfied
+step-MetricAlwaysSucceeded _ _ _ _ _ = refl
+
+step-MetricAlwaysFailed : ∀ {A} (w : ℕ) (φ : LTL A) eval prev curr
+  → stepEval (MetricAlways w φ) eval MetricAlwaysFailed prev curr ≡ Violated (mkCounterexample curr "MetricAlways: violated within window")
+step-MetricAlwaysFailed _ _ _ _ _ = refl
+
+-- MetricUntil
+step-MetricUntilSucceeded : ∀ {A} (w : ℕ) (φ ψ : LTL A) eval prev curr
+  → stepEval (MetricUntil w φ ψ) eval MetricUntilSucceeded prev curr ≡ Satisfied
+step-MetricUntilSucceeded _ _ _ _ _ _ = refl
+
+step-MetricUntilFailed : ∀ {A} (w : ℕ) (φ ψ : LTL A) eval prev curr
+  → stepEval (MetricUntil w φ ψ) eval MetricUntilFailed prev curr ≡ Violated (mkCounterexample curr "MetricUntil: window expired")
+step-MetricUntilFailed _ _ _ _ _ _ = refl
+
+-- MetricRelease
+step-MetricReleaseSucceeded : ∀ {A} (w : ℕ) (φ ψ : LTL A) eval prev curr
+  → stepEval (MetricRelease w φ ψ) eval MetricReleaseSucceeded prev curr ≡ Satisfied
+step-MetricReleaseSucceeded _ _ _ _ _ _ = refl
+
+step-MetricReleaseFailed : ∀ {A} (w : ℕ) (φ ψ : LTL A) eval prev curr
+  → stepEval (MetricRelease w φ ψ) eval MetricReleaseFailed prev curr ≡ Violated (mkCounterexample curr "MetricRelease failed")
+step-MetricReleaseFailed _ _ _ _ _ _ = refl

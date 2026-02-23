@@ -244,7 +244,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 | A | `init-relate`: prove `initState φ` relates to initial `LTLProc` | HIGH | EASY | ✅ Complete |
 | B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | ✅ Complete |
 | C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | ✅ Complete |
-| F | Satisfied/Violated terminal state idempotence | LOW | EASY | Pending |
+| F | Satisfied/Violated terminal state idempotence | LOW | EASY | ✅ Complete |
 | E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
 | D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | Pending |
 
@@ -255,6 +255,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - `trace-bisim`: N-frame induction (whole-trace bisimilarity)
 - `end-to-end`: Crown jewel theorem composing init + trace + finalize
 - `iterate-correct`: Property-list iteration ≡ forward specification (spec-equivalence)
+- Terminal state idempotence: 15 lemmas proving absorbing behavior (all `refl`)
 - Signal predicate trust boundary documented (parametric by design)
 - All proof modules use `--safe --without-K`
 
