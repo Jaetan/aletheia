@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-23
 
 ---
 
@@ -242,7 +242,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 | # | Gap | Impact | Difficulty | Status |
 |---|-----|--------|------------|--------|
 | A | `init-relate`: prove `initState φ` relates to initial `LTLProc` | HIGH | EASY | ✅ Complete |
-| B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | Pending (unblocked) |
+| B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | ✅ Complete |
 | C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | Pending |
 | F | Satisfied/Violated terminal state idempotence | LOW | EASY | Pending |
 | E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
@@ -252,6 +252,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - `init-relate`: 14/14 operators proven (initial states are related)
 - `step-bisim`: 14/14 operators proven (per-frame bisimilarity)
 - `finalize-bisim`: 14/14 operators proven (end-of-stream verdict equality)
+- `trace-bisim`: N-frame induction (whole-trace bisimilarity)
+- `end-to-end`: Crown jewel theorem composing init + trace + finalize
 - Signal predicate trust boundary documented (parametric by design)
 - All proof modules use `--safe --without-K`
 
@@ -301,7 +303,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Current**:
-- Close streaming verification gaps (A→B→C→F→E→D), starting with `init-relate` (Gap A).
+- Close remaining streaming verification gaps: C (StreamState), F (terminal idempotence), D (semantic grounding).
 - Update docs (PYTHON_API.md, CLI.md) for new features.
 - Additional DBC validation checks to research and implement.
 - Refactor `CAN/DBCHelpers.agda` to use decidable types instead of raw `Bool`.

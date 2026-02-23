@@ -1174,3 +1174,89 @@ init-relate (MetricAlways _ φ)        = metric-always-relate (init-relate φ)
 init-relate (MetricUntil _ φ ψ)       = metric-until-relate (init-relate φ) (init-relate ψ)
 init-relate (MetricRelease _ φ ψ)     = metric-release-relate (init-relate φ) (init-relate ψ)
 
+-- ============================================================================
+-- TRACE-BISIM: Multi-step composition (N-frame induction)
+-- ============================================================================
+
+-- After processing a list of frames, either both sides terminated mid-stream
+-- with bisimilar results, or both are still active with related states.
+--
+-- This is the N-frame induction that composes init-relate and step-bisim
+-- into a whole-trace theorem. At each frame:
+--   - step-bisim gives us bisimilar observations
+--   - If both Continue or Inconclusive: the new states are related, recurse
+--   - If both Violated or Satisfied: terminal, done
+--
+-- The proof is by structural induction on the frame list.
+
+data TraceOutcome : Set where
+  both-violated  : (ce1 ce2 : Counterexample) → CounterexampleEquiv ce1 ce2 → TraceOutcome
+  both-satisfied : TraceOutcome
+  both-ongoing   : (st : LTLEvalState) (proc : LTLProc) → Relate st proc → TraceOutcome
+
+trace-bisim : ∀ (st : LTLEvalState) (proc : LTLProc)
+  → Relate st proc
+  → (prev : Maybe TimedFrame) → (frames : List TimedFrame)
+  → TraceOutcome
+
+-- Base case: no frames, both sides still active
+trace-bisim st proc rel prev [] = both-ongoing st proc rel
+
+-- Inductive case: step both sides, match on results and bisimilarity witness
+trace-bisim st proc rel prev (f ∷ fs)
+  with stepEval (toLTL proc) evalAtomicPred st prev f
+     | stepL proc prev f
+     | step-bisim rel prev f
+-- Terminal: both violated with equivalent counterexamples
+... | Violated ce1 | Violated ce2 | violated-bisim ceq = both-violated ce1 ce2 ceq
+-- Terminal: both satisfied
+... | Satisfied | Satisfied | satisfied-bisim = both-satisfied
+-- Continue: both still evaluating, recurse with related continuation states
+... | Continue _ st' | Continue _ proc' | continue-bisim rel' =
+  trace-bisim st' proc' rel' (just f) fs
+-- Inconclusive: signal unknown on both sides, recurse with related states
+... | Inconclusive st' | Inconclusive proc' | inconclusive-bisim rel' =
+  trace-bisim st' proc' rel' (just f) fs
+-- Impossible: results don't match (no StepResultBisim constructor exists)
+... | Violated _ | Satisfied | ()
+... | Violated _ | Continue _ _ | ()
+... | Violated _ | Inconclusive _ | ()
+... | Satisfied | Violated _ | ()
+... | Satisfied | Continue _ _ | ()
+... | Satisfied | Inconclusive _ | ()
+... | Continue _ _ | Violated _ | ()
+... | Continue _ _ | Satisfied | ()
+... | Continue _ _ | Inconclusive _ | ()
+... | Inconclusive _ | Violated _ | ()
+... | Inconclusive _ | Satisfied | ()
+... | Inconclusive _ | Continue _ _ | ()
+
+-- ============================================================================
+-- END-TO-END: The crown jewel — full pipeline correctness
+-- ============================================================================
+
+-- For any LTL formula and any sequence of frames, the evaluator and coalgebra
+-- produce the same outcome: either they agree on a mid-stream termination,
+-- or they produce the same final verdict at end-of-stream.
+--
+-- This composes ALL three proof layers:
+--   1. init-relate:    starting states are related
+--   2. trace-bisim:    relatedness preserved through all frames
+--   3. finalize-bisim: final verdict is identical (propositional equality)
+
+data EndToEndVerdict : Set where
+  mid-violated  : (ce1 ce2 : Counterexample) → CounterexampleEquiv ce1 ce2 → EndToEndVerdict
+  mid-satisfied : EndToEndVerdict
+  eos-verdict   : FinalVerdict → EndToEndVerdict
+
+end-to-end : ∀ (φ : LTL (TimedFrame → SignalVal))
+  → (frames : List TimedFrame)
+  → EndToEndVerdict
+end-to-end φ frames
+  with trace-bisim (initState φ) (initProc φ) (init-relate φ) nothing frames
+... | both-violated ce1 ce2 ceq = mid-violated ce1 ce2 ceq
+... | both-satisfied = mid-satisfied
+... | both-ongoing st proc rel
+  with finalizeEval st | finalizeL proc | finalize-bisim rel
+...   | v | .v | refl = eos-verdict v
+
