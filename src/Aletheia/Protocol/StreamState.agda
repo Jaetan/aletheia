@@ -17,7 +17,7 @@ module Aletheia.Protocol.StreamState where
 
 open import Data.String using (String; toList) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
-open import Data.List using (List; []; _∷_; length; reverse) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List as L using (map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Maybe as M using (map)
@@ -49,6 +49,7 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
 open import Aletheia.CAN.Encoding using (injectSignal; extractSignal)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ExtractionFailed; ValueOutOfBounds; getValue)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame)
@@ -298,46 +299,32 @@ handleDataFrame state timestamp frame with StreamState.phase state
     processFrame dbc =
       let timedFrame = record { timestamp = timestamp ; frame = frame }
           prev = StreamState.prevFrame state
-          -- Update cache with signals from current frame before evaluating
           updatedCache = updateCacheFromFrame dbc currentCache timestamp frame
-      in checkPropsIncremental (StreamState.properties state) [] prev timedFrame updatedCache
+      in dispatchResult (iterate (propStep prev timedFrame) (StreamState.properties state)) timedFrame updatedCache
       where
-        -- Incrementally check all properties and update their states
-        -- acc: accumulator for updated properties (reversed order)
-        checkPropsIncremental : List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → SignalCache → StreamState × Response
-        checkPropsIncremental [] acc prev curr cache =
-          -- All properties checked, no violations
-          let updatedProps = reverse acc
-              newState = mkStreamState Streaming (just dbc) updatedProps (just curr) cache
-          in (newState , Response.Ack)
-        checkPropsIncremental (propState ∷ rest) acc prev curr cache =
-          let formula = PropertyState.formula propState
-              evalState = PropertyState.evalState propState
-              idx = PropertyState.index propState
-              result = stepEval formula evalPred evalState prev curr
-          in handleStepResult result propState rest acc prev curr cache
+        -- Step one property: evaluate and classify as advance or halt.
+        -- Advance: updated property state (Continue, Satisfied, Inconclusive)
+        -- Halt: violation evidence (property index + counterexample)
+        propStep : Maybe TimedFrame → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+        propStep prev curr prop =
+          let result = stepEval (PropertyState.formula prop) evalPred (PropertyState.evalState prop) prev curr
+          in classifyResult result prop
           where
-            handleStepResult : StepResult LTLEvalState → PropertyState → List PropertyState → List PropertyState → Maybe TimedFrame → TimedFrame → SignalCache → StreamState × Response
-            handleStepResult (Continue _ newEvalState) prop remaining accum p c cache =
-              let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
-              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
-            handleStepResult (Violated ce) prop remaining accum p c cache =
-              -- Property violated, return immediately with current state
-              let open Counterexample ce
-                  ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
-                  violation = PR.PropertyResult.Violation (PropertyState.index prop) ceData
-                  -- Reconstruct properties list (violated property keeps old state)
-                  allProps = reverse accum ++ₗ (prop ∷ remaining)
-                  newState = mkStreamState Streaming (just dbc) allProps (just c) cache
-              in (newState , Response.PropertyResponse violation)
-            handleStepResult Satisfied prop remaining accum p c cache =
-              -- Eventually satisfied, keep checking other properties
-              let updatedProp = prop  -- Keep same state (satisfied terminal state)
-              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
-            handleStepResult (Inconclusive newEvalState) prop remaining accum p c cache =
-              -- Signal unknown - continue checking, will resolve when signal observed or at deadline/end-of-stream
-              let updatedProp = mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newEvalState
-              in checkPropsIncremental remaining (updatedProp ∷ accum) p c cache
+            classifyResult : StepResult LTLEvalState → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+            classifyResult (Continue _ newSt) prop = advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newSt)
+            classifyResult (Violated ce) prop = halt (PropertyState.index prop , ce)
+            classifyResult Satisfied prop = advance prop
+            classifyResult (Inconclusive newSt) prop = advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newSt)
+
+        -- Dispatch on iteration result: build StreamState × Response
+        dispatchResult : List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
+        dispatchResult (updatedProps , nothing) curr cache =
+          (mkStreamState Streaming (just dbc) updatedProps (just curr) cache , Response.Ack)
+        dispatchResult (allProps , just (idx , ce)) curr cache =
+          let open Counterexample ce
+              ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
+              violation = PR.PropertyResult.Violation idx ceData
+          in (mkStreamState Streaming (just dbc) allProps (just curr) cache , Response.PropertyResponse violation)
 
 -- ============================================================================
 -- BATCH SIGNAL OPERATIONS HANDLERS (Phase 2B.1)

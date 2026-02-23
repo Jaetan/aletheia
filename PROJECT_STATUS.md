@@ -243,7 +243,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 |---|-----|--------|------------|--------|
 | A | `init-relate`: prove `initState φ` relates to initial `LTLProc` | HIGH | EASY | ✅ Complete |
 | B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | ✅ Complete |
-| C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | Pending |
+| C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | ✅ Complete |
 | F | Satisfied/Violated terminal state idempotence | LOW | EASY | Pending |
 | E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
 | D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | Pending |
@@ -254,6 +254,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - `finalize-bisim`: 14/14 operators proven (end-of-stream verdict equality)
 - `trace-bisim`: N-frame induction (whole-trace bisimilarity)
 - `end-to-end`: Crown jewel theorem composing init + trace + finalize
+- `iterate-correct`: Property-list iteration ≡ forward specification (spec-equivalence)
 - Signal predicate trust boundary documented (parametric by design)
 - All proof modules use `--safe --without-K`
 
@@ -280,7 +281,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 41 (was 40, +1 Validator.agda)
+- Agda modules: 42 (was 41, +1 Iteration.agda)
 - Python modules: 11
 - Lines of code: ~5,700 Agda + ~6,200 Python
 
@@ -294,7 +295,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 
 **Verification**:
-- Safe modules: 38 of 41 use `--safe` (36 with `--without-K`, 2 variants)
+- Safe modules: 39 of 42 use `--safe` (37 with `--without-K`, 2 variants)
 - Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
