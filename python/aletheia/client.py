@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, override, cast
@@ -83,23 +84,58 @@ class _RTSState:
 
     lib: ctypes.CDLL | None = None
     refcount: int = 0
+    initialized: bool = False
+    cores: int = 0
+    _lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def acquire(cls, lib: ctypes.CDLL) -> None:
-        """Increment RTS reference count, initializing on first use."""
-        if cls.refcount == 0:
-            lib.hs_init.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_void_p]
-            lib.hs_init.restype = None
-            argc = ctypes.c_int(0)
-            lib.hs_init(ctypes.byref(argc), None)
-            cls.lib = lib
-        cls.refcount += 1
+    def acquire(cls, lib: ctypes.CDLL, rts_cores: int = 1) -> None:
+        """Increment RTS reference count, initializing on first use.
+
+        Args:
+            lib: The loaded shared library.
+            rts_cores: Number of GHC RTS capabilities (``-N`` flag).
+                Use 1 (default) for single-bus monitoring.  Set to the
+                number of CAN buses for multi-bus monitoring from
+                separate Python threads.  Only takes effect on the first
+                ``AletheiaClient`` created in a process.
+        """
+        with cls._lock:
+            if not cls.initialized:
+                lib.hs_init.argtypes = [
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
+                ]
+                lib.hs_init.restype = None
+                if rts_cores > 1:
+                    args = [b"aletheia", b"+RTS",
+                            b"-N" + str(rts_cores).encode(), b"-RTS"]
+                else:
+                    args = [b"aletheia"]
+                argc = ctypes.c_int(len(args))
+                ArgvArray = ctypes.c_char_p * len(args)
+                argv = ArgvArray(*args)
+                argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
+                lib.hs_init(ctypes.byref(argc), ctypes.byref(argv_ptr))
+                cls.lib = lib
+                cls.cores = rts_cores
+                cls.initialized = True
+            elif rts_cores != cls.cores:
+                import warnings
+                warnings.warn(
+                    f"GHC RTS already initialized with {cls.cores} core(s); "
+                    f"ignoring rts_cores={rts_cores}. Set rts_cores on the "
+                    f"first AletheiaClient created in the process.",
+                    stacklevel=3,
+                )
+            cls.refcount += 1
 
     @classmethod
     def release(cls) -> None:
         """Decrement RTS reference count."""
-        if cls.refcount > 0:
-            cls.refcount -= 1
+        with cls._lock:
+            if cls.refcount > 0:
+                cls.refcount -= 1
 
 
 def _find_ffi_library() -> Path:
@@ -234,13 +270,16 @@ class AletheiaClient:
     """
 
     def __init__(
-        self, default_checks: list[CheckResult] | None = None,
+        self,
+        default_checks: list[CheckResult] | None = None,
+        rts_cores: int = 1,
     ) -> None:
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
         self._diags: dict[int, _CheckDiag] = {}
         self._signal_cache: ExtractionCache = {}
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
+        self._rts_cores: int = rts_cores
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
@@ -258,7 +297,7 @@ class AletheiaClient:
         self._lib.aletheia_close.restype = None
 
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
-        _RTSState.acquire(self._lib)
+        _RTSState.acquire(self._lib, self._rts_cores)
 
         # Create Aletheia state
         self._state = ctypes.c_void_p(self._lib.aletheia_init())

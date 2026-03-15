@@ -8,6 +8,7 @@ Tests that the unified client can:
 5. Mix signal operations while streaming
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -226,6 +227,94 @@ class TestAletheiaClientLifecycle:
             resp = client.send_frame(timestamp=1, can_id=256, data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]))
             assert resp.get("status") == "ack"
             client.end_stream()
+
+
+    def test_threaded_isolation(self) -> None:
+        """Two clients in separate threads produce correct independent results.
+
+        Runs in a subprocess so the GHC RTS is initialized fresh with
+        ``-N2`` (two capabilities).  Both threads send the same frames
+        (TestSignal = 200) but with different thresholds: thread A
+        expects violation (< 100), thread B expects no violation (< 1000).
+        A Barrier ensures both threads are inside the send_frame loop
+        simultaneously, so the GHC RTS genuinely runs in parallel.
+        """
+        import subprocess
+        import sys
+        import textwrap
+
+        script = textwrap.dedent("""\
+            import json, sys, threading
+            from aletheia import AletheiaClient, Signal
+
+            DBC = {
+                "version": "1.0",
+                "messages": [{
+                    "id": 256, "name": "TestMessage", "dlc": 8,
+                    "sender": "ECU",
+                    "signals": [{
+                        "name": "TestSignal", "startBit": 0, "length": 16,
+                        "byteOrder": "little_endian", "signed": False,
+                        "factor": 1.0, "offset": 0.0,
+                        "minimum": 0.0, "maximum": 65535.0,
+                        "unit": "", "presence": "always"
+                    }]
+                }]
+            }
+            FRAMES = [
+                (i * 1000, 256, bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
+                for i in range(20)
+            ]
+            results = {"A": None, "B": None}
+            errors = []
+            barrier = threading.Barrier(2, timeout=5)
+
+            def run_client(name, threshold):
+                try:
+                    with AletheiaClient(rts_cores=2) as client:
+                        client.parse_dbc(DBC)
+                        client.set_properties([
+                            Signal("TestSignal").less_than(threshold).always().to_dict()
+                        ])
+                        client.start_stream()
+                        barrier.wait()
+                        for ts, cid, data in FRAMES:
+                            resp = client.send_frame(timestamp=ts, can_id=cid, data=data)
+                            if resp.get("status") == "violation":
+                                results[name] = "violation"
+                                client.end_stream()
+                                return
+                        resp = client.end_stream()
+                        results[name] = resp.get("status")
+                except Exception as e:
+                    errors.append(str(e))
+
+            t_a = threading.Thread(target=run_client, args=("A", 100))
+            t_b = threading.Thread(target=run_client, args=("B", 1000))
+            t_a.start()
+            t_b.start()
+            t_a.join(timeout=10)
+            t_b.join(timeout=10)
+
+            out = {"results": results, "errors": errors}
+            print(json.dumps(out))
+            sys.exit(0 if not errors else 1)
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert result.returncode == 0, (
+            f"Subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        out = json.loads(result.stdout)
+        assert not out["errors"], f"Thread raised: {out['errors']}"
+        assert out["results"]["A"] == "violation", (
+            f"Thread A should violate, got {out['results']['A']}"
+        )
+        assert out["results"]["B"] == "complete", (
+            f"Thread B should complete clean, got {out['results']['B']}"
+        )
 
 
 class TestAletheiaClientWithDemoDBC:
