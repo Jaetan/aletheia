@@ -62,11 +62,11 @@ class TestEndOfStreamFinalization:
             resp = client.end_stream()
             results = resp.get("results", [])
             assert len(results) == 1
-            assert results[0]["status"] == "violation"
-            assert "never resolved" in results[0].get("reason", "")
+            # Standard LTLf: Always is vacuously true when inner never resolved
+            assert results[0]["status"] == "satisfaction"
 
     def test_always_zero_frames(self) -> None:
-        """0-frame Always → violation (never resolved)."""
+        """0-frame Always → satisfaction (vacuously true per standard LTLf)."""
         with AletheiaClient() as client:
             client.parse_dbc(SIMPLE_DBC)
             client.set_properties([
@@ -76,7 +76,8 @@ class TestEndOfStreamFinalization:
             resp = client.end_stream()
             results = resp.get("results", [])
             assert len(results) == 1
-            assert results[0]["status"] == "violation"
+            # Standard LTLf: G φ on empty trace is vacuously true
+            assert results[0]["status"] == "satisfaction"
 
     def test_eventually_never_satisfied(self) -> None:
         """Eventually never satisfied → violation at end-of-stream."""

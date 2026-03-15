@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-02-23
+**Last Updated**: 2026-03-15
 
 ---
 
@@ -246,18 +246,23 @@ Ordered by impact descending; within same impact, easiest to hardest.
 | C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | ✅ Complete |
 | F | Satisfied/Violated terminal state idempotence | LOW | EASY | ✅ Complete |
 | E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
-| D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | Pending |
+| D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | ✅ Complete (adequacy theorem — all 13 operators type-check) |
 
 **Current proof coverage** (zero postulates, zero holes):
-- `init-relate`: 14/14 operators proven (initial states are related)
-- `step-bisim`: 14/14 operators proven (per-frame bisimilarity)
-- `finalize-bisim`: 14/14 operators proven (end-of-stream verdict equality)
-- `trace-bisim`: N-frame induction (whole-trace bisimilarity)
-- `end-to-end`: Crown jewel theorem composing init + trace + finalize
 - `iterate-correct`: Property-list iteration ≡ forward specification (spec-equivalence)
-- Terminal state idempotence: 15 lemmas proving absorbing behavior (all `refl`)
 - Signal predicate trust boundary documented (parametric by design)
+- **Gap D modules** (`LTL/Semantics.agda`, `LTL/Adequacy.agda`, `LTL/Coalgebra.agda`) — ✅ COMPLETE:
+  - Denotational LTLf semantics for all 13 operators (`⟦_⟧`) ✅
+  - Coalgebra: Rosu formula progression with combineAnd/combineOr ✅
+  - Two-relation design: `_⊑_` (3-ctor info ordering) + `Sound` (6-ctor monitoring soundness) ✅
+  - **Rosu refactoring (10-step plan, 8 of 10 done)**:
+    - ✅ Steps 18a–18g: All Rosu refactoring complete
+    - ✅ Step 18h: Adequacy theorem — all 13 operators type-check
+    - Remaining: 18i (simplification pass), 18j (clean build + 344 Python tests)
+    - Deleted: Bisimilarity.agda, CoalgebraBisim.agda, StepResultBisim.agda
+  - **Adequacy theorem**: Three-layer proof plumbing (operational decomposition → denotational alignment → soundness transport). Non-recursive helpers with simultaneous `with` for binary metric operators. Zero postulates, zero holes.
 - All proof modules use `--safe --without-K`
+- All files type-check with zero holes
 
 ---
 
@@ -282,9 +287,9 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 42 (was 41, +1 Iteration.agda)
+- Agda modules: 41
 - Python modules: 11
-- Lines of code: ~5,700 Agda + ~6,200 Python
+- Lines of code: ~6,400 Agda + ~6,200 Python
 
 **Testing**:
 - Unit tests: 344 passing (via FFI)
@@ -296,7 +301,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
 
 **Verification**:
-- Safe modules: 39 of 42 use `--safe` (37 with `--without-K`, 2 variants)
+- Safe modules: 38 of 41 use `--safe` (36 with `--without-K`, 2 variants)
 - Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
@@ -305,7 +310,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Current**:
-- Close remaining streaming verification gaps: C (StreamState), F (terminal idempotence), D (semantic grounding).
+- Gap D remaining steps:
+  - **Step 18i**: Simplification pass — clean up Adequacy.agda (remove dead code, unused imports, tidy comments)
+  - **Step 18j**: Clean build (`cabal run shake -- clean && cabal run shake -- build`) + 344 Python tests
+  - Commit all Gap D changes
 - Update docs (PYTHON_API.md, CLI.md) for new features.
 - Additional DBC validation checks to research and implement.
 - Refactor `CAN/DBCHelpers.agda` to use decidable types instead of raw `Bool`.

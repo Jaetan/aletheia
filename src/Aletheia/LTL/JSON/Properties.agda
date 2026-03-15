@@ -4,10 +4,14 @@
 --
 -- Purpose: Prove roundtrip, soundness, and completeness for LTL formula serialization.
 -- Properties:
---   Roundtrip: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just φ
+--   Roundtrip: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just (resetStart φ)
 --   Soundness: parseLTL d json ≡ just φ → IsWellFormedLTLJSON json
 --   Completeness: Corollary of roundtrip
 -- Role: Phase 3 verification of LTL DSL translation correctness.
+--
+-- Note: resetStart zeros out the startTime parameter in metric operators.
+-- formatLTL ignores startTime; the parser always produces startTime=0.
+-- For user-facing formulas (always startTime=0), resetStart f ≡ f.
 module Aletheia.LTL.JSON.Properties where
 
 open import Data.String using (String; _≟_)
@@ -34,6 +38,28 @@ open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
 open import Aletheia.LTL.JSON
 open import Aletheia.LTL.JSON.Format
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
+
+-- ============================================================================
+-- RESET START TIME (normalize for roundtrip)
+-- ============================================================================
+
+-- formatLTL ignores the startTime parameter in metric operators, and the parser
+-- always produces startTime=0. resetStart zeros out startTime so the roundtrip
+-- holds for all formulas. For user-facing formulas (startTime=0), resetStart f ≡ f.
+resetStart : LTL SignalPredicate → LTL SignalPredicate
+resetStart (LTL.Atomic a) = LTL.Atomic a
+resetStart (LTL.Not f) = LTL.Not (resetStart f)
+resetStart (LTL.And f g) = LTL.And (resetStart f) (resetStart g)
+resetStart (LTL.Or f g) = LTL.Or (resetStart f) (resetStart g)
+resetStart (LTL.Next f) = LTL.Next (resetStart f)
+resetStart (LTL.Always f) = LTL.Always (resetStart f)
+resetStart (LTL.Eventually f) = LTL.Eventually (resetStart f)
+resetStart (LTL.Until f g) = LTL.Until (resetStart f) (resetStart g)
+resetStart (LTL.Release f g) = LTL.Release (resetStart f) (resetStart g)
+resetStart (LTL.MetricEventually n _ f) = LTL.MetricEventually n 0 (resetStart f)
+resetStart (LTL.MetricAlways n _ f) = LTL.MetricAlways n 0 (resetStart f)
+resetStart (LTL.MetricUntil n _ f g) = LTL.MetricUntil n 0 (resetStart f) (resetStart g)
+resetStart (LTL.MetricRelease n _ f g) = LTL.MetricRelease n 0 (resetStart f) (resetStart g)
 
 -- ============================================================================
 -- HELPER: getNat on ℕtoℚ
@@ -70,8 +96,11 @@ predicate-roundtrip (DeltaP (ChangedBy s d)) = refl
 -- The roundtrip is proven for any depth ≥ ltlDepth f, avoiding the need
 -- for a separate general monotonicity proof. Binary operators use ≤-trans
 -- with m≤m⊔n / m≤n⊔m to share the common depth budget.
+--
+-- Note: conclusion uses resetStart because formatLTL ignores startTime
+-- and the parser always produces startTime=0.
 roundtrip : (f : LTL SignalPredicate) (d : ℕ)
-  → ltlDepth f ≤ d → parseLTL d (formatLTL f) ≡ just f
+  → ltlDepth f ≤ d → parseLTL d (formatLTL f) ≡ just (resetStart f)
 
 -- Atomic: depth ≥ 2 suffices, parseAtomic ignores depth
 roundtrip (LTL.Atomic p) (suc (suc d')) (s≤s (s≤s z≤n))
@@ -109,22 +138,22 @@ roundtrip (LTL.Release f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
 
 -- Metric unary operators: depth ≥ 3 + ltlDepth sub
 -- These use with-abstraction on getNat to handle the divisibility check
-roundtrip (LTL.MetricEventually n f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricEventually n _ f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl rewrite roundtrip f d' le = refl
 
-roundtrip (LTL.MetricAlways n f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricAlways n _ f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl rewrite roundtrip f d' le = refl
 
 -- Metric binary operators: depth ≥ 3 + max(ltlDepth f, ltlDepth g)
-roundtrip (LTL.MetricUntil n f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricUntil n _ f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl
   rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
         | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
 
-roundtrip (LTL.MetricRelease n f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricRelease n _ f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl
   rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
@@ -135,7 +164,7 @@ roundtrip (LTL.MetricRelease n f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le
 -- ============================================================================
 
 roundtrip-exact : (f : LTL SignalPredicate)
-  → parseLTL (ltlDepth f) (formatLTL f) ≡ just f
+  → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
 roundtrip-exact f = roundtrip f (ltlDepth f) ≤-refl
 
 -- ============================================================================
@@ -143,9 +172,10 @@ roundtrip-exact f = roundtrip f (ltlDepth f) ≤-refl
 -- ============================================================================
 
 -- If a formula was successfully parsed, it can be re-serialized and re-parsed.
+-- Note: parsed formulas always have startTime=0, so resetStart f ≡ f for them.
 completeness : (d : ℕ) (json : JSON) (f : LTL SignalPredicate)
   → parseLTL d json ≡ just f
-  → parseLTL (ltlDepth f) (formatLTL f) ≡ just f
+  → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
 completeness d json f _ = roundtrip-exact f
 
 -- ============================================================================
@@ -180,14 +210,16 @@ parseLTL-isObject (suc d) (JObject fields) f _ = fields , refl
 --    parseSignalPredicate (formatSignalPredicateFields p) ≡ just p
 --
 -- ✅ LTL Roundtrip (13 cases):
---    parseLTL (ltlDepth f) (formatLTL f) ≡ just f
+--    parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
 --    - 4 unary operators (Not, Next, Always, Eventually)
 --    - 4 binary operators (And, Or, Until, Release)
 --    - 4 metric operators (MetricEventually, MetricAlways, MetricUntil, MetricRelease)
 --    - 1 base case (Atomic)
+--    Note: resetStart zeros startTime in metric operators (formatLTL ignores it,
+--    parser produces 0). For user formulas (startTime=0), resetStart f ≡ f.
 --
 -- ✅ Completeness (corollary):
---    parseLTL d json ≡ just f → parseLTL (ltlDepth f) (formatLTL f) ≡ just f
+--    parseLTL d json ≡ just f → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
 --
 -- ✅ Soundness (structural):
 --    parseLTL d json ≡ just f → ∃ fields. json ≡ JObject fields

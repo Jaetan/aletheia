@@ -69,12 +69,12 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **40 total modules**: 37 use `--safe`, 3 coinductive without `--safe`
+† **41 total modules**: 38 use `--safe`, 3 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (40 total):
-- **35 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (41 total):
+- **36 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe` only (PrecompileStdlib.agda - stdlib cache)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **3 modules without `--safe`** (all use `--sized-types` for coinduction):
@@ -82,7 +82,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
   - Protocol/StreamState.agda: `--sized-types --without-K`
   - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (3 of 40)**:
+**Modules not using `--safe` flag (3 of 41)**:
 
 Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
@@ -142,7 +142,7 @@ Core packages:
 - **Parser/**: Parser combinators and string utilities
 - **CAN/**: CAN frame encoding/decoding
 - **DBC/**: DBC file parser
-- **LTL/**: Linear Temporal Logic (Syntax, Evaluation, Incremental, Bisimilarity)
+- **LTL/**: Linear Temporal Logic (Syntax, Evaluation, Incremental, Semantics, Adequacy, Coalgebra)
 - **Trace/**: Trace types and streaming
 - **Protocol/**: JSON protocol and streaming state machine
 
@@ -290,7 +290,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 3 - Verification + Performance (complete)
+**Current**: Phase 4 - Production Hardening (complete). Gap D adequacy proof complete (all 13 operators type-check). Remaining: 18i simplification, 18j clean build + Python tests.
 
 ---
 
@@ -314,7 +314,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 37 of 40 Aletheia modules
+  - Used in 41 of 44 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

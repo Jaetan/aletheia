@@ -106,19 +106,19 @@ formatLTL (LTL.Until f g) =
 formatLTL (LTL.Release f g) =
   JObject (("operator" , JString "release") ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
-formatLTL (LTL.MetricEventually n f) =
+formatLTL (LTL.MetricEventually n _ f) =
   JObject (("operator" , JString "metricEventually") ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("formula" , formatLTL f) ∷ [])
-formatLTL (LTL.MetricAlways n f) =
+formatLTL (LTL.MetricAlways n _ f) =
   JObject (("operator" , JString "metricAlways") ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("formula" , formatLTL f) ∷ [])
-formatLTL (LTL.MetricUntil n f g) =
+formatLTL (LTL.MetricUntil n _ f g) =
   JObject (("operator" , JString "metricUntil") ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
-formatLTL (LTL.MetricRelease n f g) =
+formatLTL (LTL.MetricRelease n _ f g) =
   JObject (("operator" , JString "metricRelease") ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
@@ -141,7 +141,7 @@ ltlDepth (LTL.Always f)              = suc (suc (suc (ltlDepth f)))
 ltlDepth (LTL.Eventually f)          = suc (suc (suc (ltlDepth f)))
 ltlDepth (LTL.Until f g)             = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
 ltlDepth (LTL.Release f g)           = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.MetricEventually _ f)  = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.MetricAlways _ f)      = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.MetricUntil _ f g)     = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.MetricRelease _ f g)   = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
+ltlDepth (LTL.MetricEventually _ _ f)  = suc (suc (suc (ltlDepth f)))
+ltlDepth (LTL.MetricAlways _ _ f)      = suc (suc (suc (ltlDepth f)))
+ltlDepth (LTL.MetricUntil _ _ f g)     = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
+ltlDepth (LTL.MetricRelease _ _ f g)   = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))

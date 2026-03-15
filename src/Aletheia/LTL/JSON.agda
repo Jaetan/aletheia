@@ -202,10 +202,10 @@ dispatchOperator op depth obj =
   else if ⌊ op ≟ "eventually" ⌋ then parseUnary depth LTL.Eventually obj
   else if ⌊ op ≟ "until" ⌋ then parseBinary depth LTL.Until obj
   else if ⌊ op ≟ "release" ⌋ then parseBinary depth LTL.Release obj
-  else if ⌊ op ≟ "metricEventually" ⌋ then parseBounded depth LTL.MetricEventually obj
-  else if ⌊ op ≟ "metricAlways" ⌋ then parseBounded depth LTL.MetricAlways obj
-  else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinary depth LTL.MetricUntil obj
-  else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinary depth LTL.MetricRelease obj
+  else if ⌊ op ≟ "metricEventually" ⌋ then parseBounded depth (λ n → LTL.MetricEventually n 0) obj
+  else if ⌊ op ≟ "metricAlways" ⌋ then parseBounded depth (λ n → LTL.MetricAlways n 0) obj
+  else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinary depth (λ n → LTL.MetricUntil n 0) obj
+  else if ⌊ op ≟ "metricRelease" ⌋ then parseBoundedBinary depth (λ n → LTL.MetricRelease n 0) obj
   else if ⌊ op ≟ "never" ⌋ then parseNever depth obj
   else if ⌊ op ≟ "implies" ⌋ then parseImplies depth obj
   else nothing  -- Unknown operator

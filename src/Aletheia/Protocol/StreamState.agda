@@ -21,7 +21,7 @@ open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List as L using (map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Maybe as M using (map)
-open import Data.Nat using (ℕ; _+_)
+open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Char using (Char)
@@ -36,9 +36,10 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Properties using (validateDBC)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
-open import Aletheia.LTL.Syntax using (LTL)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
-open import Aletheia.LTL.Incremental using (LTLEvalState; StepResult; initState; stepEval; Continue; Violated; Satisfied; Inconclusive; FinalVerdict; Holds; Fails; finalizeEval)
+open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
+open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupObject; formatJSON; getRational; getObject; lookupRational)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as RatShow using ()
@@ -70,8 +71,9 @@ record PropertyState : Set where
   constructor mkPropertyState
   field
     index : ℕ
-    formula : LTL SignalPredicate
-    evalState : LTLEvalState  -- Incremental evaluation state
+    formula : LTL SignalPredicate    -- Original formula (for display/JSON)
+    atoms : List SignalPredicate     -- Collected atomic predicates (for PredTable)
+    proc : LTLProc                   -- ℕ-indexed formula state (for stepL)
 
 -- Complete stream state
 record StreamState : Set where
@@ -97,6 +99,62 @@ findMessageByName name dbc = findByPredicate matchesName (DBC.messages dbc)
   where
     matchesName : DBCMessage → Bool
     matchesName msg = ⌊ DBCMessage.name msg ≟ₛ name ⌋
+
+-- ============================================================================
+-- FORMULA INDEXING (LTL SignalPredicate → LTLProc + atom list)
+-- ============================================================================
+
+-- Collect all atomic predicates in left-to-right tree order.
+-- The resulting list maps ℕ indices to predicates for PredTable construction.
+collectAtoms : LTL SignalPredicate → List SignalPredicate
+collectAtoms (Atomic a)            = a ∷ []
+collectAtoms (Not φ)               = collectAtoms φ
+collectAtoms (And φ ψ)             = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms (Or φ ψ)              = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms (Next φ)              = collectAtoms φ
+collectAtoms (Always φ)            = collectAtoms φ
+collectAtoms (Eventually φ)        = collectAtoms φ
+collectAtoms (Until φ ψ)           = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms (Release φ ψ)         = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms (MetricEventually _ _ φ)    = collectAtoms φ
+collectAtoms (MetricAlways _ _ φ)        = collectAtoms φ
+collectAtoms (MetricUntil _ _ φ ψ)      = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms (MetricRelease _ _ φ ψ)    = collectAtoms φ ++ₗ collectAtoms ψ
+
+-- Replace each atom with its position index (counter-based, matches collectAtoms order)
+private
+  indexHelper : LTL SignalPredicate → ℕ → LTL ℕ × ℕ
+  indexHelper (Atomic _) n            = (Atomic n , suc n)
+  indexHelper (Not φ) n               = let (φ' , n') = indexHelper φ n in (Not φ' , n')
+  indexHelper (And φ ψ) n             = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (And φ' ψ' , n'')
+  indexHelper (Or φ ψ) n              = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Or φ' ψ' , n'')
+  indexHelper (Next φ) n              = let (φ' , n') = indexHelper φ n in (Next φ' , n')
+  indexHelper (Always φ) n            = let (φ' , n') = indexHelper φ n in (Always φ' , n')
+  indexHelper (Eventually φ) n        = let (φ' , n') = indexHelper φ n in (Eventually φ' , n')
+  indexHelper (Until φ ψ) n           = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Until φ' ψ' , n'')
+  indexHelper (Release φ ψ) n         = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Release φ' ψ' , n'')
+  indexHelper (MetricEventually w s φ) n    = let (φ' , n') = indexHelper φ n in (MetricEventually w s φ' , n')
+  indexHelper (MetricAlways w s φ) n        = let (φ' , n') = indexHelper φ n in (MetricAlways w s φ' , n')
+  indexHelper (MetricUntil w s φ ψ) n      = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricUntil w s φ' ψ' , n'')
+  indexHelper (MetricRelease w s φ ψ) n    = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricRelease w s φ' ψ' , n'')
+
+indexFormula : LTL SignalPredicate → LTL ℕ
+indexFormula φ = proj₁ (indexHelper φ 0)
+
+-- Safe list indexing by ℕ
+lookupAtom : List SignalPredicate → ℕ → Maybe SignalPredicate
+lookupAtom []       _       = nothing
+lookupAtom (x ∷ _)  zero    = just x
+lookupAtom (_ ∷ xs) (suc n) = lookupAtom xs n
+
+-- Build PredTable from atom list + DBC + SignalCache
+-- The table maps predicate indices to evaluation functions.
+mkPredTable : DBC → SignalCache → List SignalPredicate → PredTable
+mkPredTable dbc cache atoms n frame =
+  case lookupAtom atoms n of λ where
+    nothing     → Unknown
+    (just pred) → evalPredicateTV dbc cache pred (TimedFrame.frame frame)
+  where open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- SIGNAL CACHE UPDATES
@@ -201,7 +259,9 @@ handleSetProperties-State propJSONs state with StreamState.phase state
     parseAllProperties (json ∷ rest) idx acc with parseProperty json
     ... | nothing = (state , Response.Error ("Failed to parse property " ++ₛ showℕ idx))
     ... | just prop =
-        let propState = mkPropertyState idx prop (initState prop)  -- Initialize eval state
+        let atoms = collectAtoms prop
+            proc = initProc (indexFormula prop)
+            propState = mkPropertyState idx prop atoms proc
         in parseAllProperties rest (idx + 1) (acc ++ₗ (propState ∷ []))
 ... | Streaming = (state , Response.Error "Cannot set properties while streaming")
 
@@ -232,7 +292,7 @@ handleEndStream-State state with StreamState.phase state
     finalizeProperties : List PropertyState → List PR.PropertyResult
     finalizeProperties [] = []
     finalizeProperties (propState ∷ rest) =
-      verdictToResult (PropertyState.index propState) (finalizeEval (PropertyState.evalState propState))
+      verdictToResult (PropertyState.index propState) (finalizeL (PropertyState.proc propState))
       ∷ finalizeProperties rest
 ... | _ = (state , Response.Error "Not currently streaming")
 
@@ -287,34 +347,30 @@ handleDataFrame state timestamp frame with StreamState.phase state
     open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
     open import Aletheia.LTL.Incremental using (Counterexample)
 
-    -- Current cache from state
+    -- Current cache from state (before this frame's signals are extracted)
     currentCache : SignalCache
     currentCache = StreamState.signalCache state
-
-    -- Evaluator function for stepEval (three-valued with cache lookup)
-    evalPred : Maybe TimedFrame → TimedFrame → SignalPredicate → SignalVal
-    evalPred prev curr pred = evalPredicateTV dbc currentCache pred (TimedFrame.frame curr)
 
     processFrame : DBC → StreamState × Response
     processFrame dbc =
       let timedFrame = record { timestamp = timestamp ; frame = frame }
-          prev = StreamState.prevFrame state
           updatedCache = updateCacheFromFrame dbc currentCache timestamp frame
-      in dispatchResult (iterate (propStep prev timedFrame) (StreamState.properties state)) timedFrame updatedCache
+      in dispatchResult (iterate (propStep timedFrame) (StreamState.properties state)) timedFrame updatedCache
       where
-        -- Step one property: evaluate and classify as advance or halt.
-        -- Advance: updated property state (Continue, Satisfied, Inconclusive)
+        -- Step one property using stepL with PredTable.
+        -- Advance: updated property state (Continue, Satisfied)
         -- Halt: violation evidence (property index + counterexample)
-        propStep : Maybe TimedFrame → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
-        propStep prev curr prop =
-          let result = stepEval (PropertyState.formula prop) evalPred (PropertyState.evalState prop) prev curr
+        propStep : TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+        propStep curr prop =
+          let table = mkPredTable dbc currentCache (PropertyState.atoms prop)
+              result = stepL table (PropertyState.proc prop) curr
           in classifyResult result prop
           where
-            classifyResult : StepResult LTLEvalState → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
-            classifyResult (Continue _ newSt) prop = advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newSt)
+            classifyResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+            classifyResult (Continue _ newProc) prop =
+              advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) newProc)
             classifyResult (Violated ce) prop = halt (PropertyState.index prop , ce)
             classifyResult Satisfied prop = advance prop
-            classifyResult (Inconclusive newSt) prop = advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) newSt)
 
         -- Dispatch on iteration result: build StreamState × Response
         dispatchResult : List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
