@@ -254,13 +254,13 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - **Gap D modules** (`LTL/Semantics.agda`, `LTL/Adequacy.agda`, `LTL/Coalgebra.agda`) — ✅ COMPLETE:
   - Denotational LTLf semantics for all 13 operators (`⟦_⟧`) ✅
   - Coalgebra: Rosu formula progression with combineAnd/combineOr ✅
-  - Two-relation design: `_⊑_` (3-ctor info ordering) + `Sound` (6-ctor monitoring soundness) ✅
-  - **Rosu refactoring (10-step plan, 8 of 10 done)**:
-    - ✅ Steps 18a–18g: All Rosu refactoring complete
-    - ✅ Step 18h: Adequacy theorem — all 13 operators type-check
-    - Remaining: 18i (simplification pass), 18j (clean build + 344 Python tests)
+  - `Sound` relation (6-ctor monitoring soundness) ✅
+  - **Rosu refactoring (10-step plan, 9 of 10 done)**:
+    - ✅ Steps 18a–18h: All Rosu refactoring + adequacy theorem complete
+    - ✅ Step 18i: Simplification — removed 429 lines of dead code (1490 → 1061)
+    - Remaining: 18j (clean build + 344 Python tests + performance benchmarks)
     - Deleted: Bisimilarity.agda, CoalgebraBisim.agda, StepResultBisim.agda
-  - **Adequacy theorem**: Three-layer proof plumbing (operational decomposition → denotational alignment → soundness transport). Non-recursive helpers with simultaneous `with` for binary metric operators. Zero postulates, zero holes.
+  - **Adequacy theorem** (1061 lines): Four-layer proof (Sound compositionality → operational decomposition → soundness transport → non-recursive metric helpers). Zero postulates, zero holes.
 - All proof modules use `--safe --without-K`
 - All files type-check with zero holes
 
@@ -310,10 +310,9 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Current**:
-- Gap D remaining steps:
-  - **Step 18i**: Simplification pass — clean up Adequacy.agda (remove dead code, unused imports, tidy comments)
-  - **Step 18j**: Clean build (`cabal run shake -- clean && cabal run shake -- build`) + 344 Python tests
-  - Commit all Gap D changes
+- Gap D remaining step:
+  - **Step 18j**: Clean build + 344 Python tests + principled performance benchmarks
+  - Commit all Gap D changes (18i simplification not yet committed)
 - Update docs (PYTHON_API.md, CLI.md) for new features.
 - Additional DBC validation checks to research and implement.
 - Refactor `CAN/DBCHelpers.agda` to use decidable types instead of raw `Bool`.

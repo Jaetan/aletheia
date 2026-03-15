@@ -290,7 +290,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 4 - Production Hardening (complete). Gap D adequacy proof complete (all 13 operators type-check). Remaining: 18i simplification, 18j clean build + Python tests.
+**Current**: Phase 4 - Production Hardening (complete). Gap D adequacy proof complete (all 13 operators, 1061 lines after 18i simplification). Remaining: 18j clean build + Python tests + performance benchmarks.
 
 ---
 

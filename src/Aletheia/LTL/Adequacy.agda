@@ -2,34 +2,31 @@
 
 -- Adequacy of stepL (formula progression) w.r.t. denotational LTLf semantics.
 --
--- Purpose: Prove that the coalgebra (stepL + finalizeL) correctly implements
--- the reference denotational semantics ⟦_⟧ from LTL.Semantics.
+-- Main theorem:
+--   adequacy : ∀ table proc σ → Sound (runL table proc σ) (⟦ denot table proc ⟧ σ)
 --
--- Proof architecture (Gap D):
---   stepL ←adequacy→ denotational LTLf
---   Direct adequacy proof (no bisimilarity intermediate layer).
+-- The coalgebra (stepL + finalizeL) never gives a wrong definite answer:
+-- if runL says True, ⟦_⟧ says True; if runL says False, ⟦_⟧ says False.
+-- When either side is uncertain (Unknown/Pending), any result is acceptable.
 --
--- Theorems:
---   finalize-denot : verdictToSV (finalizeL (initProc φ)) ≡ ⟦ mapLTL table φ ⟧ []
---   Unfolding laws : structural decomposition of ⟦_⟧ (all refl)
+-- Proof architecture:
+--   1. Sound compositionality (sound-and, sound-or, sound-not)
+--   2. Operational decomposition (runL-*-decomp lemmas)
+--   3. Soundness transport (subst-based, avoids with-auxiliaries)
+--   4. Non-recursive metric helpers (fix termination checker)
 --
--- All proofs hold for arbitrary SignalVal atoms (four-valued Kleene logic),
--- not just two-valued predicates. The denotational semantics ⟦_⟧ naturally
--- propagates Unknown/Pending through Kleene connectives (∧TV, ∨TV, notTV).
---
--- Key insight: stepL is essentially Havelund-Rosu formula progression.
--- The one-step unfolding ⟦ φ ⟧ (x ∷ rest) = f(⟦ φ ⟧ x, ⟦ ... ⟧ rest) matches
--- exactly what stepL computes (for the Continue case).
+-- All proofs hold for four-valued Kleene logic (True/False/Unknown/Pending).
+-- Zero postulates, zero holes, all 13 LTL operators covered.
 module Aletheia.LTL.Adequacy where
 
 open import Aletheia.Prelude
-open import Data.Nat using (_≤ᵇ_; _≡ᵇ_; _∸_)
+open import Data.Nat using (_≤ᵇ_; _∸_)
 open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.LTL.Syntax as Syntax
 open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
-open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; denot)
+open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot)
 open import Aletheia.LTL.Coalgebra as Coal
   using (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
          MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
@@ -68,210 +65,6 @@ runL table proc (x ∷ rest) with stepL table proc x
 ... | Continue _ proc' = runL table proc' rest
 
 -- ============================================================================
--- ONE-STEP UNFOLDING LEMMAS (all definitional / refl)
--- ============================================================================
-
--- These show that ⟦_⟧ decomposes exactly according to the recursive structure
--- of each operator. They hold for ALL SignalVal atoms (no two-valued restriction).
-
--- Temporal operators: non-empty trace
-always-unfold : ∀ (φ : LTL (TimedFrame → SignalVal)) (x : TimedFrame) (rest : List TimedFrame)
-  → ⟦ Syntax.Always φ ⟧ (x ∷ rest) ≡ ⟦ φ ⟧ (x ∷ rest) ∧TV ⟦ Syntax.Always φ ⟧ rest
-always-unfold φ x rest = refl
-
-eventually-unfold : ∀ (φ : LTL (TimedFrame → SignalVal)) (x : TimedFrame) (rest : List TimedFrame)
-  → ⟦ Syntax.Eventually φ ⟧ (x ∷ rest) ≡ ⟦ φ ⟧ (x ∷ rest) ∨TV ⟦ Syntax.Eventually φ ⟧ rest
-eventually-unfold φ x rest = refl
-
-until-unfold : ∀ (φ ψ : LTL (TimedFrame → SignalVal)) (x : TimedFrame) (rest : List TimedFrame)
-  → ⟦ Syntax.Until φ ψ ⟧ (x ∷ rest) ≡ ⟦ ψ ⟧ (x ∷ rest) ∨TV (⟦ φ ⟧ (x ∷ rest) ∧TV ⟦ Syntax.Until φ ψ ⟧ rest)
-until-unfold φ ψ x rest = refl
-
-release-unfold : ∀ (φ ψ : LTL (TimedFrame → SignalVal)) (x : TimedFrame) (rest : List TimedFrame)
-  → ⟦ Syntax.Release φ ψ ⟧ (x ∷ rest) ≡ ⟦ ψ ⟧ (x ∷ rest) ∧TV (⟦ φ ⟧ (x ∷ rest) ∨TV ⟦ Syntax.Release φ ψ ⟧ rest)
-release-unfold φ ψ x rest = refl
-
-next-unfold : ∀ (φ : LTL (TimedFrame → SignalVal)) (x : TimedFrame) (rest : List TimedFrame)
-  → ⟦ Syntax.Next φ ⟧ (x ∷ rest) ≡ ⟦ φ ⟧ rest
-next-unfold φ x rest = refl
-
--- Temporal operators: empty trace base cases
-always-empty : ∀ (φ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.Always φ ⟧ [] ≡ True
-always-empty φ = refl
-
-eventually-empty : ∀ (φ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.Eventually φ ⟧ [] ≡ False
-eventually-empty φ = refl
-
-until-empty : ∀ (φ ψ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.Until φ ψ ⟧ [] ≡ False
-until-empty φ ψ = refl
-
-release-empty : ∀ (φ ψ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.Release φ ψ ⟧ [] ≡ True
-release-empty φ ψ = refl
-
-next-empty : ∀ (φ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.Next φ ⟧ [] ≡ False
-next-empty φ = refl
-
--- Metric operators: empty trace base cases
-metric-always-empty : ∀ (w s : ℕ) (φ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.MetricAlways w s φ ⟧ [] ≡ True
-metric-always-empty w s φ = refl
-
-metric-eventually-empty : ∀ (w s : ℕ) (φ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.MetricEventually w s φ ⟧ [] ≡ False
-metric-eventually-empty w s φ = refl
-
-metric-until-empty : ∀ (w s : ℕ) (φ ψ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.MetricUntil w s φ ψ ⟧ [] ≡ False
-metric-until-empty w s φ ψ = refl
-
-metric-release-empty : ∀ (w s : ℕ) (φ ψ : LTL (TimedFrame → SignalVal))
-  → ⟦ Syntax.MetricRelease w s φ ψ ⟧ [] ≡ True
-metric-release-empty w s φ ψ = refl
-
--- ============================================================================
--- FINALIZE-DENOT: finalizeL agrees with empty-trace denotational semantics
--- ============================================================================
-
--- For an initial process (no accumulated runtime state), finalization agrees
--- with the denotational semantics on the empty trace.
--- Since LTLProc is now ℕ-indexed, we use mapLTL table to convert back.
-
--- Helper: ⟦ φ ⟧ [] is always True or False (never Unknown/Pending) for any formula.
--- This is because atoms evaluate to False on empty trace, and the only connectives
--- are notTV, ∧TV, ∨TV which preserve the {True, False} subset.
-denot-empty-binary : ∀ (φ : LTL (TimedFrame → SignalVal))
-  → (⟦ φ ⟧ [] ≡ True) ⊎ (⟦ φ ⟧ [] ≡ False)
-denot-empty-binary (Syntax.Atomic _) = inj₂ refl
-denot-empty-binary (Syntax.Not φ) with ⟦ φ ⟧ [] | denot-empty-binary φ
-... | .True  | inj₁ refl = inj₂ refl
-... | .False | inj₂ refl = inj₁ refl
-denot-empty-binary (Syntax.And φ ψ) with ⟦ φ ⟧ [] | denot-empty-binary φ
-... | .False | inj₂ refl = inj₂ refl
-... | .True  | inj₁ refl with ⟦ ψ ⟧ [] | denot-empty-binary ψ
-...   | .True  | inj₁ refl = inj₁ refl
-...   | .False | inj₂ refl = inj₂ refl
-denot-empty-binary (Syntax.Or φ ψ) with ⟦ φ ⟧ [] | denot-empty-binary φ
-... | .True  | inj₁ refl = inj₁ refl
-... | .False | inj₂ refl with ⟦ ψ ⟧ [] | denot-empty-binary ψ
-...   | .True  | inj₁ refl = inj₁ refl
-...   | .False | inj₂ refl = inj₂ refl
-denot-empty-binary (Syntax.Next _) = inj₂ refl
-denot-empty-binary (Syntax.Always _) = inj₁ refl
-denot-empty-binary (Syntax.Eventually _) = inj₂ refl
-denot-empty-binary (Syntax.Until _ _) = inj₂ refl
-denot-empty-binary (Syntax.Release _ _) = inj₁ refl
-denot-empty-binary (Syntax.MetricEventually _ _ _) = inj₂ refl
-denot-empty-binary (Syntax.MetricAlways _ _ _) = inj₁ refl
-denot-empty-binary (Syntax.MetricUntil _ _ _ _) = inj₂ refl
-denot-empty-binary (Syntax.MetricRelease _ _ _ _) = inj₁ refl
-
--- Helper: transport via equality — when we know verdictToSV v ≡ ⟦ φ ⟧ [],
--- we can compute notTV, ∧TV, ∨TV on the denotational side by rewriting.
-private
-  not-cong : ∀ {a b : SignalVal} → a ≡ b → notTV a ≡ notTV b
-  not-cong refl = refl
-
-  and-cong : ∀ {a b c d : SignalVal} → a ≡ c → b ≡ d → (a ∧TV b) ≡ (c ∧TV d)
-  and-cong refl refl = refl
-
-  or-cong : ∀ {a b c d : SignalVal} → a ≡ c → b ≡ d → (a ∨TV b) ≡ (c ∨TV d)
-  or-cong refl refl = refl
-
--- finalize-denot now works with ℕ-indexed formulas.
--- Since finalizeL doesn't inspect Atomic content and ⟦ Atomic _ ⟧ [] = False
--- regardless of predicate, the proof is independent of the table.
-finalize-denot : ∀ (table : PredTable) (φ : LTL ℕ)
-  → verdictToSV (finalizeL (initProc φ)) ≡ ⟦ denot table (initProc φ) ⟧ []
-finalize-denot table (Syntax.Atomic n) = refl
-finalize-denot table (Syntax.Not φ) with finalizeL (initProc φ) | finalize-denot table φ
-... | Holds   | eq rewrite sym eq = refl
-... | Fails _ | eq rewrite sym eq = refl
-finalize-denot table (Syntax.And φ ψ) with finalizeL (initProc φ) | finalize-denot table φ
-... | Fails _ | eq rewrite sym eq = refl
-... | Holds   | eq with finalizeL (initProc ψ) | finalize-denot table ψ
-...   | Fails _ | eq2 rewrite sym eq | sym eq2 = refl
-...   | Holds   | eq2 rewrite sym eq | sym eq2 = refl
-finalize-denot table (Syntax.Or φ ψ) with finalizeL (initProc φ) | finalize-denot table φ
-... | Holds | eq rewrite sym eq = refl
-... | Fails _ | eq with finalizeL (initProc ψ) | finalize-denot table ψ
-...   | Holds   | eq2 rewrite sym eq | sym eq2 = refl
-...   | Fails _ | eq2 rewrite sym eq | sym eq2 = refl
-finalize-denot table (Syntax.Next φ) = refl
-finalize-denot table (Syntax.Always φ) = refl
-finalize-denot table (Syntax.Eventually φ) = refl
-finalize-denot table (Syntax.Until φ ψ) = refl
-finalize-denot table (Syntax.Release φ ψ) = refl
-finalize-denot table (Syntax.MetricEventually _ _ φ) = refl
-finalize-denot table (Syntax.MetricAlways _ _ φ) = refl
-finalize-denot table (Syntax.MetricUntil _ _ φ ψ) = refl
-finalize-denot table (Syntax.MetricRelease _ _ φ ψ) = refl
-
--- ============================================================================
--- ADEQUACY: runL table (initProc φ) σ ≡ ⟦ denot table (initProc φ) ⟧ σ
--- ============================================================================
-
--- The empty-trace case follows directly from finalize-denot.
-adequacy-empty : ∀ (table : PredTable) (φ : LTL ℕ)
-  → runL table (initProc φ) [] ≡ ⟦ denot table (initProc φ) ⟧ []
-adequacy-empty table φ = finalize-denot table φ
-
--- ============================================================================
--- DENOT-INITPROC: denot table ∘ initProc ≡ mapLTL table
--- ============================================================================
-
--- The denotational interpretation of an initial process is the formula
--- with table-resolved predicates. This is trivial structural induction.
-
-private
-  -- cong for binary constructors (not in stdlib)
-  cong-bin : ∀ {A B C : Set} {a₁ a₂ : A} {b₁ b₂ : B}
-    → (f : A → B → C) → a₁ ≡ a₂ → b₁ ≡ b₂ → f a₁ b₁ ≡ f a₂ b₂
-  cong-bin f refl refl = refl
-
-denot-initProc : ∀ (table : PredTable) (φ : LTL ℕ) → denot table (initProc φ) ≡ mapLTL table φ
-denot-initProc table (Syntax.Atomic n)            = refl
-denot-initProc table (Syntax.Not φ)               = cong Syntax.Not (denot-initProc table φ)
-denot-initProc table (Syntax.And φ ψ)             = cong-bin Syntax.And (denot-initProc table φ) (denot-initProc table ψ)
-denot-initProc table (Syntax.Or φ ψ)              = cong-bin Syntax.Or (denot-initProc table φ) (denot-initProc table ψ)
-denot-initProc table (Syntax.Next φ)              = cong Syntax.Next (denot-initProc table φ)
-denot-initProc table (Syntax.Always φ)            = cong Syntax.Always (denot-initProc table φ)
-denot-initProc table (Syntax.Eventually φ)        = cong Syntax.Eventually (denot-initProc table φ)
-denot-initProc table (Syntax.Until φ ψ)           = cong-bin Syntax.Until (denot-initProc table φ) (denot-initProc table ψ)
-denot-initProc table (Syntax.Release φ ψ)         = cong-bin Syntax.Release (denot-initProc table φ) (denot-initProc table ψ)
-denot-initProc table (Syntax.MetricEventually w s φ)    = cong (Syntax.MetricEventually w s) (denot-initProc table φ)
-denot-initProc table (Syntax.MetricAlways w s φ)        = cong (Syntax.MetricAlways w s) (denot-initProc table φ)
-denot-initProc table (Syntax.MetricUntil w s φ ψ)      = cong-bin (Syntax.MetricUntil w s) (denot-initProc table φ) (denot-initProc table ψ)
-denot-initProc table (Syntax.MetricRelease w s φ ψ)    = cong-bin (Syntax.MetricRelease w s) (denot-initProc table φ) (denot-initProc table ψ)
-
--- ============================================================================
--- INFORMATION ORDERING (_⊑_)
--- ============================================================================
-
--- x ⊑ y means "x is at least as informative as y."
--- Definite values (True, False) refine uncertain values (Unknown, Pending).
--- This is a preorder (reflexive + transitive).
-
-data _⊑_ : SignalVal → SignalVal → Set where
-  ⊑-refl    : ∀ {x}   → x ⊑ x
-  ⊑-unknown : ∀ {x}   → x ⊑ Unknown
-  ⊑-pending : ∀ {x}   → x ⊑ Pending
-
--- Equality implies ⊑
-≡→⊑ : ∀ {a b} → a ≡ b → a ⊑ b
-≡→⊑ refl = ⊑-refl
-
--- Transitivity of ⊑
-⊑-trans : ∀ {a b c} → a ⊑ b → b ⊑ c → a ⊑ c
-⊑-trans p ⊑-refl    = p
-⊑-trans _ ⊑-unknown = ⊑-unknown
-⊑-trans _ ⊑-pending = ⊑-pending
-
--- ============================================================================
 -- MONITORING SOUNDNESS (Sound)
 -- ============================================================================
 
@@ -292,54 +85,14 @@ data Sound : SignalVal → SignalVal → Set where
   sound-m-unk : ∀ {d} → Sound Unknown d
   sound-m-pen : ∀ {d} → Sound Pending d
 
--- Compose Sound (from IH) with ⊑ (from absorption lemmas).
--- When the target weakens (becomes less informative), soundness is preserved.
-sound-weaken : ∀ {m y z} → Sound m y → y ⊑ z → Sound m z
-sound-weaken s ⊑-refl    = s
-sound-weaken _ ⊑-unknown = sound-unk
-sound-weaken _ ⊑-pending = sound-pen
-
 -- ============================================================================
--- MONOTONICITY LEMMAS
+-- FOUR-VALUED IDENTITY LEMMAS
 -- ============================================================================
 
--- The monotonicity lemmas are the compositional backbone.
--- They let operator proofs compose refinements structurally.
---
--- Strategy: case split on BOTH SignalVal arguments explicitly,
--- since ⊑ doesn't constrain the LHS enough for the connective
--- to reduce. This is 4×4 = 16 cases per connective, but most are trivial.
-
--- notTV is monotone
-notTV-mono : ∀ {a b} → a ⊑ b → notTV a ⊑ notTV b
-notTV-mono {True}    {.True}    ⊑-refl = ⊑-refl        -- False ⊑ False
-notTV-mono {False}   {.False}   ⊑-refl = ⊑-refl        -- True ⊑ True
-notTV-mono {Unknown} {.Unknown} ⊑-refl = ⊑-refl        -- Unknown ⊑ Unknown
-notTV-mono {Pending} {.Pending} ⊑-refl = ⊑-refl        -- Pending ⊑ Pending
-notTV-mono {_}       {.Unknown} ⊑-unknown = ⊑-unknown   -- notTV a ⊑ Unknown
-notTV-mono {_}       {.Pending} ⊑-pending = ⊑-pending   -- notTV a ⊑ Pending
-
--- Helper: for any value a, (a ∧TV b) ⊑ Unknown and (a ∧TV b) ⊑ Pending
--- These hold because anything refines Unknown/Pending.
-private
-  ∧TV-⊑-unknown : ∀ a b → (a ∧TV b) ⊑ Unknown
-  ∧TV-⊑-unknown _ _ = ⊑-unknown
-
-  ∧TV-⊑-pending : ∀ a b → (a ∧TV b) ⊑ Pending
-  ∧TV-⊑-pending _ _ = ⊑-pending
-
-  ∨TV-⊑-unknown : ∀ a b → (a ∨TV b) ⊑ Unknown
-  ∨TV-⊑-unknown _ _ = ⊑-unknown
-
-  ∨TV-⊑-pending : ∀ a b → (a ∨TV b) ⊑ Pending
-  ∨TV-⊑-pending _ _ = ⊑-pending
-
--- ∧TV is monotone in both arguments.
--- When abstract `a` appears in (a ∧TV False), Agda can't reduce it
--- (first clause checks a = False, second checks second arg = False).
--- We need to case split on `a` in these positions.
---
--- Strategy: helper that case-splits on all 4 values to let Agda reduce.
+-- Kleene logic identity/absorb laws. These are needed because Agda's
+-- overlapping clause patterns for ∧TV/∨TV prevent automatic reduction
+-- when one argument is abstract (e.g., True ∧TV y doesn't reduce since
+-- clause 1 checks first-arg=False, blocking clause 2's match on y).
 
 private
   -- Any a: a ∧TV False = False
@@ -382,87 +135,6 @@ private
   ∨TV-false-l False   = refl
   ∨TV-false-l Unknown = refl
   ∨TV-false-l Pending = refl
-
--- Absorption lemmas: when the LHS of ⊑ is a plain value (not a connective),
--- we need direct proofs about the target connective's range.
-
--- False ⊑ (Unknown ∧TV y) for any y
--- Unknown ∧TV y ∈ {Unknown, False, Pending} — all ⊒ False
-⊑-false-unknown-and : ∀ y → False ⊑ (Unknown ∧TV y)
-⊑-false-unknown-and True    = ⊑-unknown   -- False ⊑ Unknown
-⊑-false-unknown-and False   = ⊑-refl      -- False ⊑ False
-⊑-false-unknown-and Unknown = ⊑-unknown   -- False ⊑ Unknown
-⊑-false-unknown-and Pending = ⊑-pending   -- False ⊑ Pending
-
--- y ⊑ (Pending ∧TV y) for any y
-⊑-pending-and-absorb : ∀ y → y ⊑ (Pending ∧TV y)
-⊑-pending-and-absorb True    = ⊑-pending   -- True ⊑ Pending
-⊑-pending-and-absorb False   = ⊑-refl      -- False ⊑ False
-⊑-pending-and-absorb Unknown = ⊑-pending   -- Unknown ⊑ Pending
-⊑-pending-and-absorb Pending = ⊑-refl      -- Pending ⊑ Pending
-
--- y ⊑ (Unknown ∧TV y) for any y (similar)
-⊑-unknown-and-absorb : ∀ y → y ⊑ (Unknown ∧TV y)
-⊑-unknown-and-absorb True    = ⊑-unknown   -- True ⊑ Unknown
-⊑-unknown-and-absorb False   = ⊑-refl      -- False ⊑ False
-⊑-unknown-and-absorb Unknown = ⊑-refl      -- Unknown ⊑ Unknown
-⊑-unknown-and-absorb Pending = ⊑-pending   -- Pending ⊑ Pending
-
-∧TV-mono : ∀ {a b c d} → a ⊑ c → b ⊑ d → (a ∧TV b) ⊑ (c ∧TV d)
--- Both refl
-∧TV-mono ⊑-refl ⊑-refl = ⊑-refl
--- Right target Unknown, case split on c (since c ∧TV Unknown depends on c)
-∧TV-mono {a} {b} {True}    ⊑-refl    ⊑-unknown = ⊑-unknown
-∧TV-mono {a} {b} {False}   ⊑-refl    ⊑-unknown rewrite ∧TV-false-r a = ⊑-refl
-∧TV-mono {a} {b} {Unknown} ⊑-refl    ⊑-unknown = ⊑-unknown
-∧TV-mono {a} {b} {Pending} ⊑-refl    ⊑-unknown = ⊑-pending
-∧TV-mono {a} {b}           ⊑-unknown ⊑-unknown = ⊑-unknown
-∧TV-mono {a} {b}           ⊑-pending ⊑-unknown = ⊑-pending
--- Right target Pending
-∧TV-mono {a} {b} {True}    ⊑-refl    ⊑-pending = ⊑-pending
-∧TV-mono {a} {b} {False}   ⊑-refl    ⊑-pending rewrite ∧TV-false-r a = ⊑-refl
-∧TV-mono {a} {b} {Unknown} ⊑-refl    ⊑-pending = ⊑-pending
-∧TV-mono {a} {b} {Pending} ⊑-refl    ⊑-pending = ⊑-pending
-∧TV-mono {a} {b}           ⊑-unknown ⊑-pending = ⊑-pending
-∧TV-mono {a} {b}           ⊑-pending ⊑-pending = ⊑-pending
--- Left Unknown, right refl: b=d, case split on b
-∧TV-mono {a} {True}        ⊑-unknown ⊑-refl = ⊑-unknown
-∧TV-mono {a} {False}       ⊑-unknown ⊑-refl rewrite ∧TV-false-r a = ⊑-refl
-∧TV-mono {a} {Unknown}     ⊑-unknown ⊑-refl = ⊑-unknown
-∧TV-mono {a} {Pending}     ⊑-unknown ⊑-refl = ⊑-pending
--- Left Pending, right refl
-∧TV-mono {a} {True}        ⊑-pending ⊑-refl = ⊑-pending
-∧TV-mono {a} {False}       ⊑-pending ⊑-refl rewrite ∧TV-false-r a = ⊑-refl
-∧TV-mono {a} {Unknown}     ⊑-pending ⊑-refl = ⊑-pending
-∧TV-mono {a} {Pending}     ⊑-pending ⊑-refl = ⊑-pending
-
--- ∨TV is monotone (dual of ∧TV, True absorbs)
-∨TV-mono : ∀ {a b c d} → a ⊑ c → b ⊑ d → (a ∨TV b) ⊑ (c ∨TV d)
-∨TV-mono ⊑-refl ⊑-refl = ⊑-refl
--- Right target Unknown
-∨TV-mono {a} {b} {True}    ⊑-refl    ⊑-unknown rewrite ∨TV-true-r a = ⊑-refl
-∨TV-mono {a} {b} {False}   ⊑-refl    ⊑-unknown = ⊑-unknown
-∨TV-mono {a} {b} {Unknown} ⊑-refl    ⊑-unknown = ⊑-unknown
-∨TV-mono {a} {b} {Pending} ⊑-refl    ⊑-unknown = ⊑-pending
-∨TV-mono {a} {b}           ⊑-unknown ⊑-unknown = ⊑-unknown
-∨TV-mono {a} {b}           ⊑-pending ⊑-unknown = ⊑-pending
--- Right target Pending
-∨TV-mono {a} {b} {True}    ⊑-refl    ⊑-pending rewrite ∨TV-true-r a = ⊑-refl
-∨TV-mono {a} {b} {False}   ⊑-refl    ⊑-pending = ⊑-pending
-∨TV-mono {a} {b} {Unknown} ⊑-refl    ⊑-pending = ⊑-pending
-∨TV-mono {a} {b} {Pending} ⊑-refl    ⊑-pending = ⊑-pending
-∨TV-mono {a} {b}           ⊑-unknown ⊑-pending = ⊑-pending
-∨TV-mono {a} {b}           ⊑-pending ⊑-pending = ⊑-pending
--- Left Unknown, right refl: b=d, case split on b
-∨TV-mono {a} {True}        ⊑-unknown ⊑-refl rewrite ∨TV-true-r a = ⊑-refl
-∨TV-mono {a} {False}       ⊑-unknown ⊑-refl = ⊑-unknown
-∨TV-mono {a} {Unknown}     ⊑-unknown ⊑-refl = ⊑-unknown
-∨TV-mono {a} {Pending}     ⊑-unknown ⊑-refl = ⊑-pending
--- Left Pending, right refl
-∨TV-mono {a} {True}        ⊑-pending ⊑-refl rewrite ∨TV-true-r a = ⊑-refl
-∨TV-mono {a} {False}       ⊑-pending ⊑-refl = ⊑-pending
-∨TV-mono {a} {Unknown}     ⊑-pending ⊑-refl = ⊑-pending
-∨TV-mono {a} {Pending}     ⊑-pending ⊑-refl = ⊑-pending
 
 -- ============================================================================
 -- SOUND COMPOSITIONALITY LEMMAS
@@ -904,107 +576,7 @@ sound-and-true-r sound-pen sound-unk   = sound-pen
 sound-and-true-r sound-pen sound-pen   = sound-pen
 
 -- ============================================================================
--- FINALIZE-SOUND: finalizeL agrees with denotational semantics (general)
--- ============================================================================
-
--- For ANY LTLProc (not just initProc-constructed ones), finalization is
--- sound with respect to the denotational semantics of denot(proc).
--- Now takes PredTable for denot conversion.
-
-finalize-sound : ∀ (table : PredTable) (proc : LTLProc)
-  → Sound (verdictToSV (finalizeL proc)) (⟦ denot table proc ⟧ [])
-
--- Atomic: finalizeL = Fails → False; ⟦ Atomic _ ⟧ [] = False
-finalize-sound table (Atomic _) = sound-ff
-
--- Not: Case-split on finalizeL φ and ⟦ denot table φ ⟧ [].
-finalize-sound table (Not φ)
-  with finalizeL φ | ⟦ denot table φ ⟧ [] | denot-empty-binary (denot table φ) | finalize-sound table φ
-... | Holds   | .True  | inj₁ refl | _  = sound-ff
-... | Holds   | .False | inj₂ refl | ()
-... | Fails _ | .True  | inj₁ refl | ()
-... | Fails _ | .False | inj₂ refl | _  = sound-tt
-
--- And: Case-split on both finalizeL results and both denotations.
-finalize-sound table (And φ ψ)
-  with finalizeL φ | ⟦ denot table φ ⟧ [] | denot-empty-binary (denot table φ) | finalize-sound table φ
-... | Fails _ | .True  | inj₁ refl | ()
-... | Fails _ | .False | inj₂ refl | _  = sound-ff
-... | Holds   | .False | inj₂ refl | ()
-... | Holds   | .True  | inj₁ refl | _
-  with finalizeL ψ | ⟦ denot table ψ ⟧ [] | denot-empty-binary (denot table ψ) | finalize-sound table ψ
-...   | Holds   | .True  | inj₁ refl | _  = sound-tt
-...   | Holds   | .False | inj₂ refl | ()
-...   | Fails _ | .True  | inj₁ refl | ()
-...   | Fails _ | .False | inj₂ refl | _  = sound-ff
-
--- Or: Dual of And.
-finalize-sound table (Or φ ψ)
-  with finalizeL φ | ⟦ denot table φ ⟧ [] | denot-empty-binary (denot table φ) | finalize-sound table φ
-... | Holds   | .False | inj₂ refl | ()
-... | Holds   | .True  | inj₁ refl | _  = sound-tt
-... | Fails _ | .True  | inj₁ refl | ()
-... | Fails _ | .False | inj₂ refl | _
-  with finalizeL ψ | ⟦ denot table ψ ⟧ [] | denot-empty-binary (denot table ψ) | finalize-sound table ψ
-...   | Holds   | .True  | inj₁ refl | _  = sound-tt
-...   | Holds   | .False | inj₂ refl | ()
-...   | Fails _ | .True  | inj₁ refl | ()
-...   | Fails _ | .False | inj₂ refl | _  = sound-ff
-
--- Next: Fails → False; ⟦ Next (denot table _) ⟧ [] = False
-finalize-sound table (Next _) = sound-ff
-
--- Always: Holds → True; ⟦ Always _ ⟧ [] = True
-finalize-sound table (Always _) = sound-tt
-
--- Eventually: Fails → False; ⟦ Eventually _ ⟧ [] = False
-finalize-sound table (Eventually _) = sound-ff
-
--- Until: Fails → False; ⟦ Until _ _ ⟧ [] = False
-finalize-sound table (Until _ _) = sound-ff
-
--- Release: Holds → True; ⟦ Release _ _ ⟧ [] = True
-finalize-sound table (Release _ _) = sound-tt
-
--- MetricEventually: Fails → False; ⟦ MetricEventually _ _ ⟧ [] = False
-finalize-sound table (MetricEventuallyProc _ _ _) = sound-ff
-
--- MetricAlways: Holds → True; ⟦ MetricAlways _ _ ⟧ [] = True
-finalize-sound table (MetricAlwaysProc _ _ _) = sound-tt
-
--- MetricUntil: Fails → False; ⟦ MetricUntil _ _ _ ⟧ [] = False
-finalize-sound table (MetricUntilProc _ _ _ _) = sound-ff
-
--- MetricRelease: Holds → True; ⟦ MetricRelease _ _ _ ⟧ [] = True
-finalize-sound table (MetricReleaseProc _ _ _ _) = sound-tt
-
--- ============================================================================
--- ABSORPTION LEMMAS FOR ∨TV
--- ============================================================================
-
--- y ⊑ (Unknown ∨TV y) for any y
-⊑-unknown-or-absorb : ∀ y → y ⊑ (Unknown ∨TV y)
-⊑-unknown-or-absorb True    = ⊑-refl
-⊑-unknown-or-absorb False   = ⊑-unknown
-⊑-unknown-or-absorb Unknown = ⊑-refl
-⊑-unknown-or-absorb Pending = ⊑-pending
-
--- y ⊑ (Pending ∨TV y) for any y
-⊑-pending-or-absorb : ∀ y → y ⊑ (Pending ∨TV y)
-⊑-pending-or-absorb True    = ⊑-refl
-⊑-pending-or-absorb False   = ⊑-pending
-⊑-pending-or-absorb Unknown = ⊑-pending
-⊑-pending-or-absorb Pending = ⊑-refl
-
--- Sound False (Unknown ∧TV y) for any y.
-sound-false-unknown-and : ∀ y → Sound False (Unknown ∧TV y)
-sound-false-unknown-and True    = sound-unk
-sound-false-unknown-and False   = sound-ff
-sound-false-unknown-and Unknown = sound-unk
-sound-false-unknown-and Pending = sound-pen
-
--- ============================================================================
--- GENERAL ADEQUACY (step 18h)
+-- OPERATIONAL DECOMPOSITION LEMMAS
 -- ============================================================================
 
 -- runL distributes over And: the coalgebra run of And φ ψ equals
