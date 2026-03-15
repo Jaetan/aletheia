@@ -28,14 +28,14 @@ import qualified MAlonzo.Code.Aletheia.Protocol.StreamState as AgdaState
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 
 -- | Opaque state handle exported to C/Python
-type StateHandle = StablePtr (IORef AgdaState.T_StreamState_30)
+type StateHandle = StablePtr (IORef AgdaState.T_StreamState_34)
 
 -- | Create a new Aletheia state handle with initial state.
 -- Returns: StablePtr that must be freed with aletheia_close.
-foreign export ccall aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_30))
-aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_30))
+foreign export ccall aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_34))
+aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_34))
 aletheia_init = do
-    ref <- newIORef AgdaState.d_initialState_54
+    ref <- newIORef AgdaState.d_initialState_58
     newStablePtr ref
 
 -- | Process a JSON line. Takes state handle and input CString.
@@ -51,7 +51,7 @@ aletheia_process statePtr inputCStr = do
     -- Call Agda processJSONLine: StreamState → String → Σ (StreamState × String)
     let result = Agda.d_processJSONLine_4 state agdaInput
     -- Extract pair components (MAlonzo Σ uses AgdaAny, need unsafeCoerce)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_30
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)

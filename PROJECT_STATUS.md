@@ -255,10 +255,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
   - Denotational LTLf semantics for all 13 operators (`⟦_⟧`) ✅
   - Coalgebra: Rosu formula progression with combineAnd/combineOr ✅
   - `Sound` relation (6-ctor monitoring soundness) ✅
-  - **Rosu refactoring (10-step plan, 9 of 10 done)**:
+  - **Rosu refactoring (10-step plan)**:
     - ✅ Steps 18a–18h: All Rosu refactoring + adequacy theorem complete
     - ✅ Step 18i: Simplification — removed 429 lines of dead code (1490 → 1061)
-    - Remaining: 18j (clean build + 344 Python tests + performance benchmarks)
+    - ✅ Step 18j: Build ✅, 344 tests ✅, benchmarks ✅ (9,704 fps streaming LTL, Rosu tree growth fixed)
     - Deleted: Bisimilarity.agda, CoalgebraBisim.agda, StepResultBisim.agda
   - **Adequacy theorem** (1061 lines): Four-layer proof (Sound compositionality → operational decomposition → soundness transport → non-recursive metric helpers). Zero postulates, zero holes.
 - All proof modules use `--safe --without-K`
@@ -296,9 +296,11 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
-- Throughput: 9,229 fps streaming LTL, 8,184 fps signal extraction
-- Per-frame latency: 108 us
+- Throughput: 9,704 fps streaming LTL, 8,058 fps signal extraction, 5,913 fps frame building
+- Per-frame latency: 103 us
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
+- **Single-threaded runtime**: 9,654 fps on 1 CPU (no degradation vs multi-core). Parallelism is build-time only (`agda +RTS -N`). Deployable to minimal containers (1 vCPU) with 2.4x headroom over a 500 kbit/s CAN bus (~4,000 frames/sec).
+- **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
 - Safe modules: 38 of 41 use `--safe` (36 with `--without-K`, 2 variants)
@@ -310,12 +312,12 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Current**:
-- Gap D remaining step:
-  - **Step 18j**: Clean build + 344 Python tests + principled performance benchmarks
-  - Commit all Gap D changes (18i simplification not yet committed)
+- Gap D step 18j — **COMPLETE**: Build ✅, 344 tests ✅, benchmarks ✅ (9,704 fps)
+  - Rosu tree growth fixed with `simplify`/`absorb` in Coalgebra.agda
+  - Commit and push all Gap D changes
+- Product council presentation: 1-hour reveal.js slide deck
 - Update docs (PYTHON_API.md, CLI.md) for new features.
 - Additional DBC validation checks to research and implement.
-- Refactor `CAN/DBCHelpers.agda` to use decidable types instead of raw `Bool`.
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)

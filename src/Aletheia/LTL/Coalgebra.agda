@@ -26,7 +26,8 @@ open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; 
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample; FinalVerdict; Holds; Fails)
 open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
-open import Data.Nat using (_∸_; _≤ᵇ_; _⊔_)
+open import Data.Nat using (_∸_; _≤ᵇ_; _⊔_; _≡ᵇ_)
+open import Data.Bool using (Bool; true; false; _∧_)
 open import Data.String using (String; _++_)
 
 -- ============================================================================
@@ -297,3 +298,98 @@ finalizeL (MetricUntilProc _ _ _ _) = Fails "MetricUntil: ψ never satisfied wit
 
 -- MetricRelease (SAFETY): vacuously true per standard LTLf (dual of MetricUntil)
 finalizeL (MetricReleaseProc _ _ _ _) = Holds
+
+-- ============================================================================
+-- ROSU SIMPLIFICATION
+-- ============================================================================
+
+-- Boolean structural equality on LTLProc.
+-- Used by simplify to detect Rosu tree growth patterns.
+_≡ᵇ-proc_ : LTLProc → LTLProc → Bool
+Atomic n              ≡ᵇ-proc Atomic m              = n ≡ᵇ m
+Not φ                 ≡ᵇ-proc Not ψ                 = φ ≡ᵇ-proc ψ
+And φ₁ ψ₁             ≡ᵇ-proc And φ₂ ψ₂             = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+Or φ₁ ψ₁              ≡ᵇ-proc Or φ₂ ψ₂              = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+Next φ                ≡ᵇ-proc Next ψ                = φ ≡ᵇ-proc ψ
+Always φ              ≡ᵇ-proc Always ψ              = φ ≡ᵇ-proc ψ
+Eventually φ          ≡ᵇ-proc Eventually ψ          = φ ≡ᵇ-proc ψ
+Until φ₁ ψ₁           ≡ᵇ-proc Until φ₂ ψ₂           = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+Release φ₁ ψ₁         ≡ᵇ-proc Release φ₂ ψ₂         = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+MetricEventuallyProc w₁ s₁ φ₁ ≡ᵇ-proc MetricEventuallyProc w₂ s₂ φ₂ =
+  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
+MetricAlwaysProc w₁ s₁ φ₁ ≡ᵇ-proc MetricAlwaysProc w₂ s₂ φ₂ =
+  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂)
+MetricUntilProc w₁ s₁ φ₁ ψ₁ ≡ᵇ-proc MetricUntilProc w₂ s₂ φ₂ ψ₂ =
+  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+MetricReleaseProc w₁ s₁ φ₁ ψ₁ ≡ᵇ-proc MetricReleaseProc w₂ s₂ φ₂ ψ₂ =
+  (w₁ ≡ᵇ w₂) ∧ (s₁ ≡ᵇ s₂) ∧ (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
+_ ≡ᵇ-proc _ = false
+
+-- Rosu simplification: compact formula trees produced by combineAnd/combineOr.
+--
+-- Rosu's formula progression creates growing trees when subformulas return
+-- Continue (Unknown/Pending signals). For example:
+--   Always φ → combineAnd(Continue φ', Continue(Always φ)) → And φ' (Always φ)
+-- After n frames with Unknown, the tree has n And nodes → O(n²) total work.
+--
+-- Two-phase approach:
+--   Phase 1 (simplify): recurse into right subterms of And/Or to handle
+--     nested patterns (e.g., Until/Release produce double nesting)
+--   Phase 2 (absorb): apply Rosu absorption rules at the top level
+--
+-- Absorption rules (from Rosu's original paper, extended to all operators):
+--   φ ∧ G(φ)     → G(φ)        φ ∨ F(φ)     → F(φ)
+--   φ ∧ (φ U ψ)  → φ U ψ      ψ ∨ (φ U ψ)  → φ U ψ
+--   ψ ∧ (φ R ψ)  → φ R ψ      φ ∨ (φ R ψ)  → φ R ψ
+--   (and metric variants)
+--
+-- Semantically valid: e.g. ⟦ And φ (Always φ) ⟧ ≡ ⟦ Always φ ⟧ by idempotence of ∧TV.
+-- Applied after stepL in the streaming pipeline (does not affect adequacy proof).
+
+-- Phase 2: apply absorption rules (non-recursive)
+absorb : LTLProc → LTLProc
+-- And absorption: φ ∧ G(φ) → G(φ), φ ∧ (φ U ψ) → φ U ψ, ψ ∧ (φ R ψ) → φ R ψ
+absorb (And φ (Always ψ)) with φ ≡ᵇ-proc ψ
+... | true  = Always ψ
+... | false = And φ (Always ψ)
+absorb (And φ (Until ψ χ)) with φ ≡ᵇ-proc ψ
+... | true  = Until ψ χ
+... | false = And φ (Until ψ χ)
+absorb (And ψ (Release φ χ)) with ψ ≡ᵇ-proc χ
+... | true  = Release φ χ
+... | false = And ψ (Release φ χ)
+absorb (And φ (MetricAlwaysProc w s ψ)) with φ ≡ᵇ-proc ψ
+... | true  = MetricAlwaysProc w s ψ
+... | false = And φ (MetricAlwaysProc w s ψ)
+absorb (And φ (MetricUntilProc w s ψ χ)) with φ ≡ᵇ-proc ψ
+... | true  = MetricUntilProc w s ψ χ
+... | false = And φ (MetricUntilProc w s ψ χ)
+absorb (And ψ (MetricReleaseProc w s φ χ)) with ψ ≡ᵇ-proc χ
+... | true  = MetricReleaseProc w s φ χ
+... | false = And ψ (MetricReleaseProc w s φ χ)
+-- Or absorption: φ ∨ F(φ) → F(φ), ψ ∨ (φ U ψ) → φ U ψ, φ ∨ (φ R ψ) → φ R ψ
+absorb (Or φ (Eventually ψ)) with φ ≡ᵇ-proc ψ
+... | true  = Eventually ψ
+... | false = Or φ (Eventually ψ)
+absorb (Or ψ (Until φ χ)) with ψ ≡ᵇ-proc χ
+... | true  = Until φ χ
+... | false = Or ψ (Until φ χ)
+absorb (Or φ (Release ψ χ)) with φ ≡ᵇ-proc ψ
+... | true  = Release ψ χ
+... | false = Or φ (Release ψ χ)
+absorb (Or φ (MetricEventuallyProc w s ψ)) with φ ≡ᵇ-proc ψ
+... | true  = MetricEventuallyProc w s ψ
+... | false = Or φ (MetricEventuallyProc w s ψ)
+absorb (Or ψ (MetricUntilProc w s φ χ)) with ψ ≡ᵇ-proc χ
+... | true  = MetricUntilProc w s φ χ
+... | false = Or ψ (MetricUntilProc w s φ χ)
+absorb (Or φ (MetricReleaseProc w s ψ χ)) with φ ≡ᵇ-proc ψ
+... | true  = MetricReleaseProc w s ψ χ
+... | false = Or φ (MetricReleaseProc w s ψ χ)
+absorb x = x
+
+-- Phase 1: recurse right to handle nested patterns, then absorb
+simplify : LTLProc → LTLProc
+simplify (And a b) = absorb (And a (simplify b))
+simplify (Or a b)  = absorb (Or a (simplify b))
+simplify x = x

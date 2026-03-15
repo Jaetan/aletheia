@@ -290,7 +290,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 4 - Production Hardening (complete). Gap D adequacy proof complete (all 13 operators, 1061 lines after 18i simplification). Remaining: 18j clean build + Python tests + performance benchmarks.
+**Current**: Phase 4 - Production Hardening (complete). Gap D complete (all 10 steps). Adequacy proof (1061 lines, all 13 operators). Rosu simplification fixes tree growth (9,704 fps streaming LTL). Ready to commit.
 
 ---
 

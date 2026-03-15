@@ -39,7 +39,7 @@ open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIs
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
-open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc)
+open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; simplify)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupObject; formatJSON; getRational; getObject; lookupRational)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as RatShow using ()
@@ -368,7 +368,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
           where
             classifyResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
             classifyResult (Continue _ newProc) prop =
-              advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) newProc)
+              advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
             classifyResult (Violated ce) prop = halt (PropertyState.index prop , ce)
             classifyResult Satisfied prop = advance prop
 
