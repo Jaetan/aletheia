@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-15
+**Last Updated**: 2026-03-16
 
 ---
 
@@ -191,14 +191,15 @@ verified core:
 
 8. ✅ Tutorial / cookbook — COMPLETE (`docs/guides/TUTORIAL.md`, `docs/guides/COOKBOOK.md`, `docs/guides/QUICKSTART.md`)
 
-9. ✅ DBC Validator — COMPLETE (not yet committed)
+9. ✅ DBC Validator — COMPLETE
    - Agda: `DBC/Validator.agda` (new), `DBC/Types.agda`, `Data/Message.agda`, `Protocol/Routing.agda`, `Protocol/StreamState.agda`
-   - `validateDBCFull : DBC → List ValidationIssue` — 7 structural checks, all issues accumulated
-   - `IssueCode` enum: `DuplicateMessageId | DuplicateSignalName | FactorZero | MultiplexorNotFound | MultiplexorNotAlwaysPresent | GlobalNameCollision | MinExceedsMax`
-   - Decidable types throughout (`_≟-CANId_`, `any?`, `_∈?_`)
+   - `validateDBCFull : DBC → List ValidationIssue` — 16 checks (9 error, 7 warning), all issues accumulated
+   - `IssueCode` enum: 16 codes covering structural, physical, and authoring issues
+   - Decidable types throughout (`_≟-CANId_`, `any?`, `_∈?_`, `signalPairValid?`)
    - Dual-layer validation: `parseDBC` runs both `validateDBC` + `validateDBCFull`
-   - Python: `client.validate_dbc()`, `cli validate` subcommand, 11 FFI integration tests
-   - 335 total tests pass, 0 regressions
+   - **Formally verified**: soundness + completeness proof (1,267 lines, 6 modules)
+   - Python: `client.validate_dbc()`, `cli validate` subcommand
+   - 372 total tests pass, 0 regressions
 
 10. ✅ Signal staleness bug demo — COMPLETE
     - Engine ECU freeze scenario: FrameCounter counter frozen
@@ -229,6 +230,8 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - `engine_ecu_sim.py`, `test_engine_naive.py`, `demo_ltl_bug.py` (staleness demo)
 - `demo_workbook.xlsx` (persistent Excel workbook for live demo)
 
+**Presentation**: `docs/presentation/index.html` — 36-slide reveal.js deck for product council (1 hour + Q&A)
+
 **Status**: Complete (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08, Goal 4 complete 2026-02-15, Goal 6 complete 2026-02-16, Goals 7-8 complete 2026-02-17, Goal 9 complete 2026-02-19, Goals 10 + EOS fix complete 2026-02-21, Goal 11 complete 2026-02-22)
 **Completion**: 100% (11/11 goals complete)
 
@@ -249,6 +252,12 @@ Ordered by impact descending; within same impact, easiest to hardest.
 | D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | ✅ Complete (adequacy theorem — all 13 operators type-check) |
 
 **Current proof coverage** (zero postulates, zero holes):
+- **DBC Validator soundness/completeness** (`DBC/Validity/Theorem.agda`) — ✅ COMPLETE:
+  - `ValidDBC`: formal predicate (9 conditions) for when a DBC defines a well-defined partial function
+  - `soundness : errorIssues (validateDBCFull dbc) ≡ [] → ValidDBC dbc`
+  - `completeness : ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []`
+  - 1,267 lines across 6 proof modules, all `--safe --without-K`
+  - First formally verified CAN database validator
 - `iterate-correct`: Property-list iteration ≡ forward specification (spec-equivalence)
 - Signal predicate trust boundary documented (parametric by design)
 - **Gap D modules** (`LTL/Semantics.agda`, `LTL/Adequacy.agda`, `LTL/Coalgebra.agda`) — ✅ COMPLETE:
@@ -287,12 +296,12 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 41
+- Agda modules: 47 (41 production + 6 proof-only)
 - Python modules: 11
-- Lines of code: ~6,400 Agda + ~6,200 Python
+- Lines of code: ~7,700 Agda + ~6,200 Python
 
 **Testing**:
-- Unit tests: 344 passing (via FFI)
+- Unit tests: 372 passing (via FFI)
 
 **Performance**:
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -312,12 +321,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Current**:
-- Gap D step 18j — **COMPLETE**: Build ✅, 344 tests ✅, benchmarks ✅ (9,704 fps)
-  - Rosu tree growth fixed with `simplify`/`absorb` in Coalgebra.agda
-  - Commit and push all Gap D changes
-- Product council presentation: 1-hour reveal.js slide deck
+- DBC validator formal proof — **COMPLETE**: soundness + completeness (1,267 lines, 6 modules)
+- Gap D adequacy — **COMPLETE**: all 13 operators, 1,061 lines
+- Product council presentation — **COMPLETE**: `docs/presentation/index.html` (36 slides, reveal.js)
 - Update docs (PYTHON_API.md, CLI.md) for new features.
-- Additional DBC validation checks to research and implement.
 
 **Future**:
 - Phase 5: Optional extensions (value tables, format converters, CAN-FD)
