@@ -62,6 +62,15 @@ data IssueCode : Set where
   MultiplexorNotAlwaysPresent : IssueCode
   GlobalNameCollision         : IssueCode
   MinExceedsMax               : IssueCode
+  SignalExceedsDLC            : IssueCode
+  SignalOverlap               : IssueCode
+  BitLengthZero               : IssueCode
+  DuplicateMessageName        : IssueCode
+  DLCOutOfRange               : IssueCode
+  OffsetScaleRange            : IssueCode
+  EmptyMessage                : IssueCode
+  StartBitOutOfRange          : IssueCode
+  BitLengthExcessive          : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

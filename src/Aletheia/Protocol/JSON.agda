@@ -248,12 +248,21 @@ parseBoolean =
   (JBool false <$ string "false")
 
 -- Parse a rational number (handles integers and decimals)
--- Examples: "42" → 42/1, "3.14" → 314/100, "-1.5" → -3/2
+-- Examples: "42" → 42/1, "3.14" → 314/100, "-1.5" → -3/2, "-0.1" → -1/10
+--
+-- Note: parseInt loses the sign for "-0" (returns +0). To handle negative
+-- fractions like "-0.1" correctly, we parse the sign separately and apply
+-- it to the final ℚ value (via Data.Rational.negate).
 parseRational : Parser ℚ
-parseRational = buildNumber <$> parseInt <*> optional (char '.' *> some digit)
+parseRational = do
+  neg ← optional (char '-')
+  n ← parseNatural
+  frac ← optional (char '.' *> some digit)
+  pure (applySign neg (buildNumber n frac))
   where
     open import Data.Char using (toℕ)
     open import Data.List using (foldl; length)
+    open import Data.Rational using (-_)
 
     -- Compute 10^n, returns suc n to prove NonZero
     power10 : ℕ → ℕ
@@ -268,13 +277,17 @@ parseRational = buildNumber <$> parseInt <*> optional (char '.' *> some digit)
     parseDigitList : List Char → ℕ
     parseDigitList = foldl (λ acc d → acc * 10 + charToDigit d) 0
 
-    buildNumber : ℤ → Maybe (List Char) → ℚ
-    buildNumber intPart nothing = intPart / 1
-    buildNumber intPart (just fracChars) with power10 (length fracChars)
+    buildNumber : ℕ → Maybe (List Char) → ℚ
+    buildNumber n nothing = (+ n) / 1
+    buildNumber n (just fracChars) with power10 (length fracChars)
     ... | suc scale =
       let fracValue = parseDigitList fracChars
-      in ((intPart Data.Integer.* (+ suc scale)) Data.Integer.+ (+ fracValue)) / suc scale
-    ... | zero = intPart / 1  -- Unreachable but needed for coverage
+      in (+ (n Data.Nat.* suc scale Data.Nat.+ fracValue)) / suc scale
+    ... | zero = (+ n) / 1  -- Unreachable but needed for coverage
+
+    applySign : Maybe Char → ℚ → ℚ
+    applySign nothing  q = q
+    applySign (just _) q = - q
 
 parseNumber : Parser JSON
 parseNumber = JNumber <$> parseRational

@@ -7,34 +7,74 @@
 -- Does NOT replace JSONParser validation (parse errors are separate).
 -- Role: Used by Protocol.StreamState to handle validateDBC commands.
 --
+-- ═══════════════════════════════════════════════════════════════════════
+-- DEFINITION: A DBC is "valid" if and only if:
+--
+--  (a) Every CAN ID is unique across all messages.
+--  (b) Signal names are unique within each message.
+--  (c) No signal has factor = 0.
+--  (d) Every multiplexor reference resolves to an always-present signal.
+--  (e) Signal names are globally unique across messages (advisory).
+--  (f) For every signal, minimum ≤ maximum.
+--  (g) Every signal's bit range fits within its message's DLC × 8 bits.
+--      - LE: startBit + bitLength ≤ dlc × 8.
+--      - BE: the highest original byte (7 − startBit / 8) < dlc.
+--        (Extraction reverses the payload, so reversed byte startBit/8
+--         maps to original byte 7 − startBit/8.)
+--  (h) Coexisting signals do not share bit positions (linear model).
+--  (i) No signal has bitLength = 0.
+--  (j) DLC ∈ [0, 8].
+--  (k) The declared [minimum, maximum] contains the physical range
+--      reachable by factor/offset/bitLength/signedness.
+--      Unsigned n-bit: raw ∈ [0, 2^n − 1].
+--      Signed   n-bit: raw ∈ [−2^(n−1), 2^(n−1) − 1].
+--      Physical = raw × factor + offset; if factor < 0, range inverts.
+--  (l) Messages without signals are flagged (advisory).
+--  (m) Message names are unique (advisory).
+--  (n) startBit < 64 and bitLength ≤ 64 (defense-in-depth, enforced
+--      by the JSON parser via % 64 / % 65).
+-- ═══════════════════════════════════════════════════════════════════════
+--
 -- Checks (IsError):
---   1. duplicate_message_id           - Two messages share the same CAN ID
---   2. duplicate_signal_name          - Two signals in one message share a name
---   3. factor_zero                    - Signal factor numerator is zero
---   4. multiplexor_not_found          - Multiplexor signal referenced but absent
---   5. multiplexor_not_always_present - Multiplexor signal is itself multiplexed
+--   1. duplicate_message_id           - Violates (a)
+--   2. duplicate_signal_name          - Violates (b)
+--   3. factor_zero                    - Violates (c)
+--   4. multiplexor_not_found          - Violates (d)
+--   5. multiplexor_not_always_present - Violates (d)
+--   8. signal_exceeds_dlc             - Violates (g)
+--   9. signal_overlap                 - Violates (h)
+--  10. bit_length_zero                - Violates (i)
+--  12. dlc_out_of_range               - Violates (j), defense-in-depth
 -- Checks (IsWarning):
---   6. global_name_collision          - Same signal name in two different messages
---   7. min_exceeds_max                - Signal minimum > maximum
+--   6. global_name_collision          - Violates (e)
+--   7. min_exceeds_max                - Violates (f)
+--  11. duplicate_message_name         - Violates (m)
+--  13. offset_scale_range             - Violates (k)
+--  14. empty_message                  - Violates (l)
+--  15. start_bit_out_of_range         - Violates (n), defense-in-depth
+--  16. bit_length_excessive           - Violates (n), defense-in-depth
 --
 -- Design: Uses decidable types (Dec) for all comparisons, following the
 -- convention in DBC/Properties.agda. No raw Bool via ⌊_⌋.
 module Aletheia.DBC.Validator where
 
 open import Aletheia.DBC.Types
+open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
 open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ)
-open import Data.Nat.Properties using () renaming (_≟_ to _≟ₙ_)
+open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; suc; zero; pred)
+open import Data.Nat as Nat using (_/_)
+open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Rational using (ℚ)
+open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
-open import Data.Integer using (ℤ; +_)
+open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
@@ -226,6 +266,259 @@ checkAllMinMax (msg ∷ rest) =
   ++ₗ checkAllMinMax rest
 
 -- ============================================================================
+-- CHECK 8: SIGNAL EXCEEDS DLC
+-- ============================================================================
+
+checkSignalExceedsDLC-LE : String → ℕ → DBCSignal → List ValidationIssue
+checkSignalExceedsDLC-LE msgName dlc sig
+  with SignalDef.startBit (DBCSignal.signalDef sig) + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+... | yes _ = []
+... | no  _ = mkIssue IsError SignalExceedsDLC
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': bit range exceeds DLC") ∷ []
+
+-- Big-endian extraction does swapBytes (reverse) then extractBits at startBit.
+-- Reversed byte startBit/8 maps to original byte 7 - startBit/8.
+-- The highest original byte accessed is 7 - startBit/8; must be < dlc.
+checkSignalExceedsDLC-BE : String → ℕ → DBCSignal → List ValidationIssue
+checkSignalExceedsDLC-BE msgName dlc sig
+  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) Nat./ 8)) ≤? dlc
+... | yes _ = []
+... | no  _ = mkIssue IsError SignalExceedsDLC
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': bit range exceeds DLC") ∷ []
+
+checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
+checkSignalExceedsDLC msgName dlc sig with DBCSignal.byteOrder sig
+... | LittleEndian = checkSignalExceedsDLC-LE msgName dlc sig
+... | BigEndian    = checkSignalExceedsDLC-BE msgName dlc sig
+
+checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
+checkAllSignalExceedsDLC [] = []
+checkAllSignalExceedsDLC (msg ∷ rest) =
+  concatMap (checkSignalExceedsDLC (DBCMessage.name msg) (DBCMessage.dlc msg))
+            (DBCMessage.signals msg)
+  ++ₗ checkAllSignalExceedsDLC rest
+
+-- ============================================================================
+-- CHECK 9: SIGNAL OVERLAP
+-- ============================================================================
+
+checkOverlapPair : String → DBCSignal → DBCSignal → List ValidationIssue
+checkOverlapPair msgName s1 s2 with signalPairValid? s1 s2
+... | yes _ = []
+... | no  _ = mkIssue IsError SignalOverlap
+                ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ DBCSignal.name s1
+                 ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap") ∷ []
+
+checkOverlapAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
+checkOverlapAgainstList _ _ [] = []
+checkOverlapAgainstList msgName sig (other ∷ rest) =
+  checkOverlapPair msgName sig other ++ₗ checkOverlapAgainstList msgName sig rest
+
+checkOverlapsInMsg : DBCMessage → List ValidationIssue
+checkOverlapsInMsg msg = go (DBCMessage.signals msg)
+  where
+    msgName : String
+    msgName = DBCMessage.name msg
+    go : List DBCSignal → List ValidationIssue
+    go []           = []
+    go (sig ∷ rest) = checkOverlapAgainstList msgName sig rest ++ₗ go rest
+
+checkAllSignalOverlaps : List DBCMessage → List ValidationIssue
+checkAllSignalOverlaps [] = []
+checkAllSignalOverlaps (msg ∷ rest) =
+  checkOverlapsInMsg msg ++ₗ checkAllSignalOverlaps rest
+
+-- ============================================================================
+-- CHECK 10: BIT LENGTH ZERO
+-- ============================================================================
+
+checkBitLengthZero : String → DBCSignal → List ValidationIssue
+checkBitLengthZero msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
+... | yes _ = mkIssue IsError BitLengthZero
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': bit length is zero") ∷ []
+... | no  _ = []
+
+checkAllBitLengthZero : List DBCMessage → List ValidationIssue
+checkAllBitLengthZero [] = []
+checkAllBitLengthZero (msg ∷ rest) =
+  concatMap (checkBitLengthZero (DBCMessage.name msg)) (DBCMessage.signals msg)
+  ++ₗ checkAllBitLengthZero rest
+
+-- ============================================================================
+-- CHECK 11: DUPLICATE MESSAGE NAME
+-- ============================================================================
+
+checkDupNamePair : DBCMessage → DBCMessage → List ValidationIssue
+checkDupNamePair m1 m2 with DBCMessage.name m1 ≟ DBCMessage.name m2
+... | yes _ = mkIssue IsWarning DuplicateMessageName
+                ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
+                 ++ₛ DBCMessage.name m2 ++ₛ "' share the same name") ∷ []
+... | no  _ = []
+
+checkDupNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
+checkDupNameAgainstList _ [] = []
+checkDupNameAgainstList m (other ∷ rest) =
+  checkDupNamePair m other ++ₗ checkDupNameAgainstList m rest
+
+checkDuplicateMessageNames : List DBCMessage → List ValidationIssue
+checkDuplicateMessageNames [] = []
+checkDuplicateMessageNames (m ∷ rest) =
+  checkDupNameAgainstList m rest ++ₗ checkDuplicateMessageNames rest
+
+-- ============================================================================
+-- CHECK 12: DLC OUT OF RANGE
+-- Defense-in-depth: the DBC JSON parser rejects DLC > 8 at parse time,
+-- so this check cannot fire through the validateDBC API.  Retained for
+-- programmatically-constructed DBC values that bypass the parser.
+-- ============================================================================
+
+checkDLCOutOfRange : DBCMessage → List ValidationIssue
+checkDLCOutOfRange msg with DBCMessage.dlc msg ≤? 8
+... | yes _ = []
+... | no  _ = mkIssue IsError DLCOutOfRange
+                ("Message '" ++ₛ DBCMessage.name msg
+                 ++ₛ "': DLC exceeds maximum of 8") ∷ []
+
+checkAllDLCOutOfRange : List DBCMessage → List ValidationIssue
+checkAllDLCOutOfRange = concatMap checkDLCOutOfRange
+
+-- ============================================================================
+-- CHECK 13: OFFSET/SCALE RANGE
+-- ============================================================================
+
+-- Physical value = raw × factor + offset.
+-- Unsigned n-bit: raw ∈ [0, 2^n − 1].
+-- Signed n-bit (two's complement): raw ∈ [−2^(n−1), 2^(n−1) − 1].
+-- If factor < 0 the physical range is inverted (physA > physB).
+-- Check: the physical range [physMin, physMax] must contain [declaredMin, declaredMax].
+
+-- Embed ℕ into ℚ
+ℕtoℚ : ℕ → ℚ
+ℕtoℚ n = (+ n) /ᵣ 1
+
+-- Embed ℤ into ℚ
+ℤtoℚ : ℤ → ℚ
+ℤtoℚ z = z /ᵣ 1
+
+-- True when the ℚ numerator is negative
+isNegativeℚ : ℚ → Bool
+isNegativeℚ q with ℚ.numerator q
+... | (+ _)     = false
+... | (-[1+ _ ]) = true
+
+checkOffsetScaleRange : String → DBCSignal → List ValidationIssue
+checkOffsetScaleRange msgName sig =
+  let sd     = DBCSignal.signalDef sig
+      n      = SignalDef.bitLength sd
+      factor = SignalDef.factor sd
+      offset = SignalDef.offset sd
+      -- Raw range depends on signedness
+      half   = 2 ^ (n ∸ 1)
+  in computeRange (SignalDef.isSigned sd) n half factor offset
+                  (SignalDef.minimum sd) (SignalDef.maximum sd)
+  where
+    checkLow : ℚ → ℚ → List ValidationIssue
+    checkLow physMin declaredMin with declaredMin ≤?ᵣ physMin
+    ... | yes _ = []
+    ... | no  _ = mkIssue IsWarning OffsetScaleRange
+                    ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                     ++ₛ DBCSignal.name sig
+                     ++ₛ "': declared minimum is below physical range") ∷ []
+
+    checkHigh : ℚ → ℚ → List ValidationIssue
+    checkHigh physMax declaredMax with physMax ≤?ᵣ declaredMax
+    ... | yes _ = []
+    ... | no  _ = mkIssue IsWarning OffsetScaleRange
+                    ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                     ++ₛ DBCSignal.name sig
+                     ++ₛ "': declared maximum is above physical range") ∷ []
+
+    -- physA = rawMin × factor + offset, physB = rawMax × factor + offset.
+    -- If factor ≥ 0: physMin = physA, physMax = physB.
+    -- If factor < 0: physMin = physB, physMax = physA.
+    checkBounds : ℚ → ℚ → ℚ → ℚ → List ValidationIssue
+    checkBounds physA physB declMin declMax with isNegativeℚ (SignalDef.factor (DBCSignal.signalDef sig))
+    ... | false = checkLow physA declMin ++ₗ checkHigh physB declMax
+    ... | true  = checkLow physB declMin ++ₗ checkHigh physA declMax
+
+    computeRange : Bool → ℕ → ℕ → ℚ → ℚ → ℚ → ℚ → List ValidationIssue
+    -- Signed: raw ∈ [−2^(n−1), 2^(n−1) − 1]
+    computeRange true  n half factor offset declMin declMax =
+      let rawMinℚ = ℤtoℚ (-[1+ pred half ])  -- −(2^(n−1))
+          rawMaxℚ = ℕtoℚ (pred half)          -- 2^(n−1) − 1
+          physA   = rawMinℚ *ᵣ factor +ᵣ offset
+          physB   = rawMaxℚ *ᵣ factor +ᵣ offset
+      in checkBounds physA physB declMin declMax
+    -- Unsigned: raw ∈ [0, 2^n − 1]
+    computeRange false n _    factor offset declMin declMax =
+      let rawMinℚ = ℕtoℚ 0
+          rawMaxℚ = ℕtoℚ (pred (2 ^ n))
+          physA   = rawMinℚ *ᵣ factor +ᵣ offset  -- = offset
+          physB   = rawMaxℚ *ᵣ factor +ᵣ offset
+      in checkBounds physA physB declMin declMax
+
+checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
+checkAllOffsetScaleRange [] = []
+checkAllOffsetScaleRange (msg ∷ rest) =
+  concatMap (checkOffsetScaleRange (DBCMessage.name msg)) (DBCMessage.signals msg)
+  ++ₗ checkAllOffsetScaleRange rest
+
+-- ============================================================================
+-- CHECK 14: EMPTY MESSAGE
+-- ============================================================================
+
+checkEmptyMessage : DBCMessage → List ValidationIssue
+checkEmptyMessage msg with DBCMessage.signals msg
+... | []    = mkIssue IsWarning EmptyMessage
+                ("Message '" ++ₛ DBCMessage.name msg
+                 ++ₛ "': message has no signals") ∷ []
+... | _ ∷ _ = []
+
+checkAllEmptyMessage : List DBCMessage → List ValidationIssue
+checkAllEmptyMessage = concatMap checkEmptyMessage
+
+-- ============================================================================
+-- CHECK 15: START BIT OUT OF RANGE
+-- Defense-in-depth: the DBC JSON parser stores startBit % 64, so
+-- startBit ∈ [0,63] and this check cannot fire through validateDBC.
+-- ============================================================================
+
+checkStartBitOutOfRange : String → DBCSignal → List ValidationIssue
+checkStartBitOutOfRange msgName sig with SignalDef.startBit (DBCSignal.signalDef sig) <? 64
+... | yes _ = []
+... | no  _ = mkIssue IsWarning StartBitOutOfRange
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': start bit ≥ 64") ∷ []
+
+checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
+checkAllStartBitOutOfRange [] = []
+checkAllStartBitOutOfRange (msg ∷ rest) =
+  concatMap (checkStartBitOutOfRange (DBCMessage.name msg)) (DBCMessage.signals msg)
+  ++ₗ checkAllStartBitOutOfRange rest
+
+-- ============================================================================
+-- CHECK 16: BIT LENGTH EXCESSIVE
+-- Defense-in-depth: the DBC JSON parser stores bitLength % 65, so
+-- bitLength ∈ [0,64] and this check cannot fire through validateDBC.
+-- ============================================================================
+
+checkBitLengthExcessive : String → DBCSignal → List ValidationIssue
+checkBitLengthExcessive msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? 64
+... | yes _ = []
+... | no  _ = mkIssue IsWarning BitLengthExcessive
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': bit length exceeds 64") ∷ []
+
+checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
+checkAllBitLengthExcessive [] = []
+checkAllBitLengthExcessive (msg ∷ rest) =
+  concatMap (checkBitLengthExcessive (DBCMessage.name msg)) (DBCMessage.signals msg)
+  ++ₗ checkAllBitLengthExcessive rest
+
+-- ============================================================================
 -- FULL VALIDATOR
 -- ============================================================================
 
@@ -239,6 +532,15 @@ validateDBCFull dbc =
      ++ₗ checkAllMuxAlwaysPresent msgs
      ++ₗ checkAllGlobalNameCollisions msgs
      ++ₗ checkAllMinMax msgs
+     ++ₗ checkAllSignalExceedsDLC msgs
+     ++ₗ checkAllSignalOverlaps msgs
+     ++ₗ checkAllBitLengthZero msgs
+     ++ₗ checkDuplicateMessageNames msgs
+     ++ₗ checkAllDLCOutOfRange msgs
+     ++ₗ checkAllOffsetScaleRange msgs
+     ++ₗ checkAllEmptyMessage msgs
+     ++ₗ checkAllStartBitOutOfRange msgs
+     ++ₗ checkAllBitLengthExcessive msgs
 
 -- ============================================================================
 -- UTILITIES (used by StreamState for dual-layer validation)

@@ -11,14 +11,14 @@ import json
 from pathlib import Path
 from typing import cast
 
+import cantools
+import cantools.database.can
+
 from .protocols import (
     DBCSignal,
     DBCMessage,
     DBCDefinition,
 )
-
-import cantools
-import cantools.database.can
 
 
 def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:

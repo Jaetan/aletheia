@@ -45,6 +45,10 @@ Use the fluent Signal interface to build properties:
     brake.implies(speed_decreases.within(100))
 """
 
+# pylint: disable=cyclic-import
+# __init__.py re-exports from submodules; client.py lazily imports
+# `from . import _install_config` which technically creates a cycle
+# through this file. It is a deferred import with no runtime issue.
 from .client import (
     AletheiaClient,
     AletheiaError,

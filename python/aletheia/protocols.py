@@ -37,6 +37,15 @@ class IssueCode(str, Enum):
     MULTIPLEXOR_NOT_ALWAYS_PRESENT = "multiplexor_not_always_present"
     GLOBAL_NAME_COLLISION = "global_name_collision"
     MIN_EXCEEDS_MAX = "min_exceeds_max"
+    SIGNAL_EXCEEDS_DLC = "signal_exceeds_dlc"
+    SIGNAL_OVERLAP = "signal_overlap"
+    BIT_LENGTH_ZERO = "bit_length_zero"
+    DUPLICATE_MESSAGE_NAME = "duplicate_message_name"
+    DLC_OUT_OF_RANGE = "dlc_out_of_range"
+    OFFSET_SCALE_RANGE = "offset_scale_range"
+    EMPTY_MESSAGE = "empty_message"
+    START_BIT_OUT_OF_RANGE = "start_bit_out_of_range"
+    BIT_LENGTH_EXCESSIVE = "bit_length_excessive"
 
 
 class ResponseStatus(str, Enum):

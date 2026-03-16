@@ -97,8 +97,8 @@ class TestValidDBCPassesClean:
     def test_valid_single_message(self) -> None:
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
-                _make_signal("Speed", start_bit=0, length=16),
-                _make_signal("RPM", start_bit=16, length=16),
+                _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
+                _make_signal("RPM", start_bit=16, length=16, maximum=65535.0),
             ]),
         ])
         with AletheiaClient() as client:
@@ -111,7 +111,7 @@ class TestValidDBCPassesClean:
     def test_valid_multiple_messages(self) -> None:
         dbc = _make_dbc([
             _make_message(0x100, "Engine", [
-                _make_signal("Speed", start_bit=0, length=16),
+                _make_signal("Speed", start_bit=0, length=16, maximum=65535.0),
             ]),
             _make_message(0x200, "Brakes", [
                 _make_signal("BrakePressure", start_bit=0, length=8),
@@ -232,6 +232,412 @@ class TestGlobalNameCollision:
 
         codes = [i["code"] for i in result["issues"]]
         assert "global_name_collision" in codes
+
+
+class TestSignalExceedsDLC:
+    """Check 8: Signal bit range must fit within DLC × 8 bits."""
+
+    def test_little_endian_signal_exceeds_dlc(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("TooWide", start_bit=56, length=16, byte_order="little_endian"),
+            ], dlc=8),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "signal_exceeds_dlc" in codes
+
+    def test_little_endian_signal_fits_dlc(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Fits", start_bit=0, length=16, byte_order="little_endian"),
+            ], dlc=8),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        exceeds = [i for i in result["issues"] if i["code"] == "signal_exceeds_dlc"]
+        assert exceeds == []
+
+    def test_big_endian_signal_exceeds_dlc(self) -> None:
+        # BE extraction reverses the payload, so reversed byte startBit/8
+        # maps to original byte 7 - startBit/8.
+        # startBit=7 → reversed byte 0 → original byte 7; suc(7) = 8 > 4 → error
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("TooFar", start_bit=7, length=8, byte_order="big_endian",
+                             maximum=255.0),
+            ], dlc=4),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "signal_exceeds_dlc" in codes
+
+    def test_big_endian_signal_fits_dlc(self) -> None:
+        # startBit=39 → reversed byte 4 → original byte 3; suc(3) = 4 ≤ 4 → ok
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Fits", start_bit=39, length=8, byte_order="big_endian",
+                             maximum=255.0),
+            ], dlc=4),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        exceeds = [i for i in result["issues"] if i["code"] == "signal_exceeds_dlc"]
+        assert exceeds == []
+
+    def test_small_dlc_catches_overflow(self) -> None:
+        # DLC=2 means only 16 bits; signal at bit 16 with length 8 exceeds
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Overflow", start_bit=16, length=8, byte_order="little_endian"),
+            ], dlc=2),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "signal_exceeds_dlc" in codes
+
+
+class TestSignalOverlap:
+    """Check 9: Non-multiplexed coexisting signals must not share bits."""
+
+    def test_overlapping_signals_detected(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Sig1", start_bit=0, length=16),
+                _make_signal("Sig2", start_bit=8, length=16),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "signal_overlap" in codes
+
+    def test_non_overlapping_signals_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Sig1", start_bit=0, length=8),
+                _make_signal("Sig2", start_bit=8, length=8),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        overlaps = [i for i in result["issues"] if i["code"] == "signal_overlap"]
+        assert overlaps == []
+
+    def test_multiplexed_signals_can_share_bits(self) -> None:
+        """Multiplexed signals that can't coexist should not report overlap."""
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Mux", start_bit=0, length=8),
+                _make_mux_signal("A", "Mux", 0, start_bit=8, length=8),
+                _make_mux_signal("B", "Mux", 1, start_bit=8, length=8),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        overlaps = [i for i in result["issues"] if i["code"] == "signal_overlap"]
+        assert overlaps == []
+
+
+class TestBitLengthZero:
+    """Check 10: Signal bit length must not be zero."""
+
+    def test_zero_length_detected(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("ZeroLen", length=0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "bit_length_zero" in codes
+
+    def test_nonzero_length_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Normal", length=8),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        zero_issues = [i for i in result["issues"] if i["code"] == "bit_length_zero"]
+        assert zero_issues == []
+
+
+class TestDuplicateMessageName:
+    """Check 11: Duplicate message names across the DBC."""
+
+    def test_duplicate_name_detected(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "SameName", [_make_signal("Sig1")]),
+            _make_message(0x200, "SameName", [_make_signal("Sig2")]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "duplicate_message_name" in codes
+
+    def test_different_names_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [_make_signal("Sig1")]),
+            _make_message(0x200, "Msg2", [_make_signal("Sig2")]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        dup_names = [i for i in result["issues"] if i["code"] == "duplicate_message_name"]
+        assert dup_names == []
+
+
+class TestDLCOutOfRange:
+    """Check 12: DLC must not exceed 8."""
+
+    def test_dlc_too_large(self) -> None:
+        # Note: DBC JSON parser already rejects DLC > 8 at parse time.
+        # This test verifies the parser catches it (defense in depth).
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [], dlc=9),
+        ])
+        with AletheiaClient() as client:
+            from aletheia.client import ProtocolError
+            with pytest.raises(ProtocolError, match="DLC.*out of range"):
+                client.validate_dbc(dbc)
+
+    def test_dlc_8_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [_make_signal("Sig1")], dlc=8),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        dlc_issues = [i for i in result["issues"] if i["code"] == "dlc_out_of_range"]
+        assert dlc_issues == []
+
+
+class TestOffsetScaleRange:
+    """Check 13: Declared [min,max] must contain the physical range.
+
+    Physical = raw × factor + offset.
+    Unsigned n-bit: raw ∈ [0, 2^n − 1].
+    Signed   n-bit: raw ∈ [−2^(n−1), 2^(n−1) − 1].
+    If factor < 0, the physical range inverts.
+    """
+
+    def test_unsigned_correct_range_clean(self) -> None:
+        # 8-bit unsigned, factor=1, offset=0 → phys ∈ [0, 255]
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Good", length=8, factor=1.0, offset=0.0,
+                             minimum=0.0, maximum=255.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert osr == []
+
+    def test_unsigned_declared_max_too_narrow(self) -> None:
+        # 8-bit unsigned, factor=1, offset=0 → phys_max=255, but declared max=200
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Narrow", length=8, factor=1.0, offset=0.0,
+                             minimum=0.0, maximum=200.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert len(osr) == 1
+        assert "maximum" in osr[0]["detail"]
+
+    def test_signed_correct_range_clean(self) -> None:
+        # 8-bit signed, factor=1, offset=0 → phys ∈ [-128, 127]
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Temp", length=8, signed=True, factor=1.0,
+                             offset=0.0, minimum=-128.0, maximum=127.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert osr == []
+
+    def test_signed_declared_min_too_narrow(self) -> None:
+        # 8-bit signed, factor=1, offset=0 → phys_min=-128, but declared min=-100
+        # Declared range [-100, 127] is NARROWER than physical [-128, 127]
+        # Hardware can produce values in [-128, -101] outside declared range → warning
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Cold", length=8, signed=True, factor=1.0,
+                             offset=0.0, minimum=-100.0, maximum=127.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert len(osr) == 1
+        assert "minimum" in osr[0]["detail"]
+
+    def test_negative_factor_unsigned(self) -> None:
+        # 8-bit unsigned, factor=-0.1, offset=25.5
+        # phys_min = 255 * (-0.1) + 25.5 = 0.0, phys_max = 0 * (-0.1) + 25.5 = 25.5
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Inverted", length=8, factor=-0.1, offset=25.5,
+                             minimum=0.0, maximum=25.5),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert osr == []
+
+    def test_negative_factor_wrong_range_warns(self) -> None:
+        # 8-bit unsigned, factor=-0.1, offset=25.5
+        # phys range: [0.0, 25.5] (factor negative flips raw→phys direction)
+        # Declared min=5.0 is ABOVE physMin=0.0 → hardware can produce [0, 5) outside declared range
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Bad", length=8, factor=-0.1, offset=25.5,
+                             minimum=5.0, maximum=25.5),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert len(osr) == 1
+        assert "minimum" in osr[0]["detail"]
+
+    def test_with_offset_and_factor(self) -> None:
+        # 16-bit unsigned, factor=0.01, offset=-100 → phys ∈ [-100, 555.35]
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Scaled", start_bit=0, length=16, factor=0.01,
+                             offset=-100.0, minimum=-100.0, maximum=555.35),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        osr = [i for i in result["issues"] if i["code"] == "offset_scale_range"]
+        assert osr == []
+
+
+class TestEmptyMessage:
+    """Check 14: Message with no signals."""
+
+    def test_empty_message_warned(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Empty", []),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        codes = [i["code"] for i in result["issues"]]
+        assert "empty_message" in codes
+        # Should be warning, not error
+        empty_issues = [i for i in result["issues"] if i["code"] == "empty_message"]
+        assert all(i["severity"] == "warning" for i in empty_issues)
+
+    def test_message_with_signals_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "HasSigs", [_make_signal("Sig1")]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        empty_issues = [i for i in result["issues"] if i["code"] == "empty_message"]
+        assert empty_issues == []
+
+
+class TestStartBitOutOfRange:
+    """Check 15: Start bit >= 64 is suspicious.
+
+    Note: DBC parser clamps startBit via % 64, so values >= 64 wrap to 0.
+    This check is defense-in-depth for programmatically constructed DBCs.
+    We test with values within the parser's range (0-63).
+    """
+
+    def test_start_bit_63_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("OkStart", start_bit=63, length=1, maximum=1.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        sb_issues = [i for i in result["issues"] if i["code"] == "start_bit_out_of_range"]
+        assert sb_issues == []
+
+    def test_start_bit_0_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("OkStart", start_bit=0, length=8),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        sb_issues = [i for i in result["issues"] if i["code"] == "start_bit_out_of_range"]
+        assert sb_issues == []
+
+
+class TestBitLengthExcessive:
+    """Check 16: Bit length > 64 is suspicious.
+
+    Note: DBC parser clamps bitLength via % 65, so values >= 65 wrap.
+    This check is defense-in-depth for programmatically constructed DBCs.
+    We test with values within the parser's range (0-64).
+    """
+
+    def test_bit_length_32_ok(self) -> None:
+        # Test with 32-bit signal — well within the 64-bit limit
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("Counter", start_bit=0, length=32,
+                             maximum=4294967295.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        bl_issues = [i for i in result["issues"] if i["code"] == "bit_length_excessive"]
+        assert bl_issues == []
+
+    def test_bit_length_1_ok(self) -> None:
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [
+                _make_signal("OneBit", start_bit=0, length=1, maximum=1.0),
+            ]),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        bl_issues = [i for i in result["issues"] if i["code"] == "bit_length_excessive"]
+        assert bl_issues == []
 
 
 class TestParseDBC_DualLayerValidation:

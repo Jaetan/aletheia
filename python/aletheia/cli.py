@@ -451,8 +451,9 @@ def _run_checks(
             total_frames += 1
             response = client.send_frame(ts, can_id, data)
             if response["status"] == "violation":
-                violation_resp = cast(PropertyViolationResponse, response)
-                violations.append(_build_violation(violation_resp, all_checks))
+                violations.append(_build_violation(
+                    cast(PropertyViolationResponse, response), all_checks,
+                ))
 
         end_resp = client.end_stream()
         # Collect end-of-stream violations from finalization

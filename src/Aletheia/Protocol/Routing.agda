@@ -33,7 +33,9 @@ open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero;
   MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision;
-  MinExceedsMax; ValidationIssue)
+  MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
+  DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage;
+  StartBitOutOfRange; BitLengthExcessive; ValidationIssue)
 
 -- ============================================================================
 -- JSON → REQUEST PARSING
@@ -369,6 +371,15 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode MultiplexorNotAlwaysPresent = "multiplexor_not_always_present"
     formatIssueCode GlobalNameCollision         = "global_name_collision"
     formatIssueCode MinExceedsMax               = "min_exceeds_max"
+    formatIssueCode SignalExceedsDLC            = "signal_exceeds_dlc"
+    formatIssueCode SignalOverlap               = "signal_overlap"
+    formatIssueCode BitLengthZero               = "bit_length_zero"
+    formatIssueCode DuplicateMessageName        = "duplicate_message_name"
+    formatIssueCode DLCOutOfRange               = "dlc_out_of_range"
+    formatIssueCode OffsetScaleRange            = "offset_scale_range"
+    formatIssueCode EmptyMessage                = "empty_message"
+    formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"
+    formatIssueCode BitLengthExcessive          = "bit_length_excessive"
 
     formatValidationIssue : ValidationIssue → JSON
     formatValidationIssue issue =

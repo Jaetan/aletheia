@@ -36,6 +36,7 @@ from __future__ import annotations
 import ctypes
 import json
 import threading
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, override, cast
@@ -113,19 +114,17 @@ class _RTSState:
                 else:
                     args = [b"aletheia"]
                 argc = ctypes.c_int(len(args))
-                ArgvArray = ctypes.c_char_p * len(args)
-                argv = ArgvArray(*args)
+                argv = (ctypes.c_char_p * len(args))(*args)
                 argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
                 lib.hs_init(ctypes.byref(argc), ctypes.byref(argv_ptr))
                 cls.lib = lib
                 cls.cores = rts_cores
                 cls.initialized = True
             elif rts_cores != cls.cores:
-                import warnings
                 warnings.warn(
                     f"GHC RTS already initialized with {cls.cores} core(s); "
-                    f"ignoring rts_cores={rts_cores}. Set rts_cores on the "
-                    f"first AletheiaClient created in the process.",
+                    + f"ignoring rts_cores={rts_cores}. Set rts_cores on the "
+                    + "first AletheiaClient created in the process.",
                     stacklevel=3,
                 )
             cls.refcount += 1
@@ -445,15 +444,11 @@ class AletheiaClient:
         status = response.get("status")
 
         if status == "validation":
-            issues_raw = response.get("issues", [])
-            assert isinstance(issues_raw, list), \
-                "Protocol error: expected 'issues' to be a list"
-            issues: list[ValidationIssue] = [
-                cast(ValidationIssue, issue) for issue in issues_raw
-            ]
+            vresp = cast(ValidationResponse, response)
+            issues: list[ValidationIssue] = list(vresp["issues"])
             return {
                 "status": "validation",
-                "has_errors": bool(response.get("has_errors", False)),
+                "has_errors": bool(vresp.get("has_errors", False)),
                 "issues": issues,
             }
 
@@ -752,15 +747,14 @@ class AletheiaClient:
         self, response: Response,
     ) -> list[PropertyResultEntry]:
         """Parse end-of-stream property finalization results."""
-        raw_results = response.get("results", [])
-        if not isinstance(raw_results, list):
-            return []
+        cresp = cast(CompleteResponse, response)
+        raw_results = cresp.get("results", [])
         entries: list[PropertyResultEntry] = []
         for raw in raw_results:
-            if not isinstance(raw, dict):
-                continue
-            entry_status = raw.get("status", "")
-            prop_index = self._to_rational(raw.get("property_index"))
+            entry_status: str = raw.get("status", "")
+            prop_index = self._validate_rational(
+                "property_index", raw.get("property_index"),
+            )
             result_entry: PropertyResultEntry = {
                 "type": "property",
                 "status": entry_status,
@@ -769,26 +763,15 @@ class AletheiaClient:
             if entry_status == "violation":
                 ts = raw.get("timestamp")
                 if ts is not None:
-                    result_entry["timestamp"] = self._to_rational(ts)
+                    result_entry["timestamp"] = self._validate_rational(
+                        "timestamp", ts,
+                    )
                 reason = raw.get("reason")
                 if isinstance(reason, str):
                     result_entry["reason"] = reason
-                # Enrich with diagnostics
                 self._enrich_finalization_result(result_entry)
             entries.append(result_entry)
         return entries
-
-    @staticmethod
-    def _to_rational(value: object) -> RationalNumber:
-        """Convert a JSON value (int or {numerator, denominator}) to RationalNumber."""
-        if isinstance(value, dict):
-            return {
-                "numerator": value.get("numerator", 0),
-                "denominator": value.get("denominator", 1),
-            }
-        if isinstance(value, (int, float)):
-            return {"numerator": int(value), "denominator": 1}
-        return {"numerator": 0, "denominator": 1}
 
     def _enrich_finalization_result(
         self, result: PropertyResultEntry,

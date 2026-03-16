@@ -62,35 +62,16 @@ from typing import TypeGuard
 import yaml  # type: ignore[import-untyped]
 
 from .checks import Check, CheckResult
-
-
-# ============================================================================
-# Condition constants
-# ============================================================================
-
-_SIMPLE_VALUE_CONDITIONS = frozenset({
-    "never_exceeds", "never_below", "never_equals",
-})
-_SIMPLE_RANGE_CONDITIONS = frozenset({
-    "stays_between",
-})
-_SIMPLE_SETTLES_CONDITIONS = frozenset({
-    "settles_between",
-})
-_SIMPLE_EQUALS_CONDITIONS = frozenset({
-    "equals",
-})
-_ALL_SIMPLE_CONDITIONS = (
-    _SIMPLE_VALUE_CONDITIONS
-    | _SIMPLE_RANGE_CONDITIONS
-    | _SIMPLE_SETTLES_CONDITIONS
-    | _SIMPLE_EQUALS_CONDITIONS
+from ._check_conditions import (
+    ALL_SIMPLE_CONDITIONS,
+    SIMPLE_VALUE_CONDITIONS,
+    SIMPLE_RANGE_CONDITIONS,
+    SIMPLE_SETTLES_CONDITIONS,
+    WHEN_CONDITIONS,
+    ALL_THEN_CONDITIONS,
+    dispatch_simple,
+    dispatch_when,
 )
-
-_WHEN_CONDITIONS = frozenset({"exceeds", "equals", "drops_below"})
-_THEN_VALUE_CONDITIONS = frozenset({"equals", "exceeds"})
-_THEN_RANGE_CONDITIONS = frozenset({"stays_between"})
-_ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
 
 
 # ============================================================================
@@ -245,25 +226,19 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
         raise ValueError(f"Check '{name}': 'condition' must be a string")
     signal = _get_str(entry, "signal", name)
 
-    if condition not in _ALL_SIMPLE_CONDITIONS:
+    if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown condition '{condition}'")
 
     builder = Check.signal(signal)
 
-    if condition in _SIMPLE_VALUE_CONDITIONS:
+    if condition in SIMPLE_VALUE_CONDITIONS:
         if "value" not in entry:
             raise ValueError(
                 f"Check '{name}': condition '{condition}' requires 'value'"
             )
-        value = _get_number(entry, "value", name)
-        if condition == "never_exceeds":
-            return builder.never_exceeds(value)
-        if condition == "never_below":
-            return builder.never_below(value)
-        # never_equals
-        return builder.never_equals(value)
+        return dispatch_simple(signal, condition, _get_number(entry, "value", name))
 
-    if condition in _SIMPLE_RANGE_CONDITIONS:
+    if condition in SIMPLE_RANGE_CONDITIONS:
         if "min" not in entry or "max" not in entry:
             raise ValueError(
                 f"Check '{name}': condition '{condition}' requires 'min' and 'max'"
@@ -273,7 +248,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             _get_number(entry, "max", name),
         )
 
-    if condition in _SIMPLE_SETTLES_CONDITIONS:
+    if condition in SIMPLE_SETTLES_CONDITIONS:
         if "min" not in entry or "max" not in entry:
             raise ValueError(
                 f"Check '{name}': condition 'settles_between' requires 'min' and 'max'"
@@ -314,23 +289,17 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
 
     # Validate when clause
     when_cond = _get_str(when, "condition", name)
-    if when_cond not in _WHEN_CONDITIONS:
+    if when_cond not in WHEN_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown when condition '{when_cond}'")
 
     when_signal = _get_str(when, "signal", name)
     when_value = _get_number(when, "value", name)
 
-    when_builder = Check.when(when_signal)
-    if when_cond == "exceeds":
-        when_result = when_builder.exceeds(when_value)
-    elif when_cond == "equals":
-        when_result = when_builder.equals(when_value)
-    else:  # drops_below
-        when_result = when_builder.drops_below(when_value)
+    when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
 
     # Validate then clause
     then_cond = _get_str(then, "condition", name)
-    if then_cond not in _ALL_THEN_CONDITIONS:
+    if then_cond not in ALL_THEN_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown then condition '{then_cond}'")
 
     then_signal = _get_str(then, "signal", name)

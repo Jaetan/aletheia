@@ -58,6 +58,16 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
+from ._check_conditions import (
+    ALL_SIMPLE_CONDITIONS,
+    SIMPLE_VALUE_CONDITIONS,
+    SIMPLE_RANGE_CONDITIONS,
+    SIMPLE_SETTLES_CONDITIONS,
+    WHEN_CONDITIONS,
+    ALL_THEN_CONDITIONS,
+    dispatch_simple,
+    dispatch_when,
+)
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -81,34 +91,6 @@ class _MessageKey:
     name: str
     dlc: int
 
-
-# ============================================================================
-# Condition constants (shared with yaml_loader.py by design — kept local)
-# ============================================================================
-
-_SIMPLE_VALUE_CONDITIONS = frozenset({
-    "never_exceeds", "never_below", "never_equals",
-})
-_SIMPLE_RANGE_CONDITIONS = frozenset({
-    "stays_between",
-})
-_SIMPLE_SETTLES_CONDITIONS = frozenset({
-    "settles_between",
-})
-_SIMPLE_EQUALS_CONDITIONS = frozenset({
-    "equals",
-})
-_ALL_SIMPLE_CONDITIONS = (
-    _SIMPLE_VALUE_CONDITIONS
-    | _SIMPLE_RANGE_CONDITIONS
-    | _SIMPLE_SETTLES_CONDITIONS
-    | _SIMPLE_EQUALS_CONDITIONS
-)
-
-_WHEN_CONDITIONS = frozenset({"exceeds", "equals", "drops_below"})
-_THEN_VALUE_CONDITIONS = frozenset({"equals", "exceeds"})
-_THEN_RANGE_CONDITIONS = frozenset({"stays_between"})
-_ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
 
 
 # ============================================================================
@@ -410,20 +392,14 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     signal = _get_str(d, "Signal", row_num)
     condition = _get_str(d, "Condition", row_num)
 
-    if condition not in _ALL_SIMPLE_CONDITIONS:
+    if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
 
     builder = Check.signal(signal)
 
-    if condition in _SIMPLE_VALUE_CONDITIONS:
-        value = _get_number(d, "Value", row_num)
-        if condition == "never_exceeds":
-            result = builder.never_exceeds(value)
-        elif condition == "never_below":
-            result = builder.never_below(value)
-        else:  # never_equals
-            result = builder.never_equals(value)
-    elif condition in _SIMPLE_RANGE_CONDITIONS:
+    if condition in SIMPLE_VALUE_CONDITIONS:
+        result = dispatch_simple(signal, condition, _get_number(d, "Value", row_num))
+    elif condition in SIMPLE_RANGE_CONDITIONS:
         if "Min" not in d or "Max" not in d:
             raise ValueError(
                 f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
@@ -432,7 +408,7 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
             _get_number(d, "Min", row_num),
             _get_number(d, "Max", row_num),
         )
-    elif condition in _SIMPLE_SETTLES_CONDITIONS:
+    elif condition in SIMPLE_SETTLES_CONDITIONS:
         if "Min" not in d or "Max" not in d:
             raise ValueError(
                 f"Row {row_num}: condition 'settles_between' requires 'Min' and 'Max'"
@@ -460,22 +436,16 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     when_cond = _get_str(d, "When Condition", row_num)
     when_value = _get_number(d, "When Value", row_num)
 
-    if when_cond not in _WHEN_CONDITIONS:
+    if when_cond not in WHEN_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown when condition '{when_cond}'")
 
-    when_builder = Check.when(when_signal)
-    if when_cond == "exceeds":
-        when_result = when_builder.exceeds(when_value)
-    elif when_cond == "equals":
-        when_result = when_builder.equals(when_value)
-    else:  # drops_below
-        when_result = when_builder.drops_below(when_value)
+    when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
 
     # Then clause
     then_signal = _get_str(d, "Then Signal", row_num)
     then_cond = _get_str(d, "Then Condition", row_num)
 
-    if then_cond not in _ALL_THEN_CONDITIONS:
+    if then_cond not in ALL_THEN_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown then condition '{then_cond}'")
 
     then_builder = when_result.then(then_signal)
