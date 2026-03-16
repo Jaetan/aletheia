@@ -140,14 +140,14 @@ checkDupSigAgainstList _ _ [] = []
 checkDupSigAgainstList msgName sig (other ∷ rest) =
   checkDupSigPair msgName sig other ++ₗ checkDupSigAgainstList msgName sig rest
 
+checkDupSigTriangular : String → List DBCSignal → List ValidationIssue
+checkDupSigTriangular _ []           = []
+checkDupSigTriangular msgName (sig ∷ rest) =
+  checkDupSigAgainstList msgName sig rest ++ₗ checkDupSigTriangular msgName rest
+
 checkDuplicateSignalNamesInMsg : DBCMessage → List ValidationIssue
-checkDuplicateSignalNamesInMsg msg = go (DBCMessage.signals msg)
-  where
-    msgName : String
-    msgName = DBCMessage.name msg
-    go : List DBCSignal → List ValidationIssue
-    go []           = []
-    go (sig ∷ rest) = checkDupSigAgainstList msgName sig rest ++ₗ go rest
+checkDuplicateSignalNamesInMsg msg =
+  checkDupSigTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
 
 checkAllDuplicateSignalNames : List DBCMessage → List ValidationIssue
 checkAllDuplicateSignalNames [] = []
@@ -254,7 +254,7 @@ checkMinMaxSig msgName sig
   with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
        SignalDef.maximum (DBCSignal.signalDef sig)
 ... | yes _ = []
-... | no  _ = mkIssue IsError MinExceedsMax
+... | no  _ = mkIssue IsWarning MinExceedsMax
                 ("Message '" ++ₛ msgName ++ₛ "', signal '"
                  ++ₛ DBCSignal.name sig
                  ++ₛ "': minimum exceeds maximum") ∷ []
@@ -316,14 +316,14 @@ checkOverlapAgainstList _ _ [] = []
 checkOverlapAgainstList msgName sig (other ∷ rest) =
   checkOverlapPair msgName sig other ++ₗ checkOverlapAgainstList msgName sig rest
 
+checkOverlapTriangular : String → List DBCSignal → List ValidationIssue
+checkOverlapTriangular _ []           = []
+checkOverlapTriangular msgName (sig ∷ rest) =
+  checkOverlapAgainstList msgName sig rest ++ₗ checkOverlapTriangular msgName rest
+
 checkOverlapsInMsg : DBCMessage → List ValidationIssue
-checkOverlapsInMsg msg = go (DBCMessage.signals msg)
-  where
-    msgName : String
-    msgName = DBCMessage.name msg
-    go : List DBCSignal → List ValidationIssue
-    go []           = []
-    go (sig ∷ rest) = checkOverlapAgainstList msgName sig rest ++ₗ go rest
+checkOverlapsInMsg msg =
+  checkOverlapTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
 
 checkAllSignalOverlaps : List DBCMessage → List ValidationIssue
 checkAllSignalOverlaps [] = []
@@ -409,56 +409,58 @@ isNegativeℚ q with ℚ.numerator q
 ... | (+ _)     = false
 ... | (-[1+ _ ]) = true
 
+checkRangeLow : String → String → ℚ → ℚ → List ValidationIssue
+checkRangeLow msgName sigName physMin declaredMin with declaredMin ≤?ᵣ physMin
+... | yes _ = []
+... | no  _ = mkIssue IsWarning OffsetScaleRange
+                ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                 ++ₛ sigName
+                 ++ₛ "': declared minimum is below physical range") ∷ []
+
+checkRangeHigh : String → String → ℚ → ℚ → List ValidationIssue
+checkRangeHigh msgName sigName physMax declaredMax with physMax ≤?ᵣ declaredMax
+... | yes _ = []
+... | no  _ = mkIssue IsWarning OffsetScaleRange
+                ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                 ++ₛ sigName
+                 ++ₛ "': declared maximum is above physical range") ∷ []
+
+-- physA = rawMin × factor + offset, physB = rawMax × factor + offset.
+-- If factor ≥ 0: physMin = physA, physMax = physB.
+-- If factor < 0: physMin = physB, physMax = physA.
+checkRangeBounds : String → String → ℚ → ℚ → ℚ → ℚ → ℚ → List ValidationIssue
+checkRangeBounds msgName sigName factor physA physB declMin declMax
+  with isNegativeℚ factor
+... | false = checkRangeLow msgName sigName physA declMin ++ₗ checkRangeHigh msgName sigName physB declMax
+... | true  = checkRangeLow msgName sigName physB declMin ++ₗ checkRangeHigh msgName sigName physA declMax
+
 checkOffsetScaleRange : String → DBCSignal → List ValidationIssue
-checkOffsetScaleRange msgName sig =
+checkOffsetScaleRange msgName sig with SignalDef.isSigned (DBCSignal.signalDef sig)
+... | true =
   let sd     = DBCSignal.signalDef sig
       n      = SignalDef.bitLength sd
       factor = SignalDef.factor sd
       offset = SignalDef.offset sd
-      -- Raw range depends on signedness
       half   = 2 ^ (n ∸ 1)
-  in computeRange (SignalDef.isSigned sd) n half factor offset
-                  (SignalDef.minimum sd) (SignalDef.maximum sd)
-  where
-    checkLow : ℚ → ℚ → List ValidationIssue
-    checkLow physMin declaredMin with declaredMin ≤?ᵣ physMin
-    ... | yes _ = []
-    ... | no  _ = mkIssue IsWarning OffsetScaleRange
-                    ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                     ++ₛ DBCSignal.name sig
-                     ++ₛ "': declared minimum is below physical range") ∷ []
-
-    checkHigh : ℚ → ℚ → List ValidationIssue
-    checkHigh physMax declaredMax with physMax ≤?ᵣ declaredMax
-    ... | yes _ = []
-    ... | no  _ = mkIssue IsWarning OffsetScaleRange
-                    ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                     ++ₛ DBCSignal.name sig
-                     ++ₛ "': declared maximum is above physical range") ∷ []
-
-    -- physA = rawMin × factor + offset, physB = rawMax × factor + offset.
-    -- If factor ≥ 0: physMin = physA, physMax = physB.
-    -- If factor < 0: physMin = physB, physMax = physA.
-    checkBounds : ℚ → ℚ → ℚ → ℚ → List ValidationIssue
-    checkBounds physA physB declMin declMax with isNegativeℚ (SignalDef.factor (DBCSignal.signalDef sig))
-    ... | false = checkLow physA declMin ++ₗ checkHigh physB declMax
-    ... | true  = checkLow physB declMin ++ₗ checkHigh physA declMax
-
-    computeRange : Bool → ℕ → ℕ → ℚ → ℚ → ℚ → ℚ → List ValidationIssue
-    -- Signed: raw ∈ [−2^(n−1), 2^(n−1) − 1]
-    computeRange true  n half factor offset declMin declMax =
-      let rawMinℚ = ℤtoℚ (-[1+ pred half ])  -- −(2^(n−1))
-          rawMaxℚ = ℕtoℚ (pred half)          -- 2^(n−1) − 1
-          physA   = rawMinℚ *ᵣ factor +ᵣ offset
-          physB   = rawMaxℚ *ᵣ factor +ᵣ offset
-      in checkBounds physA physB declMin declMax
-    -- Unsigned: raw ∈ [0, 2^n − 1]
-    computeRange false n _    factor offset declMin declMax =
-      let rawMinℚ = ℕtoℚ 0
-          rawMaxℚ = ℕtoℚ (pred (2 ^ n))
-          physA   = rawMinℚ *ᵣ factor +ᵣ offset  -- = offset
-          physB   = rawMaxℚ *ᵣ factor +ᵣ offset
-      in checkBounds physA physB declMin declMax
+      sn     = DBCSignal.name sig
+      rawMinℚ = ℤtoℚ (-[1+ pred half ])
+      rawMaxℚ = ℕtoℚ (pred half)
+      physA   = rawMinℚ *ᵣ factor +ᵣ offset
+      physB   = rawMaxℚ *ᵣ factor +ᵣ offset
+  in checkRangeBounds msgName sn factor physA physB
+                      (SignalDef.minimum sd) (SignalDef.maximum sd)
+... | false =
+  let sd     = DBCSignal.signalDef sig
+      n      = SignalDef.bitLength sd
+      factor = SignalDef.factor sd
+      offset = SignalDef.offset sd
+      sn     = DBCSignal.name sig
+      rawMinℚ = ℕtoℚ 0
+      rawMaxℚ = ℕtoℚ (pred (2 ^ n))
+      physA   = rawMinℚ *ᵣ factor +ᵣ offset
+      physB   = rawMaxℚ *ᵣ factor +ᵣ offset
+  in checkRangeBounds msgName sn factor physA physB
+                      (SignalDef.minimum sd) (SignalDef.maximum sd)
 
 checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
 checkAllOffsetScaleRange [] = []

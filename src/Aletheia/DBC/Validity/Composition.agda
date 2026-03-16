@@ -1,0 +1,277 @@
+{-# OPTIONS --safe --without-K #-}
+
+-- Composition layer: connects errorIssues to per-check proofs.
+--
+-- Provides:
+-- 1. Core errorIssues distributivity lemmas
+-- 2. All-error-severity proofs for each of the 9 error checks
+-- Used by Theorem.agda to derive top-level soundness/completeness.
+module Aletheia.DBC.Validity.Composition where
+
+open import Aletheia.DBC.Types
+open import Aletheia.DBC.Validator
+open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split)
+open import Aletheia.DBC.Properties using (signalPairValid?)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
+open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List.Relation.Unary.All using (All; []; _∷_)
+open import Data.List.Relation.Unary.Any using (any?)
+open import Data.String.Properties using (_≟_)
+open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_)
+open import Data.Nat as Nat using (_/_)
+open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
+open import Data.Integer using (ℤ; +_)
+open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
+open import Data.Rational using (ℚ)
+open import Data.Maybe using (just; nothing)
+open import Data.Product using (_×_; _,_)
+open import Relation.Nullary using (yes; no)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans; sym)
+
+private
+  E : ValidationIssue → Set
+  E i = ValidationIssue.severity i ≡ IsError
+
+  W : ValidationIssue → Set
+  W i = ValidationIssue.severity i ≡ IsWarning
+
+  All-++ : ∀ {P : ValidationIssue → Set} {xs ys : List ValidationIssue} →
+    All P xs → All P ys → All P (xs ++ₗ ys)
+  All-++ [] pys = pys
+  All-++ (px ∷ pxs) pys = px ∷ All-++ pxs pys
+
+  All-concatMap : ∀ {A : Set} {P : ValidationIssue → Set}
+    {f : A → List ValidationIssue} {xs : List A} →
+    All (λ x → All P (f x)) xs → All P (concatMap f xs)
+  All-concatMap [] = []
+  All-concatMap (p ∷ ps) = All-++ p (All-concatMap ps)
+
+  All-tab : ∀ {A : Set} {P : A → Set} → (∀ x → P x) → ∀ xs → All P xs
+  All-tab _ [] = []
+  All-tab f (x ∷ xs) = f x ∷ All-tab f xs
+
+-- ============================================================================
+-- CORE errorIssues LEMMAS
+-- ============================================================================
+
+errorIssues-++ : ∀ xs ys →
+  errorIssues (xs ++ₗ ys) ≡ errorIssues xs ++ₗ errorIssues ys
+errorIssues-++ [] ys = refl
+errorIssues-++ (i ∷ rest) ys with ValidationIssue.severity i
+... | IsError   = cong (i ∷_) (errorIssues-++ rest ys)
+... | IsWarning = errorIssues-++ rest ys
+
+errorIssues-allW : ∀ xs → All W xs → errorIssues xs ≡ []
+errorIssues-allW [] _ = refl
+errorIssues-allW (i ∷ rest) (p ∷ ps) with ValidationIssue.severity i | p
+... | IsWarning | refl = errorIssues-allW rest ps
+
+errorIssues-allE : ∀ xs → All E xs → errorIssues xs ≡ xs
+errorIssues-allE [] _ = refl
+errorIssues-allE (i ∷ rest) (p ∷ ps) with ValidationIssue.severity i | p
+... | IsError | refl = cong (i ∷_) (errorIssues-allE rest ps)
+
+errorIssues-allE-nil : ∀ xs → All E xs → errorIssues xs ≡ [] → xs ≡ []
+errorIssues-allE-nil xs ps eq = trans (sym (errorIssues-allE xs ps)) eq
+
+ei-split : ∀ xs ys → errorIssues (xs ++ₗ ys) ≡ [] →
+  errorIssues xs ≡ [] × errorIssues ys ≡ []
+ei-split xs ys eq = ++-≡[]-split (trans (sym (errorIssues-++ xs ys)) eq)
+
+ei-from-≡[] : ∀ xs → xs ≡ [] → errorIssues xs ≡ []
+ei-from-≡[] .[] refl = refl
+
+ei-combine : ∀ xs ys → errorIssues xs ≡ [] → errorIssues ys ≡ [] →
+  errorIssues (xs ++ₗ ys) ≡ []
+ei-combine xs ys px py = trans (errorIssues-++ xs ys) (++-≡[]-combine px py)
+
+-- ============================================================================
+-- PER-ELEMENT allE PROOFS
+-- ============================================================================
+
+-- Check 1: DuplicateMessageIds
+checkDupIdPair-allE : ∀ m1 m2 → All E (checkDupIdPair m1 m2)
+checkDupIdPair-allE m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
+... | yes _ = refl ∷ []
+... | no  _ = []
+
+-- Check 2: DuplicateSignalNames
+checkDupSigPair-allE : ∀ msgName s1 s2 → All E (checkDupSigPair msgName s1 s2)
+checkDupSigPair-allE msgName s1 s2 with DBCSignal.name s1 ≟ DBCSignal.name s2
+... | yes _ = refl ∷ []
+... | no  _ = []
+
+-- Check 3: FactorZero
+checkFactorZeroSig-allE : ∀ msgName sig → All E (checkFactorZeroSig msgName sig)
+checkFactorZeroSig-allE msgName sig
+  with ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
+... | yes _ = refl ∷ []
+... | no  _ = []
+
+-- Check 4: MuxFound
+checkMuxFoundSig-allE : ∀ msgName sigs sig → All E (checkMuxFoundSig msgName sigs sig)
+checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
+... | Always = []
+... | When muxName _ with any? (λ s → DBCSignal.name s ≟ muxName) sigs
+...   | yes _ = []
+...   | no  _ = refl ∷ []
+
+-- Check 5: MuxAlwaysPresent
+checkMuxAlwaysPresentSig-allE : ∀ msgName sigs sig →
+  All E (checkMuxAlwaysPresentSig msgName sigs sig)
+checkMuxAlwaysPresentSig-allE msgName sigs sig with DBCSignal.presence sig
+... | Always = []
+... | When muxName _ with findSignalPresence muxName sigs
+...   | nothing        = []
+...   | just Always    = []
+...   | just (When _ _) = refl ∷ []
+
+-- Check 8: SignalExceedsDLC
+checkSignalExceedsDLC-LE-allE : ∀ msgName dlc sig →
+  All E (checkSignalExceedsDLC-LE msgName dlc sig)
+checkSignalExceedsDLC-LE-allE msgName dlc sig
+  with SignalDef.startBit (DBCSignal.signalDef sig)
+     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkSignalExceedsDLC-BE-allE : ∀ msgName dlc sig →
+  All E (checkSignalExceedsDLC-BE msgName dlc sig)
+checkSignalExceedsDLC-BE-allE msgName dlc sig
+  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) Nat./ 8)) ≤? dlc
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
+  All E (checkSignalExceedsDLC msgName dlc sig)
+checkSignalExceedsDLC-allE msgName dlc sig with DBCSignal.byteOrder sig
+... | LittleEndian = checkSignalExceedsDLC-LE-allE msgName dlc sig
+... | BigEndian    = checkSignalExceedsDLC-BE-allE msgName dlc sig
+
+-- Check 9: SignalOverlap
+checkOverlapPair-allE : ∀ msgName s1 s2 → All E (checkOverlapPair msgName s1 s2)
+checkOverlapPair-allE msgName s1 s2 with signalPairValid? s1 s2
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+-- Check 10: BitLengthZero
+checkBitLengthZero-allE : ∀ msgName sig → All E (checkBitLengthZero msgName sig)
+checkBitLengthZero-allE msgName sig
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
+... | yes _ = refl ∷ []
+... | no  _ = []
+
+-- Check 12: DLCOutOfRange
+checkDLCOutOfRange-allE : ∀ msg → All E (checkDLCOutOfRange msg)
+checkDLCOutOfRange-allE msg with DBCMessage.dlc msg ≤? 8
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+-- ============================================================================
+-- LIFTED allE PROOFS
+-- ============================================================================
+
+-- Check 1
+checkDupIdAgainstList-allE : ∀ m rest → All E (checkDupIdAgainstList m rest)
+checkDupIdAgainstList-allE _ [] = []
+checkDupIdAgainstList-allE m (other ∷ rest) =
+  All-++ (checkDupIdPair-allE m other) (checkDupIdAgainstList-allE m rest)
+
+checkDuplicateMessageIds-allE : ∀ msgs → All E (checkDuplicateMessageIds msgs)
+checkDuplicateMessageIds-allE [] = []
+checkDuplicateMessageIds-allE (m ∷ rest) =
+  All-++ (checkDupIdAgainstList-allE m rest) (checkDuplicateMessageIds-allE rest)
+
+-- Check 2
+checkDupSigAgainstList-allE : ∀ msgName sig rest →
+  All E (checkDupSigAgainstList msgName sig rest)
+checkDupSigAgainstList-allE _ _ [] = []
+checkDupSigAgainstList-allE msgName sig (other ∷ rest) =
+  All-++ (checkDupSigPair-allE msgName sig other)
+         (checkDupSigAgainstList-allE msgName sig rest)
+
+checkDupSigTriangular-allE : ∀ msgName sigs →
+  All E (checkDupSigTriangular msgName sigs)
+checkDupSigTriangular-allE _ [] = []
+checkDupSigTriangular-allE msgName (sig ∷ rest) =
+  All-++ (checkDupSigAgainstList-allE msgName sig rest)
+         (checkDupSigTriangular-allE msgName rest)
+
+checkAllDuplicateSignalNames-allE : ∀ msgs →
+  All E (checkAllDuplicateSignalNames msgs)
+checkAllDuplicateSignalNames-allE [] = []
+checkAllDuplicateSignalNames-allE (msg ∷ rest) =
+  All-++ (checkDupSigTriangular-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+         (checkAllDuplicateSignalNames-allE rest)
+
+-- Check 3
+checkAllFactorZero-allE : ∀ msgs → All E (checkAllFactorZero msgs)
+checkAllFactorZero-allE [] = []
+checkAllFactorZero-allE (msg ∷ rest) =
+  All-++ (All-concatMap (All-tab
+            (checkFactorZeroSig-allE (DBCMessage.name msg))
+            (DBCMessage.signals msg)))
+         (checkAllFactorZero-allE rest)
+
+-- Check 4
+checkAllMuxFound-allE : ∀ msgs → All E (checkAllMuxFound msgs)
+checkAllMuxFound-allE [] = []
+checkAllMuxFound-allE (msg ∷ rest) =
+  All-++ (All-concatMap (All-tab
+            (checkMuxFoundSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+            (DBCMessage.signals msg)))
+         (checkAllMuxFound-allE rest)
+
+-- Check 5
+checkAllMuxAlwaysPresent-allE : ∀ msgs → All E (checkAllMuxAlwaysPresent msgs)
+checkAllMuxAlwaysPresent-allE [] = []
+checkAllMuxAlwaysPresent-allE (msg ∷ rest) =
+  All-++ (All-concatMap (All-tab
+            (checkMuxAlwaysPresentSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+            (DBCMessage.signals msg)))
+         (checkAllMuxAlwaysPresent-allE rest)
+
+-- Check 8
+checkAllSignalExceedsDLC-allE : ∀ msgs → All E (checkAllSignalExceedsDLC msgs)
+checkAllSignalExceedsDLC-allE [] = []
+checkAllSignalExceedsDLC-allE (msg ∷ rest) =
+  All-++ (All-concatMap (All-tab
+            (checkSignalExceedsDLC-allE (DBCMessage.name msg) (DBCMessage.dlc msg))
+            (DBCMessage.signals msg)))
+         (checkAllSignalExceedsDLC-allE rest)
+
+-- Check 9
+checkOverlapAgainstList-allE : ∀ msgName sig rest →
+  All E (checkOverlapAgainstList msgName sig rest)
+checkOverlapAgainstList-allE _ _ [] = []
+checkOverlapAgainstList-allE msgName sig (other ∷ rest) =
+  All-++ (checkOverlapPair-allE msgName sig other)
+         (checkOverlapAgainstList-allE msgName sig rest)
+
+checkOverlapTriangular-allE : ∀ msgName sigs →
+  All E (checkOverlapTriangular msgName sigs)
+checkOverlapTriangular-allE _ [] = []
+checkOverlapTriangular-allE msgName (sig ∷ rest) =
+  All-++ (checkOverlapAgainstList-allE msgName sig rest)
+         (checkOverlapTriangular-allE msgName rest)
+
+checkAllSignalOverlaps-allE : ∀ msgs → All E (checkAllSignalOverlaps msgs)
+checkAllSignalOverlaps-allE [] = []
+checkAllSignalOverlaps-allE (msg ∷ rest) =
+  All-++ (checkOverlapTriangular-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+         (checkAllSignalOverlaps-allE rest)
+
+-- Check 10
+checkAllBitLengthZero-allE : ∀ msgs → All E (checkAllBitLengthZero msgs)
+checkAllBitLengthZero-allE [] = []
+checkAllBitLengthZero-allE (msg ∷ rest) =
+  All-++ (All-concatMap (All-tab
+            (checkBitLengthZero-allE (DBCMessage.name msg))
+            (DBCMessage.signals msg)))
+         (checkAllBitLengthZero-allE rest)
+
+-- Check 12
+checkAllDLCOutOfRange-allE : ∀ msgs → All E (checkAllDLCOutOfRange msgs)
+checkAllDLCOutOfRange-allE msgs =
+  All-concatMap (All-tab checkDLCOutOfRange-allE msgs)
