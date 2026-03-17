@@ -51,8 +51,9 @@ def dispatch_when(
         return builder.exceeds(value)
     if condition == "equals":
         return builder.equals(value)
-    # drops_below
-    return builder.drops_below(value)
+    if condition == "drops_below":
+        return builder.drops_below(value)
+    raise ValueError(f"Unknown when condition: {condition!r}")
 
 
 def dispatch_simple(
@@ -63,5 +64,6 @@ def dispatch_simple(
         return Check.signal(signal).never_exceeds(value)
     if condition == "never_below":
         return Check.signal(signal).never_below(value)
-    # never_equals
-    return Check.signal(signal).never_equals(value)
+    if condition == "never_equals":
+        return Check.signal(signal).never_equals(value)
+    raise ValueError(f"Unknown simple condition: {condition!r}")

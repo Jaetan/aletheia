@@ -21,6 +21,7 @@ Output format matches the Agda JSON schema:
 from __future__ import annotations
 
 from .protocols import (
+    PredicateType,
     LTLFormula,
     AtomicFormula,
     AndFormula,
@@ -68,7 +69,7 @@ class Signal:
             Signal("Gear").equals(0)  # Gear is in park
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'equals',
+            'predicate': PredicateType.EQUALS.value,
             'signal': self.name,
             'value': value
         })
@@ -87,7 +88,7 @@ class Signal:
             Signal("Speed").less_than(220)  # Speed below 220 km/h
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'lessThan',
+            'predicate': PredicateType.LESS_THAN.value,
             'signal': self.name,
             'value': value
         })
@@ -106,7 +107,7 @@ class Signal:
             Signal("Speed").greater_than(5)  # Vehicle moving
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'greaterThan',
+            'predicate': PredicateType.GREATER_THAN.value,
             'signal': self.name,
             'value': value
         })
@@ -122,7 +123,7 @@ class Signal:
             Predicate that can be used in temporal operators
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'lessThanOrEqual',
+            'predicate': PredicateType.LESS_THAN_OR_EQUAL.value,
             'signal': self.name,
             'value': value
         })
@@ -138,7 +139,7 @@ class Signal:
             Predicate that can be used in temporal operators
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'greaterThanOrEqual',
+            'predicate': PredicateType.GREATER_THAN_OR_EQUAL.value,
             'signal': self.name,
             'value': value
         })
@@ -158,7 +159,7 @@ class Signal:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'between',
+            'predicate': PredicateType.BETWEEN.value,
             'signal': self.name,
             'min': min_val,
             'max': max_val
@@ -180,7 +181,7 @@ class Signal:
             Signal("Speed").changed_by(-10)  # Speed decreased by 10+
         """
         formula: AtomicFormula = _atomic({
-            'predicate': 'changedBy',
+            'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
             'delta': delta
         })
@@ -404,18 +405,13 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        if isinstance(other, Predicate):
-            other_formula = other.to_formula()
-        else:
-            other_formula = other.to_formula()
-
         formula: OrFormula = {
             'operator': 'or',
             'left': {
                 'operator': 'not',
                 'formula': self._data
             },
-            'right': other_formula
+            'right': other.to_formula()
         }
         return Property(formula)
 
@@ -491,18 +487,13 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        if isinstance(other, Predicate):
-            other_formula = other.to_formula()
-        else:
-            other_formula = other.to_formula()
-
         formula: OrFormula = {
             'operator': 'or',
             'left': {
                 'operator': 'not',
                 'formula': self._data
             },
-            'right': other_formula
+            'right': other.to_formula()
         }
         return Property(formula)
 
@@ -703,11 +694,7 @@ def infinitely_often(formula: Property | Predicate) -> Property:
 
     Note: Helper exists for clarity when expressing this common LTL pattern.
     """
-    if isinstance(formula, Predicate):
-        inner = formula.eventually()
-    else:
-        inner = formula.eventually()
-    return inner.always()
+    return formula.eventually().always()
 
 
 def eventually_always(formula: Property | Predicate) -> Property:
@@ -734,11 +721,7 @@ def eventually_always(formula: Property | Predicate) -> Property:
 
     Note: Helper exists for clarity when expressing this common LTL pattern.
     """
-    if isinstance(formula, Predicate):
-        inner = formula.always()
-    else:
-        inner = formula.always()
-    return inner.eventually()
+    return formula.always().eventually()
 
 
 def never(formula: Property | Predicate) -> Property:
@@ -759,8 +742,4 @@ def never(formula: Property | Predicate) -> Property:
         # Equivalent to:
         Signal("CriticalFault").equals(1).not_().always()
     """
-    if isinstance(formula, Predicate):
-        inner = formula.not_()
-    else:
-        inner = formula.not_()
-    return inner.always()
+    return formula.not_().always()

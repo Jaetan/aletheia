@@ -44,7 +44,6 @@ from typing import TYPE_CHECKING, Self, override, cast
 from .protocols import (
     DBCDefinition,
     LTLFormula,
-    ResponseStatus,
     Command,
     Response,
     ParseDBCCommand,
@@ -53,8 +52,10 @@ from .protocols import (
     EndStreamCommand,
     DataFrame,
     BuildFrameCommand,
+    BuildFrameResponse,
     ExtractSignalsCommand,
     UpdateFrameCommand,
+    UpdateFrameResponse,
     ValidateDBCCommand,
     SuccessResponse,
     CompleteResponse,
@@ -71,7 +72,6 @@ from .protocols import (
 if TYPE_CHECKING:
     from .checks import CheckResult
 
-_DLC_STANDARD: int = 8
 _MAX_EXTRACT_CACHE: int = 256
 
 class _RTSState:
@@ -202,10 +202,6 @@ class SignalExtractionResult:
     - absent: Multiplexed signals not present in this frame
     """
 
-    values: dict[str, float]
-    errors: dict[str, str]
-    absent: list[str]
-
     def __init__(
         self,
         values: dict[str, float],
@@ -222,12 +218,12 @@ class SignalExtractionResult:
 
     def has_errors(self) -> bool:
         """Check if any extraction errors occurred."""
-        return len(self.errors) > 0
+        return bool(self.errors)
 
     @override
     def __repr__(self) -> str:
         return (
-            f"SignalExtractionResult("
+            "SignalExtractionResult("
             f"values={len(self.values)}, "
             f"errors={len(self.errors)}, "
             f"absent={len(self.absent)})"
@@ -329,12 +325,13 @@ class AletheiaClient:
         json_bytes = json.dumps(command).encode("utf-8")
         result_ptr = self._lib.aletheia_process(self._state, json_bytes)
 
-        result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
-        if result_bytes is None:
-            raise ProtocolError("FFI returned null pointer")
-
-        result_str = result_bytes.decode("utf-8")
-        self._lib.aletheia_free_str(result_ptr)
+        try:
+            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+            if result_bytes is None:
+                raise ProtocolError("FFI returned null pointer")
+            result_str = result_bytes.decode("utf-8")
+        finally:
+            self._lib.aletheia_free_str(result_ptr)
 
         parsed = json.loads(result_str)
         if not isinstance(parsed, dict):
@@ -342,24 +339,24 @@ class AletheiaClient:
 
         return cast(Response, cast(object, parsed))
 
-    def _send_batch(self, commands: list[Command]) -> list[Response]:
-        """Send multiple commands via FFI."""
-        return [self._send_command(cmd) for cmd in commands]
-
     @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field."""
         if isinstance(raw_value, int):
             return {"numerator": raw_value, "denominator": 1}
-        assert isinstance(raw_value, dict), \
-            f"Protocol error: expected {field_name} to be int or dict, got {type(raw_value).__name__}"
+        if not isinstance(raw_value, dict):
+            raise ProtocolError(
+                f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
+            )
         value_dict = cast(dict[str, object], raw_value)
         numerator = value_dict.get("numerator")
         denominator = value_dict.get("denominator")
-        assert isinstance(numerator, int), \
-            f"Protocol error: expected {field_name}.numerator to be int"
-        assert isinstance(denominator, int), \
-            f"Protocol error: expected {field_name}.denominator to be int"
+        if not isinstance(numerator, int):
+            raise ProtocolError(f"Expected {field_name}.numerator to be int")
+        if not isinstance(denominator, int):
+            raise ProtocolError(f"Expected {field_name}.denominator to be int")
+        if denominator == 0:
+            raise ProtocolError(f"Expected {field_name}.denominator to be nonzero")
         return {"numerator": numerator, "denominator": denominator}
 
     @staticmethod
@@ -374,18 +371,41 @@ class AletheiaClient:
                     try:
                         numerator = int(parts[0])
                         denominator = int(parts[1])
-                        if denominator != 0:
-                            return numerator / denominator
                     except ValueError:
                         pass
+                    else:
+                        if denominator == 0:
+                            raise ProtocolError(
+                                f"Division by zero in rational string: {value_raw!r}"
+                            )
+                        return numerator / denominator
             try:
                 return float(value_raw)
             except ValueError:
                 pass
-        raise AssertionError(
-            "Protocol error: expected signal value to be number or rational string, "
+        raise ProtocolError(
+            "Expected signal value to be number or rational string, "
             + f"got {type(value_raw).__name__}: {value_raw!r}"
         )
+
+    def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
+        """Parse a response that should be success or error."""
+        status = response.get("status")
+        message = response.get("message")
+
+        if status == "success":
+            result: SuccessResponse = {"status": "success"}
+            if isinstance(message, str):
+                result["message"] = message
+            return result
+
+        if status == "error":
+            err: ErrorResponse = {"status": "error", "message": ""}
+            if isinstance(message, str):
+                err["message"] = message
+            return err
+
+        raise ProtocolError(f"Unexpected response status: {status}")
 
     # =========================================================================
     # DBC and Properties
@@ -405,23 +425,7 @@ class AletheiaClient:
             "command": "parseDBC",
             "dbc": dbc
         }
-        response = self._send_command(cmd)
-        status = response.get("status")
-        message = response.get("message")
-
-        if status == "success":
-            result_success: SuccessResponse = {"status": ResponseStatus.SUCCESS}
-            if isinstance(message, str):
-                result_success["message"] = message
-            return result_success
-
-        if status == "error":
-            result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
-            if isinstance(message, str):
-                result_error["message"] = message
-            return result_error
-
-        raise ProtocolError(f"Unexpected response status: {status}")
+        return self._success_or_error(self._send_command(cmd))
 
     def validate_dbc(self, dbc: DBCDefinition) -> ValidationResponse:
         """Run structural validation on a DBC definition.
@@ -448,7 +452,7 @@ class AletheiaClient:
             issues: list[ValidationIssue] = list(vresp["issues"])
             return {
                 "status": "validation",
-                "has_errors": bool(vresp.get("has_errors", False)),
+                "has_errors": vresp["has_errors"],
                 "issues": issues,
             }
 
@@ -472,23 +476,7 @@ class AletheiaClient:
             "command": "setProperties",
             "properties": properties
         }
-        response = self._send_command(cmd)
-        status = response.get("status")
-        message = response.get("message")
-
-        if status == "success":
-            result_success: SuccessResponse = {"status": ResponseStatus.SUCCESS}
-            if isinstance(message, str):
-                result_success["message"] = message
-            return result_success
-
-        if status == "error":
-            result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
-            if isinstance(message, str):
-                result_error["message"] = message
-            return result_error
-
-        raise ProtocolError(f"Unexpected response status: {status}")
+        return self._success_or_error(self._send_command(cmd))
 
     def set_check_diagnostics(self, checks: list[CheckResult]) -> None:
         """Register check metadata for violation enrichment.
@@ -524,7 +512,7 @@ class AletheiaClient:
         """
         all_checks = self._default_checks + checks
         response = self.set_properties([c.to_dict() for c in all_checks])
-        if response.get("status") == "success":
+        if response["status"] == "success":
             self.set_check_diagnostics(all_checks)
         return response
 
@@ -543,23 +531,7 @@ class AletheiaClient:
             "type": "command",
             "command": "startStream"
         }
-        response = self._send_command(cmd)
-        status = response.get("status")
-        message = response.get("message")
-
-        if status == "success":
-            result_success: SuccessResponse = {"status": ResponseStatus.SUCCESS}
-            if isinstance(message, str):
-                result_success["message"] = message
-            return result_success
-
-        if status == "error":
-            result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
-            if isinstance(message, str):
-                result_error["message"] = message
-            return result_error
-
-        raise ProtocolError(f"Unexpected response status: {status}")
+        return self._success_or_error(self._send_command(cmd))
 
     def _enrich_violation(
         self,
@@ -587,7 +559,7 @@ class AletheiaClient:
             try:
                 signals = self.extract_signals(can_id=can_id, data=data)
                 self._signal_cache[cache_key] = signals
-            except (RuntimeError, ValueError):
+            except (AletheiaError, ValueError):
                 pass
 
         actual: float | None = None
@@ -637,8 +609,8 @@ class AletheiaClient:
         response = self._send_command(frame)
         result = self._parse_frame_response(response)
 
-        if result.get("status") == "violation":
-            self._enrich_violation(cast(PropertyViolationResponse, result), can_id, data)
+        if result["status"] == "violation":
+            self._enrich_violation(result, can_id, data)
 
         return result
 
@@ -649,12 +621,12 @@ class AletheiaClient:
         status = response.get("status")
 
         if status == "ack":
-            return {"status": ResponseStatus.ACK}
+            return {"status": "ack"}
 
         if status == "violation":
             prop_type = response.get("type")
             if prop_type != "property":
-                raise ProtocolError(f"Protocol error: expected type='property', got {prop_type}")
+                raise ProtocolError(f"Expected type='property', got {prop_type}")
             prop_index = self._validate_rational("property_index", response.get("property_index"))
             ts_rational = self._validate_rational("timestamp", response.get("timestamp"))
             result_violation: PropertyViolationResponse = {
@@ -669,7 +641,7 @@ class AletheiaClient:
             return result_violation
 
         if status == "error":
-            result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
+            result_error: ErrorResponse = {"status": "error", "message": ""}
             message = response.get("message")
             if isinstance(message, str):
                 result_error["message"] = message
@@ -700,13 +672,15 @@ class AletheiaClient:
             if len(data) != 8:
                 raise ValueError(f"Frame {i}: data must be exactly 8 bytes, got {len(data)}")
 
-        commands: list[DataFrame] = [
-            {"type": "data", "timestamp": ts, "id": cid, "data": list(d)}
-            for ts, cid, d in frames
-        ]
-
-        raw_responses = self._send_batch(commands)  # type: ignore[arg-type]
-        return [self._parse_frame_response(r) for r in raw_responses]
+        results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
+        for ts, cid, d in frames:
+            cmd: DataFrame = {"type": "data", "timestamp": ts, "id": cid, "data": list(d)}
+            raw = self._send_command(cmd)
+            result = self._parse_frame_response(raw)
+            if result["status"] == "violation":
+                self._enrich_violation(result, cid, d)
+            results.append(result)
+        return results
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.
@@ -733,10 +707,10 @@ class AletheiaClient:
 
         if status == "complete":
             results = self._parse_finalization_results(response)
-            return {"status": ResponseStatus.COMPLETE, "results": results}
+            return {"status": "complete", "results": results}
 
         if status == "error":
-            result_error: ErrorResponse = {"status": ResponseStatus.ERROR, "message": ""}
+            result_error: ErrorResponse = {"status": "error", "message": ""}
             if isinstance(message, str):
                 result_error["message"] = message
             return result_error
@@ -748,12 +722,12 @@ class AletheiaClient:
     ) -> list[PropertyResultEntry]:
         """Parse end-of-stream property finalization results."""
         cresp = cast(CompleteResponse, response)
-        raw_results = cresp.get("results", [])
+        raw_results = cresp["results"]
         entries: list[PropertyResultEntry] = []
         for raw in raw_results:
-            entry_status: str = raw.get("status", "")
+            entry_status = raw["status"]
             prop_index = self._validate_rational(
-                "property_index", raw.get("property_index"),
+                "property_index", raw["property_index"],
             )
             result_entry: PropertyResultEntry = {
                 "type": "property",
@@ -805,7 +779,7 @@ class AletheiaClient:
 
         Raises:
             ValueError: If data is not exactly 8 bytes
-            RuntimeError: If extraction fails
+            ProcessError: If extraction fails
         """
         if len(data) != 8:
             raise ValueError(f"Frame data must be 8 bytes, got {len(data)}")
@@ -820,19 +794,22 @@ class AletheiaClient:
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
-            raise RuntimeError(f"Extract signals failed: {error_msg}")
+            raise ProcessError(f"Extract signals failed: {error_msg}")
 
         # Parse response
         values_raw = response.get("values", [])
-        assert isinstance(values_raw, list), "Protocol error: expected 'values' to be a list"
+        if not isinstance(values_raw, list):
+            raise ProtocolError("Expected 'values' to be a list")
         values = self._parse_values_list(cast(list[object], values_raw))
 
         errors_raw = response.get("errors", [])
-        assert isinstance(errors_raw, list), "Protocol error: expected 'errors' to be a list"
+        if not isinstance(errors_raw, list):
+            raise ProtocolError("Expected 'errors' to be a list")
         errors = self._parse_errors_list(cast(list[object], errors_raw))
 
         absent_raw = response.get("absent", [])
-        assert isinstance(absent_raw, list), "Protocol error: expected 'absent' to be a list"
+        if not isinstance(absent_raw, list):
+            raise ProtocolError("Expected 'absent' to be a list")
         absent = self._parse_absent_list(cast(list[object], absent_raw))
 
         return SignalExtractionResult(values=values, errors=errors, absent=absent)
@@ -858,13 +835,13 @@ class AletheiaClient:
 
         Raises:
             ValueError: If frame is not exactly 8 bytes
-            RuntimeError: If update fails
+            ProcessError: If update fails
         """
         if len(frame) != 8:
             raise ValueError(f"Frame data must be 8 bytes, got {len(frame)}")
 
         signals_json: list[SignalValue] = [
-            SignalValue(name=name, value=value)
+            {"name": name, "value": value}
             for name, value in signals.items()
         ]
 
@@ -879,17 +856,9 @@ class AletheiaClient:
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
-            raise RuntimeError(f"Update frame failed: {error_msg}")
+            raise ProcessError(f"Update frame failed: {error_msg}")
 
-        if "data" not in response:
-            raise RuntimeError("Invalid response: missing 'data' field")
-
-        frame_data = response["data"]
-        if not isinstance(frame_data, list) or len(frame_data) != 8:  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
-
-        int_list = cast(list[int], frame_data)
-        return bytearray(int_list)
+        return self._parse_frame_data(cast(UpdateFrameResponse, response))
 
     def build_frame(self, can_id: int, signals: dict[str, float]) -> bytearray:
         """Build a CAN frame from signal values.
@@ -905,10 +874,10 @@ class AletheiaClient:
             8-byte CAN frame
 
         Raises:
-            RuntimeError: If frame building fails
+            ProcessError: If frame building fails
         """
         signals_json: list[SignalValue] = [
-            SignalValue(name=name, value=value)
+            {"name": name, "value": value}
             for name, value in signals.items()
         ]
 
@@ -922,37 +891,35 @@ class AletheiaClient:
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
-            raise RuntimeError(f"Build frame failed: {error_msg}")
+            raise ProcessError(f"Build frame failed: {error_msg}")
 
-        if "frame" not in response:
-            # Try "data" field (protocol variation)
-            if "data" in response:
-                frame_data = response["data"]
-            else:
-                raise RuntimeError("Invalid response: missing 'frame' or 'data' field")
-        else:
-            frame_data = response["frame"]
-
-        if not isinstance(frame_data, list) or len(frame_data) != 8:  # pyright: ignore[reportUnnecessaryIsInstance]
-            raise RuntimeError(f"Invalid frame data: expected 8-byte list, got {frame_data}")
-
-        return bytearray(frame_data)
+        return self._parse_frame_data(cast(BuildFrameResponse, response))
 
     # =========================================================================
     # Helper methods for parsing responses
     # =========================================================================
 
     @staticmethod
+    def _parse_frame_data(response: BuildFrameResponse | UpdateFrameResponse) -> bytearray:
+        """Extract and validate 8-byte frame data from a response."""
+        frame_data = response["data"]
+        if len(frame_data) != 8:
+            raise ProtocolError(
+                f"Invalid frame data: expected 8 bytes, got {len(frame_data)}"
+            )
+        return bytearray(frame_data)
+
+    @staticmethod
     def _parse_values_list(values_data: list[object]) -> dict[str, float]:
         """Parse signal values list from response."""
         values: dict[str, float] = {}
         for item in values_data:
-            assert isinstance(item, dict), \
-                f"Protocol error: expected signal value to be dict, got {type(item)}"
+            if not isinstance(item, dict):
+                raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")
             item_dict = cast(dict[str, object], item)
             name_raw = item_dict.get("name")
-            assert isinstance(name_raw, str), \
-                f"Protocol error: expected signal name to be str, got {type(name_raw)}"
+            if not isinstance(name_raw, str):
+                raise ProtocolError(f"Expected signal name to be str, got {type(name_raw)}")
             value_raw = item_dict.get("value")
             values[name_raw] = AletheiaClient._parse_rational(value_raw)
         return values
@@ -962,15 +929,15 @@ class AletheiaClient:
         """Parse signal errors list from response."""
         errors: dict[str, str] = {}
         for item in errors_data:
-            assert isinstance(item, dict), \
-                f"Protocol error: expected error item to be dict, got {type(item)}"
+            if not isinstance(item, dict):
+                raise ProtocolError(f"Expected error item to be dict, got {type(item)}")
             item_dict = cast(dict[str, object], item)
             name_raw = item_dict.get("name")
-            assert isinstance(name_raw, str), \
-                f"Protocol error: expected error signal name to be str, got {type(name_raw)}"
+            if not isinstance(name_raw, str):
+                raise ProtocolError(f"Expected error signal name to be str, got {type(name_raw)}")
             error_raw = item_dict.get("error")
-            assert isinstance(error_raw, str), \
-                f"Protocol error: expected error message to be str, got {type(error_raw)}"
+            if not isinstance(error_raw, str):
+                raise ProtocolError(f"Expected error message to be str, got {type(error_raw)}")
             errors[name_raw] = error_raw
         return errors
 
@@ -979,8 +946,8 @@ class AletheiaClient:
         """Parse absent signals list from response."""
         absent: list[str] = []
         for item in absent_data:
-            assert isinstance(item, str), \
-                f"Protocol error: expected absent signal name to be str, got {type(item)}"
+            if not isinstance(item, str):
+                raise ProtocolError(f"Expected absent signal name to be str, got {type(item)}")
             absent.append(item)
         return absent
 

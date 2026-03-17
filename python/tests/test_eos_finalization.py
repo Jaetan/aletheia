@@ -3,7 +3,6 @@
 Verifies that properties are correctly finalized when end_stream() is called.
 """
 
-import pytest
 from aletheia.client import AletheiaClient
 from aletheia.dsl import Signal
 
@@ -46,7 +45,8 @@ class TestEndOfStreamFinalization:
             for i in range(5):
                 client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 1
             assert results[0]["status"] == "satisfaction"
 
@@ -60,7 +60,8 @@ class TestEndOfStreamFinalization:
             client.start_stream()
             client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 1
             # Standard LTLf: Always is vacuously true when inner never resolved
             assert results[0]["status"] == "satisfaction"
@@ -74,7 +75,8 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 1
             # Standard LTLf: G φ on empty trace is vacuously true
             assert results[0]["status"] == "satisfaction"
@@ -90,7 +92,8 @@ class TestEndOfStreamFinalization:
             for i in range(5):
                 client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 1
             assert results[0]["status"] == "violation"
             assert "Eventually" in results[0].get("reason", "")
@@ -109,7 +112,8 @@ class TestEndOfStreamFinalization:
             for i in range(5):
                 client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 2
             # Property 0: satisfaction
             assert results[0]["status"] == "satisfaction"
@@ -127,7 +131,7 @@ class TestEndOfStreamFinalization:
             client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert "results" in resp
-            assert resp["status"].value == "complete"
+            assert resp["status"] == "complete"
 
     def test_no_properties_empty_results(self) -> None:
         """Stream with no properties → empty results list."""
@@ -137,5 +141,6 @@ class TestEndOfStreamFinalization:
             client.start_stream()
             client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
-            results = resp.get("results", [])
+            assert resp["status"] == "complete"
+            results = resp["results"]
             assert len(results) == 0

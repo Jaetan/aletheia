@@ -15,6 +15,8 @@ import cantools
 import cantools.database.can
 
 from .protocols import (
+    ByteOrder,
+    SignalPresence,
     DBCSignal,
     DBCMessage,
     DBCDefinition,
@@ -25,7 +27,12 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     """Convert a cantools Signal to JSON format."""
 
     # Convert byte order
-    byte_order = "little_endian" if signal.byte_order == "little_endian" else "big_endian"
+    try:
+        byte_order = ByteOrder(signal.byte_order)
+    except ValueError:
+        raise ValueError(
+            f"Unknown byte order {signal.byte_order!r} for signal {signal.name!r}"
+        ) from None
 
     # cantools uses is_signed, we use "signed" field
     is_signed = signal.is_signed
@@ -49,7 +56,7 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     }
 
     # Handle multiplexing: check if signal has multiplexer_ids
-    if signal.multiplexer_ids is not None and len(signal.multiplexer_ids) > 0:
+    if signal.multiplexer_ids:
         # This is a multiplexed signal - use first multiplexer value
         multiplexor_name = signal.multiplexer_signal if signal.multiplexer_signal else "unknown"
         return cast(DBCSignal, {
@@ -61,7 +68,7 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     # Default: signal is always present
     return cast(DBCSignal, {
         **base_fields,
-        "presence": "always"
+        "presence": SignalPresence.ALWAYS
     })
 
 

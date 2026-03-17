@@ -123,7 +123,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need ["build/libaletheia-ffi.so"]
 
     phony "check-properties" $ do
-        putInfo "Type-checking Properties modules (proofs)..."
+        putInfo "Type-checking proof-only modules..."
         cores <- liftIO getNumProcessors
         let rtsFlags = ["+RTS", "-N" ++ show cores, "-RTS"]
         let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
@@ -135,10 +135,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/CAN/Batch/Properties.agda"
         -- DBC proofs
         agdaWithRTS "Aletheia/DBC/Properties.agda"
-        -- LTL proofs (bisimilarity transitively checks CoalgebraBisim and StepResultBisim)
+        -- DBC validator soundness/completeness (transitively checks all Validity submodules)
+        agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
+        -- LTL proofs
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
-        agdaWithRTS "Aletheia/LTL/Bisimilarity.agda"
-        putInfo "All Properties modules type-checked successfully!"
+        -- LTL adequacy (transitively checks Semantics and Coalgebra proof content)
+        agdaWithRTS "Aletheia/LTL/Adequacy.agda"
+        putInfo "All proof modules type-checked successfully!"
 
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]

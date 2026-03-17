@@ -1,7 +1,7 @@
 """CAN log file reader
 
 Read industry-standard CAN log files and convert frames for Aletheia analysis.
-Supports ASC, BLF, CSV, candump .log, MF4, and TRC formats via python-can.
+Supports ASC, BLF, CSV, DB, candump .log, MF4, and TRC formats via python-can.
 
 Example:
     from aletheia import load_can_log, iter_can_log
@@ -44,7 +44,7 @@ def load_can_log(
     """Load all CAN frames from a log file into memory.
 
     Args:
-        path: Path to a CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)
+        path: Path to a CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)
         skip_error_frames: Skip CAN error frames (default True)
         skip_remote_frames: Skip remote transmission request frames (default True)
         strict_dlc: Raise ValueError if DLC != 8 (default False; pads/truncates)
@@ -73,7 +73,7 @@ def iter_can_log(
     """Lazily iterate CAN frames from a log file.
 
     Args:
-        path: Path to a CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)
+        path: Path to a CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)
         skip_error_frames: Skip CAN error frames (default True)
         skip_remote_frames: Skip remote transmission request frames (default True)
         strict_dlc: Raise ValueError if DLC != 8 (default False; pads/truncates)

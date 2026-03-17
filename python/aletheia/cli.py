@@ -4,6 +4,7 @@ Subcommands:
     check    — run LTL checks against a CAN log file
     extract  — decode signals from a single CAN frame
     signals  — list all signals defined in a DBC file
+    validate — validate a DBC definition for structural issues
 
 Usage:
     python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
@@ -17,17 +18,19 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import NoReturn, TypedDict, cast
+from typing import NoReturn, TypedDict
 
 from .can_log import iter_can_log
 from .checks import CheckResult
-from .client import AletheiaClient, SignalExtractionResult
+from .client import AletheiaClient, AletheiaError, SignalExtractionResult
 from .dbc_converter import dbc_to_json
 from .excel_loader import load_checks_from_excel, load_dbc_from_excel
 from .protocols import (
+    ByteOrder,
     DBCDefinition,
     DBCMessage,
     DBCSignal,
+    IssueSeverity,
     PropertyResultEntry,
     PropertyViolationResponse,
     RationalNumber,
@@ -168,7 +171,7 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
 def _find_message(dbc: DBCDefinition, can_id: int) -> DBCMessage | None:
     """Find a message by CAN ID in a DBC definition."""
-    for msg in dbc.get("messages", []):
+    for msg in dbc["messages"]:
         if msg["id"] == can_id:
             return msg
     return None
@@ -176,7 +179,7 @@ def _find_message(dbc: DBCDefinition, can_id: int) -> DBCMessage | None:
 
 def _signal_units(msg: DBCMessage) -> dict[str, str]:
     """Extract signal name → unit mapping from a DBC message."""
-    return {sig["name"]: sig.get("unit", "") for sig in msg.get("signals", [])}
+    return {sig["name"]: sig["unit"] for sig in msg["signals"]}
 
 
 # ============================================================================
@@ -188,13 +191,13 @@ def _format_signal_line(sig: DBCSignal) -> str:
     name = sig["name"]
     start = sig["startBit"]
     length = sig["length"]
-    order = "LE" if sig["byteOrder"] == "little_endian" else "BE"
+    order = "LE" if sig["byteOrder"] == ByteOrder.LITTLE_ENDIAN else "BE"
     sign = "signed" if sig["signed"] else "unsigned"
     factor = sig["factor"]
     offset = sig["offset"]
-    unit = sig.get("unit", "")
-    minimum = sig.get("minimum", 0)
-    maximum = sig.get("maximum", 0)
+    unit = sig["unit"]
+    minimum = sig["minimum"]
+    maximum = sig["maximum"]
 
     offset_str = f"+{offset}" if offset >= 0 else str(offset)
     range_str = f"[{minimum}, {maximum}]" if minimum != 0 or maximum != 0 else ""
@@ -209,15 +212,15 @@ def _format_signal_line(sig: DBCSignal) -> str:
 
 def _print_signals_text(dbc: DBCDefinition) -> None:
     """Print DBC signals in human-readable text format."""
-    messages = dbc.get("messages", [])
+    messages = dbc["messages"]
     total_signals = 0
 
     for msg in messages:
-        sender = msg.get("sender", "")
+        sender = msg["sender"]
         sender_part = f", sender {sender}" if sender else ""
         print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']}{sender_part})")
 
-        for sig in msg.get("signals", []):
+        for sig in msg["signals"]:
             total_signals += 1
             print(_format_signal_line(sig))
 
@@ -248,8 +251,8 @@ def _print_validation_text(issues: list[ValidationIssue], has_errors: bool) -> N
         print("Validation passed: no issues found")
         return
 
-    errors = [i for i in issues if i["severity"] == "error"]
-    warnings = [i for i in issues if i["severity"] == "warning"]
+    errors = [i for i in issues if i["severity"] == IssueSeverity.ERROR]
+    warnings = [i for i in issues if i["severity"] == IssueSeverity.WARNING]
 
     if has_errors:
         print(f"Validation FAILED: {len(errors)} errors, {len(warnings)} warnings")
@@ -344,7 +347,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     with AletheiaClient() as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+            _die(f"DBC parse failed: {resp['message']}")
         result = client.extract_signals(can_id=can_id, data=data)
 
     if getattr(args, "json", False):
@@ -365,25 +368,29 @@ def _cmd_extract(args: argparse.Namespace) -> int:
 # Subcommand: check
 # ============================================================================
 
+def _check_meta(
+    prop_index: int, checks: list[CheckResult],
+) -> tuple[str, str]:
+    """Look up check name and severity by property index."""
+    if 0 <= prop_index < len(checks):
+        name = checks[prop_index].name or f"Check #{prop_index}"
+        sev = checks[prop_index].check_severity or ""
+        return name, sev
+    return f"Check #{prop_index}", ""
+
+
 def _build_violation(
     response: PropertyViolationResponse, checks: list[CheckResult],
 ) -> _Violation:
     """Extract violation details from an (already enriched) violation response."""
     prop_index = rational_to_int(response["property_index"])
-    violation_ts = rational_to_int(response["timestamp"])
-
-    if 0 <= prop_index < len(checks):
-        check_name = checks[prop_index].name or f"Check #{prop_index}"
-        severity = checks[prop_index].check_severity or ""
-    else:
-        check_name = f"Check #{prop_index}"
-        severity = ""
+    check_name, severity = _check_meta(prop_index, checks)
 
     return {
         "check_index": prop_index,
         "check_name": check_name,
         "severity": severity,
-        "timestamp_us": violation_ts,
+        "timestamp_us": rational_to_int(response["timestamp"]),
         "reason": response.get("reason", ""),
         "signal_name": response.get("signal_name", ""),
         "actual_value": response.get("actual_value"),
@@ -396,13 +403,7 @@ def _build_eos_violation(
 ) -> _Violation:
     """Extract violation details from an end-of-stream finalization result."""
     prop_index = rational_to_int(result["property_index"])
-
-    if 0 <= prop_index < len(checks):
-        check_name = checks[prop_index].name or f"Check #{prop_index}"
-        severity = checks[prop_index].check_severity or ""
-    else:
-        check_name = f"Check #{prop_index}"
-        severity = ""
+    check_name, severity = _check_meta(prop_index, checks)
 
     reason = result.get("reason", "end-of-stream violation")
     signal_name = result.get("signal_name", "")
@@ -436,13 +437,15 @@ def _run_checks(
     with AletheiaClient(default_checks=default_checks) as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+            _die(f"DBC parse failed: {resp['message']}")
 
         resp = client.add_checks(checks)
         if resp["status"] != "success":
-            _die(f"set properties failed: {resp.get('message', 'unknown error')}")
+            _die(f"set properties failed: {resp['message']}")
 
-        client.start_stream()
+        resp = client.start_stream()
+        if resp["status"] != "success":
+            _die(f"start stream failed: {resp['message']}")
 
         violations: list[_Violation] = []
         total_frames = 0
@@ -451,14 +454,14 @@ def _run_checks(
             total_frames += 1
             response = client.send_frame(ts, can_id, data)
             if response["status"] == "violation":
-                violations.append(_build_violation(
-                    cast(PropertyViolationResponse, response), all_checks,
-                ))
+                violations.append(_build_violation(response, all_checks))
 
         end_resp = client.end_stream()
+        if end_resp["status"] == "error":
+            _die(f"end stream failed: {end_resp['message']}")
         # Collect end-of-stream violations from finalization
-        for result in end_resp.get("results", []):
-            if result.get("status") == "violation":
+        for result in end_resp["results"]:
+            if result["status"] == "violation":
                 violations.append(_build_eos_violation(result, all_checks))
 
     return violations, total_frames
@@ -570,7 +573,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "check",
         help="run LTL checks against a CAN log file",
     )
-    p_check.add_argument("logfile", help="CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)")
+    p_check.add_argument("logfile", help="CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)")
     p_check.add_argument("--dbc", help=".dbc file for signal definitions")
     p_check.add_argument("--checks", help=".yaml or .xlsx file with check definitions")
     p_check.add_argument("--defaults", help=".yaml or .xlsx file with default checks (prepended)")
@@ -630,6 +633,6 @@ def main(argv: list[str] | None = None) -> int:
         return handler(args)
     except SystemExit as e:
         return e.code if isinstance(e.code, int) else _EXIT_ERROR
-    except (FileNotFoundError, ValueError) as e:
+    except (AletheiaError, FileNotFoundError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return _EXIT_ERROR

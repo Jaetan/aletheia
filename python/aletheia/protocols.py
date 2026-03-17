@@ -48,16 +48,6 @@ class IssueCode(str, Enum):
     BIT_LENGTH_EXCESSIVE = "bit_length_excessive"
 
 
-class ResponseStatus(str, Enum):
-    """Response status from Aletheia binary"""
-    SUCCESS = "success"
-    ERROR = "error"
-    ACK = "ack"
-    VIOLATED = "violation"  # Note: binary sends "violation" not "violated"
-    COMPLETE = "complete"
-    VALIDATION = "validation"
-
-
 class PredicateType(str, Enum):
     """Signal predicate types matching Agda JSON schema"""
     EQUALS = "equals"
@@ -78,14 +68,14 @@ class DBCSignalAlways(TypedDict):
     name: str
     startBit: int
     length: int
-    byteOrder: str  # "little_endian" | "big_endian"
+    byteOrder: ByteOrder
     signed: bool
     factor: float
     offset: float
     minimum: float
     maximum: float
     unit: str
-    presence: str  # "always"
+    presence: SignalPresence
 
 
 class DBCSignalMultiplexed(TypedDict):
@@ -93,15 +83,15 @@ class DBCSignalMultiplexed(TypedDict):
     name: str
     startBit: int
     length: int
-    byteOrder: str  # "little_endian" | "big_endian"
+    byteOrder: ByteOrder
     signed: bool
     factor: float
     offset: float
     minimum: float
     maximum: float
     unit: str
-    multiplexor: str  # Name of multiplexor signal
-    multiplex_value: int  # Value of multiplexor when this signal is present
+    multiplexor: str
+    multiplex_value: int
 
 
 # Union type for all signal types
@@ -411,24 +401,24 @@ Command = (
 
 class SuccessResponse(TypedDict):
     """Success response"""
-    status: ResponseStatus  # ResponseStatus.SUCCESS
-    message: NotRequired[str]  # Optional message field
+    status: Literal["success"]
+    message: NotRequired[str]
 
 
 class ErrorResponse(TypedDict):
     """Error response"""
-    status: ResponseStatus  # ResponseStatus.ERROR
+    status: Literal["error"]
     message: str
 
 
 class AckResponse(TypedDict):
     """Acknowledgment response"""
-    status: ResponseStatus  # ResponseStatus.ACK
+    status: Literal["ack"]
 
 
 class PropertyViolationResponse(TypedDict):
     """Property violation response"""
-    status: Literal["violation"]  # Binary sends "violation"
+    status: Literal["violation"]
     type: Literal["property"]
     property_index: RationalNumber
     timestamp: RationalNumber
@@ -441,7 +431,7 @@ class PropertyViolationResponse(TypedDict):
 class PropertyResultEntry(TypedDict):
     """A single property finalization result at end-of-stream"""
     type: Literal["property"]
-    status: str  # "violation" | "satisfaction"
+    status: Literal["violation", "satisfaction"]
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
     reason: NotRequired[str]  # Only for violations
@@ -452,14 +442,14 @@ class PropertyResultEntry(TypedDict):
 
 class CompleteResponse(TypedDict):
     """Stream complete response with per-property finalization results"""
-    status: ResponseStatus  # ResponseStatus.COMPLETE
+    status: Literal["complete"]
     results: list[PropertyResultEntry]
 
 
 class BuildFrameResponse(TypedDict):
     """Response from buildFrame command"""
     status: Literal["success"]
-    frame: list[int]
+    data: list[int]
 
 
 class ExtractSignalsResponse(TypedDict):
@@ -473,13 +463,13 @@ class ExtractSignalsResponse(TypedDict):
 class UpdateFrameResponse(TypedDict):
     """Response from updateFrame command"""
     status: Literal["success"]
-    frame: list[int]
+    data: list[int]
 
 
 class ValidationIssue(TypedDict):
     """A single DBC validation issue"""
-    severity: str  # "error" | "warning"
-    code: str  # IssueCode value (snake_case)
+    severity: IssueSeverity
+    code: IssueCode
     detail: str
 
 

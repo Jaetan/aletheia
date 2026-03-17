@@ -229,8 +229,6 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
     if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown condition '{condition}'")
 
-    builder = Check.signal(signal)
-
     if condition in SIMPLE_VALUE_CONDITIONS:
         if "value" not in entry:
             raise ValueError(
@@ -243,7 +241,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValueError(
                 f"Check '{name}': condition '{condition}' requires 'min' and 'max'"
             )
-        return builder.stays_between(
+        return Check.signal(signal).stays_between(
             _get_number(entry, "min", name),
             _get_number(entry, "max", name),
         )
@@ -257,7 +255,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValueError(
                 f"Check '{name}': condition 'settles_between' requires 'within_ms'"
             )
-        return builder.settles_between(
+        return Check.signal(signal).settles_between(
             _get_number(entry, "min", name),
             _get_number(entry, "max", name),
         ).within(_get_int(entry, "within_ms", name))
@@ -267,7 +265,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
         raise ValueError(
             f"Check '{name}': condition 'equals' requires 'value'"
         )
-    return builder.equals(_get_number(entry, "value", name)).always()
+    return Check.signal(signal).equals(_get_number(entry, "value", name)).always()
 
 
 def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:

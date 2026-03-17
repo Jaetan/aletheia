@@ -69,6 +69,8 @@ from ._check_conditions import (
     dispatch_when,
 )
 from .protocols import (
+    ByteOrder,
+    SignalPresence,
     DBCDefinition,
     DBCMessage,
     DBCSignal,
@@ -313,7 +315,8 @@ def create_template(path: str | Path) -> None:
 
     # DBC sheet (rename the default sheet)
     ws_dbc = wb.active
-    assert ws_dbc is not None
+    if ws_dbc is None:
+        raise RuntimeError("Workbook has no active sheet")
     ws_dbc.title = "DBC"
     _write_header_row(ws_dbc, _DBC_HEADERS)
 
@@ -395,8 +398,6 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
 
-    builder = Check.signal(signal)
-
     if condition in SIMPLE_VALUE_CONDITIONS:
         result = dispatch_simple(signal, condition, _get_number(d, "Value", row_num))
     elif condition in SIMPLE_RANGE_CONDITIONS:
@@ -404,7 +405,7 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
             raise ValueError(
                 f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
             )
-        result = builder.stays_between(
+        result = Check.signal(signal).stays_between(
             _get_number(d, "Min", row_num),
             _get_number(d, "Max", row_num),
         )
@@ -417,14 +418,14 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
             raise ValueError(
                 f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
             )
-        result = builder.settles_between(
+        result = Check.signal(signal).settles_between(
             _get_number(d, "Min", row_num),
             _get_number(d, "Max", row_num),
         ).within(_get_int(d, "Time (ms)", row_num))
     else:
         # equals → equals().always()
         value = _get_number(d, "Value", row_num)
-        result = builder.equals(value).always()
+        result = Check.signal(signal).equals(value).always()
 
     return _apply_metadata(result, d)
 
@@ -475,13 +476,13 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
 def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
     byte_order = _get_str(row, "Byte Order", row_num)
-    if byte_order not in ("little_endian", "big_endian"):
+    if byte_order not in (ByteOrder.LITTLE_ENDIAN, ByteOrder.BIG_ENDIAN):
         raise ValueError(
             f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
         )
 
     unit = row.get("Unit")
-    unit_str = str(unit) if _is_str(unit) else ""
+    unit_str = unit if _is_str(unit) else ""
 
     base_fields = {
         "name": _get_str(row, "Signal", row_num),
@@ -515,7 +516,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
 
     always_signal: DBCSignalAlways = {
         **base_fields,  # type: ignore[typeddict-item]
-        "presence": "always",
+        "presence": SignalPresence.ALWAYS,
     }
     return always_signal
 
