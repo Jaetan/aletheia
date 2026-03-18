@@ -19,9 +19,8 @@ open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Vec using (Vec)
-open import Data.Vec as Vec using (replicate)
-open import Data.Nat using (ℕ; zero; _+_; _∸_)
+open import Data.Vec as Vec using (Vec; replicate)
+open import Data.Nat using (ℕ; _+_; _∸_; _≤ᵇ_)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
 
 -- ============================================================================
@@ -35,9 +34,7 @@ rangesOverlap : ℕ → ℕ → ℕ → ℕ → Bool
 rangesOverlap start1 len1 start2 len2 =
   let end1 = start1 + len1 ∸ 1
       end2 = start2 + len2 ∸ 1
-  in (start1 Data.Nat.≤ᵇ end2) ∧ (start2 Data.Nat.≤ᵇ end1)
-  where
-    open import Data.Nat using (_≤ᵇ_)
+  in (start1 ≤ᵇ end2) ∧ (start2 ≤ᵇ end1)
 
 -- Check if a signal overlaps with another signal
 signalsOverlap : DBCSignal → DBCSignal → Bool

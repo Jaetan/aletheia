@@ -9,19 +9,20 @@
 -- Key invariant: For any multiplexor configuration, active signals don't overlap.
 module Aletheia.DBC.Properties where
 
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_)
 open import Data.Nat using (ℕ; _+_) renaming (_≤_ to _≤ₙ_)
-open import Data.Nat.Properties using (_≤?_)
+open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Rational using (ℚ; _≤_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
-open import Data.String using (String; _≟_)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Product using (_×_; _,_)
 open import Data.Empty using (⊥; ⊥-elim)
+open import Function using (case_of_)
 
 -- ============================================================================
 -- BASIC STRUCTURAL PROPERTIES
@@ -67,8 +68,6 @@ signalsDisjoint? sig₁ sig₂ =
          (no ¬q) → no (λ where
            (disjoint-left p) → ¬p p
            (disjoint-right q) → ¬q q)
-  where
-    open import Function using (case_of_)
 
 -- ============================================================================
 -- SIGNAL COEXISTENCE (for multiplexed signals)
@@ -95,9 +94,6 @@ canCoexist? Always (When m v) = yes always-left
 canCoexist? (When m v) Always = yes always-right
 canCoexist? (When m₁ v₁) (When m₂ v₂) = helper (m₁ ≟ₛ m₂) (v₁ ≟ₙ v₂)
   where
-    open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-    open import Data.Nat.Properties using () renaming (_≟_ to _≟ₙ_)
-
     helper : Dec (m₁ ≡ m₂) → Dec (v₁ ≡ v₂) → Dec (CanCoexist (When m₁ v₁) (When m₂ v₂))
     helper (yes m≡) (yes v≡) = yes (same-mux-same-val m≡ v≡)
     -- Same mux, different value: mutually exclusive, can't coexist

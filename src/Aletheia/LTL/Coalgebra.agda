@@ -26,9 +26,7 @@ open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; 
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample; FinalVerdict; Holds; Fails)
 open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
-open import Data.Nat using (_∸_; _≤ᵇ_; _⊔_; _≡ᵇ_)
-open import Data.Bool using (Bool; true; false; _∧_)
-open import Data.String using (String; _++_)
+open import Data.Nat using (_≤ᵇ_; _⊔_)
 
 -- ============================================================================
 -- PREDICATE TABLE

@@ -13,12 +13,14 @@ module Aletheia.CAN.BatchExtraction where
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
+open import Data.Rational.Show using (show)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Product using (_×_; _,_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just; nothing)
 
 -- ============================================================================
 -- BATCH EXTRACTION RESULT TYPE
@@ -54,7 +56,6 @@ categorizeResult sigName (SignalNotPresent _ reason) =
 categorizeResult sigName (ValueOutOfBounds _ value min max) =
   mkExtractionResults [] ((sigName , "Value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
   where
-    open import Data.Rational.Show using (show)
     formatBounds : ℚ → ℚ → ℚ → String
     formatBounds v mn mx = show v ++ₛ " not in [" ++ₛ show mn ++ₛ ", " ++ₛ show mx ++ₛ "]"
 categorizeResult sigName (ExtractionFailed _ reason) =
@@ -84,8 +85,6 @@ extractAllSignalsFromMessage dbc frame msg =
 -- Returns structured results with success/error/absent partitioning
 extractAllSignals : DBC → CANFrame → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
-  where
-    open import Aletheia.CAN.DBCHelpers using (findMessageById)
 ... | nothing =
     -- Message not found in DBC - return error
     mkExtractionResults [] (("message" , "CAN ID not found in DBC") ∷ []) []

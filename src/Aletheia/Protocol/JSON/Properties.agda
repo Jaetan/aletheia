@@ -7,9 +7,9 @@
 -- Approach: Congruence lemmas, structural induction, no character/integer decomposition.
 module Aletheia.Protocol.JSON.Properties where
 
-open import Aletheia.Protocol.JSON
-open import Aletheia.Parser.Combinators
-open import Aletheia.Parser.Properties
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject)
+open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
+open import Aletheia.Parser.Properties using (parser-deterministic)
 open import Data.Bool using (true)
 open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
@@ -75,7 +75,7 @@ array-length-empty = refl
 
 -- Object field lookup properties (needed for schema parsing proofs)
 open import Aletheia.Prelude using (lookupByKey)
-open import Data.Empty using (⊥-elim; ⊥)
+open import Data.Empty using (⊥-elim)
 
 lookupByKey-empty : ∀ {A : Set} (key : String)
   → lookupByKey {A} key [] ≡ nothing

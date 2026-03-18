@@ -69,20 +69,20 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **47 total modules**: 44 use `--safe`, 3 coinductive without `--safe`
+† **46 total modules**: 44 use `--safe`, 3 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (47 total):
-- **42 modules**: `--safe --without-K` (standard safe modules, includes 6 proof-only)
+**By flag combination** (46 total):
+- **41 modules**: `--safe --without-K` (standard safe modules, includes 6 proof-only)
 - **1 module**: `--safe` only (PrecompileStdlib.agda - stdlib cache)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **3 modules without `--safe`** (all use `--sized-types` for coinduction):
-  - Main.agda: `--no-main --sized-types`
+  - Main.agda: `--no-main --sized-types --without-K`
   - Protocol/StreamState.agda: `--sized-types --without-K`
   - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (3 of 47)**:
+**Modules not using `--safe` flag (3 of 46)**:
 
 Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
@@ -290,7 +290,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 4 - Production Hardening (complete). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). 47 Agda modules total.
+**Current**: Phase 4 - Production Hardening (complete). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). 46 Agda modules total.
 
 ---
 

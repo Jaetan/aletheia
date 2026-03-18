@@ -11,10 +11,14 @@
 module Aletheia.Data.BitVec.Conversion where
 
 open import Aletheia.Data.BitVec using (BitVec)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _^_; _%_)
-open import Data.Nat.DivMod using (_mod_; _/_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; s≤s; z≤n; pred; NonZero; _≡ᵇ_)
+open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n)
+open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ; ≤⇒≯; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; <-irrelevant; *-cancelˡ-≡; m+1+n≢m; suc-injective)
 open import Data.Fin using (Fin; toℕ; fromℕ<)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Fin.Properties using (toℕ-fromℕ<)
+open import Data.Bool using (Bool; true; false; if_then_else_; T)
+open import Data.Empty using (⊥; ⊥-elim)
+open import Relation.Nullary using (¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; inspect; [_])
 open import Data.Vec using (Vec; []; _∷_)
 
@@ -39,12 +43,6 @@ data ParityDecomp (m : ℕ) : Set where
 
 -- Helper functions for parity decomposition
 private
-  open import Data.Nat using (s≤s; z≤n)
-  open import Data.Nat.DivMod using (m≡m%n+[m/n]*n; m%n<n)
-  open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ)
-  open import Data.Empty using (⊥; ⊥-elim)
-  open import Relation.Nullary using (¬_)
-
   -- If m % 2 ≡ 0, then m ≡ 2 * (m / 2)
   decomp-even : ∀ m → m % 2 ≡ 0 → m ≡ 2 * (m / 2)
   decomp-even m eq =
@@ -77,9 +75,6 @@ private
         bad = subst (_< 2) eq bound
     in ¬sucr<2 r bad
     where
-      open import Data.Nat.Properties using (≤⇒≯)
-      open import Data.Nat using (_≤_; s≤s; z≤n)
-
       ¬sucr<2 : ∀ r → suc (suc r) < 2 → ⊥
       ¬sucr<2 r (s≤s (s≤s ()))
 
@@ -97,14 +92,6 @@ parity-decomp m with m % 2 | inspect (_% 2) m
 -- These four lemmas relate % and / to the canonical even/odd forms
 -- They are the ONLY arithmetic facts needed for the reverse roundtrip
 private
-  open import Data.Fin using (toℕ)
-
-  -- Arithmetic bridge lemmas using stdlib (no induction, no impossible cases!)
-  open import Data.Nat.DivMod using (m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m≡m%n+[m/n]*n)
-  open import Data.Nat.Properties using (*-comm; *-cancelʳ-≡)
-  open import Data.Nat using (pred)
-  open import Relation.Nullary using (¬_)
-
   -- Proof that 2 ≠ 0 (needed for cancellation)
   2≢0 : ¬ (2 ≡ 0)
   2≢0 ()
@@ -120,8 +107,7 @@ private
       1 % 2             ≡⟨⟩
       1
     ∎
-    where open import Relation.Binary.PropositionalEquality using (cong)
-          open Relation.Binary.PropositionalEquality.≡-Reasoning
+    where open Relation.Binary.PropositionalEquality.≡-Reasoning
 
   even-div-2 : ∀ k → (2 * k) / 2 ≡ k
   even-div-2 k = trans (cong (_/ 2) (*-comm 2 k)) (m*n/n≡m k 2)
@@ -159,38 +145,23 @@ private
   half-bound-even {m} {k} {n} eq bound =
     subst (_< 2 ^ n) (even-div-2 k) (m<n*o⇒m/o<n {2 * k} {2 ^ n} {2} bound'')
     where
-      open import Data.Nat.DivMod using (m<n*o⇒m/o<n)
-      open import Data.Nat.Properties using (*-identityˡ; *-comm)
-
       bound' : 2 * k < 2 ^ suc n
       bound' = subst (_< 2 ^ suc n) eq bound
 
       -- Normalize: 2 ^ suc n ≡ 2 ^ n * 2
       normalize : 2 ^ suc n ≡ 2 ^ n * 2
       normalize rewrite *-comm (2 ^ n) 2 | *-identityˡ (2 ^ n) = refl
-        where
-          open import Data.Nat.Properties using (*-comm; *-identityˡ)
 
       bound'' : 2 * k < 2 ^ n * 2
       bound'' = subst (2 * k <_) normalize bound'
-
-      -- m<n*o⇒m/o<n {2*k} {2^n} {2} : 2*k < 2^n * 2 → (2*k)/2 < 2^n
-      -- even-div-2   : (2*k)/2 ≡ k
-      -- Transport: (2*k)/2 < 2^n to k < 2^n
 
   half-bound-odd : ∀ {m k n} → m ≡ 1 + 2 * k → m < 2 ^ suc n → k < 2 ^ n
   half-bound-odd {m} {k} {n} eq bound =
     subst (_< 2 ^ n) (even-div-2 k) (m<n*o⇒m/o<n {2 * k} {2 ^ n} {2} bound2k')
     where
-      open import Data.Nat.DivMod using (m<n*o⇒m/o<n)
-      open import Data.Nat.Properties using (n≤1+n; ≤-<-trans; *-identityˡ)
-      open import Data.Nat using (_≤_; s≤s)
-
       -- Normalize: 2 ^ suc n ≡ 2 ^ n * 2
       normalize : 2 ^ suc n ≡ 2 ^ n * 2
       normalize rewrite *-comm (2 ^ n) 2 | *-identityˡ (2 ^ n) = refl
-        where
-          open import Data.Nat.Properties using (*-comm; *-identityˡ)
 
       bound' : 1 + 2 * k < 2 ^ suc n
       bound' = subst (_< 2 ^ suc n) eq bound
@@ -235,9 +206,6 @@ private
   div2-bound : ∀ value n → value < 2 ^ suc n → value / 2 < 2 ^ n
   div2-bound value n bound = m<n*o⇒m/o<n {value} {2 ^ n} {2} bound'
     where
-      open import Data.Nat.DivMod using (m<n*o⇒m/o<n)
-      open import Data.Nat.Properties using (*-comm; *-identityˡ)
-
       -- Normalize: 2 ^ suc n ≡ 2 ^ n * 2
       normalize : 2 ^ suc n ≡ 2 ^ n * 2
       normalize rewrite *-comm (2 ^ n) 2 | *-identityˡ (2 ^ n) = refl
@@ -288,7 +256,6 @@ private
       (value % 2) + (value / 2) * 2
         ∎
     where
-      open import Data.Nat.DivMod using (m≡m%n+[m/n]*n)
       import Relation.Binary.PropositionalEquality as Eq
       open Eq.≡-Reasoning
 
@@ -327,21 +294,13 @@ private
   -- Coherence lemma: toℕ ∘ _mod_ and _%_ are propositionally equal
   -- This bridges kernel primitives (mod-helper) and library wrappers
   -- Proof: Use toℕ-fromℕ< from stdlib to unfold the definitions
-  open import Data.Nat using (NonZero)
-  open import Data.Fin.Properties using (toℕ-fromℕ<)
-
   toℕ-mod-≡-% : ∀ m n .{{_ : NonZero n}} → toℕ (m mod n) ≡ m % n
   toℕ-mod-≡-% m n = toℕ-fromℕ< (m%n<n m n)
-    where
-      open import Data.Nat.DivMod using (m%n<n)
 
   mod2≡1-from-bool : ∀ value → (toℕ (value mod 2) Data.Nat.≡ᵇ 1) ≡ true → (value % 2) ≡ 1
   mod2≡1-from-bool value h =
     trans (sym (toℕ-mod-≡-% value 2)) (≡ᵇ⇒≡ (toℕ (value mod 2)) 1 (T-from-≡ h))
     where
-      open import Data.Nat using (_≡ᵇ_)
-      open import Data.Nat.Properties using (≡ᵇ⇒≡)
-      open import Data.Bool using (T)
       -- Convert (x ≡ true) to T x
       T-from-≡ : ∀ {x} → x ≡ true → T x
       T-from-≡ {true} refl = _
@@ -352,9 +311,6 @@ private
   ... | Fin.zero = trans (sym (toℕ-mod-≡-% value 2)) (cong toℕ eq)
   ... | Fin.suc Fin.zero = ⊥-elim (true≢false h)
     where
-      open import Data.Empty using (⊥; ⊥-elim)
-      -- When value mod 2 = Fin.suc Fin.zero, toℕ (value mod 2) = 1, so (1 ≡ᵇ 1) = true
-      -- But h says it's false, contradiction
       true≢false : true ≡ false → ⊥
       true≢false ()
 
@@ -363,11 +319,8 @@ private
 bitVec-roundtrip : ∀ n (value : ℕ) (bound : value < 2 ^ n)
   → bitVecToℕ (ℕToBitVec {n} value bound) ≡ value
 bitVec-roundtrip zero value bound = sym (n<1⇒n≡0 bound)
-  where
-    open import Data.Nat.Properties using (n<1⇒n≡0)
 bitVec-roundtrip (suc n) value bound = helper (parity-decomp value) refl
   where
-    open import Data.Nat.Properties using (*-comm)
     import Relation.Binary.PropositionalEquality as Eq
     open Eq.≡-Reasoning
 
@@ -407,17 +360,9 @@ bitVec-roundtrip (suc n) value bound = helper (parity-decomp value) refl
 -- Proof: bitVecToℕ always produces a value < 2^n
 bitVecToℕ-bounded : ∀ {n} (bits : BitVec n) → bitVecToℕ bits < 2 ^ n
 bitVecToℕ-bounded {zero} [] = s≤s z≤n
-  where
-    open import Data.Nat using (_≤_; z≤n; s≤s)
 bitVecToℕ-bounded {suc n} (false ∷ bs) = *-monoʳ-< 2 (bitVecToℕ-bounded bs)
-  where
-    open import Data.Nat.Properties using (*-monoʳ-<)
 bitVecToℕ-bounded {suc n} (true ∷ bs) = helper
   where
-    open import Data.Nat using (_≤_)
-    open import Data.Nat.Properties using (*-identityˡ; +-mono-≤; +-suc)
-    open import Relation.Binary.PropositionalEquality using (subst; refl; sym)
-
     -- Normalize 2 * k to k + k to avoid 1 * k in normal form
     normalize₂ : ∀ k → 2 * k ≡ k + k
     normalize₂ k rewrite *-identityˡ k = refl
@@ -456,8 +401,6 @@ bitVecToℕ-bounded {suc n} (true ∷ bs) = helper
   → v₁ ≡ v₂
 ℕToBitVec-injective n v₁ v₂ b₁ b₂ eq = trans (trans (sym rt1) (cong bitVecToℕ eq)) rt2
   where
-    open import Relation.Binary.PropositionalEquality using (cong; sym; trans)
-
     rt1 : bitVecToℕ (ℕToBitVec {n} v₁ b₁) ≡ v₁
     rt1 = bitVec-roundtrip n v₁ b₁
 
@@ -471,10 +414,6 @@ bitVecToℕ-bounded {suc n} (true ∷ bs) = helper
 -- Prove that bitVecToℕ is injective (structural induction on vectors)
 -- This is the key lemma that makes reverse roundtrip trivial
 private
-  open import Data.Nat.Properties using (<-irrelevant; *-cancelˡ-≡; m+1+n≢m)
-  open import Data.Empty using (⊥-elim)
-  open import Data.Nat using (suc)
-
   -- Helper: even ≠ odd (2*a ≠ 1 + 2*b)
   -- Proof: 2*a % 2 ≡ 0, but (1 + 2*b) % 2 ≡ 1, contradiction
   even≢1+even : ∀ a b → 2 * a ≡ 1 + 2 * b → ⊥
@@ -494,7 +433,6 @@ bitVecToℕ-injective (true ∷ bs₁) (false ∷ bs₂) eq =
 bitVecToℕ-injective (true ∷ bs₁) (true ∷ bs₂) eq =
   cong (true ∷_) (bitVecToℕ-injective bs₁ bs₂ (cancel-1+2*))
   where
-    open import Data.Nat.Properties using (suc-injective)
     cancel-1+2* : bitVecToℕ bs₁ ≡ bitVecToℕ bs₂
     cancel-1+2* = *-cancelˡ-≡ (bitVecToℕ bs₁) (bitVecToℕ bs₂) 2 (suc-injective eq)
 

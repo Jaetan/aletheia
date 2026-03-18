@@ -5,18 +5,18 @@
 -- Purpose: Prove parser laws (determinism, monad laws, position tracking).
 module Aletheia.Parser.Properties where
 
-open import Aletheia.Parser.Combinators
+open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remaining; position; Position; line; column; pure; fail; _>>=_; _<$>_; satisfy; char; advancePosition; advancePositions; mkResult)
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
-open import Data.Empty using (⊥; ⊥-elim)
+open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; _++_; length)
 open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe.Properties using (just-injective)
 open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; _<_; z≤n; s≤s; _≥_; _∸_)
 open import Data.Nat.Properties using (≤-refl; ≤-trans; <-trans; m≤m+n; +-comm; +-assoc; m≤n⇒m≤o+n; <⇒≤)
-open import Function using (_∘_; id)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; cong₂; subst)
 open import Relation.Nullary using (¬_)
 
@@ -294,9 +294,6 @@ parser-deterministic : ∀ {A : Set} (p : Parser A) (pos : Position) (input : Li
                      → result₁ ≡ result₂
 parser-deterministic p pos input result₁ result₂ eq₁ eq₂ =
   just-injective (trans (sym eq₁) eq₂)
-  where
-    just-injective : ∀ {A : Set} {x y : A} → just x ≡ just y → x ≡ y
-    just-injective refl = refl
 
 -- ============================================================================
 -- COMPOSITION PROPERTIES

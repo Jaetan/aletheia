@@ -14,12 +14,13 @@
 -- The hard proofs (testBit-setBit) are now trivial because we use the right representation.
 module Aletheia.CAN.Encoding.Properties where
 
-open import Aletheia.CAN.Encoding
-open import Aletheia.CAN.Endianness
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.Data.BitVec
-open import Aletheia.Data.BitVec.Conversion
+open import Aletheia.CAN.Encoding using (toSigned; fromSigned; applyScaling; removeScaling; inBounds; extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; payloadIso; extractBits-injectBits-roundtrip; injectBits-preserves-disjoint; injectPayload; injectPayload-commute; swapBytes-involutive)
+open import Aletheia.CAN.Frame using (CANFrame; Byte)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.DBC.Properties using (SignalsDisjoint; disjoint-left; disjoint-right)
+open import Aletheia.Data.BitVec using (BitVec)
+open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec; bitVec-roundtrip)
 open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
@@ -30,9 +31,10 @@ open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; normalize; 1/_; 
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
 open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Rational.Literals using (fromℤ)
-open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; *-comm; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc)
+open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
+open import Data.Maybe.Properties using (just-injective)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Empty using (⊥; ⊥-elim)
@@ -324,10 +326,6 @@ private
   floor-int : ∀ (z : ℤ) → floor (z Data.Rational./ 1) ≡ z
   floor-int z = trans (cong floor (z/1≡fromℤ z)) (floor-fromℤ z)
 
-  -- Constructor injectivity for Maybe
-  just-injective : ∀ {a} {A : Set a} {x y : A} → just x ≡ just y → x ≡ y
-  just-injective refl = refl
-
 -- Semantic bridge lemma: what does removeScaling ∘ applyScaling evaluate to?
 -- This preserves the definitional connection between the result and floor (raw / 1)
 -- PROVEN: removeScaling-applyScaling-value (line 394) and removeScaling-applyScaling-exact (line 416)
@@ -560,57 +558,44 @@ private
       open import Data.Integer.Properties as ℤ using (+-comm)
       _/₁_ = Data.Rational._/_
 
+  -- (raw/1 * f + f) + o ≡ applyScaling raw f o + f (rearrange for bounds proofs)
+  apply-rearrange : ∀ (raw : ℤ) (factor offset : ℚ) →
+    ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
+  apply-rearrange raw factor offset = begin
+    ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
+    (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
+    (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
+    applyScaling raw factor offset +ᵣ factor                  ∎
+    where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
+
+  -- (x - c) + c ≡ x (additive cancellation)
+  sub-add-cancel : ∀ (x c : ℚ) → (x -ᵣ c) +ᵣ c ≡ x
+  sub-add-cancel x c = begin
+    (x -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc x (-ᵣ c) c ⟩
+    x +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (x +ᵣ_) (ℚ-+-inverseˡ c) ⟩
+    x +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ x ⟩
+    x                  ∎
+    where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
+
   -- a ≤ b - c ⟹ a + c ≤ b (shift offset right)
   ≤-shift-offset : ∀ (a b c : ℚ) → a ≤ᵣ b -ᵣ c → a +ᵣ c ≤ᵣ b
-  ≤-shift-offset a b c a≤b-c = subst (a +ᵣ c ≤ᵣ_) b-c+c≡b (+-monoˡ-≤ c a≤b-c)
-    where
-      open import Data.Rational.Properties using (+-monoˡ-≤) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
-      -- (b - c) + c ≡ b (standard additive cancellation)
-      b-c+c≡b : (b -ᵣ c) +ᵣ c ≡ b
-      b-c+c≡b = begin
-        (b -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc b (-ᵣ c) c ⟩
-        b +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (b +ᵣ_) (ℚ-+-inverseˡ c) ⟩
-        b +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ b ⟩
-        b                  ∎
+  ≤-shift-offset a b c a≤b-c = subst (a +ᵣ c ≤ᵣ_) (sub-add-cancel b c) (+-monoˡ-≤ c a≤b-c)
+    where open import Data.Rational.Properties using (+-monoˡ-≤)
 
   -- a - c < b ⟹ a < b + c (shift offset right, strict)
   <-shift-offset : ∀ (a b c : ℚ) → a -ᵣ c <ᵣ b → a <ᵣ b +ᵣ c
-  <-shift-offset a b c a-c<b = subst (_<ᵣ b +ᵣ c) a-c+c≡a (+-monoˡ-< c a-c<b)
-    where
-      open import Data.Rational.Properties using (+-monoˡ-<) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
-      -- (a - c) + c ≡ a (standard additive cancellation)
-      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
-      a-c+c≡a = begin
-        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
-        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
-        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
-        a                  ∎
+  <-shift-offset a b c a-c<b = subst (_<ᵣ b +ᵣ c) (sub-add-cancel a c) (+-monoˡ-< c a-c<b)
+    where open import Data.Rational.Properties using (+-monoˡ-<)
 
   -- a - c ≤ b ⟹ a ≤ b + c (unshift offset, non-strict)
-  -- Used for: value - offset ≤ raw*f implies value ≤ raw*f + offset = result
   ≤-unshift-offset : ∀ (a b c : ℚ) → a -ᵣ c ≤ᵣ b → a ≤ᵣ b +ᵣ c
-  ≤-unshift-offset a b c a-c≤b = subst (_≤ᵣ b +ᵣ c) a-c+c≡a (+-monoˡ-≤ c a-c≤b)
-    where
-      open import Data.Rational.Properties using (+-monoˡ-≤) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
-      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
-      a-c+c≡a = begin
-        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
-        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
-        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
-        a                  ∎
+  ≤-unshift-offset a b c a-c≤b = subst (_≤ᵣ b +ᵣ c) (sub-add-cancel a c) (+-monoˡ-≤ c a-c≤b)
+    where open import Data.Rational.Properties using (+-monoˡ-≤)
 
   -- b < a - c ⟹ b + c < a (unshift offset, strict, flipped)
-  -- Used for: raw*f+f < value - offset implies raw*f+f + offset < value
   <-unshift-offset : ∀ (a b c : ℚ) → b <ᵣ a -ᵣ c → b +ᵣ c <ᵣ a
-  <-unshift-offset a b c b<a-c = subst (b +ᵣ c <ᵣ_) a-c+c≡a (+-monoˡ-< c b<a-c)
-    where
-      open import Data.Rational.Properties using (+-monoˡ-<) renaming (+-assoc to ℚ-+-assoc; +-inverseˡ to ℚ-+-inverseˡ; +-identityʳ to ℚ-+-identityʳ)
-      a-c+c≡a : (a -ᵣ c) +ᵣ c ≡ a
-      a-c+c≡a = begin
-        (a -ᵣ c) +ᵣ c      ≡⟨ ℚ-+-assoc a (-ᵣ c) c ⟩
-        a +ᵣ ((-ᵣ c) +ᵣ c) ≡⟨ cong (a +ᵣ_) (ℚ-+-inverseˡ c) ⟩
-        a +ᵣ 0ℚ            ≡⟨ ℚ-+-identityʳ a ⟩
-        a                  ∎
+  <-unshift-offset a b c b<a-c = subst (b +ᵣ c <ᵣ_) (sub-add-cancel a c) (+-monoˡ-< c b<a-c)
+    where open import Data.Rational.Properties using (+-monoˡ-<)
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER C: Algebraic chain (semantic core)
@@ -693,17 +678,8 @@ private
       v<raw/1*f+f+o : value <ᵣ ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset
       v<raw/1*f+f+o = <-shift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset v-o<raw/1*f+f
 
-      -- (raw/1*f + f) + o = (raw/1*f + o) + f = result + f
-      rearrange : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
-      rearrange = begin
-        ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
-        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
-        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
-        applyScaling raw factor offset +ᵣ factor                  ∎
-        where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
-
       right-bound : value <ᵣ applyScaling raw factor offset +ᵣ factor
-      right-bound = subst (value <ᵣ_) rearrange v<raw/1*f+f+o
+      right-bound = subst (value <ᵣ_) (apply-rearrange raw factor offset) v<raw/1*f+f+o
 
   scaling-bounds-neg : ∀ (value factor offset : ℚ) (raw : ℤ)
     → (factor-neg : factor <ᵣ 0ℚ)
@@ -776,17 +752,8 @@ private
       raw/1*f+f+o<v : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset <ᵣ value
       raw/1*f+f+o<v = <-unshift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset raw/1*f+f<v-o
 
-      -- Rearrange: (raw/1*f + f) + o = result + f (same as positive case)
-      rearrange : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
-      rearrange = begin
-        ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
-        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
-        (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
-        applyScaling raw factor offset +ᵣ factor                  ∎
-        where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
-
       left-bound : applyScaling raw factor offset +ᵣ factor <ᵣ value
-      left-bound = subst (_<ᵣ value) rearrange raw/1*f+f+o<v
+      left-bound = subst (_<ᵣ value) (apply-rearrange raw factor offset) raw/1*f+f+o<v
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER D: Structural bridge + final theorem
@@ -885,9 +852,6 @@ record WellFormedSignal (sig : SignalDef) : Set where
 -- Chain: extractBits ∘ injectBits → bitVecToℕ ∘ ℕToBitVec → toSigned ∘ fromSigned
 
 private
-  open import Aletheia.Data.BitVec.Conversion using (bitVec-roundtrip; ℕToBitVec; bitVecToℕ)
-  open import Aletheia.CAN.Endianness using (extractBits-injectBits-roundtrip; swapBytes; swapBytes-involutive)
-
   -- Helper: SignedFits implies fromSigned is bounded
   -- This is the direction we need for injectSignal's guard
   SignedFits-implies-fromSigned-bounded : ∀ (raw : ℤ) (bitLength : ℕ)
@@ -1106,7 +1070,7 @@ extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-
     value = signalValue (+ n) sig
 
     -- The bytes we extract from (definitional for LittleEndian via injectPayload)
-    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes : Vec Byte 8
     injectedBytes = injectBits {bitLength} payload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- Core roundtrip: extractSignalCore returns + n for unsigned signals
@@ -1146,10 +1110,10 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     value = signalValue (+ n) sig
 
     -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
-    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload : Vec Byte 8
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped : Vec Byte 8
     injectedBytesSwapped = injectBits {bitLength} swappedPayload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
@@ -1161,7 +1125,7 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     core-eq rewrite unsigned = signal-roundtrip-unsigned n swappedPayload startBit (bitLength) fits-in-frame n<2^bl
 
     -- Factor out: what extractSignal returns given bytes to extract from
-    resultOf : Data.Vec.Vec Byte 8 → Maybe ℚ
+    resultOf : Vec Byte 8 → Maybe ℚ
     resultOf bytes = let raw = extractSignalCore bytes sig
                          v = scaleExtracted raw sig
                      in if inBounds v minimum maximum then just v else nothing
@@ -1296,7 +1260,7 @@ extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf f
     n<2^bl = SignedFits-implies-fromSigned-bounded z (bitLength) bl>0 sf
 
     -- The bytes we extract from
-    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes : Vec Byte 8
     injectedBytes = injectBits {bitLength} payload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- Core roundtrip: extractSignalCore returns z for signed signals
@@ -1337,10 +1301,10 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     n<2^bl = SignedFits-implies-fromSigned-bounded z (bitLength) bl>0 sf
 
     -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
-    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload : Vec Byte 8
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped : Vec Byte 8
     injectedBytesSwapped = injectBits {bitLength} swappedPayload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
@@ -1352,7 +1316,7 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     core-eq rewrite signed = signal-roundtrip-signed z swappedPayload startBit (bitLength) bl>0 fits-in-frame sf n<2^bl
 
     -- Factor out: what extractSignal returns given bytes to extract from
-    resultOf : Data.Vec.Vec Byte 8 → Maybe ℚ
+    resultOf : Vec Byte 8 → Maybe ℚ
     resultOf bytes = let raw = extractSignalCore bytes sig
                          v = scaleExtracted raw sig
                      in if inBounds v minimum maximum then just v else nothing
@@ -1415,16 +1379,8 @@ extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok fact
 -- ============================================================================
 -- Prove that signals with disjoint bit ranges don't interfere
 
--- Definition: Two signals are disjoint if their bit ranges don't overlap
-data SignalsDisjoint (sig₁ sig₂ : SignalDef) : Set where
-  disjoint-left :
-    SignalDef.startBit sig₁ + SignalDef.bitLength sig₁
-      ≤ SignalDef.startBit sig₂
-    → SignalsDisjoint sig₁ sig₂
-  disjoint-right :
-    SignalDef.startBit sig₂ + SignalDef.bitLength sig₂
-      ≤ SignalDef.startBit sig₁
-    → SignalsDisjoint sig₁ sig₂
+-- SignalsDisjoint and its constructors (disjoint-left, disjoint-right)
+-- are imported from Aletheia.DBC.Properties (canonical definition).
 
 -- Convert SignalsDisjoint to the ⊎ form needed by injectBits-preserves-disjoint
 SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
@@ -1466,7 +1422,7 @@ extract-disjoint-inject-unsigned n sig₁ sig₂ LittleEndian frame disj bounds-
     inject-reduces = injectSignal-reduces-unsigned n sig₁ LittleEndian frame bounds-ok₁ factor≢0 n<2^bl
 
     -- The injected bytes (LittleEndian: no swap)
-    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes : Vec Byte 8
     injectedBytes = injectBits {SignalDef.bitLength sig₁} payload (SignalDef.startBit sig₁)
                       (ℕToBitVec {SignalDef.bitLength sig₁} n n<2^bl)
 
@@ -1507,10 +1463,10 @@ extract-disjoint-inject-unsigned n sig₁ sig₂ BigEndian frame disj bounds-ok�
     inject-reduces = injectSignal-reduces-unsigned n sig₁ BigEndian frame bounds-ok₁ factor≢0 n<2^bl
 
     -- For BigEndian: payload is swapped, injected, then swapped back
-    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload : Vec Byte 8
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped : Vec Byte 8
     injectedBytesSwapped = injectBits {SignalDef.bitLength sig₁} swappedPayload (SignalDef.startBit sig₁)
                              (ℕToBitVec {SignalDef.bitLength sig₁} n n<2^bl)
 
@@ -1576,7 +1532,7 @@ extract-disjoint-inject-signed z sig₁ sig₂ LittleEndian frame disj bounds-ok
     inject-reduces : injectSignal value₁ sig₁ LittleEndian frame ≡ just (injectedFrame n sig₁ LittleEndian frame n<2^bl)
     inject-reduces = injectSignal-reduces-signed z sig₁ LittleEndian frame bounds-ok₁ factor≢0 bl>0 sf
 
-    injectedBytes : Data.Vec.Vec Byte 8
+    injectedBytes : Vec Byte 8
     injectedBytes = injectBits {SignalDef.bitLength sig₁} payload (SignalDef.startBit sig₁)
                       (ℕToBitVec {SignalDef.bitLength sig₁} n n<2^bl)
 
@@ -1617,10 +1573,10 @@ extract-disjoint-inject-signed z sig₁ sig₂ BigEndian frame disj bounds-ok₁
     inject-reduces : injectSignal value₁ sig₁ BigEndian frame ≡ just (injectedFrame n sig₁ BigEndian frame n<2^bl)
     inject-reduces = injectSignal-reduces-signed z sig₁ BigEndian frame bounds-ok₁ factor≢0 bl>0 sf
 
-    swappedPayload : Data.Vec.Vec Byte 8
+    swappedPayload : Vec Byte 8
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Data.Vec.Vec Byte 8
+    injectedBytesSwapped : Vec Byte 8
     injectedBytesSwapped = injectBits {SignalDef.bitLength sig₁} swappedPayload (SignalDef.startBit sig₁)
                              (ℕToBitVec {SignalDef.bitLength sig₁} n n<2^bl)
 
@@ -1664,8 +1620,6 @@ injectedFrame-commute :
 injectedFrame-commute n₁ n₂ sig₁ sig₂ bo frame n₁<2^bl₁ n₂<2^bl₂ disj fits₁ fits₂ =
   cong (λ p → record frame { payload = p }) payload-commute
   where
-    open import Aletheia.CAN.Endianness using (injectPayload; injectPayload-commute)
-
     s₁ = SignalDef.startBit sig₁
     s₂ = SignalDef.startBit sig₂
     payload = CANFrame.payload frame

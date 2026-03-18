@@ -6,8 +6,8 @@
 -- so errorIssues filters them all out.
 module Aletheia.DBC.Validity.WarningChecks where
 
-open import Aletheia.DBC.Types
-open import Aletheia.DBC.Validator
+open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision)
+open import Aletheia.DBC.Validator using (checkGlobalNamePair; checkGlobalNameAgainstList; checkAllGlobalNameCollisions; messageSignalNames; checkMinMaxSig; checkAllMinMax; checkDupNamePair; checkDupNameAgainstList; checkDuplicateMessageNames; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ; checkOffsetScaleRange; checkAllOffsetScaleRange; checkEmptyMessage; checkAllEmptyMessage; checkStartBitOutOfRange; checkAllStartBitOutOfRange; checkBitLengthExcessive; checkAllBitLengthExcessive)
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)

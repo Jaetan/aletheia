@@ -41,18 +41,3 @@ decodeStart : ℕ → ℕ → ℕ
 decodeStart zero    currTime = currTime
 decodeStart (suc s) _        = s
 
--- Functor map for LTL: transform the atomic type
-mapLTL : ∀ {A B : Set} → (A → B) → LTL A → LTL B
-mapLTL f (Atomic a) = Atomic (f a)
-mapLTL f (Not φ) = Not (mapLTL f φ)
-mapLTL f (And φ ψ) = And (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (Or φ ψ) = Or (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (Next φ) = Next (mapLTL f φ)
-mapLTL f (Always φ) = Always (mapLTL f φ)
-mapLTL f (Eventually φ) = Eventually (mapLTL f φ)
-mapLTL f (Until φ ψ) = Until (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (Release φ ψ) = Release (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (MetricEventually w s φ) = MetricEventually w s (mapLTL f φ)
-mapLTL f (MetricAlways w s φ) = MetricAlways w s (mapLTL f φ)
-mapLTL f (MetricUntil w s φ ψ) = MetricUntil w s (mapLTL f φ) (mapLTL f ψ)
-mapLTL f (MetricRelease w s φ ψ) = MetricRelease w s (mapLTL f φ) (mapLTL f ψ)

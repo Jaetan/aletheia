@@ -8,8 +8,8 @@
 -- Used by Theorem.agda to derive top-level soundness/completeness.
 module Aletheia.DBC.Validity.Composition where
 
-open import Aletheia.DBC.Types
-open import Aletheia.DBC.Validator
+open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Validator using (errorIssues; _≟-CANId_; findSignalPresence; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkFactorZeroSig; checkAllFactorZero; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; checkSignalExceedsDLC-LE; checkSignalExceedsDLC-BE; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkBitLengthZero; checkAllBitLengthZero; checkDLCOutOfRange; checkAllDLCOutOfRange)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -18,9 +18,8 @@ open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++�
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using (_≟_)
-open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_)
-open import Data.Nat as Nat using (_/_)
-open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
+open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _/_)
+open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
@@ -139,7 +138,7 @@ checkSignalExceedsDLC-LE-allE msgName dlc sig
 checkSignalExceedsDLC-BE-allE : ∀ msgName dlc sig →
   All E (checkSignalExceedsDLC-BE msgName dlc sig)
 checkSignalExceedsDLC-BE-allE msgName dlc sig
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) Nat./ 8)) ≤? dlc
+  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 

@@ -1,4 +1,4 @@
-{-# OPTIONS --no-main --sized-types #-}
+{-# OPTIONS --no-main --sized-types --without-K #-}
 
 -- Main entry point for the Aletheia binary (JSON streaming protocol).
 --
@@ -20,7 +20,7 @@
 -- This is required because it imports modules with sized types.
 module Aletheia.Main where
 
-open import Data.String using (String; toList; _≟_)
+open import Data.String using (String; toList; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Product using (proj₁; _×_; _,_)
 open import Data.List using (List; []; _∷_)
@@ -28,13 +28,13 @@ open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Size using (Size)
-open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
+open import Codata.Sized.Colist using (Colist; []; _∷_)
 open import Codata.Sized.Thunk using (force)
 
 -- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing as Routing using (formatResponse; parseDataFrameWithTrace; parseCommandWithTrace)
+open import Aletheia.Protocol.Routing as Routing using (formatResponse; parseDataFrame; parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
 import Aletheia.Data.Message as Msg
 
@@ -54,7 +54,7 @@ import Aletheia.Data.Message as Msg
 -- Error Handling:
 --   - Graceful degradation: invalid input → error response, state unchanged
 --   - Descriptive error messages at each parsing stage (JSON parse, type field, routing)
---   - Uses trace variants (*WithTrace) to provide detailed error context
+--   - parseCommand/parseDataFrame return error messages for detailed context
 --
 -- State Threading:
 --   - State flows through: parseJSON_helper → routing → handler → response
@@ -71,11 +71,9 @@ processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
 processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJSON (toList jsonLine)))
   where
-    open import Data.String using () renaming (_++_ to _++ₛ_)
-
     -- Try to parse command with detailed tracing
     tryParseCommand : List (String × JSON) → StreamState × String
-    tryParseCommand obj with parseCommandWithTrace obj
+    tryParseCommand obj with parseCommand obj
     ... | inj₁ errMsg = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
     ... | inj₂ cmd =
           let (newState , response) = processStreamCommand cmd state
@@ -97,7 +95,7 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
                else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
           where
             trace_dataframe : List (String × JSON) → StreamState × String
-            trace_dataframe obj with parseDataFrameWithTrace obj
+            trace_dataframe obj with parseDataFrame obj
             ... | nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Failed to parse data frame")))
             ... | just (inj₁ errMsg) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
             ... | just (inj₂ (timestamp , frame)) =

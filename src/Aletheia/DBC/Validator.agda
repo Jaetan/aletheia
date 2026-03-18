@@ -58,7 +58,7 @@
 -- convention in DBC/Properties.agda. No raw Bool via ⌊_⌋.
 module Aletheia.DBC.Validator where
 
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; ValidationIssue; mkIssue; IssueSeverity; IsError; IsWarning; IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero; MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero; DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage; StartBitOutOfRange; BitLengthExcessive)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -68,8 +68,7 @@ open import Data.List using (List; []; _∷_; map; filter; concatMap)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
 open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; suc; zero; pred)
-open import Data.Nat as Nat using (_/_)
+open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; suc; zero; pred; _/_)
 open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
@@ -282,7 +281,7 @@ checkSignalExceedsDLC-LE msgName dlc sig
 -- The highest original byte accessed is 7 - startBit/8; must be < dlc.
 checkSignalExceedsDLC-BE : String → ℕ → DBCSignal → List ValidationIssue
 checkSignalExceedsDLC-BE msgName dlc sig
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) Nat./ 8)) ≤? dlc
+  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
 ... | yes _ = []
 ... | no  _ = mkIssue IsError SignalExceedsDLC
                 ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig

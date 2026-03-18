@@ -15,7 +15,7 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; injectPayload; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _^_; _<_; _<?_; _≤_)
@@ -23,11 +23,13 @@ open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; 
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
 open import Relation.Nullary.Decidable as Dec using (⌊_⌋)
-open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
+open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe.Properties using (just-injective)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym)
+open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
 open import Relation.Nullary using (yes; no)
 open import Function using (case_of_)
 
@@ -41,8 +43,6 @@ toSigned raw bitLength true =
   in if isNegative
      then -[1+ ((2 ^ bitLength) ∸ raw ∸ 1) ]
      else + raw
-  where
-    open import Data.Nat using (_≤ᵇ_)
 
 -- Convert an integer back to unsigned representation
 fromSigned : ℤ → ℕ → ℕ
@@ -176,18 +176,12 @@ injectSignal value signalDef byteOrder frame =
 --
 -- This is captured by showing that extraction at a disjoint position is preserved.
 
-open import Aletheia.CAN.Endianness using (injectPayload; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
 open import Data.Sum using (_⊎_)
 
 -- Helper: extractionBytes equals payloadIso (definitional by cases)
 extractionBytes≡payloadIso : ∀ frame bo → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)
 extractionBytes≡payloadIso frame LittleEndian = refl
 extractionBytes≡payloadIso frame BigEndian = refl
-
--- Helper to extract value from just
-private
-  just-injective : ∀ {A : Set} {x y : A} → just x ≡ just y → x ≡ y
-  just-injective refl = refl
 
 -- Key structural lemma: when injectSignal succeeds, bits at disjoint positions are preserved
 -- The proof mirrors injectSignal's structure using plain with-patterns (no rewrite, no in)
@@ -211,7 +205,6 @@ injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq 
 ...     | yes bounded = core-proof (just-injective (sym eq))
   where
     open SignalDef sig
-    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
     open ≡-Reasoning
 
     origPayload = CANFrame.payload frame

@@ -28,7 +28,7 @@ module Aletheia.LTL.Semantics where
 open import Aletheia.Prelude
 open import Data.Nat using (_≤ᵇ_)
 
-open import Aletheia.LTL.Syntax
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (SignalVal; notTV; _∧TV_; _∨TV_)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 

@@ -11,21 +11,24 @@
 -- Parser accepts both formats, formatter outputs object format for exact representation.
 module Aletheia.Protocol.JSON where
 
-open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_)
-open import Data.Char using (Char)
+open import Data.String using (String; toList; fromList) renaming (_++_ to _++ₛ_)
+open import Data.List using (List; []; _∷_; foldl; length)
+open import Data.Char using (Char; toℕ) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isDigit)
 open import Data.Bool using (Bool; true; false; if_then_else_; not)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; ↥_; ↧_)
+open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣)
+open import Data.Rational as Rat using (ℚ; _/_; toℚᵘ; -_)
+open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Product using (_×_; _,_; proj₁)
+open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Parser.Combinators
+open import Data.Nat.Divisibility using (_∣?_)
+open import Aletheia.Parser.Combinators using (Parser; pure; fail; _>>=_; _<$>_; _<|>_; _*>_; _<*_; satisfy; char; digit; spaces; string; many; some; optional; runParser)
 open import Aletheia.Prelude using (lookupByKey)
-open import Data.Integer.Show as IntShow using ()
+import Data.Integer.Show as IntShow
+open import Data.Nat.Show as ℕShow using (show)
 
 -- ============================================================================
 -- JSON DATA TYPES
@@ -61,19 +64,15 @@ getBool _ = nothing
 getInt : JSON → Maybe ℤ
 getInt (JNumber r) = checkInteger (Rat.toℚᵘ r)
   where
-    open import Data.Nat.Divisibility using (_∣?_)
-    open import Data.Integer using (+_; -[1+_]; ∣_∣)
-    open import Relation.Nullary using (yes; no)
-
     -- Divide integer by suc n (automatically proves NonZero)
     divideInteger : ℤ → ℕ → ℤ
     divideInteger (+ m) zero = + m  -- Denominator is 1, return as-is
     divideInteger -[1+ m ] zero = -[1+ m ]  -- Denominator is 1, return as-is
-    divideInteger (+ m) (Data.Nat.suc n) = + (m Data.Nat./ (Data.Nat.suc (Data.Nat.suc n)))
-    divideInteger -[1+ m ] (Data.Nat.suc n) = -[1+ (m Data.Nat./ (Data.Nat.suc (Data.Nat.suc n))) ]
+    divideInteger (+ m) (suc n) = + (m Data.Nat./ (suc (suc n)))
+    divideInteger -[1+ m ] (suc n) = -[1+ (m Data.Nat./ (suc (suc n))) ]
 
     checkInteger : ℚᵘ → Maybe ℤ
-    checkInteger (ℚᵘ.mkℚᵘ num denom-1) with (Data.Nat.suc denom-1) ∣? ∣ num ∣
+    checkInteger (ℚᵘ.mkℚᵘ num denom-1) with (suc denom-1) ∣? ∣ num ∣
     ... | yes _ = just (divideInteger num denom-1)
     ... | no _ = nothing
 getInt _ = nothing
@@ -84,7 +83,7 @@ getNat : JSON → Maybe ℕ
 getNat (JNumber r) = extractNat (getInt (JNumber r))
   where
     extractNat : Maybe ℤ → Maybe ℕ
-    extractNat (just (Data.Integer.+ n)) = just n
+    extractNat (just (+ n)) = just n
     extractNat _ = nothing
 getNat _ = nothing
 
@@ -103,8 +102,8 @@ getRational (JObject fields) = parseRationalObject fields
     ...     | nothing = nothing
     ...     | just denomJSON with getNat denomJSON
     ...       | nothing = nothing
-    ...       | just Data.Nat.zero = nothing  -- Denominator cannot be zero
-    ...       | just (Data.Nat.suc d) = just (num / (Data.Nat.suc d))  -- NonZero proved by suc
+    ...       | just zero = nothing  -- Denominator cannot be zero
+    ...       | just (suc d) = just (num / (suc d))  -- NonZero proved by suc
 getRational _ = nothing
 
 -- Get array value from JSON
@@ -157,15 +156,13 @@ lookupObject = lookupWith getObject
 -- Format a rational: integers as decimal notation, non-integers as object
 formatRational : ℚ → String
 formatRational r with Rat.toℚᵘ r
-... | ℚᵘ.mkℚᵘ num Data.Nat.zero =
+... | ℚᵘ.mkℚᵘ num zero =
       -- Denominator is 1, format as integer
       IntShow.show num
-... | ℚᵘ.mkℚᵘ num (Data.Nat.suc denom-1) =
+... | ℚᵘ.mkℚᵘ num (suc denom-1) =
       -- Denominator > 1, format as object for exact representation
       "{\"numerator\": " ++ₛ IntShow.show num ++ₛ
-      ", \"denominator\": " ++ₛ ℕShow.show (Data.Nat.suc (Data.Nat.suc denom-1)) ++ₛ "}"
-  where
-    open import Data.Nat.Show as ℕShow using (show)
+      ", \"denominator\": " ++ₛ ℕShow.show (suc (suc denom-1)) ++ₛ "}"
 
 formatJSON : JSON → String
 formatJSON JNull = "null"
@@ -211,10 +208,7 @@ digitToNat _   = 0
 parseNatural : Parser ℕ
 parseNatural = do
   digits ← some (satisfy isDigit)
-  pure (foldl (λ acc d → acc Data.Nat.* 10 Data.Nat.+ digitToNat d) 0 digits)
-  where
-    open import Data.Nat using (_*_; _+_)
-    foldl = Data.List.foldl
+  pure (foldl (λ acc d → acc * 10 + digitToNat d) 0 digits)
 
 -- Parse integer (with optional minus sign)
 parseInt : Parser ℤ
@@ -225,8 +219,8 @@ parseInt = do
   where
     parseIntHelper : Maybe Char → ℕ → Parser ℤ
     parseIntHelper nothing n = pure (+ n)
-    parseIntHelper (just _) Data.Nat.zero = pure (+ 0)
-    parseIntHelper (just _) (Data.Nat.suc n') = pure (-[1+ n' ])
+    parseIntHelper (just _) zero = pure (+ 0)
+    parseIntHelper (just _) (suc n') = pure (-[1+ n' ])
 
 -- Helper: <$ operator (discard result, return constant)
 _<$_ : ∀ {A B : Set} → A → Parser B → Parser A
@@ -256,10 +250,6 @@ parseRational = do
   frac ← optional (char '.' *> some digit)
   pure (applySign neg (buildNumber n frac))
   where
-    open import Data.Char using (toℕ)
-    open import Data.List using (foldl; length)
-    open import Data.Rational using (-_)
-
     -- Compute 10^n, returns suc n to prove NonZero
     power10 : ℕ → ℕ
     power10 zero = suc 0
@@ -278,7 +268,7 @@ parseRational = do
     buildNumber n (just fracChars) with power10 (length fracChars)
     ... | suc scale =
       let fracValue = parseDigitList fracChars
-      in (+ (n Data.Nat.* suc scale Data.Nat.+ fracValue)) / suc scale
+      in (+ (n * suc scale + fracValue)) / suc scale
     ... | zero = (+ n) / 1  -- Unreachable but needed for coverage
 
     applySign : Maybe Char → ℚ → ℚ
@@ -291,7 +281,7 @@ parseNumber = JNumber <$> parseRational
 -- Parse a single character inside a JSON string
 -- Accepts all characters except quotes (escape sequences intentionally unsupported)
 parseStringChar : Parser Char
-parseStringChar = satisfy (λ c → not ⌊ c Data.Char.≟ '"' ⌋)
+parseStringChar = satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋)
 
 parseString : Parser JSON
 parseString = do
@@ -365,7 +355,7 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
 
 -- Public API: parseJSON wraps helper with input length
 parseJSON : Parser JSON
-parseJSON pos input = parseJSONHelper (Data.List.length input) pos input
+parseJSON pos input = parseJSONHelper (length input) pos input
 
 -- ============================================================================
 -- HELPER: RUN JSON PARSER
@@ -373,4 +363,4 @@ parseJSON pos input = parseJSONHelper (Data.List.length input) pos input
 
 -- Parse JSON from string
 fromString : String → Maybe JSON
-fromString input = Data.Maybe.map proj₁ (runParser parseJSON (toList input))
+fromString input = map proj₁ (runParser parseJSON (toList input))

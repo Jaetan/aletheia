@@ -22,14 +22,13 @@ module Aletheia.LTL.SignalPredicate where
 open import Aletheia.Prelude
 open import Data.Rational as Rat using (_-_; ∣_∣; _≤?_; _<?_)
 open import Data.Maybe as M using (map)
+open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Function using (case_of_)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
 open import Aletheia.CAN.ExtractionResult using (getValue)
 open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- SIGNAL EVALUATION VALUES (Extended Kleene logic)
@@ -224,8 +223,6 @@ lookupCache : String → SignalCache → Maybe CachedSignal
 lookupCache _ [] = nothing
 lookupCache name ((n , cached) ∷ rest) =
   if ⌊ name ≟ₛ n ⌋ then just cached else lookupCache name rest
-  where
-    open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 
 -- Update or insert a signal value in the cache
 updateCache : String → ℚ → ℕ → SignalCache → SignalCache
@@ -234,8 +231,6 @@ updateCache name val ts ((n , cached) ∷ rest) =
   if ⌊ name ≟ₛ n ⌋
   then (name , mkCachedSignal val ts) ∷ rest
   else (n , cached) ∷ updateCache name val ts rest
-  where
-    open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 
 -- ============================================================================
 -- THREE-VALUED PREDICATE EVALUATION

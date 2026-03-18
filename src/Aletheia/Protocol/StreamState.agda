@@ -16,37 +16,34 @@
 module Aletheia.Protocol.StreamState where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-import Data.String.Properties as String-Props
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; zero; suc; _+_; _%_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Vec using (Vec; _∷_; [])
-open import Data.Sum using (_⊎_)
+open import Data.Vec using (Vec)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Function using (case_of_)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (findByPredicate; standard-can-id-max)
+open import Aletheia.Prelude using (standard-can-id-max)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV; extractSignalValue)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; simplify)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
 open import Data.Rational using (ℚ)
 open import Aletheia.LTL.JSON using (parseProperty)
-open import Aletheia.Data.Message  -- Includes Response, StreamCommand, etc.
+open import Aletheia.Data.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
-open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ExtractionFailed; ValueOutOfBounds; getValue)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame)
--- Note: Not importing Response from Protocol.Response to avoid name clash
+open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 
 -- ============================================================================
 -- STREAM STATE
@@ -84,13 +81,6 @@ initialState = mkStreamState WaitingForDBC nothing [] nothing emptyCache
 -- ============================================================================
 -- HELPER FUNCTIONS
 -- ============================================================================
-
--- Find message by name in DBC
-findMessageByName : String → DBC → Maybe DBCMessage
-findMessageByName name dbc = findByPredicate matchesName (DBC.messages dbc)
-  where
-    matchesName : DBCMessage → Bool
-    matchesName msg = ⌊ String-Props._≟_ (DBCMessage.name msg) name ⌋
 
 -- ============================================================================
 -- FORMULA INDEXING (LTL SignalPredicate → LTLProc + atom list)
@@ -146,7 +136,6 @@ mkPredTable dbc cache atoms n frame =
   case lookupAtom atoms n of λ where
     nothing     → Unknown
     (just pred) → evalPredicateTV dbc cache pred (TimedFrame.frame frame)
-  where open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- SIGNAL CACHE UPDATES
@@ -159,8 +148,6 @@ updateCacheFromFrame : DBC → SignalCache → ℕ → CANFrame → SignalCache
 updateCacheFromFrame dbc cache ts frame =
   updateFromMessage (findMessageById (CANFrame.id frame) dbc)
   where
-    open import Aletheia.LTL.SignalPredicate using (extractSignalValue)
-
     -- Update cache with all signals from a message
     updateSignals : List DBCSignal → SignalCache → SignalCache
     updateSignals [] c = c
@@ -189,17 +176,6 @@ parseSignalList (obj ∷ rest) = do
   restParsed ← parseSignalList rest
   just ((name , value) ∷ restParsed)
 
--- Create zero-filled frame with given message ID
-makeZeroFrame : CANId → CANFrame
-makeZeroFrame msgId =
-  let zeros : Vec Byte 8
-      zeros = 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ 0 ∷ []
-  in record
-    { id = msgId
-    ; dlc = 8
-    ; payload = zeros
-    }
-
 -- Create frame from bytes and message ID
 makeFrame : CANId → Vec Byte 8 → CANFrame
 makeFrame msgId bytes = record
@@ -218,8 +194,6 @@ handleParseDBC-State : JSON → StreamState → StreamState × Response
 handleParseDBC-State dbcJSON state =
   parseHelper (parseDBCWithErrors dbcJSON)
   where
-    open import Data.Sum using (inj₁; inj₂)
-
     parseHelper : String ⊎ DBC → StreamState × Response
     parseHelper (inj₁ parseError) =
       (state , Response.Error ("DBC parse error: " ++ₛ parseError))
@@ -268,7 +242,6 @@ handleEndStream-State state with StreamState.phase state
       results = finalizeProperties (StreamState.properties state)
   in (newState , Response.Complete results)
   where
-    open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
     -- Convert FinalVerdict to PropertyResult
     verdictToResult : ℕ → FinalVerdict → PR.PropertyResult
     verdictToResult idx Holds = PR.PropertyResult.Satisfaction idx
@@ -316,9 +289,6 @@ handleDataFrame state timestamp frame with StreamState.phase state
 ...   | nothing = (state , Response.Error "No DBC loaded")
 ...   | just dbc = processFrame dbc
   where
-    open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-    open import Aletheia.LTL.Incremental using (Counterexample)
-
     -- Current cache from state (before this frame's signals are extracted)
     currentCache : SignalCache
     currentCache = StreamState.signalCache state
@@ -426,8 +396,6 @@ handleValidateDBC-State : JSON → StreamState → StreamState × Response
 handleValidateDBC-State dbcJSON state =
   parseHelper (parseDBCWithErrors dbcJSON)
   where
-    open import Data.Sum using (inj₁; inj₂)
-
     parseHelper : String ⊎ DBC → StreamState × Response
     parseHelper (inj₁ parseErr) =
       (state , Response.Error ("DBC parse error: " ++ₛ parseErr))

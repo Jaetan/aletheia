@@ -14,20 +14,18 @@ open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Integer using (ℤ)
+open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ; _%_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (lookupByKey; standard-can-id-max)
-open import Aletheia.Protocol.JSON
-open import Aletheia.Data.Message
+open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; _>>=ₑ_)
+open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; lookupString; lookupNat; lookupArray; getInt)
+open import Aletheia.Data.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
-open import Aletheia.CAN.Endianness using (byteToℕ)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero;
@@ -41,14 +39,6 @@ open import Aletheia.DBC.Validator using (hasAnyError)
 -- JSON → REQUEST PARSING
 -- ============================================================================
 
--- Parse a list of JSON values as strings
-parseStringList : List JSON → Maybe (List String)
-parseStringList [] = just []
-parseStringList (JString s ∷ rest) = do
-  restParsed ← parseStringList rest
-  just (s ∷ restParsed)
-parseStringList (_ ∷ _) = nothing  -- Non-string in list
-
 -- Parse a JSON array as a list of bytes
 parseByteArray : List JSON → Maybe (List ℕ)
 parseByteArray [] = just []
@@ -56,7 +46,6 @@ parseByteArray (jn ∷ rest) = do
   n ← getInt jn  -- Extract integer from JSON (rational must have denominator 1)
   extractNat n rest
   where
-    open import Data.Integer using (+_; -[1+_])
     extractNat : ℤ → List JSON → Maybe (List ℕ)
     extractNat (+ nℕ) rest = do
       restParsed ← parseByteArray rest
@@ -76,8 +65,6 @@ listToVec8 _ = nothing  -- Wrong length
 -- ============================================================================
 -- COMMAND PARSERS
 -- ============================================================================
-
-open import Aletheia.Prelude using (_>>=ₑ_)
 
 -- Parse ParseDBC command
 tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
@@ -196,22 +183,16 @@ dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
 ... | nothing = inj₁ ("Unknown command: " ++ₛ cmdType)
 ... | just parser = parser obj
 
--- Parse StreamCommand from JSON object (with error traces)
-parseCommandWithTrace : List (String × JSON) → String ⊎ StreamCommand
-parseCommandWithTrace obj with lookupString "command" obj
+-- Parse StreamCommand from JSON object (returns error message on failure)
+parseCommand : List (String × JSON) → String ⊎ StreamCommand
+parseCommand obj with lookupString "command" obj
 ... | nothing = inj₁ "Missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
 
--- Parse StreamCommand from JSON object
-parseCommand : List (String × JSON) → Maybe StreamCommand
-parseCommand obj with parseCommandWithTrace obj
-... | inj₁ _ = nothing
-... | inj₂ cmd = just cmd
-
--- Parse data frame from JSON object (returns timestamp and frame)
--- Returns error messages for debugging
-parseDataFrameWithTrace : List (String × JSON) → Maybe (String ⊎ (ℕ × CANFrame))
-parseDataFrameWithTrace obj with lookupNat "timestamp" obj
+-- Parse data frame from JSON object
+-- Returns detailed error messages on failure (inj₁) or parsed frame (inj₂)
+parseDataFrame : List (String × JSON) → Maybe (String ⊎ (ℕ × CANFrame))
+parseDataFrame obj with lookupNat "timestamp" obj
 ... | nothing = just (inj₁ "Data frame: missing or invalid 'timestamp' field")
 ... | just timestamp with lookupNat "id" obj
 ...   | nothing = just (inj₁ "Data frame: missing or invalid 'id' field")
@@ -232,34 +213,28 @@ parseDataFrameWithTrace obj with lookupNat "timestamp" obj
             }
       in just (inj₂ (timestamp , frame))
 
--- Original parseDataFrame without traces
-parseDataFrame : List (String × JSON) → Maybe (ℕ × CANFrame)
-parseDataFrame obj = do
-  timestamp ← lookupNat "timestamp" obj
-  canId ← lookupNat "id" obj
-  bytesJSON ← lookupArray "data" obj
-  byteList ← parseByteArray bytesJSON
-  bytes ← listToVec8 byteList
-  let frame = record
-        { id = CANId.Standard (canId % standard-can-id-max)
-        ; dlc = 8
-        ; payload = bytes
-        }
-  just (timestamp , frame)
-
 -- Parse Request from JSON
 parseRequest : JSON → Maybe Request
 parseRequest (JObject obj) with lookupString "type" obj
 ... | nothing = nothing
-... | just msgType with ⌊ msgType ≟ "command" ⌋
-...   | true = do
-        cmd ← parseCommand obj
-        just (CommandRequest cmd)
-...   | false with ⌊ msgType ≟ "data" ⌋
-...     | true = do
-          (timestamp , frame) ← parseDataFrame obj
-          just (DataFrame timestamp frame)
-...     | false = nothing  -- Unknown message type
+... | just msgType = routeByType msgType obj
+  where
+    tryCommand : List (String × JSON) → Maybe Request
+    tryCommand obj with parseCommand obj
+    ... | inj₁ _ = nothing
+    ... | inj₂ cmd = just (CommandRequest cmd)
+
+    tryDataFrame : List (String × JSON) → Maybe Request
+    tryDataFrame obj with parseDataFrame obj
+    ... | nothing = nothing
+    ... | just (inj₁ _) = nothing
+    ... | just (inj₂ (timestamp , frame)) = just (DataFrame timestamp frame)
+
+    routeByType : String → List (String × JSON) → Maybe Request
+    routeByType msgType obj =
+      if ⌊ msgType ≟ "command" ⌋ then tryCommand obj
+      else if ⌊ msgType ≟ "data" ⌋ then tryDataFrame obj
+      else nothing
 parseRequest _ = nothing  -- Not a JSON object
 
 -- ============================================================================
@@ -267,9 +242,8 @@ parseRequest _ = nothing  -- Not a JSON object
 -- ============================================================================
 
 -- Convert Vec Byte 8 to JSON array
--- Note: Uses byteToℕ from CAN.Endianness to avoid duplication
 bytesToJSON : Vec Byte 8 → JSON
-bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (map byteToℕ (toList bytes)))
+bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (toList bytes))
 
 -- Format PropertyResult as JSON object
 formatPropertyResult : PropertyResult → JSON

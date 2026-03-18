@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-16
+**Last Updated**: 2026-03-18
 
 ---
 
@@ -288,6 +288,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Research needed**:
 - Mixed byte order signals: Investigate prevalence of signals with different byte orders (Intel/Motorola) within the same CAN message, based on publicly available DBC files. Current batch proofs assume same byte order; mixed byte orders require different disjointness semantics due to DBC start bit conventions (LSB for Intel, MSB for Motorola).
+- Per-field endianness: Investigate supporting fields with different endianness within the same DBC. Real-world DBC files can mix Intel (little-endian) and Motorola (big-endian) signals in a single message. This requires extending the encoding layer to handle per-signal byte order rather than per-message.
 
 **Status**: Not started
 
@@ -296,7 +297,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 47 (41 production + 6 proof-only)
+- Agda modules: 46 (40 production + 6 proof-only)
 - Python modules: 11
 - Lines of code: ~7,700 Agda + ~6,200 Python
 

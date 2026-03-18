@@ -20,17 +20,16 @@
 module Aletheia.LTL.Adequacy where
 
 open import Aletheia.Prelude
-open import Data.Nat using (_≤ᵇ_; _∸_)
+open import Data.Nat using (_≤ᵇ_)
 open import Relation.Binary.PropositionalEquality using (subst)
 
 import Aletheia.LTL.Syntax as Syntax
 open Syntax using (LTL; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
-open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot)
-open import Aletheia.LTL.Coalgebra as Coal
-  using (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
-         MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
+open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot;
+  Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)

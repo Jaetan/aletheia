@@ -19,8 +19,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
-open import Data.Nat using (ℕ; _+_; _*_; _∸_; suc; _≤_)
-open import Data.Nat as Nat using (_/_)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_; suc; _≤_; _/_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Rational using (ℚ)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -57,7 +56,7 @@ BitsInFrameLE : ℕ → SignalDef → Set
 BitsInFrameLE dlc sd = SignalDef.startBit sd + SignalDef.bitLength sd ≤ dlc * 8
 
 BitsInFrameBE : ℕ → SignalDef → Set
-BitsInFrameBE dlc sd = suc (7 ∸ (SignalDef.startBit sd Nat./ 8)) ≤ dlc
+BitsInFrameBE dlc sd = suc (7 ∸ (SignalDef.startBit sd / 8)) ≤ dlc
 
 BitsInFrame : ℕ → DBCSignal → Set
 BitsInFrame dlc sig with DBCSignal.byteOrder sig

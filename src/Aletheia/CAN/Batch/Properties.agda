@@ -16,11 +16,11 @@
 --
 module Aletheia.CAN.Batch.Properties where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Encoding
+open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned; injectSignal; injectSignal-preserves-disjoint-bits)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Properties using (
   SignalsDisjoint; disjoint-left; disjoint-right)
 
@@ -30,7 +30,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _≤_)
 open import Data.Rational using (ℚ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym)
 open import Function using (case_of_)
 
 -- ============================================================================
@@ -244,7 +244,6 @@ private
     → extractSignal frame₁ sig bo ≡ extractSignal frame₂ sig bo
   extractSignal-bits-eq frame₁ frame₂ sig bo bits-eq = result-eq
     where
-      open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned)
       open SignalDef sig
 
       bytes₁ = extractionBytes frame₁ bo
@@ -288,8 +287,6 @@ single-inject-preserves-same-bo :
 single-inject-preserves-same-bo frame frame' s v sig bo-eq disj fits-s fits-sig inj-eq
   rewrite sym bo-eq = extractSignal-bits-eq frame' frame sig-sig bo bits-preserved
   where
-    open import Aletheia.CAN.Encoding using (extractSignal; extractionBytes; injectSignal; injectSignal-preserves-disjoint-bits)
-
     bo = DBCSignal.byteOrder s
     sig-s = DBCSignal.signalDef s
     sig-sig = DBCSignal.signalDef sig

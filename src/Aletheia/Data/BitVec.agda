@@ -12,8 +12,8 @@ module Aletheia.Data.BitVec where
 
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Fin using (Fin)
-open import Data.Vec using (Vec; []; _∷_; lookup; updateAt; replicate)
-open import Data.Bool using (Bool; true; false)
+open import Data.Vec using (Vec; []; _∷_; lookup; updateAt)
+open import Data.Bool using (Bool)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
 open import Function using (const; _∘_)
 
@@ -37,14 +37,6 @@ testBit bits k = lookup bits k
 -- Set bit at position k to value v
 setBit : ∀ {n} → BitVec n → Fin n → Bool → BitVec n
 setBit bits k v = updateAt bits k (const v)
-
--- Create a bitvector with all bits set to false
-zeros : ∀ n → BitVec n
-zeros n = replicate n false
-
--- Create a bitvector with all bits set to true
-ones : ∀ n → BitVec n
-ones n = replicate n true
 
 -- ============================================================================
 -- STRUCTURAL PROPERTIES (TRIVIAL PROOFS)

@@ -9,12 +9,12 @@
 -- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.
 module Aletheia.CAN.SignalExtraction where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
+open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; scaleExtracted; extractionBytes; inBounds)
-open import Aletheia.CAN.ExtractionResult
+open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; Always; When)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ; _/_)
 import Data.Rational.Properties as ℚ-Props
@@ -23,7 +23,7 @@ open import Data.Nat using (ℕ)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.List using (List; _∷_; [])
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 -- ============================================================================
@@ -75,6 +75,3 @@ extractSignalWithContext dbc frame signalName with findMessageById (CANFrame.id 
                then Success value
                else ValueOutOfBounds signalName value minVal maxVal
 
--- Backward compatibility: Maybe interface
-extractSignalMaybe : DBC → CANFrame → String → Maybe ℚ
-extractSignalMaybe dbc frame sigName = getValue (extractSignalWithContext dbc frame sigName)

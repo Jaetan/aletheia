@@ -12,25 +12,23 @@
 module Aletheia.DBC.JSONParser where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.Protocol.JSON
+open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupBool; lookupNat; lookupRational; lookupArray)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using (List; []; _∷_)
 open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Nat using (ℕ; _%_)
+open import Data.Nat using (ℕ; _%_; _≤ᵇ_; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; _>>=ₑ_)
 
 -- ============================================================================
 -- ERROR-RETURNING PARSER COMBINATORS
 -- ============================================================================
-
-open import Aletheia.Prelude using (_>>=ₑ_)
 
 -- Require a Maybe field, with context for error message
 require : ∀ {A : Set} → String → Maybe A → String ⊎ A
@@ -126,7 +124,7 @@ parseSignalList : String → List JSON → ℕ → String ⊎ (List DBCSignal)
 parseSignalList context [] _ = inj₂ []
 parseSignalList context (JObject sigObj ∷ rest) idx =
   parseSignal context sigObj >>=ₑ λ sig →
-  parseSignalList context rest (idx Data.Nat.+ 1) >>=ₑ λ restParsed →
+  parseSignalList context rest (idx + 1) >>=ₑ λ restParsed →
   inj₂ (sig ∷ restParsed)
 parseSignalList context (_ ∷ _) idx =
   inj₁ (context ++ₛ ": signal at index " ++ₛ showℕ idx ++ₛ " is not a JSON object")
@@ -134,17 +132,15 @@ parseSignalList context (_ ∷ _) idx =
 -- Parse CAN ID from natural and optional "extended" field
 parseCANId : String → ℕ → List (String × JSON) → String ⊎ CANId
 parseCANId context rawId obj with lookupBool "extended" obj
-... | just true = if rawId Data.Nat.<ᵇ extended-can-id-max
+... | just true = if rawId <ᵇ extended-can-id-max
                    then inj₂ (Extended (rawId % extended-can-id-max))
                    else inj₁ (context ++ₛ ": extended CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 536870911)")
-... | just false = if rawId Data.Nat.<ᵇ standard-can-id-max
+... | just false = if rawId <ᵇ standard-can-id-max
                     then inj₂ (Standard (rawId % standard-can-id-max))
                     else inj₁ (context ++ₛ ": standard CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 2047)")
-... | nothing = if rawId Data.Nat.<ᵇ standard-can-id-max
+... | nothing = if rawId <ᵇ standard-can-id-max
                  then inj₂ (Standard (rawId % standard-can-id-max))
                  else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
-  where
-    open import Data.Nat using (_<ᵇ_)
 
 -- Parse a single message from JSON object
 parseMessage : List (String × JSON) → String ⊎ DBCMessage
@@ -153,8 +149,6 @@ parseMessage obj =
   let context = "message '" ++ₛ name ++ₛ "'"
   in parseMessageFields context name obj
   where
-    open import Data.Nat using (_≤ᵇ_)
-
     parseMessageFields : String → String → List (String × JSON) → String ⊎ DBCMessage
     parseMessageFields context name obj =
       require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
@@ -178,7 +172,7 @@ parseMessageList : List JSON → ℕ → String ⊎ (List DBCMessage)
 parseMessageList [] _ = inj₂ []
 parseMessageList (JObject msgObj ∷ rest) idx =
   parseMessage msgObj >>=ₑ λ msg →
-  parseMessageList rest (idx Data.Nat.+ 1) >>=ₑ λ restParsed →
+  parseMessageList rest (idx + 1) >>=ₑ λ restParsed →
   inj₂ (msg ∷ restParsed)
 parseMessageList (_ ∷ _) idx =
   inj₁ ("message at index " ++ₛ showℕ idx ++ₛ " is not a JSON object")

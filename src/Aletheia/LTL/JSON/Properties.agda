@@ -14,13 +14,10 @@
 -- For user-facing formulas (always startTime=0), resetStart f ≡ f.
 module Aletheia.LTL.JSON.Properties where
 
-open import Data.String using (String)
-open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (just)
 open import Data.Nat using (ℕ; suc; zero; _⊔_; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
-open import Data.Integer using (+_)
-open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.Product using (_,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Relation.Nullary using (yes; no)
 open import Data.Empty using (⊥-elim)
@@ -28,11 +25,9 @@ open import Data.Empty using (⊥-elim)
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate)
-open import Aletheia.LTL.SignalPredicate as VP using (Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between)
-open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
-open import Aletheia.LTL.JSON.Format
+open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields; ltlDepth; ℕtoℚ)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
 
 -- ============================================================================

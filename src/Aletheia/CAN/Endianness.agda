@@ -10,25 +10,33 @@
 -- Proof: byteSwap is its own inverse (Phase 1 proof, verified).
 module Aletheia.CAN.Endianness where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.Data.BitVec
-open import Aletheia.Data.BitVec.Conversion
+open import Aletheia.CAN.Frame using (Byte)
+open import Aletheia.Data.BitVec using (BitVec; testBit; setBit; testBit-setBit-same; testBit-setBit-diff; setBit-setBit-comm)
+open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; bitVec-roundtrip; bitVec-roundtrip-reverse; bitVecToℕ-bounded)
 open import Data.Vec using (Vec; []; _∷_; reverse)
+open import Data.Vec.Properties using (reverse-involutive)
 open import Data.Fin using (Fin; toℕ; fromℕ<) renaming (zero to fzero; suc to fsuc)
-open import Data.Fin.Properties using (toℕ-fromℕ<)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s)
-open import Data.Nat as Nat using (_/_; _%_)
-open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
+open import Data.Fin.Properties using (toℕ-fromℕ<; toℕ-injective)
+open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s; _/_; _%_)
+open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
+open import Data.Nat.Properties using (_≟_; <⇒≤; <⇒≢; +-suc; +-comm; ≤-refl; ≤-trans; n≤1+n; m≤m+n; m<n+m; m<m+n; <-≤-trans; m+n≤o⇒n≤o; m≤n⇒m≤1+n)
+-- Instance-only import: brings NonZero into scope for m<n*o⇒m/o<n
+import Data.Nat.Instances
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; cong₂; _≢_)
-open import Relation.Nullary using (yes; no; ¬_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; subst₂; cong₂; _≢_)
+open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
+open import Relation.Nullary using (yes; no)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Unit using (⊤; tt)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Function using (_∘_)
+
+private
+  8*8≡64 : 8 * 8 ≡ 64
+  8*8≡64 = refl
 
 data ByteOrder : Set where
   LittleEndian BigEndian : ByteOrder
@@ -36,10 +44,6 @@ data ByteOrder : Set where
 -- ============================================================================
 -- BYTE <-> BITVEC CONVERSION
 -- ============================================================================
-
--- Extract a byte to a natural number (identity since Byte = ℕ)
-byteToℕ : Byte → ℕ
-byteToℕ b = b
 
 -- Convert a byte (ℕ) to an 8-bit bitvector (uses mod 256 for bounds)
 byteToBitVec : Byte → BitVec 8
@@ -71,9 +75,6 @@ extractBits : ∀ {length} → Vec Byte 8 → ℕ → BitVec length
 extractBits {zero} bytes startBit = []
 extractBits {suc length} bytes startBit = bitValue ∷ restBits
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
-
     byteIdx : ℕ
     byteIdx = startBit Nat./ 8
 
@@ -98,9 +99,6 @@ injectBits : ∀ {length} → Vec Byte 8 → ℕ → BitVec length → Vec Byte 
 injectBits bytes startBit [] = bytes
 injectBits bytes startBit (bitValue ∷ restBits) = injectBits updatedBytes (suc startBit) restBits
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
-
     byteIdx : ℕ
     byteIdx = startBit Nat./ 8
 
@@ -132,8 +130,6 @@ swapBytes = reverse
 -- Proof that swapping twice is identity
 swapBytes-involutive : ∀ (bytes : Vec Byte 8) → swapBytes (swapBytes bytes) ≡ bytes
 swapBytes-involutive bytes = reverse-involutive bytes
-  where
-    open import Data.Vec.Properties using (reverse-involutive)
 
 -- ============================================================================
 -- BYTE ↔ BITVEC ROUNDTRIP PROOFS
@@ -197,11 +193,6 @@ private
   injectBits-preserves-earlier-bit {suc len} bytes earlierPos laterPos (b ∷ bs) later>earlier frameBound =
     trans recursive-preservation first-step-preservation
     where
-      open import Data.Nat.Properties using (_≟_)
-
-      open import Data.Nat.DivMod using (m%n<n)
-      open import Data.Nat as Nat using (_/_; _%_)
-
       earlierByteIdx : ℕ
       earlierByteIdx = earlierPos Nat./ 8
 
@@ -223,13 +214,6 @@ private
                              ≡ testBit (byteToBitVec (lookupSafe 8 earlierByteIdx updatedBytes)) earlierBitPos
       recursive-preservation = injectBits-preserves-earlier-bit updatedBytes earlierPos (suc laterPos) bs (s≤s (<⇒≤ later>earlier)) restFrameBound
         where
-          open import Data.Nat.Properties using (<⇒≤; +-suc)
-
-          -- frameBound : laterPos + suc len ≤ 64
-          -- want : suc laterPos + len ≤ 64
-          -- Note: suc laterPos + len = suc (laterPos + len) by definition of +
-          --       laterPos + suc len = suc (laterPos + len) by +-suc
-          -- So they're equal!
           restFrameBound : suc laterPos + len ≤ 64
           restFrameBound = subst (_≤ 64) (+-suc laterPos len) frameBound
 
@@ -248,58 +232,26 @@ private
                 (trans (cong (λ bv → testBit bv earlierBitPos) (bitVecToByte-roundtrip (setBit (byteToBitVec (lookupSafe 8 laterByteIdx bytes)) laterBitPos b)))
                   (testBit-setBit-diff (byteToBitVec (lookupSafe 8 laterByteIdx bytes)) laterBitPos earlierBitPos b laterBitPos≢earlierBitPos)))
         where
-          open import Data.Fin.Properties using (toℕ-injective)
-          open import Data.Nat.DivMod using (m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
-          open import Data.Nat.Properties using (<⇒≢; ≤-trans; m<n+m; <-≤-trans; +-comm)
-          open import Data.Nat.Instances using () -- For NonZero instance
-
           -- Derive laterByteIdx < 8 from frame bound
-          -- frameBound: laterPos + suc len ≤ 64 ⟹ laterPos < suc len + laterPos = laterPos + suc len ≤ 64 ⟹ laterPos < 64 = 8 * 8 ⟹ laterPos / 8 < 8
           laterByteIdx<8 : laterByteIdx < 8
           laterByteIdx<8 = m<n*o⇒m/o<n {laterPos} {8} {8} (subst (laterPos <_) (sym 8*8≡64) laterPos<64)
             where
               laterPos<64 : laterPos < 64
               laterPos<64 = <-≤-trans (subst (laterPos <_) (+-comm (suc len) laterPos) (m<n+m laterPos (s≤s z≤n))) frameBound
 
-              8*8≡64 : 8 * 8 ≡ 64
-              8*8≡64 = refl
-
           -- From laterPos > earlierPos and same byte, derive different bit positions
-          -- Proof by contradiction: if laterBitPos ≡ earlierBitPos, then laterPos ≡ earlierPos (absurd)
           laterBitPos≢earlierBitPos : laterBitPos ≢ earlierBitPos
           laterBitPos≢earlierBitPos eq =
             <⇒≢ later>earlier pos-eq
             where
-              open import Data.Fin.Properties using (toℕ-fromℕ<; toℕ-injective)
-              open import Data.Nat as Nat using (_/_; _%_)
-
-              -- earlierBitPos and laterBitPos are Fin 8, defined as:
-              -- earlierBitPos = fromℕ< (m%n<n earlierPos 8)
-              -- laterBitPos = fromℕ< (m%n<n laterPos 8)
-
-              -- So: toℕ earlierBitPos ≡ earlierPos % 8 (by toℕ-fromℕ<)
-              -- And: toℕ laterBitPos ≡ laterPos % 8 (by toℕ-fromℕ<)
-
-              -- From eq : laterBitPos ≡ earlierBitPos, we derive:
               mod-eq : earlierPos Nat.% 8 ≡ laterPos Nat.% 8
-              mod-eq = trans (sym earlier-eq) (trans (cong toℕ (sym eq)) later-eq)
-                where
-                  -- toℕ-fromℕ< eliminates the fromℕ< directly
-                  earlier-eq : toℕ earlierBitPos ≡ earlierPos Nat.% 8
-                  earlier-eq = toℕ-fromℕ< (m%n<n earlierPos 8)
+              mod-eq = trans (sym (toℕ-fromℕ< (m%n<n earlierPos 8)))
+                         (trans (cong toℕ (sym eq)) (toℕ-fromℕ< (m%n<n laterPos 8)))
 
-                  later-eq : toℕ laterBitPos ≡ laterPos Nat.% 8
-                  later-eq = toℕ-fromℕ< (m%n<n laterPos 8)
-
-              -- From byteIdx-eq : earlierByteIdx ≡ laterByteIdx (i.e., earlierPos / 8 ≡ laterPos / 8)
-              div-eq : earlierPos Nat./ 8 ≡ laterPos Nat./ 8
-              div-eq = byteIdx-eq
-
-              -- Reconstruct using m≡m%n+[m/n]*n
               pos-eq : earlierPos ≡ laterPos
               pos-eq =
                 trans (m≡m%n+[m/n]*n earlierPos 8)
-                  (trans (cong₂ _+_ mod-eq (cong (_* 8) div-eq))
+                  (trans (cong₂ _+_ mod-eq (cong (_* 8) byteIdx-eq))
                     (sym (m≡m%n+[m/n]*n laterPos 8)))
       ... | no neq = cong (λ x → testBit (byteToBitVec x) earlierBitPos) (lookupSafe-updateSafe-diff 8 earlierByteIdx laterByteIdx _ bytes neq)
 
@@ -317,10 +269,6 @@ private
   injectBits-preserves-later-bit {suc len} bytes earlierPos laterPos (b ∷ bs) disjoint laterPos<64 =
     trans recursive-preservation first-step-preservation
     where
-      open import Data.Nat.Properties using (_≟_; ≤-trans; +-suc)
-      open import Data.Nat.DivMod using (m%n<n; m<n*o⇒m/o<n)
-      open import Data.Nat as Nat using (_/_; _%_)
-
       earlierByteIdx : ℕ
       earlierByteIdx = earlierPos Nat./ 8
 
@@ -365,21 +313,12 @@ private
               (trans (testBit-setBit-diff (byteToBitVec (lookupSafe 8 earlierByteIdx bytes)) earlierBitPos laterBitPos b earlierBitPos≢laterBitPos)
                 (cong (λ idx → testBit (byteToBitVec (lookupSafe 8 idx bytes)) laterBitPos) (sym byteIdx-eq)))))
         where
-          open import Data.Fin.Properties using (toℕ-injective; toℕ-fromℕ<)
-          open import Data.Nat.DivMod using (m≡m%n+[m/n]*n)
-          open import Data.Nat.Properties using (<⇒≢; ≤-trans; m≤m+n; <-≤-trans)
-
-          -- earlierPos < laterPos from disjoint: earlierPos + suc len ≤ laterPos
-          -- suc earlierPos ≤ suc (earlierPos + len) = earlierPos + suc len ≤ laterPos
           earlierPos<laterPos : earlierPos < laterPos
           earlierPos<laterPos = ≤-trans (m≤m+n (suc earlierPos) len) (subst (_≤ laterPos) (+-suc earlierPos len) disjoint)
 
-          -- Derive earlierByteIdx < 8 from earlierPos < laterPos < 64
           earlierByteIdx<8 : earlierByteIdx < 8
           earlierByteIdx<8 = m<n*o⇒m/o<n {earlierPos} {8} {8} (<-≤-trans earlierPos<laterPos (<⇒≤ laterPos<64))
-            where open import Data.Nat.Properties using (<⇒≤)
 
-          -- Different bit positions (since earlierPos < laterPos but same byte)
           earlierBitPos≢laterBitPos : earlierBitPos ≢ laterBitPos
           earlierBitPos≢laterBitPos eq = <⇒≢ earlierPos<laterPos pos-eq
             where
@@ -387,12 +326,9 @@ private
               mod-eq = trans (sym (toℕ-fromℕ< (m%n<n earlierPos 8)))
                          (trans (cong toℕ eq) (toℕ-fromℕ< (m%n<n laterPos 8)))
 
-              div-eq : earlierPos Nat./ 8 ≡ laterPos Nat./ 8
-              div-eq = sym byteIdx-eq
-
               pos-eq : earlierPos ≡ laterPos
               pos-eq = trans (m≡m%n+[m/n]*n earlierPos 8)
-                         (trans (cong₂ _+_ mod-eq (cong (_* 8) div-eq))
+                         (trans (cong₂ _+_ mod-eq (cong (_* 8) (sym byteIdx-eq)))
                            (sym (m≡m%n+[m/n]*n laterPos 8)))
       ... | no neq = cong (λ x → testBit (byteToBitVec x) laterBitPos) (lookupSafe-updateSafe-diff 8 laterByteIdx earlierByteIdx _ bytes neq)
 
@@ -409,10 +345,6 @@ injectBits-preserves-disjoint {len₁} {zero} bytes start₁ start₂ bits disj 
 injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₁ inj-before-ext) bound₁ bound₂ =
   cong₂ _∷_ first-bit rest-bits
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
-    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; ≤-trans; n≤1+n)
-
     byteIdx = start₂ Nat./ 8
     bitPos = fromℕ< (m%n<n start₂ 8)
     start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
@@ -427,10 +359,6 @@ injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits
 injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₂ ext-before-inj) bound₁ bound₂ =
   cong₂ _∷_ first-bit rest-bits
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
-    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; m+n≤o⇒n≤o)
-
     byteIdx = start₂ Nat./ 8
     bitPos = fromℕ< (m%n<n start₂ 8)
     start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
@@ -458,9 +386,6 @@ extractBits-injectBits-roundtrip bytes startBit [] bound = refl
 extractBits-injectBits-roundtrip {suc len} bytes startBit (b ∷ bs) bound =
   cong₂ _∷_ first-bit rest-bits
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
-
     byteIdx : ℕ
     byteIdx = startBit Nat./ 8
 
@@ -479,10 +404,8 @@ extractBits-injectBits-roundtrip {suc len} bytes startBit (b ∷ bs) bound =
     -- +-suc : startBit + suc len ≡ suc (startBit + len) = suc startBit + len
     rest-bound : suc startBit + len ≤ 64
     rest-bound = subst (_≤ 64) (+-suc startBit len) bound
-      where open import Data.Nat.Properties using (+-suc)
 
     -- First bit: the bit at startBit equals b after injecting (b ∷ bs)
-    -- Strategy: unfold injectBits one step, use preservation lemma, then byteToBitVec-roundtrip + testBit-setBit-same
     first-bit : testBit (byteToBitVec (lookupSafe 8 byteIdx (injectBits bytes startBit (b ∷ bs)))) bitPos ≡ b
     first-bit =
       trans (injectBits-preserves-earlier-bit updatedBytes startBit (suc startBit) bs (s≤s ≤-refl) rest-bound)
@@ -490,20 +413,11 @@ extractBits-injectBits-roundtrip {suc len} bytes startBit (b ∷ bs) bound =
           (trans (cong (λ bv → testBit bv bitPos) (bitVecToByte-roundtrip (setBit (byteToBitVec (lookupSafe 8 byteIdx bytes)) bitPos b)))
             (testBit-setBit-same (byteToBitVec (lookupSafe 8 byteIdx bytes)) bitPos b)))
       where
-        open import Data.Nat.Properties using (≤-refl; +-suc; ≤-trans; m<n+m; <-≤-trans; +-comm)
-        open import Data.Nat.DivMod using (m<n*o⇒m/o<n)
-        open import Data.Nat.Instances using () -- For NonZero instance
-
-        -- Derive byteIdx < 8 from frame bound
-        -- startBit + suc len ≤ 64 ⟹ startBit < suc len + startBit = startBit + suc len ≤ 64 ⟹ startBit < 64 = 8 * 8 ⟹ startBit / 8 < 8
         byteIdx<8 : byteIdx < 8
         byteIdx<8 = m<n*o⇒m/o<n {startBit} {8} {8} (subst (startBit <_) (sym 8*8≡64) startBit<64)
           where
             startBit<64 : startBit < 64
             startBit<64 = <-≤-trans (subst (startBit <_) (+-comm (suc len) startBit) (m<n+m startBit (s≤s z≤n))) bound
-
-            8*8≡64 : 8 * 8 ≡ 64
-            8*8≡64 = refl
 
     -- Rest bits: by IH at suc startBit (definitional with strengthened statement!)
     rest-bits : extractBits (injectBits bytes startBit (b ∷ bs)) (suc startBit) ≡ bs
@@ -523,8 +437,6 @@ BitWrite = ℕ × Bool
 applyWrite : Vec Byte 8 → BitWrite → Vec Byte 8
 applyWrite bytes (pos , val) = updateSafe 8 byteIdx updateFn bytes
   where
-    open import Data.Nat.DivMod using (m%n<n)
-    open import Data.Nat as Nat using (_/_)
     byteIdx = pos Nat./ 8
     bitPos = fromℕ< (m%n<n pos 8)
     updateFn = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos val)
@@ -563,11 +475,6 @@ private
     → applyWrite (applyWrite bytes w₂) w₁ ≡ applyWrite (applyWrite bytes w₁) w₂
   applyWrite-comm bytes (p₁ , v₁) (p₂ , v₂) p₁≢p₂ = case-split
     where
-      open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n)
-      open import Data.Nat as Nat using (_/_; _%_)
-      open import Data.Nat.Properties using (_≟_; <⇒≢)
-      open import Data.Fin.Properties using (toℕ-fromℕ<)
-
       idx₁ = p₁ Nat./ 8
       idx₂ = p₂ Nat./ 8
       bitPos₁ = fromℕ< (m%n<n p₁ 8)
@@ -611,8 +518,6 @@ private
             subst₂ (λ i j → updateSafe 8 i f₁ (updateSafe 8 j f₂ bytes) ≡ updateSafe 8 j f₂ (updateSafe 8 i f₁ bytes))
                    (sym idx-eq) refl same-idx-proof
             where
-              open import Relation.Binary.PropositionalEquality using (subst₂)
-
               updateSafe-same-lemma : ∀ {n} (i : ℕ) (h₁ h₂ : Byte → Byte) (xs : Vec Byte n)
                 → updateSafe n i h₁ (updateSafe n i h₂ xs) ≡ updateSafe n i (h₁ ∘ h₂) xs
               updateSafe-same-lemma {zero} _ _ _ [] = refl
@@ -685,8 +590,6 @@ writesOf-distinct : ∀ {len} s (bits : BitVec len) → AllDistinct (writesOf s 
 writesOf-distinct s [] = tt
 writesOf-distinct s (b ∷ bs) = (all-later-diff s (suc s) bs ≤-refl , writesOf-distinct (suc s) bs)
   where
-    open import Data.Nat.Properties using (n≤1+n; <⇒≢; ≤-trans; ≤-refl; m≤n⇒m≤1+n)
-
     -- All positions in writesOf start bs are ≥ start, hence ≠ pos when pos < start
     all-later-diff : ∀ {len} pos start (bits : BitVec len)
       → pos < start  -- pos < start means suc pos ≤ start
@@ -702,8 +605,6 @@ disjoint-ranges→AllDiffPos : ∀ {len₁ len₂} s₁ s₂ (bits₁ : BitVec l
 disjoint-ranges→AllDiffPos s₁ s₂ [] bits₂ disj = tt
 disjoint-ranges→AllDiffPos {suc len₁} s₁ s₂ (b₁ ∷ bs₁) bits₂ disj = (all-diff , rest)
   where
-    open import Data.Nat.Properties using (+-suc; <-≤-trans; m<m+n; ≤-trans; n≤1+n; <⇒≢)
-
     -- s₁ is not equal to any position in range [s₂, s₂+len₂)
     s₁-diff-from-range : ∀ {len} s (bits : BitVec len) → s₁ + suc len₁ ≤ s ⊎ s + len ≤ s₁
       → All (DiffPos (s₁ , b₁)) (writesOf s bits)
@@ -766,7 +667,6 @@ injectBits-commute bytes s₁ s₂ bits₁ bits₂ disj _ _ =
     injectBits (injectBits bytes s₂ bits₂) s₁ bits₁
   ∎
   where
-    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
     open ≡-Reasoning
     ws₁ = writesOf s₁ bits₁
     ws₂ = writesOf s₂ bits₂
@@ -815,7 +715,6 @@ injectPayload-commute s₁ s₂ bits₁ bits₂ bo payload disj fits₁ fits₂ 
     injectPayload s₁ bits₁ bo (injectPayload s₂ bits₂ bo payload)
   ∎
   where
-    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
     open ≡-Reasoning
 
 -- ============================================================================
@@ -845,7 +744,6 @@ injectPayload-preserves-disjoint-same {len₁} {len₂} s₁ s₂ bits bo payloa
     extractBits {len₂} (payloadIso bo payload) s₂
   ∎
   where
-    open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
     open ≡-Reasoning
 
 -- ============================================================================

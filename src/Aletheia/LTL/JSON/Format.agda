@@ -9,16 +9,14 @@ module Aletheia.LTL.JSON.Format where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; suc; zero; _⊔_)
+open import Data.Nat using (ℕ; suc; _⊔_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; mkℚ)
 open import Data.Nat.Coprimality using (sym; 1-coprimeTo)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
+open import Aletheia.Protocol.JSON using (JSON; JNumber; JString; JObject)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate)
-open import Aletheia.LTL.SignalPredicate as VP using (Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between)
-open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
 
 -- ============================================================================
 -- NATURAL TO RATIONAL (proof-friendly)
@@ -67,10 +65,6 @@ formatDeltaPredicateFields (ChangedBy s d) =
 formatSignalPredicateFields : SignalPredicate → List (String × JSON)
 formatSignalPredicateFields (ValueP vp) = formatValuePredicateFields vp
 formatSignalPredicateFields (DeltaP dp) = formatDeltaPredicateFields dp
-
--- Format a SignalPredicate as a JSON object
-formatSignalPredicate : SignalPredicate → JSON
-formatSignalPredicate p = JObject (formatSignalPredicateFields p)
 
 -- ============================================================================
 -- LTL FORMULA FORMATTER

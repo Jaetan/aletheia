@@ -38,7 +38,7 @@ initialPosition : Position
 initialPosition = mkPos 1 1
 
 -- Advance position by one character
-advancePosition : Position -> Char → Position
+advancePosition : Position → Char → Position
 advancePosition pos c with c ≈ᵇ '\n'
 ... | true  = mkPos (suc (line pos)) 1
 ... | false = mkPos (line pos) (suc (column pos))

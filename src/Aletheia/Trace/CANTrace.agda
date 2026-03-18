@@ -7,7 +7,7 @@
 -- Role: Used by LTL.Incremental and LTL.Coinductive for property checking.
 module Aletheia.Trace.CANTrace where
 
-open import Aletheia.CAN.Frame
+open import Aletheia.CAN.Frame using (CANFrame)
 open import Data.Nat using (ℕ)
 
 -- Timestamp in microseconds (µs)
