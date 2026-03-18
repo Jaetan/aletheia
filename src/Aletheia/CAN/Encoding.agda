@@ -15,7 +15,7 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; injectPayload; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _^_; _<_; _<?_; _≤_)
@@ -32,6 +32,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
 open import Relation.Nullary using (yes; no)
 open import Function using (case_of_)
+open import Data.Sum using (_⊎_)
 
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
@@ -175,8 +176,6 @@ injectSignal value signalDef byteOrder frame =
 -- for some rawBitVec : BitVec (bitLength)
 --
 -- This is captured by showing that extraction at a disjoint position is preserved.
-
-open import Data.Sum using (_⊎_)
 
 -- Helper: extractionBytes equals payloadIso (definitional by cases)
 extractionBytes≡payloadIso : ∀ frame bo → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)

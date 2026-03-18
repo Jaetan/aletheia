@@ -118,10 +118,11 @@ getObject _ = nothing
 
 -- Generic lookup combinator: lookup key, then extract with given function
 -- This pattern is repeated for all typed lookups, so we factor it out
-lookupWith : {A : Set} → (JSON → Maybe A) → String → List (String × JSON) → Maybe A
-lookupWith extract key obj with lookupByKey key obj
-... | nothing = nothing
-... | just v = extract v
+private
+  lookupWith : {A : Set} → (JSON → Maybe A) → String → List (String × JSON) → Maybe A
+  lookupWith extract key obj with lookupByKey key obj
+  ... | nothing = nothing
+  ... | just v = extract v
 
 -- Typed lookup helpers (all use the generic combinator)
 lookupString : String → List (String × JSON) → Maybe String
@@ -258,7 +259,7 @@ parseRational = do
     ... | zero = suc 0  -- Unreachable but needed for coverage
 
     charToDigit : Char → ℕ
-    charToDigit c = toℕ c ∸ 48
+    charToDigit c = toℕ c ∸ 48  -- 48 = ASCII '0'
 
     parseDigitList : List Char → ℕ
     parseDigitList = foldl (λ acc d → acc * 10 + charToDigit d) 0

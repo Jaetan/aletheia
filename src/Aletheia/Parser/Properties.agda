@@ -10,14 +10,14 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; _++_; length)
-open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++)
+open import Data.List.Properties using (++-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Maybe.Properties using (just-injective)
-open import Data.Product using (_×_; _,_; ∃; ∃-syntax; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; ∃; ∃-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; _<_; z≤n; s≤s; _≥_; _∸_)
-open import Data.Nat.Properties using (≤-refl; ≤-trans; <-trans; m≤m+n; +-comm; +-assoc; m≤n⇒m≤o+n; <⇒≤)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; cong₂; subst)
+open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; _<_; s≤s; _≥_; _∸_)
+open import Data.Nat.Properties using (≤-refl; ≤-trans; <-trans; <⇒≤; n∸n≡0; m+n∸n≡m)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; subst)
 open import Relation.Nullary using (¬_)
 
 -- ============================================================================
@@ -219,11 +219,7 @@ consumed-length p pos input result eq = length input ∸ length (remaining resul
 -- pure consumes zero characters
 pure-consumes-zero : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
                    → consumed-length (pure a) pos input (mkResult a pos input) refl ≡ 0
-pure-consumes-zero a pos input = ∸-same (length input)
-  where
-    ∸-same : ∀ n → n ∸ n ≡ 0
-    ∸-same zero = refl
-    ∸-same (suc n) = ∸-same n
+pure-consumes-zero a pos input = n∸n≡0 (length input)
 
 -- satisfy consumes exactly one character when successful
 satisfy-consumes-one-char : ∀ (pred : Char → Bool) (pos : Position) (c : Char) (cs : List Char)
@@ -232,11 +228,7 @@ satisfy-consumes-one-char : ∀ (pred : Char → Bool) (pos : Position) (c : Cha
                               (mkResult c (advancePosition pos c) cs)
                               (satisfy-position-advances pred pos c cs pred-true)
                           ≡ 1
-satisfy-consumes-one-char pred pos c cs pred-true = ∸-suc (length cs)
-  where
-    ∸-suc : ∀ n → suc n ∸ n ≡ 1
-    ∸-suc zero = refl
-    ∸-suc (suc n) = ∸-suc n
+satisfy-consumes-one-char pred pos c cs pred-true = m+n∸n≡m 1 (length cs)
 
 -- ============================================================================
 -- COMBINATOR-SPECIFIC PROPERTIES

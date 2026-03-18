@@ -8,6 +8,7 @@ module Aletheia.DBC.Validity.ListLemmas where
 
 open import Data.List using (List; []; _∷_; _++_; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
@@ -54,6 +55,16 @@ concatMap-≡[]-complete : {f : A → List B} {xs : List A} →
   All (λ x → f x ≡ []) xs → concatMap f xs ≡ []
 concatMap-≡[]-complete []         = refl
 concatMap-≡[]-complete (px ∷ pxs) = ++-≡[]-combine px (concatMap-≡[]-complete pxs)
+
+-- ============================================================================
+-- ALL OVER APPEND AND CONCATMAP
+-- ============================================================================
+
+-- concatMap preserves All P (general form)
+All-concatMap : {P : B → Set} {f : A → List B} {xs : List A} →
+  All (λ x → All P (f x)) xs → All P (concatMap f xs)
+All-concatMap []       = []
+All-concatMap (p ∷ ps) = ++⁺ p (All-concatMap ps)
 
 -- ============================================================================
 -- ALL MAPPING (convert between equivalent All predicates)

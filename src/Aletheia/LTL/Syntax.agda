@@ -7,7 +7,7 @@
 --   Propositional: Atomic, Not, And, Or
 --   Unbounded temporal: Next, Always, Eventually, Until, Release
 --   Bounded temporal (MTL): MetricEventually, MetricAlways, MetricUntil, MetricRelease
--- Role: Core LTL/MTL syntax used by Coinductive/Incremental semantics and JSON parser.
+-- Role: Core LTL/MTL syntax used by Coalgebra, Semantics, and JSON parser.
 --
 -- Design: Parametric in predicate type A allows reuse (signal predicates, generic predicates).
 module Aletheia.LTL.Syntax where

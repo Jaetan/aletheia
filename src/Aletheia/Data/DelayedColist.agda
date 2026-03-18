@@ -4,7 +4,7 @@
 --
 -- Purpose: Provide coinductive stream type with built-in delay (Thunk).
 -- Key feature: Guardedness checking ensures productivity (no infinite loops).
--- Role: Foundation for LTL.Coinductive semantics over infinite traces.
+-- Role: Foundation for streaming trace processing in Main.agda.
 --
 -- Design: DelayedColist A ∞ represents a potentially infinite list of A values.
 -- Each tail is wrapped in Thunk to satisfy guardedness requirements.

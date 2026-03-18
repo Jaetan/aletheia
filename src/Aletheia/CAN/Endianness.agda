@@ -345,8 +345,6 @@ injectBits-preserves-disjoint {len₁} {zero} bytes start₁ start₂ bits disj 
 injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₁ inj-before-ext) bound₁ bound₂ =
   cong₂ _∷_ first-bit rest-bits
   where
-    byteIdx = start₂ Nat./ 8
-    bitPos = fromℕ< (m%n<n start₂ 8)
     start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
 
     first-bit = injectBits-preserves-later-bit bytes start₁ start₂ bits inj-before-ext start₂<64
@@ -359,8 +357,6 @@ injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits
 injectBits-preserves-disjoint {len₁} {suc len₂} bytes start₁ start₂ bits (inj₂ ext-before-inj) bound₁ bound₂ =
   cong₂ _∷_ first-bit rest-bits
   where
-    byteIdx = start₂ Nat./ 8
-    bitPos = fromℕ< (m%n<n start₂ 8)
     start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
 
     -- start₂ + suc len₂ ≤ start₁ ⟹ start₂ < start₂ + suc len₂ ≤ start₁ ⟹ start₂ < start₁
@@ -429,41 +425,42 @@ extractBits-injectBits-roundtrip {suc len} bytes startBit (b ∷ bs) bound =
 -- Key insight: injectBits is semantically "apply a finite map of bit writes".
 -- Disjoint write sets commute trivially once lifted to this abstraction.
 
--- A single bit write: (absolute position, value)
-BitWrite : Set
-BitWrite = ℕ × Bool
+private
+  -- A single bit write: (absolute position, value)
+  BitWrite : Set
+  BitWrite = ℕ × Bool
 
--- Apply a single bit write to the frame
-applyWrite : Vec Byte 8 → BitWrite → Vec Byte 8
-applyWrite bytes (pos , val) = updateSafe 8 byteIdx updateFn bytes
-  where
-    byteIdx = pos Nat./ 8
-    bitPos = fromℕ< (m%n<n pos 8)
-    updateFn = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos val)
+  -- Apply a single bit write to the frame
+  applyWrite : Vec Byte 8 → BitWrite → Vec Byte 8
+  applyWrite bytes (pos , val) = updateSafe 8 byteIdx updateFn bytes
+    where
+      byteIdx = pos Nat./ 8
+      bitPos = fromℕ< (m%n<n pos 8)
+      updateFn = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos val)
 
--- Apply a list of writes (fold left = first write applied first, matching injectBits)
-applyWrites : Vec Byte 8 → List BitWrite → Vec Byte 8
-applyWrites bytes [] = bytes
-applyWrites bytes (w ∷ ws) = applyWrites (applyWrite bytes w) ws
+  -- Apply a list of writes (fold left = first write applied first, matching injectBits)
+  applyWrites : Vec Byte 8 → List BitWrite → Vec Byte 8
+  applyWrites bytes [] = bytes
+  applyWrites bytes (w ∷ ws) = applyWrites (applyWrite bytes w) ws
 
--- Convert BitVec to a list of writes starting at position s
-writesOf : ∀ {len} → ℕ → BitVec len → List BitWrite
-writesOf s [] = []
-writesOf s (b ∷ bs) = (s , b) ∷ writesOf (suc s) bs
+  -- Convert BitVec to a list of writes starting at position s
+  writesOf : ∀ {len} → ℕ → BitVec len → List BitWrite
+  writesOf s [] = []
+  writesOf s (b ∷ bs) = (s , b) ∷ writesOf (suc s) bs
 
--- Two writes are at different positions
-DiffPos : BitWrite → BitWrite → Set
-DiffPos (p₁ , _) (p₂ , _) = p₁ ≢ p₂
+  -- Two writes are at different positions
+  DiffPos : BitWrite → BitWrite → Set
+  DiffPos (p₁ , _) (p₂ , _) = p₁ ≢ p₂
 
--- All pairs from two lists have different positions
-AllDiffPos : List BitWrite → List BitWrite → Set
-AllDiffPos [] _ = ⊤
-AllDiffPos (w ∷ ws) ws₂ = All (DiffPos w) ws₂ × AllDiffPos ws ws₂
+  -- All pairs from two lists have different positions
+  AllDiffPos : List BitWrite → List BitWrite → Set
+  AllDiffPos [] _ = ⊤
+  AllDiffPos (w ∷ ws) ws₂ = All (DiffPos w) ws₂ × AllDiffPos ws ws₂
 
--- All writes within a single list are at distinct positions
-AllDistinct : List BitWrite → Set
-AllDistinct [] = ⊤
-AllDistinct (w ∷ ws) = All (DiffPos w) ws × AllDistinct ws
+  -- All writes within a single list are at distinct positions
+  AllDistinct : List BitWrite → Set
+  AllDistinct [] = ⊤
+  AllDistinct (w ∷ ws) = All (DiffPos w) ws × AllDistinct ws
 
 -- ============================================================================
 -- WRITE-SET LEMMAS (the semantic layer)

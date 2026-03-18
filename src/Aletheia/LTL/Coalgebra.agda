@@ -24,7 +24,7 @@ module Aletheia.LTL.Coalgebra where
 open import Aletheia.Prelude
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample; FinalVerdict; Holds; Fails)
-open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending)
+open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 open import Data.Nat using (_≤ᵇ_; _⊔_)
 
@@ -35,7 +35,7 @@ open import Data.Nat using (_≤ᵇ_; _⊔_)
 -- Maps predicate indices to evaluation functions.
 -- Rebuilt per-frame as a closure (O(1) construction, O(1) lookup).
 PredTable : Set
-PredTable = ℕ → TimedFrame → SignalVal
+PredTable = ℕ → TimedFrame → TruthVal
 
 -- ============================================================================
 -- LTLPROC: Defunctionalized LTL process with ℕ-indexed predicates
@@ -77,9 +77,9 @@ data LTLProc : Set where
 
 -- Convert LTLProc to LTL formula for use with denotational semantics.
 -- Uses PredTable to convert ℕ indices back to evaluation functions.
--- NextActive maps to inner formula (skip already consumed), not Next.
+-- Next maps directly to Next (preserving temporal structure).
 
-denot : PredTable → LTLProc → LTL (TimedFrame → SignalVal)
+denot : PredTable → LTLProc → LTL (TimedFrame → TruthVal)
 denot table (Atomic n) = Atomic (table n)
 denot table (Not φ) = Not (denot table φ)
 denot table (And φ ψ) = And (denot table φ) (denot table ψ)
@@ -162,7 +162,7 @@ stepL : PredTable → LTLProc → TimedFrame → StepResult LTLProc
 -- Atomic: evaluate predicate via table lookup
 stepL table (Atomic n) curr with table n curr
 ... | True    = Satisfied
-... | False   = Violated (mkCounterexample curr "atomic predicate failed")
+... | False   = Violated (mkCounterexample curr "Atomic: predicate failed")
 ... | Unknown = Continue 0 (Atomic n)  -- Signal not yet observed
 ... | Pending = Continue 0 (Atomic n)  -- Not enough data yet (e.g., first delta observation)
 
@@ -171,7 +171,7 @@ stepL table (Not φ) curr
   with stepL table φ curr
 ... | Continue _ φ' = Continue 0 (Not φ')
 ... | Violated _ = Satisfied  -- Inner violated means outer satisfied
-... | Satisfied = Violated (mkCounterexample curr "negation failed (inner satisfied)")
+... | Satisfied = Violated (mkCounterexample curr "Not: inner formula satisfied")
 
 -- And: standard Boolean (resolved sides drop via combineAnd)
 stepL table (And φ ψ) curr = combineAnd (stepL table φ curr) (stepL table ψ curr)
@@ -251,7 +251,7 @@ stepL table (MetricReleaseProc windowMicros startTime φ ψ) curr
 finalizeL : LTLProc → FinalVerdict
 
 -- Atomic still active at end-of-stream → never resolved
-finalizeL (Atomic _) = Fails "predicate never resolved at end of stream"
+finalizeL (Atomic _) = Fails "Atomic: predicate never resolved at end of stream"
 
 -- Propositional: compose inner results
 finalizeL (Not φ) with finalizeL φ

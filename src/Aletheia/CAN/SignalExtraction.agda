@@ -3,7 +3,7 @@
 -- High-level signal extraction using DBC context.
 --
 -- Purpose: Extract signals from frames by name using DBC definitions.
--- Operations: extractSignalByName (DBC + frame + signal name → value).
+-- Operations: extractSignalWithContext (DBC + frame + signal name → ExtractionResult).
 -- Role: User-facing API combining DBC lookup with CAN.Encoding.
 --
 -- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.

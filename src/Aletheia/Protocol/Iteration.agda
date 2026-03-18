@@ -18,7 +18,7 @@
 
 module Aletheia.Protocol.Iteration where
 
-open import Data.List using (List; []; _∷_; reverse; _∷ʳ_) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; reverse) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc; ++-identityʳ; unfold-reverse)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)

@@ -30,7 +30,7 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV; extractSignalValue)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; TruthVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV; extractTruthValue)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; simplify)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
@@ -153,7 +153,7 @@ updateCacheFromFrame dbc cache ts frame =
     updateSignals [] c = c
     updateSignals (sig ∷ sigs) c =
       let sigName = DBCSignal.name sig
-      in case extractSignalValue sigName dbc frame of λ where
+      in case extractTruthValue sigName dbc frame of λ where
         nothing  → updateSignals sigs c
         (just v) → updateSignals sigs (updateCache sigName v ts c)
 

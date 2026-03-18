@@ -25,12 +25,12 @@ open import Relation.Binary.PropositionalEquality using (subst)
 
 import Aletheia.LTL.Syntax as Syntax
 open Syntax using (LTL; decodeStart)
-open import Aletheia.LTL.SignalPredicate using (SignalVal; True; False; Unknown; Pending;
+open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot;
   Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
   MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied;
+open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
@@ -39,7 +39,7 @@ open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 -- FINAL VERDICT → SIGNAL VALUE CONVERSION
 -- ============================================================================
 
-verdictToSV : FinalVerdict → SignalVal
+verdictToSV : FinalVerdict → TruthVal
 verdictToSV Holds = True
 verdictToSV (Fails _) = False
 
@@ -47,7 +47,7 @@ verdictToSV (Fails _) = False
 -- COALGEBRA EXECUTION ON FULL TRACE
 -- ============================================================================
 
--- Run the coalgebra on a full trace, producing a SignalVal.
+-- Run the coalgebra on a full trace, producing a TruthVal.
 -- Takes a PredTable for evaluating atomic predicates.
 -- No prev parameter — delta predicates use SignalCache externally.
 --
@@ -57,7 +57,7 @@ verdictToSV (Fails _) = False
 --   Continue _ proc' → recurse on remaining trace
 --   (no Inconclusive — removed, Unknown/Pending signals produce Continue 0)
 
-runL : PredTable → LTLProc → List TimedFrame → SignalVal
+runL : PredTable → LTLProc → List TimedFrame → TruthVal
 runL table proc [] = verdictToSV (finalizeL proc)
 runL table proc (x ∷ rest) with stepL table proc x
 ... | Satisfied        = True
@@ -77,7 +77,7 @@ runL table proc (x ∷ rest) with stepL table proc x
 -- Key exclusions: NOT Sound True False, NOT Sound False True
 -- (the monitor NEVER gives a wrong definite answer)
 
-data Sound : SignalVal → SignalVal → Set where
+data Sound : TruthVal → TruthVal → Set where
   sound-tt    : Sound True True
   sound-ff    : Sound False False
   sound-unk   : ∀ {m} → Sound m Unknown
@@ -703,22 +703,22 @@ runL-release-decomp table φ ψ x rest with stepL table ψ x | stepL table φ x
 -- but holds by case split on σ (both clauses are refl).
 
 private
-  met-ev-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → SignalVal)) (start : ℕ) (σ : List TimedFrame)
+  met-ev-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
     → met-ev-go w φ start σ ≡ ⟦ Syntax.MetricEventually w (suc start) φ ⟧ σ
   met-ev-go-denot w φ start [] = refl
   met-ev-go-denot w φ start (_ ∷ _) = refl
 
-  met-al-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → SignalVal)) (start : ℕ) (σ : List TimedFrame)
+  met-al-go-denot : ∀ (w : ℕ) (φ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
     → met-al-go w φ start σ ≡ ⟦ Syntax.MetricAlways w (suc start) φ ⟧ σ
   met-al-go-denot w φ start [] = refl
   met-al-go-denot w φ start (_ ∷ _) = refl
 
-  met-un-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → SignalVal)) (start : ℕ) (σ : List TimedFrame)
+  met-un-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
     → met-un-go w φ ψ start σ ≡ ⟦ Syntax.MetricUntil w (suc start) φ ψ ⟧ σ
   met-un-go-denot w φ ψ start [] = refl
   met-un-go-denot w φ ψ start (_ ∷ _) = refl
 
-  met-re-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → SignalVal)) (start : ℕ) (σ : List TimedFrame)
+  met-re-go-denot : ∀ (w : ℕ) (φ ψ : LTL (TimedFrame → TruthVal)) (start : ℕ) (σ : List TimedFrame)
     → met-re-go w φ ψ start σ ≡ ⟦ Syntax.MetricRelease w (suc start) φ ψ ⟧ σ
   met-re-go-denot w φ ψ start [] = refl
   met-re-go-denot w φ ψ start (_ ∷ _) = refl

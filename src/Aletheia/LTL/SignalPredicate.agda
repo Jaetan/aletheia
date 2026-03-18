@@ -9,7 +9,7 @@
 -- Design: Operates on physical values (ℚ) after signal extraction and scaling.
 --
 -- Signal Evaluation Values:
---   SignalVal represents predicate evaluation results with explicit Unknown/Pending states.
+--   TruthVal represents predicate evaluation results with explicit Unknown/Pending states.
 --   - True    : signal observed, predicate holds
 --   - False   : signal observed, predicate violated
 --   - Unknown : signal never observed (no cached value available)
@@ -53,14 +53,14 @@ open import Aletheia.DBC.Types using (DBC)
 --   True  ∧ Unknown = Unknown    False ∧ Unknown = False  (short-circuit)
 --   True  ∨ Unknown = True       False ∨ Unknown = Unknown (short-circuit)
 
-data SignalVal : Set where
-  True    : SignalVal
-  False   : SignalVal
-  Unknown : SignalVal
-  Pending : SignalVal  -- Not enough data yet (e.g., delta predicate with no previous value)
+data TruthVal : Set where
+  True    : TruthVal
+  False   : TruthVal
+  Unknown : TruthVal
+  Pending : TruthVal  -- Not enough data yet (e.g., delta predicate with no previous value)
 
--- Decidable equality on SignalVal
-_≟TV_ : (x y : SignalVal) → Dec (x ≡ y)
+-- Decidable equality on TruthVal
+_≟TV_ : (x y : TruthVal) → Dec (x ≡ y)
 True    ≟TV True    = yes refl
 True    ≟TV False   = no λ ()
 True    ≟TV Unknown = no λ ()
@@ -79,7 +79,7 @@ Pending ≟TV Unknown = no λ ()
 Pending ≟TV Pending = yes refl
 
 -- Negation: ¬ Unknown = Unknown, ¬ Pending = Pending
-notTV : SignalVal → SignalVal
+notTV : TruthVal → TruthVal
 notTV True    = False
 notTV False   = True
 notTV Unknown = Unknown
@@ -87,7 +87,7 @@ notTV Pending = Pending
 
 -- Conjunction with short-circuit semantics
 -- Pending behaves like Unknown in Kleene logic
-_∧TV_ : SignalVal → SignalVal → SignalVal
+_∧TV_ : TruthVal → TruthVal → TruthVal
 False   ∧TV _       = False
 _       ∧TV False   = False
 True    ∧TV y       = y
@@ -97,7 +97,7 @@ _       ∧TV Pending = Pending
 Unknown ∧TV Unknown = Unknown
 
 -- Disjunction with short-circuit semantics
-_∨TV_ : SignalVal → SignalVal → SignalVal
+_∨TV_ : TruthVal → TruthVal → TruthVal
 True    ∨TV _       = True
 _       ∨TV True    = True
 False   ∨TV y       = y
@@ -107,11 +107,11 @@ _       ∨TV Pending = Pending
 Unknown ∨TV Unknown = Unknown
 
 -- Implication: a → b ≡ ¬a ∨ b
-_→TV_ : SignalVal → SignalVal → SignalVal
+_→TV_ : TruthVal → TruthVal → TruthVal
 a →TV b = notTV a ∨TV b
 
--- Lift Bool to SignalVal (for comparison results)
-fromBool : Bool → SignalVal
+-- Lift Bool to TruthVal (for comparison results)
+fromBool : Bool → TruthVal
 fromBool true  = True
 fromBool false = False
 
@@ -160,15 +160,6 @@ valuePredicateSignal (LessThanOrEqual n _)    = n
 valuePredicateSignal (GreaterThanOrEqual n _) = n
 valuePredicateSignal (Between n _ _)          = n
 
--- Evaluate a value predicate given a signal value (pure comparison)
-evalValuePredicate : ValuePredicate → ℚ → Bool
-evalValuePredicate (Equals _ v) x             = x ==ℚ v
-evalValuePredicate (LessThan _ v) x           = x <ℚ v
-evalValuePredicate (GreaterThan _ v) x        = x >ℚ v
-evalValuePredicate (LessThanOrEqual _ v) x    = x ≤ℚ v
-evalValuePredicate (GreaterThanOrEqual _ v) x = x ≥ℚ v
-evalValuePredicate (Between _ lo hi) x        = lo ≤ℚ x ∧ x ≤ℚ hi
-
 -- Delta predicates: require two values (previous and current).
 data DeltaPredicate : Set where
   ChangedBy : (signalName : String) → (delta : ℚ) → DeltaPredicate
@@ -177,27 +168,18 @@ data DeltaPredicate : Set where
 deltaPredicateSignal : DeltaPredicate → String
 deltaPredicateSignal (ChangedBy n _) = n
 
--- Evaluate a delta predicate given previous and current values
-evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
-evalDeltaPredicate (ChangedBy _ delta) prev curr = ⌊ ∣ curr Rat.- prev ∣ Rat.≤? delta ⌋
-
 -- Combined signal predicate type (for use in LTL formulas)
 data SignalPredicate : Set where
   ValueP : ValuePredicate → SignalPredicate
   DeltaP : DeltaPredicate → SignalPredicate
-
--- Extract the signal name from any predicate
-getSignalName : SignalPredicate → String
-getSignalName (ValueP vp) = valuePredicateSignal vp
-getSignalName (DeltaP dp) = deltaPredicateSignal dp
 
 -- ============================================================================
 -- HELPER FUNCTIONS
 -- ============================================================================
 
 -- Extract signal value using new extraction with multiplexing support
-extractSignalValue : String → DBC → CANFrame → Maybe ℚ
-extractSignalValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
+extractTruthValue : String → DBC → CANFrame → Maybe ℚ
+extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
 -- ============================================================================
 -- SIGNAL CACHE
@@ -233,28 +215,46 @@ updateCache name val ts ((n , cached) ∷ rest) =
   else (n , cached) ∷ updateCache name val ts rest
 
 -- ============================================================================
+-- PURE PREDICATE EVALUATION (internal — used by TV variants below)
+-- ============================================================================
+
+private
+  -- Evaluate a value predicate given a signal value (pure comparison)
+  evalValuePredicate : ValuePredicate → ℚ → Bool
+  evalValuePredicate (Equals _ v) x             = x ==ℚ v
+  evalValuePredicate (LessThan _ v) x           = x <ℚ v
+  evalValuePredicate (GreaterThan _ v) x        = x >ℚ v
+  evalValuePredicate (LessThanOrEqual _ v) x    = x ≤ℚ v
+  evalValuePredicate (GreaterThanOrEqual _ v) x = x ≥ℚ v
+  evalValuePredicate (Between _ lo hi) x        = lo ≤ℚ x ∧ x ≤ℚ hi
+
+  -- Evaluate a delta predicate given previous and current values
+  evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
+  evalDeltaPredicate (ChangedBy _ delta) prev curr = ⌊ ∣ curr Rat.- prev ∣ Rat.≤? delta ⌋
+
+-- ============================================================================
 -- THREE-VALUED PREDICATE EVALUATION
 -- ============================================================================
 
 -- Get signal value: try frame first, then cache
-getSignalValue : String → DBC → SignalCache → CANFrame → Maybe ℚ
-getSignalValue sigName dbc cache frame =
-  case extractSignalValue sigName dbc frame of λ where
+getTruthValue : String → DBC → SignalCache → CANFrame → Maybe ℚ
+getTruthValue sigName dbc cache frame =
+  case extractTruthValue sigName dbc frame of λ where
     (just v) → just v
     nothing  → M.map CachedSignal.value (lookupCache sigName cache)
 
 -- Evaluate value predicate with cache fallback
-evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → SignalVal
+evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → TruthVal
 evalValuePredicateTV dbc cache vp frame =
-  case getSignalValue (valuePredicateSignal vp) dbc cache frame of λ where
+  case getTruthValue (valuePredicateSignal vp) dbc cache frame of λ where
     (just v) → fromBool (evalValuePredicate vp v)
     nothing  → Unknown
 
 -- Evaluate delta predicate with cache
-evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → SignalVal
+evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → TruthVal
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
-      currVal = getSignalValue sigName dbc cache frame
+      currVal = getTruthValue sigName dbc cache frame
       prevVal = M.map CachedSignal.value (lookupCache sigName cache)
   in case currVal of λ where
     nothing   → Unknown
@@ -263,7 +263,7 @@ evalDeltaPredicateTV dbc cache dp frame =
       (just pv) → fromBool (evalDeltaPredicate dp pv cv)
 
 -- Evaluate any signal predicate with cache
-evalPredicateTV : DBC → SignalCache → SignalPredicate → CANFrame → SignalVal
+evalPredicateTV : DBC → SignalCache → SignalPredicate → CANFrame → TruthVal
 evalPredicateTV dbc cache (ValueP vp) frame = evalValuePredicateTV dbc cache vp frame
 evalPredicateTV dbc cache (DeltaP dp) frame = evalDeltaPredicateTV dbc cache dp frame
 

@@ -66,6 +66,12 @@ listToVec8 _ = nothing  -- Wrong length
 -- COMMAND PARSERS
 -- ============================================================================
 
+private
+  -- Lift Maybe to String ⊎ A with an error message on Nothing
+  require : ∀ {A : Set} → String → Maybe A → String ⊎ A
+  require msg nothing  = inj₁ msg
+  require _   (just x) = inj₂ x
+
 -- Parse ParseDBC command
 tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
 tryParseDBC obj with lookupByKey "dbc" obj
@@ -93,66 +99,21 @@ tryBuildFrame obj with lookupByKey "canId" obj
 -- Parse ExtractAllSignals command
 tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
 tryExtractAllSignals obj =
-  getCanId >>=ₑ λ canIdJSON →
-  getDataArray >>=ₑ λ bytesJSON →
-  parseBytes bytesJSON >>=ₑ λ byteList →
-  convertToVec byteList >>=ₑ λ bytes →
+  require "ExtractAllSignals: missing 'canId' field" (lookupByKey "canId" obj) >>=ₑ λ canIdJSON →
+  require "ExtractAllSignals: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+  require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
+  require "ExtractAllSignals: expected 8 bytes" (listToVec8 byteList) >>=ₑ λ bytes →
   inj₂ (ExtractAllSignals canIdJSON bytes)
-  where
-    getCanId : String ⊎ JSON
-    getCanId with lookupByKey "canId" obj
-    ... | nothing = inj₁ "ExtractAllSignals: missing 'canId' field"
-    ... | just x = inj₂ x
-
-    getDataArray : String ⊎ (List JSON)
-    getDataArray with lookupArray "data" obj
-    ... | nothing = inj₁ "ExtractAllSignals: missing 'data' array"
-    ... | just x = inj₂ x
-
-    parseBytes : List JSON → String ⊎ (List ℕ)
-    parseBytes bytesJSON with parseByteArray bytesJSON
-    ... | nothing = inj₁ "ExtractAllSignals: failed to parse byte array"
-    ... | just x = inj₂ x
-
-    convertToVec : List ℕ → String ⊎ (Vec Byte 8)
-    convertToVec byteList with listToVec8 byteList
-    ... | nothing = inj₁ "ExtractAllSignals: expected 8 bytes"
-    ... | just x = inj₂ x
 
 -- Parse UpdateFrame command
 tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
 tryUpdateFrame obj =
-  getCanId >>=ₑ λ canIdJSON →
-  getDataArray >>=ₑ λ bytesJSON →
-  parseBytes bytesJSON >>=ₑ λ byteList →
-  convertToVec byteList >>=ₑ λ bytes →
-  getSignals >>=ₑ λ signals →
+  require "UpdateFrame: missing 'canId' field" (lookupByKey "canId" obj) >>=ₑ λ canIdJSON →
+  require "UpdateFrame: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+  require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
+  require "UpdateFrame: expected 8 bytes" (listToVec8 byteList) >>=ₑ λ bytes →
+  require "UpdateFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
   inj₂ (UpdateFrame canIdJSON bytes signals)
-  where
-    getCanId : String ⊎ JSON
-    getCanId with lookupByKey "canId" obj
-    ... | nothing = inj₁ "UpdateFrame: missing 'canId' field"
-    ... | just x = inj₂ x
-
-    getDataArray : String ⊎ (List JSON)
-    getDataArray with lookupArray "data" obj
-    ... | nothing = inj₁ "UpdateFrame: missing 'data' array"
-    ... | just x = inj₂ x
-
-    parseBytes : List JSON → String ⊎ (List ℕ)
-    parseBytes bytesJSON with parseByteArray bytesJSON
-    ... | nothing = inj₁ "UpdateFrame: failed to parse byte array"
-    ... | just x = inj₂ x
-
-    convertToVec : List ℕ → String ⊎ (Vec Byte 8)
-    convertToVec byteList with listToVec8 byteList
-    ... | nothing = inj₁ "UpdateFrame: expected 8 bytes"
-    ... | just x = inj₂ x
-
-    getSignals : String ⊎ (List JSON)
-    getSignals with lookupArray "signals" obj
-    ... | nothing = inj₁ "UpdateFrame: missing 'signals' array"
-    ... | just x = inj₂ x
 
 -- Parse EndStream command
 tryEndStream : List (String × JSON) → String ⊎ StreamCommand

@@ -8,7 +8,7 @@
 --
 -- Key design decisions:
 --   - Suffix-based: ⟦ φ ⟧ σ evaluates φ at position 0 of trace suffix σ
---   - Returns SignalVal (four-valued Kleene logic)
+--   - Returns TruthVal (four-valued Kleene logic)
 --   - Strong next: X φ is False at end of trace (standard LTLf)
 --   - Vacuous truth: G φ on empty suffix = True (standard LTLf)
 --   - Metric operators: window check uses elapsed time (timestamp difference)
@@ -29,10 +29,10 @@ open import Aletheia.Prelude
 open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
-open import Aletheia.LTL.SignalPredicate using (SignalVal; notTV; _∧TV_; _∨TV_)
+open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
 
-open SignalVal
+open TruthVal
 
 -- ============================================================================
 -- DENOTATIONAL LTLf SEMANTICS
@@ -52,15 +52,15 @@ open SignalVal
 --   ⟦ φ U ψ ⟧ σ            = ∃i. (⟦ ψ ⟧ σᵢ ∧ ∀j<i. ⟦ φ ⟧ σⱼ)
 --   ⟦ φ R ψ ⟧ σ            = ∀i. (⟦ ψ ⟧ σᵢ ∨ ∃j<i. ⟦ φ ⟧ σⱼ)
 --
--- Extended to four-valued Kleene logic (SignalVal):
+-- Extended to four-valued Kleene logic (TruthVal):
 --   True, False, Unknown, Pending — using ∧TV, ∨TV, notTV.
 
 -- Forward declarations for mutual recursion between ⟦_⟧ and metric go helpers.
-⟦_⟧ : LTL (TimedFrame → SignalVal) → List TimedFrame → SignalVal
-met-ev-go : ℕ → LTL (TimedFrame → SignalVal) → ℕ → List TimedFrame → SignalVal
-met-al-go : ℕ → LTL (TimedFrame → SignalVal) → ℕ → List TimedFrame → SignalVal
-met-un-go : ℕ → LTL (TimedFrame → SignalVal) → LTL (TimedFrame → SignalVal) → ℕ → List TimedFrame → SignalVal
-met-re-go : ℕ → LTL (TimedFrame → SignalVal) → LTL (TimedFrame → SignalVal) → ℕ → List TimedFrame → SignalVal
+⟦_⟧ : LTL (TimedFrame → TruthVal) → List TimedFrame → TruthVal
+met-ev-go : ℕ → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
+met-al-go : ℕ → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
+met-un-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
+met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
 
 -- Propositional operators
 -- Atomic on empty suffix: False (predicate has no frame to evaluate on).

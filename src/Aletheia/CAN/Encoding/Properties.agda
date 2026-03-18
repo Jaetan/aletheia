@@ -15,7 +15,7 @@
 module Aletheia.CAN.Encoding.Properties where
 
 open import Aletheia.CAN.Encoding using (toSigned; fromSigned; applyScaling; removeScaling; inBounds; extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; payloadIso; extractBits-injectBits-roundtrip; injectBits-preserves-disjoint; injectPayload; injectPayload-commute; swapBytes-involutive)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; extractBits-injectBits-roundtrip; injectBits-preserves-disjoint; injectPayload; injectPayload-commute; swapBytes-involutive)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.Properties using (SignalsDisjoint; disjoint-left; disjoint-right)

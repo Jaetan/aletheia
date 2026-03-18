@@ -4,7 +4,7 @@
 --
 -- Purpose: Define timed CAN frame structure for LTL model checking.
 -- Types: TimedFrame (CAN frame with timestamp).
--- Role: Used by LTL.Incremental and LTL.Coinductive for property checking.
+-- Role: Used by LTL.Coalgebra and LTL.Semantics for property checking.
 module Aletheia.Trace.CANTrace where
 
 open import Aletheia.CAN.Frame using (CANFrame)

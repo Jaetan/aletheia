@@ -15,41 +15,11 @@ open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational using (ℚ; _/_)
+open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
 open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-
--- ============================================================================
--- PROTOCOL VALUE DEFINITION
--- ============================================================================
-
--- Define protocol-relevant JSON values (those used in Aletheia's protocol)
-mutual
-  data IsProtocolValue : JSON → Set where
-    proto-null   : IsProtocolValue JNull
-    proto-bool   : ∀ b → IsProtocolValue (JBool b)
-    -- Protocol uses integer rationals (denominator = 1)
-    proto-int-pos : ∀ n → IsProtocolValue (JNumber ((+ n) / 1))
-    proto-int-neg : ∀ n → IsProtocolValue (JNumber (-[1+ n ] / 1))
-    -- Protocol treats strings as opaque (no escape sequences, no character-level reasoning)
-    proto-string  : ∀ s → IsProtocolValue (JString s)
-    proto-array   : ∀ {xs} → AllProtocolValues xs → IsProtocolValue (JArray xs)
-    proto-object  : ∀ {fields} → AllProtocolFields fields → IsProtocolValue (JObject fields)
-
-  -- All elements in a list are protocol values
-  data AllProtocolValues : List JSON → Set where
-    all-nil  : AllProtocolValues []
-    all-cons : ∀ {x xs} → IsProtocolValue x → AllProtocolValues xs → AllProtocolValues (x ∷ xs)
-
-  -- All fields in an object have protocol values
-  data AllProtocolFields : List (String × JSON) → Set where
-    fields-nil  : AllProtocolFields []
-    fields-cons : ∀ {k v fields} → IsProtocolValue v → AllProtocolFields fields
-                → AllProtocolFields ((k , v) ∷ fields)
 
 -- ============================================================================
 -- CONGRUENCE LEMMAS (Equality-Preserving Properties)
