@@ -14,28 +14,24 @@
 -- For user-facing formulas (always startTime=0), resetStart f ≡ f.
 module Aletheia.LTL.JSON.Properties where
 
-open import Data.String using (String; _≟_)
-open import Data.Bool using (if_then_else_; true; false)
+open import Data.String using (String)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (Maybe; just; nothing; _>>=_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; zero; _⊔_; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
 open import Data.Integer using (+_)
-open import Data.Rational using (ℚ; _/_)
 open import Data.Product using (_×_; _,_; ∃-syntax)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; subst)
-open import Relation.Binary.PropositionalEquality using (inspect; [_])
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Relation.Nullary using (yes; no)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Empty using (⊥-elim)
 
-open import Aletheia.Protocol.JSON
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate)
 open import Aletheia.LTL.SignalPredicate as VP using (Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between)
 open import Aletheia.LTL.SignalPredicate as DP using (ChangedBy)
-open import Aletheia.LTL.JSON
+open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
 open import Aletheia.LTL.JSON.Format
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
 
@@ -199,34 +195,3 @@ parseLTL-isObject (suc d) (JString _) f ()
 parseLTL-isObject (suc d) (JArray _) f ()
 parseLTL-isObject (suc d) (JObject fields) f _ = fields , refl
 
--- ============================================================================
--- PROOF SUMMARY
--- ============================================================================
-
--- ✅ ALL CORE PROOFS COMPLETE (Phase 3 Goal 4)
---
--- Proven properties:
--- ✅ Signal Predicate Roundtrip (7 cases):
---    parseSignalPredicate (formatSignalPredicateFields p) ≡ just p
---
--- ✅ LTL Roundtrip (13 cases):
---    parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
---    - 4 unary operators (Not, Next, Always, Eventually)
---    - 4 binary operators (And, Or, Until, Release)
---    - 4 metric operators (MetricEventually, MetricAlways, MetricUntil, MetricRelease)
---    - 1 base case (Atomic)
---    Note: resetStart zeros startTime in metric operators (formatLTL ignores it,
---    parser produces 0). For user formulas (startTime=0), resetStart f ≡ f.
---
--- ✅ Completeness (corollary):
---    parseLTL d json ≡ just f → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
---
--- ✅ Soundness (structural):
---    parseLTL d json ≡ just f → ∃ fields. json ≡ JObject fields
---
--- Key techniques:
--- - Combined roundtrip+monotonicity via ≤ evidence (avoids separate mono proof)
--- - Direct ℚ construction via mkℚ (bypasses GCD normalization issues)
--- - with-abstraction on divisibility check (1 ∣? n) for metric operators
---
--- Total: 22 proven properties with zero holes

@@ -1,7 +1,5 @@
 {-# OPTIONS --safe --without-K #-}
 
--- All proofs complete! Frame bounds derived from explicit preconditions.
-
 -- Byte order handling for CAN signal extraction (little/big endian).
 --
 -- Purpose: Convert between little-endian and big-endian byte representations.
@@ -15,23 +13,22 @@ module Aletheia.CAN.Endianness where
 open import Aletheia.CAN.Frame
 open import Aletheia.Data.BitVec
 open import Aletheia.Data.BitVec.Conversion
-open import Data.Vec using (Vec; []; _∷_; lookup; updateAt; reverse; replicate)
+open import Data.Vec using (Vec; []; _∷_; reverse)
 open import Data.Fin using (Fin; toℕ; fromℕ<) renaming (zero to fzero; suc to fsuc)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; _≡ᵇ_; z≤n; s≤s)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s)
 open import Data.Nat as Nat using (_/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Product using (_×_; _,_)
-open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; cong₂; _≢_; inspect; [_])
-open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; cong₂; _≢_)
+open import Relation.Nullary using (yes; no; ¬_)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Unit using (⊤; tt)
-open import Data.List using (List; []; _∷_; _++_)
+open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
-open import Function using (_∘_; id)
+open import Function using (_∘_)
 
 data ByteOrder : Set where
   LittleEndian BigEndian : ByteOrder

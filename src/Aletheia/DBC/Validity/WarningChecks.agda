@@ -12,7 +12,6 @@ open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
-open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Bool using (Bool; true; false)
@@ -20,8 +19,6 @@ open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational using (ℚ)
 
 private
   -- Severity predicate shorthand

@@ -17,7 +17,7 @@
 -- Two type universes:
 --   Operational: LTL SignalPredicate (JSON, display, user-facing)
 --   Proof:       LTLProc (ℕ-indexed, structural equality, stepL target)
--- Bridge: indexFormula converts the first to the second.
+-- Bridge: indexFormula (in Protocol.StreamState) converts the first to the second.
 
 module Aletheia.LTL.Coalgebra where
 

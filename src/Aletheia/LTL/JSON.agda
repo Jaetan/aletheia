@@ -15,13 +15,12 @@ open import Data.String using (String; _≟_)
 open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Rational using (ℚ; _/_)
-open import Data.Integer using (ℤ; +_)
-open import Data.Nat using (ℕ; suc; zero; _≡ᵇ_)
+open import Data.Rational using (ℚ)
+open import Data.Nat using (ℕ; suc; zero)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey)
-open import Aletheia.Protocol.JSON
+open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupRational; lookupObject; lookupNat)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
 open import Aletheia.LTL.SignalPredicate as SP using (ValuePredicate; DeltaPredicate)
@@ -38,7 +37,6 @@ ltl-max-nesting-depth = 100
 -- ============================================================================
 -- SIGNAL PREDICATE PARSING - Factored into helper functions
 -- ============================================================================
--- Note: lookupRational is now provided by Aletheia.Protocol.JSON
 
 -- Parse Equals predicate
 parseEquals : List (String × JSON) → Maybe SignalPredicate

@@ -18,8 +18,7 @@ open import Data.Integer using (ℤ)
 open import Data.Rational using (ℚ; _/_)
 open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; toList)
-open import Data.Nat using (ℕ; _≤?_; _<_; s≤s; z≤n; _≤_; _%_)
-open import Data.Nat.Show as ℕShow using (show)
+open import Data.Nat using (ℕ; _%_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
@@ -36,6 +35,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
   DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; ValidationIssue)
+open import Aletheia.DBC.Validator using (hasAnyError)
 
 -- ============================================================================
 -- JSON → REQUEST PARSING
@@ -77,10 +77,7 @@ listToVec8 _ = nothing  -- Wrong length
 -- COMMAND PARSERS
 -- ============================================================================
 
--- Local bind operator for Either (⊎) monad (used by batch parsers)
-_>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
-inj₁ err >>=ₑ _ = inj₁ err
-inj₂ x >>=ₑ f = f x
+open import Aletheia.Prelude using (_>>=ₑ_)
 
 -- Parse ParseDBC command
 tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
@@ -290,13 +287,6 @@ formatPropertyResult (PropertyResult.Satisfaction idx) =
     ("status" , JString "satisfaction") ∷
     ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
     [])
-formatPropertyResult (PropertyResult.Pending idx result) =
-  JObject (
-    ("type" , JString "property") ∷
-    ("status" , JString "pending") ∷
-    ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
-    ("result" , JBool result) ∷
-    [])
 formatPropertyResult PropertyResult.StreamComplete =
   JObject (
     ("type" , JString "complete") ∷
@@ -355,7 +345,7 @@ formatResponse (Complete results) =
 formatResponse (ValidationResponse issues) =
   JObject (
     ("status"     , JString "validation") ∷
-    ("has_errors" , JBool (hasErrors issues)) ∷
+    ("has_errors" , JBool (hasAnyError issues)) ∷
     ("issues"     , JArray (map formatValidationIssue issues)) ∷
     [])
   where
@@ -388,9 +378,3 @@ formatResponse (ValidationResponse issues) =
         ("code"     , JString (formatIssueCode (ValidationIssue.code issue))) ∷
         ("detail"   , JString (ValidationIssue.detail issue)) ∷
         [])
-
-    hasErrors : List ValidationIssue → Bool
-    hasErrors []         = false
-    hasErrors (i ∷ rest) with ValidationIssue.severity i
-    ... | IsError   = true
-    ... | IsWarning = hasErrors rest

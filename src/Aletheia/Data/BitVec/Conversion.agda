@@ -1,7 +1,5 @@
 {-# OPTIONS --safe --without-K #-}
 
--- All proofs complete! bitVec-roundtrip and bitVecToℕ-bounded proven without postulates.
-
 -- Conversion between ℕ and BitVec at the serialization boundary.
 --
 -- Purpose: Prove ℕ ↔ BitVec roundtrip ONCE, then never reason about bits via ℕ again.
@@ -12,7 +10,7 @@
 -- All other bit reasoning uses the structural BitVec abstraction.
 module Aletheia.Data.BitVec.Conversion where
 
-open import Aletheia.Data.BitVec
+open import Aletheia.Data.BitVec using (BitVec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _^_; _%_)
 open import Data.Nat.DivMod using (_mod_; _/_)
 open import Data.Fin using (Fin; toℕ; fromℕ<)

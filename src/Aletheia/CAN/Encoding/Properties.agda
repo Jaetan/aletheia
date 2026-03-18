@@ -1,7 +1,5 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Phase 3 verification: Some proofs still TODO (marked with {- TODO Phase 3: ... -} comments)
-
 -- Correctness properties for CAN signal encoding/decoding.
 --
 -- Purpose: Prove round-trip correctness and non-overlap for signal operations.
@@ -24,7 +22,6 @@ open import Aletheia.Data.BitVec
 open import Aletheia.Data.BitVec.Conversion
 open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _^_; _>_; z≤n; s≤s)
-open import Data.Nat.GCD using (gcd; gcd-zeroʳ)
 open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sym)
 open import Data.Nat.DivMod as ℕ using (n/1≡n; n%1≡0)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
@@ -37,14 +34,12 @@ open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inv
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Product using (∃; _×_; _,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; cong₂; inspect; [_]; subst; subst₂)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
 open ≡-Reasoning
 open import Relation.Nullary using (¬_; Dec; yes; no)
-open import Function using (_⇔_)
-open import Function using (_∘_; _↔_)
 
 -- ============================================================================
 -- LAYER 0: BIT-LEVEL PROPERTIES (STRUCTURAL - from BitVec module)
@@ -158,7 +153,6 @@ toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 n-fits
   -- Contradiction: should be in negative range
   ⊥-elim (≤ᵇ-false⇒¬≤ eq (fromSigned-≥-signBit n bitLength bitLength>0 n-fits))
   where
-    open import Data.Nat.Properties using ()
     open import Data.Bool using (T)
 
     -- fromSigned for negative produces value ≥ signBitMask
@@ -211,7 +205,7 @@ toSigned-fromSigned-roundtrip -[1+ n ] bitLength bitLength>0 n-fits
     suc-n-bounded : suc n < 2 ^ bitLength
     suc-n-bounded = pow2-upper bitLength (suc n) bitLength>0 n-fits
       where
-        open import Data.Nat.Properties using (≤-<-trans; m<m+n; +-identityʳ; *-zeroˡ)
+        open import Data.Nat.Properties using (≤-<-trans)
 
         -- Infrastructure: values fitting in lower half fit strictly in full range
         pow2-upper : ∀ m x → m > 0 → x ≤ 2 ^ (m ∸ 1) → x < 2 ^ m
@@ -230,9 +224,6 @@ fromSigned-bounded-neg n bitLength bitLength>0 =
   -- Need to show: (2 ^ bitLength) ∸ (suc n) < 2 ^ bitLength
   m∸1+n<m (2 ^ bitLength) n (^-positive bitLength)
   where
-    open import Data.Nat.Properties using (n≤1+n; ≤-refl; <-trans)
-    open import Data.Nat using (_^_)
-
     -- 2 ^ bitLength > 0 for any bitLength
     ^-positive : ∀ m → 2 ^ m > 0
     ^-positive zero = s≤s z≤n

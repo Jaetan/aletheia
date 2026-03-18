@@ -22,24 +22,15 @@ open import Aletheia.CAN.Encoding
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Aletheia.DBC.Types
 open import Aletheia.DBC.Properties using (
-  SignalsDisjoint; disjoint-left; disjoint-right;
-  SignalPairValid; CanCoexist;
-  DBCValid; MessageValid; AllSignalPairsValid;
-  signalsDisjoint-sym; canCoexist-sym;
-  lookupSignalPairValid; extractDisjointness; lookupDisjointFromDBC;
-  extractMessageValid; extractSignalPairs)
+  SignalsDisjoint; disjoint-left; disjoint-right)
 
-open import Data.List using (List; []; _∷_; map)
-open import Data.List.Membership.Propositional using (_∈_)
-open import Data.List.Relation.Unary.Any using (Any; here; there)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; ∃)
+open import Data.List using (List; []; _∷_)
+open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _≤_)
 open import Data.Rational using (ℚ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
-open import Relation.Nullary using (¬_)
-open import Data.Empty using (⊥-elim)
 open import Function using (case_of_)
 
 -- ============================================================================
@@ -136,12 +127,9 @@ open import Function using (case_of_)
 -- PAIRWISE DISJOINTNESS FOR SIGNAL LISTS
 -- ============================================================================
 
-open import Aletheia.CAN.BatchFrameBuilding using (injectOne; injectAll)
-open import Aletheia.CAN.Endianness using (injectBits; extractBits; injectBits-preserves-disjoint; swapBytes)
-open import Data.Maybe using (_>>=_)
-open import Data.Vec using (Vec)
-open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Relation.Binary.PropositionalEquality using (trans; cong; subst; sym)
+open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
+open import Data.Bool using (true; false)
+open import Relation.Binary.PropositionalEquality using (trans; cong)
 
 -- A signal is disjoint from all signals in a list
 data DisjointFromAll (sig : DBCSignal) : List (DBCSignal × ℚ) → Set where
@@ -176,7 +164,6 @@ signalFits : SignalDef → Set
 signalFits sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
 
 -- Convert SignalsDisjoint to the ⊎ form for injectBits-preserves-disjoint
-open import Aletheia.DBC.Properties using (SignalsDisjoint; disjoint-left; disjoint-right)
 
 SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
   → SignalDef.startBit sig₁ + SignalDef.bitLength sig₁ ≤ SignalDef.startBit sig₂
@@ -240,7 +227,7 @@ data AllSameByteOrderAs (bo : ByteOrder) : List (DBCSignal × ℚ) → Set where
 -- ============================================================================
 
 -- Import the key lemma from Endianness
-open import Aletheia.CAN.Endianness using (injectPayload-preserves-disjoint-same; payloadIso; extractBits; injectBits)
+open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
 

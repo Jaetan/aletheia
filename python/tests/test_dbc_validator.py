@@ -210,7 +210,8 @@ class TestMinExceedsMax:
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)
 
-        assert result["has_errors"] is True
+        # min_exceeds_max is a warning, not an error
+        assert result["has_errors"] is False
         codes = [i["code"] for i in result["issues"]]
         assert "min_exceeds_max" in codes
 
@@ -653,7 +654,7 @@ class TestParseDBC_DualLayerValidation:
             response = client.parse_dbc(dbc)
 
         assert response["status"] == "error"
-        assert "structural validation failed" in response.get("message", "").lower()
+        assert "validation failed" in response.get("message", "").lower()
 
     def test_parse_dbc_accepts_valid(self) -> None:
         """parseDBC should accept a clean DBC."""

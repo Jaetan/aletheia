@@ -1,9 +1,8 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Correctness properties for parser combinators (Phase 3).
+-- Correctness properties for parser combinators.
 --
 -- Purpose: Prove parser laws (determinism, monad laws, position tracking).
--- Status: Week 1 implementation - complete foundational properties.
 module Aletheia.Parser.Properties where
 
 open import Aletheia.Parser.Combinators
@@ -325,62 +324,3 @@ seq-preserves-monotonicity : ∀ {A B : Set} (p₁ : Parser A) (p₂ : Parser B)
 seq-preserves-monotonicity p₁ p₂ pos input result₁ result eq₁ mono₁ eq₂ mono₂ =
   ≤-trans mono₁ mono₂
 
--- ============================================================================
--- ROUND-TRIP PROPERTIES (Stubs for Week 2-3)
--- ============================================================================
-
--- These will be proven once we have specific parsers (JSON, DBC, LTL)
--- and corresponding formatters
-
--- Placeholder: parse ∘ format ≡ just (for valid formatted strings)
--- This will be proven in Protocol/JSON/Properties.agda (Week 2)
-
--- Placeholder: format ∘ parse ≡ id (for well-formed values)
--- This will be proven in Protocol/JSON/Properties.agda (Week 2)
-
--- ============================================================================
--- PROOF SUMMARY
--- ============================================================================
-
--- ✅ ALL PROOFS COMPLETE (Week 1, Phase 3A)
-
--- Proven properties:
--- ✅ Monad laws (3): left identity, right identity, associativity
--- ✅ Parser equivalence relation (3): reflexivity, symmetry, transitivity
--- ✅ Position tracking (7):
---    - position-advances-by-char
---    - advancePositions-monotonic
---    - position-monotonic-pure
---    - position-monotonic-satisfy
---    - position-monotonic-map
---    - position-monotonic-bind
---    - seq-preserves-monotonicity
--- ✅ Input preservation (5):
---    - input-preserved-pure
---    - input-preserved-satisfy
---    - input-preserved-map
---    - input-preserved-bind
---    - satisfy-consumes-one
--- ✅ Primitive parser properties (6):
---    - pure-position-unchanged
---    - pure-preserves-input
---    - pure-succeeds
---    - pure-consumes-nothing
---    - satisfy-position-advances
---    - fail-always-fails
--- ✅ Combinator properties (3):
---    - bind-preserves-failure
---    - bind-result-composition
---    - map-preserves-structure
--- ✅ Determinism (1): parser-deterministic
--- ✅ Consumption metrics (2): pure-consumes-zero, satisfy-consumes-one-char
-
--- Total: 30 proven properties with zero holes
-
--- Implementation approach:
--- Instead of proving general theorems for the abstract Parser type,
--- we proved specific lemmas for each parser combinator (pure, satisfy, >>=, <$>).
--- This provides the building blocks needed for proving properties of
--- composed parsers (JSON, DBC, LTL) in Weeks 2-3.
-
--- End of Parser Properties (Week 1, Phase 3A) ✅ COMPLETE

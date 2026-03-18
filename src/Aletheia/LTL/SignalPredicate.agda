@@ -20,17 +20,15 @@
 module Aletheia.LTL.SignalPredicate where
 
 open import Aletheia.Prelude
-open import Data.Rational as Rat using (_/_; _-_; ∣_∣; _≤?_; _<?_)
-open import Data.Maybe using (_>>=_)
+open import Data.Rational as Rat using (_-_; ∣_∣; _≤?_; _<?_)
+open import Data.Maybe as M using (map)
 open import Function using (case_of_)
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Encoding
-open import Aletheia.CAN.SignalExtraction
-open import Aletheia.CAN.ExtractionResult
-open import Aletheia.DBC.Types
-open import Aletheia.LTL.Syntax using (LTL; mapLTL)
+open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.ExtractionResult using (getValue)
+open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
@@ -248,7 +246,7 @@ getSignalValue : String → DBC → SignalCache → CANFrame → Maybe ℚ
 getSignalValue sigName dbc cache frame =
   case extractSignalValue sigName dbc frame of λ where
     (just v) → just v
-    nothing  → Data.Maybe.map CachedSignal.value (lookupCache sigName cache)
+    nothing  → M.map CachedSignal.value (lookupCache sigName cache)
 
 -- Evaluate value predicate with cache fallback
 evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → SignalVal
@@ -262,7 +260,7 @@ evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → S
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
       currVal = getSignalValue sigName dbc cache frame
-      prevVal = Data.Maybe.map CachedSignal.value (lookupCache sigName cache)
+      prevVal = M.map CachedSignal.value (lookupCache sigName cache)
   in case currVal of λ where
     nothing   → Unknown
     (just cv) → case prevVal of λ where

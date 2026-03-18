@@ -12,7 +12,6 @@ open import Data.String using (String)
 open import Data.List using (List)
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec)
-open import Data.Integer using (ℤ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
@@ -89,7 +88,7 @@ data Response : Set where
   -- Args: successfully extracted values, errors, absent signals
   ExtractionResultsResponse : List (String × ℚ) → List (String × String) → List String → Response
 
-  -- Property violation/satisfaction/pending (for streaming data)
+  -- Property violation/satisfaction (for streaming data)
   PropertyResponse : PropertyResult → Response
 
   -- Acknowledgment (for data frames that don't trigger property results)

@@ -11,12 +11,11 @@
 module Aletheia.Data.BitVec where
 
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Fin using (Fin; toℕ; fromℕ)
+open import Data.Fin using (Fin)
 open import Data.Vec using (Vec; []; _∷_; lookup; updateAt; replicate)
 open import Data.Bool using (Bool; true; false)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong)
-open import Relation.Nullary using (Dec; yes; no; ¬_)
-open import Function using (const; id; _∘_)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; cong)
+open import Function using (const; _∘_)
 
 -- ============================================================================
 -- BITVECTOR TYPE

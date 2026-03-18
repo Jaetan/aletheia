@@ -10,19 +10,18 @@ module Aletheia.Protocol.JSON.Properties where
 open import Aletheia.Protocol.JSON
 open import Aletheia.Parser.Combinators
 open import Aletheia.Parser.Properties
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (true)
 open import Data.Char using (Char)
-open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; map; length) renaming (_++_ to _++ₗ_)
+open import Data.String using (String; _≟_)
+open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; _/_)
 open import Data.Product using (_×_; _,_; ∃-syntax)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst; trans; _≢_)
-open import Relation.Nullary using (Dec; yes; no)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
+open import Relation.Nullary using (yes; no)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Function using (_∘_)
 
 -- ============================================================================
 -- PROTOCOL VALUE DEFINITION
@@ -242,53 +241,6 @@ lookupObject-here : (k : String) (fs : List (String × JSON)) (rest : List (Stri
 lookupObject-here k fs rest
   with lookupByKey k ((k , JObject fs) ∷ rest) | lookupByKey-here k (JObject fs) rest
 ... | .(just (JObject fs)) | refl = refl
-
--- ============================================================================
--- PROOF SUMMARY
--- ============================================================================
-
--- ✅ ALL PROOFS COMPLETE (Phase 3)
-
--- Proven properties:
--- ✅ Protocol Value Classification (3 data types):
---    - IsProtocolValue: Recursive predicate for protocol-relevant JSON
---    - AllProtocolValues: List membership for arrays
---    - AllProtocolFields: Object field validation
---
--- ✅ Congruence Lemmas (2):
---    - formatJSON-empty-array: Base case for empty array formatting
---    - formatJSON-empty-object: Base case for empty object formatting
---
--- ✅ Structural Properties (4):
---    - array-length-empty: Empty array has length 0
---    - lookupByKey-empty: Lookup in empty object returns nothing
---    - lookupByKey-here: Successful lookup for matching key
---    - lookupByKey-there: Lookup skips non-matching keys
---
--- ✅ Schema Soundness (2 major proofs):
---    - parseDBC-sound: DBC parser soundness (17 absurdity cases)
---      Proves: parseDBCWithErrors success → well-formed DBC structure
---      Structure: Object with "version" string and "messages" array
---    - parseRequest-sound: Line protocol soundness (6 absurdity cases)
---      Proves: parseRequest success → well-formed protocol message
---      Structure: Object with "type" string field
---
--- ✅ Parser Determinism (1):
---    - parseJSON-deterministic: Unique parse results for same input
---
--- Total: 12 proven properties with zero holes
-
--- Implementation approach:
--- Uses inspect idiom to capture equalities in with-abstractions, enabling
--- precise reasoning about nested pattern matches. Absurdity cases (18 total)
--- eliminate impossible JSON type combinations - all are unavoidable due to
--- exhaustive case analysis required by Agda's totality checker.
---
--- All proofs use structural induction and congruence. No postulates.
--- Character/integer decomposition kept at I/O boundaries only.
-
--- End of JSON Properties (Phase 3) ✅ COMPLETE
--- ============================================================================
 
 -- All JSON parsers are deterministic (follows from parser combinators)
 parseJSON-deterministic : ∀ (pos : Position) (input : List Char) (r₁ r₂ : ParseResult JSON)

@@ -13,14 +13,13 @@ open import Aletheia.CAN.Frame
 open import Aletheia.CAN.Signal
 open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; scaleExtracted; extractionBytes; inBounds)
 open import Aletheia.CAN.ExtractionResult
-open import Aletheia.CAN.DBCHelpers using (canIdEquals; findMessageById; findSignalByName)
+open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
 open import Aletheia.DBC.Types
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Data.Rational using (ℚ; _/_)
-open import Data.Rational.Properties renaming (_≟_ to _≟ᵣ_)
+import Data.Rational.Properties as ℚ-Props
 open import Data.Integer using (+_)
-open import Data.Nat using (ℕ; _≡ᵇ_)
+open import Data.Nat using (ℕ)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.List using (List; _∷_; [])
 open import Data.Maybe using (Maybe; just; nothing)
@@ -42,7 +41,7 @@ checkMultiplexor frame msg muxName muxValue with findSignalByName muxName msg
       -- Check if multiplexor value matches expected value
       -- Note: We compare to rational directly since muxValue is ℕ
       let expectedVal = (+ muxValue) / 1
-          matches = ⌊ muxVal ≟ᵣ expectedVal ⌋
+          matches = ⌊ ℚ-Props._≟_ muxVal expectedVal ⌋
       in if matches
          then nothing  -- Match! Signal is present
          else just ("multiplexor value mismatch (expected " ++ₛ showℕ muxValue ++ₛ ")")

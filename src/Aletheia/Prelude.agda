@@ -80,6 +80,11 @@ lookupByKey key [] = nothing
 lookupByKey key ((k , v) ∷ rest) =
   if ⌊ k ≟ key ⌋ then just v else lookupByKey key rest
 
+-- Bind operator for Either (⊎) monad (used by parsers and command routing)
+_>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
+inj₁ err >>=ₑ _ = inj₁ err
+inj₂ x >>=ₑ f = f x
+
 -- CAN ID bounds (used for validation and type constraints)
 standard-can-id-max : ℕ
 standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)

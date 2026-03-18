@@ -10,12 +10,11 @@
 -- Warning-severity checks are advisory and NOT part of ValidDBC.
 module Aletheia.DBC.Validity where
 
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (findSignalPresence)
 open import Aletheia.DBC.Properties using (SignalPairValid)
-open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
@@ -24,7 +23,6 @@ open import Data.Nat using (ℕ; _+_; _*_; _∸_; suc; _≤_)
 open import Data.Nat as Nat using (_/_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Rational using (ℚ)
-open import Data.String using (String)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)

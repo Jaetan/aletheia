@@ -10,11 +10,10 @@
 -- Design: Captures both raw bit-level layout and physical value transformations.
 module Aletheia.CAN.Signal where
 
-open import Aletheia.CAN.Frame
+open import Aletheia.CAN.Frame using (BitPosition)
 open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
 open import Data.Bool using (Bool)
-open import Data.Maybe using (Maybe)
 
 SignalValue : Set
 SignalValue = ℚ

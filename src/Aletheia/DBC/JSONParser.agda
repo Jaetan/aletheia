@@ -11,20 +11,17 @@
 -- Current protocol: Python converts .dbc → JSON, Agda parses JSON → DBC types.
 module Aletheia.DBC.JSONParser where
 
-open import Aletheia.DBC.Types
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Protocol.JSON
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Endianness
-open import Data.List using (List; []; _∷_; map; length)
+open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Data.List using (List; []; _∷_; map)
 open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ; _%_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.Rational using (ℚ)
-open import Data.Integer using (ℤ; +_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
@@ -33,10 +30,7 @@ open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
 -- ERROR-RETURNING PARSER COMBINATORS
 -- ============================================================================
 
--- Bind for Either monad
-_>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
-inj₁ err >>=ₑ _ = inj₁ err
-inj₂ x >>=ₑ f = f x
+open import Aletheia.Prelude using (_>>=ₑ_)
 
 -- Require a Maybe field, with context for error message
 require : ∀ {A : Set} → String → Maybe A → String ⊎ A

@@ -545,7 +545,7 @@ validateDBCFull dbc =
      ++ₗ checkAllBitLengthExcessive msgs
 
 -- ============================================================================
--- UTILITIES (used by StreamState for dual-layer validation)
+-- UTILITIES (used by StreamState and Routing)
 -- ============================================================================
 
 -- Check if any issue in a list is an error

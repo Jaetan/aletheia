@@ -10,22 +10,19 @@
 -- Guarantees: Signals partition the frame properly (no corruption).
 module Aletheia.CAN.BatchFrameBuilding where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Encoding
-open import Aletheia.DBC.Types
-open import Data.String using (String) renaming (_++_ to _++ₛ_; _≟_ to _≟ₛ_)
+open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Encoding using (injectSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Data.String using (String)
 open import Data.Rational using (ℚ)
-open import Data.List using (List; []; _∷_; map; foldr; all)
+open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Vec using (Vec)
 open import Data.Vec as Vec using (replicate)
-open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; _≡ᵇ_; _∸_)
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
-open import Data.Bool.Properties using (∨-zeroʳ; ∨-identityʳ)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Function using (_∘_)
+open import Data.Nat using (ℕ; zero; _+_; _∸_)
+open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
 
 -- ============================================================================
 -- OVERLAP DETECTION

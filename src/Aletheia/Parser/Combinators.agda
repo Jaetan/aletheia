@@ -11,17 +11,14 @@
 -- The `many` combinator terminates structurally by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
-open import Data.List using (List; []; _∷_; _++_; map; length; take)
+open import Data.List using (List; []; _∷_; _++_; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit; isAlpha; isSpace; isLower)
 open import Data.Bool using (Bool; true; false; _∧_; _∨_; not)
-open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _∸_)
+open import Data.Nat using (ℕ; zero; suc; _∸_)
 open import Data.String as String using (String)
-open import Function using (_∘_; id)
-open import Relation.Nullary using (Dec; yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 -- ============================================================================
 -- POSITION TRACKING
@@ -62,7 +59,7 @@ record ParseResult (A : Set) : Set where
 open ParseResult public
 
 -- Parser type: takes position and input, returns result with new position
--- NEW: Tracks position for precise error reporting!
+-- Tracks position for precise error reporting
 Parser : Set → Set
 Parser A = Position → List Char → Maybe (ParseResult A)
 
@@ -204,11 +201,9 @@ count (suc n) p = (λ x xs → x ∷ xs) <$> p <*> count n p
 -- | Parse between min and max occurrences
 countRange : ∀ {A : Set} → ℕ → ℕ → Parser A → Parser (List A)
 countRange min max p = count min p >>= λ xs →
-  countUpTo (max Data.Nat.∸ min) p >>= λ ys →
+  countUpTo (max ∸ min) p >>= λ ys →
   pure (xs ++ ys)
   where
-    open import Data.Nat using (_∸_)
-
     -- Parse up to n occurrences (structurally recursive on n)
     countUpTo : ∀ {A : Set} → ℕ → Parser A → Parser (List A)
     countUpTo zero p = pure []

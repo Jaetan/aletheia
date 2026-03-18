@@ -4,7 +4,7 @@
 --
 -- Purpose: Define type-safe CAN frames with runtime bounds enforcement.
 -- Types: CANId (Standard 11-bit | Extended 29-bit), DLC (ℕ for 0-8 bytes),
---        Frame (ID + 8-byte payload), TimedFrame (Frame + timestamp).
+--        CANFrame (ID + DLC + 8-byte payload), Byte (ℕ alias), BitPosition (ℕ alias).
 -- Role: Core types used throughout CAN processing and signal extraction.
 --
 -- All numeric fields use ℕ at runtime for O(1) MAlonzo allocation.

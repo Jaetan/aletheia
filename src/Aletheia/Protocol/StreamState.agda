@@ -15,41 +15,33 @@
 --       This makes the module incompatible with --safe.
 module Aletheia.Protocol.StreamState where
 
-open import Data.String using (String; toList) renaming (_++_ to _++ₛ_)
-open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List as L using (map)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
+import Data.String.Properties as String-Props
+open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Maybe as M using (map)
-open import Data.Nat using (ℕ; zero; suc; _+_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _%_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_; proj₁)
-open import Data.Char using (Char)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec; _∷_; [])
-open import Data.Integer using (ℤ; +_)
 open import Data.Sum using (_⊎_)
 open import Function using (case_of_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (findByPredicate)
+open import Aletheia.Prelude using (findByPredicate; standard-can-id-max)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.DBC.Properties using (validateDBC)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; getSignalName; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; simplify)
-open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupObject; formatJSON; getRational; getObject; lookupRational)
-open import Data.Rational using (ℚ; _/_)
-open import Data.Rational.Show as RatShow using ()
-open import Aletheia.LTL.JSON using (parseProperty; dispatchPredicate; parseSignalPredicate; parseAtomic; parseLTL; parseLTLDispatch; parseLTLObject; dispatchOperator; parseLTLObjectHelper)
+open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
+open import Data.Rational using (ℚ)
+open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.Data.Message  -- Includes Response, StreamCommand, etc.
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById)
-open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
-open import Aletheia.CAN.Encoding using (injectSignal; extractSignal)
+open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ExtractionFailed; ValueOutOfBounds; getValue)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
@@ -98,7 +90,7 @@ findMessageByName : String → DBC → Maybe DBCMessage
 findMessageByName name dbc = findByPredicate matchesName (DBC.messages dbc)
   where
     matchesName : DBCMessage → Bool
-    matchesName msg = ⌊ DBCMessage.name msg ≟ₛ name ⌋
+    matchesName msg = ⌊ String-Props._≟_ (DBCMessage.name msg) name ⌋
 
 -- ============================================================================
 -- FORMULA INDEXING (LTL SignalPredicate → LTLProc + atom list)
@@ -221,9 +213,7 @@ makeFrame msgId bytes = record
 -- ============================================================================
 
 -- Parse DBC command: reset state, parse DBC from JSON, and validate
--- Two-layer validation:
---   Layer 1: DBC/Properties.validateDBC — signal overlap + range consistency (first-error)
---   Layer 2: DBC/Validator.validateDBCFull — structural checks (all issues at once)
+-- Validation: DBC/Validator.validateDBCFull — all 16 structural checks (formally proven sound+complete)
 handleParseDBC-State : JSON → StreamState → StreamState × Response
 handleParseDBC-State dbcJSON state =
   parseHelper (parseDBCWithErrors dbcJSON)
@@ -233,14 +223,10 @@ handleParseDBC-State dbcJSON state =
     parseHelper : String ⊎ DBC → StreamState × Response
     parseHelper (inj₁ parseError) =
       (state , Response.Error ("DBC parse error: " ++ₛ parseError))
-    parseHelper (inj₂ dbc) with validateDBC dbc
-    ... | inj₁ validationError =
-      (state , Response.Error ("DBC validation failed: " ++ₛ validationError))
-    ... | inj₂ _ =
-      -- Layer 2: run comprehensive structural validator
+    parseHelper (inj₂ dbc) =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
-         then (state , Response.Error ("DBC structural validation failed: "
+         then (state , Response.Error ("DBC validation failed: "
                 ++ₛ formatIssuesText (errorIssues issues)))
          else let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache
               in (newState , Response.Success "DBC parsed and validated successfully")
@@ -300,40 +286,27 @@ handleEndStream-State state with StreamState.phase state
 -- FRAME PROCESSING (LTL Checking)
 -- ============================================================================
 
--- Process incoming CAN frame with incremental LTL property checking
+-- Process incoming CAN frame with incremental LTL property checking.
 --
 -- Algorithm:
 --   1. Validate state machine: must be in Streaming phase with DBC loaded
 --   2. Create TimedFrame from timestamp and frame
---   3. For each property: call stepEval with (prevFrame, currFrame, evalState)
---   4. Update property eval states and detect violations/satisfactions
---   5. Return immediately on first violation, otherwise continue checking
+--   3. For each property: build PredTable from SignalCache, call stepL (Havelund-Rosu)
+--   4. Classify StepResult: Continue → simplify and advance, Violated → halt, Satisfied → keep
+--   5. Update SignalCache with newly extracted signal values
 --   6. Update prevFrame to current frame for next iteration
 --
 -- O(1) Memory Guarantee:
---   - Properties maintain fixed-size eval state (no trace accumulation)
+--   - Properties maintain fixed-size LTLProc state (no trace accumulation)
 --   - Only prevFrame stored (for ChangedBy predicate support)
---   - LTL.Incremental.stepEval processes one frame at a time
---   - No history lists, no unbounded growth
---
--- Incremental Checking:
---   - stepEval: LTLEvalState → Frame → StepResult
---   - Result types: Continue (keep checking), Violated (stop), Satisfied (terminal)
---   - Eval state encodes LTL automaton position (finite state machine)
---   - Always/Eventually: track whether seen violation/satisfaction so far
---   - Until: track left/right satisfaction status
---   - Next: defer to next frame
+--   - stepL processes one frame at a time via formula progression
+--   - Rosu simplification prevents tree growth (absorb idempotent subformulas)
 --
 -- Violation Reporting:
 --   - First violation detected → PropertyResponse with counterexample
 --   - Counterexample includes: timestamp, reason, property index
---   - Violated property keeps old eval state (frozen at violation point)
+--   - Violated property halts iteration (remaining properties unchanged)
 --   - Other properties continue checking on subsequent frames
---
--- State Updates:
---   - prevFrame: updated to current frame after all properties checked
---   - properties: eval states updated with stepEval results
---   - phase: remains Streaming (only EndStream changes phase)
 --
 handleDataFrame : StreamState → ℕ → CANFrame → StreamState × Response
 handleDataFrame state timestamp frame with StreamState.phase state
@@ -343,7 +316,6 @@ handleDataFrame state timestamp frame with StreamState.phase state
 ...   | nothing = (state , Response.Error "No DBC loaded")
 ...   | just dbc = processFrame dbc
   where
-    open import Aletheia.CAN.Frame using (CANFrame)
     open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
     open import Aletheia.LTL.Incremental using (Counterexample)
 
@@ -391,10 +363,6 @@ handleBuildFrame-State : JSON → List JSON → StreamState → StreamState × R
 handleBuildFrame-State canIdJSON signalsJSON state =
   buildHelper (StreamState.dbc state)
   where
-    open import Aletheia.Protocol.JSON using (getNat)
-    open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat using (_%_)
-
     buildHelper : Maybe DBC → StreamState × Response
     buildHelper nothing = (state , Response.Error "DBC not loaded")
     buildHelper (just dbc) with getNat canIdJSON
@@ -415,10 +383,6 @@ handleExtractAllSignals-State : JSON → Vec Byte 8 → StreamState → StreamSt
 handleExtractAllSignals-State canIdJSON bytes state =
   extractHelper (StreamState.dbc state)
   where
-    open import Aletheia.Protocol.JSON using (getNat)
-    open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat using (_%_)
-
     extractHelper : Maybe DBC → StreamState × Response
     extractHelper nothing = (state , Response.Error "DBC not loaded")
     extractHelper (just dbc) with getNat canIdJSON
@@ -437,10 +401,6 @@ handleUpdateFrame-State : JSON → Vec Byte 8 → List JSON → StreamState → 
 handleUpdateFrame-State canIdJSON bytes signalsJSON state =
   updateHelper (StreamState.dbc state)
   where
-    open import Aletheia.Protocol.JSON using (getNat)
-    open import Aletheia.Prelude using (standard-can-id-max)
-    open import Data.Nat using (_%_)
-
     updateHelper : Maybe DBC → StreamState × Response
     updateHelper nothing = (state , Response.Error "DBC not loaded")
     updateHelper (just dbc) with getNat canIdJSON

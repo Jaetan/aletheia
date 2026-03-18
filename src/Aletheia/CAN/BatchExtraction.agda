@@ -10,11 +10,10 @@
 --         errors (with reasons), and absent signals (multiplexing).
 module Aletheia.CAN.BatchExtraction where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.ExtractionResult
-open import Aletheia.CAN.SignalExtraction
-open import Aletheia.DBC.Types
+open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
+open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)

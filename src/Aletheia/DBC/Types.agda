@@ -10,9 +10,9 @@
 -- All numeric fields use ℕ for O(1) MAlonzo allocation.
 module Aletheia.DBC.Types where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
-open import Aletheia.CAN.Endianness
+open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder)
 open import Data.String using (String)
 open import Data.List using (List)
 open import Data.Nat using (ℕ)
@@ -29,7 +29,7 @@ record DBCSignal : Set where
     signalDef : SignalDef
     byteOrder : ByteOrder
     unit : String
-    presence : SignalPresence  -- NEW: Conditional presence for multiplexing
+    presence : SignalPresence  -- Conditional presence for multiplexing
 
 record DBCMessage : Set where
   field

@@ -12,22 +12,20 @@
 module Aletheia.Protocol.JSON where
 
 open import Data.String using (String; _≟_; toList; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_)
 open import Data.Char using (Char)
 open import Data.Char.Base using (isDigit)
-open import Data.Bool using (Bool; true; false; if_then_else_; not; _∨_)
+open import Data.Bool using (Bool; true; false; if_then_else_; not)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; ↥_; ↧_)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; proj₁)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Function using (_∘_; id)
 open import Aletheia.Parser.Combinators
 open import Aletheia.Prelude using (lookupByKey)
 open import Data.Integer.Show as IntShow using ()
-open import Data.Rational.Show as RatShow using ()
 
 -- ============================================================================
 -- JSON DATA TYPES
@@ -194,8 +192,6 @@ formatJSON (JObject fields) = "{" ++ₛ formatFields fields ++ₛ"}"
 -- ============================================================================
 -- JSON PARSER (Uses parser combinators which are structurally recursive)
 -- ============================================================================
-
--- isDigit is already defined in Parser.Combinators, use that
 
 -- Helper: Digit to natural
 digitToNat : Char → ℕ

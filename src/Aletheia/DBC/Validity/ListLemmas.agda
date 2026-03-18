@@ -10,7 +10,7 @@ open import Data.List using (List; []; _∷_; _++_; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Product using (_×_; _,_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 private
   variable

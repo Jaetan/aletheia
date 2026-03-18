@@ -3,7 +3,7 @@
 -- Result type for signal extraction operations.
 --
 -- Purpose: Represent success/failure of signal extraction with error messages.
--- Types: ExtractionResult A = Success A | NotFound String | InvalidFrame String.
+-- Types: ExtractionResult = Success | SignalNotInDBC | SignalNotPresent | ValueOutOfBounds | ExtractionFailed.
 -- Role: Error handling for CAN.Encoding operations.
 --
 -- Design: Simple sum type for explicit error propagation (no exceptions in Agda).
@@ -12,7 +12,6 @@ module Aletheia.CAN.ExtractionResult where
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Show using (show)
-open import Data.Bool using (Bool; true; false)
 open import Data.Maybe using (Maybe; just; nothing)
 
 -- ============================================================================

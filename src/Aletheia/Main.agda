@@ -27,17 +27,16 @@ open import Data.List using (List; []; _∷_)
 open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Size using (Size; ∞)
+open import Size using (Size)
 open import Codata.Sized.Colist as Colist using (Colist; []; _∷_)
-open import Codata.Sized.Thunk using (Thunk; force)
+open import Codata.Sized.Thunk using (force)
 
 -- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing using (parseRequest; formatResponse; parseDataFrameWithTrace; parseCommandWithTrace)
-open import Aletheia.Protocol.Routing as Routing using ()
+open import Aletheia.Protocol.Routing as Routing using (formatResponse; parseDataFrameWithTrace; parseCommandWithTrace)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
-open import Aletheia.Data.Message as Msg using (Request; Response)
+import Aletheia.Data.Message as Msg
 
 -- ============================================================================
 -- Phase 2B: JSON Streaming Protocol
@@ -81,15 +80,6 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
     ... | inj₂ cmd =
           let (newState , response) = processStreamCommand cmd state
           in (newState , formatJSON (Routing.formatResponse response))
-
-    parseRequest_helper : Maybe Msg.Request → StreamState × String
-    parseRequest_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Invalid request format")))
-    parseRequest_helper (just (Msg.Request.CommandRequest cmd)) =
-      let (newState , response) = processStreamCommand cmd state
-      in (newState , formatJSON (Routing.formatResponse response))
-    parseRequest_helper (just (Msg.Request.DataFrame timestamp frame)) =
-      let (newState , response) = handleDataFrame state timestamp frame
-      in (newState , formatJSON (Routing.formatResponse response))
 
     -- Trace all messages
     parseJSON_helperWithTrace : JSON → StreamState × String

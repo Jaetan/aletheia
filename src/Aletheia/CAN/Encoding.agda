@@ -10,26 +10,26 @@
 -- Role: Core CAN processing, used by protocol handlers and verification.
 --
 -- Algorithm: Bit extraction → endianness conversion → sign extension → scaling (factor/offset).
--- Verified: All bit manipulations use bounded types (Fin) for safety.
+-- Verified: All bit manipulations use structural BitVec proofs for safety.
 module Aletheia.CAN.Encoding where
 
-open import Aletheia.CAN.Frame
-open import Aletheia.CAN.Signal
+open import Aletheia.CAN.Frame using (CANFrame; Byte)
+open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
 open import Aletheia.CAN.Endianness
-open import Aletheia.Data.BitVec
-open import Aletheia.Data.BitVec.Conversion
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _≥_; _^_; _<_; _<?_; _≤_)
+open import Aletheia.Data.BitVec using (BitVec)
+open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
+open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _^_; _<_; _<?_; _≤_)
 open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ; ↥_)
+open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
-open import Relation.Nullary.Decidable as Dec using (True; toWitness)
+open import Relation.Nullary.Decidable as Dec using (⌊_⌋)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans)
-open import Relation.Nullary using (Dec; yes; no)
-open import Function using (_∘_; case_of_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym)
+open import Relation.Nullary using (yes; no)
+open import Function using (case_of_)
 
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
@@ -135,9 +135,6 @@ injectSignal value signalDef byteOrder frame =
      then injectHelper value signalDef byteOrder frame
      else nothing
   where
-    open import Data.Vec using (Vec)
-    open import Data.Maybe using (_>>=_)
-
     injectHelper : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
     injectHelper value signalDef byteOrder frame
       with removeScaling value factor offset
@@ -180,8 +177,7 @@ injectSignal value signalDef byteOrder frame =
 -- This is captured by showing that extraction at a disjoint position is preserved.
 
 open import Aletheia.CAN.Endianness using (injectPayload; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Nat.Properties using (≤-refl)
+open import Data.Sum using (_⊎_)
 
 -- Helper: extractionBytes equals payloadIso (definitional by cases)
 extractionBytes≡payloadIso : ∀ frame bo → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)
