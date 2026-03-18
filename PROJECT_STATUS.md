@@ -113,7 +113,7 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
    - `LTL/JSON/Properties.agda`: Roundtrip and completeness proofs
    - Proven: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just φ
 5. ✅ Three-valued signal semantics - COMPLETE
-   - `LTL/SignalPredicate.agda`: SignalVal (True/False/Unknown/Pending), Kleene logic, SignalCache
+   - `LTL/SignalPredicate.agda`: TruthVal (True/False/Unknown/Pending), Kleene logic, SignalCache
    - `LTL/Incremental.agda`: Inconclusive state, safety vs liveness semantics
    - `LTL/Coalgebra.agda`: Mirrored Inconclusive handling for bisimilarity
    - `LTL/Bisimilarity.agda`: All 13 operator proofs updated for Inconclusive
@@ -192,7 +192,7 @@ verified core:
 8. ✅ Tutorial / cookbook — COMPLETE (`docs/guides/TUTORIAL.md`, `docs/guides/COOKBOOK.md`, `docs/guides/QUICKSTART.md`)
 
 9. ✅ DBC Validator — COMPLETE
-   - Agda: `DBC/Validator.agda` (new), `DBC/Types.agda`, `Data/Message.agda`, `Protocol/Routing.agda`, `Protocol/StreamState.agda`
+   - Agda: `DBC/Validator.agda` (new), `DBC/Types.agda`, `Protocol/Message.agda`, `Protocol/Routing.agda`, `Protocol/StreamState.agda`
    - `validateDBCFull : DBC → List ValidationIssue` — 16 checks (9 error, 7 warning), all issues accumulated
    - `IssueCode` enum: 16 codes covering structural, physical, and authoring issues
    - Decidable types throughout (`_≟-CANId_`, `any?`, `_∈?_`, `signalPairValid?`)
@@ -220,7 +220,7 @@ verified core:
 - `handleEndStream-State` calls `finalizeEval` on each property
 - `Response.Complete` now carries `List PropertyResult` with per-property verdicts
 - 7 integration tests verify all finalization behaviors
-- Renamed `ThreeVal` → `SignalVal` (now 4 constructors: True, False, Unknown, Pending)
+- Renamed `ThreeVal` → `TruthVal` (now 4 constructors: True, False, Unknown, Pending)
 
 **Documentation**: Interface Guide (`docs/reference/INTERFACES.md`) with Check API, YAML, and Excel
 end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
