@@ -55,7 +55,7 @@ verdictToSV (Fails _) = False
 --   Satisfied       → True  (property definitely holds)
 --   Violated _      → False (property definitely fails)
 --   Continue _ proc' → recurse on remaining trace
---   (no Inconclusive — removed, Unknown/Pending signals produce Continue 0)
+--   (Unknown/Pending signals produce Continue 0 for uncertain verdicts)
 
 runL : PredTable → LTLProc → List TimedFrame → TruthVal
 runL table proc [] = verdictToSV (finalizeL proc)

@@ -158,7 +158,7 @@ data LineProtocolStructure : JSON → Set where
 
 -- Soundness: parseRequest only succeeds on well-formed line protocol messages
 open import Aletheia.Protocol.Routing using (parseRequest)
-open import Aletheia.Data.Message using (Request)
+open import Aletheia.Protocol.Message using (Request)
 
 parseRequest-sound : ∀ (input : JSON) (result : Request)
   → parseRequest input ≡ just result

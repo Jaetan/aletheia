@@ -36,7 +36,7 @@ open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; 
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
 open import Data.Rational using (ℚ)
 open import Aletheia.LTL.JSON using (parseProperty)
-open import Aletheia.Data.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
+open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)

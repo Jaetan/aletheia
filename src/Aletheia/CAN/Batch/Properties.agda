@@ -9,7 +9,7 @@
 -- the precondition needed for extract-disjoint-inject proofs in Encoding/Properties.
 --
 -- Proof flow:
---   1. validateDBC dbc succeeds → DBCValid dbc
+--   1. validateDBCFull dbc succeeds → DBCValid dbc
 --   2. lookupDisjointFromDBC extracts SignalsDisjoint for any two coexisting signals
 --   3. SignalsDisjoint is the precondition for extract-disjoint-inject-*
 --   4. Therefore: batch operations on validated DBCs preserve signal values
@@ -42,7 +42,7 @@ open import Function using (case_of_)
 --
 -- 1. VALIDATION PHASE (at DBC load time):
 --    - parseDBCWithErrors parses JSON to DBC
---    - validateDBC checks all signal pairs for disjointness
+--    - validateDBCFull checks all signal pairs for disjointness
 --    - Result: DBCValid dbc (proof that all coexisting signals are disjoint)
 --
 -- 2. PROOF EXTRACTION (when needed for formal proofs):

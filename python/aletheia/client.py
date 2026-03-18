@@ -361,30 +361,39 @@ class AletheiaClient:
 
     @staticmethod
     def _parse_rational(value_raw: object) -> float:
-        """Parse a value that may be a number or a rational string like '72/1'."""
+        """Parse a value that may be a number, rational dict, or rational string."""
         if isinstance(value_raw, (int, float)):
             return float(value_raw)
+        if isinstance(value_raw, dict):
+            numerator = value_raw.get("numerator")
+            denominator = value_raw.get("denominator")
+            if isinstance(numerator, int) and isinstance(denominator, int):
+                if denominator == 0:
+                    raise ProtocolError(
+                        f"Division by zero in rational: {value_raw!r}"
+                    )
+                return numerator / denominator
         if isinstance(value_raw, str):
             if "/" in value_raw:
                 parts = value_raw.split("/")
                 if len(parts) == 2:
                     try:
-                        numerator = int(parts[0])
-                        denominator = int(parts[1])
+                        numerator_s = int(parts[0])
+                        denominator_s = int(parts[1])
                     except ValueError:
                         pass
                     else:
-                        if denominator == 0:
+                        if denominator_s == 0:
                             raise ProtocolError(
                                 f"Division by zero in rational string: {value_raw!r}"
                             )
-                        return numerator / denominator
+                        return numerator_s / denominator_s
             try:
                 return float(value_raw)
             except ValueError:
                 pass
         raise ProtocolError(
-            "Expected signal value to be number or rational string, "
+            "Expected signal value to be number, rational dict, or rational string, "
             + f"got {type(value_raw).__name__}: {value_raw!r}"
         )
 

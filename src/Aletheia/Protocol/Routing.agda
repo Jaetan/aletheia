@@ -16,7 +16,6 @@ open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; _/_)
-open import Data.Rational.Show as ℚShow using (show)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ; _%_)
 open import Data.Product using (_×_; _,_)
@@ -24,7 +23,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; _>>=ₑ_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; lookupString; lookupNat; lookupArray; getInt)
-open import Aletheia.Data.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
+open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
@@ -258,7 +257,7 @@ formatResponse (ExtractionResultsResponse values errors absent) =
       where
         formatPair : String × ℚ → JSON
         formatPair (name , value) =
-          JObject (("name" , JString name) ∷ ("value" , JString (ℚShow.show value)) ∷ [])
+          JObject (("name" , JString name) ∷ ("value" , JNumber value) ∷ [])
 
     formatErrors : List (String × String) → JSON
     formatErrors errs = JArray (map formatError errs)

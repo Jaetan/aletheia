@@ -6,7 +6,7 @@
 -- Types: StreamCommand (parseDBC, setProperties, startStream, endStream),
 --        Request (command or data frame), Response (success, error, ack, property).
 -- Role: Core types used by Protocol.Routing and Protocol.StreamState.
-module Aletheia.Data.Message where
+module Aletheia.Protocol.Message where
 
 open import Data.String using (String)
 open import Data.List using (List)

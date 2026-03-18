@@ -36,7 +36,7 @@ open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
 open import Aletheia.Protocol.Routing as Routing using (formatResponse; parseDataFrame; parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
-import Aletheia.Data.Message as Msg
+import Aletheia.Protocol.Message as Msg
 
 -- ============================================================================
 -- Phase 2B: JSON Streaming Protocol
