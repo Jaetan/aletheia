@@ -397,6 +397,21 @@ class AletheiaClient:
             + f"got {type(value_raw).__name__}: {value_raw!r}"
         )
 
+    @staticmethod
+    def _check_signal_value(name: str, value: float) -> None:
+        """Guard against values that json.dumps encodes in scientific notation.
+
+        Agda's JSON parser handles integers and decimals (e.g., 42, 3.14)
+        but not exponent notation (e.g., 1.5e-10). Reject such values early
+        with a clear error rather than getting a cryptic parse failure.
+        """
+        s = json.dumps(value)
+        if "e" in s or "E" in s:
+            raise ValueError(
+                f"Signal value {value} for '{name}' would be JSON-encoded as {s}; "
+                f"Agda's parser does not support scientific notation"
+            )
+
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
         """Parse a response that should be success or error."""
         status = response.get("status")
@@ -849,6 +864,8 @@ class AletheiaClient:
         if len(frame) != 8:
             raise ValueError(f"Frame data must be 8 bytes, got {len(frame)}")
 
+        for name, value in signals.items():
+            self._check_signal_value(name, value)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()
@@ -885,6 +902,8 @@ class AletheiaClient:
         Raises:
             ProcessError: If frame building fails
         """
+        for name, value in signals.items():
+            self._check_signal_value(name, value)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()

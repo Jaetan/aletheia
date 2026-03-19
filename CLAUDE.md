@@ -69,20 +69,19 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **46 total modules**: 44 use `--safe`, 3 coinductive without `--safe`
+† **45 total modules**: 43 use `--safe`, 3 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (46 total):
+**By flag combination** (45 total):
 - **41 modules**: `--safe --without-K` (standard safe modules, includes 6 proof-only)
-- **1 module**: `--safe` only (PrecompileStdlib.agda - stdlib cache)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **3 modules without `--safe`** (all use `--sized-types` for coinduction):
   - Main.agda: `--no-main --sized-types --without-K`
   - Protocol/StreamState.agda: `--sized-types --without-K`
   - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (3 of 46)**:
+**Modules not using `--safe` flag (3 of 45)**:
 
 Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
@@ -206,7 +205,7 @@ Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+
 - **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
   - Critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout)
   - Recommended for all type-checking to maximize performance
-- **First build**: Run `agda src/PrecompileStdlib.agda` to cache standard library (~20s one-time cost)
+- **First build**: Standard library compiles on first `agda` invocation (~20s one-time cost, cached thereafter)
 
 ### MAlonzo FFI and Name Mangling
 

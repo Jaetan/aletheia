@@ -16,7 +16,7 @@
 module Aletheia.Protocol.StreamState where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; reverse) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; zero; suc; _+_; _%_)
 open import Data.Nat.Show using () renaming (show to showℕ)
@@ -86,22 +86,25 @@ initialState = mkStreamState WaitingForDBC nothing [] nothing emptyCache
 -- FORMULA INDEXING (LTL SignalPredicate → LTLProc + atom list)
 -- ============================================================================
 
--- Collect all atomic predicates in left-to-right tree order.
+-- Collect all atomic predicates in left-to-right tree order (O(n) via accumulator).
 -- The resulting list maps ℕ indices to predicates for PredTable construction.
 collectAtoms : LTL SignalPredicate → List SignalPredicate
-collectAtoms (Atomic a)            = a ∷ []
-collectAtoms (Not φ)               = collectAtoms φ
-collectAtoms (And φ ψ)             = collectAtoms φ ++ₗ collectAtoms ψ
-collectAtoms (Or φ ψ)              = collectAtoms φ ++ₗ collectAtoms ψ
-collectAtoms (Next φ)              = collectAtoms φ
-collectAtoms (Always φ)            = collectAtoms φ
-collectAtoms (Eventually φ)        = collectAtoms φ
-collectAtoms (Until φ ψ)           = collectAtoms φ ++ₗ collectAtoms ψ
-collectAtoms (Release φ ψ)         = collectAtoms φ ++ₗ collectAtoms ψ
-collectAtoms (MetricEventually _ _ φ)    = collectAtoms φ
-collectAtoms (MetricAlways _ _ φ)        = collectAtoms φ
-collectAtoms (MetricUntil _ _ φ ψ)      = collectAtoms φ ++ₗ collectAtoms ψ
-collectAtoms (MetricRelease _ _ φ ψ)    = collectAtoms φ ++ₗ collectAtoms ψ
+collectAtoms formula = go formula []
+  where
+    go : LTL SignalPredicate → List SignalPredicate → List SignalPredicate
+    go (Atomic a)                 acc = a ∷ acc
+    go (Not φ)                    acc = go φ acc
+    go (And φ ψ)                  acc = go φ (go ψ acc)
+    go (Or φ ψ)                   acc = go φ (go ψ acc)
+    go (Next φ)                   acc = go φ acc
+    go (Always φ)                 acc = go φ acc
+    go (Eventually φ)             acc = go φ acc
+    go (Until φ ψ)                acc = go φ (go ψ acc)
+    go (Release φ ψ)              acc = go φ (go ψ acc)
+    go (MetricEventually _ _ φ)   acc = go φ acc
+    go (MetricAlways _ _ φ)       acc = go φ acc
+    go (MetricUntil _ _ φ ψ)      acc = go φ (go ψ acc)
+    go (MetricRelease _ _ φ ψ)    acc = go φ (go ψ acc)
 
 -- Replace each atom with its position index (counter-based, matches collectAtoms order)
 private
@@ -214,7 +217,7 @@ handleSetProperties-State propJSONs state with StreamState.phase state
     -- Parse all properties and index them with initialized eval state
     parseAllProperties : List JSON → ℕ → List PropertyState → StreamState × Response
     parseAllProperties [] idx acc =
-      let newState = mkStreamState ReadyToStream (StreamState.dbc state) acc nothing emptyCache  -- Reset prevFrame and cache when setting properties
+      let newState = mkStreamState ReadyToStream (StreamState.dbc state) (reverse acc) nothing emptyCache  -- Reset prevFrame and cache when setting properties
       in (newState , Response.Success "Properties set successfully")
     parseAllProperties (json ∷ rest) idx acc with parseProperty json
     ... | nothing = (state , Response.Error ("Failed to parse property " ++ₛ showℕ idx))
@@ -222,7 +225,7 @@ handleSetProperties-State propJSONs state with StreamState.phase state
         let atoms = collectAtoms prop
             proc = initProc (indexFormula prop)
             propState = mkPropertyState idx prop atoms proc
-        in parseAllProperties rest (idx + 1) (acc ++ₗ (propState ∷ []))
+        in parseAllProperties rest (idx + 1) (propState ∷ acc)
 ... | Streaming = (state , Response.Error "Cannot set properties while streaming")
 
 -- Start stream command: transition to streaming mode
@@ -286,7 +289,7 @@ handleDataFrame state timestamp frame with StreamState.phase state
 ... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before sending frames")
 ... | ReadyToStream = (state , Response.Error "Must call StartStream before sending frames")
 ... | Streaming with StreamState.dbc state
-...   | nothing = (state , Response.Error "No DBC loaded")
+...   | nothing = (state , Response.Error "DBC not loaded")
 ...   | just dbc = processFrame dbc
   where
     -- Current cache from state (before this frame's signals are extracted)
@@ -328,62 +331,59 @@ handleDataFrame state timestamp frame with StreamState.phase state
 -- BATCH SIGNAL OPERATIONS HANDLERS (Phase 2B.1)
 -- ============================================================================
 
+-- Common preamble: validate DBC loaded and parse CAN ID
+private
+  withDBCAndCANId : StreamState → JSON → (DBC → ℕ → StreamState × Response) → StreamState × Response
+  withDBCAndCANId state canIdJSON cont with StreamState.dbc state
+  ... | nothing = (state , Response.Error "DBC not loaded")
+  ... | just dbc with getNat canIdJSON
+  ...   | nothing = (state , Response.Error "Invalid CAN ID")
+  ...   | just canIdNat = cont dbc canIdNat
+
 -- Build CAN frame from signal values
 handleBuildFrame-State : JSON → List JSON → StreamState → StreamState × Response
 handleBuildFrame-State canIdJSON signalsJSON state =
-  buildHelper (StreamState.dbc state)
+  withDBCAndCANId state canIdJSON buildCont
   where
-    buildHelper : Maybe DBC → StreamState × Response
-    buildHelper nothing = (state , Response.Error "DBC not loaded")
-    buildHelper (just dbc) with getNat canIdJSON
-    ... | nothing = (state , Response.Error "Invalid CAN ID")
-    ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat % standard-can-id-max)
-          in parseSignals canId signalsJSON
+    buildCont : DBC → ℕ → StreamState × Response
+    buildCont dbc canIdNat =
+      let canId = CANId.Standard (canIdNat % standard-can-id-max)
+      in parseSignals dbc canId signalsJSON
       where
-        parseSignals : CANId → List JSON → StreamState × Response
-        parseSignals canId signals with parseSignalList signals
+        parseSignals : DBC → CANId → List JSON → StreamState × Response
+        parseSignals dbc' canId signals with parseSignalList signals
         ... | nothing = (state , Response.Error "Failed to parse signal list")
-        ... | just signalPairs with buildFrame dbc canId signalPairs
+        ... | just signalPairs with buildFrame dbc' canId signalPairs
         ...   | nothing = (state , Response.Error "Frame building failed (signals overlap, not found, or values out of bounds)")
         ...   | just frameBytes = (state , Response.ByteArray frameBytes)
 
 -- Extract all signals from a CAN frame
 handleExtractAllSignals-State : JSON → Vec Byte 8 → StreamState → StreamState × Response
 handleExtractAllSignals-State canIdJSON bytes state =
-  extractHelper (StreamState.dbc state)
-  where
-    extractHelper : Maybe DBC → StreamState × Response
-    extractHelper nothing = (state , Response.Error "DBC not loaded")
-    extractHelper (just dbc) with getNat canIdJSON
-    ... | nothing = (state , Response.Error "Invalid CAN ID")
-    ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat % standard-can-id-max)
-              frame = makeFrame canId bytes
-              results = extractAllSignals dbc frame
-          in (state , Response.ExtractionResultsResponse
-                        (ExtractionResults.values results)
-                        (ExtractionResults.errors results)
-                        (ExtractionResults.absent results))
+  withDBCAndCANId state canIdJSON λ dbc canIdNat →
+    let canId = CANId.Standard (canIdNat % standard-can-id-max)
+        frame = makeFrame canId bytes
+        results = extractAllSignals dbc frame
+    in (state , Response.ExtractionResultsResponse
+                  (ExtractionResults.values results)
+                  (ExtractionResults.errors results)
+                  (ExtractionResults.absent results))
 
 -- Update specific signals in a CAN frame
 handleUpdateFrame-State : JSON → Vec Byte 8 → List JSON → StreamState → StreamState × Response
 handleUpdateFrame-State canIdJSON bytes signalsJSON state =
-  updateHelper (StreamState.dbc state)
+  withDBCAndCANId state canIdJSON updateCont
   where
-    updateHelper : Maybe DBC → StreamState × Response
-    updateHelper nothing = (state , Response.Error "DBC not loaded")
-    updateHelper (just dbc) with getNat canIdJSON
-    ... | nothing = (state , Response.Error "Invalid CAN ID")
-    ... | just canIdNat =
-          let canId = CANId.Standard (canIdNat % standard-can-id-max)
-              frame = makeFrame canId bytes
-          in parseSignals canId signalsJSON frame
+    updateCont : DBC → ℕ → StreamState × Response
+    updateCont dbc canIdNat =
+      let canId = CANId.Standard (canIdNat % standard-can-id-max)
+          frame = makeFrame canId bytes
+      in parseSignals dbc canId signalsJSON frame
       where
-        parseSignals : CANId → List JSON → CANFrame → StreamState × Response
-        parseSignals canId signals frame with parseSignalList signals
+        parseSignals : DBC → CANId → List JSON → CANFrame → StreamState × Response
+        parseSignals dbc' canId signals frame with parseSignalList signals
         ... | nothing = (state , Response.Error "Failed to parse signal list")
-        ... | just signalPairs with updateFrame dbc canId frame signalPairs
+        ... | just signalPairs with updateFrame dbc' canId frame signalPairs
         ...   | nothing = (state , Response.Error "Frame update failed (signals not found or values out of bounds)")
         ...   | just updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
 
