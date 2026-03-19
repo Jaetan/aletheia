@@ -62,13 +62,13 @@ python3 throughput.py && python3 latency.py && python3 violations.py && python3 
 
 ## Current Performance
 
-Achieved after FFI optimization (Step 3):
+Achieved after FFI optimization and Rosu tree-growth fix:
 
 | Benchmark | Throughput | Latency |
 |-----------|-----------|---------|
-| Streaming LTL (3 properties) | 9,229 fps | 108 us/frame |
-| Signal Extraction | 8,184 fps | 122 us/frame |
-| Frame Building | 5,868 fps | 170 us/frame |
+| Streaming LTL (3 properties) | 9,704 fps | 103 us/frame |
+| Signal Extraction | 8,058 fps | 124 us/frame |
+| Frame Building | 5,913 fps | 169 us/frame |
 
 ## Profiling
 

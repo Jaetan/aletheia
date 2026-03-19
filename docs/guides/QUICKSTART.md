@@ -1,6 +1,6 @@
 # Quick Start
 
-Get from zero to a working CAN verification in 5 minutes.
+Get to a working CAN verification in 5 minutes.
 
 **Prerequisites**: Built library and Python venv active.
 See [Building Guide](../development/BUILDING.md) if you haven't built yet.

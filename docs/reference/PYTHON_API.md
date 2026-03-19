@@ -2,7 +2,7 @@
 
 **Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
 **Version**: 0.3.2
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-03-19
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
 > [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.
@@ -274,6 +274,44 @@ property = ignition.metric_release(5000, brake)
 
 **Use case**: Safety properties with maximum delay constraints. The right property must hold until the left property releases it, with a maximum time bound.
 
+#### Nested Temporal Helpers
+
+Standalone helper functions for common nested LTL patterns. Importable directly from `aletheia`.
+
+```python
+from aletheia import infinitely_often, eventually_always, never
+```
+
+**`infinitely_often(formula)`** — G(F(phi)): property holds infinitely many times (liveness).
+
+```python
+# Speed exceeds 100 infinitely often (repeated acceleration)
+infinitely_often(Signal("Speed").greater_than(100))
+
+# Equivalent fluent form:
+Signal("Speed").greater_than(100).eventually().always()
+```
+
+**`eventually_always(formula)`** — F(G(phi)): property eventually holds forever (stability).
+
+```python
+# Temperature eventually stabilizes below 70 degrees
+eventually_always(Signal("Temperature").less_than(70))
+
+# Equivalent fluent form:
+Signal("Temperature").less_than(70).always().eventually()
+```
+
+**`never(formula)`** — G(not(phi)): property never holds (strongest safety).
+
+```python
+# Critical fault never occurs
+never(Signal("FaultCode").equals(0xFF))
+
+# Equivalent fluent form:
+Signal("FaultCode").equals(0xFF).never()
+```
+
 ---
 
 ## Complete Examples
@@ -413,10 +451,20 @@ with AletheiaClient() as client:
 
 `AletheiaClient` is the unified client for streaming LTL checking and signal operations. It loads `libaletheia-ffi.so` via ctypes and calls the Agda/Haskell core directly via FFI.
 
+### Constructor
+
+```python
+AletheiaClient(default_checks=None, rts_cores=1)
+```
+
+**Parameters**:
+- `default_checks` (`list[CheckResult] | None`): Checks prepended to every `add_checks()` call. Useful for organization-wide safety baselines.
+- `rts_cores` (`int`): Number of GHC RTS capabilities (default 1). Only relevant for advanced multi-bus scenarios.
+
 ### Context Manager
 
 ```python
-with AletheiaClient() as client:
+with AletheiaClient(default_checks=safety_checks) as client:
     # Shared library loaded, GHC RTS initialized
     client.parse_dbc(dbc_json)
 
@@ -424,7 +472,7 @@ with AletheiaClient() as client:
     result = client.extract_signals(can_id=0x100, data=frame_bytes)
 
     # Streaming LTL checking
-    client.set_properties([property.to_dict()])
+    client.add_checks(session_checks)  # merges defaults + session
     client.start_stream()
     for frame in trace:
         response = client.send_frame(frame.timestamp, frame.id, frame.data)
@@ -433,6 +481,19 @@ with AletheiaClient() as client:
 ```
 
 ### Methods
+
+#### `close() -> None`
+
+Explicitly free state and release RTS reference. Called automatically when using the context manager (`with` block). Call manually if not using a context manager.
+
+```python
+client = AletheiaClient()
+try:
+    client.parse_dbc(dbc)
+    # ... work ...
+finally:
+    client.close()
+```
 
 #### `parse_dbc(dbc_json: Dict) -> Dict`
 
@@ -445,6 +506,36 @@ dbc = dbc_to_json("vehicle.dbc")  # Convert .dbc file to JSON
 response = client.parse_dbc(dbc)
 assert response["status"] == "success"
 ```
+
+#### `validate_dbc(dbc: DBCDefinition) -> ValidationResponse`
+
+Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.). Can be called anytime after `parse_dbc()`.
+
+```python
+result = client.validate_dbc(dbc)
+if result["has_errors"]:
+    for issue in result["issues"]:
+        print(f"[{issue['severity']}] {issue['code']}: {issue['detail']}")
+```
+
+**Returns**: `{"has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+
+#### `add_checks(checks: list[CheckResult]) -> SuccessResponse | ErrorResponse`
+
+Set LTL checks, merging with default checks from the constructor. Calls `set_properties()` + `set_check_diagnostics()` atomically.
+
+```python
+from aletheia.checks import Check
+
+checks = [
+    Check.signal("Speed").never_exceeds(220),
+    Check.signal("Voltage").stays_between(11.5, 14.5),
+]
+response = client.add_checks(checks)
+assert response["status"] == "success"
+```
+
+This is the preferred way to set checks when using the Check API or YAML/Excel loaders.
 
 #### `set_properties(properties: List[Dict]) -> Dict`
 
@@ -494,7 +585,23 @@ Send a CAN frame for incremental checking.
 }
 ```
 
-**Note**: `property_index` and `timestamp` are rational numbers (Agda `ℚ`). Access the integer value via `["numerator"]` — the denominator is always 1.
+**Note**: `property_index` and `timestamp` are rational numbers (`{"numerator": N, "denominator": 1}`). Access the integer value via `["numerator"]` — the denominator is always 1.
+
+#### `send_frames_batch(frames: list[tuple[int, int, bytearray]]) -> list[Dict]`
+
+Send multiple CAN frames in a batch. Convenience wrapper around `send_frame()`.
+
+```python
+frames = [
+    (1000, 0x100, bytearray(b'\x20\x1C\x00\x00\x00\x00\x00\x00')),
+    (2000, 0x100, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00')),
+]
+responses = client.send_frames_batch(frames)
+violations = [r for r in responses if r["status"] == "violation"]
+```
+
+**Parameters**: List of `(timestamp_us, can_id, data)` tuples.
+**Returns**: List of responses in same order as input frames.
 
 #### `end_stream() -> Dict`
 
@@ -511,12 +618,12 @@ assert response["status"] == "complete"
 
 Signal operations work anytime after DBC is loaded - both inside and outside streaming mode.
 
-#### `extract_signals(can_id: int, data: List[int]) -> SignalExtractionResult`
+#### `extract_signals(can_id: int, data: bytearray) -> SignalExtractionResult`
 
 Extract all signals from a CAN frame.
 
 ```python
-result = client.extract_signals(can_id=0x100, data=[0x20, 0x1C, 0, 0, 0, 0, 0, 0])
+result = client.extract_signals(can_id=0x100, data=bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0]))
 speed = result.get("VehicleSpeed", default=0.0)
 print(f"Speed: {speed} kph")
 
@@ -528,12 +635,12 @@ if result.has_errors():
 print(f"Absent: {result.absent}")
 ```
 
-#### `update_frame(can_id: int, frame: List[int], signals: Dict[str, float]) -> List[int]`
+#### `update_frame(can_id: int, frame: bytearray, signals: dict[str, float]) -> bytearray`
 
 Update specific signals in an existing frame. Returns a new frame (immutable).
 
 ```python
-original = [0x20, 0x1C, 0, 0, 0, 0, 0, 0]
+original = bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0])
 modified = client.update_frame(
     can_id=0x100,
     frame=original,
@@ -542,7 +649,7 @@ modified = client.update_frame(
 # original unchanged, modified has new speed value
 ```
 
-#### `build_frame(can_id: int, signals: Dict[str, float]) -> List[int]`
+#### `build_frame(can_id: int, signals: dict[str, float]) -> bytearray`
 
 Build a CAN frame from signal values (starts with zero-filled frame).
 
@@ -562,6 +669,20 @@ from aletheia.dbc_converter import dbc_to_json
 
 # Convert .dbc file to Aletheia JSON format
 dbc_json = dbc_to_json("vehicle.dbc")
+```
+
+#### `convert_dbc_file(dbc_path, output_path=None) -> str`
+
+Convert a `.dbc` file to Aletheia JSON format and optionally write it to a file. Returns the JSON string.
+
+```python
+from aletheia.dbc_converter import convert_dbc_file
+
+# Convert and write to file
+convert_dbc_file("vehicle.dbc", "vehicle.json")
+
+# Or just get the JSON string
+json_str = convert_dbc_file("vehicle.dbc")
 ```
 
 ---
@@ -632,9 +753,7 @@ with AletheiaClient() as client:
 
 ### Current Performance
 
-- **Streaming LTL (3 properties)**: 9,229 fps (108 us/frame)
-- **Signal Extraction**: 8,184 fps
-- **Frame Building**: 5,868 fps
+See [benchmarks/README.md](../../python/benchmarks/README.md) for current performance numbers and methodology.
 
 ---
 
@@ -737,6 +856,8 @@ for ts, can_id, data in iter_can_log("highway.asc"):
 
 **Supported formats**: `.asc`, `.blf`, `.csv`, `.log`, `.mf4`, `.trc` (via python-can).
 
+**Compressed files**: Gz-compressed log files (e.g., `.asc.gz`, `.blf.gz`) are supported transparently — the format is detected from the inner extension.
+
 ---
 
 ## Enriched Violations
@@ -767,6 +888,34 @@ When enabled, `send_frame()` violation responses include extra fields:
 ```
 
 Without diagnostics, only `property_index`, `timestamp`, and `reason` are present.
+
+---
+
+## Exceptions
+
+All Aletheia exceptions inherit from a common base class:
+
+```
+AletheiaError (base)
+├── ProcessError     # FFI or shared library errors (library not found, init failure)
+└── ProtocolError    # Protocol errors (invalid JSON, missing response, bad state)
+```
+
+```python
+from aletheia.client import AletheiaError, ProcessError, ProtocolError
+
+try:
+    client.parse_dbc(dbc_json)
+except ProcessError:
+    # Shared library failed to load or initialize
+    ...
+except ProtocolError:
+    # JSON parse error or invalid state transition
+    ...
+except AletheiaError:
+    # Catch-all for any Aletheia error
+    ...
+```
 
 ---
 

@@ -2,13 +2,26 @@
 
 **Purpose**: Complete specification of the JSON protocol for CAN frame analysis with LTL checking.
 **Version**: 1.0 (Phase 2B.1)
-**Last Updated**: 2025-12-02
+**Last Updated**: 2026-03-19
+
+---
+
+## Audience
+
+This document is for:
+- Python developers integrating `AletheiaClient` with custom tooling
+- Maintainers modifying the JSON protocol or FFI boundary
+- System architects understanding the communication layer
+
+**Prerequisites**: Familiarity with JSON and CAN bus basics. No Agda or Haskell knowledge needed.
+
+> Most users don't need this document. See the [Interface Guide](../reference/INTERFACES.md) for Check API, YAML, and Excel workflows, or the [Python API Guide](../reference/PYTHON_API.md) for the `AletheiaClient` reference.
 
 ---
 
 ## Overview
 
-Aletheia uses a JSON protocol for communication between Python and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI function calls.
+Aletheia uses a JSON protocol for communication between Python and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
 - Python sends JSON commands via `aletheia_process()` (ctypes FFI call)
@@ -31,7 +44,7 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: Control commands (parseDBC, setProperties, startStream, endStream)
+- `"command"`: Control commands (parseDBC, extractAllSignals, buildFrame, updateFrame, validateDBC, setProperties, startStream, endStream)
 - `"data"`: CAN data frames to be analyzed
 
 ---
@@ -205,7 +218,150 @@ Signal is only present when the multiplexor signal equals the specified value.
 
 ---
 
-### 2. SetProperties
+### 2. ExtractAllSignals
+
+Extract all signal values from a CAN frame without streaming.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "extractAllSignals",
+  "canId": 256,
+  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
+}
+```
+
+**Response** (Success):
+```json
+{
+  "status": "success",
+  "values": [
+    {"name": "Speed", "value": 100.0}
+  ],
+  "errors": [],
+  "absent": []
+}
+```
+
+**Fields**:
+- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
+- `data`: Array of 8 bytes (0-255)
+- Response `values`: Successfully extracted signals with physical values
+- Response `errors`: Signals that failed extraction (with error message)
+- Response `absent`: Multiplexed signals not present in this frame
+
+**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
+
+---
+
+### 3. BuildFrame
+
+Encode signal values into a new CAN frame (starting from all zeros).
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "buildFrame",
+  "canId": 256,
+  "signals": [
+    {"name": "Speed", "value": 100.0}
+  ]
+}
+```
+
+**Response** (Success):
+```json
+{
+  "status": "success",
+  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
+}
+```
+
+**Fields**:
+- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
+- `signals`: Array of {name, value} objects to encode
+- Response `data`: Encoded 8-byte frame
+
+**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
+
+---
+
+### 4. UpdateFrame
+
+Update specific signal values in an existing CAN frame.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "updateFrame",
+  "canId": 256,
+  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0],
+  "signals": [
+    {"name": "Speed", "value": 200.0}
+  ]
+}
+```
+
+**Response** (Success):
+```json
+{
+  "status": "success",
+  "data": [0x20, 0x4E, 0, 0, 0, 0, 0, 0]
+}
+```
+
+**Fields**:
+- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
+- `data`: Existing 8-byte frame to modify (array of 8 bytes, 0-255)
+- `signals`: Array of {name, value} objects to update
+- Response `data`: Updated 8-byte frame
+
+**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
+
+---
+
+### 5. ValidateDBC
+
+Validate a DBC definition for structural correctness. Returns all issues found (not just the first). Does not modify client state.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "validateDBC",
+  "dbc": { ... }
+}
+```
+
+**Response**:
+```json
+{
+  "status": "validation",
+  "has_errors": true,
+  "issues": [
+    {"severity": "error", "code": "signal_overlap", "detail": "..."},
+    {"severity": "warning", "code": "empty_message", "detail": "..."}
+  ]
+}
+```
+
+**Fields**:
+- `dbc`: Complete DBC definition (same schema as `parseDBC`)
+- Response `has_errors`: true if any issue has severity "error"
+- Response `issues`: Array of validation issues
+
+**Issue Codes** (16 total):
+- **Error** (9): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_not_always_present`, `global_name_collision`, `min_exceeds_max`, `signal_exceeds_dlc`, `signal_overlap`
+- **Warning** (7): `bit_length_zero`, `duplicate_message_name`, `dlc_out_of_range`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`
+
+**State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
+
+---
+
+### 6. SetProperties
 
 Define LTL properties to check against the frame stream.
 
@@ -253,7 +409,7 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 
 ---
 
-### 3. StartStream
+### 7. StartStream
 
 Begin streaming mode for processing data frames.
 
@@ -286,7 +442,7 @@ Begin streaming mode for processing data frames.
 
 ---
 
-### 4. EndStream
+### 8. EndStream
 
 End streaming mode and return final results.
 
@@ -301,7 +457,11 @@ End streaming mode and return final results.
 **Response**:
 ```json
 {
-  "status": "complete"
+  "status": "complete",
+  "results": [
+    {"type": "property", "status": "satisfaction", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "violation", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+  ]
 }
 ```
 
@@ -344,6 +504,15 @@ Send a CAN frame for analysis.
 }
 ```
 
+**Response** (Property Satisfaction):
+```json
+{
+  "type": "property",
+  "status": "satisfaction",
+  "property_index": {"numerator": 0, "denominator": 1}
+}
+```
+
 **Fields**:
 - `timestamp`: Frame timestamp in microseconds (integer or rational)
 - `id`: CAN message ID (must match a message in the loaded DBC)
@@ -353,7 +522,7 @@ Send a CAN frame for analysis.
 **Processing**:
 1. Extract all signals from frame using DBC
 2. Evaluate all LTL properties
-3. If violation detected, return property response immediately
+3. If violation or satisfaction detected, return property response immediately
 4. Otherwise, return acknowledgment
 
 ---
@@ -396,7 +565,7 @@ Used for data frames when no violation is detected.
 ```
 
 **Fields**:
-- `status`: "violation", "satisfied", or "pending"
+- `status`: "violation" or "satisfaction"
 - `property_index`: Index of the property that failed (rational)
 - `timestamp`: Timestamp of the frame that caused the violation (rational)
 - `reason`: Human-readable explanation
@@ -404,10 +573,14 @@ Used for data frames when no violation is detected.
 ### Complete Response
 ```json
 {
-  "status": "complete"
+  "status": "complete",
+  "results": [
+    {"type": "property", "status": "satisfaction", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "violation", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+  ]
 }
 ```
-Returned when streaming ends.
+Returned when streaming ends. The `results` array contains per-property finalization verdicts.
 
 ---
 

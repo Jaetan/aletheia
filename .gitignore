@@ -39,6 +39,9 @@ build/
 .shake/
 .shake.database
 
+# Claude Code
+.claude/
+
 # IDEs
 .vscode/
 .idea/

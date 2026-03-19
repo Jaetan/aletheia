@@ -59,7 +59,7 @@ Build and contribute:
 Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
-- **[Demo Scripts](../examples/demo/)** - 8 demo scripts + support files:
+- **[Demo Scripts](../examples/demo/)** - 11 demo scripts + support files:
   - `demo_check_api.py` - Check API fluent interface (9 checks, all condition types)
   - `demo_yaml_loader.py` - YAML loader with `demo_checks.yaml`
   - `demo_excel_loader.py` - Excel loader: templates, checks, DBC from spreadsheets
@@ -68,6 +68,9 @@ Learn by example:
   - `dbc_validation.py` - DBC validation (overlap detection, range consistency)
   - `frame_injection.py` - Real-time frame injection during streaming
   - `drive_log.py` - Sample CAN frame generators
+  - `engine_ecu_sim.py` - Engine ECU freeze simulation (staleness demo)
+  - `test_engine_naive.py` - Naive unit tests that pass against buggy ECU
+  - `demo_ltl_bug.py` - LTL catches frozen alive counter violations
   - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
 
 ---
@@ -118,5 +121,5 @@ aletheia/
 
 ---
 
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-03-19
 **Maintained By**: Aletheia Team

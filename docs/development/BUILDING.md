@@ -2,7 +2,7 @@
 
 ---
 **Version**: 0.3.2
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-03-19
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
 
@@ -66,11 +66,12 @@ which agda
 
 **Note**: After installation, ensure `~/.cabal/bin` is in your PATH:
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
+# bash/zsh: Add to ~/.bashrc or ~/.zshrc
 export PATH="$HOME/.cabal/bin:$PATH"
-
-# Then reload
 source ~/.bashrc  # or source ~/.zshrc
+
+# fish: Add to ~/.config/fish/config.fish
+fish_add_path ~/.cabal/bin
 ```
 
 #### 4. Agda Standard Library
@@ -160,7 +161,7 @@ cd aletheia
 python3 -m venv .venv
 
 # Activate the virtual environment
-source .venv/bin/activate
+source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 
 # Verify you're in the virtual environment
 which python3
@@ -173,7 +174,7 @@ pip install --upgrade pip setuptools wheel
 **Note**: You need to activate the virtual environment every time you work on the project:
 ```bash
 cd /path/to/aletheia
-source .venv/bin/activate
+source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 ```
 
 To deactivate when done:
@@ -205,8 +206,8 @@ cabal run shake -- build
 ### 4. Verify the Build
 ```bash
 # Verify the shared library was built
-python3 -c "from aletheia.client import _find_ffi_library; print(_find_ffi_library())"
-# Should print path to libaletheia-ffi.so
+ls -la build/libaletheia-ffi.so
+# Should show the shared library file
 ```
 
 ### 5. Install Python Package
@@ -233,7 +234,7 @@ python3 -c "import aletheia; print(aletheia.__version__)"
 ### 6. Run Tests
 ```bash
 # Ensure virtual environment is active
-source .venv/bin/activate
+source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 
 # Install test dependencies
 cd python
@@ -243,8 +244,8 @@ pip install -e ".[dev]"
 python3 -m pytest tests/ -v
 
 # Try an example
-cd ../examples
-python3 simple_verification.py
+cd ..
+python3 examples/simple_verification.py
 ```
 
 ### 7. System Installation (Optional)
@@ -321,6 +322,10 @@ PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
 FROM haskell:9.6.7 AS builder
 
 RUN cabal update && cabal install Agda-2.8.0
+RUN mkdir -p ~/.agda && \
+    git clone --branch v2.3 --depth 1 https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib && \
+    echo "$HOME/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries && \
+    echo "standard-library" > ~/.agda/defaults
 RUN apt-get update && apt-get install -y patchelf python3 python3-venv
 
 WORKDIR /build
@@ -481,10 +486,10 @@ cabal run shake -- build  # Only rebuilds affected modules
 For faster iteration when developing Agda code:
 ```bash
 cd src
-agda +RTS -N -RTS Aletheia/YourModule.agda  # Type-check only (parallel)
+agda +RTS -N32 -RTS Aletheia/YourModule.agda  # Type-check only (parallel)
 ```
 
-**Important**: Always use `+RTS -N -RTS` for parallel type-checking. Without it, modules like `StreamState.agda` and `Main.agda` can take >2 minutes instead of ~17 seconds.
+**Important**: Always use `+RTS -N32 -RTS` for parallel type-checking. Without it, modules like `StreamState.agda` and `Main.agda` can take >2 minutes instead of ~17 seconds.
 
 ### Verbose Build Output
 ```bash
@@ -503,8 +508,8 @@ cabal run shake -- build
 ### Checking Individual Modules
 ```bash
 cd src
-agda +RTS -N -RTS Aletheia/Main.agda              # Check Main and all dependencies
-agda +RTS -N -RTS Aletheia/Protocol/Command.agda  # Check just Command module
+agda +RTS -N32 -RTS Aletheia/Main.agda              # Check Main and all dependencies
+agda +RTS -N32 -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 ```
 
 ## Platform-Specific Notes

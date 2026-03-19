@@ -6,12 +6,12 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 ## Features
 
-- **Formally Verified**: Core logic implemented in Agda with correctness proofs
-- **CAN Frame Processing**: Proven correct encoding/decoding of CAN signals
-- **LTL Verification**: Streaming model checker with O(1) memory (~9,200 fps)
-- **Four Interface Tiers**: Check API, YAML, Excel, and full LTL DSL
-- **Python Interface**: ctypes FFI — no subprocess, no IPC overhead
-- **Robust DBC Parsing**: Handles real-world DBC files with clear warnings
+- **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
+- **CAN Frame Processing**: Proven correct encoding/decoding catches endianness, bit-shift, and sign-extension bugs at compile time
+- **LTL Verification**: Streaming model checker with constant memory (~9,700 fps) — scales to gigabyte-size traces without slowdown
+- **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
+- **Python Interface**: Runs in-process via shared library (ctypes FFI) — no subprocess, no IPC overhead
+- **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
 
 ## Quick Start
 
@@ -151,11 +151,7 @@ This project is licensed under the **BSD 2-Clause License**. See [LICENSE.md](LI
 
 ### License Philosophy
 
-This project uses the BSD 2-Clause License to allow broad use of the software—including in proprietary and commercial environments—while keeping the core simple, stable, and easy to maintain.
-
-Rather than relying on licensing to force contributions, the project encourages collaboration through clear extension points, good documentation, and an upstream-first development process for generally useful improvements. This approach minimizes friction for adopters while still allowing the project to benefit from shared maintenance and evolution.
-
-This license choice reflects a preference for architectural and social solutions over legal compulsion.
+BSD 2-Clause was chosen to allow broad adoption (including proprietary use) while encouraging collaboration through architecture and process rather than legal compulsion.
 
 ## Etymology
 

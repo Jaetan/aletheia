@@ -1,19 +1,19 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-18
+**Last Updated**: 2026-03-19
 
 ---
 
 ## Current Position
 
-**Phase 4 - Production Hardening** 🚧
+**Phase 4 - Production Hardening** ✅
 
-Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
+Phases 1-4 complete. Phase 4 made Aletheia usable by non-developers
 (automotive technicians, test engineers) and production-ready for deployment.
 
-**Status**: Phase 4 in progress
+**Status**: Phase 4 complete
 
-**Latest Release**: v0.3.2 (Phase 3 complete)
+**Latest Release**: v0.3.2 (Phase 4 complete)
 
 ---
 
@@ -70,7 +70,7 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
 - Incremental LTL evaluation (O(1) memory)
 - Coinductive streaming interface
 - Frame modification mid-stream
-- Throughput: 9,229 fps (108 us/frame via FFI)
+- Throughput: 9,229 fps (108 us/frame via FFI; improved to 9,704 fps after Rosu simplification)
 
 **Phase 2B.3 - Polish**:
 - Counterexample generation with violation details
@@ -98,9 +98,9 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
    - `Parser/Properties.agda`: 30 proven properties (monad laws, position tracking, parse determinism)
    - `Protocol/JSON/Properties.agda`: 12 proven properties (schema soundness, lookup correctness)
 2. ✅ LTL semantics correctness proofs - COMPLETE
-   - `LTL/Bisimilarity.agda`: Proven behavioral bisimilarity between monitor and coalgebra
-   - `step-bisim`: All 14 operators proven (Atomic, Not, And, Or, Next, Always, Eventually, Until, Release, MetricEventually, MetricAlways, MetricUntil, MetricRelease, NextActive)
-   - `finalize-bisim`: All 14 operators proven — `finalizeEval st ≡ finalizeL proc` (propositional equality)
+   - `LTL/Adequacy.agda`: Adequacy theorem proving `stepL` correct against denotational LTLf semantics
+   - All 13 operators proven sound (four-layer proof structure, 1,061 lines)
+   - `LTL/Semantics.agda`: Denotational LTLf semantics (`⟦_⟧`)
    - No postulates, pure coalgebraic reasoning
 3. ✅ CAN encoding correctness proofs - COMPLETE
    - `Data/BitVec/Conversion.agda`: bitVec-roundtrip and bitVecToℕ-bounded (no postulates!)
@@ -115,12 +115,11 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
 5. ✅ Three-valued signal semantics - COMPLETE
    - `LTL/SignalPredicate.agda`: TruthVal (True/False/Unknown/Pending), Kleene logic, SignalCache
    - `LTL/Incremental.agda`: Inconclusive state, safety vs liveness semantics
-   - `LTL/Coalgebra.agda`: Mirrored Inconclusive handling for bisimilarity
-   - `LTL/Bisimilarity.agda`: All 13 operator proofs updated for Inconclusive
+   - `LTL/Coalgebra.agda`: Mirrored Inconclusive handling for adequacy proof
    - Key improvement: No frame filtering needed - Unknown signals continue monitoring
 6. ✅ Performance optimization - COMPLETE
    - Target: 8,000 fps (125 us/frame for 1 Mbps CAN bus)
-   - Achieved: 9,229 fps (108 us/frame) — 2.88x speedup
+   - Achieved: 9,704 fps (103 us/frame) — 3.03x speedup (initially 9,229 fps; improved after Rosu simplification)
    - Steps: GHC compiler flags, Fin→ℕ elimination, FFI shared library (eliminated IPC)
 
 **Status**: Complete (started 2025-12-17)
@@ -128,7 +127,7 @@ Phases 1-3 complete. Phase 4 focuses on making Aletheia usable by non-developers
 
 ---
 
-### Phase 4: Production Hardening 🚧 IN PROGRESS
+### Phase 4: Production Hardening ✅ COMPLETE
 
 **Scope**: Make Aletheia usable by non-developers and production-ready for deployment
 
@@ -225,14 +224,11 @@ verified core:
 **Documentation**: Interface Guide (`docs/reference/INTERFACES.md`) with Check API, YAML, and Excel
 end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
-**Demos**: 10 demo scripts + data files in `examples/demo/`:
-- `demo.py` (main presentation), `demo_check_api.py`, `demo_yaml_loader.py`, `demo_excel_loader.py`, `demo_all_interfaces.py`, `dbc_validation.py`, `frame_injection.py`, `drive_log.py`
-- `engine_ecu_sim.py`, `test_engine_naive.py`, `demo_ltl_bug.py` (staleness demo)
-- `demo_workbook.xlsx` (persistent Excel workbook for live demo)
+**Demos**: 11 demo scripts + data files in `examples/demo/` (see [Documentation Index](docs/INDEX.md#examples) for full listing)
 
 **Presentation**: `docs/presentation/index.html` — 36-slide reveal.js deck for product council (1 hour + Q&A)
 
-**Status**: Complete (started 2026-02-06, Goals 1-3 complete 2026-02-07, Goal 5 complete 2026-02-08, Goal 4 complete 2026-02-15, Goal 6 complete 2026-02-16, Goals 7-8 complete 2026-02-17, Goal 9 complete 2026-02-19, Goals 10 + EOS fix complete 2026-02-21, Goal 11 complete 2026-02-22)
+**Status**: Complete (2026-02-06 to 2026-02-22)
 **Completion**: 100% (11/11 goals complete)
 
 ---
@@ -297,14 +293,14 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 46 (40 production + 6 proof-only)
-- Python modules: 11
-- Lines of code: ~7,700 Agda + ~6,200 Python
+- Agda modules: 44 (36 production + 8 proof-only)
+- Python modules: 12
+- Lines of code: ~11,700 Agda + ~4,500 Python
 
 **Testing**:
 - Unit tests: 372 passing (via FFI)
 
-**Performance**:
+**Performance** (canonical source — other docs may round or summarize these numbers):
 - Build time: 0.26s (no-op), ~11s (incremental)
 - Throughput: 9,704 fps streaming LTL, 8,058 fps signal extraction, 5,913 fps frame building
 - Per-frame latency: 103 us
@@ -313,8 +309,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- Safe modules: 38 of 41 use `--safe` (36 with `--without-K`, 2 variants)
-- Coinductive modules: 3 use `--sized-types` (for infinite trace semantics)
+- Safe modules: 42 of 44 use `--safe` (41 with `--without-K`, 1 with `--without-K --no-main`)
+- Coinductive modules: 2 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
 ---

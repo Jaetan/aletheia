@@ -1,8 +1,6 @@
 # Contributing Guide
 
-Thank you for your interest in contributing to this project. This document describes *how* to contribute and, just as importantly, *what kinds of contributions are expected to live upstream* versus outside the core.
-
-The goal is to keep the core small, stable, and generally useful, while allowing users—individuals and companies alike—to adapt the software to their specific needs without friction.
+This document describes *how* to contribute and *what kinds of contributions belong upstream* versus outside the core.
 
 ---
 
@@ -16,14 +14,8 @@ This permissive license is intentional: it allows broad adoption, including in p
 
 ## Design Philosophy
 
-Before proposing changes, it helps to understand the project’s design priorities:
-
-- The core should remain **small, coherent, and opinionated**
-- Customization should happen via **extension points**, not by modifying core files
-- General improvements should benefit *most* users
-- Product-specific or environment-specific logic should live outside the core
-
-Changes that reinforce these principles are the most likely to be accepted.
+- Core: **small, coherent, opinionated**. Customization via extension points, not core modifications.
+- General improvements that benefit most users are welcome; product-specific logic stays outside.
 
 ---
 

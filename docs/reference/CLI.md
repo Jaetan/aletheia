@@ -1,7 +1,7 @@
 # CLI Reference
 
 **Purpose**: Command-line interface for Aletheia CAN signal verification.
-**Last Updated**: 2026-02-17
+**Last Updated**: 2026-03-19
 
 ---
 
@@ -11,11 +11,11 @@
 python -m aletheia <subcommand> [options]
 ```
 
-Three subcommands: `check`, `extract`, `signals`.
+Four subcommands: `check`, `validate`, `extract`, `signals`.
 
 **Exit codes** (all subcommands):
 - `0` — success (or all checks passed)
-- `1` — violations found (`check` only)
+- `1` — violations found (`check`) or validation failed (`validate`)
 - `2` — error (bad arguments, missing files, parse failures)
 
 ---
@@ -32,10 +32,11 @@ python -m aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LO
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `LOGFILE` | yes | CAN log file (.asc, .blf, .csv, .log, .mf4, .trc) |
+| `LOGFILE` | yes | CAN log file (.asc, .blf, .csv, .log, .mf4, .trc; .gz compressed supported) |
 | `--dbc FILE` | \* | .dbc file (or .xlsx with DBC sheet) for signal definitions |
 | `--checks FILE` | \* | .yaml or .xlsx file with check definitions |
 | `--excel FILE` | \* | .xlsx workbook containing both DBC and Checks sheets |
+| `--defaults FILE` | no | .yaml or .xlsx file with default checks (prepended before session checks) |
 | `--json` | no | Output results as JSON |
 
 \* At least one DBC source (`--dbc` or `--excel`) and one checks source (`--checks` or `--excel`) required.
@@ -83,6 +84,61 @@ Summary: 2 violations in 3 checks, 12450 frames processed
 ```
 
 Enriched fields (`signal_name`, `actual_value`, `condition`) are populated when check diagnostics are available.
+
+---
+
+## validate
+
+Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.).
+
+```
+python -m aletheia validate [--dbc FILE] [--excel FILE] [--json]
+```
+
+**Arguments**:
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--dbc FILE` | \* | .dbc file (or .xlsx with DBC sheet) |
+| `--excel FILE` | \* | .xlsx workbook with DBC sheet |
+| `--json` | no | Output as JSON |
+
+\* At least one of `--dbc` or `--excel` required.
+
+**Text output** (issues found):
+```
+Validation FAILED: 2 errors, 1 warnings
+
+  1. [ERROR] OVERLAP: Signals 'Speed' and 'RPM' overlap in message 'EngineData'
+  2. [ERROR] ZERO_LENGTH: Signal 'Unused' has zero bit length in message 'Status'
+  3. [WARNING] NO_SIGNALS: Message 'Empty' has no signals defined
+
+```
+
+**Text output** (no issues):
+```
+Validation passed: no issues found
+```
+
+**JSON output** (`--json`):
+```json
+{
+  "status": "fail",
+  "has_errors": true,
+  "total_issues": 2,
+  "issues": [
+    {
+      "severity": "error",
+      "code": "OVERLAP",
+      "detail": "Signals 'Speed' and 'RPM' overlap in message 'EngineData'"
+    }
+  ]
+}
+```
+
+**Exit codes**:
+- `0` — validation passed (no errors; warnings are OK)
+- `1` — validation failed (at least one error)
 
 ---
 

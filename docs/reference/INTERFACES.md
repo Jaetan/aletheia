@@ -2,7 +2,7 @@
 
 **Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
 **Version**: 0.3.2
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-03-19
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,
 > see the [Python API Guide](PYTHON_API.md).
@@ -186,6 +186,8 @@ checks:
 # Use with AletheiaClient
 client.set_properties([c.to_dict() for c in checks])
 ```
+
+**String auto-detection**: `load_checks()` accepts either a file path or an inline YAML string. It detects inline YAML when the input contains a newline (`\n`) or starts with `checks:`. Otherwise, the input is treated as a file path.
 
 ### YAML Schema
 
@@ -455,11 +457,21 @@ def create_template(path: str | Path) -> None
 # Raises FileExistsError if file already exists
 ```
 
+**Sheet-name parameters**: Override the default sheet names when your workbook uses a different layout.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `checks_sheet` | `"Checks"` | Sheet containing simple checks (one row per check) |
+| `when_then_sheet` | `"When-Then"` | Sheet containing causal/response-time checks |
+| `sheet` | `"DBC"` | Sheet containing signal definitions (for `load_dbc_from_excel`) |
+
 ---
 
 ## Condition Reference
 
-All three interfaces (Check API, YAML, Excel) support the same conditions:
+All three interfaces (Check API, YAML, Excel) support the same conditions.
+
+> **Note**: The LTL column shows the underlying formula for developers. If you're using the Check API, YAML, or Excel interface, you can ignore it — the condition name and Check API columns are all you need.
 
 ### Simple Conditions
 

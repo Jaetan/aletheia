@@ -2,6 +2,21 @@
 
 Problem-driven recipes. Each recipe is self-contained: title, code, done.
 
+**Prerequisites**: A built Aletheia installation and a loaded DBC. See [Building Guide](../development/BUILDING.md) for setup.
+
+### Use-Case Index
+
+| I want to... | Recipe |
+|--------------|--------|
+| Check a signal stays within limits | [Signal Bound Checks](#signal-bound-checks) |
+| Verify "when A then B within T ms" | [Causal / Response-Time Checks](#causal--response-time-checks) |
+| Read a CAN log file (.blf, .asc, etc.) | [Working with CAN Logs](#working-with-can-logs) |
+| Load a DBC from .dbc or Excel | [Working with DBC](#working-with-dbc) |
+| Extract / build / modify CAN frames | [Signal Operations](#signal-operations) |
+| Run checks in CI/CD or from the CLI | [CLI Recipes](#cli-recipes) |
+| Enrich violations with signal names & values | [Enriched Violations](#enriched-violations) |
+| Mix Check API, YAML, and Excel together | [Mixing Interface Tiers](#mixing-interface-tiers) |
+
 ---
 
 ## Signal Bound Checks

@@ -74,7 +74,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 ### Module Safety Flag Breakdown
 
 **By flag combination** (44 total):
-- **41 modules**: `--safe --without-K` (standard safe modules, includes 6 proof-only)
+- **41 modules**: `--safe --without-K` (standard safe modules, includes 8 proof-only)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **2 modules without `--safe`** (both use `--sized-types` for coinduction):
   - Main.agda: `--no-main --sized-types --without-K`
@@ -107,7 +107,7 @@ See [Building Guide](docs/development/BUILDING.md) for comprehensive build instr
 Quick reference for development:
 ```bash
 # Type-check a single Agda module
-cd src && agda Aletheia/YourModule.agda
+cd src && agda +RTS -N32 -RTS Aletheia/YourModule.agda
 
 # Build everything
 cabal run shake -- build
@@ -124,9 +124,7 @@ cd python && pylint aletheia/
 
 ## Architecture (Three-Layer Design)
 
-See [Architecture Overview](docs/architecture/DESIGN.md#architecture) for the three-layer design diagram.
-
-**Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell or Python layers.
+See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer design and critical design principle.
 
 ## Module Structure
 
@@ -139,8 +137,6 @@ Core packages:
 - **LTL/**: Linear Temporal Logic (Syntax, Evaluation, Incremental, Semantics, Adequacy, Coalgebra)
 - **Trace/**: Trace types and streaming
 - **Protocol/**: JSON protocol and streaming state machine
-
-See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer architecture diagram.
 
 ## Development Workflow
 
@@ -159,15 +155,12 @@ See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer arc
 vim src/Aletheia/Parser/Combinators.agda
 
 # 2. Quick type-check (fast feedback, no compilation)
-cd src && agda Aletheia/Parser/Combinators.agda
+cd src && agda +RTS -N32 -RTS Aletheia/Parser/Combinators.agda
 
-# 3. Full build when ready
+# 3. Full build when ready (also builds FFI shared library)
 cd .. && cabal run shake -- build
 
-# 4. Build FFI shared library
-cd haskell-shim && cabal build aletheia-ffi && cd ..
-
-# 5. Run Python tests
+# 4. Run Python tests
 cd python && python3 -m pytest tests/ -v
 ```
 
@@ -186,8 +179,6 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 ## Requirements
 
 See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed requirements and installation instructions.
-
-Quick reference: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+, Python 3.12+
 
 ## Important Notes
 
@@ -219,12 +210,12 @@ cabal run shake -- build
 
 See [BUILDING.md](docs/development/BUILDING.md#2-set-up-python-virtual-environment) for Python virtual environment setup.
 
-Quick reference: Create with `python3 -m venv venv`, activate with `source venv/bin/activate`
+Quick reference: Create with `python3 -m venv .venv`, activate with `source .venv/bin/activate`
 
 ### Haskell FFI Layer
 
 The Haskell FFI layer is a single file:
-- **AletheiaFFI.hs** (~68 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
+- **AletheiaFFI.hs** (67 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
 
 **Design**:
 - AletheiaFFI.hs wraps `processJSONLine` with C-callable exports
@@ -266,7 +257,7 @@ combined = list1 ++ₗ list2
 
 **Build failures**: `cabal run shake -- clean && cabal run shake -- build`
 
-**Python issues**: Verify venv active (`which python3` → should show `.../venv/bin/python3`)
+**Python issues**: Verify venv active (`which python3` → should show `.../.venv/bin/python3`)
 
 **Agda module not found**: Check `~/.agda/libraries` lists standard-library path and `~/.agda/defaults` contains "standard-library"
 
@@ -317,7 +308,7 @@ If you're new to Agda but familiar with Python/typed languages:
 Types can depend on values:
 - `Vec Byte 8` - vector of exactly 8 bytes (length in type!)
 - `Fin n` - numbers 0 to n-1 (bounds checking at compile time)
-- `CANFrame` uses `Fin 2048` for standard IDs (impossible to exceed range)
+- `CANId` uses `ℕ` (natural numbers) with range checked at parse time
 
 **Common Patterns:**
 - **Pattern matching with `with`**: Extract intermediate values
@@ -371,9 +362,9 @@ docs(BUILDING): Add macOS-specific notes
 ```
 
 **Before Committing:**
-1. Ensure code type-checks: `agda src/Aletheia/Main.agda`
+1. Ensure code type-checks: `agda +RTS -N32 -RTS src/Aletheia/Main.agda`
 2. Build succeeds: `cabal run shake -- build`
-3. Tests pass: `cd python && pytest`
+3. Tests pass: `cd python && python3 -m pytest tests/ -v`
 
 ---
 

@@ -1,20 +1,18 @@
 {-# OPTIONS --no-main --sized-types --without-K #-}
 
--- Main entry point for the Aletheia binary (JSON streaming protocol).
+-- Main entry point for Aletheia (JSON streaming protocol).
 --
 -- Purpose: Process line-delimited JSON requests and emit JSON responses.
 -- Protocol: parse_dbc → set_properties → start_stream → data_frames* → end_stream
 -- State Machine: WaitingForDBC → ReadyToStream → Streaming
 --
--- Compilation: Compiled to Haskell via MAlonzo, linked with haskell-shim/Main.hs
--- Binary invocation: No arguments = JSON streaming mode
--- Communication: stdin (line-delimited JSON) ↔ stdout (line-delimited JSON responses)
+-- Compilation: Compiled to Haskell via MAlonzo, called from AletheiaFFI.hs.
+-- Integration: Python loads libaletheia-ffi.so via ctypes (direct FFI, no subprocess).
 --
--- State machine logic delegated to Protocol.StreamState; Main provides entry point and I/O marshaling only.
--- Binary accepts JSON on stdin, emits JSON on stdout (line-delimited protocol).
+-- State machine logic delegated to Protocol.StreamState; Main provides processJSONLine only.
 --
 -- Key design: ALL logic lives in Agda (parsing, validation, state, LTL checking).
--- Haskell shim only handles I/O (read line, call processLine, write response).
+-- Haskell FFI shim (AletheiaFFI.hs) only handles C-callable exports and state management.
 --
 -- NOTE: This module uses --sized-types which is incompatible with --safe.
 -- This is required because it imports modules with sized types.

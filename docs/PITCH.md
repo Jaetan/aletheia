@@ -1,6 +1,8 @@
 # Aletheia: Project Pitch
 
-**Formally verified CAN frame analysis with Linear Temporal Logic**
+**Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
+
+LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 
 This document explains what Aletheia is, why it exists, and what it means for your team to adopt it.
 
@@ -79,9 +81,9 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 **Why these technologies?**
 
-- **Agda**: Dependently-typed proof assistant. Code that type-checks is mathematically proven correct. Used in aerospace, cryptography, and compilers.
+- **Agda**: A proof assistant where code that type-checks is mathematically proven correct — similar to how Rust's compiler guarantees memory safety, but for logical correctness. Used in aerospace, cryptography, and compilers.
 - **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Meta, Standard Chartered, IOHK). Compiled to a shared library loaded directly by Python.
-- **Python**: Familiar interface for automotive engineers. All complexity hidden behind ctypes FFI.
+- **Python**: Familiar interface for automotive engineers. All complexity hidden behind ctypes FFI (Foreign Function Interface — Python's standard mechanism for calling compiled code directly, with no subprocess overhead).
 
 **Proven track record**:
 - Agda: Used in verified compilers (Agda-to-Haskell compiler itself), verified data structures, and verified network protocols
@@ -98,12 +100,12 @@ Agda (all logic + proofs, compiled via MAlonzo)
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented in BUILDING.md. Works on Linux (tested Ubuntu/Debian). |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | Current: ~9,200 frames/sec (108 us/frame) via FFI. Sufficient for 1 Mbps CAN bus real-time analysis. |
+| **Performance** | Formal verification adds overhead | Low | Current: ~9,700 frames/sec (103 us/frame) via FFI. Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Python API is stable. Core changes rare. Can contract experts if needed. |
 
-**Mitigation strategy**:
+**Mitigation**:
 - Python API provides stable interface (no Agda knowledge required for users)
-- Core logic is feature-complete for Phase 3 (changes infrequent)
+- Core logic is feature-complete for Phase 4 (changes infrequent)
 - Comprehensive documentation (BUILDING.md, CLAUDE.md, examples/)
 - Standard library dependencies only (no exotic packages)
 
@@ -115,7 +117,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 | **Hiring difficulty** | Agda experts are rare | Medium | Not needed for Python API users. For core development: remote contractors available, or train interested engineers. |
 | **Team resistance** | "Not invented here" / unfamiliar tech | Medium | Start with non-critical use cases. Demonstrate value before mandating adoption. |
 
-**Mitigation strategy**:
+**Mitigation**:
 - Clear separation: Python users don't need Agda knowledge
 - Extensive documentation for future maintainers (BUILDING.md is 200+ lines)
 - AI assistant support (CLAUDE.md provides guidance to Claude Code for maintenance)
@@ -127,9 +129,9 @@ Agda (all logic + proofs, compiled via MAlonzo)
 |------|--------|------------|------------|
 | **License compatibility** | BSD 2-Clause vs. company policy | Low | Permissive license, allows proprietary use. No copyleft. |
 | **Patent issues** | Agda/GHC patents | Very Low | Agda is open source (MIT). GHC is open source (BSD 3-Clause). No known patent issues. |
-| **Regulatory acceptance** | Formal methods not in compliance checklist | Medium | Formal verification **strengthens** compliance story. ISO 26262 encourages formal methods for ASIL-D. |
+| **Regulatory acceptance** | Formal methods not in compliance checklist | Medium | Formal verification **strengthens** compliance story. ISO 26262 (the automotive functional safety standard) encourages formal methods for ASIL-D (the highest safety integrity level). |
 
-**Mitigation strategy**:
+**Mitigation**:
 - BSD 2-Clause is widely accepted in industry
 - Formal verification is recognized by automotive standards (ISO 26262, DO-178C)
 - Can provide evidence of correctness for safety-critical applications
@@ -218,10 +220,10 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Current: ~9,200 frames/sec (108 us/frame) with streaming LTL checking. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
+A: Current: ~9,700 frames/sec (103 us/frame) with streaming LTL checking. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
 
 **Q: Dependencies?**
-A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
+A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
 
 ---
 
@@ -253,14 +255,14 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (
 **Decision framework**:
 
 **Green light if**:
-- Safety-critical CAN analysis (ASIL-C/D)
+- Safety-critical CAN analysis (ASIL-C/D — the higher automotive safety integrity levels)
 - High cost of signal extraction bugs (recalls, field failures)
 - Need mathematical guarantees beyond testing
 - Team willing to learn new tools
 
 **Yellow light if**:
 - Only non-critical applications (testing may suffice)
-- Extremely tight performance requirements beyond ~9,200 fps
+- Extremely tight performance requirements beyond ~9,700 fps
 - Team strongly resistant to new technologies
 
 **Red light if**:
@@ -274,22 +276,22 @@ A: Build-time: Agda 2.8.0, GHC 9.6, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (
 
 ## Current Status
 
-**Phase 3 Complete, Phase 4 In Progress** ✅
+**Phase 4 Complete** ✅
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
-- Formal correctness proofs (parser, CAN encoding, LTL bisimilarity, DSL roundtrip)
+- Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
+- DBC validator with formal proof (soundness + completeness, 1,267 lines)
 - Python API with signal operations (FFI, no subprocess)
-- Four-tier interface: Check API, YAML, Excel, DSL (Phase 4 Goals 1-6 complete)
+- Four-tier interface: Check API, YAML, Excel, DSL
 - CLI tool (`python -m aletheia check/extract/signals`)
 - CAN log reader (BLF, ASC, CSV, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- Comprehensive test suite (317 tests, 0.57s)
-- ~9,200 frames/sec throughput (108 us/frame)
+- Comprehensive test suite (372 tests)
+- ~9,700 frames/sec throughput (103 us/frame)
 
 **Next steps**:
-- Phase 4 (remaining): deployment guide, documentation
-- Phase 5: Optional extensions (value tables, format converters, CAN-FD)
+- Phase 5 (optional): Value tables, format converters, CAN-FD support
 
 See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 
@@ -304,7 +306,7 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
 **Limitations**:
-- Performance: ~9,200 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis, but not multi-bus)
+- Performance: ~9,700 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis, but not multi-bus)
 - Standard CAN only (no CAN-FD until Phase 5)
 - Learning curve for Agda core maintenance (Python API and Check API are easy)
 - Small ecosystem (fewer community resources than pure Python tools)
@@ -329,8 +331,10 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 git clone <repository>
 cd aletheia
 cabal run shake -- build
-source .venv/bin/activate
-python examples/simple_verification.py
+python3 -m venv .venv
+source .venv/bin/activate        # fish: source .venv/bin/activate.fish
+cd python && pip install -e . && cd ..
+python3 examples/simple_verification.py
 ```
 
 See [BUILDING.md](development/BUILDING.md) for detailed instructions.

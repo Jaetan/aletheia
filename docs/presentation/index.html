@@ -1,0 +1,1229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aletheia: Proven-Correct CAN Verification</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<style>
+  :root {
+    --r-background-color: #1a1a2e;
+    --r-main-color: #e0e0e0;
+    --r-heading-color: #ffffff;
+    --r-link-color: #00d4ff;
+    --r-link-color-hover: #33ddff;
+    --r-selection-background-color: #00d4ff;
+    --r-selection-color: #1a1a2e;
+  }
+  .reveal { font-size: 36px; }
+  .reveal h1 { font-size: 2.0em; color: #00d4ff; }
+  .reveal h2 { font-size: 1.5em; color: #00d4ff; }
+  .reveal h3 { font-size: 1.1em; color: #00d4ff; }
+  .accent { color: #00d4ff; }
+  .pass { color: #44ff44; font-weight: bold; }
+  .fail { color: #ff4444; font-weight: bold; }
+  .warn { color: #ffaa44; }
+  .dim { color: #888; }
+  .big { font-size: 1.8em; }
+  .medium { font-size: 1.3em; }
+
+  /* Terminal output blocks */
+  .terminal {
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 0.8em 1em;
+    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    font-size: 0.65em;
+    text-align: left;
+    color: #c8e6c8;
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+  .terminal .prompt { color: #44ff44; }
+  .terminal .cmd { color: #ffffff; }
+  .terminal .pass-line { color: #44ff44; }
+  .terminal .fail-line { color: #ff4444; }
+  .terminal .info { color: #00d4ff; }
+  .terminal .dim { color: #666; }
+
+  /* Excel mockup */
+  .excel-table {
+    border-collapse: collapse;
+    font-size: 0.65em;
+    margin: 0.5em auto;
+    background: #1e2a1e;
+    border: 2px solid #3a5a3a;
+  }
+  .excel-table th {
+    background: #2a4a2a;
+    color: #88cc88;
+    padding: 0.4em 0.8em;
+    border: 1px solid #3a5a3a;
+    font-weight: bold;
+  }
+  .excel-table td {
+    padding: 0.4em 0.8em;
+    border: 1px solid #3a5a3a;
+    color: #d0d0d0;
+  }
+  .excel-table .cell-header {
+    background: #2a4a2a;
+    color: #88cc88;
+    font-weight: bold;
+  }
+  .excel-table .row-num {
+    background: #1a3a1a;
+    color: #66aa66;
+    text-align: center;
+    width: 2em;
+  }
+
+  /* Bar chart (pure CSS) */
+  .bar-chart { width: 80%; margin: 0 auto; }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    margin: 0.4em 0;
+    font-size: 0.78em;
+  }
+  .bar-label {
+    width: 10em;
+    text-align: right;
+    padding-right: 1em;
+    color: #ccc;
+  }
+  .bar-track {
+    flex: 1;
+    height: 2.2em;
+    background: #222;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding-left: 0.8em;
+    color: #fff;
+    font-weight: bold;
+    font-size: 0.9em;
+  }
+
+  /* Comparison table */
+  .compare-table {
+    border-collapse: collapse;
+    font-size: 0.65em;
+    margin: 0.5em auto;
+  }
+  .compare-table th {
+    background: #16213e;
+    color: #00d4ff;
+    padding: 0.5em 1em;
+    border: 1px solid #333;
+  }
+  .compare-table td {
+    padding: 0.5em 1em;
+    border: 1px solid #333;
+    color: #ccc;
+  }
+  .compare-table tr:nth-child(even) td { background: rgba(255,255,255,0.03); }
+
+  /* Section divider */
+  .section-slide h2 {
+    font-size: 2em;
+    border-bottom: 3px solid #00d4ff;
+    padding-bottom: 0.3em;
+    display: inline-block;
+  }
+
+  /* Architecture diagram */
+  .arch-layer {
+    background: #16213e;
+    border: 2px solid #00d4ff;
+    border-radius: 10px;
+    padding: 0.5em 1.5em;
+    margin: 0.3em auto;
+    width: 70%;
+    text-align: center;
+    font-size: 0.88em;
+  }
+  .arch-arrow {
+    text-align: center;
+    color: #00d4ff;
+    font-size: 1.2em;
+    margin: 0.1em 0;
+  }
+
+  /* Proof checklist */
+  .checklist {
+    list-style: none;
+    text-align: left;
+    font-size: 0.78em;
+    padding: 0;
+  }
+  .checklist li {
+    padding: 0.2em 0;
+  }
+  .checklist li::before {
+    content: '\2713';
+    color: #44ff44;
+    font-weight: bold;
+    margin-right: 0.5em;
+  }
+
+  /* Two-column layout */
+  .two-col {
+    display: flex;
+    gap: 2em;
+    align-items: flex-start;
+  }
+  .two-col > div { flex: 1; }
+
+  /* Convergence diagram */
+  .converge-box {
+    background: #16213e;
+    border: 1px solid #00d4ff;
+    border-radius: 8px;
+    padding: 0.3em 0.8em;
+    margin: 0.2em;
+    display: inline-block;
+    font-size: 0.78em;
+  }
+  .converge-center {
+    background: #00d4ff;
+    color: #1a1a2e;
+    font-weight: bold;
+    border-radius: 8px;
+    padding: 0.4em 1.2em;
+    display: inline-block;
+    font-size: 0.8em;
+  }
+
+  /* Side-by-side summary boxes */
+  .summary-box {
+    border-radius: 12px;
+    padding: 1em 1.5em;
+    flex: 1;
+    text-align: center;
+  }
+  .summary-box.danger {
+    background: rgba(255, 68, 68, 0.15);
+    border: 2px solid #ff4444;
+  }
+  .summary-box.success {
+    background: rgba(68, 255, 68, 0.15);
+    border: 2px solid #44ff44;
+  }
+
+  /* Property pattern cards */
+  .pattern-card {
+    background: #16213e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 0.5em 0.8em;
+    margin: 0.3em;
+    font-size: 0.62em;
+    text-align: left;
+  }
+  .pattern-card .pattern-name {
+    color: #00d4ff;
+    font-weight: bold;
+    font-size: 1.1em;
+  }
+  .pattern-card code {
+    color: #c8e6c8;
+  }
+
+  /* Adoption timeline */
+  .timeline-step {
+    display: flex;
+    align-items: flex-start;
+    margin: 0.5em 0;
+    font-size: 0.78em;
+  }
+  .timeline-marker {
+    background: #00d4ff;
+    color: #1a1a2e;
+    font-weight: bold;
+    border-radius: 50%;
+    width: 2em;
+    height: 2em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 1em;
+    flex-shrink: 0;
+  }
+
+  /* Slide number only in speaker view */
+  .reveal .slide-number { display: none; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============================================================ -->
+<!-- ACT 1: THE PROBLEM (slides 1-6)                              -->
+<!-- ============================================================ -->
+
+<!-- SLIDE 1: Title -->
+<section data-notes="Welcome everyone. Today I'm going to show you something that I think will change how we think about CAN bus verification. Not another testing library — something fundamentally different. A Python tool that doesn't just test your CAN data — it proves your analysis is correct. With math. Let me show you what that means in practice.">
+  <h1>Aletheia</h1>
+  <p class="medium">Proven-Correct CAN Verification</p>
+  <br>
+  <p class="dim" style="font-size:0.7em">
+    Mathematical guarantees for automotive CAN analysis<br>
+    Python API &middot; 9,700 frames/sec &middot; Formally verified core
+  </p>
+</section>
+
+<!-- SLIDE 2: Cost of CAN bugs -->
+<section data-notes="Let's start with why this matters. CAN bus bugs are insidious because they often look correct at the individual frame level. Wrong endianness — your speed reads 47 instead of 12000, and you might not notice in a test that only checks 'is it a number.' Stale data — the ECU keeps sending, but the values are frozen. Temporal violations — the alive counter should cycle, but nobody checks that it does. These bugs survive testing because each individual value looks plausible. You need temporal reasoning to catch them, and that's exactly what most test suites don't have.">
+  <h2>The Cost of CAN Bugs</h2>
+  <br>
+  <div style="text-align:left; font-size:0.8em; max-width:80%; margin:0 auto">
+    <p><span class="fail">Wrong endianness</span> &mdash; speed reads 47 instead of 12,000<br>
+    <span class="dim">Individual value looks valid. Bug invisible to range checks.</span></p>
+    <p class="fragment"><span class="fail">Stale data</span> &mdash; ECU frozen, CAN TX keeps retransmitting<br>
+    <span class="dim">Frames keep arriving. Values look plausible. ECU is dead.</span></p>
+    <p class="fragment"><span class="fail">Temporal violations</span> &mdash; alive counter stuck at 7<br>
+    <span class="dim">7 is a valid value. But it should be cycling 0&rarr;1&rarr;...&rarr;15&rarr;0.</span></p>
+    <p class="fragment"><span class="warn">Common thread:</span> each value looks fine in isolation.<br>
+    The bug is <em>between</em> frames, not <em>within</em> them.</p>
+  </div>
+</section>
+
+<!-- SLIDE 3: The frozen ECU -->
+<section data-notes="Here's a concrete scenario. An Engine ECU sends periodic status messages — RPM, coolant temperature, and a frame counter that cycles 0 through 15. The counter exists specifically to detect this failure mode: the ECU's main loop freezes, but the CAN TX hardware keeps retransmitting whatever was in its buffer. So the bus still has traffic. RPM looks reasonable. Temp looks reasonable. But the counter is stuck at 7. This is a real failure mode in automotive systems. The alive counter is there precisely to detect it — but you need to actually check that it's changing, not just that it's in range.">
+  <h2>The Frozen ECU</h2>
+  <br>
+  <div style="font-size:0.75em; text-align:left; max-width:85%; margin:0 auto">
+    <p><span class="accent">Scenario:</span> Engine ECU sends status every 10ms</p>
+    <p style="margin-left:1em">Signals: <code>EngineRPM</code>, <code>CoolantTemp</code>, <code>FrameCounter</code> (0&rarr;15&rarr;0)</p>
+    <br>
+    <p><span class="fail">Firmware bug:</span> main loop freezes at frame 15</p>
+    <p style="margin-left:1em">CAN TX hardware keeps retransmitting the last buffer</p>
+    <br>
+    <div class="terminal" style="font-size:0.95em">
+Frame 14: RPM=2847  Temp=91&deg;C  Counter=<span class="pass-line">14</span>  &larr; normal<br>
+Frame 15: RPM=2851  Temp=91&deg;C  Counter=<span class="pass-line">15</span>  &larr; last real update<br>
+Frame 16: RPM=2851  Temp=91&deg;C  Counter=<span class="fail-line">15</span>  &larr; <span class="fail-line">STALE (should be 0)</span><br>
+Frame 17: RPM=2851  Temp=91&deg;C  Counter=<span class="fail-line">15</span>  &larr; <span class="fail-line">STALE</span><br>
+Frame 18: RPM=2851  Temp=91&deg;C  Counter=<span class="fail-line">15</span>  &larr; <span class="fail-line">STALE</span><br>
+<span class="dim">...</span>
+    </div>
+    <br>
+    <p class="dim">The alive counter exists to detect this. But who checks it?</p>
+  </div>
+</section>
+
+<!-- SLIDE 4: 8 tests, all pass -->
+<section data-notes="Here's what happens when you run standard pytest checks against that buggy trace. Eight tests. All pass. RPM in range — pass, because 2851 is a valid RPM. Coolant in range — pass, because 91 degrees is fine. Counter in range — pass, because 15 is between 0 and 15. Messages arriving — pass, because the hardware keeps sending. Every single test passes. And the ECU is dead. Let that sink in. This is the gap between 'testing individual values' and 'verifying temporal behavior.'">
+  <h2>8 Tests, All Pass</h2>
+  <br>
+  <div class="terminal">
+<span class="prompt">$</span> <span class="cmd">pytest test_engine_naive.py -v</span><br>
+<br>
+<span class="pass-line">test_rpm_in_valid_range           PASSED</span><br>
+<span class="pass-line">test_coolant_in_valid_range        PASSED</span><br>
+<span class="pass-line">test_counter_in_valid_range        PASSED</span><br>
+<span class="pass-line">test_messages_are_arriving         PASSED</span><br>
+<span class="fragment" data-fragment-index="1"><span class="pass-line">test_rpm_is_nonzero               PASSED</span><br>
+<span class="pass-line">test_coolant_is_warming            PASSED</span><br>
+<span class="pass-line">test_all_signals_extracted         PASSED</span><br>
+<span class="pass-line">test_frame_data_is_8_bytes         PASSED</span><br></span>
+<br>
+<span class="fragment" data-fragment-index="2"><span class="pass-line">======================== 8 passed in 0.42s ========================</span></span>
+  </div>
+  <p class="fragment" data-fragment-index="3" style="font-size:0.8em"><span class="pass">All green.</span> <span class="dim">And the ECU is frozen.</span></p>
+</section>
+
+<!-- SLIDE 5: 1 property, 34 violations -->
+<section data-notes="Now let's try Aletheia. One line of Python. Signal FrameCounter, changed by zero, never. In plain English: it should never be the case that the counter stays the same between consecutive frames. That's it. One property. Run against the same trace. 34 violations. Every single frame after the freeze is flagged. The first violation fires at exactly frame 16 — the first stale frame. No test engineering. No manual scripting. One line, and the bug is caught. This is the power of temporal reasoning. You're not checking 'is this value valid.' You're checking 'is this value fresh.'">
+  <h2>1 Property, 34 Violations</h2>
+  <br>
+  <div style="font-size:0.7em">
+    <pre><code class="python" data-trim>
+from aletheia import Signal
+
+alive = Signal("FrameCounter").changed_by(0).never()
+# "It is never the case that FrameCounter stays the same"
+    </code></pre>
+  </div>
+  <br>
+  <div class="terminal fragment">
+<span class="prompt">$</span> <span class="cmd">python demo_ltl_bug.py</span><br>
+<br>
+  Normal trace (50 frames):  <span class="pass-line">0 violations</span><br>
+  Frozen trace (50 frames):  <span class="fail-line">34 violations</span><br>
+<br>
+  First violation at frame 16 (counter stuck at 15)<br>
+  <span class="dim">Every frame after the freeze is flagged.</span>
+  </div>
+</section>
+
+<!-- SLIDE 6: Visual summary -->
+<section data-notes="Let me put this side by side so the contrast is clear. On the left: your existing test suite. Eight tests. All pass. Bug undetected. On the right: one Aletheia property. 34 violations caught. Same trace. Same data. The difference is that Aletheia reasons about time — about the relationship between frames — not just individual values. This is the core value proposition. Not replacing your tests. Adding a layer that catches what tests fundamentally cannot.">
+  <h2>The Gap</h2>
+  <br>
+  <div class="two-col">
+    <div class="summary-box danger">
+      <p class="big fail">8 Tests</p>
+      <p class="pass" style="font-size:1.3em">ALL PASS</p>
+      <br>
+      <p class="dim" style="font-size:0.7em">
+        RPM in range? <span class="pass">&#10003;</span><br>
+        Coolant in range? <span class="pass">&#10003;</span><br>
+        Counter in range? <span class="pass">&#10003;</span><br>
+        Frames arriving? <span class="pass">&#10003;</span><br>
+      </p>
+      <br>
+      <p class="fail" style="font-size:0.9em">Bug undetected</p>
+    </div>
+    <div class="summary-box success">
+      <p class="big accent">1 Property</p>
+      <p class="fail" style="font-size:1.3em">34 VIOLATIONS</p>
+      <br>
+      <div class="terminal" style="font-size:0.75em; display:inline-block; text-align:left">
+Signal("FrameCounter")<br>
+&nbsp; .changed_by(0).never()
+      </div>
+      <br><br>
+      <p class="pass" style="font-size:0.9em">Bug caught at frame 16</p>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 2: THE SOLUTION (slides 7-20)                            -->
+<!-- ============================================================ -->
+
+<!-- SLIDE 7: What is Aletheia -->
+<section data-notes="So what is Aletheia? It's a Python library. You pip install it, import it, and write temporal properties in Python. Under the hood, the checking engine is written in Agda — a proof assistant. This means the checker itself has been mathematically proven correct. Not tested correct — proven correct. The distinction matters: tests show the presence of bugs, proofs show their absence. At 9,700 frames per second, it's fast enough for real-time CAN bus analysis. You get 1.2x headroom over a standard 1 Mbps CAN bus. And it processes traces with constant memory — gigabyte log files are fine.">
+  <h2>What Is Aletheia?</h2>
+  <br>
+  <div style="font-size:0.8em">
+    <p><span class="accent">Python library</span> for CAN bus temporal verification</p>
+    <br>
+    <p class="fragment"><span class="accent">9,700 fps</span> &mdash; 1.2&times; headroom over 1 Mbps CAN bus</p>
+    <p class="fragment"><span class="accent">O(1) memory</span> &mdash; stream gigabyte traces</p>
+    <p class="fragment"><span class="accent">Proven correct</span> &mdash; the checker is mathematically verified</p>
+    <br>
+    <p class="fragment dim">Not "tested correct" &mdash; <em>proven</em> correct.<br>
+    Tests show the presence of bugs. Proofs show their absence.</p>
+  </div>
+</section>
+
+<!-- SLIDE 8: Architecture -->
+<section data-notes="Here's the architecture. Three layers. At the top: Python. This is what you see and use. The Python layer is thin — it sends JSON commands to the core and gets results back. In the middle: a Haskell FFI shim. 68 lines. It just marshals data between Python's ctypes and the Agda-generated code. No logic here. At the bottom: Agda. 36,500 lines of verified code. This is where everything happens — CAN parsing, signal extraction, LTL checking, DBC validation. All with correctness proofs. The key insight: all logic lives in Agda. Haskell is just plumbing. Python is just the interface. If the Agda code type-checks, the logic is correct by construction.">
+  <h2>Architecture</h2>
+  <br>
+  <div class="arch-layer" style="background:#1e3a5e; border-color:#00d4ff">
+    <strong>Python</strong> &mdash; User-facing API, ctypes FFI
+    <div class="dim" style="font-size:0.8em">What you write. Familiar interface.</div>
+  </div>
+  <div class="arch-arrow">&darr; shared library (libaletheia-ffi.so)</div>
+  <div class="arch-layer" style="background:#1a2e1a; border-color:#44ff44">
+    <strong>Haskell</strong> &mdash; FFI wrapper (68 lines)
+    <div class="dim" style="font-size:0.8em">No logic. Just data marshalling.</div>
+  </div>
+  <div class="arch-arrow">&darr; MAlonzo compiled code</div>
+  <div class="arch-layer" style="background:#2e1a2e; border-color:#ff88ff">
+    <strong>Agda</strong> &mdash; All logic + proofs (36,500 lines)
+    <div class="dim" style="font-size:0.8em">CAN parsing, signal extraction, LTL checking, DBC validation. Proven correct.</div>
+  </div>
+  <br>
+  <p style="font-size:0.65em" class="dim">Critical rule: ALL logic in Agda. Haskell = plumbing. Python = interface.</p>
+</section>
+
+<!-- SLIDE 9: What "proven correct" means -->
+<section data-notes="What does 'proven correct' actually mean in practice? Let's compare three approaches. Unit tests check specific examples — speed extraction works for 100 kph. That's one data point. Property-based tests generate random inputs — speed extraction works for 10,000 random values. Better coverage, but still sampling. Formal verification proves it works for ALL inputs — every possible 64-bit value, every byte order, every edge case. Not by running them — by mathematical proof. The practical difference: with testing, you can always miss an edge case. With formal verification, if the property is specified correctly, there are no edge cases to miss. Aletheia's CAN encoding roundtrip, LTL evaluation, and DBC validation are all proven this way.">
+  <h2>What "Proven Correct" Means</h2>
+  <br>
+  <table class="compare-table">
+    <tr>
+      <th>Approach</th>
+      <th>What It Provides</th>
+      <th>What It Misses</th>
+    </tr>
+    <tr>
+      <td>Unit tests</td>
+      <td>Examples of correct behavior</td>
+      <td>Edge cases, unexpected inputs</td>
+    </tr>
+    <tr>
+      <td>Property tests</td>
+      <td>Random exploration (1000s of inputs)</td>
+      <td>Exhaustive coverage guarantees</td>
+    </tr>
+    <tr>
+      <td style="color:#00d4ff; font-weight:bold">Formal proof</td>
+      <td style="color:#44ff44">Correct for ALL inputs, forever</td>
+      <td style="color:#44ff44">Nothing (within spec)</td>
+    </tr>
+  </table>
+  <br>
+  <div class="fragment" style="font-size:0.7em">
+    <p><span class="dim">Test:</span> "Speed extraction works for 100 kph" <span class="pass">&#10003;</span></p>
+    <p><span class="dim">Property test:</span> "Works for 10,000 random values" <span class="pass">&#10003;</span><span class="pass">&#10003;</span></p>
+    <p><span class="accent">Proof:</span> "Works for every 64-bit value in every byte order" <span class="pass">&#10003;&#10003;&#10003;</span></p>
+  </div>
+</section>
+
+<!-- SLIDE 10: Section — Four Interfaces -->
+<section class="section-slide" data-notes="Now let me show you the four ways to use Aletheia. We designed these for different roles on your team — from technicians who work in spreadsheets to developers who want full LTL control. All four produce identical formulas that run through the same verified core. No loss of correctness regardless of which interface you choose.">
+  <h2>Four Interfaces</h2>
+  <p class="dim">One verified core, four ways in</p>
+</section>
+
+<!-- SLIDE 11: Excel -->
+<section data-notes="Interface one: Excel. Your technicians already live in spreadsheets. They fill in signal names, conditions, and thresholds. One line of Python loads the whole workbook. Each row becomes a verified LTL property. They never need to see Python, YAML, or anything else. The spreadsheet IS the specification. And in the When-Then sheet, they can define causal relationships — when brake pedal exceeds 50, then brake light should equal 1 within 100 milliseconds. Technician fills in cells, Aletheia does the rest.">
+  <h2>Excel Interface</h2>
+  <p class="dim" style="font-size:0.7em">For technicians &mdash; fill in a spreadsheet, get verified checks</p>
+  <br>
+  <table class="excel-table">
+    <tr>
+      <th class="cell-header"></th>
+      <th class="cell-header">A</th>
+      <th class="cell-header">B</th>
+      <th class="cell-header">C</th>
+      <th class="cell-header">D</th>
+      <th class="cell-header">E</th>
+      <th class="cell-header">F</th>
+    </tr>
+    <tr>
+      <td class="row-num">1</td>
+      <td class="cell-header">Signal</td>
+      <td class="cell-header">Condition</td>
+      <td class="cell-header">Value</td>
+      <td class="cell-header">Min</td>
+      <td class="cell-header">Max</td>
+      <td class="cell-header">Severity</td>
+    </tr>
+    <tr>
+      <td class="row-num">2</td>
+      <td>VehicleSpeed</td>
+      <td>never_exceeds</td>
+      <td>220</td>
+      <td></td>
+      <td></td>
+      <td>safety</td>
+    </tr>
+    <tr>
+      <td class="row-num">3</td>
+      <td>BatteryVoltage</td>
+      <td>stays_between</td>
+      <td></td>
+      <td>11.5</td>
+      <td>14.5</td>
+      <td>warning</td>
+    </tr>
+  </table>
+  <br>
+  <pre style="font-size:0.62em"><code class="python" data-trim>
+from aletheia import load_checks_from_excel
+
+checks = load_checks_from_excel("vehicle_checks.xlsx")
+# 2 verified LTL properties, ready to stream
+  </code></pre>
+</section>
+
+<!-- SLIDE 12: YAML -->
+<section data-notes="Interface two: YAML. For test engineers who want version control and CI/CD integration. This is the same checks as the Excel — speed never exceeds 220, battery stays between 11.5 and 14.5 — but in a git-friendly format. You can diff it, review it in pull requests, and run it in CI. The when/then syntax handles causal relationships. YAML goes into your repo, gets reviewed like code, and produces the same verified properties. No standard exists for CAN temporal checks in YAML — this could become one.">
+  <h2>YAML Interface</h2>
+  <p class="dim" style="font-size:0.7em">For test engineers &mdash; declarative, version-controlled, CI/CD-ready</p>
+  <br>
+  <pre style="font-size:0.62em"><code class="yaml" data-trim>
+checks:
+  - signal: VehicleSpeed
+    condition: never_exceeds
+    value: 220
+
+  - signal: BatteryVoltage
+    condition: stays_between
+    min: 11.5
+    max: 14.5
+
+  - when:
+      signal: BrakePedal
+      condition: exceeds
+      value: 50
+    then:
+      signal: BrakeLight
+      condition: equals
+      value: 1
+    within_ms: 100
+  </code></pre>
+  <br>
+  <pre style="font-size:0.62em"><code class="python" data-trim>
+checks = load_checks("checks.yaml")  # git diff, PR review, CI/CD
+  </code></pre>
+</section>
+
+<!-- SLIDE 13: Check API -->
+<section data-notes="Interface three: the Check API. For scripters who want Python but don't need full LTL control. This uses industry vocabulary — never exceeds, stays between, drops below. Read it out loud: Check signal VehicleSpeed never exceeds 220. Check when BrakePedal exceeds 50, then BrakeLight equals 1 within 100 milliseconds. You don't need to know what LTL is. You don't need to know what 'always' or 'implies' means in temporal logic. The Check API translates your intent into the right formula.">
+  <h2>Check API</h2>
+  <p class="dim" style="font-size:0.7em">For scripters &mdash; industry vocabulary, no LTL knowledge needed</p>
+  <br>
+  <pre style="font-size:0.62em"><code class="python" data-trim>
+from aletheia import Check
+
+# Simple signal checks
+Check.signal("VehicleSpeed").never_exceeds(220)
+Check.signal("BatteryVoltage").stays_between(11.5, 14.5)
+Check.signal("CoolantTemp").settles_between(80, 100).within(5000)
+Check.signal("FaultCode").never_equals(255)
+Check.signal("BatteryVoltage").never_below(11.0)
+
+# Causal checks (when/then)
+Check.when("BrakePedal").exceeds(50)
+     .then("BrakeLight").equals(1).within(100)
+
+Check.when("Ignition").equals(1)
+     .then("EngineRPM").exceeds(500).within(2000)
+  </code></pre>
+  <br>
+  <p style="font-size:0.65em" class="dim">Read it out loud. That's the specification.</p>
+</section>
+
+<!-- SLIDE 14: Full DSL -->
+<section data-notes="Interface four: the full DSL. For developers who want maximum control. This gives you direct access to LTL operators — always, eventually, implies, until, within. You can compose arbitrary temporal formulas. The staleness check we saw earlier uses this. Signal FrameCounter changed by 0 never — that's a negation wrapped in a globally operator. You can build anything: nested implications, bounded liveness, release properties. This is the full power of Linear Temporal Logic, but in Python syntax.">
+  <h2>Full DSL</h2>
+  <p class="dim" style="font-size:0.7em">For developers &mdash; full LTL control, maximum expressiveness</p>
+  <br>
+  <pre style="font-size:0.62em"><code class="python" data-trim>
+from aletheia import Signal
+
+speed = Signal("VehicleSpeed")
+brake = Signal("BrakePressure")
+
+# Safety: speed always below 120
+speed.less_than(120).always()
+
+# Liveness: brake response within 500ms
+speed.greater_than(80).implies(
+    brake.greater_than(0).within(500)
+).always()
+
+# Staleness detection (the alive counter check)
+Signal("FrameCounter").changed_by(0).never()
+
+# Sensor range
+Signal("BatteryVoltage").between(11.0, 14.5).always()
+  </code></pre>
+</section>
+
+<!-- SLIDE 15: All four produce identical formulas -->
+<section data-notes="Here's the key point. All four interfaces produce identical LTL formulas. The demo script creates the same three checks using Excel, YAML, Check API, and DSL. It then compares the generated formulas. All match. Every time. Because they all compile down to the same Agda-verified core. There is zero loss of correctness between the technician filling in a spreadsheet and the developer writing LTL by hand. The formula is the same. The verification is the same. The guarantees are the same.">
+  <h2>Same Formula, Four Doors</h2>
+  <br>
+  <div style="text-align:center">
+    <div class="converge-box">Excel</div>
+    <div class="converge-box">YAML</div>
+    <div class="converge-box">Check API</div>
+    <div class="converge-box">DSL</div>
+  </div>
+  <div style="text-align:center; font-size:1.5em; color:#00d4ff">&darr; &darr; &darr; &darr;</div>
+  <div style="text-align:center">
+    <div class="converge-center">Same Verified LTL Formula</div>
+  </div>
+  <br>
+  <div class="terminal" style="font-size:0.85em">
+<span class="prompt">$</span> <span class="cmd">python demo_all_interfaces.py</span><br>
+<br>
+  1. VehicleSpeed never_exceeds 220<br>
+     DSL == Check API == YAML == Excel: <span class="pass-line">True</span><br>
+  2. BatteryVoltage stays_between 11.5, 14.5<br>
+     DSL == Check API == YAML == Excel: <span class="pass-line">True</span><br>
+  3. BrakePedal > 50 => BrakeLight = 1 within 100ms<br>
+     DSL == Check API == YAML == Excel: <span class="pass-line">True</span><br>
+<br>
+<span class="pass-line">ALL 3 CHECKS MATCH ACROSS ALL 4 TIERS</span>
+  </div>
+</section>
+
+<!-- SLIDE 16: Section — Live Demo -->
+<section class="section-slide" data-notes="Let me show you Aletheia in action. These are pre-recorded outputs, but I can run them live if you want to see it. Every command shown here works against the real library.">
+  <h2>Live Demo</h2>
+  <p class="dim">Pre-recorded outputs &mdash; live fallback available</p>
+</section>
+
+<!-- SLIDE 17: DBC validation -->
+<section data-notes="First: DBC validation. Before you even start checking temporal properties, Aletheia validates your DBC file. It catches overlapping signals — two signals claiming the same bits — unless they're properly multiplexed. It catches inconsistent ranges — minimum greater than maximum. And it correctly allows multiplexed signals that share bit positions but have different mux values. Four structural checks, four passes. This happens automatically during parse_dbc. No extra code needed. Garbage in, error out — not garbage in, wrong answers out.">
+  <h2>DBC Validation</h2>
+  <p class="dim" style="font-size:0.7em">Catch structural errors before they become runtime bugs</p>
+  <br>
+  <div class="terminal">
+<span class="prompt">$</span> <span class="cmd">python dbc_validation.py</span><br>
+<br>
+  Valid DBC (no overlap):          VALID  &mdash; <span class="pass-line">PASS</span><br>
+  Overlapping signals:             INVALID &mdash; <span class="pass-line">PASS</span><br>
+  <span class="dim">  Temperature[0:15] and Pressure[8:23] share bits 8-15</span><br>
+  Inconsistent range (min > max):  INVALID &mdash; <span class="pass-line">PASS</span><br>
+  <span class="dim">  Temperature minimum=100 > maximum=50</span><br>
+  Multiplexed (overlap OK):        VALID  &mdash; <span class="pass-line">PASS</span><br>
+  <span class="dim">  SensorA/SensorB share bits but different mux values</span><br>
+<br>
+<span class="pass-line">4/4 tests passed</span>
+  </div>
+</section>
+
+<!-- SLIDE 18: Full workflow -->
+<section data-notes="Here's the full workflow in 12 lines of code. Load a DBC file. Define a property — speed less than 120, always. Create a client, parse the DBC, set the property, start streaming. Send each frame. Check for violations. End stream. That's it. The DBC converter handles your existing DBC files. The property is one line. The streaming loop is a standard Python for loop. If you can write a for loop, you can use Aletheia. Everything complex — the signal extraction, the LTL evaluation, the incremental state management — happens inside the verified core.">
+  <h2>Full Workflow</h2>
+  <p class="dim" style="font-size:0.7em">12 lines: load DBC, define property, stream, detect</p>
+  <br>
+  <pre style="font-size:0.58em"><code class="python" data-trim>
+from aletheia import AletheiaClient, Signal
+from aletheia.dbc_converter import dbc_to_json
+
+dbc = dbc_to_json("vehicle.dbc")
+speed_limit = Signal("VehicleSpeed").less_than(120).always()
+
+with AletheiaClient() as client:
+    client.parse_dbc(dbc)
+    client.set_properties([speed_limit.to_dict()])
+    client.start_stream()
+
+    for frame in can_trace:
+        response = client.send_frame(
+            frame.timestamp_us, frame.can_id, frame.data
+        )
+        if response.get("status") == "violation":
+            print(f"Violation at {response['timestamp']}us")
+
+    client.end_stream()
+  </code></pre>
+</section>
+
+<!-- SLIDE 19: Frame injection -->
+<section data-notes="Frame injection demo. We take a normal drive log — 50 frames, all speeds below 120. At frame 15, we inject a modified frame with speed 130. Run the stream. Aletheia flags a violation at exactly the injected frame. Not one frame later. Not ten frames later. At the exact frame. This is important for security analysis — if someone injects a malicious CAN frame, Aletheia catches it at the exact point of injection. The response includes the timestamp, the property that was violated, and the signal values. You get a precise counterexample, not just 'something went wrong.'">
+  <h2>Frame Injection</h2>
+  <p class="dim" style="font-size:0.7em">Injected frame detected at exact injection point</p>
+  <br>
+  <div class="terminal">
+<span class="prompt">$</span> <span class="cmd">python frame_injection.py</span><br>
+<br>
+  Frame #15 at 1500ms &mdash; original speed: 87.3 kph<br>
+  Injecting 130.0 kph (exceeds 120 limit)<br>
+<br>
+  Streaming 50 frames...<br>
+  [ 15] >> <span class="fail-line">INJECTING (speed=130.0 kph)</span><br>
+  [ 15] !! <span class="fail-line">VIOLATION at 1500ms</span><br>
+<br>
+<span class="pass-line">1 violation detected &mdash; at the exact injected frame</span>
+  </div>
+</section>
+
+<!-- SLIDE 20: Staleness bug (centerpiece) -->
+<section data-notes="This is the centerpiece. Let me put it all together. On the left: standard pytest. Eight tests against the frozen ECU trace. All pass. The test suite is green. Ship it. On the right: one Aletheia property. Signal FrameCounter changed by zero never. 34 violations detected. First violation at frame 16 — the exact frame where the counter freezes. This is the entire argument for Aletheia in one slide. Your existing tests are not wrong. They check what they check, and they pass. But they cannot check temporal properties. They can verify 'is this value valid' but not 'is this value fresh.' Aletheia adds this missing layer. It doesn't replace your tests. It catches what they fundamentally cannot.">
+  <h2>The Staleness Bug</h2>
+  <br>
+  <div class="two-col" style="font-size:0.85em">
+    <div>
+      <h3 style="color:#ff4444">Standard pytest</h3>
+      <div class="terminal" style="font-size:0.85em">
+<span class="prompt">$</span> <span class="cmd">pytest test_engine_naive.py -v</span><br>
+<br>
+<span class="pass-line">test_rpm_in_valid_range       PASSED</span><br>
+<span class="pass-line">test_coolant_in_valid_range    PASSED</span><br>
+<span class="pass-line">test_counter_in_valid_range    PASSED</span><br>
+<span class="pass-line">test_messages_are_arriving     PASSED</span><br>
+<span class="pass-line">test_rpm_is_nonzero           PASSED</span><br>
+<span class="pass-line">test_coolant_is_warming        PASSED</span><br>
+<span class="pass-line">test_all_signals_extracted     PASSED</span><br>
+<span class="pass-line">test_frame_data_is_8_bytes     PASSED</span><br>
+<br>
+<span class="pass-line">===== 8 passed in 0.42s =====</span>
+      </div>
+    </div>
+    <div>
+      <h3 style="color:#44ff44">Aletheia</h3>
+      <div class="terminal" style="font-size:0.85em">
+<span class="prompt">$</span> <span class="cmd">python demo_ltl_bug.py</span><br>
+<br>
+Signal("FrameCounter")<br>
+&nbsp; .changed_by(0).never()<br>
+<br>
+Normal trace:  <span class="pass-line">0 violations</span><br>
+Frozen trace:  <span class="fail-line">34 violations</span><br>
+<br>
+First violation at frame 16<br>
+<span class="dim">(counter stuck at 15, should be 0)</span><br>
+<br>
+<span class="fail-line">Bug detected. ECU is frozen.</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 3: PRODUCTION READY (slides 21-30)                       -->
+<!-- ============================================================ -->
+
+<!-- SLIDE 21: Property patterns -->
+<section data-notes="Here's a gallery of real-world property patterns. These are checks that automotive teams actually need. Speed limits — the obvious one. Battery monitoring — stays in range. Brake response time — when pedal pressed, brake light within 100ms. Alive counter — the staleness check we saw. Sensor correlation — when fuel drops, warning activates. Debounce — signal must hold for minimum duration. These aren't theoretical examples. These are the checks that would have caught bugs in real automotive recalls. And each one is a single line of Python.">
+  <h2>Property Patterns</h2>
+  <p class="dim" style="font-size:0.7em">Real-world automotive checks, one line each</p>
+  <br>
+  <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:0.4em">
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Speed Limit</div>
+      <code>Check.signal("Speed").never_exceeds(220)</code>
+    </div>
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Battery Monitor</div>
+      <code>Check.signal("Voltage").stays_between(11.5, 14.5)</code>
+    </div>
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Brake Response</div>
+      <code>Check.when("BrakePedal").exceeds(50)<br>&nbsp;.then("BrakeLight").equals(1).within(100)</code>
+    </div>
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Alive Counter</div>
+      <code>Signal("Counter").changed_by(0).never()</code>
+    </div>
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Sensor Correlation</div>
+      <code>Check.when("FuelLevel").drops_below(10)<br>&nbsp;.then("FuelWarning").equals(1).within(50)</code>
+    </div>
+    <div class="pattern-card" style="width:45%">
+      <div class="pattern-name">Debounce</div>
+      <code>Signal("Brake").greater_than(100)<br>&nbsp;.for_at_least(100)</code>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 22: Section — Performance & Deployment -->
+<section class="section-slide" data-notes="Let me talk about performance and deployment. Because proven correct doesn't matter if it's too slow or too hard to deploy.">
+  <h2>Performance &amp; Deployment</h2>
+  <p class="dim">Fast enough, simple enough</p>
+</section>
+
+<!-- SLIDE 23: Performance numbers -->
+<section data-notes="Here are the numbers. Streaming LTL checking with signal extraction: 9,700 frames per second. A standard CAN bus at 1 Mbps generates about 8,000 frames per second. So we have 1.2x headroom. That's enough for real-time monitoring with room to spare. On one CPU core. No GPU, no special hardware. The bar chart shows it visually — the red line is the CAN bus requirement, and we're well past it. This is after significant optimization work: we eliminated IPC overhead, replaced O(n) data representations with O(1) ones, and fixed algorithmic bottlenecks in the LTL evaluator.">
+  <h2>Performance</h2>
+  <br>
+  <div class="bar-chart">
+    <div class="bar-row">
+      <div class="bar-label">CAN bus<br><span class="dim" style="font-size:0.7em">requirement</span></div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:82%; background:linear-gradient(90deg, #ff4444, #ff6666)">
+          ~8,000 fps
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Streaming<br><span class="dim" style="font-size:0.7em">LTL check</span></div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:100%; background:linear-gradient(90deg, #00d4ff, #44ff44)">
+          9,700 fps
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Signal<br><span class="dim" style="font-size:0.7em">extraction</span></div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:84%; background:linear-gradient(90deg, #00d4ff, #33bbdd)">
+          8,200 fps
+        </div>
+      </div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Frame<br><span class="dim" style="font-size:0.7em">building</span></div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:60%; background:linear-gradient(90deg, #00d4ff, #3388bb)">
+          5,900 fps
+        </div>
+      </div>
+    </div>
+  </div>
+  <br>
+  <p style="font-size:0.65em">
+    <span class="accent">1.2&times; headroom</span> over 1 Mbps CAN bus &mdash;
+    single CPU core, O(1) memory
+  </p>
+</section>
+
+<!-- SLIDE 24: Multi-bus -->
+<section data-notes="What about multi-bus systems? Modern vehicles have multiple CAN buses — powertrain, chassis, body, infotainment. Aletheia handles this with one client per bus, running in a thread pool. The rts_cores parameter tells the Haskell runtime how many cores to use for garbage collection. Each client is independent — no shared state, no locking. With 4 cores, you can monitor 4 buses simultaneously, each at full speed. The Python API makes this straightforward — standard concurrent.futures pattern.">
+  <h2>Multi-Bus Monitoring</h2>
+  <br>
+  <pre style="font-size:0.58em"><code class="python" data-trim>
+from concurrent.futures import ThreadPoolExecutor
+from aletheia import AletheiaClient
+
+# One client per CAN bus, independent state
+buses = {
+    "powertrain": (dbc_pt,  checks_pt,  trace_pt),
+    "chassis":    (dbc_ch,  checks_ch,  trace_ch),
+    "body":       (dbc_bd,  checks_bd,  trace_bd),
+}
+
+def monitor_bus(name, dbc, checks, trace):
+    with AletheiaClient(rts_cores=2) as client:
+        client.parse_dbc(dbc)
+        client.set_properties([c.to_dict() for c in checks])
+        client.start_stream()
+        for frame in trace:
+            response = client.send_frame(...)
+        client.end_stream()
+
+with ThreadPoolExecutor(max_workers=len(buses)) as pool:
+    futures = {pool.submit(monitor_bus, *args): n
+               for n, args in buses.items()}
+  </code></pre>
+</section>
+
+<!-- SLIDE 25: CAN log formats -->
+<section data-notes="Aletheia reads all standard CAN log formats via python-can integration. BLF from Vector tools. ASC — the common text format. CSV exports. MF4 — the ASAM measurement format. TRC from PEAK tools. If you have CAN logs, Aletheia can read them. The integration is one import and one function call. You get back frame objects with timestamp, ID, and data — ready to stream into Aletheia. No format conversion needed. Your existing logs work as-is.">
+  <h2>CAN Log Formats</h2>
+  <p class="dim" style="font-size:0.7em">Read any standard format via python-can</p>
+  <br>
+  <div style="font-size:0.8em">
+    <table class="compare-table">
+      <tr><th>Format</th><th>Source</th><th>Extension</th></tr>
+      <tr><td>BLF</td><td>Vector CANalyzer/CANoe</td><td>.blf</td></tr>
+      <tr><td>ASC</td><td>Common text format</td><td>.asc</td></tr>
+      <tr><td>CSV</td><td>Spreadsheet exports</td><td>.csv</td></tr>
+      <tr><td>MF4</td><td>ASAM Measurement Data</td><td>.mf4</td></tr>
+      <tr><td>TRC</td><td>PEAK PCAN tools</td><td>.trc</td></tr>
+    </table>
+  </div>
+  <br>
+  <pre style="font-size:0.58em"><code class="python" data-trim>
+from aletheia.can_log_reader import read_can_log
+
+frames = read_can_log("drive_test.blf")  # or .asc, .csv, .mf4, .trc
+for frame in frames:
+    client.send_frame(frame.timestamp_us, frame.can_id, frame.data)
+  </code></pre>
+</section>
+
+<!-- SLIDE 26: Deployment -->
+<section data-notes="Deployment is simple. The build produces a shared library — libaletheia-ffi.so. Python loads it via ctypes. No subprocess, no server, no Docker. Install the Python package, point it at the shared library, done. For CI/CD, there's a command-line interface: python dash m aletheia check. Feed it a DBC, a YAML file with checks, and a CAN log. It returns exit code 0 for pass, 1 for violations. Standard CI patterns work — Jenkins, GitHub Actions, whatever you use. Zero configuration beyond the DBC and checks.">
+  <h2>Deployment</h2>
+  <br>
+  <div style="text-align:left; max-width:80%; margin:0 auto; font-size:0.75em">
+    <p><span class="accent">Shared library</span> &mdash; <code>libaletheia-ffi.so</code>, loaded via ctypes</p>
+    <p class="dim" style="margin-left:2em">No subprocess, no server, no Docker required</p>
+    <br>
+    <p><span class="accent">Python package</span> &mdash; <code>pip install aletheia</code></p>
+    <p class="dim" style="margin-left:2em">Standard Python package, standard imports</p>
+    <br>
+    <p><span class="accent">CLI for CI/CD</span></p>
+  </div>
+  <br>
+  <div class="terminal" style="font-size:0.85em">
+<span class="prompt">$</span> <span class="cmd">python -m aletheia check \</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="cmd">--dbc vehicle.dbc \</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="cmd">--checks checks.yaml \</span><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="cmd">--log drive_test.blf</span><br>
+<br>
+<span class="pass-line">3 properties checked, 0 violations</span><br>
+<span class="dim">Exit code: 0</span>
+  </div>
+</section>
+
+<!-- SLIDE 27: Section — Why Trust It? -->
+<section class="section-slide" data-notes="You might be thinking: this sounds too good. What's actually proven? How does it compare to alternatives? And what does this mean for compliance? Let me address each of these.">
+  <h2>Why Trust It?</h2>
+  <p class="dim">The proof stack, the comparison, the standards</p>
+</section>
+
+<!-- SLIDE 28: The proof stack -->
+<section data-notes="Here's what's actually proven — not 'tested' or 'believed to be correct,' but formally proven with mathematical proofs that the Agda type checker has verified. CAN encoding roundtrip: encode then decode gives back the original frame. For all frames. Signal extraction: bit-level extraction matches the DBC specification. For all signals. LTL adequacy: the incremental evaluator matches the denotational semantics. For all formulas and all traces. DBC validation: overlapping signals are always detected. Iteration correctness: the streaming loop is spec-equivalent to batch processing. Parser correctness: all parser combinators terminate and produce correct output. These aren't claims. These are theorems. The Agda type checker is the auditor.">
+  <h2>The Proof Stack</h2>
+  <p class="dim" style="font-size:0.7em">What is formally proven (not tested &mdash; proven)</p>
+  <br>
+  <div style="max-width:80%; margin:0 auto">
+    <ul class="checklist">
+      <li><strong>CAN encoding roundtrip</strong> &mdash; encode then decode = original, for all frames</li>
+      <li><strong>Signal extraction</strong> &mdash; bit-level extraction matches DBC spec, for all signals</li>
+      <li><strong>LTL adequacy</strong> &mdash; incremental evaluator matches denotational semantics</li>
+      <li><strong>All 13 LTL operators</strong> &mdash; Always, Eventually, Until, Release, Implies, And, Or, Not, Next, Literal, Atomic, Within, ChangedBy</li>
+      <li><strong>DBC validation</strong> &mdash; overlapping signals always detected</li>
+      <li><strong>Iteration correctness</strong> &mdash; streaming = batch (spec equivalence)</li>
+      <li><strong>Parser combinators</strong> &mdash; all terminate, produce correct output</li>
+      <li><strong>Terminal idempotence</strong> &mdash; final verdicts are stable (15 lemmas)</li>
+    </ul>
+  </div>
+  <br>
+  <p style="font-size:0.65em" class="dim">
+    36,500 lines of Agda &middot; 38 safe modules &middot; Auditor: the Agda type checker
+  </p>
+</section>
+
+<!-- SLIDE 29: Comparison table -->
+<section data-notes="How does Aletheia compare to alternatives? Custom pytest: you write it yourself, it checks what you thought to check, no temporal reasoning, no correctness guarantees. It's free and fast to set up, but you own the bugs. Python-can scripts: better — you get real CAN parsing — but still no temporal reasoning. You can check individual frames but not relationships between frames. And your scripts themselves might have bugs. Aletheia: temporal reasoning built in, correctness proven, streaming architecture. Higher setup cost — you need the shared library built — but once it's running, every check you define is backed by mathematical proof. The question isn't which is easiest. It's which catches the bugs that matter.">
+  <h2>Comparison</h2>
+  <br>
+  <table class="compare-table">
+    <tr>
+      <th></th>
+      <th>Custom pytest</th>
+      <th>python-can scripts</th>
+      <th style="color:#00d4ff">Aletheia</th>
+    </tr>
+    <tr>
+      <td>Temporal checks</td>
+      <td class="fail">Manual</td>
+      <td class="fail">Manual</td>
+      <td class="pass">Built-in (LTL)</td>
+    </tr>
+    <tr>
+      <td>Correctness</td>
+      <td>Tested</td>
+      <td>Tested</td>
+      <td class="pass">Proven</td>
+    </tr>
+    <tr>
+      <td>Staleness detection</td>
+      <td class="fail">No</td>
+      <td class="fail">No</td>
+      <td class="pass">1 line</td>
+    </tr>
+    <tr>
+      <td>DBC validation</td>
+      <td class="fail">No</td>
+      <td class="warn">Partial</td>
+      <td class="pass">Automatic</td>
+    </tr>
+    <tr>
+      <td>Streaming</td>
+      <td class="fail">No</td>
+      <td class="warn">Manual</td>
+      <td class="pass">O(1) memory</td>
+    </tr>
+    <tr>
+      <td>Performance</td>
+      <td class="pass">Fast</td>
+      <td class="pass">Fast</td>
+      <td class="pass">9,700 fps</td>
+    </tr>
+    <tr>
+      <td>Setup effort</td>
+      <td class="pass">Low</td>
+      <td class="pass">Low</td>
+      <td class="warn">Medium</td>
+    </tr>
+  </table>
+</section>
+
+<!-- SLIDE 30: ISO 26262 alignment -->
+<section data-notes="For those of you thinking about compliance: ISO 26262 explicitly recommends formal methods for ASIL C and D — the highest safety integrity levels. Table 6 in Part 6 lists formal verification as a recommended technique for software unit verification. Most teams don't do it because formal methods tooling has traditionally been expensive and hard to use. Aletheia changes that equation. You write Python. The formal verification happens behind the scenes. Your compliance documentation can cite mathematically proven correctness of the verification engine. That's a conversation-changer with auditors.">
+  <h2>ISO 26262 Alignment</h2>
+  <br>
+  <div style="text-align:left; max-width:80%; margin:0 auto; font-size:0.75em">
+    <p><span class="accent">Part 6, Table 6</span> &mdash; Software unit verification methods</p>
+    <br>
+    <table class="compare-table" style="font-size:0.9em">
+      <tr>
+        <th>Method</th>
+        <th>ASIL A</th>
+        <th>ASIL B</th>
+        <th>ASIL C</th>
+        <th>ASIL D</th>
+      </tr>
+      <tr>
+        <td>Walk-through</td>
+        <td>++</td>
+        <td>+</td>
+        <td>+</td>
+        <td>+</td>
+      </tr>
+      <tr>
+        <td>Inspection</td>
+        <td>+</td>
+        <td>++</td>
+        <td>++</td>
+        <td>++</td>
+      </tr>
+      <tr>
+        <td style="color:#00d4ff; font-weight:bold">Formal verification</td>
+        <td>+</td>
+        <td>+</td>
+        <td style="color:#44ff44; font-weight:bold">++</td>
+        <td style="color:#44ff44; font-weight:bold">++</td>
+      </tr>
+    </table>
+    <p class="dim" style="font-size:0.8em; margin-top:1em">++ = highly recommended &nbsp; + = recommended</p>
+    <br>
+    <p class="fragment">
+      <span class="accent">What this means:</span> Formal methods are recommended for safety-critical.<br>
+      Aletheia provides them without requiring formal methods expertise.
+    </p>
+  </div>
+</section>
+
+
+<!-- ============================================================ -->
+<!-- ACT 4: ADOPTION (slides 31-36)                               -->
+<!-- ============================================================ -->
+
+<!-- SLIDE 31: Section — Getting Started -->
+<section class="section-slide" data-notes="So how do you get started? What does adoption look like? I want to be concrete and realistic about this.">
+  <h2>Getting Started</h2>
+  <p class="dim">Concrete steps, realistic timeline</p>
+</section>
+
+<!-- SLIDE 32: Three-step adoption path -->
+<section data-notes="Here's a realistic adoption path. Week one to two: install and explore. Build the shared library, run the demo scripts, pick one non-critical signal to monitor. You're learning the tool, not depending on it. Month one: add temporal checks. Take your existing DBC files, write YAML checks for your most important temporal properties — alive counters, response times, range monitoring. Run them alongside your existing tests. Month two onwards: CI/CD integration. Checks run automatically on every CAN log. YAML specs reviewed in pull requests. Violations fail the pipeline. At no point do you remove anything. Aletheia adds a layer on top of what you already have.">
+  <h2>Adoption Path</h2>
+  <br>
+  <div style="max-width:80%; margin:0 auto">
+    <div class="timeline-step">
+      <div class="timeline-marker">1</div>
+      <div>
+        <strong style="color:#00d4ff">Weeks 1-2: Install &amp; Explore</strong><br>
+        <span style="font-size:0.85em">Build shared library. Run demo scripts. Pick one non-critical signal to monitor.</span>
+      </div>
+    </div>
+    <div class="timeline-step">
+      <div class="timeline-marker">2</div>
+      <div>
+        <strong style="color:#00d4ff">Month 1: Add Temporal Checks</strong><br>
+        <span style="font-size:0.85em">Write YAML checks for alive counters, response times, ranges. Run alongside existing tests.</span>
+      </div>
+    </div>
+    <div class="timeline-step">
+      <div class="timeline-marker">3</div>
+      <div>
+        <strong style="color:#00d4ff">Month 2+: CI/CD Integration</strong><br>
+        <span style="font-size:0.85em">Checks in pipeline. YAML in PRs. Violations fail the build. Temporal bugs caught automatically.</span>
+      </div>
+    </div>
+  </div>
+  <br>
+  <p style="font-size:0.65em" class="dim">
+    Nothing removed. Aletheia adds a layer. Your existing tests stay.
+  </p>
+</section>
+
+<!-- SLIDE 33: What changes -->
+<section data-notes="I want to be explicit about what changes and what doesn't. What stays the same: your DBC files, your CAN logs, your test suite, your CI pipeline, your Python environment. All of it. Aletheia doesn't replace anything. What you add: a shared library — one file. A Python import. YAML check definitions or Python check code. That's the surface area of change. Your technicians can use Excel. Your test engineers can use YAML. Your developers can use the full DSL. Nobody needs to learn Agda, Haskell, or temporal logic. The complexity is encapsulated.">
+  <h2>What Changes</h2>
+  <br>
+  <div class="two-col" style="font-size:0.75em">
+    <div>
+      <h3 style="color:#44ff44">Stays the same</h3>
+      <ul>
+        <li>Your DBC files</li>
+        <li>Your CAN log files</li>
+        <li>Your existing test suite</li>
+        <li>Your CI/CD pipeline</li>
+        <li>Your Python environment</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:#00d4ff">What you add</h3>
+      <ul>
+        <li><code>libaletheia-ffi.so</code> (one file)</li>
+        <li><code>from aletheia import ...</code></li>
+        <li>YAML checks or Python checks</li>
+        <li>CI step: <code>python -m aletheia check</code></li>
+      </ul>
+    </div>
+  </div>
+  <br>
+  <p style="font-size:0.7em" class="dim">
+    Nobody learns Agda, Haskell, or temporal logic.<br>
+    The complexity is inside the shared library.
+  </p>
+</section>
+
+<!-- SLIDE 34: License -->
+<section data-notes="License: BSD 2-Clause. This is about as permissive as it gets. You can use it commercially, modify it, distribute it, include it in proprietary products. No copyleft, no patent concerns, no usage restrictions. Agda itself is MIT licensed. GHC is BSD 3-Clause. The entire stack is permissive open source. Your legal team should have no objections.">
+  <h2>License</h2>
+  <br>
+  <div style="font-size:0.85em">
+    <p class="big accent">BSD 2-Clause</p>
+    <br>
+    <p>Commercial use <span class="pass">&#10003;</span></p>
+    <p>Modification <span class="pass">&#10003;</span></p>
+    <p>Distribution <span class="pass">&#10003;</span></p>
+    <p>Proprietary products <span class="pass">&#10003;</span></p>
+    <br>
+    <p class="dim" style="font-size:0.7em">
+      No copyleft &middot; No patent concerns &middot; No usage restrictions<br>
+      Agda: MIT &middot; GHC: BSD 3-Clause &middot; Entire stack: permissive
+    </p>
+  </div>
+</section>
+
+<!-- SLIDE 35: Key takeaways -->
+<section data-notes="Five things to remember from this presentation. One: temporal bugs are invisible to value-range testing. The frozen ECU passes all eight tests. Two: one Aletheia property catches what eight tests miss. Signal FrameCounter changed by zero never. Three: four interfaces, same verified core. Spreadsheets for technicians, YAML for test engineers, Check API for scripters, DSL for developers. All produce identical formulas. Four: 9,700 frames per second on one core. Fast enough for real-time CAN bus monitoring with 1.2x headroom. Five: formally proven correct. Not tested — proven. ISO 26262 recommends formal methods for ASIL C and D. Aletheia provides them transparently.">
+  <h2>Key Takeaways</h2>
+  <br>
+  <div style="text-align:left; max-width:85%; margin:0 auto; font-size:0.75em">
+    <p><span class="accent">1.</span> Temporal bugs are <strong>invisible</strong> to value-range testing<br>
+    <span class="dim" style="margin-left:1.5em">The frozen ECU passes 8/8 tests</span></p>
+    <br>
+    <p><span class="accent">2.</span> One Aletheia property catches what eight tests miss<br>
+    <span class="dim" style="margin-left:1.5em"><code>Signal("FrameCounter").changed_by(0).never()</code></span></p>
+    <br>
+    <p><span class="accent">3.</span> Four interfaces, same verified core<br>
+    <span class="dim" style="margin-left:1.5em">Excel, YAML, Check API, DSL &rarr; identical formulas</span></p>
+    <br>
+    <p><span class="accent">4.</span> 9,700 fps &mdash; 1.2&times; real-time headroom on one core<br>
+    <span class="dim" style="margin-left:1.5em">O(1) memory, streaming architecture</span></p>
+    <br>
+    <p><span class="accent">5.</span> Formally proven correct &mdash; ISO 26262 ASIL C/D alignment<br>
+    <span class="dim" style="margin-left:1.5em">36,500 lines of verified Agda, 38 safe modules</span></p>
+  </div>
+</section>
+
+<!-- SLIDE 36: Q&A -->
+<section data-notes="That's the presentation. I'm happy to take questions. If you want to try it yourself, the repository has everything — build instructions, demo scripts, documentation. The three demo scripts I showed today are in the examples/demo directory. Questions?">
+  <h2>Questions?</h2>
+  <br>
+  <div style="font-size:0.8em">
+    <p>
+      <span class="accent">Try it:</span>
+    </p>
+    <div class="terminal" style="font-size:0.85em; display:inline-block; text-align:left">
+<span class="prompt">$</span> <span class="cmd">git clone &lt;repo&gt; && cd aletheia</span><br>
+<span class="prompt">$</span> <span class="cmd">cabal run shake -- build</span><br>
+<span class="prompt">$</span> <span class="cmd">source .venv/bin/activate</span><br>
+<span class="prompt">$</span> <span class="cmd">python examples/demo/demo_ltl_bug.py</span>
+    </div>
+    <br><br>
+    <p class="dim" style="font-size:0.7em">
+      Docs: <code>docs/</code> &middot;
+      Demos: <code>examples/demo/</code> &middot;
+      Build: <code>docs/development/BUILDING.md</code>
+    </p>
+    <br>
+    <p class="dim" style="font-size:0.6em">
+      BSD 2-Clause &middot; Python 3.12+ &middot; Linux
+    </p>
+  </div>
+</section>
+
+</div><!-- /slides -->
+</div><!-- /reveal -->
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+Reveal.initialize({
+  width: 1920,
+  height: 1080,
+  slideNumber: 'c/t',
+  showSlideNumber: 'speaker',
+  transition: 'slide',
+  hash: true,
+  plugins: [RevealHighlight, RevealNotes]
+});
+</script>
+</body>
+</html>
