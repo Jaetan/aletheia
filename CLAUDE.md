@@ -69,21 +69,20 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **45 total modules**: 43 use `--safe`, 3 coinductive without `--safe`
+† **44 total modules**: 42 use `--safe`, 2 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (45 total):
+**By flag combination** (44 total):
 - **41 modules**: `--safe --without-K` (standard safe modules, includes 6 proof-only)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
-- **3 modules without `--safe`** (all use `--sized-types` for coinduction):
+- **2 modules without `--safe`** (both use `--sized-types` for coinduction):
   - Main.agda: `--no-main --sized-types --without-K`
   - Protocol/StreamState.agda: `--sized-types --without-K`
-  - Data/DelayedColist.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (3 of 45)**:
+**Modules not using `--safe` flag (2 of 44)**:
 
-Three modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
+Two modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
 1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
    - Required for: MAlonzo compilation with coinductive LTL evaluation
@@ -93,13 +92,9 @@ Three modules require `--sized-types` (incompatible with `--safe`) for coinducti
    - Required for: Coinductive stream processing of large trace files
    - Safety trade-off: Sized types for productivity checking instead of --safe
 
-3. **Data/DelayedColist.agda** - Uses `--sized-types` for coinductive stream type
-   - Required for: Thunk-based delay in infinite traces
-   - Safety trade-off: Sized types for productivity checking instead of --safe
-
 **Rationale**: Coinductive types (required for infinite traces and streaming) need `--sized-types` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
 
-**Verification Status**: All three modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
+**Verification Status**: Both modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
 
 ## Common Commands
 
@@ -289,7 +284,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 4 - Production Hardening (complete). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). 46 Agda modules total.
+**Current**: Phase 4 - Production Hardening (complete). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). 44 Agda modules total.
 
 ---
 
@@ -313,7 +308,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 41 of 44 Aletheia modules
+  - Used in 42 of 44 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification
