@@ -1,7 +1,7 @@
 # Aletheia Interface Guide
 
 **Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
-**Version**: 0.3.2
+**Version**: 1.0.0
 **Last Updated**: 2026-03-19
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,

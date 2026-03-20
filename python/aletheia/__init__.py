@@ -62,7 +62,7 @@ from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_te
 from .can_log import load_can_log, iter_can_log
 from .yaml_loader import load_checks
 
-__version__ = "0.3.2"
+__version__ = "1.0.0"
 __all__ = [
     # Client
     "AletheiaClient",

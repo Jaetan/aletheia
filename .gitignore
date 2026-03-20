@@ -41,6 +41,13 @@ build/
 
 # Claude Code
 .claude/
+.session-state.md
+
+# Coverage artifacts
+python/.coverage
+
+# Presentations (contain product-specific content)
+docs/presentation/
 
 # IDEs
 .vscode/

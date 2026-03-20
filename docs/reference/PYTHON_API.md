@@ -1,7 +1,7 @@
 # Aletheia Python DSL Guide
 
 **Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
-**Version**: 0.3.2
+**Version**: 1.0.0
 **Last Updated**: 2026-03-19
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the

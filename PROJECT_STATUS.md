@@ -13,7 +13,7 @@ Phases 1-4 complete. Phase 4 made Aletheia usable by non-developers
 
 **Status**: Phase 4 complete
 
-**Latest Release**: v0.3.2 (Phase 4 complete)
+**Latest Release**: v1.0.0 (Phase 4 complete)
 
 ---
 
