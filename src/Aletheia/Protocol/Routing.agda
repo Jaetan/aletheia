@@ -23,7 +23,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; _>>=ₑ_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; lookupString; lookupNat; lookupArray; getInt)
-open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
+open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
@@ -124,6 +124,10 @@ tryValidateDBC obj with lookupByKey "dbc" obj
 ... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
 ... | just dbc = inj₂ (ValidateDBC dbc)
 
+-- Parse FormatDBC command (no arguments needed)
+tryFormatDBC : List (String × JSON) → String ⊎ StreamCommand
+tryFormatDBC _ = inj₂ FormatDBC
+
 -- Dispatch table for command parsers
 commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
 commandDispatchTable =
@@ -135,6 +139,7 @@ commandDispatchTable =
   ("updateFrame" , tryUpdateFrame) ∷
   ("endStream" , tryEndStream) ∷
   ("validateDBC" , tryValidateDBC) ∷
+  ("formatDBC" , tryFormatDBC) ∷
   []
 
 -- Dispatch using table lookup
@@ -275,6 +280,11 @@ formatResponse (Complete results) =
   JObject (
     ("status" , JString "complete") ∷
     ("results" , JArray (map formatPropertyResult results)) ∷
+    [])
+formatResponse (DBCResponse dbcJSON) =
+  JObject (
+    ("status" , JString "success") ∷
+    ("dbc" , dbcJSON) ∷
     [])
 formatResponse (ValidationResponse issues) =
   JObject (

@@ -36,7 +36,8 @@ open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; 
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
 open import Data.Rational using (ℚ)
 open import Aletheia.LTL.JSON using (parseProperty)
-open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
+open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
+open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
@@ -403,6 +404,15 @@ handleValidateDBC-State dbcJSON state =
       (state , Response.ValidationResponse (validateDBCFull dbc))
 
 -- ============================================================================
+-- FORMAT DBC HANDLER (read-only, returns currently-loaded DBC as JSON)
+-- ============================================================================
+
+handleFormatDBC-State : StreamState → StreamState × Response
+handleFormatDBC-State state with StreamState.dbc state
+... | nothing  = (state , Response.Error "No DBC loaded")
+... | just dbc = (state , Response.DBCResponse (formatDBC dbc))
+
+-- ============================================================================
 -- STREAM COMMAND DISPATCHER
 -- ============================================================================
 
@@ -416,3 +426,4 @@ processStreamCommand (ExtractAllSignals canIdJSON bytes) state = handleExtractAl
 processStreamCommand (UpdateFrame canIdJSON bytes signalsJSON) state = handleUpdateFrame-State canIdJSON bytes signalsJSON state
 processStreamCommand EndStream state = handleEndStream-State state
 processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC-State dbcJSON state
+processStreamCommand FormatDBC state = handleFormatDBC-State state

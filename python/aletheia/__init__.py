@@ -60,6 +60,7 @@ from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
 from .can_log import load_can_log, iter_can_log
+from .dbc_converter import dbc_to_text
 from .yaml_loader import load_checks
 
 __version__ = "1.0.0"
@@ -81,6 +82,8 @@ __all__ = [
     # CAN log reader
     "load_can_log",
     "iter_can_log",
+    # DBC converter
+    "dbc_to_text",
     # YAML loader
     "load_checks",
     # DSL

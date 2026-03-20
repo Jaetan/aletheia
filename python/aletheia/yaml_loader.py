@@ -59,7 +59,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TypeGuard
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from .checks import Check, CheckResult
 from ._check_conditions import (
@@ -181,19 +181,16 @@ def _load_yaml(source: str | Path) -> object:
     """
     if isinstance(source, Path):
         with open(source, encoding="utf-8") as f:
-            return yaml.safe_load(f)  # type: ignore[no-any-return]
-
+            return yaml.safe_load(f)
     # String: detect whether it's a file path or inline YAML
     if "\n" in source or source.lstrip().startswith("checks:"):
-        return yaml.safe_load(source)  # type: ignore[no-any-return]
-
+        return yaml.safe_load(source)
     # Treat as file path
     path = Path(source)
     if not path.exists():
         raise FileNotFoundError(f"YAML file not found: {source}")
     with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)  # type: ignore[no-any-return]
-
+        return yaml.safe_load(f)
 
 def _parse_check(entry: dict[str, object]) -> CheckResult:
     """Parse a single check entry from the YAML."""

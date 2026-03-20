@@ -69,8 +69,6 @@ from ._check_conditions import (
     dispatch_when,
 )
 from .protocols import (
-    ByteOrder,
-    SignalPresence,
     DBCDefinition,
     DBCMessage,
     DBCSignal,
@@ -476,7 +474,7 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
 def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
     byte_order = _get_str(row, "Byte Order", row_num)
-    if byte_order not in (ByteOrder.LITTLE_ENDIAN, ByteOrder.BIG_ENDIAN):
+    if byte_order not in ("little_endian", "big_endian"):
         raise ValueError(
             f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
         )
@@ -516,7 +514,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
 
     always_signal: DBCSignalAlways = {
         **base_fields,  # type: ignore[typeddict-item]
-        "presence": SignalPresence.ALWAYS,
+        "presence": "always",
     }
     return always_signal
 

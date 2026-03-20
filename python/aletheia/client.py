@@ -39,10 +39,12 @@ import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, override, cast
+from typing import TYPE_CHECKING, Self, TypeGuard, override, cast
 
 from .protocols import (
     DBCDefinition,
+    DBCSignal,
+    DBCMessage,
     LTLFormula,
     Command,
     Response,
@@ -57,6 +59,7 @@ from .protocols import (
     UpdateFrameCommand,
     UpdateFrameResponse,
     ValidateDBCCommand,
+    FormatDBCCommand,
     SuccessResponse,
     CompleteResponse,
     AckResponse,
@@ -73,6 +76,33 @@ if TYPE_CHECKING:
     from .checks import CheckResult
 
 _MAX_EXTRACT_CACHE: int = 256
+
+
+def _is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
+    """Narrow ``object`` to ``dict[str, object]``.
+
+    JSON objects always have string keys, so ``isinstance(val, dict)``
+    is sufficient at runtime.  The TypeGuard tells basedpyright the
+    key/value types, avoiding ``dict[Unknown, Unknown]``.
+    """
+    return isinstance(val, dict)
+
+
+def _is_object_list(val: object) -> TypeGuard[list[object]]:
+    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``."""
+    return isinstance(val, list)
+
+
+def _parse_json_object(s: str) -> dict[str, object]:
+    """Parse a JSON string that is expected to be an object.
+
+    Wraps ``json.loads`` with validation and proper typing so
+    callers get ``dict[str, object]`` instead of ``dict[Unknown, Unknown]``.
+    """
+    parsed: object = json.loads(s)
+    if not _is_str_dict(parsed):
+        raise ProtocolError(f"Expected JSON object, got {type(parsed).__name__}")
+    return parsed
 
 class _RTSState:
     """Module-level GHC RTS management.
@@ -333,22 +363,18 @@ class AletheiaClient:
         finally:
             self._lib.aletheia_free_str(result_ptr)
 
-        parsed = json.loads(result_str)
-        if not isinstance(parsed, dict):
-            raise ProtocolError(f"Expected JSON object, got {type(parsed).__name__}")
-
-        return cast(Response, cast(object, parsed))
+        return cast(Response, _parse_json_object(result_str))
 
     @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field."""
         if isinstance(raw_value, int):
             return {"numerator": raw_value, "denominator": 1}
-        if not isinstance(raw_value, dict):
+        if not _is_str_dict(raw_value):
             raise ProtocolError(
                 f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
             )
-        value_dict = cast(dict[str, object], raw_value)
+        value_dict = raw_value
         numerator = value_dict.get("numerator")
         denominator = value_dict.get("denominator")
         if not isinstance(numerator, int):
@@ -364,7 +390,7 @@ class AletheiaClient:
         """Parse a value that may be a number, rational dict, or rational string."""
         if isinstance(value_raw, (int, float)):
             return float(value_raw)
-        if isinstance(value_raw, dict):
+        if _is_str_dict(value_raw):
             numerator = value_raw.get("numerator")
             denominator = value_raw.get("denominator")
             if isinstance(numerator, int) and isinstance(denominator, int):
@@ -393,8 +419,8 @@ class AletheiaClient:
             except ValueError:
                 pass
         raise ProtocolError(
-            "Expected signal value to be number, rational dict, or rational string, "
-            + f"got {type(value_raw).__name__}: {value_raw!r}"
+            "Expected signal value to be number, rational dict, "
+            + f"or rational string, got {type(value_raw).__name__}"
         )
 
     @staticmethod
@@ -409,7 +435,7 @@ class AletheiaClient:
         if "e" in s or "E" in s:
             raise ValueError(
                 f"Signal value {value} for '{name}' would be JSON-encoded as {s}; "
-                f"Agda's parser does not support scientific notation"
+                + f"Agda's parser does not support scientific notation"
             )
 
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
@@ -485,6 +511,87 @@ class AletheiaClient:
             raise ProtocolError(f"validateDBC failed: {message}")
 
         raise ProtocolError(f"Unexpected response status: {status}")
+
+    def format_dbc(self) -> DBCDefinition:
+        """Export the currently-loaded DBC as a JSON dict.
+
+        The DBC must have been loaded via ``parse_dbc()`` first.
+        Numeric fields are normalized to ``float`` so the result
+        matches the ``DBCDefinition`` schema exactly.
+
+        Returns:
+            DBC definition dict matching the ``DBCDefinition`` schema.
+
+        Raises:
+            ProtocolError: If no DBC is loaded or response is unexpected.
+        """
+        cmd: FormatDBCCommand = {
+            "type": "command",
+            "command": "formatDBC",
+        }
+        response = self._send_command(cmd)
+        status = response.get("status")
+
+        if status == "success":
+            dbc = response.get("dbc")
+            if not _is_str_dict(dbc):
+                raise ProtocolError("Expected 'dbc' field in formatDBC response")
+            return self._normalize_dbc(dbc)
+
+        if status == "error":
+            message = response.get("message", "Unknown error")
+            raise ProtocolError(f"formatDBC failed: {message}")
+
+        raise ProtocolError(f"Unexpected response status: {status}")
+
+    # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
+    _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
+
+    @classmethod
+    def _normalize_signal(cls, raw_sig: dict[str, object]) -> DBCSignal:
+        """Normalize a single Agda signal dict into a DBCSignal."""
+        sig: dict[str, object] = dict(raw_sig)
+        for field in cls._NUMERIC_SIGNAL_FIELDS:
+            if field in sig:
+                sig[field] = cls._parse_rational(sig[field])
+        return cast(DBCSignal, sig)
+
+    @classmethod
+    def _normalize_message(cls, raw_msg: dict[str, object]) -> DBCMessage:
+        """Normalize a single Agda message dict into a DBCMessage."""
+        raw_signals = raw_msg.get("signals")
+        if not _is_object_list(raw_signals):
+            raise ProtocolError("Expected 'signals' to be a list")
+        signals: list[DBCSignal] = []
+        for s in raw_signals:
+            if not _is_str_dict(s):
+                raise ProtocolError("Expected each signal to be a dict")
+            signals.append(cls._normalize_signal(s))
+        msg: dict[str, object] = dict(raw_msg)
+        msg["signals"] = signals
+        return cast(DBCMessage, msg)
+
+    @classmethod
+    def _normalize_dbc(cls, raw: dict[str, object]) -> DBCDefinition:
+        """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
+
+        Agda's ``formatRational`` encodes non-integer rationals as
+        ``{"numerator": n, "denominator": d}`` dicts. This method
+        converts those to ``float`` so the result matches the
+        ``DBCDefinition`` TypedDict (where numeric fields are ``float``).
+        """
+        raw_messages = raw.get("messages")
+        if not _is_object_list(raw_messages):
+            raise ProtocolError("Expected 'messages' to be a list")
+        messages: list[DBCMessage] = []
+        for m in raw_messages:
+            if not _is_str_dict(m):
+                raise ProtocolError("Expected each message to be a dict")
+            messages.append(cls._normalize_message(m))
+        return {
+            "version": str(raw.get("version", "")),
+            "messages": messages,
+        }
 
     def set_properties(self, properties: list[LTLFormula]) -> SuccessResponse | ErrorResponse:
         """Set LTL properties to check. Must be called before start_stream().
@@ -822,19 +929,19 @@ class AletheiaClient:
 
         # Parse response
         values_raw = response.get("values", [])
-        if not isinstance(values_raw, list):
+        if not _is_object_list(values_raw):
             raise ProtocolError("Expected 'values' to be a list")
-        values = self._parse_values_list(cast(list[object], values_raw))
+        values = self._parse_values_list(values_raw)
 
         errors_raw = response.get("errors", [])
-        if not isinstance(errors_raw, list):
+        if not _is_object_list(errors_raw):
             raise ProtocolError("Expected 'errors' to be a list")
-        errors = self._parse_errors_list(cast(list[object], errors_raw))
+        errors = self._parse_errors_list(errors_raw)
 
         absent_raw = response.get("absent", [])
-        if not isinstance(absent_raw, list):
+        if not _is_object_list(absent_raw):
             raise ProtocolError("Expected 'absent' to be a list")
-        absent = self._parse_absent_list(cast(list[object], absent_raw))
+        absent = self._parse_absent_list(absent_raw)
 
         return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
@@ -942,13 +1049,12 @@ class AletheiaClient:
         """Parse signal values list from response."""
         values: dict[str, float] = {}
         for item in values_data:
-            if not isinstance(item, dict):
+            if not _is_str_dict(item):
                 raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")
-            item_dict = cast(dict[str, object], item)
-            name_raw = item_dict.get("name")
+            name_raw = item.get("name")
             if not isinstance(name_raw, str):
                 raise ProtocolError(f"Expected signal name to be str, got {type(name_raw)}")
-            value_raw = item_dict.get("value")
+            value_raw = item.get("value")
             values[name_raw] = AletheiaClient._parse_rational(value_raw)
         return values
 
@@ -957,13 +1063,12 @@ class AletheiaClient:
         """Parse signal errors list from response."""
         errors: dict[str, str] = {}
         for item in errors_data:
-            if not isinstance(item, dict):
+            if not _is_str_dict(item):
                 raise ProtocolError(f"Expected error item to be dict, got {type(item)}")
-            item_dict = cast(dict[str, object], item)
-            name_raw = item_dict.get("name")
+            name_raw = item.get("name")
             if not isinstance(name_raw, str):
                 raise ProtocolError(f"Expected error signal name to be str, got {type(name_raw)}")
-            error_raw = item_dict.get("error")
+            error_raw = item.get("error")
             if not isinstance(error_raw, str):
                 raise ProtocolError(f"Expected error message to be str, got {type(error_raw)}")
             errors[name_raw] = error_raw

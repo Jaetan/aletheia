@@ -1,6 +1,6 @@
 """Type definitions for structured data
 
-Defines TypedDict classes and Enums for well-known structures.
+Defines TypedDict classes, Literal types, and Enums for well-known structures.
 This provides better type safety and IDE support.
 """
 
@@ -10,16 +10,9 @@ from enum import Enum
 from typing import TypedDict, NotRequired, Literal
 
 
-class ByteOrder(str, Enum):
-    """CAN signal byte order"""
-    LITTLE_ENDIAN = "little_endian"
-    BIG_ENDIAN = "big_endian"
+ByteOrder = Literal["little_endian", "big_endian"]
 
-
-class SignalPresence(str, Enum):
-    """Signal presence in CAN message"""
-    ALWAYS = "always"
-    # Multiplexed signals use dictionary format, not enum
+SignalPresence = Literal["always"]
 
 
 class IssueSeverity(str, Enum):
@@ -377,6 +370,12 @@ class ValidateDBCCommand(TypedDict):
     dbc: DBCDefinition
 
 
+class FormatDBCCommand(TypedDict):
+    """Format currently-loaded DBC back to JSON"""
+    type: Literal["command"]
+    command: Literal["formatDBC"]
+
+
 class DataFrame(TypedDict):
     """CAN data frame"""
     type: Literal["data"]
@@ -395,6 +394,7 @@ Command = (
     ExtractSignalsCommand |
     UpdateFrameCommand |
     ValidateDBCCommand |
+    FormatDBCCommand |
     DataFrame
 )
 
