@@ -7,15 +7,18 @@
 -- Approach: Congruence lemmas, structural induction, no character/integer decomposition.
 module Aletheia.Protocol.JSON.Properties where
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject)
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject; getNat; ℕtoℚ)
 open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
 open import Aletheia.Parser.Properties using (parser-deterministic)
 open import Data.Bool using (true)
 open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
+open import Data.Nat using (ℕ)
 open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ)
+open import Data.Nat.Divisibility using (1∣_; _∣?_)
+open import Data.Empty as Empty using ()
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
 open import Relation.Nullary using (yes; no)
@@ -65,6 +68,18 @@ lookupByKey-there : ∀ {A : Set} (key key' : String) (v : A) (rest : List (Stri
 lookupByKey-there {A} key key' v rest key≢key' with key' ≟ key
 lookupByKey-there {A} key key' v rest key≢key' | yes key'≡key = ⊥-elim (key≢key' (sym key'≡key))
 lookupByKey-there {A} key key' v rest key≢key' | no _ = refl
+
+-- ============================================================================
+-- ℕtoℚ / getNat BRIDGE
+-- ============================================================================
+
+-- getNat extracts the natural number from JNumber (ℕtoℚ n).
+-- The proof abstracts over the divisibility check (1 ∣? n) which doesn't reduce
+-- for variable n, but we know 1 ∣ n for all n.
+getNat-ℕtoℚ : (n : ℕ) → getNat (JNumber (ℕtoℚ n)) ≡ just n
+getNat-ℕtoℚ n with 1 ∣? n
+... | yes _ = refl
+... | no ¬1∣n = Empty.⊥-elim (¬1∣n (1∣ n))
 
 -- ============================================================================
 -- SCHEMA-SPECIFIC PROPERTIES

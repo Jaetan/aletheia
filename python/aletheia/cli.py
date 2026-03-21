@@ -26,7 +26,6 @@ from .client import AletheiaClient, AletheiaError, SignalExtractionResult
 from .dbc_converter import dbc_to_json
 from .excel_loader import load_checks_from_excel, load_dbc_from_excel
 from .protocols import (
-    ByteOrder,
     DBCDefinition,
     DBCMessage,
     DBCSignal,
@@ -191,7 +190,7 @@ def _format_signal_line(sig: DBCSignal) -> str:
     name = sig["name"]
     start = sig["startBit"]
     length = sig["length"]
-    order = "LE" if sig["byteOrder"] == ByteOrder.LITTLE_ENDIAN else "BE"
+    order = "LE" if sig["byteOrder"] == "little_endian" else "BE"
     sign = "signed" if sig["signed"] else "unsigned"
     factor = sig["factor"]
     offset = sig["offset"]

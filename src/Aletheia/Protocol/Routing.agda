@@ -15,15 +15,15 @@ open import Data.List using (List; []; _∷_; map)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
-open import Data.Rational using (ℚ; _/_)
+open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ; _%_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; _>>=ₑ_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; lookupString; lookupNat; lookupArray; getInt)
-open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC)
+open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; lookupString; lookupNat; lookupArray; getInt; ℕtoℚ)
+open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; Response; Success; Error; ByteArray; ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
@@ -124,6 +124,10 @@ tryValidateDBC obj with lookupByKey "dbc" obj
 ... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
 ... | just dbc = inj₂ (ValidateDBC dbc)
 
+-- Parse FormatDBC command (no arguments needed)
+tryFormatDBC : List (String × JSON) → String ⊎ StreamCommand
+tryFormatDBC _ = inj₂ FormatDBC
+
 -- Dispatch table for command parsers
 commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
 commandDispatchTable =
@@ -135,6 +139,7 @@ commandDispatchTable =
   ("updateFrame" , tryUpdateFrame) ∷
   ("endStream" , tryEndStream) ∷
   ("validateDBC" , tryValidateDBC) ∷
+  ("formatDBC" , tryFormatDBC) ∷
   []
 
 -- Dispatch using table lookup
@@ -203,7 +208,7 @@ parseRequest _ = nothing  -- Not a JSON object
 
 -- Convert Vec Byte 8 to JSON array
 bytesToJSON : Vec Byte 8 → JSON
-bytesToJSON bytes = JArray (map (λ n → JNumber ((Data.Integer.+ n) / 1)) (toList bytes))
+bytesToJSON bytes = JArray (map (λ n → JNumber (ℕtoℚ n)) (toList bytes))
 
 -- Format PropertyResult as JSON object
 formatPropertyResult : PropertyResult → JSON
@@ -211,15 +216,15 @@ formatPropertyResult (PropertyResult.Violation idx counterex) =
   JObject (
     ("type" , JString "property") ∷
     ("status" , JString "violation") ∷
-    ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
-    ("timestamp" , JNumber ((Data.Integer.+ (CounterexampleData.timestamp counterex)) / 1)) ∷
+    ("property_index" , JNumber (ℕtoℚ idx)) ∷
+    ("timestamp" , JNumber (ℕtoℚ (CounterexampleData.timestamp counterex))) ∷
     ("reason" , JString (CounterexampleData.reason counterex)) ∷
     [])
 formatPropertyResult (PropertyResult.Satisfaction idx) =
   JObject (
     ("type" , JString "property") ∷
     ("status" , JString "satisfaction") ∷
-    ("property_index" , JNumber ((Data.Integer.+ idx) / 1)) ∷
+    ("property_index" , JNumber (ℕtoℚ idx)) ∷
     [])
 formatPropertyResult PropertyResult.StreamComplete =
   JObject (
@@ -275,6 +280,11 @@ formatResponse (Complete results) =
   JObject (
     ("status" , JString "complete") ∷
     ("results" , JArray (map formatPropertyResult results)) ∷
+    [])
+formatResponse (DBCResponse dbcJSON) =
+  JObject (
+    ("status" , JString "success") ∷
+    ("dbc" , dbcJSON) ∷
     [])
 formatResponse (ValidationResponse issues) =
   JObject (

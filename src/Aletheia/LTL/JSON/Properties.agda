@@ -22,12 +22,12 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Relation.Nullary using (yes; no)
 open import Data.Empty using (⊥-elim)
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat; ℕtoℚ)
+open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
-open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields; ltlDepth; ℕtoℚ)
-open import Data.Nat.Divisibility using (1∣_; _∣?_)
+open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields; ltlDepth)
 
 -- ============================================================================
 -- RESET START TIME (normalize for roundtrip)
@@ -50,18 +50,6 @@ resetStart (LTL.MetricEventually n _ f) = LTL.MetricEventually n 0 (resetStart f
 resetStart (LTL.MetricAlways n _ f) = LTL.MetricAlways n 0 (resetStart f)
 resetStart (LTL.MetricUntil n _ f g) = LTL.MetricUntil n 0 (resetStart f) (resetStart g)
 resetStart (LTL.MetricRelease n _ f g) = LTL.MetricRelease n 0 (resetStart f) (resetStart g)
-
--- ============================================================================
--- HELPER: getNat on ℕtoℚ
--- ============================================================================
-
--- getNat extracts the natural number from JNumber (ℕtoℚ n).
--- The proof abstracts over the divisibility check (1 ∣? n) which doesn't reduce
--- for variable n, but we know 1 ∣ n for all n.
-getNat-ℕtoℚ : (n : ℕ) → getNat (JNumber (ℕtoℚ n)) ≡ just n
-getNat-ℕtoℚ n with 1 ∣? n
-... | yes _ = refl  -- divideInteger (+ n) 0 = + n, extractNat (just (+ n)) = just n
-... | no ¬1∣n = ⊥-elim (¬1∣n (1∣ n))
 
 -- ============================================================================
 -- SIGNAL PREDICATE ROUNDTRIP

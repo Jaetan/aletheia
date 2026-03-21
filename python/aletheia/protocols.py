@@ -1,25 +1,33 @@
 """Type definitions for structured data
 
-Defines TypedDict classes and Enums for well-known structures.
+Defines TypedDict classes, Literal types, and Enums for well-known structures.
 This provides better type safety and IDE support.
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import TypedDict, NotRequired, Literal
+from typing import TypedDict, TypeGuard, NotRequired, Literal
 
 
-class ByteOrder(str, Enum):
-    """CAN signal byte order"""
-    LITTLE_ENDIAN = "little_endian"
-    BIG_ENDIAN = "big_endian"
+def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
+    """Narrow ``object`` to ``dict[str, object]``.
+
+    JSON/YAML objects always have string keys, so ``isinstance(val, dict)``
+    is sufficient at runtime.  The TypeGuard tells basedpyright the
+    key/value types, avoiding ``dict[Unknown, Unknown]``.
+    """
+    return isinstance(val, dict)
 
 
-class SignalPresence(str, Enum):
-    """Signal presence in CAN message"""
-    ALWAYS = "always"
-    # Multiplexed signals use dictionary format, not enum
+def is_object_list(val: object) -> TypeGuard[list[object]]:
+    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``."""
+    return isinstance(val, list)
+
+
+ByteOrder = Literal["little_endian", "big_endian"]
+
+SignalPresence = Literal["always"]
 
 
 class IssueSeverity(str, Enum):
@@ -377,6 +385,12 @@ class ValidateDBCCommand(TypedDict):
     dbc: DBCDefinition
 
 
+class FormatDBCCommand(TypedDict):
+    """Format currently-loaded DBC back to JSON"""
+    type: Literal["command"]
+    command: Literal["formatDBC"]
+
+
 class DataFrame(TypedDict):
     """CAN data frame"""
     type: Literal["data"]
@@ -395,6 +409,7 @@ Command = (
     ExtractSignalsCommand |
     UpdateFrameCommand |
     ValidateDBCCommand |
+    FormatDBCCommand |
     DataFrame
 )
 
@@ -466,6 +481,12 @@ class UpdateFrameResponse(TypedDict):
     data: list[int]
 
 
+class FormatDBCResponse(TypedDict):
+    """Response from formatDBC command"""
+    status: Literal["success"]
+    dbc: DBCDefinition
+
+
 class ValidationIssue(TypedDict):
     """A single DBC validation issue"""
     severity: IssueSeverity
@@ -490,5 +511,6 @@ Response = (
     BuildFrameResponse |
     ExtractSignalsResponse |
     UpdateFrameResponse |
+    FormatDBCResponse |
     ValidationResponse
 )

@@ -125,7 +125,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "check-properties" $ do
         putInfo "Type-checking proof-only modules..."
         cores <- liftIO getNumProcessors
-        let rtsFlags = ["+RTS", "-N" ++ show cores, "-RTS"]
+        let rtsFlags = ["+RTS", "-N" ++ show cores, "-M4G", "-RTS"]
         let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
         -- Parser and protocol proofs
         agdaWithRTS "Aletheia/Parser/Properties.agda"
@@ -137,6 +137,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Properties.agda"
         -- DBC validator soundness/completeness (transitively checks all Validity submodules)
         agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
+        -- DBC formatter roundtrip proof (transitively checks all MessageRoundtrip submodules)
+        agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
         -- LTL proofs
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         -- LTL adequacy (transitively checks Semantics and Coalgebra proof content)

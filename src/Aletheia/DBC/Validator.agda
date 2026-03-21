@@ -72,6 +72,7 @@ open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; suc; pred; _/_)
 open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
+open import Aletheia.Protocol.JSON using (ℕtoℚ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
@@ -393,10 +394,6 @@ checkAllDLCOutOfRange = concatMap checkDLCOutOfRange
 -- Signed n-bit (two's complement): raw ∈ [−2^(n−1), 2^(n−1) − 1].
 -- If factor < 0 the physical range is inverted (physA > physB).
 -- Check: the physical range [physMin, physMax] must contain [declaredMin, declaredMax].
-
--- Embed ℕ into ℚ
-ℕtoℚ : ℕ → ℚ
-ℕtoℚ n = (+ n) /ᵣ 1
 
 -- Embed ℤ into ℚ
 ℤtoℚ : ℤ → ℚ

@@ -60,6 +60,9 @@ data StreamCommand : Set where
   -- Args: DBC JSON structure
   ValidateDBC : JSON → StreamCommand
 
+  -- Format the currently-loaded DBC back to JSON
+  FormatDBC : StreamCommand
+
 -- ============================================================================
 -- REQUEST TYPES
 -- ============================================================================
@@ -99,3 +102,6 @@ data Response : Set where
 
   -- Validation results from validateDBC command (read-only probe)
   ValidationResponse : List ValidationIssue → Response
+
+  -- Formatted DBC as JSON (for FormatDBC command)
+  DBCResponse : JSON → Response

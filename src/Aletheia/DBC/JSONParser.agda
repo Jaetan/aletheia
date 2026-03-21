@@ -78,46 +78,49 @@ parseSigned obj with lookupBool "signed" obj
     else if ⌊ signedStr ≟ "unsigned" ⌋ then inj₂ false
     else inj₁ ("invalid signed value '" ++ₛ signedStr ++ₛ "' (expected 'signed' or 'unsigned')")
 
+-- Context wrapper for signal parse errors (extracted from parseSignal where-block so proofs can case-split)
+private
+  addSignalContext : String → String ⊎ DBCSignal → String ⊎ DBCSignal
+  addSignalContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
+  addSignalContext _ (inj₂ x) = inj₂ x
+
+-- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split)
+parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
+parseSignalFields ctx name obj =
+  addSignalContext ctx (
+    require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
+    require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
+    require "byteOrder" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
+    parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
+    parseSigned obj >>=ₑ λ isSigned →
+    require "factor" (lookupRational "factor" obj) >>=ₑ λ factor →
+    require "offset" (lookupRational "offset" obj) >>=ₑ λ offset →
+    require "minimum" (lookupRational "minimum" obj) >>=ₑ λ minimum →
+    require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
+    require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
+    parseSignalPresence obj >>=ₑ λ presence →
+    inj₂ (record
+      { name = name
+      ; signalDef = record
+          { startBit = startBit % 64
+          ; bitLength = bitLength % 65
+          ; isSigned = isSigned
+          ; factor = factor
+          ; offset = offset
+          ; minimum = minimum
+          ; maximum = maximum
+          }
+      ; byteOrder = byteOrder
+      ; unit = unit
+      ; presence = presence
+      }))
+
 -- Parse a single signal from JSON object
 parseSignal : String → List (String × JSON) → String ⊎ DBCSignal
 parseSignal context obj =
   require "name" (lookupString "name" obj) >>=ₑ λ name →
   let ctx = context ++ₛ ", signal '" ++ₛ name ++ₛ "'"
   in parseSignalFields ctx name obj
-  where
-    addContext : String → String ⊎ DBCSignal → String ⊎ DBCSignal
-    addContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
-    addContext _ (inj₂ x) = inj₂ x
-
-    parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
-    parseSignalFields ctx name obj =
-      addContext ctx (
-        require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
-        require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
-        require "byteOrder" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
-        parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
-        parseSigned obj >>=ₑ λ isSigned →
-        require "factor" (lookupRational "factor" obj) >>=ₑ λ factor →
-        require "offset" (lookupRational "offset" obj) >>=ₑ λ offset →
-        require "minimum" (lookupRational "minimum" obj) >>=ₑ λ minimum →
-        require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
-        require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
-        parseSignalPresence obj >>=ₑ λ presence →
-        inj₂ (record
-          { name = name
-          ; signalDef = record
-              { startBit = startBit % 64
-              ; bitLength = bitLength % 65
-              ; isSigned = isSigned
-              ; factor = factor
-              ; offset = offset
-              ; minimum = minimum
-              ; maximum = maximum
-              }
-          ; byteOrder = byteOrder
-          ; unit = unit
-          ; presence = presence
-          }))
 
 -- Parse a list of signals from JSON array
 parseSignalList : String → List JSON → ℕ → String ⊎ (List DBCSignal)
@@ -142,30 +145,44 @@ parseCANId context rawId obj with lookupBool "extended" obj
                  then inj₂ (Standard (rawId % standard-can-id-max))
                  else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
 
+-- Stage 1: Parse id + CAN ID from message fields.
+-- Split out for compositional roundtrip proofs (keeps normalization bounded).
+parseMessageId : String → List (String × JSON) → String ⊎ CANId
+parseMessageId context obj =
+  require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
+  parseCANId context rawId obj
+
+-- Stage 2: Parse remaining message fields given a resolved CAN ID.
+-- Split out for compositional roundtrip proofs (keeps normalization bounded).
+parseMessageBody : String → String → CANId → List (String × JSON) → String ⊎ DBCMessage
+parseMessageBody context name canId obj =
+  require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
+  require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
+  require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
+  parseSignalList context signalsJSON 0 >>=ₑ λ signals →
+  if rawDlc ≤ᵇ 8
+    then inj₂ (record
+      { id = canId
+      ; name = name
+      ; dlc = rawDlc % 9
+      ; sender = sender
+      ; signals = signals
+      })
+    else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 8)")
+
+-- Compose stages into full message field parser.
+-- Exposed at top level for compositional roundtrip proofs.
+parseMessageFields : String → String → List (String × JSON) → String ⊎ DBCMessage
+parseMessageFields context name obj =
+  parseMessageId context obj >>=ₑ λ canId →
+  parseMessageBody context name canId obj
+
 -- Parse a single message from JSON object
 parseMessage : List (String × JSON) → String ⊎ DBCMessage
 parseMessage obj =
   require "name" (lookupString "name" obj) >>=ₑ λ name →
   let context = "message '" ++ₛ name ++ₛ "'"
   in parseMessageFields context name obj
-  where
-    parseMessageFields : String → String → List (String × JSON) → String ⊎ DBCMessage
-    parseMessageFields context name obj =
-      require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
-      parseCANId context rawId obj >>=ₑ λ msgId →
-      require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
-      require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
-      require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
-      parseSignalList context signalsJSON 0 >>=ₑ λ signals →
-      if rawDlc ≤ᵇ 8
-        then inj₂ (record
-          { id = msgId
-          ; name = name
-          ; dlc = rawDlc % 9
-          ; sender = sender
-          ; signals = signals
-          })
-        else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 8)")
 
 -- Parse a list of messages from JSON array
 parseMessageList : List JSON → ℕ → String ⊎ (List DBCMessage)
