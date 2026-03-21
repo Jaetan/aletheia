@@ -2,7 +2,7 @@
 
 -- Extended CAN ID message roundtrip proofs.
 -- Split from MessageRoundtrip to keep normalization bounded.
--- Uses cong instead of chained rewrite to avoid with-auxiliary duplication.
+-- Uses minimal rewrite + cong to avoid with-auxiliary duplication.
 module Aletheia.DBC.Formatter.MessageRoundtrip.Extended where
 
 open import Data.Nat using (ℕ; suc; _<_; _≤_; s≤s)

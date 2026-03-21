@@ -13,6 +13,7 @@ open import Data.List using (List)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Bool using (Bool; true; T)
 open import Data.Maybe using (just)
+open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
@@ -61,8 +62,6 @@ getNat-ℕtoJSON : ∀ n → getNat (ℕtoJSON n) ≡ just n
 getNat-ℕtoJSON = getNat-ℕtoℚ
 
 -- Byte order roundtrip: parse ∘ format = id
-open import Data.Sum using (_⊎_; inj₂)
-
 byteOrder-roundtrip : ∀ bo → parseByteOrder (formatByteOrder bo) ≡ inj₂ bo
 byteOrder-roundtrip LittleEndian = refl
 byteOrder-roundtrip BigEndian = refl
