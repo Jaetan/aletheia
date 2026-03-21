@@ -78,12 +78,12 @@ parseSigned obj with lookupBool "signed" obj
     else if ⌊ signedStr ≟ "unsigned" ⌋ then inj₂ false
     else inj₁ ("invalid signed value '" ++ₛ signedStr ++ₛ "' (expected 'signed' or 'unsigned')")
 
--- Context wrapper for signal parse errors (module-level for proof visibility)
+-- Context wrapper for signal parse errors (extracted from parseSignal where-block so proofs can case-split)
 addSignalContext : String → String ⊎ DBCSignal → String ⊎ DBCSignal
 addSignalContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
 addSignalContext _ (inj₂ x) = inj₂ x
 
--- Parse signal fields from JSON (module-level for proof visibility)
+-- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split)
 parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
 parseSignalFields ctx name obj =
   addSignalContext ctx (

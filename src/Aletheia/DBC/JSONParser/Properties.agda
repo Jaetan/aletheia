@@ -10,10 +10,8 @@
 -- Role: Completes the weak inverse pair together with Formatter.Properties.
 module Aletheia.DBC.JSONParser.Properties where
 
-open import Data.Nat using (ℕ)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (just; nothing)
-open import Data.Product using (_×_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 

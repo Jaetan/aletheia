@@ -54,6 +54,8 @@ parseCANId-wf ctx rawId obj canId eq
   with Data.Nat._<ᵇ_ rawId extended-can-id-max | eq
 ...   | true  | refl = wf-extended (m%n<n rawId extended-can-id-max)
 ...   | false | ()
+-- Note: just false / nothing cases are identical but can't be merged with _
+-- because Agda needs the concrete constructor to reduce parseCANId.
 parseCANId-wf ctx rawId obj canId eq
   | just false
   with Data.Nat._<ᵇ_ rawId standard-can-id-max | eq
