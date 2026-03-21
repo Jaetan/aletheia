@@ -14,7 +14,6 @@ open import Data.Nat.DivMod using (m%n<n)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
-open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool)
@@ -27,7 +26,7 @@ open import Aletheia.CAN.Endianness using (ByteOrder)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList;
   parseByteOrder; parseSigned; parseSignalPresence)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; WellFormedSignalDef)
+open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal)
 
 -- ============================================================================
 -- SIGNAL FIELDS WELL-FORMEDNESS

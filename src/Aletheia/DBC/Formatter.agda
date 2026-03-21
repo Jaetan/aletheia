@@ -10,7 +10,7 @@ module Aletheia.DBC.Formatter where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (Bool; true)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
