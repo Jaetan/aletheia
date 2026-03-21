@@ -10,6 +10,7 @@ dist-newstyle/
 
 # Haskell
 haskell-shim/MAlonzo
+src/MAlonzo/
 *.hi
 *.o
 *.dyn_hi

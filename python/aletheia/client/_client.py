@@ -1,47 +1,12 @@
-"""Aletheia Client
-
-Provides signal extraction, frame building, and streaming LTL checking
-via a shared library (FFI) that calls the formally verified Agda core.
-
-Example:
-    from aletheia import AletheiaClient, Signal
-    from aletheia.dbc_converter import dbc_to_json
-
-    dbc = dbc_to_json("vehicle.dbc")
-
-    with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-
-        # Signal operations work anytime after DBC is loaded
-        result = client.extract_signals(can_id=0x100, data=bytearray(8))
-        speed = result.get("VehicleSpeed", 0.0)
-
-        # Build a frame from signal values
-        frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 50.0})
-
-        # Streaming LTL checking
-        client.set_properties([Signal("VehicleSpeed").less_than(120).always().to_dict()])
-        client.start_stream()
-
-        for ts, can_id, data in frames:
-            # Can still use signal operations while streaming!
-            modified = client.update_frame(can_id, data, {"VehicleSpeed": 130.0})
-            response = client.send_frame(ts, can_id, modified)
-
-        client.end_stream()
-"""
+"""AletheiaClient — streaming LTL checking and signal operations via FFI."""
 
 from __future__ import annotations
 
 import ctypes
 import json
-import threading
-import warnings
-from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Self, TypeGuard, override, cast
+from typing import TYPE_CHECKING, Self, override, cast
 
-from .protocols import (
+from ..protocols import (
     DBCDefinition,
     DBCSignal,
     DBCMessage,
@@ -70,206 +35,22 @@ from .protocols import (
     ValidationResponse,
     RationalNumber,
     SignalValue,
+    is_str_dict,
+    is_object_list,
+)
+from ._ffi import parse_json_object, RTSState, find_ffi_library
+from ._types import (
+    AletheiaError,
+    ProcessError,
+    ProtocolError,
+    SignalExtractionResult,
+    CheckDiag,
+    ExtractionCache,
+    MAX_EXTRACT_CACHE,
 )
 
 if TYPE_CHECKING:
-    from .checks import CheckResult
-
-_MAX_EXTRACT_CACHE: int = 256
-
-
-def _is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow ``object`` to ``dict[str, object]``.
-
-    JSON objects always have string keys, so ``isinstance(val, dict)``
-    is sufficient at runtime.  The TypeGuard tells basedpyright the
-    key/value types, avoiding ``dict[Unknown, Unknown]``.
-    """
-    return isinstance(val, dict)
-
-
-def _is_object_list(val: object) -> TypeGuard[list[object]]:
-    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``."""
-    return isinstance(val, list)
-
-
-def _parse_json_object(s: str) -> dict[str, object]:
-    """Parse a JSON string that is expected to be an object.
-
-    Wraps ``json.loads`` with validation and proper typing so
-    callers get ``dict[str, object]`` instead of ``dict[Unknown, Unknown]``.
-    """
-    parsed: object = json.loads(s)
-    if not _is_str_dict(parsed):
-        raise ProtocolError(f"Expected JSON object, got {type(parsed).__name__}")
-    return parsed
-
-class _RTSState:
-    """Module-level GHC RTS management.
-
-    GHC RTS can only be initialized once per process.  We reference-count
-    clients so ``hs_init()`` is called on first use and the RTS stays
-    alive until process exit (GHC does not support reinitialization after
-    ``hs_exit()``).
-    """
-
-    lib: ctypes.CDLL | None = None
-    refcount: int = 0
-    initialized: bool = False
-    cores: int = 0
-    _lock: threading.Lock = threading.Lock()
-
-    @classmethod
-    def acquire(cls, lib: ctypes.CDLL, rts_cores: int = 1) -> None:
-        """Increment RTS reference count, initializing on first use.
-
-        Args:
-            lib: The loaded shared library.
-            rts_cores: Number of GHC RTS capabilities (``-N`` flag).
-                Use 1 (default) for single-bus monitoring.  Set to the
-                number of CAN buses for multi-bus monitoring from
-                separate Python threads.  Only takes effect on the first
-                ``AletheiaClient`` created in a process.
-        """
-        with cls._lock:
-            if not cls.initialized:
-                lib.hs_init.argtypes = [
-                    ctypes.POINTER(ctypes.c_int),
-                    ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
-                ]
-                lib.hs_init.restype = None
-                if rts_cores > 1:
-                    args = [b"aletheia", b"+RTS",
-                            b"-N" + str(rts_cores).encode(), b"-RTS"]
-                else:
-                    args = [b"aletheia"]
-                argc = ctypes.c_int(len(args))
-                argv = (ctypes.c_char_p * len(args))(*args)
-                argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
-                lib.hs_init(ctypes.byref(argc), ctypes.byref(argv_ptr))
-                cls.lib = lib
-                cls.cores = rts_cores
-                cls.initialized = True
-            elif rts_cores != cls.cores:
-                warnings.warn(
-                    f"GHC RTS already initialized with {cls.cores} core(s); "
-                    + f"ignoring rts_cores={rts_cores}. Set rts_cores on the "
-                    + "first AletheiaClient created in the process.",
-                    stacklevel=3,
-                )
-            cls.refcount += 1
-
-    @classmethod
-    def release(cls) -> None:
-        """Decrement RTS reference count."""
-        with cls._lock:
-            if cls.refcount > 0:
-                cls.refcount -= 1
-
-
-def _find_ffi_library() -> Path:
-    """Locate the libaletheia-ffi.so shared library.
-
-    Search order:
-    1. Install config (generated by 'cabal run shake -- install')
-    2. build/libaletheia-ffi.so (project root)
-    3. haskell-shim/dist-newstyle/**/libaletheia-ffi.so (Cabal build dir)
-
-    Returns:
-        Path to the shared library
-
-    Raises:
-        FileNotFoundError: If library not found
-    """
-    # Check install config (generated by 'cabal run shake -- install').
-    # Lazy import: _install_config.py is generated at install time and may not exist.
-    try:
-        from . import _install_config  # pylint: disable=import-outside-toplevel
-        if _install_config.LIBRARY_PATH.exists():
-            return _install_config.LIBRARY_PATH
-    except ImportError:
-        pass
-
-    module_dir = Path(__file__).parent
-    repo_root = module_dir.parent.parent
-
-    # Check project build dir first
-    build_path = repo_root / "build" / "libaletheia-ffi.so"
-    if build_path.exists():
-        return build_path
-
-    # Search Cabal dist-newstyle
-    cabal_dir = repo_root / "haskell-shim" / "dist-newstyle"
-    if cabal_dir.exists():
-        for so_file in cabal_dir.rglob("libaletheia-ffi.so"):
-            return so_file
-
-    raise FileNotFoundError(
-        "libaletheia-ffi.so not found. Build with: " +
-        "cabal run shake -- build"
-    )
-
-
-class AletheiaError(Exception):
-    """Base exception for all Aletheia errors"""
-
-
-class ProcessError(AletheiaError):
-    """FFI or shared library errors"""
-
-
-class ProtocolError(AletheiaError):
-    """Protocol-related errors (invalid JSON, missing response, etc.)"""
-
-
-class SignalExtractionResult:
-    """
-    Rich result object for signal extraction.
-
-    Partitions extraction results into three categories:
-    - values: Successfully extracted signal values
-    - errors: Extraction errors with reasons
-    - absent: Multiplexed signals not present in this frame
-    """
-
-    def __init__(
-        self,
-        values: dict[str, float],
-        errors: dict[str, str],
-        absent: list[str]
-    ):
-        self.values = values
-        self.errors = errors
-        self.absent = absent
-
-    def get(self, signal_name: str, default: float = 0.0) -> float:
-        """Get signal value with default fallback."""
-        return self.values.get(signal_name, default)
-
-    def has_errors(self) -> bool:
-        """Check if any extraction errors occurred."""
-        return bool(self.errors)
-
-    @override
-    def __repr__(self) -> str:
-        return (
-            "SignalExtractionResult("
-            f"values={len(self.values)}, "
-            f"errors={len(self.errors)}, "
-            f"absent={len(self.absent)})"
-        )
-
-
-# (can_id, raw_bytes) uniquely identifies a CAN frame for extraction caching.
-type FrameKey = tuple[int, bytes]
-type ExtractionCache = dict[FrameKey, SignalExtractionResult]
-
-
-@dataclass(slots=True)
-class _CheckDiag:
-    """Per-check diagnostic metadata for violation enrichment."""
-    signal_name: str
-    condition_desc: str
+    from ..checks import CheckResult
 
 
 class AletheiaClient:
@@ -284,6 +65,8 @@ class AletheiaClient:
        - extract_signals() - Extract all signals from a frame
        - update_frame() - Update specific signals in a frame
        - build_frame() - Build a frame from signal values
+       - format_dbc() - Export currently-loaded DBC as JSON
+       - validate_dbc() - Validate a DBC for structural issues
     3. Streaming LTL checking:
        - set_properties() - Set LTL properties (before streaming)
        - set_check_diagnostics() - Register check metadata for enrichment
@@ -301,14 +84,14 @@ class AletheiaClient:
     ) -> None:
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
-        self._diags: dict[int, _CheckDiag] = {}
+        self._diags: dict[int, CheckDiag] = {}
         self._signal_cache: ExtractionCache = {}
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
         self._rts_cores: int = rts_cores
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
-        lib_path = _find_ffi_library()
+        lib_path = find_ffi_library()
         self._lib = ctypes.CDLL(str(lib_path))
 
         # Set up function signatures
@@ -322,7 +105,7 @@ class AletheiaClient:
         self._lib.aletheia_close.restype = None
 
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
-        _RTSState.acquire(self._lib, self._rts_cores)
+        RTSState.acquire(self._lib, self._rts_cores)
 
         # Create Aletheia state
         self._state = ctypes.c_void_p(self._lib.aletheia_init())
@@ -336,7 +119,7 @@ class AletheiaClient:
             self._state = None
 
         if self._lib is not None:
-            _RTSState.release()
+            RTSState.release()
             self._lib = None
 
     def __exit__(
@@ -363,14 +146,14 @@ class AletheiaClient:
         finally:
             self._lib.aletheia_free_str(result_ptr)
 
-        return cast(Response, _parse_json_object(result_str))
+        return cast(Response, parse_json_object(result_str))
 
     @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field."""
         if isinstance(raw_value, int):
             return {"numerator": raw_value, "denominator": 1}
-        if not _is_str_dict(raw_value):
+        if not is_str_dict(raw_value):
             raise ProtocolError(
                 f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
             )
@@ -390,7 +173,7 @@ class AletheiaClient:
         """Parse a value that may be a number, rational dict, or rational string."""
         if isinstance(value_raw, (int, float)):
             return float(value_raw)
-        if _is_str_dict(value_raw):
+        if is_str_dict(value_raw):
             numerator = value_raw.get("numerator")
             denominator = value_raw.get("denominator")
             if isinstance(numerator, int) and isinstance(denominator, int):
@@ -435,7 +218,7 @@ class AletheiaClient:
         if "e" in s or "E" in s:
             raise ValueError(
                 f"Signal value {value} for '{name}' would be JSON-encoded as {s}; "
-                + f"Agda's parser does not support scientific notation"
+                + "Agda's parser does not support scientific notation"
             )
 
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
@@ -534,7 +317,7 @@ class AletheiaClient:
 
         if status == "success":
             dbc = response.get("dbc")
-            if not _is_str_dict(dbc):
+            if not is_str_dict(dbc):
                 raise ProtocolError("Expected 'dbc' field in formatDBC response")
             return self._normalize_dbc(dbc)
 
@@ -547,32 +330,32 @@ class AletheiaClient:
     # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
     _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
 
-    @classmethod
-    def _normalize_signal(cls, raw_sig: dict[str, object]) -> DBCSignal:
+    @staticmethod
+    def _normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
         """Normalize a single Agda signal dict into a DBCSignal."""
         sig: dict[str, object] = dict(raw_sig)
-        for field in cls._NUMERIC_SIGNAL_FIELDS:
+        for field in AletheiaClient._NUMERIC_SIGNAL_FIELDS:
             if field in sig:
-                sig[field] = cls._parse_rational(sig[field])
+                sig[field] = AletheiaClient._parse_rational(sig[field])
         return cast(DBCSignal, sig)
 
-    @classmethod
-    def _normalize_message(cls, raw_msg: dict[str, object]) -> DBCMessage:
+    @staticmethod
+    def _normalize_message(raw_msg: dict[str, object]) -> DBCMessage:
         """Normalize a single Agda message dict into a DBCMessage."""
         raw_signals = raw_msg.get("signals")
-        if not _is_object_list(raw_signals):
+        if not is_object_list(raw_signals):
             raise ProtocolError("Expected 'signals' to be a list")
         signals: list[DBCSignal] = []
         for s in raw_signals:
-            if not _is_str_dict(s):
+            if not is_str_dict(s):
                 raise ProtocolError("Expected each signal to be a dict")
-            signals.append(cls._normalize_signal(s))
+            signals.append(AletheiaClient._normalize_signal(s))
         msg: dict[str, object] = dict(raw_msg)
         msg["signals"] = signals
         return cast(DBCMessage, msg)
 
-    @classmethod
-    def _normalize_dbc(cls, raw: dict[str, object]) -> DBCDefinition:
+    @staticmethod
+    def _normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
         """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
 
         Agda's ``formatRational`` encodes non-integer rationals as
@@ -581,13 +364,13 @@ class AletheiaClient:
         ``DBCDefinition`` TypedDict (where numeric fields are ``float``).
         """
         raw_messages = raw.get("messages")
-        if not _is_object_list(raw_messages):
+        if not is_object_list(raw_messages):
             raise ProtocolError("Expected 'messages' to be a list")
         messages: list[DBCMessage] = []
         for m in raw_messages:
-            if not _is_str_dict(m):
+            if not is_str_dict(m):
                 raise ProtocolError("Expected each message to be a dict")
-            messages.append(cls._normalize_message(m))
+            messages.append(AletheiaClient._normalize_message(m))
         return {
             "version": str(raw.get("version", "")),
             "messages": messages,
@@ -625,7 +408,7 @@ class AletheiaClient:
             sig = check.signal_name
             cond = check.condition_desc
             if sig and cond:
-                self._diags[i] = _CheckDiag(signal_name=sig, condition_desc=cond)
+                self._diags[i] = CheckDiag(signal_name=sig, condition_desc=cond)
 
     def add_checks(
         self, checks: list[CheckResult],
@@ -684,9 +467,9 @@ class AletheiaClient:
 
         # Try to extract the actual signal value (cached, bounded).
         # Cache only successful extractions; failures fall back to Agda reason.
-        cache_key: FrameKey = (can_id, bytes(data))
+        cache_key: tuple[int, bytes] = (can_id, bytes(data))
         signals: SignalExtractionResult | None = self._signal_cache.get(cache_key)
-        if signals is None and len(self._signal_cache) < _MAX_EXTRACT_CACHE:
+        if signals is None and len(self._signal_cache) < MAX_EXTRACT_CACHE:
             try:
                 signals = self.extract_signals(can_id=can_id, data=data)
                 self._signal_cache[cache_key] = signals
@@ -929,17 +712,17 @@ class AletheiaClient:
 
         # Parse response
         values_raw = response.get("values", [])
-        if not _is_object_list(values_raw):
+        if not is_object_list(values_raw):
             raise ProtocolError("Expected 'values' to be a list")
         values = self._parse_values_list(values_raw)
 
         errors_raw = response.get("errors", [])
-        if not _is_object_list(errors_raw):
+        if not is_object_list(errors_raw):
             raise ProtocolError("Expected 'errors' to be a list")
         errors = self._parse_errors_list(errors_raw)
 
         absent_raw = response.get("absent", [])
-        if not _is_object_list(absent_raw):
+        if not is_object_list(absent_raw):
             raise ProtocolError("Expected 'absent' to be a list")
         absent = self._parse_absent_list(absent_raw)
 
@@ -1049,7 +832,7 @@ class AletheiaClient:
         """Parse signal values list from response."""
         values: dict[str, float] = {}
         for item in values_data:
-            if not _is_str_dict(item):
+            if not is_str_dict(item):
                 raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")
             name_raw = item.get("name")
             if not isinstance(name_raw, str):
@@ -1063,7 +846,7 @@ class AletheiaClient:
         """Parse signal errors list from response."""
         errors: dict[str, str] = {}
         for item in errors_data:
-            if not _is_str_dict(item):
+            if not is_str_dict(item):
                 raise ProtocolError(f"Expected error item to be dict, got {type(item)}")
             name_raw = item.get("name")
             if not isinstance(name_raw, str):

@@ -11,11 +11,9 @@ module Aletheia.DBC.Formatter where
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.Bool using (Bool; true; false)
-open import Data.Integer using (+_)
-open import Data.Rational using (ℚ; _/_)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray)
+open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
@@ -25,9 +23,8 @@ open import Aletheia.CAN.Frame using (CANId)
 -- HELPER: ℕ → JNumber
 -- ============================================================================
 
--- Convert ℕ to JNumber (same pattern as Protocol.Routing)
 ℕtoJSON : ℕ → JSON
-ℕtoJSON n = JNumber ((+ n) / 1)
+ℕtoJSON n = JNumber (ℕtoℚ n)
 
 -- ============================================================================
 -- FIELD FORMATTERS

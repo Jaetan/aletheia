@@ -142,30 +142,44 @@ parseCANId context rawId obj with lookupBool "extended" obj
                  then inj₂ (Standard (rawId % standard-can-id-max))
                  else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
 
+-- Stage 1: Parse id + CAN ID from message fields.
+-- Split out for compositional roundtrip proofs (keeps normalization bounded).
+parseMessageId : String → List (String × JSON) → String ⊎ CANId
+parseMessageId context obj =
+  require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
+  parseCANId context rawId obj
+
+-- Stage 2: Parse remaining message fields given a resolved CAN ID.
+-- Split out for compositional roundtrip proofs (keeps normalization bounded).
+parseMessageBody : String → String → CANId → List (String × JSON) → String ⊎ DBCMessage
+parseMessageBody context name canId obj =
+  require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
+  require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
+  require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
+  parseSignalList context signalsJSON 0 >>=ₑ λ signals →
+  if rawDlc ≤ᵇ 8
+    then inj₂ (record
+      { id = canId
+      ; name = name
+      ; dlc = rawDlc % 9
+      ; sender = sender
+      ; signals = signals
+      })
+    else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 8)")
+
+-- Compose stages into full message field parser.
+-- Exposed at top level for compositional roundtrip proofs.
+parseMessageFields : String → String → List (String × JSON) → String ⊎ DBCMessage
+parseMessageFields context name obj =
+  parseMessageId context obj >>=ₑ λ canId →
+  parseMessageBody context name canId obj
+
 -- Parse a single message from JSON object
 parseMessage : List (String × JSON) → String ⊎ DBCMessage
 parseMessage obj =
   require "name" (lookupString "name" obj) >>=ₑ λ name →
   let context = "message '" ++ₛ name ++ₛ "'"
   in parseMessageFields context name obj
-  where
-    parseMessageFields : String → String → List (String × JSON) → String ⊎ DBCMessage
-    parseMessageFields context name obj =
-      require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
-      parseCANId context rawId obj >>=ₑ λ msgId →
-      require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
-      require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
-      require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
-      parseSignalList context signalsJSON 0 >>=ₑ λ signals →
-      if rawDlc ≤ᵇ 8
-        then inj₂ (record
-          { id = msgId
-          ; name = name
-          ; dlc = rawDlc % 9
-          ; sender = sender
-          ; signals = signals
-          })
-        else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 8)")
 
 -- Parse a list of messages from JSON array
 parseMessageList : List JSON → ℕ → String ⊎ (List DBCMessage)

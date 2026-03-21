@@ -7,7 +7,22 @@ This provides better type safety and IDE support.
 from __future__ import annotations
 
 from enum import Enum
-from typing import TypedDict, NotRequired, Literal
+from typing import TypedDict, TypeGuard, NotRequired, Literal
+
+
+def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
+    """Narrow ``object`` to ``dict[str, object]``.
+
+    JSON/YAML objects always have string keys, so ``isinstance(val, dict)``
+    is sufficient at runtime.  The TypeGuard tells basedpyright the
+    key/value types, avoiding ``dict[Unknown, Unknown]``.
+    """
+    return isinstance(val, dict)
+
+
+def is_object_list(val: object) -> TypeGuard[list[object]]:
+    """Narrow ``object`` to ``list[object]``, avoiding ``list[Unknown]``."""
+    return isinstance(val, list)
 
 
 ByteOrder = Literal["little_endian", "big_endian"]
@@ -466,6 +481,12 @@ class UpdateFrameResponse(TypedDict):
     data: list[int]
 
 
+class FormatDBCResponse(TypedDict):
+    """Response from formatDBC command"""
+    status: Literal["success"]
+    dbc: DBCDefinition
+
+
 class ValidationIssue(TypedDict):
     """A single DBC validation issue"""
     severity: IssueSeverity
@@ -490,5 +511,6 @@ Response = (
     BuildFrameResponse |
     ExtractSignalsResponse |
     UpdateFrameResponse |
+    FormatDBCResponse |
     ValidationResponse
 )

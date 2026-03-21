@@ -9,6 +9,7 @@ Convert between .dbc files, JSON, and DBC text format.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import cast
 
@@ -20,6 +21,10 @@ from .protocols import (
     DBCMessage,
     DBCDefinition,
 )
+
+# CAN Extended Frame Format flag — bit 31 set to distinguish 29-bit extended
+# IDs from 11-bit standard IDs in .dbc file format.
+_CAN_EFF_FLAG = 0x80000000
 
 
 def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
@@ -111,7 +116,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 
 def _format_number(value: float) -> str:
     """Format a float for DBC output, using integer form when possible."""
-    if value == int(value):
+    if math.isfinite(value) and value == int(value):
         return str(int(value))
     return f"{value:.15g}"
 
@@ -140,10 +145,14 @@ def _signal_to_dbc_line(
     # Multiplexing indicator: M for multiplexor, m<val> for multiplexed
     mux_indicator = ""
     if "multiplexor" in signal:
-        mux_indicator = f" m{signal['multiplex_value']}"
+        mux_val = signal["multiplex_value"]
+        mux_indicator = f" m{mux_val}"
     elif mux_signal_names and name in mux_signal_names:
         mux_indicator = " M"
 
+    # Vector__XXX is the DBC convention for "no specific receiver node".
+    # Aletheia's signal model does not preserve receiver info from the original
+    # DBC, so all exported signals use this placeholder.
     return (
         f" SG_ {name}{mux_indicator} : "
         f"{start_bit}|{length}@{bo}{sign} "
@@ -181,7 +190,7 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
     # BU_ — collect unique senders from messages
     senders: list[str] = []
     seen_senders: set[str] = set()
-    for msg in dbc.get("messages", []):
+    for msg in dbc["messages"]:
         sender = msg.get("sender", "")
         if sender and sender not in seen_senders:
             senders.append(sender)
@@ -190,10 +199,10 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
     lines.append("")
 
     # Messages
-    for msg in dbc.get("messages", []):
+    for msg in dbc["messages"]:
         msg_id = msg["id"]
         if msg.get("extended"):
-            msg_id = msg_id | 0x80000000
+            msg_id = msg_id | _CAN_EFF_FLAG
         msg_name = msg["name"]
         dlc = msg["dlc"]
         sender = msg.get("sender", "")

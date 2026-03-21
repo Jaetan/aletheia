@@ -19,7 +19,8 @@ open import Data.Bool using (Bool; true; false; if_then_else_; not)
 open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣)
-open import Data.Rational as Rat using (ℚ; _/_; toℚᵘ; -_)
+open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ; -_)
+open import Data.Nat.Coprimality as Coprime using (sym; 1-coprimeTo)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Relation.Nullary using (yes; no)
@@ -77,7 +78,12 @@ getInt (JNumber r) = checkInteger (Rat.toℚᵘ r)
     ... | no _ = nothing
 getInt _ = nothing
 
--- Get natural number value from JSON (for array indices, etc.)
+-- Convert ℕ to ℚ using mkℚ directly (bypasses GCD normalization in _/_).
+-- This allows toℚᵘ to reduce by definition: toℚᵘ (mkℚ (+ n) 0 _) = mkℚᵘ (+ n) 0
+-- Critical for roundtrip proofs of metric operators and DBC formatter.
+ℕtoℚ : ℕ → ℚ
+ℕtoℚ n = mkℚ (+ n) 0 (Coprime.sym (1-coprimeTo n))
+
 -- Extract natural number from JSON (rational must be positive integer)
 getNat : JSON → Maybe ℕ
 getNat (JNumber r) = extractNat (getInt (JNumber r))

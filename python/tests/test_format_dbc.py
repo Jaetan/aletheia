@@ -172,7 +172,7 @@ class TestDBCToText:
             }],
         }
         text = dbc_to_text(dbc)
-        expected_id = 0x100 | 0x80000000
+        expected_id = 0x100 | 0x80000000  # CAN Extended Frame Format flag
         assert f"BO_ {expected_id} ExtMsg:" in text
 
     def test_multiplexor_m_indicator(self) -> None:

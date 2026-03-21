@@ -10,23 +10,10 @@ module Aletheia.LTL.JSON.Format where
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_)
 open import Data.Nat using (ℕ; suc; _⊔_)
-open import Data.Integer using (+_)
-open import Data.Rational using (ℚ; mkℚ)
-open import Data.Nat.Coprimality using (sym; 1-coprimeTo)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JNumber; JString; JObject)
+open import Aletheia.Protocol.JSON using (JSON; JNumber; JString; JObject; ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
-
--- ============================================================================
--- NATURAL TO RATIONAL (proof-friendly)
--- ============================================================================
-
--- Convert ℕ to ℚ using mkℚ directly (bypasses GCD normalization in _/_).
--- This allows toℚᵘ to reduce by definition: toℚᵘ (mkℚ (+ n) 0 _) = mkℚᵘ (+ n) 0
--- Critical for the roundtrip proofs of metric operators.
-ℕtoℚ : ℕ → ℚ
-ℕtoℚ n = mkℚ (+ n) 0 (sym (1-coprimeTo n))
 
 -- ============================================================================
 -- VALUE PREDICATE FORMATTER

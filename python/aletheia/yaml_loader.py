@@ -57,11 +57,11 @@ When/Then checks (causal)::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TypeGuard
 
 import yaml
 
 from .checks import Check, CheckResult
+from .protocols import is_str_dict, is_object_list
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -72,24 +72,6 @@ from ._check_conditions import (
     dispatch_simple,
     dispatch_when,
 )
-
-
-# ============================================================================
-# Type guards — runtime narrowing for YAML-parsed data
-# ============================================================================
-
-def _is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow an unknown value to ``dict[str, object]``.
-
-    YAML ``safe_load`` always produces dicts with string keys, so an
-    ``isinstance(val, dict)`` check is sufficient at runtime.
-    """
-    return isinstance(val, dict)
-
-
-def _is_object_list(val: object) -> TypeGuard[list[object]]:
-    """Narrow an unknown value to ``list[object]``."""
-    return isinstance(val, list)
 
 
 # ============================================================================
@@ -123,7 +105,7 @@ def _get_int(d: dict[str, object], key: str, check_name: str) -> int:
 def _get_dict(d: dict[str, object], key: str, check_name: str) -> dict[str, object]:
     """Extract a required dict field from a dict."""
     val = d.get(key)
-    if not _is_str_dict(val):
+    if not is_str_dict(val):
         raise ValueError(f"Check '{check_name}': missing or invalid '{key}' (expected mapping)")
     return val
 
@@ -155,16 +137,16 @@ def load_checks(source: str | Path) -> list[CheckResult]:
     """
     raw = _load_yaml(source)
 
-    if not _is_str_dict(raw) or "checks" not in raw:
+    if not is_str_dict(raw) or "checks" not in raw:
         raise ValueError("YAML must contain a 'checks' list")
 
     checks_raw = raw["checks"]
-    if not _is_object_list(checks_raw):
+    if not is_object_list(checks_raw):
         raise ValueError("YAML must contain a 'checks' list")
 
     results: list[CheckResult] = []
     for entry in checks_raw:
-        if not _is_str_dict(entry):
+        if not is_str_dict(entry):
             raise ValueError("Each check must be a YAML mapping")
         results.append(_parse_check(entry))
     return results
@@ -191,6 +173,7 @@ def _load_yaml(source: str | Path) -> object:
         raise FileNotFoundError(f"YAML file not found: {source}")
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
 
 def _parse_check(entry: dict[str, object]) -> CheckResult:
     """Parse a single check entry from the YAML."""

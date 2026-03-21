@@ -409,7 +409,7 @@ handleValidateDBC-State dbcJSON state =
 
 handleFormatDBC-State : StreamState → StreamState × Response
 handleFormatDBC-State state with StreamState.dbc state
-... | nothing  = (state , Response.Error "No DBC loaded")
+... | nothing  = (state , Response.Error "DBC not loaded")
 ... | just dbc = (state , Response.DBCResponse (formatDBC dbc))
 
 -- ============================================================================
