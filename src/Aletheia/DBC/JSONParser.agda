@@ -78,46 +78,48 @@ parseSigned obj with lookupBool "signed" obj
     else if ⌊ signedStr ≟ "unsigned" ⌋ then inj₂ false
     else inj₁ ("invalid signed value '" ++ₛ signedStr ++ₛ "' (expected 'signed' or 'unsigned')")
 
+-- Context wrapper for signal parse errors (module-level for proof visibility)
+addSignalContext : String → String ⊎ DBCSignal → String ⊎ DBCSignal
+addSignalContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
+addSignalContext _ (inj₂ x) = inj₂ x
+
+-- Parse signal fields from JSON (module-level for proof visibility)
+parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
+parseSignalFields ctx name obj =
+  addSignalContext ctx (
+    require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
+    require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
+    require "byteOrder" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
+    parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
+    parseSigned obj >>=ₑ λ isSigned →
+    require "factor" (lookupRational "factor" obj) >>=ₑ λ factor →
+    require "offset" (lookupRational "offset" obj) >>=ₑ λ offset →
+    require "minimum" (lookupRational "minimum" obj) >>=ₑ λ minimum →
+    require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
+    require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
+    parseSignalPresence obj >>=ₑ λ presence →
+    inj₂ (record
+      { name = name
+      ; signalDef = record
+          { startBit = startBit % 64
+          ; bitLength = bitLength % 65
+          ; isSigned = isSigned
+          ; factor = factor
+          ; offset = offset
+          ; minimum = minimum
+          ; maximum = maximum
+          }
+      ; byteOrder = byteOrder
+      ; unit = unit
+      ; presence = presence
+      }))
+
 -- Parse a single signal from JSON object
 parseSignal : String → List (String × JSON) → String ⊎ DBCSignal
 parseSignal context obj =
   require "name" (lookupString "name" obj) >>=ₑ λ name →
   let ctx = context ++ₛ ", signal '" ++ₛ name ++ₛ "'"
   in parseSignalFields ctx name obj
-  where
-    addContext : String → String ⊎ DBCSignal → String ⊎ DBCSignal
-    addContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
-    addContext _ (inj₂ x) = inj₂ x
-
-    parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
-    parseSignalFields ctx name obj =
-      addContext ctx (
-        require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
-        require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
-        require "byteOrder" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
-        parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
-        parseSigned obj >>=ₑ λ isSigned →
-        require "factor" (lookupRational "factor" obj) >>=ₑ λ factor →
-        require "offset" (lookupRational "offset" obj) >>=ₑ λ offset →
-        require "minimum" (lookupRational "minimum" obj) >>=ₑ λ minimum →
-        require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
-        require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
-        parseSignalPresence obj >>=ₑ λ presence →
-        inj₂ (record
-          { name = name
-          ; signalDef = record
-              { startBit = startBit % 64
-              ; bitLength = bitLength % 65
-              ; isSigned = isSigned
-              ; factor = factor
-              ; offset = offset
-              ; minimum = minimum
-              ; maximum = maximum
-              }
-          ; byteOrder = byteOrder
-          ; unit = unit
-          ; presence = presence
-          }))
 
 -- Parse a list of signals from JSON array
 parseSignalList : String → List JSON → ℕ → String ⊎ (List DBCSignal)
