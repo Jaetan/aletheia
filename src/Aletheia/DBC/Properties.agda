@@ -12,15 +12,18 @@ module Aletheia.DBC.Properties where
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; physicalBitPos; _≟-ByteOrder_)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; _+_) renaming (_≤_ to _≤ₙ_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<_) renaming (_≤_ to _≤ₙ_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Rational using (ℚ; _≤_)
-open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_; _≤?_ to _≤?ᵣ_)
+open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
+open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; cong)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
-open import Data.Product using (_×_; _,_)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Function using (case_of_)
 
@@ -38,6 +41,64 @@ open import Function using (case_of_)
 messageId-value : CANId → ℕ
 messageId-value (Standard x) = x
 messageId-value (Extended x) = x
+
+-- ============================================================================
+-- DECIDABLE EQUALITY FOR DBC TYPES
+-- ============================================================================
+
+-- Decidable equality for SignalPresence
+_≟-SignalPresence_ : (p₁ p₂ : SignalPresence) → Dec (p₁ ≡ p₂)
+Always     ≟-SignalPresence Always     = yes refl
+Always     ≟-SignalPresence When _ _   = no (λ ())
+When _ _   ≟-SignalPresence Always     = no (λ ())
+When m₁ v₁ ≟-SignalPresence When m₂ v₂ with m₁ ≟ₛ m₂ | v₁ ≟ₙ v₂
+... | yes refl | yes refl = yes refl
+... | no  m≢   | _        = no (λ { refl → m≢ refl })
+... | _        | no  v≢   = no (λ { refl → v≢ refl })
+
+-- Decidable equality for SignalDef (7 fields)
+_≟-SignalDef_ : (s₁ s₂ : SignalDef) → Dec (s₁ ≡ s₂)
+s₁ ≟-SignalDef s₂
+  with SignalDef.startBit s₁ ≟ₙ SignalDef.startBit s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.startBit eq))
+... | yes refl
+  with SignalDef.bitLength s₁ ≟ₙ SignalDef.bitLength s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.bitLength eq))
+... | yes refl
+  with SignalDef.isSigned s₁ ≟ᵇ SignalDef.isSigned s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.isSigned eq))
+... | yes refl
+  with SignalDef.factor s₁ ≟ᵣ SignalDef.factor s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.factor eq))
+... | yes refl
+  with SignalDef.offset s₁ ≟ᵣ SignalDef.offset s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.offset eq))
+... | yes refl
+  with SignalDef.minimum s₁ ≟ᵣ SignalDef.minimum s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.minimum eq))
+... | yes refl
+  with SignalDef.maximum s₁ ≟ᵣ SignalDef.maximum s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.maximum eq))
+... | yes refl = yes refl
+
+-- Decidable equality for DBCSignal (5 fields)
+_≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
+s₁ ≟-DBCSignal s₂
+  with DBCSignal.name s₁ ≟ₛ DBCSignal.name s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.name eq))
+... | yes refl
+  with DBCSignal.signalDef s₁ ≟-SignalDef DBCSignal.signalDef s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.signalDef eq))
+... | yes refl
+  with DBCSignal.byteOrder s₁ ≟-ByteOrder DBCSignal.byteOrder s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.byteOrder eq))
+... | yes refl
+  with DBCSignal.unit s₁ ≟ₛ DBCSignal.unit s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.unit eq))
+... | yes refl
+  with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.presence eq))
+... | yes refl = yes refl
 
 -- ============================================================================
 -- SIGNAL DISJOINTNESS
@@ -68,6 +129,64 @@ signalsDisjoint? sig₁ sig₂ =
          (no ¬q) → no (λ where
            (disjoint-left p) → ¬p p
            (disjoint-right q) → ¬q q)
+
+-- ============================================================================
+-- PHYSICAL DISJOINTNESS (for mixed byte order support)
+-- ============================================================================
+
+-- Two signals are physically disjoint if no physical bit positions overlap.
+-- This is the correct disjointness notion for mixed byte orders:
+-- LE signals use identity mapping, BE signals use byte-reversed mapping.
+PhysicallyDisjoint : DBCSignal → DBCSignal → Set
+PhysicallyDisjoint sig₁ sig₂ =
+  ∀ k₁ → k₁ < SignalDef.bitLength (DBCSignal.signalDef sig₁)
+  → ∀ k₂ → k₂ < SignalDef.bitLength (DBCSignal.signalDef sig₂)
+  → physicalBitPos (DBCSignal.byteOrder sig₁)
+      (SignalDef.startBit (DBCSignal.signalDef sig₁) + k₁)
+    ≢ physicalBitPos (DBCSignal.byteOrder sig₂)
+      (SignalDef.startBit (DBCSignal.signalDef sig₂) + k₂)
+
+-- Symmetry of physical disjointness
+physicallyDisjoint-sym : ∀ {sig₁ sig₂}
+  → PhysicallyDisjoint sig₁ sig₂ → PhysicallyDisjoint sig₂ sig₁
+physicallyDisjoint-sym pd k₂ k₂<l₂ k₁ k₁<l₁ eq = pd k₁ k₁<l₁ k₂ k₂<l₂ (sym eq)
+
+-- Decidable bounded universal quantifier
+private
+  allBounded : ∀ {P : ℕ → Set}
+    → (∀ k → Dec (P k))
+    → (n : ℕ)
+    → Dec (∀ k → k < n → P k)
+  allBounded _ zero = yes (λ _ ())
+  allBounded decide (suc n) with decide n | allBounded decide n
+  ... | no ¬pn | _ = no (λ f → ¬pn (f n (Data.Nat.Properties.≤-refl)))
+    where open import Data.Nat.Properties using (≤-refl)
+  ... | _ | no ¬rest = no (λ f → ¬rest (λ k k<n → f k (Data.Nat.Properties.m≤n⇒m≤1+n k<n)))
+    where open import Data.Nat.Properties using (m≤n⇒m≤1+n)
+  ... | yes pn | yes rest = yes lemma
+    where
+      open import Data.Nat using (z≤n; s≤s)
+      lemma : ∀ k → k < suc n → _
+      lemma k (s≤s k≤n) with k ≟ₙ n
+      ... | yes refl = pn
+      ... | no k≢n = rest k (Data.Nat.Properties.≤∧≢⇒< k≤n k≢n)
+        where open import Data.Nat.Properties using (≤∧≢⇒<)
+
+-- Decidable check for physical disjointness
+physicallyDisjoint? : (sig₁ sig₂ : DBCSignal) → Dec (PhysicallyDisjoint sig₁ sig₂)
+physicallyDisjoint? sig₁ sig₂ =
+  allBounded
+    (λ k₁ → allBounded
+      (λ k₂ → case physicalBitPos bo₁ (s₁ + k₁) ≟ₙ physicalBitPos bo₂ (s₂ + k₂) of λ where
+        (yes eq) → no (λ neq → neq eq)
+        (no neq) → yes neq)
+      l₂)
+    l₁
+  where
+    open SignalDef (DBCSignal.signalDef sig₁) renaming (startBit to s₁; bitLength to l₁)
+    open SignalDef (DBCSignal.signalDef sig₂) renaming (startBit to s₂; bitLength to l₂)
+    bo₁ = DBCSignal.byteOrder sig₁
+    bo₂ = DBCSignal.byteOrder sig₂
 
 -- ============================================================================
 -- SIGNAL COEXISTENCE (for multiplexed signals)
@@ -107,21 +226,21 @@ canCoexist? (When m₁ v₁) (When m₂ v₂) = helper (m₁ ≟ₛ m₂) (v₁ 
 -- ============================================================================
 
 -- A pair of signals is valid if:
--- Either they can't coexist (mutually exclusive), or they are disjoint
+-- Either they can't coexist (mutually exclusive), or they are physically disjoint
 data SignalPairValid (sig₁ sig₂ : DBCSignal) : Set where
   mutually-exclusive :
     ¬ CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
     → SignalPairValid sig₁ sig₂
   disjoint-when-coexist :
     CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-    → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+    → PhysicallyDisjoint sig₁ sig₂
     → SignalPairValid sig₁ sig₂
 
 -- Decidable check for signal pair validity
 signalPairValid? : (sig₁ sig₂ : DBCSignal) → Dec (SignalPairValid sig₁ sig₂)
 signalPairValid? sig₁ sig₂ with canCoexist? (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
 ... | no ¬coexist = yes (mutually-exclusive ¬coexist)
-... | yes coexist with signalsDisjoint? (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+... | yes coexist with physicallyDisjoint? sig₁ sig₂
 ...   | yes disj = yes (disjoint-when-coexist coexist disj)
 ...   | no ¬disj = no λ where
         (mutually-exclusive ¬coexist) → ¬coexist coexist
@@ -281,8 +400,8 @@ signalsDisjoint-sym (disjoint-right p) = disjoint-left p
 signalPairValid-sym : ∀ {sig₁ sig₂} → SignalPairValid sig₁ sig₂ → SignalPairValid sig₂ sig₁
 signalPairValid-sym (mutually-exclusive ¬coexist) =
   mutually-exclusive (λ coexist → ¬coexist (canCoexist-sym coexist))
-signalPairValid-sym (disjoint-when-coexist coexist disj) =
-  disjoint-when-coexist (canCoexist-sym coexist) (signalsDisjoint-sym disj)
+signalPairValid-sym {sig₁} {sig₂} (disjoint-when-coexist coexist disj) =
+  disjoint-when-coexist (canCoexist-sym coexist) (physicallyDisjoint-sym {sig₁} {sig₂} disj)
 
 -- Extract SignalPairValid from AllSignalPairsValid for any two distinct signals
 -- Uses direct pattern matching on membership proofs to determine ordering
@@ -313,11 +432,11 @@ lookupSignalPairValid {sig₁} {sig₂} allValid sig₁∈ sig₂∈ sig₁≢si
     -- Both point to head → contradiction with sig₁ ≢ sig₂
     extractHelper _ (here refl) (here refl) = ⊥-elim (sig₁≢sig₂ refl)
 
--- Extract SignalsDisjoint from SignalPairValid when signals can coexist
+-- Extract PhysicallyDisjoint from SignalPairValid when signals can coexist
 extractDisjointness : ∀ {sig₁ sig₂}
   → SignalPairValid sig₁ sig₂
   → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-  → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+  → PhysicallyDisjoint sig₁ sig₂
 extractDisjointness (mutually-exclusive ¬coexist) coexist = ⊥-elim (¬coexist coexist)
 extractDisjointness (disjoint-when-coexist _ disj) _ = disj
 
@@ -347,7 +466,7 @@ lookupDisjointFromDBC : ∀ {dbc msg sig₁ sig₂}
   → sig₂ ∈ DBCMessage.signals msg
   → sig₁ ≢ sig₂
   → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-  → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+  → PhysicallyDisjoint sig₁ sig₂
 lookupDisjointFromDBC dbcValid msg∈ sig₁∈ sig₂∈ sig≢ coexist =
   let msgValid = extractMessageValid dbcValid msg∈
       pairsValid = extractSignalPairs msgValid

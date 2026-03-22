@@ -17,10 +17,7 @@
 --  (e) Signal names are globally unique across messages (advisory).
 --  (f) For every signal, minimum ≤ maximum.
 --  (g) Every signal's bit range fits within its message's DLC × 8 bits.
---      - LE: startBit + bitLength ≤ dlc × 8.
---      - BE: the highest original byte (7 − startBit / 8) < dlc.
---        (Extraction reverses the payload, so reversed byte startBit/8
---         maps to original byte 7 − startBit/8.)
+--      startBit + bitLength ≤ dlc × 8 (byte-order independent).
 --  (h) Coexisting signals do not share bit positions (linear model).
 --  (i) No signal has bitLength = 0.
 --  (j) DLC ∈ [0, 8].
@@ -62,13 +59,12 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
 open import Data.Bool using (Bool; true; false)
-open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; suc; pred; _/_)
+open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; pred)
 open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
@@ -269,29 +265,14 @@ checkAllMinMax (msg ∷ rest) =
 -- CHECK 8: SIGNAL EXCEEDS DLC
 -- ============================================================================
 
-checkSignalExceedsDLC-LE : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC-LE msgName dlc sig
-  with SignalDef.startBit (DBCSignal.signalDef sig) + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes _ = []
-... | no  _ = mkIssue IsError SignalExceedsDLC
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit range exceeds DLC") ∷ []
-
--- Big-endian extraction does swapBytes (reverse) then extractBits at startBit.
--- Reversed byte startBit/8 maps to original byte 7 - startBit/8.
--- The highest original byte accessed is 7 - startBit/8; must be < dlc.
-checkSignalExceedsDLC-BE : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC-BE msgName dlc sig
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
-... | yes _ = []
-... | no  _ = mkIssue IsError SignalExceedsDLC
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit range exceeds DLC") ∷ []
-
 checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC msgName dlc sig with DBCSignal.byteOrder sig
-... | LittleEndian = checkSignalExceedsDLC-LE msgName dlc sig
-... | BigEndian    = checkSignalExceedsDLC-BE msgName dlc sig
+checkSignalExceedsDLC msgName dlc sig
+  with SignalDef.startBit (DBCSignal.signalDef sig)
+     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+... | yes _ = []
+... | no  _ = mkIssue IsError SignalExceedsDLC
+                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                 ++ₛ "': bit range exceeds DLC") ∷ []
 
 checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
 checkAllSignalExceedsDLC [] = []

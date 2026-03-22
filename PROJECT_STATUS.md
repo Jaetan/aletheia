@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-03-21
 
 ---
 
@@ -275,18 +275,31 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Scope**: Features driven by user feedback and real-world needs
 
+**Delivered**:
+- ✅ DBC pretty-printer with format→parse roundtrip proofs (7 commits, +1,834/-393 lines)
+- ✅ Encode/decode batch roundtrip proofs: `injectAll-roundtrip` proves that after `injectAll`, extracting any injected signal returns its value. Bridge lemmas (`roundtrip-unsigned→IR`, `roundtrip-signed→IR`) connect single-signal roundtrips to the batch predicate. Dead commutativity proofs (~200 lines) removed from `Encoding/Properties.agda`.
+- ✅ Decidable precondition helpers for capstone theorem: decidable equality chain (`_≟-SignalPresence_`, `_≟-SignalDef_`, `_≟-DBCSignal_` in `DBC/Properties.agda`) and decidable checkers (`allAlwaysPresent?`, `allFromMessage?`, `pairsDistinct?` in `CAN/Batch/Properties.agda`). Users can now compute the 3 structural preconditions of `validDBC-roundtrip` automatically.
+- ✅ Decidable value representability: `Representable` predicate with decidable checker `representable?` and bridge lemma `allRepresentable→allRoundtrip` (~120 lines in `CAN/Batch/Properties.agda`). Decides whether each (signal, value) pair is exactly representable, then derives `AllRoundtrip` from `ValidDBC`. Last non-decidable capstone precondition now decidable.
+- ✅ extractAllSignals completeness proof: `extractAll-complete` proves `totalEntries (extractAllSignalsFromMessage dbc frame msg) ≡ length (DBCMessage.signals msg)` (~40 lines in `CAN/Batch/Properties.agda`). Every signal produces exactly one entry across the three result partitions (values, errors, absent). Proof by foldr induction with `with`-decomposition of the recursive accumulator.
+- ✅ Mixed byte-order injection commutativity: `injectPayload-commute-mixed` proves disjoint `injectPayload` calls commute for all 4 byte-order combinations (~278 lines in `CAN/Endianness.agda`). 4-layer proof: swap-conjugation converts cross-BO operations to `applyWrites` at physical positions, then existing `applyWrites-comm` handles commutativity. Layered architecture: concrete Vec Byte 8 → single BitWrite → write list → AllDiffPos structural conversion → 4-case dispatch.
+
+**Proof landscape** (assessed 2026-03-22):
+- **E** ~~`allRoundtrip?` decidable checker~~ — ✅ Done: `Representable`, `representable?`, `allRepresentable→allRoundtrip` (~120 lines).
+- **C** ~~extractAllSignals completeness~~ — ✅ Done: `totalEntries`, `extractAll-complete` (~40 lines).
+- **B** ~~Injection order commutativity for mixed byte orders~~ — ✅ Done: `injectPayload-commute-mixed` (~278 lines in `CAN/Endianness.agda`). Proves disjoint injections commute for all 4 BO combinations via swap-conjugation + `applyWrites-comm`.
+- **D** Design-choice deferrals: CAN-FD, binary FFI protocol, Ethernet transport. Research items.
+
 **Planned**:
-- Value tables and enumerations
-- DBC pretty-printer
-- Additional validation rules
 - CAN format converters (BLF, ASC, MF4)
 - Frame injection utilities
 
 **Research needed**:
-- Mixed byte order signals: Investigate prevalence of signals with different byte orders (Intel/Motorola) within the same CAN message, based on publicly available DBC files. Current batch proofs assume same byte order; mixed byte orders require different disjointness semantics due to DBC start bit conventions (LSB for Intel, MSB for Motorola).
-- Per-field endianness: Investigate supporting fields with different endianness within the same DBC. Real-world DBC files can mix Intel (little-endian) and Motorola (big-endian) signals in a single message. This requires extending the encoding layer to handle per-signal byte order rather than per-message.
+- Mixed byte order signals: ✅ RESOLVED — `PhysicallyDisjoint` checks physical bit positions, handling LE/BE signal pairs correctly. All batch proofs (`single-inject-preserves`, `injectAll-preserves-disjoint`, `injectAll-roundtrip`) support arbitrary byte order combinations. Only injection order commutativity remains (see Planned above).
+- CAN-FD: Extend frame model from fixed 8-byte CAN 2.0B to variable-length CAN-FD (up to 64 bytes). Affects `Frame.agda` (payload type), `DBC/Types.agda` (DLC range), `Validity.agda` (bounds checks), encoding proofs, and the FFI layer. Currently deferred — noted in `Frame.agda`, `Validity.agda`, and `DESIGN.md`.
+- Binary FFI protocol: Replace JSON string serialization at the ctypes boundary with a binary format (e.g., flat structs or MessagePack). Current protocol serializes/deserializes JSON on every `aletheia_process()` call. At 9,700 fps the JSON overhead is not yet the bottleneck, but a binary protocol would reduce allocation pressure and enable zero-copy frame data passing. Requires changes to `Protocol/JSON.agda`, `AletheiaFFI.hs`, and `client.py`.
+- Ethernet as CAN transport: Investigate CAN-over-Ethernet encapsulations (DoIP/ISO 13400, XCP-on-Ethernet, SOME/IP, CAN-to-Ethernet gateways). Modern vehicle architectures use Ethernet backbones with CAN segments bridged via gateways. Supporting Ethernet capture (PCAP/PcapNG with DoIP or raw CAN-over-UDP dissection) would let Aletheia monitor CAN traffic captured at the Ethernet level without requiring a physical CAN interface.
 
-**Status**: Not started
+**Status**: In progress (DBC pretty-printer complete)
 
 ---
 
@@ -324,7 +337,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - Update docs (PYTHON_API.md, CLI.md) for new features.
 
 **Future**:
-- Phase 5: Optional extensions (value tables, format converters, CAN-FD)
+- Phase 5: Optional extensions (format converters, CAN-FD)
 
 ---
 
