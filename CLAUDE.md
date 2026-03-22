@@ -120,6 +120,9 @@ cd python && basedpyright aletheia/
 
 # Run linting (MUST run from python/ directory)
 cd python && pylint aletheia/
+
+# Build and test C++ binding
+cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 ```
 
 ## Architecture (Three-Layer Design)
@@ -175,6 +178,7 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 - **haskell-shim/aletheia.cabal**: Haskell package definition (includes `foreign-library aletheia-ffi`)
 - **haskell-shim/src/AletheiaFFI.hs**: FFI exports for Python ctypes integration
 - **python/pyproject.toml**: Python package configuration
+- **cpp/CMakeLists.txt**: C++23 binding build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
 
 ## Requirements
 
@@ -211,6 +215,26 @@ cabal run shake -- build
 See [BUILDING.md](docs/development/BUILDING.md#2-set-up-python-virtual-environment) for Python virtual environment setup.
 
 Quick reference: Create with `python3 -m venv .venv`, activate with `source .venv/bin/activate`
+
+### C++ Binding
+
+The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
+- **9 public headers** in `include/aletheia/`: `client.hpp`, `types.hpp`, `can_types.hpp`, `dbc_types.hpp`, `validation.hpp`, `error.hpp`, `stream_types.hpp`, `backend.hpp`, `detail/json.hpp`
+- **5 source files** in `src/`: `client.cpp`, `ffi_backend.cpp`, `mock_backend.cpp`, `json_serialize.cpp`, `json_parse.cpp`
+- **3 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2)
+- **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
+- **Build**: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
+- **Style**: `.clang-format` + `.clang-tidy` enforce naming/formatting; C++23, targets g++>=14 and clang>=21
+
+### Go Binding
+
+The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
+- **11 source files** in `go/aletheia/`: `client.go`, `backend.go`, `ffi.go`, `mock.go`, `json.go`, `types.go`, `dbc.go`, `ltl.go`, `result.go`, `error.go`, `doc.go`
+- **1 test file**: `client_test.go` (29 tests, mock backend)
+- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[8]byte` payload, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
+- **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned (`LockOSThread`)
+- **Build/test**: `cd go && go test ./aletheia/ -v -count=1 -race`
+- **Style**: `gofmt` + `go vet` clean; godoc on all exports
 
 ### Haskell FFI Layer
 
@@ -275,7 +299,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). 44 Agda modules total.
+**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (53 tests, 5-round review). 44 Agda modules total.
 
 ---
 
@@ -345,6 +369,17 @@ Types can depend on values:
 **Haskell:**
 - Style: Follow standard Haskell style
 - Keep it minimal: Haskell shim should stay <100 lines
+
+**C++:**
+- Standard: C++23, targets g++>=14 and clang>=21
+- Style: `.clang-format` and `.clang-tidy` in `cpp/`
+- Use `#pragma once` (not `#ifndef` guards)
+
+**Go:**
+- Style: `gofmt` (non-negotiable), `go vet` clean
+- Godoc: One-line comment on all exported types, functions, constants
+- Naming: Go MixedCaps, keep `CanID`/`Dbc` prefix for readability (deliberate acronym casing choice)
+- Tests: `cd go && go test ./aletheia/ -v -count=1 -race`
 
 **Python:**
 - Style: PEP 8

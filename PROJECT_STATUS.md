@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-21
+**Last Updated**: 2026-03-22
 
 ---
 
@@ -282,6 +282,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - ✅ Decidable value representability: `Representable` predicate with decidable checker `representable?` and bridge lemma `allRepresentable→allRoundtrip` (~120 lines in `CAN/Batch/Properties.agda`). Decides whether each (signal, value) pair is exactly representable, then derives `AllRoundtrip` from `ValidDBC`. Last non-decidable capstone precondition now decidable.
 - ✅ extractAllSignals completeness proof: `extractAll-complete` proves `totalEntries (extractAllSignalsFromMessage dbc frame msg) ≡ length (DBCMessage.signals msg)` (~40 lines in `CAN/Batch/Properties.agda`). Every signal produces exactly one entry across the three result partitions (values, errors, absent). Proof by foldr induction with `with`-decomposition of the recursive accumulator.
 - ✅ Mixed byte-order injection commutativity: `injectPayload-commute-mixed` proves disjoint `injectPayload` calls commute for all 4 byte-order combinations (~278 lines in `CAN/Endianness.agda`). 4-layer proof: swap-conjugation converts cross-BO operations to `applyWrites` at physical positions, then existing `applyWrites-comm` handles commutativity. Layered architecture: concrete Vec Byte 8 → single BitWrite → write list → AllDiffPos structural conversion → 4-case dispatch.
+
+- ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc.), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. 53 test cases, 207 assertions across 3 layers (static compile-time, unit with mock, integration with threads). 5 rounds of 18-category code review — all categories pass, 0 clang-tidy warnings. CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
+
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[8]byte` payload, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. 11 source files, 29 tests (all pass with `-race`). 1 round of 18-category code review — H1-H7 + M1-M9 fixes applied, L1-L12 deferred.
 
 **Planned / Research**:
 - CAN format converters (BLF, ASC, MF4)
