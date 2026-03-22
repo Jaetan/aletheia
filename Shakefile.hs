@@ -145,6 +145,56 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
         putInfo "All proof modules type-checked successfully!"
 
+    phony "dist" $ do
+        need ["build/libaletheia-ffi.so"]
+
+        let distDir = "dist/aletheia"
+        let distLib = distDir </> "lib"
+        let distInclude = distDir </> "include"
+
+        -- Clean previous dist
+        liftIO $ removePathForcibly distDir
+        liftIO $ createDirectoryIfMissing True distLib
+        liftIO $ createDirectoryIfMissing True distInclude
+
+        -- Copy main .so and GHC runtime dependencies
+        putInfo "Packaging distribution..."
+        cmd_ "cp" "build/libaletheia-ffi.so" distLib
+        ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
+        forM_ ghcDeps $ \dep ->
+            cmd_ "cp" "-L" dep distLib
+
+        -- Patch RUNPATH so all .so files find each other via $ORIGIN
+        Exit patchelfCode <- cmd Shell "command -v patchelf >/dev/null 2>&1"
+        case patchelfCode of
+            ExitSuccess -> do
+                Stdout soFiles <- cmd Shell ("find " ++ distLib ++ " -name '*.so*' -type f")
+                forM_ (filter (not . null) (lines soFiles)) $ \f ->
+                    cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
+            ExitFailure _ ->
+                putWarn "patchelf not found — skipping RPATH patching. Set LD_LIBRARY_PATH at runtime."
+
+        -- Copy C header
+        cmd_ "cp" "include/aletheia.h" distInclude
+
+        -- Count files and total size
+        Stdout distSize <- cmd Shell ("du -sh " ++ distDir ++ " | cut -f1")
+        let nDeps = length ghcDeps
+        putInfo ""
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo "  Distribution packaged: dist/aletheia/"
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo ""
+        putInfo $ "  lib/libaletheia-ffi.so  (main library)"
+        putInfo $ "  lib/libHS*.so           (" ++ show nDeps ++ " GHC runtime dependencies)"
+        putInfo $ "  include/aletheia.h      (C header)"
+        putInfo $ "  Total size: " ++ strip distSize
+        putInfo ""
+        putInfo "  Usage:"
+        putInfo "    gcc -Idist/aletheia/include -Ldist/aletheia/lib -laletheia-ffi"
+        putInfo "    LD_LIBRARY_PATH=dist/aletheia/lib ./your_program"
+        putInfo ""
+
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
         cmd_ (Cwd "python") "pip3 install -e ."
@@ -212,7 +262,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
         -- Delete intermediate build artifacts to force relink
         putInfo "Cleaning Cabal build artifacts..."
-        cmd_ (Cwd "haskell-shim") "rm" "-rf" "dist-newstyle/build/x86_64-linux/ghc-9.6.7/aletheia-0.3.0.0/f/aletheia-ffi"
+        cmd_ (Cwd "haskell-shim") Shell "rm -rf dist-newstyle/build/x86_64-linux/ghc-9.6.7/aletheia-*/f/aletheia-ffi"
 
         putInfo "Building FFI shared library..."
         cmd_ (Cwd "haskell-shim") "cabal" "build" "-j" "aletheia-ffi"
@@ -261,17 +311,25 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "Copying shared library..."
         cmd_ "cp" "build/libaletheia-ffi.so" libDir
 
-        -- Bundle GHC runtime dependencies
-        putInfo "Bundling GHC runtime libraries..."
+        -- Bundle GHC runtime dependencies (only if not standalone)
         ghcDeps <- getGhcDeps "build/libaletheia-ffi.so"
-        forM_ ghcDeps $ \dep ->
-            cmd_ "cp" "-L" dep libDir
+        if null ghcDeps
+            then putInfo "Standalone .so detected — no GHC libraries to bundle."
+            else do
+                putInfo "Bundling GHC runtime libraries..."
+                forM_ ghcDeps $ \dep ->
+                    cmd_ "cp" "-L" dep libDir
+                -- Patch RUNPATH on all .so files so they find each other via $ORIGIN
+                putInfo "Patching RUNPATH on shared libraries..."
+                Stdout soFiles <- cmd Shell ("find " ++ libDir ++ " -name '*.so*' -type f")
+                forM_ (filter (not . null) (lines soFiles)) $ \f ->
+                    cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
 
-        -- Patch RUNPATH on all .so files so they find each other via $ORIGIN
-        putInfo "Patching RUNPATH on shared libraries..."
-        Stdout soFiles <- cmd Shell ("find " ++ libDir ++ " -name '*.so*' -type f")
-        forM_ (filter (not . null) (lines soFiles)) $ \f ->
-            cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
+        -- Copy C header
+        let includeDir = prefix </> "include" </> "aletheia"
+        liftIO $ createDirectoryIfMissing True includeDir
+        putInfo "Copying C header..."
+        cmd_ "cp" "include/aletheia.h" includeDir
 
         -- Create Python venv
         putInfo "Creating Python virtual environment..."
