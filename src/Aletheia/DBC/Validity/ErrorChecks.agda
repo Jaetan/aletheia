@@ -7,17 +7,16 @@
 module Aletheia.DBC.Validity.ErrorChecks where
 
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Validator using (checkBitLengthZero; checkAllBitLengthZero; checkFactorZeroSig; checkAllFactorZero; checkDLCOutOfRange; checkAllDLCOutOfRange; checkSignalExceedsDLC-LE; checkSignalExceedsDLC-BE; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; findSignalPresence; _≟-CANId_)
-open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrameLE; BitsInFrameBE; BitsInFrame; MuxResolvable; MuxIsAlways)
+open import Aletheia.DBC.Validator using (checkBitLengthZero; checkAllBitLengthZero; checkFactorZeroSig; checkAllFactorZero; checkDLCOutOfRange; checkAllDLCOutOfRange; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; findSignalPresence; _≟-CANId_)
+open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete)
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.Nat using (ℕ; _+_; _*_; _∸_; suc; _/_)
+open import Data.Nat using (ℕ; _+_; _*_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
@@ -136,53 +135,23 @@ checkAllDLCOutOfRange-complete msgs pf =
 -- CHECK 8: SIGNAL EXCEEDS DLC
 -- ============================================================================
 
-checkSignalExceedsDLC-LE-sound : ∀ msgName dlc sig →
-  checkSignalExceedsDLC-LE msgName dlc sig ≡ [] →
-  BitsInFrameLE dlc (DBCSignal.signalDef sig)
-checkSignalExceedsDLC-LE-sound msgName dlc sig eq
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes p = p
-checkSignalExceedsDLC-LE-sound _ _ _ () | no _
-
-checkSignalExceedsDLC-LE-complete : ∀ msgName dlc sig →
-  BitsInFrameLE dlc (DBCSignal.signalDef sig) →
-  checkSignalExceedsDLC-LE msgName dlc sig ≡ []
-checkSignalExceedsDLC-LE-complete msgName dlc sig p
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
-
-checkSignalExceedsDLC-BE-sound : ∀ msgName dlc sig →
-  checkSignalExceedsDLC-BE msgName dlc sig ≡ [] →
-  BitsInFrameBE dlc (DBCSignal.signalDef sig)
-checkSignalExceedsDLC-BE-sound msgName dlc sig eq
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
-... | yes p = p
-checkSignalExceedsDLC-BE-sound _ _ _ () | no _
-
-checkSignalExceedsDLC-BE-complete : ∀ msgName dlc sig →
-  BitsInFrameBE dlc (DBCSignal.signalDef sig) →
-  checkSignalExceedsDLC-BE msgName dlc sig ≡ []
-checkSignalExceedsDLC-BE-complete msgName dlc sig p
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
-
 checkSignalExceedsDLC-sound : ∀ msgName dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ [] →
   BitsInFrame dlc sig
-checkSignalExceedsDLC-sound msgName dlc sig eq with DBCSignal.byteOrder sig
-... | LittleEndian = checkSignalExceedsDLC-LE-sound msgName dlc sig eq
-... | BigEndian    = checkSignalExceedsDLC-BE-sound msgName dlc sig eq
+checkSignalExceedsDLC-sound msgName dlc sig eq
+  with SignalDef.startBit (DBCSignal.signalDef sig)
+     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+... | yes p = p
+checkSignalExceedsDLC-sound _ _ _ () | no _
 
 checkSignalExceedsDLC-complete : ∀ msgName dlc sig →
   BitsInFrame dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ []
-checkSignalExceedsDLC-complete msgName dlc sig p with DBCSignal.byteOrder sig
-... | LittleEndian = checkSignalExceedsDLC-LE-complete msgName dlc sig p
-... | BigEndian    = checkSignalExceedsDLC-BE-complete msgName dlc sig p
+checkSignalExceedsDLC-complete msgName dlc sig p
+  with SignalDef.startBit (DBCSignal.signalDef sig)
+     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
 
 checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →

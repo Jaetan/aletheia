@@ -14,18 +14,17 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Validator using (findSignalPresence)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
-open import Data.Nat using (ℕ; _+_; _*_; _∸_; suc; _≤_; _/_)
+open import Data.Nat using (ℕ; _+_; _*_; _≤_)
 open import Data.Integer using (ℤ; +_)
-open import Data.Rational using (ℚ)
+open import Data.Rational using (ℚ; 0ℚ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -34,6 +33,12 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_)
 -- Condition 3: Factor numerator is non-zero
 NonZeroFactor : DBCSignal → Set
 NonZeroFactor sig = ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≢ + 0
+
+-- Bridge: NonZeroFactor → factor ≢ 0ℚ (contrapositive of ↥p≡0⇒p≡0)
+-- If numerator ≢ +0, then the rational itself ≢ 0ℚ (since numerator 0ℚ = +0)
+nonZeroFactor→factor≢0 : ∀ {sig} → NonZeroFactor sig
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+nonZeroFactor→factor≢0 nzf f≡0 = nzf (cong ℚ.numerator f≡0)
 
 -- Condition 4: Multiplexor reference resolves (if conditional)
 MuxResolvable : List DBCSignal → SignalPresence → Set
@@ -51,17 +56,11 @@ MuxIsAlways : List DBCSignal → SignalPresence → Set
 MuxIsAlways _    Always           = ⊤
 MuxIsAlways sigs (When muxName _) = MuxAPLookup (findSignalPresence muxName sigs)
 
--- Condition 6 (check 8): Signal bits fit in frame
-BitsInFrameLE : ℕ → SignalDef → Set
-BitsInFrameLE dlc sd = SignalDef.startBit sd + SignalDef.bitLength sd ≤ dlc * 8
-
-BitsInFrameBE : ℕ → SignalDef → Set
-BitsInFrameBE dlc sd = suc (7 ∸ (SignalDef.startBit sd / 8)) ≤ dlc
-
+-- Condition 6 (check 8): Signal bits fit in frame (byte-order independent)
 BitsInFrame : ℕ → DBCSignal → Set
-BitsInFrame dlc sig with DBCSignal.byteOrder sig
-... | LittleEndian = BitsInFrameLE dlc (DBCSignal.signalDef sig)
-... | BigEndian    = BitsInFrameBE dlc (DBCSignal.signalDef sig)
+BitsInFrame dlc sig =
+  SignalDef.startBit (DBCSignal.signalDef sig)
+  + SignalDef.bitLength (DBCSignal.signalDef sig) ≤ dlc * 8
 
 -- Condition 8 (check 10): Non-zero bit length
 NonZeroBitLength : DBCSignal → Set

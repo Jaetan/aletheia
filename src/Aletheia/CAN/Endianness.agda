@@ -17,9 +17,9 @@ open import Data.Vec using (Vec; []; _∷_; reverse)
 open import Data.Vec.Properties using (reverse-involutive)
 open import Data.Fin using (Fin; toℕ; fromℕ<) renaming (zero to fzero; suc to fsuc)
 open import Data.Fin.Properties using (toℕ-fromℕ<; toℕ-injective)
-open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s; _/_; _%_)
-open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m; m≡m%n+[m/n]*n; m<n*o⇒m/o<n)
-open import Data.Nat.Properties using (_≟_; <⇒≤; <⇒≢; +-suc; +-comm; ≤-refl; ≤-trans; n≤1+n; m≤m+n; m<n+m; m<m+n; <-≤-trans; m+n≤o⇒n≤o; m≤n⇒m≤1+n)
+open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s; _/_; _%_)
+open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m; m≡m%n+[m/n]*n; m<n*o⇒m/o<n; [m+n]%n≡m%n)
+open import Data.Nat.Properties using (_≟_; <⇒≤; <⇒≢; +-suc; +-comm; +-assoc; +-identityʳ; ≤-refl; ≤-trans; n≤1+n; m≤m+n; m<n+m; m<m+n; <-≤-trans; m+n≤o⇒n≤o; m≤n⇒m≤1+n; +-cancelʳ-≡; *-cancelʳ-≡; +-monoˡ-≤; +-monoʳ-<; *-monoˡ-≤; m∸n≤m)
 -- Instance-only import: brings NonZero into scope for m<n*o⇒m/o<n
 import Data.Nat.Instances
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -27,10 +27,10 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; subst₂; cong₂; _≢_)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
-open import Relation.Nullary using (yes; no)
+open import Relation.Nullary using (Dec; yes; no)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Unit using (⊤; tt)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; map)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Function using (_∘_)
 
@@ -742,6 +742,632 @@ injectPayload-preserves-disjoint-same {len₁} {len₂} s₁ s₂ bits bo payloa
   ∎
   where
     open ≡-Reasoning
+
+-- ============================================================================
+-- BYTE ORDER DECIDABLE EQUALITY
+-- ============================================================================
+
+_≟-ByteOrder_ : (bo₁ bo₂ : ByteOrder) → Dec (bo₁ ≡ bo₂)
+LittleEndian ≟-ByteOrder LittleEndian = yes refl
+LittleEndian ≟-ByteOrder BigEndian    = no (λ ())
+BigEndian    ≟-ByteOrder LittleEndian = no (λ ())
+BigEndian    ≟-ByteOrder BigEndian    = yes refl
+
+-- ============================================================================
+-- PHYSICAL BIT POSITION (for mixed byte order support)
+-- ============================================================================
+
+-- Maps a logical bit position to the physical bit position it occupies
+-- in the original (non-swapped) payload.
+-- LE: identity (logical = physical)
+-- BE: byte-swapped (byte index reversed, bit-within-byte preserved)
+physicalBitPos : ByteOrder → ℕ → ℕ
+physicalBitPos LittleEndian b = b
+physicalBitPos BigEndian b = (7 ∸ (b / 8)) * 8 + (b % 8)
+
+-- ============================================================================
+-- CROSS-BYTE-ORDER HELPERS
+-- ============================================================================
+
+-- lookupSafe through swapBytes: byte i in reversed = byte (7∸i) in original
+-- Proven by concrete case analysis on i ∈ {0..7} with vector pattern matching.
+-- reverse normalizes on concrete-length vectors with variable elements.
+lookupSafe-swapBytes : ∀ i → i < 8 → ∀ (bytes : Vec Byte 8) →
+  lookupSafe 8 i (swapBytes bytes) ≡ lookupSafe 8 (7 ∸ i) bytes
+lookupSafe-swapBytes 0 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 1 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 2 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 3 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 4 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 5 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 6 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes 7 _ (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+lookupSafe-swapBytes (suc (suc (suc (suc (suc (suc (suc (suc _))))))))
+  (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s ())))))))) _
+
+-- ============================================================================
+-- ARITHMETIC HELPERS for physicalBitPos
+-- ============================================================================
+
+private
+  -- (m + k * 8) % 8 ≡ m % 8  (repeatedly adding multiples of 8 doesn't change mod)
+  [m+kn]%8≡m%8 : ∀ m k → (m + k * 8) % 8 ≡ m % 8
+  [m+kn]%8≡m%8 m zero rewrite +-identityʳ m = refl
+  [m+kn]%8≡m%8 m (suc k) =
+    trans (cong (λ x → (m + x) % 8) (+-comm 8 (k * 8)))
+      (trans (cong (_% 8) (sym (+-assoc m (k * 8) 8)))
+        (trans ([m+n]%n≡m%n (m + k * 8) 8)
+          ([m+kn]%8≡m%8 m k)))
+
+  -- (a * 8 + r) % 8 ≡ r  when r < 8
+  mul-add-mod : ∀ a r → r < 8 → (a * 8 + r) % 8 ≡ r
+  mul-add-mod a r r<8 =
+    trans (cong (_% 8) (+-comm (a * 8) r))
+      (trans ([m+kn]%8≡m%8 r a) (m<n⇒m%n≡m r<8))
+
+  -- (a * 8 + r) / 8 ≡ a  when r < 8
+  -- Proof: from the division theorem a*8+r = (a*8+r)%8 + ((a*8+r)/8)*8
+  --        and mul-add-mod, derive a*8+r = r + ((a*8+r)/8)*8
+  --        hence a*8 = ((a*8+r)/8)*8, so a = (a*8+r)/8
+  mul-add-div : ∀ a r → r < 8 → (a * 8 + r) / 8 ≡ a
+  mul-add-div a r r<8 = *-cancelʳ-≡ ((a * 8 + r) / 8) a 8 step3
+    where
+      open import Data.Nat.Properties using (*-cancelʳ-≡)
+
+      step1 : a * 8 + r ≡ (a * 8 + r) % 8 + ((a * 8 + r) / 8) * 8
+      step1 = m≡m%n+[m/n]*n (a * 8 + r) 8
+
+      step2 : a * 8 + r ≡ r + ((a * 8 + r) / 8) * 8
+      step2 = trans step1 (cong (_+ ((a * 8 + r) / 8) * 8) (mul-add-mod a r r<8))
+
+      step3 : ((a * 8 + r) / 8) * 8 ≡ a * 8
+      step3 = begin
+          ((a * 8 + r) / 8) * 8
+        ≡⟨ sym (cancel-right step2) ⟩
+          a * 8
+        ∎
+        where
+          open ≡-Reasoning
+          -- a*8+r ≡ r + q*8  ⟹  q*8 ≡ a*8
+          cancel-right : a * 8 + r ≡ r + ((a * 8 + r) / 8) * 8
+                       → a * 8 ≡ ((a * 8 + r) / 8) * 8
+          cancel-right eq = Data.Nat.Properties.+-cancelʳ-≡ r (a * 8) _ eq'
+            where
+              eq' : a * 8 + r ≡ ((a * 8 + r) / 8) * 8 + r
+              eq' = trans eq (+-comm r _)
+
+  -- physicalBitPos BE b has the same byte index and bit-in-byte as expected
+  physicalBitPos-BE-div8 : ∀ b → b < 64 → physicalBitPos BigEndian b / 8 ≡ 7 ∸ (b / 8)
+  physicalBitPos-BE-div8 b b<64 = mul-add-div (7 ∸ (b / 8)) (b % 8) (m%n<n b 8)
+
+  physicalBitPos-BE-mod8 : ∀ b → physicalBitPos BigEndian b % 8 ≡ b % 8
+  physicalBitPos-BE-mod8 b = mul-add-mod (7 ∸ (b / 8)) (b % 8) (m%n<n b 8)
+
+-- physicalBitPos BE maps [0,64) → [0,64)
+physicalBitPos-BE-bounded : ∀ b → b < 64 → physicalBitPos BigEndian b < 64
+physicalBitPos-BE-bounded b b<64 = <-≤-trans step1 step2
+  where
+    byteIdx = b / 8
+    revByte = 7 ∸ byteIdx
+    bitIdx = b % 8
+
+    byteIdx<8 : byteIdx < 8
+    byteIdx<8 = m<n*o⇒m/o<n {b} {8} {8} (subst (b <_) (sym 8*8≡64) b<64)
+
+    revByte*8≤56 : revByte * 8 ≤ 56
+    revByte*8≤56 = *-monoˡ-≤ 8 (m∸n≤m 7 byteIdx)
+
+    step1 : revByte * 8 + bitIdx < revByte * 8 + 8
+    step1 = +-monoʳ-< (revByte * 8) (m%n<n b 8)
+
+    step2 : revByte * 8 + 8 ≤ 64
+    step2 = +-monoˡ-≤ 8 revByte*8≤56
+
+-- physicalBitPos BE is an involution on [0,64)
+physicalBitPos-BE-involutive : ∀ b → b < 64 → physicalBitPos BigEndian (physicalBitPos BigEndian b) ≡ b
+physicalBitPos-BE-involutive b b<64 =
+  begin
+    physicalBitPos BigEndian (physicalBitPos BigEndian b)
+  ≡⟨⟩
+    (7 ∸ (physBit / 8)) * 8 + (physBit % 8)
+  ≡⟨ cong (λ x → (7 ∸ x) * 8 + (physBit % 8)) (physicalBitPos-BE-div8 b b<64) ⟩
+    (7 ∸ (7 ∸ (b / 8))) * 8 + (physBit % 8)
+  ≡⟨ cong (λ x → (7 ∸ (7 ∸ (b / 8))) * 8 + x) (physicalBitPos-BE-mod8 b) ⟩
+    (7 ∸ (7 ∸ (b / 8))) * 8 + (b % 8)
+  ≡⟨ cong (λ x → x * 8 + (b % 8)) (m∸[m∸n]≡n byteIdx≤7) ⟩
+    (b / 8) * 8 + (b % 8)
+  ≡⟨ div-mod-identity b ⟩
+    b
+  ∎
+  where
+    open ≡-Reasoning
+    open import Data.Nat.Properties using (m∸[m∸n]≡n; n∸n≡0)
+    physBit = physicalBitPos BigEndian b
+
+    byteIdx<8 : b / 8 < 8
+    byteIdx<8 = m<n*o⇒m/o<n {b} {8} {8} (subst (b <_) (sym 8*8≡64) b<64)
+
+    byteIdx≤7 : b / 8 ≤ 7
+    byteIdx≤7 with byteIdx<8
+    ... | s≤s p = p
+
+    -- (b / 8) * 8 + (b % 8) ≡ b  (from division theorem + commutativity)
+    div-mod-identity : ∀ n → (n / 8) * 8 + (n % 8) ≡ n
+    div-mod-identity n = trans (+-comm ((n / 8) * 8) (n % 8)) (sym (m≡m%n+[m/n]*n n 8))
+
+-- If p ≢ a+k for all k < m, then p < a or a+m ≤ p
+not-in-interval : ∀ a m p → (∀ k → k < m → p ≢ a + k) → p < a ⊎ a + m ≤ p
+not-in-interval a m p noHit = go a m p noHit
+  where
+    open import Data.Nat.Properties using (_<?_; ≮⇒≥; ≤-antisym)
+
+    go : ∀ a m p → (∀ k → k < m → p ≢ a + k) → p < a ⊎ a + m ≤ p
+    go a zero p _ with p <? a
+    ... | yes p<a = inj₁ p<a
+    ... | no ¬p<a = inj₂ (subst (_≤ p) (sym (+-identityʳ a)) (≮⇒≥ ¬p<a))
+    go a (suc m) p noHit with p <? a
+    ... | yes p<a = inj₁ p<a
+    ... | no ¬p<a with p ≟ a
+    ...   | yes refl = ⊥-elim (noHit 0 (s≤s z≤n) (sym (+-identityʳ a)))
+    ...   | no p≢a with go (suc a) m p noHit'
+      where
+        noHit' : ∀ k → k < m → p ≢ suc a + k
+        noHit' k k<m = subst (p ≢_) (+-suc a k) (noHit (suc k) (s≤s k<m))
+    ...     | inj₁ p<sa = ⊥-elim (p≢a (≤-antisym (Data.Nat.Properties.≤-pred p<sa) (≮⇒≥ ¬p<a)))
+              where open import Data.Nat.Properties using (≤-pred)
+    ...     | inj₂ sa+m≤p = inj₂ (subst (_≤ p) (sym (+-suc a m)) sa+m≤p)
+
+-- ============================================================================
+-- UNIFIED BIT PRESERVATION LEMMA
+-- ============================================================================
+
+-- If physical bit position p is outside the injection range [s, s+len),
+-- then the bit at p is unchanged after injectBits.
+injectBits-preserves-bit :
+  ∀ {len} (bytes : Vec Byte 8) (s p : ℕ) (bits : BitVec len)
+  → p < s ⊎ s + len ≤ p
+  → s + len ≤ 64
+  → p < 64
+  → testBit (byteToBitVec (lookupSafe 8 (p / 8) (injectBits bytes s bits)))
+            (fromℕ< (m%n<n p 8))
+    ≡ testBit (byteToBitVec (lookupSafe 8 (p / 8) bytes))
+              (fromℕ< (m%n<n p 8))
+injectBits-preserves-bit bytes s p bits (inj₁ p<s) bound _ =
+  injectBits-preserves-earlier-bit bytes p s bits p<s bound
+injectBits-preserves-bit bytes s p bits (inj₂ s+len≤p) _ p<64 =
+  injectBits-preserves-later-bit bytes s p bits s+len≤p p<64
+
+-- Per-bit version of injectBits-preserves-disjoint:
+-- when every extraction bit is individually outside the injection range,
+-- extraction is preserved. Avoids needing interval disjointness
+-- (which can't be derived from pointwise disjointness for zero-length intervals).
+injectBits-preserves-outside :
+  ∀ {len₁ len₂} (bytes : Vec Byte 8) (start₁ start₂ : ℕ) (bits : BitVec len₁)
+  → (∀ k → k < len₂ → start₂ + k < start₁ ⊎ start₁ + len₁ ≤ start₂ + k)
+  → start₁ + len₁ ≤ 64
+  → start₂ + len₂ ≤ 64
+  → extractBits {len₂} (injectBits bytes start₁ bits) start₂ ≡ extractBits {len₂} bytes start₂
+injectBits-preserves-outside {_} {zero} _ _ _ _ _ _ _ = refl
+injectBits-preserves-outside {len₁} {suc len₂} bytes start₁ start₂ bits outside bound₁ bound₂ =
+  cong₂ _∷_ head-eq rest-eq
+  where
+    start₂<64 : start₂ < 64
+    start₂<64 = <-≤-trans (m<m+n start₂ {suc len₂} (s≤s z≤n)) bound₂
+
+    head-outside : start₂ < start₁ ⊎ start₁ + len₁ ≤ start₂
+    head-outside with outside 0 (s≤s z≤n)
+    ... | inj₁ p = inj₁ (subst (_< start₁) (+-identityʳ start₂) p)
+    ... | inj₂ q = inj₂ (subst (start₁ + len₁ ≤_) (+-identityʳ start₂) q)
+
+    head-eq = injectBits-preserves-bit bytes start₁ start₂ bits head-outside bound₁ start₂<64
+
+    bound₂' : suc start₂ + len₂ ≤ 64
+    bound₂' = subst (_≤ 64) (+-suc start₂ len₂) bound₂
+
+    outside' : ∀ k → k < len₂ → suc start₂ + k < start₁ ⊎ start₁ + len₁ ≤ suc start₂ + k
+    outside' k k<len₂ with outside (suc k) (s≤s k<len₂)
+    ... | inj₁ p = inj₁ (subst (_< start₁) (+-suc start₂ k) p)
+    ... | inj₂ q = inj₂ (subst (start₁ + len₁ ≤_) (+-suc start₂ k) q)
+
+    rest-eq = injectBits-preserves-outside bytes start₁ (suc start₂) bits outside' bound₁ bound₂'
+
+-- ============================================================================
+-- CROSS-BYTE-ORDER EXTRACTION PRESERVATION
+-- ============================================================================
+
+-- Key lemma: extracting from swapBytes(injectBits bytes s₁ bits) at position s₂
+-- is the same as from swapBytes(bytes) at s₂, provided the physical bit
+-- positions don't overlap with the injection range.
+--
+-- Physical non-overlap: for each extraction bit k < l₂, the physical position
+-- physicalBitPos BE (s₂+k) is outside [s₁, s₁+l₁).
+
+extractBits-swap-inject-preserves :
+  ∀ {l₁ l₂} (bytes : Vec Byte 8) (s₁ s₂ : ℕ) (bits : BitVec l₁)
+  → (∀ k → k < l₂ → physicalBitPos BigEndian (s₂ + k) < s₁
+                    ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian (s₂ + k))
+  → s₁ + l₁ ≤ 64
+  → s₂ + l₂ ≤ 64
+  → extractBits {l₂} (swapBytes (injectBits bytes s₁ bits)) s₂
+    ≡ extractBits {l₂} (swapBytes bytes) s₂
+extractBits-swap-inject-preserves {l₁} bytes s₁ s₂ bits noOverlap bound₁ bound₂ = go _ s₂ noOverlap bound₂
+  where
+    go : ∀ l₂ (pos : ℕ)
+      → (∀ k → k < l₂ → physicalBitPos BigEndian (pos + k) < s₁
+                        ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian (pos + k))
+      → pos + l₂ ≤ 64
+      → extractBits {l₂} (swapBytes (injectBits bytes s₁ bits)) pos
+        ≡ extractBits {l₂} (swapBytes bytes) pos
+    go zero pos noOv bound = refl
+    go (suc l₂') pos noOv bound = cong₂ _∷_ head-eq (go l₂' (suc pos) noOv' bound')
+      where
+        -- Bounds for recursion
+        bound' : suc pos + l₂' ≤ 64
+        bound' = subst (_≤ 64) (+-suc pos l₂') bound
+
+        noOv' : ∀ k → k < l₂' → physicalBitPos BigEndian (suc pos + k) < s₁
+                                ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian (suc pos + k)
+        noOv' k k<l₂' = subst (λ x → physicalBitPos BigEndian x < s₁
+                                     ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian x)
+                               (+-suc pos k)
+                               (noOv (suc k) (s≤s k<l₂'))
+
+        -- Head bit: the first extracted bit is the same
+        pos<64 : pos < 64
+        pos<64 = <-≤-trans (m<m+n pos {suc l₂'} (s≤s z≤n)) bound
+
+        byteIdx : ℕ
+        byteIdx = pos / 8
+
+        byteIdx<8 : byteIdx < 8
+        byteIdx<8 = m<n*o⇒m/o<n {pos} {8} {8} (subst (pos <_) (sym 8*8≡64) pos<64)
+
+        -- Physical bit position for this extraction bit
+        physBit : ℕ
+        physBit = physicalBitPos BigEndian pos
+
+        -- Physical bit is within [0,64): (7∸byteIdx)*8 + pos%8 < 64
+        -- Since byteIdx < 8: (7∸byteIdx) ≤ 7, so (7∸byteIdx)*8 ≤ 56, and pos%8 < 8
+        physBit<64 : physBit < 64
+        physBit<64 = physicalBitPos-BE-bounded pos pos<64
+
+        -- The disjointness condition for this bit (k = 0, with pos + 0 = pos)
+        physBit-disj : physBit < s₁ ⊎ s₁ + l₁ ≤ physBit
+        physBit-disj = subst (λ x → physicalBitPos BigEndian x < s₁
+                                   ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian x)
+                             (+-comm pos 0 )
+                             (noOv 0 (s≤s z≤n))
+
+        -- Step 1: lookupSafe through swapBytes
+        -- lookupSafe 8 byteIdx (swapBytes v) ≡ lookupSafe 8 (7 ∸ byteIdx) v
+        swap-lhs : lookupSafe 8 byteIdx (swapBytes (injectBits bytes s₁ bits))
+                 ≡ lookupSafe 8 (7 ∸ byteIdx) (injectBits bytes s₁ bits)
+        swap-lhs = lookupSafe-swapBytes byteIdx byteIdx<8 (injectBits bytes s₁ bits)
+
+        swap-rhs : lookupSafe 8 byteIdx (swapBytes bytes)
+                 ≡ lookupSafe 8 (7 ∸ byteIdx) bytes
+        swap-rhs = lookupSafe-swapBytes byteIdx byteIdx<8 bytes
+
+        -- Step 2: The injection at [s₁, s₁+l₁) doesn't affect byte (7∸byteIdx) at bit pos%8
+        -- This is because the physical bit position physBit is outside [s₁, s₁+l₁)
+
+        -- physBit / 8 ≡ 7 ∸ byteIdx
+        physBit-div : physBit / 8 ≡ 7 ∸ byteIdx
+        physBit-div = physicalBitPos-BE-div8 pos pos<64
+
+        -- physBit % 8 ≡ pos % 8
+        physBit-mod : physBit % 8 ≡ pos % 8
+        physBit-mod = physicalBitPos-BE-mod8 pos
+
+        -- The bit at physBit in the injected bytes equals the bit in the original bytes
+        bit-preserved : testBit (byteToBitVec (lookupSafe 8 (physBit / 8) (injectBits bytes s₁ bits)))
+                                (fromℕ< (m%n<n physBit 8))
+                      ≡ testBit (byteToBitVec (lookupSafe 8 (physBit / 8) bytes))
+                                (fromℕ< (m%n<n physBit 8))
+        bit-preserved = injectBits-preserves-bit bytes s₁ physBit bits physBit-disj bound₁ physBit<64
+
+        -- Step 3: Transport through the div/mod equalities to get the byte/bit indices we need
+        -- We need: testBit (byteToBitVec (lookupSafe 8 (7∸byteIdx) (injectBits ...))) (fromℕ< (m%n<n pos 8))
+        --        ≡ testBit (byteToBitVec (lookupSafe 8 (7∸byteIdx) bytes)) (fromℕ< (m%n<n pos 8))
+        inner-preserved : testBit (byteToBitVec (lookupSafe 8 (7 ∸ byteIdx) (injectBits bytes s₁ bits)))
+                                  (fromℕ< (m%n<n pos 8))
+                        ≡ testBit (byteToBitVec (lookupSafe 8 (7 ∸ byteIdx) bytes))
+                                  (fromℕ< (m%n<n pos 8))
+        inner-preserved =
+          subst₂ (λ idx bpos →
+            testBit (byteToBitVec (lookupSafe 8 idx (injectBits bytes s₁ bits))) bpos
+            ≡ testBit (byteToBitVec (lookupSafe 8 idx bytes)) bpos)
+            physBit-div
+            (toℕ-injective (trans (toℕ-fromℕ< (m%n<n physBit 8))
+                             (trans physBit-mod
+                               (sym (toℕ-fromℕ< (m%n<n pos 8))))))
+            bit-preserved
+
+        -- Final: combine swapBytes steps with the inner preservation
+        head-eq : testBit (byteToBitVec (lookupSafe 8 byteIdx (swapBytes (injectBits bytes s₁ bits))))
+                          (fromℕ< (m%n<n pos 8))
+                ≡ testBit (byteToBitVec (lookupSafe 8 byteIdx (swapBytes bytes)))
+                          (fromℕ< (m%n<n pos 8))
+        head-eq = trans (cong (λ x → testBit (byteToBitVec x) (fromℕ< (m%n<n pos 8))) swap-lhs)
+                   (trans inner-preserved
+                     (cong (λ x → testBit (byteToBitVec x) (fromℕ< (m%n<n pos 8))) (sym swap-rhs)))
+
+-- ============================================================================
+-- MIXED BYTE-ORDER COMMUTATIVITY (Item B)
+-- ============================================================================
+-- Extends injectPayload-commute to mixed byte orders (LE signal + BE signal).
+-- Strategy: swap-conjugation converts cross-BO operations to applyWrites at
+-- physical positions, then applyWrites-comm handles commutativity.
+
+-- Layer 0: Concrete swap-update on Vec Byte 8
+-- swapBytes (updateSafe at i in swapped) ≡ updateSafe at (7∸i) in original
+private
+  swap-updateSafe-swap : ∀ i → i < 8 → ∀ (f : Byte → Byte) (bytes : Vec Byte 8)
+    → swapBytes (updateSafe 8 i f (swapBytes bytes)) ≡ updateSafe 8 (7 ∸ i) f bytes
+  swap-updateSafe-swap 0 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 1 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 2 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 3 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 4 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 5 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 6 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap 7 _ f (b₀ ∷ b₁ ∷ b₂ ∷ b₃ ∷ b₄ ∷ b₅ ∷ b₆ ∷ b₇ ∷ []) = refl
+  swap-updateSafe-swap (suc (suc (suc (suc (suc (suc (suc (suc _))))))))
+    (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s ())))))))) _ _
+
+-- Layer 1: Single-write swap-conjugation
+-- Converts applyWrite at logical position in swapped frame to applyWrite at physical position.
+private
+  -- updateSafe with pointwise-equal functions gives equal results
+  updateSafe-cong-fn′ : ∀ {n} (i : ℕ) (h₁ h₂ : Byte → Byte) (xs : Vec Byte n)
+    → (∀ b → h₁ b ≡ h₂ b) → updateSafe n i h₁ xs ≡ updateSafe n i h₂ xs
+  updateSafe-cong-fn′ {zero} _ _ _ [] _ = refl
+  updateSafe-cong-fn′ {suc _} zero h₁ h₂ (x ∷ xs) eq = cong (_∷ xs) (eq x)
+  updateSafe-cong-fn′ {suc n} (suc i) h₁ h₂ (x ∷ xs) eq =
+    cong (x ∷_) (updateSafe-cong-fn′ i h₁ h₂ xs eq)
+
+  -- Core: swap-conjugation for a single applyWrite
+  swap-applyWrite-swap : ∀ bytes pos val → pos < 64
+    → swapBytes (applyWrite (swapBytes bytes) (pos , val))
+      ≡ applyWrite bytes (physicalBitPos BigEndian pos , val)
+  swap-applyWrite-swap bytes pos val pos<64 =
+    trans step1 (trans step2 step3)
+    where
+      physBit = physicalBitPos BigEndian pos
+      byteIdx = pos / 8
+      bitPos = fromℕ< (m%n<n pos 8)
+      fn₁ = λ byte → bitVecToByte (setBit (byteToBitVec byte) bitPos val)
+
+      physByteIdx = physBit / 8
+      physBitPos′ = fromℕ< (m%n<n physBit 8)
+      fn₂ = λ byte → bitVecToByte (setBit (byteToBitVec byte) physBitPos′ val)
+
+      byteIdx<8 : byteIdx < 8
+      byteIdx<8 = m<n*o⇒m/o<n {pos} {8} {8} (subst (pos <_) (sym 8*8≡64) pos<64)
+
+      -- Step 1: swap-updateSafe-swap converts to updateSafe at (7∸byteIdx)
+      step1 : swapBytes (applyWrite (swapBytes bytes) (pos , val))
+            ≡ updateSafe 8 (7 ∸ byteIdx) fn₁ bytes
+      step1 = swap-updateSafe-swap byteIdx byteIdx<8 fn₁ bytes
+
+      -- Step 2: equate update functions (bit positions match via physicalBitPos-BE-mod8)
+      fin-eq : physBitPos′ ≡ bitPos
+      fin-eq = toℕ-injective (trans (toℕ-fromℕ< (m%n<n physBit 8))
+                               (trans (physicalBitPos-BE-mod8 pos)
+                                 (sym (toℕ-fromℕ< (m%n<n pos 8)))))
+
+      fns-pw : ∀ b → fn₁ b ≡ fn₂ b
+      fns-pw b = cong (λ bp → bitVecToByte (setBit (byteToBitVec b) bp val)) (sym fin-eq)
+
+      step2 : updateSafe 8 (7 ∸ byteIdx) fn₁ bytes
+            ≡ updateSafe 8 (7 ∸ byteIdx) fn₂ bytes
+      step2 = updateSafe-cong-fn′ (7 ∸ byteIdx) fn₁ fn₂ bytes fns-pw
+
+      -- Step 3: equate byte indices (7∸pos/8 ≡ physBit/8 via physicalBitPos-BE-div8)
+      step3 : updateSafe 8 (7 ∸ byteIdx) fn₂ bytes
+            ≡ updateSafe 8 physByteIdx fn₂ bytes
+      step3 = cong (λ i → updateSafe 8 i fn₂ bytes)
+                   (sym (physicalBitPos-BE-div8 pos pos<64))
+
+-- Layer 2: Multi-write swap-conjugation
+-- Lifts swap-conjugation from single writes to write lists.
+
+-- Map write positions through physicalBitPos BE
+physicalWrites : List BitWrite → List BitWrite
+physicalWrites = map (λ { (p , v) → (physicalBitPos BigEndian p , v) })
+
+private
+  -- All positions in writesOf s bits are < 64 when s + len ≤ 64
+  writesOf-bounded : ∀ {len} s (bits : BitVec len) → s + len ≤ 64
+    → All (λ { (pos , _) → pos < 64 }) (writesOf s bits)
+  writesOf-bounded s [] _ = []
+  writesOf-bounded s (b ∷ bits) bound =
+    <-≤-trans (m<m+n s {suc _} (s≤s z≤n)) bound
+    ∷ writesOf-bounded (suc s) bits (subst (_≤ 64) (+-suc s _) bound)
+
+-- Swap-conjugation lifts from single writes to write lists
+swap-applyWrites-swap : ∀ bytes ws
+  → All (λ { (pos , _) → pos < 64 }) ws
+  → swapBytes (applyWrites (swapBytes bytes) ws) ≡ applyWrites bytes (physicalWrites ws)
+swap-applyWrites-swap bytes [] [] = swapBytes-involutive bytes
+swap-applyWrites-swap bytes ((pos , val) ∷ ws) (pos<64 ∷ rest) =
+  trans (cong (λ x → swapBytes (applyWrites x ws)) aw-rev)
+    (swap-applyWrites-swap (applyWrite bytes (physicalBitPos BigEndian pos , val)) ws rest)
+  where
+    -- Reversed direction: applyWrite in swapped frame ≡ swapBytes of applyWrite at phys pos
+    aw-rev : applyWrite (swapBytes bytes) (pos , val)
+           ≡ swapBytes (applyWrite bytes (physicalBitPos BigEndian pos , val))
+    aw-rev = trans (sym (swapBytes-involutive (applyWrite (swapBytes bytes) (pos , val))))
+                   (cong swapBytes (swap-applyWrite-swap bytes pos val pos<64))
+
+-- Layer 3: AllDiffPos structural conversions
+-- Converts pointwise ∀∀ disjointness to structural AllDiffPos on writesOf lists.
+private
+  -- Inner: single write position differs from all positions in writesOf s₂ bits₂
+  all-diff-writesOf : ∀ (p : ℕ) (v : Bool) {len₂} s₂ (bits₂ : BitVec len₂)
+    → (∀ k₂ → k₂ < len₂ → p ≢ s₂ + k₂)
+    → All (DiffPos (p , v)) (writesOf s₂ bits₂)
+  all-diff-writesOf p v s₂ [] _ = []
+  all-diff-writesOf p v s₂ (b₂ ∷ bits₂) disj =
+    subst (p ≢_) (+-identityʳ s₂) (disj 0 (s≤s z≤n))
+    ∷ all-diff-writesOf p v (suc s₂) bits₂
+        (λ k₂ k₂< → subst (p ≢_) (+-suc s₂ k₂) (disj (suc k₂) (s≤s k₂<)))
+
+  -- Outer: AllDiffPos between two plain writesOf lists
+  writesOf-AllDiffPos : ∀ {len₁ len₂} s₁ (bits₁ : BitVec len₁) s₂ (bits₂ : BitVec len₂)
+    → (∀ k₁ → k₁ < len₁ → ∀ k₂ → k₂ < len₂ → s₁ + k₁ ≢ s₂ + k₂)
+    → AllDiffPos (writesOf s₁ bits₁) (writesOf s₂ bits₂)
+  writesOf-AllDiffPos s₁ [] s₂ bits₂ _ = tt
+  writesOf-AllDiffPos s₁ (b₁ ∷ bits₁) s₂ bits₂ disj =
+    ( all-diff-writesOf s₁ b₁ s₂ bits₂
+        (λ k₂ k₂< → subst (_≢ s₂ + k₂) (+-identityʳ s₁) (disj 0 (s≤s z≤n) k₂ k₂<))
+    , writesOf-AllDiffPos (suc s₁) bits₁ s₂ bits₂
+        (λ k₁ k₁< k₂ k₂< → subst (_≢ s₂ + k₂) (+-suc s₁ k₁) (disj (suc k₁) (s≤s k₁<) k₂ k₂<))
+    )
+
+  -- Inner: single write position differs from all physical positions
+  all-diff-physWritesOf : ∀ (p : ℕ) (v : Bool) {len₂} s₂ (bits₂ : BitVec len₂)
+    → (∀ k₂ → k₂ < len₂ → p ≢ physicalBitPos BigEndian (s₂ + k₂))
+    → All (DiffPos (p , v)) (physicalWrites (writesOf s₂ bits₂))
+  all-diff-physWritesOf p v s₂ [] _ = []
+  all-diff-physWritesOf p v s₂ (b₂ ∷ bits₂) disj =
+    subst (p ≢_) (cong (physicalBitPos BigEndian) (+-identityʳ s₂)) (disj 0 (s≤s z≤n))
+    ∷ all-diff-physWritesOf p v (suc s₂) bits₂
+        (λ k₂ k₂< → subst (p ≢_) (cong (physicalBitPos BigEndian) (+-suc s₂ k₂))
+                       (disj (suc k₂) (s≤s k₂<)))
+
+  -- Outer: AllDiffPos between plain writesOf and physicalWrites
+  writesOf-AllDiffPos-phys : ∀ {len₁ len₂} s₁ (bits₁ : BitVec len₁) s₂ (bits₂ : BitVec len₂)
+    → (∀ k₁ → k₁ < len₁ → ∀ k₂ → k₂ < len₂
+       → s₁ + k₁ ≢ physicalBitPos BigEndian (s₂ + k₂))
+    → AllDiffPos (writesOf s₁ bits₁) (physicalWrites (writesOf s₂ bits₂))
+  writesOf-AllDiffPos-phys s₁ [] s₂ bits₂ _ = tt
+  writesOf-AllDiffPos-phys s₁ (b₁ ∷ bits₁) s₂ bits₂ disj =
+    ( all-diff-physWritesOf s₁ b₁ s₂ bits₂
+        (λ k₂ k₂< → subst (_≢ physicalBitPos BigEndian (s₂ + k₂))
+                       (+-identityʳ s₁) (disj 0 (s≤s z≤n) k₂ k₂<))
+    , writesOf-AllDiffPos-phys (suc s₁) bits₁ s₂ bits₂
+        (λ k₁ k₁< k₂ k₂< → subst (_≢ physicalBitPos BigEndian (s₂ + k₂))
+                               (+-suc s₁ k₁) (disj (suc k₁) (s≤s k₁<) k₂ k₂<))
+    )
+
+-- Layer 4: Mixed byte-order commutativity
+-- Two disjoint injectPayload calls commute regardless of byte order combination.
+injectPayload-commute-mixed :
+  ∀ {len₁ len₂} s₁ s₂ (bits₁ : BitVec len₁) (bits₂ : BitVec len₂) bo₁ bo₂ payload
+  → (∀ k₁ → k₁ < len₁ → ∀ k₂ → k₂ < len₂
+     → physicalBitPos bo₁ (s₁ + k₁) ≢ physicalBitPos bo₂ (s₂ + k₂))
+  → s₁ + len₁ ≤ 64
+  → s₂ + len₂ ≤ 64
+  → injectPayload s₂ bits₂ bo₂ (injectPayload s₁ bits₁ bo₁ payload)
+    ≡ injectPayload s₁ bits₁ bo₁ (injectPayload s₂ bits₂ bo₂ payload)
+injectPayload-commute-mixed {len₁} {len₂} s₁ s₂ bits₁ bits₂ bo₁ bo₂ payload physDisj fits₁ fits₂ =
+  go bo₁ bo₂ refl refl
+  where
+    open ≡-Reasoning
+    ws₁ = writesOf s₁ bits₁
+    ws₂ = writesOf s₂ bits₂
+    bd₁ = writesOf-bounded s₁ bits₁ fits₁
+    bd₂ = writesOf-bounded s₂ bits₂ fits₂
+
+    go : (b₁ b₂ : ByteOrder) → b₁ ≡ bo₁ → b₂ ≡ bo₂
+       → injectPayload s₂ bits₂ bo₂ (injectPayload s₁ bits₁ bo₁ payload)
+         ≡ injectPayload s₁ bits₁ bo₁ (injectPayload s₂ bits₂ bo₂ payload)
+
+    -- LE/LE: payloadIso = id on both sides; reduce to applyWrites-comm
+    go LittleEndian LittleEndian refl refl =
+      begin
+        injectBits (injectBits payload s₁ bits₁) s₂ bits₂
+      ≡⟨ cong (λ x → injectBits x s₂ bits₂) (injectBits≡applyWrites payload s₁ bits₁) ⟩
+        injectBits (applyWrites payload ws₁) s₂ bits₂
+      ≡⟨ injectBits≡applyWrites (applyWrites payload ws₁) s₂ bits₂ ⟩
+        applyWrites (applyWrites payload ws₁) ws₂
+      ≡⟨ applyWrites-comm payload ws₁ ws₂ (writesOf-distinct s₁ bits₁)
+           (writesOf-AllDiffPos s₁ bits₁ s₂ bits₂ physDisj) ⟩
+        applyWrites (applyWrites payload ws₂) ws₁
+      ≡⟨ sym (injectBits≡applyWrites (applyWrites payload ws₂) s₁ bits₁) ⟩
+        injectBits (applyWrites payload ws₂) s₁ bits₁
+      ≡⟨ cong (λ x → injectBits x s₁ bits₁) (sym (injectBits≡applyWrites payload s₂ bits₂)) ⟩
+        injectBits (injectBits payload s₂ bits₂) s₁ bits₁
+      ∎
+
+    -- BE/BE: payloadIso-involutive cancels; cong swapBytes of applyWrites-comm
+    go BigEndian BigEndian refl refl =
+      begin
+        swapBytes (injectBits (payloadIso BigEndian (swapBytes (injectBits (swapBytes payload) s₁ bits₁))) s₂ bits₂)
+      ≡⟨ cong (λ x → swapBytes (injectBits x s₂ bits₂))
+              (payloadIso-involutive BigEndian (injectBits (swapBytes payload) s₁ bits₁)) ⟩
+        swapBytes (injectBits (injectBits (swapBytes payload) s₁ bits₁) s₂ bits₂)
+      ≡⟨ cong (λ x → swapBytes (injectBits x s₂ bits₂))
+              (injectBits≡applyWrites (swapBytes payload) s₁ bits₁) ⟩
+        swapBytes (injectBits (applyWrites (swapBytes payload) ws₁) s₂ bits₂)
+      ≡⟨ cong swapBytes (injectBits≡applyWrites (applyWrites (swapBytes payload) ws₁) s₂ bits₂) ⟩
+        swapBytes (applyWrites (applyWrites (swapBytes payload) ws₁) ws₂)
+      ≡⟨ cong swapBytes (applyWrites-comm (swapBytes payload) ws₁ ws₂
+           (writesOf-distinct s₁ bits₁)
+           (writesOf-AllDiffPos s₁ bits₁ s₂ bits₂
+             (λ k₁ k₁< k₂ k₂< eq → physDisj k₁ k₁< k₂ k₂< (cong (physicalBitPos BigEndian) eq)))) ⟩
+        swapBytes (applyWrites (applyWrites (swapBytes payload) ws₂) ws₁)
+      ≡⟨ cong swapBytes (sym (injectBits≡applyWrites (applyWrites (swapBytes payload) ws₂) s₁ bits₁)) ⟩
+        swapBytes (injectBits (applyWrites (swapBytes payload) ws₂) s₁ bits₁)
+      ≡⟨ cong (λ x → swapBytes (injectBits x s₁ bits₁))
+              (sym (injectBits≡applyWrites (swapBytes payload) s₂ bits₂)) ⟩
+        swapBytes (injectBits (injectBits (swapBytes payload) s₂ bits₂) s₁ bits₁)
+      ≡⟨ cong (λ x → swapBytes (injectBits x s₁ bits₁))
+              (sym (payloadIso-involutive BigEndian (injectBits (swapBytes payload) s₂ bits₂))) ⟩
+        swapBytes (injectBits (payloadIso BigEndian (swapBytes (injectBits (swapBytes payload) s₂ bits₂))) s₁ bits₁)
+      ∎
+
+    -- LE/BE: swap-applyWrites-swap converts BE injection to physical writes
+    go LittleEndian BigEndian refl refl =
+      begin
+        swapBytes (injectBits (swapBytes (injectBits payload s₁ bits₁)) s₂ bits₂)
+      ≡⟨ cong (λ x → swapBytes (injectBits (swapBytes x) s₂ bits₂))
+              (injectBits≡applyWrites payload s₁ bits₁) ⟩
+        swapBytes (injectBits (swapBytes (applyWrites payload ws₁)) s₂ bits₂)
+      ≡⟨ cong swapBytes (injectBits≡applyWrites (swapBytes (applyWrites payload ws₁)) s₂ bits₂) ⟩
+        swapBytes (applyWrites (swapBytes (applyWrites payload ws₁)) ws₂)
+      ≡⟨ swap-applyWrites-swap (applyWrites payload ws₁) ws₂ bd₂ ⟩
+        applyWrites (applyWrites payload ws₁) (physicalWrites ws₂)
+      ≡⟨ applyWrites-comm payload ws₁ (physicalWrites ws₂)
+           (writesOf-distinct s₁ bits₁)
+           (writesOf-AllDiffPos-phys s₁ bits₁ s₂ bits₂ physDisj) ⟩
+        applyWrites (applyWrites payload (physicalWrites ws₂)) ws₁
+      ≡⟨ sym (injectBits≡applyWrites (applyWrites payload (physicalWrites ws₂)) s₁ bits₁) ⟩
+        injectBits (applyWrites payload (physicalWrites ws₂)) s₁ bits₁
+      ≡⟨ cong (λ x → injectBits x s₁ bits₁)
+              (sym (swap-applyWrites-swap payload ws₂ bd₂)) ⟩
+        injectBits (swapBytes (applyWrites (swapBytes payload) ws₂)) s₁ bits₁
+      ≡⟨ cong (λ x → injectBits (swapBytes x) s₁ bits₁)
+              (sym (injectBits≡applyWrites (swapBytes payload) s₂ bits₂)) ⟩
+        injectBits (swapBytes (injectBits (swapBytes payload) s₂ bits₂)) s₁ bits₁
+      ∎
+
+    -- BE/LE: sym of applyWrites-comm with swapped arguments
+    go BigEndian LittleEndian refl refl =
+      begin
+        injectBits (swapBytes (injectBits (swapBytes payload) s₁ bits₁)) s₂ bits₂
+      ≡⟨ cong (λ x → injectBits (swapBytes x) s₂ bits₂)
+              (injectBits≡applyWrites (swapBytes payload) s₁ bits₁) ⟩
+        injectBits (swapBytes (applyWrites (swapBytes payload) ws₁)) s₂ bits₂
+      ≡⟨ cong (λ x → injectBits x s₂ bits₂)
+              (swap-applyWrites-swap payload ws₁ bd₁) ⟩
+        injectBits (applyWrites payload (physicalWrites ws₁)) s₂ bits₂
+      ≡⟨ injectBits≡applyWrites (applyWrites payload (physicalWrites ws₁)) s₂ bits₂ ⟩
+        applyWrites (applyWrites payload (physicalWrites ws₁)) ws₂
+      ≡⟨ sym (applyWrites-comm payload ws₂ (physicalWrites ws₁)
+           (writesOf-distinct s₂ bits₂)
+           (writesOf-AllDiffPos-phys s₂ bits₂ s₁ bits₁
+             (λ k₂ k₂< k₁ k₁< eq → physDisj k₁ k₁< k₂ k₂< (sym eq)))) ⟩
+        applyWrites (applyWrites payload ws₂) (physicalWrites ws₁)
+      ≡⟨ cong (λ x → applyWrites x (physicalWrites ws₁))
+              (sym (injectBits≡applyWrites payload s₂ bits₂)) ⟩
+        applyWrites (injectBits payload s₂ bits₂) (physicalWrites ws₁)
+      ≡⟨ sym (swap-applyWrites-swap (injectBits payload s₂ bits₂) ws₁ bd₁) ⟩
+        swapBytes (applyWrites (swapBytes (injectBits payload s₂ bits₂)) ws₁)
+      ≡⟨ cong swapBytes (sym (injectBits≡applyWrites (swapBytes (injectBits payload s₂ bits₂)) s₁ bits₁)) ⟩
+        swapBytes (injectBits (swapBytes (injectBits payload s₂ bits₂)) s₁ bits₁)
+      ∎
 
 -- ============================================================================
 -- IMPLEMENTATION NOTES

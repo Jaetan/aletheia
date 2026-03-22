@@ -5,32 +5,39 @@
 -- Purpose: Prove correctness of batch extraction/building operations.
 -- Architecture: Connects DBC validation (DBCValid) to signal operation proofs.
 --
--- Key connection: DBC validation ensures signals are disjoint, which is exactly
--- the precondition needed for extract-disjoint-inject proofs in Encoding/Properties.
+-- Key connection: DBC validation ensures signals are physically disjoint, which is
+-- exactly the precondition needed for extract-disjoint-inject proofs in Encoding.
 --
 -- Proof flow:
 --   1. validateDBCFull dbc succeeds → DBCValid dbc
---   2. lookupDisjointFromDBC extracts SignalsDisjoint for any two coexisting signals
---   3. SignalsDisjoint is the precondition for extract-disjoint-inject-*
+--   2. lookupDisjointFromDBC extracts PhysicallyDisjoint for any two coexisting signals
+--   3. PhysicallyDisjoint is the precondition for injectSignal-preserves-disjoint-bits-physical
 --   4. Therefore: batch operations on validated DBCs preserve signal values
+--
+-- Mixed byte orders are fully supported: PhysicallyDisjoint checks physical bit
+-- positions rather than logical intervals, so LE/BE signal pairs are handled correctly.
 --
 module Aletheia.CAN.Batch.Properties where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned; injectSignal; injectSignal-preserves-disjoint-bits)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned; injectSignal; injectSignal-preserves-disjoint-bits-physical; removeScaling)
+open import Aletheia.CAN.Endianness using (extractBits)
+open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
+open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.BatchExtraction using (ExtractionResults; mkExtractionResults; categorizeResult; combineResults; emptyResults; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Properties using (
-  SignalsDisjoint; disjoint-left; disjoint-right)
+  PhysicallyDisjoint; physicallyDisjoint-sym; _≟-DBCSignal_)
 
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; length; map; foldr)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _≤_)
-open import Data.Rational using (ℚ)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym)
+open import Data.Nat using (ℕ; _+_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
+open import Data.Rational using (ℚ; 0ℚ) renaming (_≟_ to _≟ᵣ_)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
+open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Data.Nat.Properties using (+-suc)
 open import Function using (case_of_)
 
 -- ============================================================================
@@ -42,21 +49,22 @@ open import Function using (case_of_)
 --
 -- 1. VALIDATION PHASE (at DBC load time):
 --    - parseDBCWithErrors parses JSON to DBC
---    - validateDBCFull checks all signal pairs for disjointness
---    - Result: DBCValid dbc (proof that all coexisting signals are disjoint)
+--    - validateDBCFull checks all signal pairs for physical disjointness
+--    - Result: DBCValid dbc (proof that all coexisting signals are physically disjoint)
 --
 -- 2. PROOF EXTRACTION (when needed for formal proofs):
 --    - Given: DBCValid dbc, msg ∈ messages, sig₁ sig₂ ∈ signals msg
---    - lookupDisjointFromDBC extracts: SignalsDisjoint sig₁ sig₂
+--    - lookupDisjointFromDBC extracts: PhysicallyDisjoint sig₁ sig₂
 --
--- 3. SIGNAL OPERATION PROOFS (in Encoding/Properties):
---    - extract-disjoint-inject-unsigned/signed:
---      Given SignalsDisjoint, injection at sig₁ doesn't affect extraction at sig₂
+-- 3. SIGNAL OPERATION PROOFS (in Encoding):
+--    - injectSignal-preserves-disjoint-bits-physical:
+--      Given PhysicallyDisjoint, injection at sig₁ doesn't affect extraction at sig₂
+--      Works for any byte order combination (LE/LE, BE/BE, LE/BE, BE/LE)
 --
 -- 4. BATCH OPERATION CORRECTNESS (the conclusion):
 --    - buildFrame injects multiple signals
---    - Each signal's value is preserved because all pairs are disjoint
---    - This follows by induction using extract-disjoint-inject
+--    - Each signal's value is preserved because all pairs are physically disjoint
+--    - This follows by induction using injectSignal-preserves-disjoint-bits-physical
 
 -- ============================================================================
 -- EXAMPLE: Using lookupDisjointFromDBC
@@ -71,7 +79,7 @@ open import Function using (case_of_)
 --     → sig₂ ∈ DBCMessage.signals msg
 --     → sig₁ ≢ sig₂
 --     → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
---     → SignalsDisjoint (DBCSignal.signalDef sig₁) (DBCSignal.signalDef sig₂)
+--     → PhysicallyDisjoint sig₁ sig₂
 --
 -- Usage: Given membership proofs (from Any), you can extract disjointness directly.
 -- The membership proofs can be computed by searching the list, or provided
@@ -81,22 +89,22 @@ open import Function using (case_of_)
 -- CONNECTION TO ENCODING PROOFS
 -- ============================================================================
 
--- The SignalsDisjoint proof from above is exactly what extract-disjoint-inject needs.
--- This is defined in Encoding/Properties.agda:
+-- The PhysicallyDisjoint proof from above is exactly what the encoding lemma needs.
+-- This is defined in Encoding.agda:
 --
---   extract-disjoint-inject-unsigned :
---     ∀ (n : ℕ) (sig₁ sig₂ : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
---     → SignalsDisjoint sig₁ sig₂  -- ← Provided by lookupDisjointFromDBC!
---     → (bounds-ok₁ : ...)
---     → (factor≢0 : ...)
---     → (n<2^bl : ...)
---     → (fits₁ : ...)
---     → (fits₂ : ...)
---     → extractSignal (resultOf (injectSignal ...)) sig₂ bo
---       ≡ extractSignal frame sig₂ bo
+--   injectSignal-preserves-disjoint-bits-physical :
+--     ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo₁ bo₂ : ByteOrder)
+--       (frame frame' : CANFrame) (start₂ : ℕ)
+--     → injectSignal v sig bo₁ frame ≡ just frame'
+--     → (∀ k₁ → k₁ < bitLength sig → ∀ k₂ → k₂ < len₂
+--        → physicalBitPos bo₁ (startBit sig + k₁) ≢ physicalBitPos bo₂ (start₂ + k₂))
+--     → startBit sig + bitLength sig ≤ 64
+--     → start₂ + len₂ ≤ 64
+--     → extractBits {len₂} (extractionBytes frame' bo₂) start₂
+--       ≡ extractBits {len₂} (extractionBytes frame bo₂) start₂
 --
 -- So the proof chain is:
---   DBCValid → SignalsDisjoint → extract-disjoint-inject succeeds
+--   DBCValid → PhysicallyDisjoint → injectSignal-preserves-disjoint-bits-physical
 
 -- ============================================================================
 -- BATCH OPERATION CORRECTNESS: The Full Picture
@@ -110,18 +118,18 @@ open import Function using (case_of_)
 -- Inductive case (n = k + 1):
 --   - Inject signal k+1 into frame that already has signals 1..k
 --   - Need to show: extracting any signal i ∈ 1..k still returns correct value
---   - By extract-disjoint-inject: since signal i and signal k+1 are disjoint
---     (from DBCValid), injection of k+1 doesn't affect extraction of i
+--   - By injectSignal-preserves-disjoint-bits-physical: since signal i and
+--     signal k+1 are physically disjoint (from DBCValid), injection of k+1
+--     doesn't affect extraction of i (regardless of byte order combination)
 --   - Also need: extracting signal k+1 returns its injected value
 --   - By roundtrip property (extractSignal-injectSignal-roundtrip)
 --
 -- The full formal proof requires:
 --   1. Lifting roundtrip to Maybe (handling injection success)
---   2. Inductively composing extract-disjoint-inject through the fold
---   3. Careful handling of byte order consistency
+--   2. Inductively composing preservation through the fold
 --
 -- These are mechanical but lengthy; the key insight is that DBCValid provides
--- exactly the disjointness preconditions needed.
+-- exactly the physical disjointness preconditions needed.
 
 -- ============================================================================
 -- PAIRWISE DISJOINTNESS FOR SIGNAL LISTS
@@ -130,12 +138,22 @@ open import Function using (case_of_)
 open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
 open import Data.Bool using (true; false)
 open import Relation.Binary.PropositionalEquality using (trans; cong)
+open import Aletheia.CAN.Encoding.Properties using (
+  signalValue;
+  injectSignal-reduces-unsigned; injectSignal-reduces-signed;
+  extractSignal-reduces-unsigned; extractSignal-reduces-signed;
+  SignedFits;
+  removeScaling-applyScaling-exact; removeScaling-nothing⇒zero)
+open import Data.List.Membership.Propositional using (_∈_)
+open import Data.List.Relation.Unary.Any using (here; there)
+open import Data.Maybe.Properties using (just-injective)
+open import Data.Integer using (ℤ; +_; -[1+_])
 
--- A signal is disjoint from all signals in a list
+-- A signal is physically disjoint from all signals in a list
 data DisjointFromAll (sig : DBCSignal) : List (DBCSignal × ℚ) → Set where
   dfa-nil : DisjointFromAll sig []
   dfa-cons : ∀ {s v rest}
-    → SignalsDisjoint (DBCSignal.signalDef sig) (DBCSignal.signalDef s)
+    → PhysicallyDisjoint sig s
     → DisjointFromAll sig rest
     → DisjointFromAll sig ((s , v) ∷ rest)
 
@@ -163,71 +181,9 @@ data AllSignalsFit : List (DBCSignal × ℚ) → Set where
 signalFits : SignalDef → Set
 signalFits sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
 
--- Convert SignalsDisjoint to the ⊎ form for injectBits-preserves-disjoint
-
-SignalsDisjoint→⊎ : ∀ {sig₁ sig₂} → SignalsDisjoint sig₁ sig₂
-  → SignalDef.startBit sig₁ + SignalDef.bitLength sig₁ ≤ SignalDef.startBit sig₂
-  ⊎ SignalDef.startBit sig₂ + SignalDef.bitLength sig₂ ≤ SignalDef.startBit sig₁
-SignalsDisjoint→⊎ (disjoint-left p) = inj₁ p
-SignalsDisjoint→⊎ (disjoint-right p) = inj₂ p
-
 -- ============================================================================
--- THE KEY SEMANTIC PROPERTY
+-- HELPER IMPORTS
 -- ============================================================================
---
--- What we need to prove:
---
---   SignalsDisjoint sig₁ sig₂
---   → injection at sig₁ with bo₁ doesn't affect extraction at sig₂ with bo₂
---
--- ANALYSIS BY BYTE ORDER COMBINATION:
---
---   Let A = byte range touched by [s₁, s₁+l₁)
---   Let B = byte range touched by [s₂, s₂+l₂)
---   Let π = swapBytes (byte reversal)
---
---   SignalsDisjoint gives: A ∩ B = ∅ (in logical bit space)
---
---   Case LE/LE: inject touches A, extract reads B → need A ∩ B = ∅ ✓
---   Case BE/BE: inject touches π(A), extract reads π(B) → need π(A) ∩ π(B) = ∅
---               Since π is bijection and A ∩ B = ∅, we have π(A) ∩ π(B) = ∅ ✓
---   Case LE/BE: inject touches A, extract reads π(B) → need A ∩ π(B) = ∅
---               This does NOT follow from A ∩ B = ∅ alone! ✗
---   Case BE/LE: inject touches π(A), extract reads B → need π(A) ∩ B = ∅
---               This does NOT follow from A ∩ B = ∅ alone! ✗
---
--- COUNTEREXAMPLE for mixed byte orders:
---   s₁ = 0, l₁ = 8 (byte 0)    with LE → modifies byte 0
---   s₂ = 56, l₂ = 8 (byte 7)   with BE → reads swapBytes, so reads original byte 0!
---   SignalsDisjoint holds ([0,8) ∩ [56,64) = ∅) but they DO interfere.
---
--- CONCLUSION:
---   - Same byte order: SignalsDisjoint is SUFFICIENT
---   - Mixed byte orders: Need stronger condition (physical disjointness)
---
--- For now, we require same byte order for batch operations.
--- CAN messages typically use consistent byte order for all signals anyway.
---
--- ============================================================================
-
--- ============================================================================
--- SAME BYTE ORDER CONSTRAINT
--- ============================================================================
-
--- All signals in a list use the same byte order
-data AllSameByteOrderAs (bo : ByteOrder) : List (DBCSignal × ℚ) → Set where
-  asbo-nil : AllSameByteOrderAs bo []
-  asbo-cons : ∀ {s v rest}
-    → DBCSignal.byteOrder s ≡ bo
-    → AllSameByteOrderAs bo rest
-    → AllSameByteOrderAs bo ((s , v) ∷ rest)
-
--- ============================================================================
--- DISJOINTNESS + SAME BYTE ORDER: Concrete single-inject-preserves
--- ============================================================================
-
--- Import the key lemma from Endianness
-open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
 
@@ -273,50 +229,33 @@ private
       ... | true  | false | ()
       ... | false | true  | ()
 
--- When injection and extraction use the same byte order, SignalsDisjoint suffices
--- This connects injectSignal-preserves-disjoint-bits to the signal level
-single-inject-preserves-same-bo :
+-- PhysicallyDisjoint is sufficient for any byte order combination.
+-- This connects injectSignal-preserves-disjoint-bits-physical to the signal level.
+single-inject-preserves :
   ∀ (frame frame' : CANFrame) (s : DBCSignal) (v : ℚ) (sig : DBCSignal)
-  → DBCSignal.byteOrder s ≡ DBCSignal.byteOrder sig  -- SAME byte order
-  → SignalsDisjoint (DBCSignal.signalDef sig) (DBCSignal.signalDef s)
+  → PhysicallyDisjoint sig s
   → signalFits (DBCSignal.signalDef s)
   → signalFits (DBCSignal.signalDef sig)
   → injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame ≡ just frame'
   → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
     ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
-single-inject-preserves-same-bo frame frame' s v sig bo-eq disj fits-s fits-sig inj-eq
-  rewrite sym bo-eq = extractSignal-bits-eq frame' frame sig-sig bo bits-preserved
+single-inject-preserves frame frame' s v sig pd fits-s fits-sig inj-eq =
+  extractSignal-bits-eq frame' frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) bits-preserved
   where
-    bo = DBCSignal.byteOrder s
-    sig-s = DBCSignal.signalDef s
-    sig-sig = DBCSignal.signalDef sig
-
-    start-sig = SignalDef.startBit sig-sig
-    len-sig = SignalDef.bitLength sig-sig
-
-    -- Disjointness in ⊎ form (swapped for the lemma signature)
-    disj⊎ : SignalDef.startBit sig-s + SignalDef.bitLength sig-s ≤ start-sig
-          ⊎ start-sig + len-sig ≤ SignalDef.startBit sig-s
-    disj⊎ with SignalsDisjoint→⊎ disj
-    ... | inj₁ p = inj₂ p  -- sig ends before s starts
-    ... | inj₂ p = inj₁ p  -- s ends before sig starts
-
-    -- Use the lemma from Encoding.agda
-    bits-preserved : extractBits {len-sig} (extractionBytes frame' bo) start-sig
-                   ≡ extractBits {len-sig} (extractionBytes frame bo) start-sig
-    bits-preserved = injectSignal-preserves-disjoint-bits v sig-s bo frame frame' start-sig
-                       inj-eq disj⊎ fits-s fits-sig
+    bits-preserved = injectSignal-preserves-disjoint-bits-physical v
+      (DBCSignal.signalDef s) (DBCSignal.byteOrder s) (DBCSignal.byteOrder sig)
+      frame frame' (SignalDef.startBit (DBCSignal.signalDef sig))
+      inj-eq (physicallyDisjoint-sym {sig} {s} pd) fits-s fits-sig
 
 -- ============================================================================
 -- KEY LEMMA: injectAll preserves extraction at disjoint positions
 -- ============================================================================
--- Requires: same byte order for all signals, pairwise disjointness, signals fit in 64 bits
+-- Requires: pairwise physical disjointness, signals fit in 64 bits.
+-- No byte order constraint: works for any mix of LE and BE signals.
 
 injectAll-preserves-disjoint :
-  ∀ (bo : ByteOrder) (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+  ∀ (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
     (sig : DBCSignal)
-  → DBCSignal.byteOrder sig ≡ bo
-  → AllSameByteOrderAs bo sigs
   → AllSignalsFit sigs
   → signalFits (DBCSignal.signalDef sig)
   → injectAll frame sigs ≡ just frame'
@@ -325,16 +264,15 @@ injectAll-preserves-disjoint :
     ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
 
 -- Base case: empty list, frame unchanged
-injectAll-preserves-disjoint bo [] frame .frame sig _ _ _ _ refl dfa-nil = refl
+injectAll-preserves-disjoint [] frame .frame sig _ _ refl dfa-nil = refl
 
 -- Inductive case: inject first, then rest
-injectAll-preserves-disjoint bo ((s , v) ∷ rest) frame frame' sig
-    sig-bo-eq (asbo-cons s-bo-eq rest-bo) (asf-cons s-fits rest-fits) sig-fits eq (dfa-cons disj restDisj)
+injectAll-preserves-disjoint ((s , v) ∷ rest) frame frame' sig
+    (asf-cons s-fits rest-fits) sig-fits eq (dfa-cons disj restDisj)
   with injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame in injEq
-... | nothing = case eq of λ ()  -- injectOne failed, contradicts eq
+... | nothing = case eq of λ ()
 ... | just frame₁ = proof
   where
-    -- injectAll frame₁ rest ≡ just frame'
     restEq : injectAll frame₁ rest ≡ just frame'
     restEq with injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame
     ... | just _ = eq
@@ -343,35 +281,532 @@ injectAll-preserves-disjoint bo ((s , v) ∷ rest) frame frame' sig
     -- By IH: extracting sig from frame' equals extracting from frame₁
     step1 : extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
           ≡ extractSignal frame₁ (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
-    step1 = injectAll-preserves-disjoint bo rest frame₁ frame' sig sig-bo-eq rest-bo rest-fits sig-fits restEq restDisj
+    step1 = injectAll-preserves-disjoint rest frame₁ frame' sig rest-fits sig-fits restEq restDisj
 
-    -- Byte orders match: s and sig both use bo
-    bo-match : DBCSignal.byteOrder s ≡ DBCSignal.byteOrder sig
-    bo-match = trans s-bo-eq (sym sig-bo-eq)
-
-    -- Single injection preserves disjoint extraction (same byte order)
+    -- Single injection preserves disjoint extraction (any byte order combo)
     step2 : extractSignal frame₁ (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
           ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
-    step2 = single-inject-preserves-same-bo frame frame₁ s v sig bo-match disj s-fits sig-fits injEq
+    step2 = single-inject-preserves frame frame₁ s v sig disj s-fits sig-fits injEq
 
     proof : extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
           ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
     proof = trans step1 step2
 
 -- ============================================================================
+-- SINGLE SIGNAL ROUNDTRIP PREDICATE
+-- ============================================================================
+
+-- A (signal, value) pair roundtrips: inject then extract returns v
+InjectRoundtrips : DBCSignal → ℚ → Set
+InjectRoundtrips sig v =
+  ∀ (frame frame' : CANFrame)
+  → injectSignal v (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame ≡ just frame'
+  → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) ≡ just v
+
+-- All signals in a list roundtrip
+data AllRoundtrip : List (DBCSignal × ℚ) → Set where
+  ar-nil  : AllRoundtrip []
+  ar-cons : ∀ {s v rest}
+    → InjectRoundtrips s v → AllRoundtrip rest → AllRoundtrip ((s , v) ∷ rest)
+
+-- ============================================================================
+-- BRIDGE LEMMAS: from existing roundtrips to InjectRoundtrips
+-- ============================================================================
+
+-- Unsigned signals: bridge from Encoding.Properties roundtrip
+roundtrip-unsigned→IR :
+  ∀ (n : ℕ) (sig : DBCSignal)
+  → inBounds (signalValue (+ n) (DBCSignal.signalDef sig))
+             (SignalDef.minimum (DBCSignal.signalDef sig))
+             (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
+  → signalFits (DBCSignal.signalDef sig)
+  → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
+  → InjectRoundtrips sig (signalValue (+ n) (DBCSignal.signalDef sig))
+roundtrip-unsigned→IR n sig bounds-ok factor≢0 unsigned fits n<2^bl frame frame' inj-eq =
+  subst (λ f → extractSignal f sd bo ≡ just v) frame'-eq extract-reduces
+  where
+    sd = DBCSignal.signalDef sig
+    bo = DBCSignal.byteOrder sig
+    v  = signalValue (+ n) sd
+    inject-reduces = injectSignal-reduces-unsigned n sd bo frame bounds-ok factor≢0 n<2^bl
+    frame'-eq      = just-injective (trans (sym inject-reduces) inj-eq)
+    extract-reduces = extractSignal-reduces-unsigned n sd bo frame bounds-ok unsigned fits n<2^bl
+
+-- Signed signals: bridge from Encoding.Properties roundtrip
+roundtrip-signed→IR :
+  ∀ (z : ℤ) (sig : DBCSignal)
+  → inBounds (signalValue z (DBCSignal.signalDef sig))
+             (SignalDef.minimum (DBCSignal.signalDef sig))
+             (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
+  → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
+  → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))
+  → signalFits (DBCSignal.signalDef sig)
+  → InjectRoundtrips sig (signalValue z (DBCSignal.signalDef sig))
+roundtrip-signed→IR z sig bounds-ok factor≢0 signed bl>0 sf fits frame frame' inj-eq =
+  subst (λ f → extractSignal f sd bo ≡ just v) frame'-eq extract-reduces
+  where
+    sd = DBCSignal.signalDef sig
+    bo = DBCSignal.byteOrder sig
+    v  = signalValue z sd
+    inject-reduces  = injectSignal-reduces-signed z sd bo frame bounds-ok factor≢0 bl>0 sf
+    frame'-eq       = just-injective (trans (sym inject-reduces) inj-eq)
+    extract-reduces = extractSignal-reduces-signed z sd bo frame bounds-ok signed bl>0 sf fits
+
+-- ============================================================================
+-- BATCH ROUNDTRIP: extracting any injected signal returns its value
+-- ============================================================================
+
+injectAll-roundtrip :
+  ∀ (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+  → AllPairsDisjoint sigs
+  → AllSignalsFit sigs
+  → AllRoundtrip sigs
+  → injectAll frame sigs ≡ just frame'
+  → ∀ {s v} → (s , v) ∈ sigs
+  → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
+
+-- Empty list: membership impossible
+injectAll-roundtrip [] _ _ _ _ _ _ ()
+
+-- Cons case: decompose injection, split on membership
+injectAll-roundtrip ((s₀ , v₀) ∷ rest) frame frame'
+    (apd-cons dfa apd-rest) (asf-cons s₀-fits asf-rest) (ar-cons ir₀ ar-rest) eq mem
+  with injectSignal v₀ (DBCSignal.signalDef s₀) (DBCSignal.byteOrder s₀) frame in injEq
+... | nothing = case eq of λ ()
+... | just frame₁ = go mem
+  where
+    restEq : injectAll frame₁ rest ≡ just frame'
+    restEq with injectSignal v₀ (DBCSignal.signalDef s₀) (DBCSignal.byteOrder s₀) frame
+    ... | just _  = eq
+    ... | nothing = case injEq of λ ()
+
+    go : ∀ {s v} → (s , v) ∈ ((s₀ , v₀) ∷ rest)
+       → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
+    -- Head signal: roundtrip + preservation through remaining injections
+    go (here refl) = trans preserve (ir₀ frame frame₁ injEq)
+      where
+        preserve = injectAll-preserves-disjoint rest frame₁ frame' s₀
+                     asf-rest s₀-fits restEq dfa
+    -- Tail signal: inductive hypothesis with intermediate frame
+    go (there mem') = injectAll-roundtrip rest frame₁ frame' apd-rest asf-rest ar-rest restEq mem'
+
+-- ============================================================================
 -- EXTRACTALLSIGNALS COMPLETENESS
 -- ============================================================================
 
--- extractAllSignals partitions signals into (values, errors, absent).
--- Completeness: every signal appears in exactly one partition.
+-- Total entries across all three partitions
+totalEntries : ExtractionResults → ℕ
+totalEntries r = length (ExtractionResults.values r)
+               + length (ExtractionResults.errors r)
+               + length (ExtractionResults.absent r)
+
+private
+  -- Arithmetic: adding 1 to middle partition gives suc of total
+  shift-mid : ∀ a b c → a + suc b + c ≡ suc (a + b + c)
+  shift-mid a b c = cong (_+ c) (+-suc a b)
+
+  -- Arithmetic: adding 1 to last partition gives suc of total
+  shift-last : ∀ a b c → a + b + suc c ≡ suc (a + b + c)
+  shift-last a b c = +-suc (a + b) c
+
+-- Completeness: extractAllSignalsFromMessage produces exactly one entry per signal.
+-- Each signal is categorized into exactly one partition (values, errors, or absent).
+extractAll-complete : ∀ dbc frame msg
+  → totalEntries (extractAllSignalsFromMessage dbc frame msg)
+    ≡ length (DBCMessage.signals msg)
+extractAll-complete dbc frame msg = go (DBCMessage.signals msg)
+  where
+    f : DBCSignal → ExtractionResults
+    f sig = categorizeResult (DBCSignal.name sig)
+              (extractSignalWithContext dbc frame (DBCSignal.name sig))
+
+    go : ∀ sigs → totalEntries (foldr combineResults emptyResults (map f sigs))
+                  ≡ length sigs
+    go [] = refl
+    go (sig ∷ sigs)
+      with extractSignalWithContext dbc frame (DBCSignal.name sig)
+         | foldr combineResults emptyResults (map f sigs) | go sigs
+    ... | Success _              | mkExtractionResults vs es as | ih =
+      cong suc ih
+    ... | SignalNotInDBC _       | mkExtractionResults vs es as | ih =
+      trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
+    ... | SignalNotPresent _ _   | mkExtractionResults vs es as | ih =
+      trans (shift-last (length vs) (length es) (length as)) (cong suc ih)
+    ... | ValueOutOfBounds _ _ _ _ | mkExtractionResults vs es as | ih =
+      trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
+    ... | ExtractionFailed _ _   | mkExtractionResults vs es as | ih =
+      trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
+
+-- ============================================================================
+-- CAPSTONE THEOREM: ValidDBC → batch roundtrip correctness
+-- ============================================================================
+
+-- Additional imports for capstone
+import Data.List.Relation.Unary.All as StdAll
+import Data.List.Relation.Unary.AllPairs as StdAP
+open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factor≢0; BitsInFrame)
+open import Aletheia.DBC.Properties using (
+  SignalPairValid; signalPairValid-sym;
+  extractDisjointness; CanCoexist; both-always)
+open import Data.Nat.Properties using (≤-trans; *-monoˡ-≤)
+open import Data.Empty using (⊥-elim)
+
+-- --------------------------------------------------------------------------
+-- Predicates for capstone preconditions
+-- --------------------------------------------------------------------------
+
+-- All signals in the list are always-present (not multiplexed)
+data AllAlwaysPresent : List (DBCSignal × ℚ) → Set where
+  aap-nil  : AllAlwaysPresent []
+  aap-cons : ∀ {s v rest}
+    → DBCSignal.presence s ≡ Always
+    → AllAlwaysPresent rest
+    → AllAlwaysPresent ((s , v) ∷ rest)
+
+-- All signals come from a specific message
+data AllFromMessage : List (DBCSignal × ℚ) → DBCMessage → Set where
+  afm-nil  : ∀ {msg} → AllFromMessage [] msg
+  afm-cons : ∀ {s v rest msg}
+    → s ∈ DBCMessage.signals msg
+    → AllFromMessage rest msg
+    → AllFromMessage ((s , v) ∷ rest) msg
+
+-- Signals in the list are pairwise distinct (as DBCSignal values)
+data DistinctFromAll (s : DBCSignal) : List (DBCSignal × ℚ) → Set where
+  dist-nil  : DistinctFromAll s []
+  dist-cons : ∀ {s' v rest}
+    → s ≢ s'
+    → DistinctFromAll s rest
+    → DistinctFromAll s ((s' , v) ∷ rest)
+
+data PairsDistinct : List (DBCSignal × ℚ) → Set where
+  pd-nil  : PairsDistinct []
+  pd-cons : ∀ {s v rest}
+    → DistinctFromAll s rest
+    → PairsDistinct rest
+    → PairsDistinct ((s , v) ∷ rest)
+
+-- --------------------------------------------------------------------------
+-- Decidable checkers for capstone preconditions
+-- --------------------------------------------------------------------------
+
+-- Helper: is a SignalPresence equal to Always?
+private
+  isAlways? : (p : SignalPresence) → Dec (p ≡ Always)
+  isAlways? Always     = yes refl
+  isAlways? (When _ _) = no (λ ())
+
+-- Decidable AllAlwaysPresent: check each signal's presence
+allAlwaysPresent? : (pairs : List (DBCSignal × ℚ)) → Dec (AllAlwaysPresent pairs)
+allAlwaysPresent? [] = yes aap-nil
+allAlwaysPresent? ((s , v) ∷ rest) with isAlways? (DBCSignal.presence s)
+... | no ¬a = no λ { (aap-cons eq _) → ¬a eq }
+... | yes a with allAlwaysPresent? rest
+...   | no ¬ar = no λ { (aap-cons _ ar) → ¬ar ar }
+...   | yes ar = yes (aap-cons a ar)
+
+-- Decidable AllFromMessage: check each signal's membership
+open import Data.List.Membership.DecPropositional {A = DBCSignal} _≟-DBCSignal_ using (_∈?_)
+
+allFromMessage? : (pairs : List (DBCSignal × ℚ)) → (msg : DBCMessage)
+                → Dec (AllFromMessage pairs msg)
+allFromMessage? [] msg = yes afm-nil
+allFromMessage? ((s , v) ∷ rest) msg with s ∈? DBCMessage.signals msg
+... | no ¬s∈ = no λ { (afm-cons s∈ _) → ¬s∈ s∈ }
+... | yes s∈ with allFromMessage? rest msg
+...   | no ¬ar = no λ { (afm-cons _ ar) → ¬ar ar }
+...   | yes ar = yes (afm-cons s∈ ar)
+
+-- Decidable DistinctFromAll: check one signal against rest
+private
+  distinctFromAll? : (s : DBCSignal) → (rest : List (DBCSignal × ℚ))
+                   → Dec (DistinctFromAll s rest)
+  distinctFromAll? s [] = yes dist-nil
+  distinctFromAll? s ((s' , v) ∷ rest) with s ≟-DBCSignal s'
+  ... | yes eq = no λ { (dist-cons s≢ _) → s≢ eq }
+  ... | no s≢ with distinctFromAll? s rest
+  ...   | no ¬dr = no λ { (dist-cons _ dr) → ¬dr dr }
+  ...   | yes dr = yes (dist-cons s≢ dr)
+
+-- Decidable PairsDistinct: triangular check
+pairsDistinct? : (pairs : List (DBCSignal × ℚ)) → Dec (PairsDistinct pairs)
+pairsDistinct? [] = yes pd-nil
+pairsDistinct? ((s , v) ∷ rest) with distinctFromAll? s rest
+... | no ¬da = no λ { (pd-cons da _) → ¬da da }
+... | yes da with pairsDistinct? rest
+...   | no ¬pr = no λ { (pd-cons _ pr) → ¬pr pr }
+...   | yes pr = yes (pd-cons da pr)
+
+-- --------------------------------------------------------------------------
+-- Gap 1: ValidDBC → AllPairsDisjoint
+-- --------------------------------------------------------------------------
+
+private
+  -- Lookup in stdlib AllPairs (analogous to lookupSignalPairValid for AllSignalPairsValid)
+  allPairs-lookup : ∀ {sig₁ sig₂ sigs}
+    → StdAP.AllPairs SignalPairValid sigs
+    → sig₁ ∈ sigs → sig₂ ∈ sigs → sig₁ ≢ sig₂
+    → SignalPairValid sig₁ sig₂
+  allPairs-lookup (hd StdAP.∷ _) (here refl) (there sig₂∈) _ =
+    StdAll.lookup hd sig₂∈
+  allPairs-lookup (hd StdAP.∷ _) (there sig₁∈) (here refl) _ =
+    signalPairValid-sym (StdAll.lookup hd sig₁∈)
+  allPairs-lookup (_ StdAP.∷ rest) (there sig₁∈) (there sig₂∈) sig≢ =
+    allPairs-lookup rest sig₁∈ sig₂∈ sig≢
+  allPairs-lookup _ (here refl) (here refl) sig≢ = ⊥-elim (sig≢ refl)
+
+  -- Build DisjointFromAll from ValidDBC evidence
+  buildDFA : ∀ {msg} (s : DBCSignal) (rest : List (DBCSignal × ℚ))
+    → StdAP.AllPairs SignalPairValid (DBCMessage.signals msg)
+    → s ∈ DBCMessage.signals msg
+    → DBCSignal.presence s ≡ Always
+    → AllFromMessage rest msg
+    → AllAlwaysPresent rest
+    → DistinctFromAll s rest
+    → DisjointFromAll s rest
+  buildDFA _ [] _ _ _ _ _ _ = dfa-nil
+  buildDFA s ((s' , _) ∷ rest) ap s∈ refl
+      (afm-cons s'∈ afm-rest) (aap-cons refl aap-rest) (dist-cons s≢s' dist-rest) =
+    dfa-cons
+      (extractDisjointness (allPairs-lookup ap s∈ s'∈ s≢s') both-always)
+      (buildDFA s rest ap s∈ refl afm-rest aap-rest dist-rest)
+
+-- Bridge: ValidDBC → AllPairsDisjoint for always-present, distinct signals from one message
+validDBC→allPairsDisjoint : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
+  → ValidDBC dbc
+  → msg ∈ DBC.messages dbc
+  → AllAlwaysPresent pairs
+  → AllFromMessage pairs msg
+  → PairsDistinct pairs
+  → AllPairsDisjoint pairs
+validDBC→allPairsDisjoint [] _ _ _ _ _ = apd-nil
+validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
+    (aap-cons ps aap-rest) (afm-cons s∈ afm-rest) (pd-cons dist pd-rest) =
+  apd-cons
+    (buildDFA s rest ap s∈ ps afm-rest aap-rest dist)
+    (validDBC→allPairsDisjoint rest vdbc msg∈ aap-rest afm-rest pd-rest)
+  where
+    ap = StdAll.lookup (ValidDBC.sigPairsValid vdbc) msg∈
+
+-- --------------------------------------------------------------------------
+-- Gap 2: BitsInFrame + ValidDLC → signalFits
+-- --------------------------------------------------------------------------
+
+-- BitsInFrame gives startBit + bitLength ≤ dlc * 8 (byte-order independent),
+-- and ValidDLC gives dlc ≤ 8, so dlc * 8 ≤ 64 by monotonicity.
+bitsInFrame→signalFits : ∀ {dlc sig}
+  → BitsInFrame dlc sig → dlc ≤ 8
+  → signalFits (DBCSignal.signalDef sig)
+bitsInFrame→signalFits {dlc} bif dlc≤8 =
+  ≤-trans bif (*-monoˡ-≤ 8 dlc≤8)
+
+-- --------------------------------------------------------------------------
+-- Gap 3: ValidDBC → AllSignalsFit
+-- --------------------------------------------------------------------------
+
+private
+  buildASF : ∀ {msg} (pairs : List (DBCSignal × ℚ))
+    → StdAll.All (BitsInFrame (DBCMessage.dlc msg)) (DBCMessage.signals msg)
+    → DBCMessage.dlc msg ≤ 8
+    → AllFromMessage pairs msg
+    → AllSignalsFit pairs
+  buildASF [] _ _ _ = asf-nil
+  buildASF ((s , _) ∷ rest) bifs dlc≤8 (afm-cons s∈ afm-rest) =
+    asf-cons
+      (bitsInFrame→signalFits {sig = s} (StdAll.lookup bifs s∈) dlc≤8)
+      (buildASF rest bifs dlc≤8 afm-rest)
+
+-- Bridge: ValidDBC → AllSignalsFit for signals from one message
+validDBC→allSignalsFit : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
+  → ValidDBC dbc
+  → msg ∈ DBC.messages dbc
+  → AllFromMessage pairs msg
+  → AllSignalsFit pairs
+validDBC→allSignalsFit pairs vdbc msg∈ afm =
+  buildASF pairs
+    (StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈)
+    (StdAll.lookup (ValidDBC.validDLCs vdbc) msg∈)
+    afm
+
+-- --------------------------------------------------------------------------
+-- Gap 5: Capstone theorem
+-- --------------------------------------------------------------------------
+
+-- Top-level: ValidDBC guarantees batch roundtrip for always-present signals.
 --
--- This is true by construction:
---   extractAllSignalsFromMessage dbc frame msg =
---     foldr combineResults emptyResults (map extractOne (DBCMessage.signals msg))
+-- For any byte order combination, if signals are pairwise distinct and
+-- always-present (derived from ValidDBC → physically disjoint), fit in 64 bits
+-- (derived from BitsInFrame + ValidDLC), and you inject representable values,
+-- then extracting any injected signal returns exactly its injected value.
 --
--- Each signal in DBCMessage.signals msg is processed by extractOne,
--- which categorizes it into exactly one partition based on ExtractionResult.
--- combineResults concatenates partitions, preserving this property.
---
--- The proof would be by induction on the signal list, showing that
--- foldr preserves the "each signal in exactly one partition" invariant.
+-- Both AllPairsDisjoint and AllSignalsFit are derived internally from ValidDBC.
+validDBC-roundtrip :
+  ∀ {dbc msg} (pairs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+  → ValidDBC dbc
+  → msg ∈ DBC.messages dbc
+  → AllAlwaysPresent pairs
+  → AllFromMessage pairs msg
+  → PairsDistinct pairs
+  → AllRoundtrip pairs
+  → injectAll frame pairs ≡ just frame'
+  → ∀ {s v} → (s , v) ∈ pairs
+  → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
+validDBC-roundtrip pairs frame frame' vdbc msg∈ aap afm pd ar eq mem =
+  injectAll-roundtrip pairs frame frame'
+    (validDBC→allPairsDisjoint pairs vdbc msg∈ aap afm pd)
+    (validDBC→allSignalsFit pairs vdbc msg∈ afm)
+    ar eq mem
+
+-- ============================================================================
+-- REPRESENTABLE: decidable value representability for capstone theorem
+-- ============================================================================
+
+-- A value v is representable for signal sig when v = signalValue raw sig
+-- for some raw integer that fits in the signal's bit representation.
+data Representable (sig : DBCSignal) (v : ℚ) : Set where
+  repr-unsigned : (n : ℕ)
+    → v ≡ signalValue (+ n) (DBCSignal.signalDef sig)
+    → inBounds v (SignalDef.minimum (DBCSignal.signalDef sig))
+                  (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+    → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
+    → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
+    → Representable sig v
+  repr-signed : (z : ℤ)
+    → v ≡ signalValue z (DBCSignal.signalDef sig)
+    → inBounds v (SignalDef.minimum (DBCSignal.signalDef sig))
+                  (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+    → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
+    → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
+    → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))
+    → Representable sig v
+
+-- Decidable representability checker (requires non-zero factor from ValidDBC)
+representable? : (sig : DBCSignal) (v : ℚ)
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → Dec (Representable sig v)
+representable? sig v factor≢0 = go (removeScaling v factor offset) refl
+  where
+    sd = DBCSignal.signalDef sig
+    open SignalDef sd
+
+    +-inj : ∀ {m n : ℕ} → (+ m) ≡ (+ n) → m ≡ n
+    +-inj refl = refl
+
+    -- Uniqueness: any raw value witnessing Representable must equal the candidate
+    raw≡z : ∀ {raw z} → removeScaling v factor offset ≡ just z
+          → v ≡ signalValue raw sd → raw ≡ z
+    raw≡z {raw} remEq v≡ = just-injective
+      (trans (sym (removeScaling-applyScaling-exact raw factor offset factor≢0))
+             (trans (cong (λ x → removeScaling x factor offset) (sym v≡)) remEq))
+
+    -- Signed fits decision for each ℤ constructor
+    goSF : ∀ z → removeScaling v factor offset ≡ just z → signalValue z sd ≡ v
+         → inBounds v minimum maximum ≡ true → isSigned ≡ true
+         → bitLength > 0 → Dec (Representable sig v)
+    goSF (+ n) remEq sv≡v bEq isEq bl>0 with n <? 2 ^ (bitLength ∸ 1)
+    ... | yes n< = yes (repr-signed (+ n) (sym sv≡v) bEq isEq bl>0 n<)
+    ... | no ¬n< = no λ where
+          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
+          (repr-signed z' v≡ _ _ _ sf) →
+            ¬n< (subst (λ r → SignedFits r bitLength) (raw≡z {z'} remEq v≡) sf)
+    goSF -[1+ n ] remEq sv≡v bEq isEq bl>0 with suc n ≤? 2 ^ (bitLength ∸ 1)
+    ... | yes sn≤ = yes (repr-signed -[1+ n ] (sym sv≡v) bEq isEq bl>0 sn≤)
+    ... | no ¬sn≤ = no λ where
+          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
+          (repr-signed z' v≡ _ _ _ sf) →
+            ¬sn≤ (subst (λ r → SignedFits r bitLength) (raw≡z {z'} remEq v≡) sf)
+
+    -- isSigned dispatch
+    goIS : ∀ b → isSigned ≡ b → ∀ z → removeScaling v factor offset ≡ just z
+         → signalValue z sd ≡ v → inBounds v minimum maximum ≡ true
+         → Dec (Representable sig v)
+    goIS false isEq (+ n) remEq sv≡v bEq with n <? 2 ^ bitLength
+    ... | yes n< = yes (repr-unsigned n (sym sv≡v) bEq isEq n<)
+    ... | no ¬n< = no λ where
+          (repr-unsigned n' v≡ _ _ n'<) →
+            ¬n< (subst (_< 2 ^ bitLength) (+-inj (raw≡z {+ n'} remEq v≡)) n'<)
+          (repr-signed _ _ _ s _ _) → case trans (sym isEq) s of λ ()
+    goIS false isEq -[1+ _ ] remEq _ _ = no λ where
+        (repr-unsigned n v≡ _ _ _) → case raw≡z {+ n} remEq v≡ of λ ()
+        (repr-signed _ _ _ s _ _) → case trans (sym isEq) s of λ ()
+    goIS true isEq z remEq sv≡v bEq with 0 <? bitLength
+    ... | no ¬bl>0 = no λ where
+          (repr-unsigned _ _ _ u _) → case trans (sym isEq) u of λ ()
+          (repr-signed _ _ _ _ bl>0 _) → ¬bl>0 bl>0
+    ... | yes bl>0 = goSF z remEq sv≡v bEq isEq bl>0
+
+    -- Main decision: removeScaling → value check → bounds → signedness
+    go : (r : Maybe ℤ) → removeScaling v factor offset ≡ r → Dec (Representable sig v)
+    go nothing remEq = ⊥-elim (factor≢0 (removeScaling-nothing⇒zero v factor offset remEq))
+    go (just z) remEq with signalValue z sd ≟ᵣ v
+    ... | no sv≢v = no λ where
+          (repr-unsigned n v≡ _ _ _) →
+            sv≢v (subst (λ r → signalValue r sd ≡ v) (raw≡z {+ n} remEq v≡) (sym v≡))
+          (repr-signed z' v≡ _ _ _ _) →
+            sv≢v (subst (λ r → signalValue r sd ≡ v) (raw≡z {z'} remEq v≡) (sym v≡))
+    ... | yes sv≡v with inBounds v minimum maximum in bEq
+    ...   | false = no λ where
+            (repr-unsigned _ _ b _ _) → case trans (sym bEq) b of λ ()
+            (repr-signed _ _ b _ _ _) → case trans (sym bEq) b of λ ()
+    ...   | true = goIS isSigned refl z remEq sv≡v bEq
+
+-- Bridge: Representable → InjectRoundtrips (given factor ≢ 0 and signalFits)
+representable→roundtrips : ∀ {sig v}
+  → Representable sig v
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → signalFits (DBCSignal.signalDef sig)
+  → InjectRoundtrips sig v
+representable→roundtrips {sig} (repr-unsigned n v≡ bounds-ok unsigned n<) factor≢0 fits =
+  subst (InjectRoundtrips sig) (sym v≡)
+    (roundtrip-unsigned→IR n sig
+      (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
+      factor≢0 unsigned fits n<)
+  where sd = DBCSignal.signalDef sig
+representable→roundtrips {sig} (repr-signed z v≡ bounds-ok signed bl>0 sf) factor≢0 fits =
+  subst (InjectRoundtrips sig) (sym v≡)
+    (roundtrip-signed→IR z sig
+      (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
+      factor≢0 signed bl>0 sf fits)
+  where sd = DBCSignal.signalDef sig
+
+-- All signals in a list are representable
+data AllRepresentable : List (DBCSignal × ℚ) → Set where
+  arep-nil  : AllRepresentable []
+  arep-cons : ∀ {s v rest}
+    → Representable s v → AllRepresentable rest
+    → AllRepresentable ((s , v) ∷ rest)
+
+-- Decidable checker for AllRepresentable (requires non-zero factors)
+allRepresentable? : (pairs : List (DBCSignal × ℚ))
+  → StdAll.All (λ { (s , _) → SignalDef.factor (DBCSignal.signalDef s) ≢ 0ℚ }) pairs
+  → Dec (AllRepresentable pairs)
+allRepresentable? [] _ = yes arep-nil
+allRepresentable? ((s , v) ∷ rest) (f≢0 StdAll.∷ fs) with representable? s v f≢0
+... | no ¬r = no λ { (arep-cons r _) → ¬r r }
+... | yes r with allRepresentable? rest fs
+...   | no ¬ar = no λ { (arep-cons _ ar) → ¬ar ar }
+...   | yes ar = yes (arep-cons r ar)
+
+-- Bridge: AllRepresentable → AllRoundtrip (given ValidDBC context)
+allRepresentable→allRoundtrip : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
+  → ValidDBC dbc
+  → msg ∈ DBC.messages dbc
+  → AllFromMessage pairs msg
+  → AllRepresentable pairs
+  → AllRoundtrip pairs
+allRepresentable→allRoundtrip [] _ _ _ _ = ar-nil
+allRepresentable→allRoundtrip ((s , v) ∷ rest) vdbc msg∈
+    (afm-cons s∈ afm-rest) (arep-cons rep arep-rest) =
+  ar-cons
+    (representable→roundtrips rep
+      (nonZeroFactor→factor≢0 {s} (StdAll.lookup nzfs s∈))
+      (bitsInFrame→signalFits {sig = s} (StdAll.lookup bifs s∈) dlc≤8))
+    (allRepresentable→allRoundtrip rest vdbc msg∈ afm-rest arep-rest)
+  where
+    nzfs = StdAll.lookup (ValidDBC.nonZeroFactors vdbc) msg∈
+    bifs = StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈
+    dlc≤8 = StdAll.lookup (ValidDBC.validDLCs vdbc) msg∈

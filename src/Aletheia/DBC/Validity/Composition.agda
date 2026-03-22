@@ -9,17 +9,16 @@
 module Aletheia.DBC.Validity.Composition where
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Validator using (errorIssues; _≟-CANId_; findSignalPresence; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkFactorZeroSig; checkAllFactorZero; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; checkSignalExceedsDLC-LE; checkSignalExceedsDLC-BE; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkBitLengthZero; checkAllBitLengthZero; checkDLCOutOfRange; checkAllDLCOutOfRange)
+open import Aletheia.DBC.Validator using (errorIssues; _≟-CANId_; findSignalPresence; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkFactorZeroSig; checkAllFactorZero; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkBitLengthZero; checkAllBitLengthZero; checkDLCOutOfRange; checkAllDLCOutOfRange)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using (_≟_)
-open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _/_)
+open import Data.Nat using (ℕ; _+_; _*_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
@@ -118,26 +117,13 @@ checkMuxAlwaysPresentSig-allE msgName sigs sig with DBCSignal.presence sig
 ...   | just (When _ _) = refl ∷ []
 
 -- Check 8: SignalExceedsDLC
-checkSignalExceedsDLC-LE-allE : ∀ msgName dlc sig →
-  All E (checkSignalExceedsDLC-LE msgName dlc sig)
-checkSignalExceedsDLC-LE-allE msgName dlc sig
+checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
+  All E (checkSignalExceedsDLC msgName dlc sig)
+checkSignalExceedsDLC-allE msgName dlc sig
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
 ... | yes _ = []
 ... | no  _ = refl ∷ []
-
-checkSignalExceedsDLC-BE-allE : ∀ msgName dlc sig →
-  All E (checkSignalExceedsDLC-BE msgName dlc sig)
-checkSignalExceedsDLC-BE-allE msgName dlc sig
-  with suc (7 ∸ (SignalDef.startBit (DBCSignal.signalDef sig) / 8)) ≤? dlc
-... | yes _ = []
-... | no  _ = refl ∷ []
-
-checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
-  All E (checkSignalExceedsDLC msgName dlc sig)
-checkSignalExceedsDLC-allE msgName dlc sig with DBCSignal.byteOrder sig
-... | LittleEndian = checkSignalExceedsDLC-LE-allE msgName dlc sig
-... | BigEndian    = checkSignalExceedsDLC-BE-allE msgName dlc sig
 
 -- Check 9: SignalOverlap
 checkOverlapPair-allE : ∀ msgName s1 s2 → All E (checkOverlapPair msgName s1 s2)
