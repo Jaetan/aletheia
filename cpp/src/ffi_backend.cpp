@@ -3,6 +3,7 @@
 
 #include <dlfcn.h>
 
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -37,14 +38,20 @@ public:
         if (handle_ == nullptr)
             throw std::runtime_error(std::string("dlopen failed: ") + dlerror());
 
-        auto hs_init = load_sym<HsInitFn>(handle_, "hs_init");
-        init_fn_ = load_sym<AletheiaInitFn>(handle_, "aletheia_init");
-        process_fn_ = load_sym<AletheiaProcessFn>(handle_, "aletheia_process");
-        free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
-        close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
+        try {
+            auto hs_init = load_sym<HsInitFn>(handle_, "hs_init");
+            init_fn_ = load_sym<AletheiaInitFn>(handle_, "aletheia_init");
+            process_fn_ = load_sym<AletheiaProcessFn>(handle_, "aletheia_process");
+            free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
+            close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
 
-        // Initialize GHC RTS (ref-counted internally, safe to call multiple times)
-        hs_init(nullptr, nullptr);
+            // Initialize GHC RTS (ref-counted internally, safe to call multiple times)
+            hs_init(nullptr, nullptr);
+        } catch (...) {
+            // RTS was never started — safe to release the library handle.
+            dlclose(handle_);
+            throw;
+        }
     }
 
     // Do NOT call hs_exit() — GHC RTS does not support reinitialization.
@@ -64,9 +71,10 @@ public:
         char* result = process_fn_(state, input_str.c_str());
         if (result == nullptr)
             throw std::runtime_error("aletheia_process returned null");
-        std::string output{result};
-        free_str_fn_(result);
-        return output;
+        // RAII guard ensures free_str_fn_ runs even if string construction throws.
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
     }
 
     void close(void* state) override { close_fn_(state); }

@@ -602,6 +602,245 @@ TEST_CASE("client is movable", "[client]") {
     CHECK(client2.parse_dbc(make_test_dbc()).has_value());
 }
 
+// ===========================================================================
+// Error handling and edge-case tests
+// ===========================================================================
+
+TEST_CASE("parse_success rejects malformed JSON", "[json][parse][error]") {
+    auto result = detail::parse_success("not json at all");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_success rejects missing status field", "[json][parse][error]") {
+    auto result = detail::parse_success(R"({"foo": "bar"})");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected status"));
+}
+
+TEST_CASE("parse_extraction rejects missing status field", "[json][parse][error]") {
+    auto result = detail::parse_extraction(R"({"values": []})");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("status"));
+}
+
+TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
+    auto result = detail::parse_extraction(R"({"status": "success"})");
+    REQUIRE(result.has_value());
+    CHECK(result->values.empty());
+    CHECK(result->errors.empty());
+    CHECK(result->absent.empty());
+}
+
+TEST_CASE("parse_frame_data rejects wrong array size", "[json][parse][error]") {
+    auto result = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("8-byte"));
+}
+
+TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({"foo": "bar"})");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unexpected frame status"));
+}
+
+TEST_CASE("parse_dbc_response rejects missing dbc field", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({"status": "success"})");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("dbc"));
+}
+
+TEST_CASE("parse_dbc_response rejects malformed signal", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [{
+                "id": 256, "name": "Msg", "dlc": 8,
+                "signals": [{"MISSING_NAME": true}]
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_dbc_response with empty messages array", "[json][parse]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": []}
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->messages.empty());
+    CHECK(result->version == "1.0");
+}
+
+TEST_CASE("parse_dbc_response with empty signals array", "[json][parse]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [{
+                "id": 256, "name": "EmptyMsg", "dlc": 8,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->messages.size() == 1);
+    CHECK(result->messages[0].signals.empty());
+}
+
+TEST_CASE("parse_validation with unknown issue code returns Unknown", "[json][parse]") {
+    auto result = detail::parse_validation(R"({
+        "status": "validation",
+        "has_errors": true,
+        "issues": [
+            {"severity": "error", "code": "some_future_code", "detail": "New check"}
+        ]
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->issues[0].code == IssueCode::Unknown);
+}
+
+TEST_CASE("parse_number rejects non-numeric JSON via exception", "[json][parse][error]") {
+    // parse_number throws on bad input; the public wrapper converts to Result
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "Bad", "value": "not_a_number"}]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_dbc_response rejects out-of-range CAN ID", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [{
+                "id": 99999, "name": "Bad", "dlc": 8,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("CAN ID"));
+}
+
+TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [{
+                "id": 256, "name": "Bad", "dlc": 99,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("DLC"));
+}
+
+TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
+    auto result = detail::parse_extraction(R"({
+        "status": "success",
+        "values": [{"name": "Bad", "value": {"numerator": 1, "denominator": 0}}],
+        "errors": [], "absent": []
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("denominator"));
+}
+
+TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "violation",
+        "property_index": 0,
+        "timestamp": {"numerator": 1000, "denominator": 0}
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("denominator"));
+}
+
+TEST_CASE("parse_stream_result rejects malformed JSON", "[json][parse][error]") {
+    auto result = detail::parse_stream_result("not json");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][error]") {
+    auto result = detail::parse_stream_result(R"({"status": "complete"})");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "violation",
+        "property_index": -1,
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
+    auto result = detail::parse_stream_result(R"({
+        "status": "complete",
+        "results": [{"status": "satisfaction", "property_index": -5}]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[json][parse]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "", "messages": [{
+                "id": 2047, "name": "Max", "dlc": 8,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    REQUIRE(result.has_value());
+    auto& id = result->messages[0].id;
+    CHECK(std::get<StandardId>(id).value() == 2047);
+}
+
+TEST_CASE("parse_dbc_response rejects standard CAN ID at boundary (2048)", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "", "messages": [{
+                "id": 2048, "name": "Bad", "dlc": 8,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("CAN ID"));
+}
+
+TEST_CASE("parse_dbc_response rejects truncating standard CAN ID (70000)", "[json][parse][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "", "messages": [{
+                "id": 70000, "name": "Bad", "dlc": 8,
+                "extended": false, "signals": []
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("uint16"));
+}
+
 TEST_CASE("ExtractionResult::get helper", "[response]") {
     ExtractionResult result{
         .values =

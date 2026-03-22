@@ -91,6 +91,7 @@ static auto dbc_to_json(const DbcDefinition& dbc) -> json {
     return {{"version", dbc.version}, {"messages", std::move(msgs)}};
 }
 
+// Map each predicate variant to its JSON representation for the Agda core.
 static auto predicate_to_json(const Predicate& p) -> json {
     return std::visit(
         [](auto&& v) -> json {
@@ -129,6 +130,7 @@ static auto predicate_to_json(const Predicate& p) -> json {
 
 static auto formula_to_json(const LtlFormula& f) -> json;
 
+// Recursively serialize an LTL formula tree to JSON for the Agda core.
 static auto formula_to_json(const LtlFormula& f) -> json {
     return std::visit(
         [](auto&& v) -> json {

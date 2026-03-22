@@ -24,7 +24,8 @@ enum class IssueCode {
     OffsetScaleRange,
     EmptyMessage,
     StartBitOutOfRange,
-    BitLengthExcessive
+    BitLengthExcessive,
+    Unknown
 };
 
 struct ValidationIssue {
