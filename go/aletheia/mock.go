@@ -64,10 +64,3 @@ func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
 
 // Close is a no-op for the mock backend.
 func (m *MockBackend) Close(_ unsafe.Pointer) {}
-
-// Reset clears recorded inputs and resets the cursor to zero.
-func (m *MockBackend) Reset(responses ...MockResponse) {
-	m.responses = responses
-	m.cursor = 0
-	m.Inputs = nil
-}

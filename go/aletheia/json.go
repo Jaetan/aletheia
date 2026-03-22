@@ -183,6 +183,9 @@ func parseNumber(v any) (float64, error) {
 func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
 	case float64:
+		if n != math.Trunc(n) {
+			return 0, fmt.Errorf("expected integer, got fractional: %v", n)
+		}
 		return int64(n), nil
 	case map[string]any:
 		num, ok1 := n["numerator"]
@@ -200,6 +203,9 @@ func parseNumberAsInt64(v any) (int64, error) {
 		}
 		if denI == 0 {
 			return 0, fmt.Errorf("zero denominator in rational")
+		}
+		if numI%denI != 0 {
+			return 0, fmt.Errorf("expected integer, got non-exact rational %d/%d", numI, denI)
 		}
 		return numI / denI, nil
 	default:
@@ -619,9 +625,15 @@ func parseDbcSignal(j map[string]any) (*DbcSignal, error) {
 	if err != nil {
 		return nil, protocolError("invalid startBit: " + err.Error())
 	}
+	if startBit < 0 || startBit > 63 {
+		return nil, protocolError(fmt.Sprintf("startBit %v out of range (0-63)", startBit))
+	}
 	length, err := parseNumber(j["length"])
 	if err != nil {
 		return nil, protocolError("invalid length: " + err.Error())
+	}
+	if length < 1 || length > 64 {
+		return nil, protocolError(fmt.Sprintf("bit length %v out of range (1-64)", length))
 	}
 
 	var presence SignalPresence = AlwaysPresent{}
@@ -629,6 +641,9 @@ func parseDbcSignal(j map[string]any) (*DbcSignal, error) {
 		muxVal, err := parseNumber(j["multiplex_value"])
 		if err != nil {
 			return nil, protocolError("invalid multiplex_value: " + err.Error())
+		}
+		if muxVal < 0 || muxVal > math.MaxUint32 {
+			return nil, protocolError(fmt.Sprintf("multiplex_value %v out of range (0-%d)", muxVal, uint32(math.MaxUint32)))
 		}
 		presence = Multiplexed{
 			Multiplexor: SignalName(muxName),
