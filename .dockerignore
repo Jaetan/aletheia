@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+haskell-shim/dist-newstyle/
+cpp/build/
+
+# Python virtual environment
+.venv/
+
+# Agda interface files
+*.agdai
+src/**/*.agdai
+
+# Git
+.git/
+.gitignore
+
+# IDE / editor
+.vscode/
+*.swp
+*~
+
+# Claude Code
+.claude/
+.session-state.md
+
+# Python caches
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Don't exclude dist/ — Dockerfile.runtime needs it
+# Don't exclude python/ — both Dockerfiles need it

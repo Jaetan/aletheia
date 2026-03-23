@@ -219,6 +219,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need ["build/libaletheia-ffi.so"]
         cmd_ (Cwd "python") "pip3 install -e ."
 
+    phony "docker" $ do
+        need ["dist"]
+        putInfo "Building Docker runtime image..."
+        cmd_ "docker" "build" "-t" "aletheia:latest" "-f" "Dockerfile.runtime" "."
+        Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
+        putInfo ""
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo $ "  Docker image: aletheia:latest (" ++ strip imageSize ++ ")"
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo ""
+        putInfo "  Run:"
+        putInfo "    docker run --rm aletheia:latest python3 -c \\"
+        putInfo "      \"from aletheia import AletheiaClient; print('OK')\""
+        putInfo ""
+
     phony "clean" $ do
         putInfo "Cleaning build artifacts..."
         removeFilesAfter "build" ["//*"]

@@ -293,10 +293,11 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 - ✅ Violation enrichment (all bindings): Client-side enrichment pipeline — formula description, signal value extraction with bounded cache, human-readable violation reason. Implemented in Python (`_client.py`), C++ (`enrich.hpp`/`enrich.cpp`), and Go (`enrich.go`). 235-line Python enrichment test suite. Type audit across all bindings (removed redundant optionals where types have natural empty states).
 
+- ✅ Docker images: `Dockerfile` (multi-stage from-source build) and `Dockerfile.runtime` (lightweight from pre-built dist). Runtime image is ~200 MB (python:3.13-slim + .so bundle + pip deps). `ALETHEIA_LIB` env var for library discovery. `shake docker` target builds the runtime image. Fat single-file .so investigated and deferred — GHC's static archives lack `-fPIC`, so self-contained `.so` would require rebuilding GHC. Current approach: 15 `.so` files with `RPATH=$ORIGIN` (9.6 MB compressed tarball).
+
 **Planned / Research**:
 - CAN format converters (BLF, ASC, MF4)
 - Frame injection utilities
-- **Fat shared library + Docker**: Statically link all Haskell runtime libraries into a single `libaletheia-ffi.so` (Cabal `ghc-options: -optl-static`). Eliminates the 13-file GHC runtime dependency, making the .so self-contained (only system libs: libgmp, libffi, glibc). Also produce a Docker image for containerized deployment. Prerequisite for easy distribution of C++/Go bindings.
 - **CAN-FD support**: Extend frame model from fixed 8-byte CAN 2.0B to variable-length CAN-FD (up to 64 bytes). Affects `Frame.agda` (payload type), `DBC/Types.agda` (DLC range), `Validity.agda` (bounds checks), encoding proofs, and the FFI layer. Currently noted in `Frame.agda`, `Validity.agda`, and `DESIGN.md`. Natural first step toward SOME/IP: forces the frame type generalization (`Vec Byte 8` → variable-length) that both binary FFI and SOME/IP require, while staying within the familiar signal extraction model.
 - **Binary FFI protocol**: Replace JSON string serialization at the ctypes boundary with a dedicated binary C export for the hot path (`send_frame`). Analysis (2026-03-22): JSON overhead is ~30 µs of 108 µs per frame (28%); binary FFI would yield ~12,000 fps (24% gain) for CAN 2.0B — nice but not transformative since LTL evaluation dominates. Essential for SOME/IP at Ethernet throughput (1,400-byte payloads × 100K msg/s = 420 MB/s of JSON text). **Prerequisite**: CAN-FD frame type generalization — MAlonzo compiles `Vec Byte n` to n nested constructors, making binary marshalling of large payloads impractical without a flat representation. Recommended to defer until CAN-FD is done.
 - **SOME/IP support**: Investigate SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. Analysis (2026-03-22): SOME/IP is fundamentally service-oriented, not signal-based — 16-byte header (Service ID, Method ID, Client/Session ID, Protocol/Interface Version, Message Type, Return Code) + variable structured payload, not bit-packed signals. Requires a different frame model, different extraction logic, and different LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing) vs CAN's signal-value predicates. The LTL engine itself is reusable. Also covers CAN-over-Ethernet encapsulations (DoIP/ISO 13400, gateways). **Prerequisite sequence**: CAN-FD → binary FFI → SOME/IP frame model → SOME/IP properties.
@@ -316,9 +317,9 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Testing**:
 - Python tests: 416 passing (via FFI)
-- C++ tests: 53 passing (207 assertions, mock backend)
+- C++ tests: 81 passing (mock backend + Catch2)
 - Go tests: 56 passing (mock backend, `-race` clean)
-- Total: 525 tests
+- Total: 553 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -329,7 +330,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- Safe modules: 42 of 44 use `--safe` (41 with `--without-K`, 1 with `--without-K --no-main`)
+- Safe modules: 53 of 55 use `--safe` (52 with `--without-K`, 1 with `--without-K --no-main`)
 - Coinductive modules: 2 use `--sized-types` (for infinite trace semantics)
 - Zero postulates in production code
 
@@ -338,14 +339,14 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Next Steps
 
 **Recent completions**:
+- Docker images — **COMPLETE**: `Dockerfile` (from-source) + `Dockerfile.runtime` (pre-built), `shake docker` target
 - Big-endian (Motorola) signal fix — **COMPLETE**: conversion at parse/format time, byte-order-aware DLC validation with updated proofs
 - Violation enrichment (all bindings) — **COMPLETE**: formula desc + signal values + human-readable reason
-- C++23 binding — **COMPLETE**: 5-round review, 53 tests, 207 assertions
+- C++23 binding — **COMPLETE**: 5-round review, 81 test cases
 - Go binding — **COMPLETE**: 3-round review + hardening, 56 tests
 - C header + distribution packaging — **COMPLETE**
 
 **Future**:
-- Fat shared library + Docker (self-contained .so for easy distribution)
 - CAN-FD support (variable-length frames, prerequisite for binary FFI and SOME/IP)
 - Binary FFI protocol (24% CAN gain, essential for SOME/IP throughput)
 - SOME/IP support (automotive Ethernet, service-oriented)

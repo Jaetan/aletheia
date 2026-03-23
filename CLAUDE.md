@@ -323,7 +323,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 42 of 44 Aletheia modules
+  - Used in 53 of 55 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

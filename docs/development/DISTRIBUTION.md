@@ -222,9 +222,27 @@ CGO_ENABLED=1 go build ./...
 
 ### Docker
 
-For a complete multi-stage Dockerfile (building Aletheia from source), see [BUILDING.md § Docker Multi-Stage Build](BUILDING.md#docker-multi-stage-build).
+Two Dockerfiles are provided in the repository root:
 
-To deploy the pre-built dist into a runtime image:
+| File | Purpose | Base image |
+|------|---------|------------|
+| `Dockerfile` | Build from source (CI/CD) | `haskell:9.6.7` → `python:3.13-slim` |
+| `Dockerfile.runtime` | Runtime from pre-built dist | `python:3.13-slim` |
+
+```bash
+# Build runtime image from pre-built dist (fast)
+cabal run shake -- dist
+docker build -t aletheia:runtime -f Dockerfile.runtime .
+
+# Or use the Shake target (runs dist + docker build)
+cabal run shake -- docker
+
+# Use as a base image for your project
+docker run --rm aletheia:runtime python3 -c \
+  "from aletheia import AletheiaClient; print('OK')"
+```
+
+For C/C++/Go consumers who don't need Python, use the dist tarball with a minimal base image:
 
 ```dockerfile
 FROM debian:bookworm-slim
@@ -232,6 +250,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgmp10 && rm 
 COPY dist/aletheia /opt/aletheia
 ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
 ```
+
+See [BUILDING.md § Docker](BUILDING.md#docker) for the full from-source build option.
 
 ## Library Loading: dlopen vs Link-Time
 
