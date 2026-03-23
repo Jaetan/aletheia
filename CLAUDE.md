@@ -299,7 +299,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (81 test cases, 5-round review). Go binding complete (56 tests, 3-round review). 55 Agda modules total.
+**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (81 test cases, 5-round review). Go binding complete (56 tests, 3-round review). Docker images complete (Dockerfile + Dockerfile.runtime + `shake docker`). 55 Agda modules total.
 
 ---
 
