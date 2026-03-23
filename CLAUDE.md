@@ -69,18 +69,18 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **44 total modules**: 42 use `--safe`, 2 coinductive without `--safe`
+† **55 total modules**: 53 use `--safe`, 2 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (44 total):
-- **41 modules**: `--safe --without-K` (standard safe modules, includes 8 proof-only)
+**By flag combination** (55 total):
+- **52 modules**: `--safe --without-K` (standard safe modules, includes 9 proof-only)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **2 modules without `--safe`** (both use `--sized-types` for coinduction):
   - Main.agda: `--no-main --sized-types --without-K`
   - Protocol/StreamState.agda: `--sized-types --without-K`
 
-**Modules not using `--safe` flag (2 of 44)**:
+**Modules not using `--safe` flag (2 of 55)**:
 
 Two modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
 
@@ -219,8 +219,8 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 ### C++ Binding
 
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **9 public headers** in `include/aletheia/`: `client.hpp`, `types.hpp`, `can_types.hpp`, `dbc_types.hpp`, `validation.hpp`, `error.hpp`, `stream_types.hpp`, `backend.hpp`, `detail/json.hpp`
-- **5 source files** in `src/`: `client.cpp`, `ffi_backend.cpp`, `mock_backend.cpp`, `json_serialize.cpp`, `json_parse.cpp`
+- **10 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`
+- **6 source files** in `src/`: `client.cpp`, `enrich.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`
 - **3 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2)
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
 - **Build**: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
@@ -229,8 +229,8 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 ### Go Binding
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **11 source files** in `go/aletheia/`: `client.go`, `backend.go`, `ffi.go`, `mock.go`, `json.go`, `types.go`, `dbc.go`, `ltl.go`, `result.go`, `error.go`, `doc.go`
-- **1 test file**: `client_test.go` (29 tests, mock backend)
+- **12 source files** in `go/aletheia/`: `backend.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
+- **1 test file**: `client_test.go` (56 tests, mock backend)
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[8]byte` payload, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned (`LockOSThread`)
 - **Build/test**: `cd go && go test ./aletheia/ -v -count=1 -race`
@@ -299,7 +299,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (53 tests, 5-round review). 44 Agda modules total.
+**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (81 test cases, 5-round review). Go binding complete (56 tests, 3-round review). Docker images complete (Dockerfile + Dockerfile.runtime + `shake docker`). 55 Agda modules total.
 
 ---
 
@@ -323,7 +323,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 42 of 44 Aletheia modules
+  - Used in 53 of 55 Aletheia modules
 - `--without-K` ensures proofs are constructive (no axiom of choice)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

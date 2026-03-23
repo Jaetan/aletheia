@@ -1,0 +1,34 @@
+# Aletheia — runtime image from pre-built dist
+#
+# Prerequisite: run `cabal run shake -- dist` first to produce dist/aletheia/
+#
+# Usage:
+#   cabal run shake -- dist
+#   docker build -t aletheia:runtime -f Dockerfile.runtime .
+#   docker run --rm aletheia:runtime python3 -c "from aletheia import AletheiaClient; print('OK')"
+#
+# Or use the Shake target:
+#   cabal run shake -- docker
+
+FROM python:3.13-slim
+
+# Only non-default system dependency
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgmp10 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy pre-built shared libraries and C header
+COPY dist/aletheia /opt/aletheia
+
+# Install Python package
+COPY python /tmp/python
+RUN pip install --no-cache-dir /tmp/python && rm -rf /tmp/python
+
+# Tell aletheia where to find the .so (no _install_config.py needed)
+ENV ALETHEIA_LIB=/opt/aletheia/lib/libaletheia-ffi.so
+
+# Smoke test — verifies .so loads and Python package works
+RUN python3 -c "from aletheia import AletheiaClient; print('OK')"
+
+# No ENTRYPOINT — this is a library image, not a service
+WORKDIR /work

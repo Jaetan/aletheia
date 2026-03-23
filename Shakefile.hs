@@ -151,9 +151,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let distDir = "dist/aletheia"
         let distLib = distDir </> "lib"
         let distInclude = distDir </> "include"
+        let tarball = "dist/aletheia.tar.gz"
 
         -- Clean previous dist
         liftIO $ removePathForcibly distDir
+        liftIO $ removePathForcibly tarball
         liftIO $ createDirectoryIfMissing True distLib
         liftIO $ createDirectoryIfMissing True distInclude
 
@@ -174,30 +176,63 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             ExitFailure _ ->
                 putWarn "patchelf not found — skipping RPATH patching. Set LD_LIBRARY_PATH at runtime."
 
+        -- Strip debug symbols to reduce size (--strip-unneeded, NOT --strip-all:
+        -- --strip-all would remove the C export symbols needed by dlsym)
+        Exit stripCode <- cmd Shell "command -v strip >/dev/null 2>&1"
+        case stripCode of
+            ExitSuccess -> do
+                putInfo "Stripping debug symbols..."
+                Stdout soFiles <- cmd Shell ("find " ++ distLib ++ " -name '*.so*' -type f")
+                forM_ (filter (not . null) (lines soFiles)) $ \f ->
+                    cmd_ "strip" "--strip-unneeded" f
+            ExitFailure _ ->
+                putWarn "strip not found — keeping debug symbols."
+
         -- Copy C header
         cmd_ "cp" "include/aletheia.h" distInclude
 
-        -- Count files and total size
+        -- Create tarball
+        putInfo "Creating tarball..."
+        cmd_ "tar" "czf" tarball "-C" "dist" "aletheia/"
+
+        -- Report
         Stdout distSize <- cmd Shell ("du -sh " ++ distDir ++ " | cut -f1")
+        Stdout tarSize <- cmd Shell ("du -sh " ++ tarball ++ " | cut -f1")
         let nDeps = length ghcDeps
         putInfo ""
         putInfo "════════════════════════════════════════════════════════════════"
-        putInfo "  Distribution packaged: dist/aletheia/"
+        putInfo "  Distribution packaged"
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo ""
-        putInfo $ "  lib/libaletheia-ffi.so  (main library)"
-        putInfo $ "  lib/libHS*.so           (" ++ show nDeps ++ " GHC runtime dependencies)"
-        putInfo $ "  include/aletheia.h      (C header)"
-        putInfo $ "  Total size: " ++ strip distSize
+        putInfo $ "  dist/aletheia/           (" ++ strip distSize ++ ")"
+        putInfo $ "    lib/libaletheia-ffi.so   (main library)"
+        putInfo $ "    lib/libHS*.so            (" ++ show nDeps ++ " GHC runtime deps, RPATH=$ORIGIN)"
+        putInfo $ "    include/aletheia.h       (C header)"
+        putInfo $ "  dist/aletheia.tar.gz     (" ++ strip tarSize ++ ")"
         putInfo ""
-        putInfo "  Usage:"
-        putInfo "    gcc -Idist/aletheia/include -Ldist/aletheia/lib -laletheia-ffi"
-        putInfo "    LD_LIBRARY_PATH=dist/aletheia/lib ./your_program"
+        putInfo "  Usage (no LD_LIBRARY_PATH needed — RPATH handles resolution):"
+        putInfo "    gcc -Idist/aletheia/include -Ldist/aletheia/lib \\"
+        putInfo "        -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
         putInfo ""
 
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
         cmd_ (Cwd "python") "pip3 install -e ."
+
+    phony "docker" $ do
+        need ["dist"]
+        putInfo "Building Docker runtime image..."
+        cmd_ "docker" "build" "-t" "aletheia:latest" "-f" "Dockerfile.runtime" "."
+        Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
+        putInfo ""
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo $ "  Docker image: aletheia:latest (" ++ strip imageSize ++ ")"
+        putInfo "════════════════════════════════════════════════════════════════"
+        putInfo ""
+        putInfo "  Run:"
+        putInfo "    docker run --rm aletheia:latest python3 -c \\"
+        putInfo "      \"from aletheia import AletheiaClient; print('OK')\""
+        putInfo ""
 
     phony "clean" $ do
         putInfo "Cleaning build artifacts..."
@@ -262,7 +297,9 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
         -- Delete intermediate build artifacts to force relink
         putInfo "Cleaning Cabal build artifacts..."
-        cmd_ (Cwd "haskell-shim") Shell "rm -rf dist-newstyle/build/x86_64-linux/ghc-9.6.7/aletheia-*/f/aletheia-ffi"
+        Stdout ghcVer <- cmd "ghc" "--numeric-version"
+        let ghcTag = "ghc-" ++ strip ghcVer
+        cmd_ (Cwd "haskell-shim") Shell $ "rm -rf dist-newstyle/build/*/" ++ ghcTag ++ "/aletheia-*/f/aletheia-ffi"
 
         putInfo "Building FFI shared library..."
         cmd_ (Cwd "haskell-shim") "cabal" "build" "-j" "aletheia-ffi"

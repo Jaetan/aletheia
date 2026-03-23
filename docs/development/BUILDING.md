@@ -2,7 +2,7 @@
 
 ---
 **Version**: 1.0.0
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-03-23
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
 
@@ -145,6 +145,17 @@ pyenv install 3.13.7
 pyenv global 3.13.7
 ```
 
+#### 6. CMake (for C++ binding only)
+
+**Version**: 3.25+ required
+
+```bash
+cmake --version
+# Should output: cmake version 3.25 or higher
+```
+
+Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python development.
+
 ## Building Aletheia
 
 ### 1. Clone the Repository
@@ -250,6 +261,8 @@ python3 examples/simple_verification.py
 
 ### 7. System Installation (Optional)
 
+For integrating `libaletheia-ffi.so` into C, C++, or Go projects, see [DISTRIBUTION.md](DISTRIBUTION.md).
+
 For deployment outside the git repository (Docker, CI/CD, shared servers), Aletheia can be installed
 as a self-contained bundle with all GHC runtime libraries included. No GHC or Agda is needed at
 runtime — only Python 3.12+.
@@ -315,33 +328,30 @@ cabal run shake -- uninstall                          # default prefix
 PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
 ```
 
-#### Docker Multi-Stage Build
+#### Docker
 
-```dockerfile
-# Stage 1: Build with GHC + Agda
-FROM haskell:9.6.7 AS builder
+Two Dockerfiles are provided in the repository root:
 
-RUN cabal update && cabal install Agda-2.8.0
-RUN mkdir -p ~/.agda && \
-    git clone --branch v2.3 --depth 1 https://github.com/agda/agda-stdlib.git ~/.agda/agda-stdlib && \
-    echo "$HOME/.agda/agda-stdlib/standard-library.agda-lib" > ~/.agda/libraries && \
-    echo "standard-library" > ~/.agda/defaults
-RUN apt-get update && apt-get install -y patchelf python3 python3-venv
+- **`Dockerfile`** — Multi-stage build from source (builds GHC + Agda in stage 1, produces a slim runtime image in stage 2). Use for CI/CD and reproducible builds.
+- **`Dockerfile.runtime`** — Runtime-only image from a pre-built `dist/` directory. Use when you've already run `cabal run shake -- dist` on the host.
 
-WORKDIR /build
-COPY . .
-RUN cabal run shake -- build
-RUN PREFIX=/opt/aletheia cabal run shake -- install
+```bash
+# Option 1: Build from source (slow — compiles GHC + Agda, ~30 min)
+docker build -t aletheia .
 
-# Stage 2: Runtime (no GHC needed)
-FROM python:3.13-slim
+# Option 2: Build runtime image from pre-built dist (fast, ~30 sec)
+cabal run shake -- dist
+docker build -t aletheia:runtime -f Dockerfile.runtime .
 
-COPY --from=builder /opt/aletheia /opt/aletheia
+# Option 3: Use the Shake target (runs dist + docker build)
+cabal run shake -- docker
 
-# Activate and use
-ENV PATH="/opt/aletheia/lib/aletheia/venv/bin:$PATH"
-RUN python3 -c "from aletheia import AletheiaClient; print('OK')"
+# Run
+docker run --rm aletheia:latest python3 -c \
+  "from aletheia import AletheiaClient; print('OK')"
 ```
+
+The runtime image is ~200 MB (Python 3.13 slim + Aletheia .so bundle + pip dependencies). No GHC or Agda is included — only the compiled shared libraries and the Python package.
 
 ## Common Build Commands
 ```bash
@@ -356,6 +366,8 @@ cabal run shake -- build              # Full pipeline: Agda → Haskell → liba
 cabal run shake -- build-agda         # Compile Agda to Haskell only (no .so)
 cabal run shake -- install-python     # Build + install Python package (pip install -e .)
 cabal run shake -- check-properties   # Type-check all proof modules
+cabal run shake -- dist               # Package dist/aletheia.tar.gz (C/C++/Go)
+cabal run shake -- docker             # Build Docker runtime image (requires dist)
 cabal run shake -- clean              # Remove build artifacts
 cabal run shake -- install            # System install (default: ~/.local)
 cabal run shake -- uninstall          # Remove system install
@@ -562,7 +574,7 @@ If you encounter issues not covered here:
 1. Check that all prerequisites are installed with correct versions
 2. Verify Python virtual environment is active: `which python3`
 3. Try a clean build: `cabal run shake -- clean && cabal run shake -- build`
-4. Verify shared library: `python3 -c "from aletheia.client import _find_ffi_library; print(_find_ffi_library())"`
+4. Verify shared library: `python3 -c "from aletheia.client._ffi import find_ffi_library; print(find_ffi_library())"`
 5. Check the project structure matches the expected layout
 
 ## Summary of Key Commands
