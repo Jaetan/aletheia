@@ -1,6 +1,6 @@
 # Dependencies and Licenses
 
-**Last Updated**: 2026-03-22
+**Last Updated**: 2026-03-23
 
 This document lists all third-party software Aletheia depends on, their licenses,
 and the resulting obligations when distributing Aletheia.
@@ -31,7 +31,7 @@ with Aletheia.
 
 The compiled shared library links against these Haskell and system libraries.
 
-### Haskell packages (all statically linked into the .so)
+### Haskell packages (bundled as .so files with RPATH=$ORIGIN)
 
 | Package | Version | License |
 |---|---|---|
@@ -56,6 +56,36 @@ The compiled shared library links against these Haskell and system libraries.
 | **libgmp** | **LGPL-3.0+** | Arbitrary-precision arithmetic (used by ghc-bignum) |
 | libffi | MIT | Foreign function interface |
 | glibc (libc, libm, libpthread, librt, libdl) | LGPL-2.1+ | C standard library |
+
+---
+
+## Runtime — C++ Layer
+
+The C++ binding (`cpp/`) wraps `libaletheia-ffi.so` via `dlopen`. It has no runtime dependencies beyond the system C++ standard library.
+
+### Build-time dependencies (fetched automatically via CMake FetchContent)
+
+| Package | Version | License | Purpose |
+|---|---|---|---|
+| nlohmann/json | 3.11.3 | MIT | JSON serialization/deserialization |
+| Catch2 | 3.7.1 | BSL-1.0 | Unit testing (test-only, not shipped) |
+
+Requires CMake 3.25+ and a C++23 compiler (g++ 14+ or clang 21+).
+
+---
+
+## Runtime — Go Layer
+
+The Go binding (`go/`) wraps `libaletheia-ffi.so` via cgo + `dlopen`. It has no third-party Go dependencies.
+
+### System dependencies
+
+| Dependency | Purpose |
+|---|---|
+| cgo (`CGO_ENABLED=1`) | C interop for `dlopen`/`dlsym` calls |
+| libdl (`-ldl`) | Dynamic loader (part of glibc, always present) |
+
+Requires Go 1.23+.
 
 ---
 

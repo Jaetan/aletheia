@@ -308,10 +308,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 44 (36 production + 8 proof-only)
+- Agda modules: 55 (46 production + 9 proof-only)
 - Python modules: 12
-- C++ files: 14 (9 headers + 5 source, ~1,950 lines)
-- Go files: 11 source (~2,000 lines)
+- C++ files: 16 (10 headers + 6 source)
+- Go files: 12 source
 - Lines of code: ~11,700 Agda + ~4,500 Python + ~1,950 C++ + ~2,000 Go
 
 **Testing**:

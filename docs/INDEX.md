@@ -48,9 +48,10 @@ Understand how Aletheia works:
 Build and contribute:
 
 1. **[Building Guide](development/BUILDING.md)** - Setup, installation, and development workflow
-2. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
-3. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
-4. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
+2. **[Distribution Guide](development/DISTRIBUTION.md)** - Packaging and integrating `libaletheia-ffi.so` into C, C++, and Go projects
+3. **[Contributing Guide](../CONTRIBUTING.md)** - Contribution policy and workflow
+4. **[CLAUDE.md](../CLAUDE.md)** - AI-assisted development guide and module structure
+5. **[Project Status](../PROJECT_STATUS.md)** - Current phase, completed deliverables, and roadmap
 
 ---
 
@@ -111,7 +112,8 @@ aletheia/
 │   │   └── PROTOCOL.md                # JSON protocol spec
 │   │
 │   └── development/
-│       └── BUILDING.md                # Build instructions
+│       ├── BUILDING.md                # Build instructions
+│       └── DISTRIBUTION.md            # Packaging & native integration
 │
 └── examples/
     ├── example.dbc                    # Sample DBC file
@@ -121,5 +123,5 @@ aletheia/
 
 ---
 
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-03-23
 **Maintained By**: Aletheia Team
