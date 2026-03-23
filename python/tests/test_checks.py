@@ -215,11 +215,11 @@ class TestCheckMetadata:
         assert "severity" not in d  # type: ignore[operator]
         assert "check_severity" not in d  # type: ignore[operator]
 
-    def test_defaults_none(self) -> None:
-        """name and check_severity default to None"""
+    def test_defaults_empty(self) -> None:
+        """name and check_severity default to empty string"""
         result = Check.signal("Speed").never_exceeds(220)
-        assert result.name is None
-        assert result.check_severity is None
+        assert result.name == ""
+        assert result.check_severity == ""
 
     def test_diagnostic_metadata_absent_from_to_dict(self) -> None:
         """signal_name and condition_desc are NOT included in the LTL dict."""
@@ -380,11 +380,11 @@ class TestCheckDiagnostics:
         assert r.signal_name == "Warn"
         assert r.condition_desc == "between 1 and 1 within 50ms"
 
-    def test_raw_property_defaults_none(self) -> None:
-        """Raw Property wrapped in CheckResult has no diagnostic metadata."""
+    def test_raw_property_defaults_empty(self) -> None:
+        """Raw Property wrapped in CheckResult has empty diagnostic metadata."""
         r = CheckResult(Signal("X").less_than(5).always())
-        assert r.signal_name is None
-        assert r.condition_desc is None
+        assert r.signal_name == ""
+        assert r.condition_desc == ""
 
     def test_metadata_preserved_through_named_severity(self) -> None:
         """Diagnostic metadata survives .named() and .severity() chaining."""

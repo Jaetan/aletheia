@@ -766,6 +766,26 @@ physicalBitPos LittleEndian b = b
 physicalBitPos BigEndian b = (7 ∸ (b / 8)) * 8 + (b % 8)
 
 -- ============================================================================
+-- MOTOROLA STARTBIT CONVERSION
+-- ============================================================================
+
+-- Convert a Motorola (DBC) startBit to the internal startBit used by
+-- the swap model.  For LE: identity.  For BE: physicalBitPos s ∸ (l ∸ 1).
+--
+-- The swap model reverses the 8-byte payload then extracts at a linear
+-- position.  The Motorola convention specifies the MSB position; this
+-- conversion computes the linear position in the reversed frame whose
+-- ascending extraction matches Motorola MSB-first semantics.
+convertStartBit : ByteOrder → ℕ → ℕ → ℕ
+convertStartBit LittleEndian s _ = s
+convertStartBit BigEndian    s l = physicalBitPos BigEndian s ∸ (l ∸ 1)
+
+-- Reverse conversion: internal startBit back to Motorola (DBC) startBit.
+unconvertStartBit : ByteOrder → ℕ → ℕ → ℕ
+unconvertStartBit LittleEndian s _ = s
+unconvertStartBit BigEndian    s l = physicalBitPos BigEndian (s + l ∸ 1)
+
+-- ============================================================================
 -- CROSS-BYTE-ORDER HELPERS
 -- ============================================================================
 

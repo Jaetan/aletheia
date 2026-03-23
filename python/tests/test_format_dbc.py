@@ -250,7 +250,7 @@ class TestFormatDBC:
     def test_no_dbc_loaded(self) -> None:
         """format_dbc raises ProtocolError when no DBC is loaded."""
         with AletheiaClient() as client:
-            with pytest.raises(ProtocolError, match="No DBC loaded"):
+            with pytest.raises(ProtocolError, match="DBC not loaded"):
                 client.format_dbc()
 
     def test_roundtrip_json(self, sample_dbc: DBCDefinition) -> None:

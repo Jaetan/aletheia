@@ -253,8 +253,8 @@ class TestLoadMetadata:
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         ])
         checks = load_checks_from_excel(p)
-        assert checks[0].name is None
-        assert checks[0].check_severity is None
+        assert checks[0].name == ""
+        assert checks[0].check_severity == ""
 
     def test_when_then_metadata(self, tmp_path: Path) -> None:
         p = _make_when_then_workbook(tmp_path, [

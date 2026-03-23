@@ -1,0 +1,153 @@
+---
+# Enable all checks, then selectively disable.
+# Disabled categories:
+#   altera-*          — FPGA-specific (Intel/Altera OpenCL)
+#   fuchsia-*         — Fuchsia OS conventions (default constructors, overloaded operators)
+#   llvmlibc-*        — LLVM libc internal conventions
+#   android-*         — Android NDK conventions
+#   abseil-*          — Abseil library conventions (we don't use Abseil)
+#   zircon-*          — Fuchsia Zircon kernel conventions
+#   linuxkernel-*     — Linux kernel C conventions
+#
+# Individual disables:
+#   modernize-use-trailing-return-type  — we use trailing returns where chosen;
+#       enabling forces it everywhere including main() and simple getters
+#   readability-identifier-length       — single-letter vars are fine in lambdas/loops
+#   cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers
+#       — signal processing code legitimately uses numeric constants (0xFF, 8, 256)
+#   misc-non-private-member-variables-in-classes
+#       — our strong types and aggregate structs intentionally expose members
+#   cppcoreguidelines-pro-bounds-constant-array-index
+#       — std::array<std::byte,8> with constant indices is safe
+#   readability-uppercase-literal-suffix
+#       — 0xFF vs 0XFF: lowercase hex is more readable
+#   misc-no-recursion
+#       — LTL formula serialization is naturally recursive
+#   cert-err58-cpp
+#       — static storage duration objects with non-trivial constructors (test fixtures)
+#   cppcoreguidelines-owning-memory
+#       — void* for opaque FFI state is intentional
+#   google-build-using-namespace
+#       — `using namespace aletheia` in tests is fine
+#   llvm-header-guard
+#       — we use #pragma once
+#   modernize-use-nodiscard
+#       — we already use [[nodiscard]] where chosen; auto-applying everywhere is noisy
+#   bugprone-easily-swappable-parameters
+#       — strong typedefs already prevent parameter swaps at the type level
+#   cppcoreguidelines-avoid-do-while
+#       — Catch2 macros expand to do-while
+#   hicpp-no-array-decay, cppcoreguidelines-pro-bounds-array-to-pointer-decay
+#       — Catch2 macros and string literals trigger these
+#   cppcoreguidelines-pro-type-reinterpret-cast
+#       — needed for void* FFI interop
+#   performance-unnecessary-value-param
+#       — strong types are tiny; pass-by-value is intentional for 8-16 byte wrappers
+#   misc-include-cleaner
+#       — incompatible with umbrella header pattern; wants explicit includes for every
+#         transitively-included symbol
+#   google-readability-braces-around-statements,
+#   hicpp-braces-around-statements,
+#   readability-braces-around-statements
+#       — we prefer compact single-statement bodies: if (x) return y;
+#   performance-enum-size
+#       — suggesting uint8_t base for small enums; premature optimization, harms debuggability
+#   concurrency-mt-unsafe
+#       — flags std::getenv in test helpers; acceptable in test-only code
+#   misc-use-anonymous-namespace
+#       — we use anonymous namespaces already; false positives on file-scope helpers in
+#         translation units that also have named namespaces
+
+Checks: >
+  *,
+  -altera-*,
+  -fuchsia-*,
+  -llvmlibc-*,
+  -android-*,
+  -abseil-*,
+  -zircon-*,
+  -linuxkernel-*,
+  -modernize-use-trailing-return-type,
+  -readability-identifier-length,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-magic-numbers,
+  -misc-non-private-member-variables-in-classes,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -readability-uppercase-literal-suffix,
+  -misc-no-recursion,
+  -cert-err58-cpp,
+  -cppcoreguidelines-owning-memory,
+  -google-build-using-namespace,
+  -llvm-header-guard,
+  -modernize-use-nodiscard,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-do-while,
+  -hicpp-no-array-decay,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -performance-unnecessary-value-param,
+  -misc-include-cleaner,
+  -google-readability-braces-around-statements,
+  -hicpp-braces-around-statements,
+  -readability-braces-around-statements,
+  -performance-enum-size,
+  -concurrency-mt-unsafe,
+  -misc-use-anonymous-namespace
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$'
+
+CheckOptions:
+  # Naming conventions — match existing code style
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  # Private class members get trailing underscore
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: '_'
+  # Public struct members: no suffix (aggregates use bare names)
+  - key: readability-identifier-naming.PublicMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PublicMemberSuffix
+    value: ''
+  - key: readability-identifier-naming.ProtectedMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: '_'
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.TemplateParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConceptCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.StaticConstantCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: lower_case
+  # Thresholds
+  - key: readability-function-cognitive-complexity.Threshold
+    value: 30
+  - key: readability-function-size.LineThreshold
+    value: 100
+  - key: readability-function-size.ParameterThreshold
+    value: 8

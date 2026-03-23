@@ -230,8 +230,8 @@ class TestLoadMetadata:
                 condition: never_exceeds
                 value: 220
         """))
-        assert checks[0].name is None
-        assert checks[0].check_severity is None
+        assert checks[0].name == ""
+        assert checks[0].check_severity == ""
 
     def test_when_then_metadata(self) -> None:
         checks = load_checks(textwrap.dedent("""\

@@ -16,7 +16,7 @@ open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
 
 -- ============================================================================
@@ -49,9 +49,11 @@ formatPresence (When mux v) = ("multiplexor" , JString mux) ∷ ("multiplex_valu
 formatDBCSignal : DBCSignal → JSON
 formatDBCSignal sig =
   let def = DBCSignal.signalDef sig
+      bo  = DBCSignal.byteOrder sig
+      sb  = unconvertStartBit bo (SignalDef.startBit def) (SignalDef.bitLength def)
   in JObject (
     ("name"      , JString (DBCSignal.name sig)) ∷
-    ("startBit"  , ℕtoJSON (SignalDef.startBit def)) ∷
+    ("startBit"  , ℕtoJSON sb) ∷
     ("length"    , ℕtoJSON (SignalDef.bitLength def)) ∷
     ("byteOrder" , JString (formatByteOrder (DBCSignal.byteOrder sig))) ∷
     ("signed"    , JBool (SignalDef.isSigned def)) ∷

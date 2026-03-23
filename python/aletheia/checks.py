@@ -33,10 +33,10 @@ class CheckResult:
 
     def __init__(self, prop: Property) -> None:
         self._property: Property = prop
-        self.name: str | None = None
-        self.check_severity: str | None = None
-        self.signal_name: str | None = None
-        self.condition_desc: str | None = None
+        self.name: str = ""
+        self.check_severity: str = ""
+        self.signal_name: str = ""
+        self.condition_desc: str = ""
 
     # -- chainable setters ---------------------------------------------------
 
@@ -70,8 +70,8 @@ class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
 
     def __init__(
         self, prop: Property,
-        signal_name: str | None = None,
-        condition_desc: str | None = None,
+        signal_name: str = "",
+        condition_desc: str = "",
     ) -> None:
         self._property = prop
         self._signal_name = signal_name
@@ -166,7 +166,7 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
 
     def __init__(
         self, trigger: Predicate, then_pred: Predicate,
-        then_signal: str | None = None, then_desc: str | None = None,
+        then_signal: str = "", then_desc: str = "",
     ) -> None:
         self._trigger = trigger
         self._then_pred = then_pred
@@ -180,7 +180,7 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
         ).always()
         result = CheckResult(prop)
         result.signal_name = self._then_signal
-        if self._then_desc is not None:
+        if self._then_desc:
             result.condition_desc = f"{self._then_desc} within {time_ms}ms"
         return result
 

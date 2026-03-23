@@ -14,11 +14,12 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Validator using (findSignalPresence)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
-open import Data.Nat using (ℕ; _+_; _*_; _≤_)
+open import Data.Nat using (ℕ; _+_; _*_; _≤_; _∸_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Rational using (ℚ; 0ℚ)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -56,11 +57,16 @@ MuxIsAlways : List DBCSignal → SignalPresence → Set
 MuxIsAlways _    Always           = ⊤
 MuxIsAlways sigs (When muxName _) = MuxAPLookup (findSignalPresence muxName sigs)
 
--- Condition 6 (check 8): Signal bits fit in frame (byte-order independent)
+-- Condition 6 (check 8): Signal bits fit in frame (byte-order aware)
+--   LE: startBit + bitLength ≤ dlc × 8
+--   BE: (8 ∸ dlc) × 8 ≤ startBit  (internal, converted startBit)
 BitsInFrame : ℕ → DBCSignal → Set
-BitsInFrame dlc sig =
+BitsInFrame dlc sig with DBCSignal.byteOrder sig
+... | LittleEndian =
   SignalDef.startBit (DBCSignal.signalDef sig)
   + SignalDef.bitLength (DBCSignal.signalDef sig) ≤ dlc * 8
+... | BigEndian =
+  (8 ∸ dlc) * 8 ≤ SignalDef.startBit (DBCSignal.signalDef sig)
 
 -- Condition 8 (check 10): Non-zero bit length
 NonZeroBitLength : DBCSignal → Set

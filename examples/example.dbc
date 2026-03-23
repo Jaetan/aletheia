@@ -39,3 +39,7 @@ BO_ 256 EngineStatus: 8 ECU_ENGINE
 BO_ 512 BrakeStatus: 8 ECU_BRAKE
  SG_ BrakePressure : 0|16@1+ (0.1,0) [0|6553.5] "bar" Vector__XXX
  SG_ BrakePressed : 16|1@1+ (1,0) [0|1] "" Vector__XXX
+
+BO_ 768 SteeringData: 8 ECU_ENGINE
+ SG_ SteeringAngle : 7|16@0+ (0.1,-780) [-780|779.9] "deg" Vector__XXX
+ SG_ SteeringRate : 39|8@0+ (1,-128) [-128|127] "deg/s" Vector__XXX

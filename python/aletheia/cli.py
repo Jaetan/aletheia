@@ -385,15 +385,25 @@ def _build_violation(
     prop_index = rational_to_int(response["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
 
+    reason = response.get("enriched_reason", response.get("reason", ""))
+    signals = response.get("signals", {})
+    # For backward compat with CLI display, pick first signal
+    signal_name = ""
+    actual_value: float | None = None
+    if signals:
+        sig = next(iter(signals))
+        signal_name = sig
+        actual_value = signals[sig]
+
     return {
         "check_index": prop_index,
         "check_name": check_name,
         "severity": severity,
         "timestamp_us": rational_to_int(response["timestamp"]),
-        "reason": response.get("reason", ""),
-        "signal_name": response.get("signal_name", ""),
-        "actual_value": response.get("actual_value"),
-        "condition": response.get("condition", ""),
+        "reason": reason,
+        "signal_name": signal_name,
+        "actual_value": actual_value,
+        "condition": response.get("formula", ""),
     }
 
 
@@ -404,11 +414,7 @@ def _build_eos_violation(
     prop_index = rational_to_int(result["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
 
-    reason = result.get("reason", "end-of-stream violation")
-    signal_name = result.get("signal_name", "")
-    condition = result.get("condition", "")
-    if signal_name and condition:
-        reason = f"{signal_name} violated {condition} ({reason})"
+    reason = result.get("enriched_reason", result.get("reason", "end-of-stream violation"))
 
     return {
         "check_index": prop_index,
@@ -416,9 +422,9 @@ def _build_eos_violation(
         "severity": severity,
         "timestamp_us": 0,  # End-of-stream has no specific timestamp
         "reason": reason,
-        "signal_name": signal_name,
-        "actual_value": result.get("actual_value"),
-        "condition": condition,
+        "signal_name": "",
+        "actual_value": None,
+        "condition": result.get("formula", ""),
     }
 
 

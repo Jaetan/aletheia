@@ -17,7 +17,8 @@
 --  (e) Signal names are globally unique across messages (advisory).
 --  (f) For every signal, minimum ≤ maximum.
 --  (g) Every signal's bit range fits within its message's DLC × 8 bits.
---      startBit + bitLength ≤ dlc × 8 (byte-order independent).
+--      LE: startBit + bitLength ≤ dlc × 8.
+--      BE: (8 ∸ dlc) × 8 ≤ startBit (internal representation).
 --  (h) Coexisting signals do not share bit positions (linear model).
 --  (i) No signal has bitLength = 0.
 --  (j) DLC ∈ [0, 8].
@@ -59,6 +60,7 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
@@ -265,10 +267,19 @@ checkAllMinMax (msg ∷ rest) =
 -- CHECK 8: SIGNAL EXCEEDS DLC
 -- ============================================================================
 
+-- Byte-order-aware DLC check:
+--   LE: startBit + bitLength ≤ dlc * 8 (signal bits within declared frame)
+--   BE: (8 ∸ dlc) * 8 ≤ startBit (converted startBit implies highest byte < dlc)
 checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC msgName dlc sig
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+checkSignalExceedsDLC msgName dlc sig with DBCSignal.byteOrder sig
+... | LittleEndian with SignalDef.startBit (DBCSignal.signalDef sig)
+                       + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+...   | yes _ = []
+...   | no  _ = mkIssue IsError SignalExceedsDLC
+                  ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                   ++ₛ "': bit range exceeds DLC") ∷ []
+checkSignalExceedsDLC msgName dlc sig | BigEndian
+  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes _ = []
 ... | no  _ = mkIssue IsError SignalExceedsDLC
                 ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig

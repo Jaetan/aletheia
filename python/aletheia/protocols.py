@@ -438,9 +438,9 @@ class PropertyViolationResponse(TypedDict):
     property_index: RationalNumber
     timestamp: RationalNumber
     reason: NotRequired[str]  # Optional reason field from binary
-    signal_name: NotRequired[str]  # Enriched: primary signal name
-    actual_value: NotRequired[float | None]  # Enriched: signal value at violation
-    condition: NotRequired[str]  # Enriched: e.g. "< 200"
+    signals: NotRequired[dict[str, float | None]]  # Enriched: signal values
+    formula: NotRequired[str]  # Enriched: human-readable formula
+    enriched_reason: NotRequired[str]  # Enriched: counter-example string
 
 
 class PropertyResultEntry(TypedDict):
@@ -450,9 +450,9 @@ class PropertyResultEntry(TypedDict):
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
     reason: NotRequired[str]  # Only for violations
-    signal_name: NotRequired[str]  # Enriched: primary signal name
-    actual_value: NotRequired[float | None]  # Enriched: signal value
-    condition: NotRequired[str]  # Enriched: e.g. "< 200"
+    signals: NotRequired[dict[str, float | None]]  # Enriched: signal values
+    formula: NotRequired[str]  # Enriched: human-readable formula
+    enriched_reason: NotRequired[str]  # Enriched: counter-example string
 
 
 class CompleteResponse(TypedDict):
