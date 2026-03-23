@@ -12,11 +12,12 @@ open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidD
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete)
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.Nat using (ℕ; _+_; _*_)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
@@ -139,19 +140,31 @@ checkSignalExceedsDLC-sound : ∀ msgName dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ [] →
   BitsInFrame dlc sig
 checkSignalExceedsDLC-sound msgName dlc sig eq
+  with DBCSignal.byteOrder sig
+... | LittleEndian
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+...   | yes p = p
+checkSignalExceedsDLC-sound _ _ _ () | LittleEndian | no _
+checkSignalExceedsDLC-sound msgName dlc sig eq | BigEndian
+  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes p = p
-checkSignalExceedsDLC-sound _ _ _ () | no _
+checkSignalExceedsDLC-sound _ _ _ () | BigEndian | no _
 
 checkSignalExceedsDLC-complete : ∀ msgName dlc sig →
   BitsInFrame dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ []
 checkSignalExceedsDLC-complete msgName dlc sig p
+  with DBCSignal.byteOrder sig
+... | LittleEndian
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+...   | yes _ = refl
+...   | no ¬q = ⊥-elim (¬q p)
+checkSignalExceedsDLC-complete msgName dlc sig p | BigEndian
+  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+... | no ¬q = ⊥-elim (¬q p)
 
 checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →

@@ -13,12 +13,13 @@ open import Aletheia.DBC.Validator using (errorIssues; _≟-CANId_; findSignalPr
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using (_≟_)
-open import Data.Nat using (ℕ; _+_; _*_)
+open import Data.Nat using (ℕ; _+_; _*_; _∸_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
@@ -120,8 +121,14 @@ checkMuxAlwaysPresentSig-allE msgName sigs sig with DBCSignal.presence sig
 checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
   All E (checkSignalExceedsDLC msgName dlc sig)
 checkSignalExceedsDLC-allE msgName dlc sig
+  with DBCSignal.byteOrder sig
+... | LittleEndian
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
+...   | yes _ = []
+...   | no  _ = refl ∷ []
+checkSignalExceedsDLC-allE msgName dlc sig | BigEndian
+  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 

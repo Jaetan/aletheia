@@ -14,7 +14,7 @@ module Aletheia.DBC.JSONParser where
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupBool; lookupNat; lookupRational; lookupArray)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Data.List using (List; []; _∷_)
 open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -99,11 +99,13 @@ parseSignalFields ctx name obj =
     require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
     require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
-    inj₂ (record
+    let sb = startBit % 64
+        bl = bitLength % 65
+    in inj₂ (record
       { name = name
       ; signalDef = record
-          { startBit = startBit % 64
-          ; bitLength = bitLength % 65
+          { startBit = convertStartBit byteOrder sb bl
+          ; bitLength = bl
           ; isSigned = isSigned
           ; factor = factor
           ; offset = offset

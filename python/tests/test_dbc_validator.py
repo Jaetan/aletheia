@@ -263,12 +263,12 @@ class TestSignalExceedsDLC:
         assert exceeds == []
 
     def test_big_endian_signal_exceeds_dlc(self) -> None:
-        # BE extraction reverses the payload, so reversed byte startBit/8
-        # maps to original byte 7 - startBit/8.
-        # startBit=7 → reversed byte 0 → original byte 7; suc(7) = 8 > 4 → error
+        # Formal spec (Validity.agda BitsInFrame): startBit + bitLength > dlc * 8
+        # Byte-order independent — proven sound and complete.
+        # startBit=25, length=8 → 25+8=33 > 4*8=32 → error
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
-                _make_signal("TooFar", start_bit=7, length=8, byte_order="big_endian",
+                _make_signal("TooFar", start_bit=25, length=8, byte_order="big_endian",
                              maximum=255.0),
             ], dlc=4),
         ])
@@ -279,10 +279,12 @@ class TestSignalExceedsDLC:
         assert "signal_exceeds_dlc" in codes
 
     def test_big_endian_signal_fits_dlc(self) -> None:
-        # startBit=39 → reversed byte 4 → original byte 3; suc(3) = 4 ≤ 4 → ok
+        # Formal spec (Validity.agda BitsInFrame): startBit + bitLength ≤ dlc * 8
+        # Byte-order independent — proven sound and complete.
+        # startBit=7, length=8 → 7+8=15 ≤ 4*8=32 → ok
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
-                _make_signal("Fits", start_bit=39, length=8, byte_order="big_endian",
+                _make_signal("Fits", start_bit=7, length=8, byte_order="big_endian",
                              maximum=255.0),
             ], dlc=4),
         ])
