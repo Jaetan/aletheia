@@ -44,13 +44,150 @@ from ._types import (
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
-    CheckDiag,
+    PropertyDiagnostic,
     ExtractionCache,
     MAX_EXTRACT_CACHE,
 )
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
+
+
+# ============================================================================
+# Formula enrichment (module-level, testable without client)
+# ============================================================================
+
+def _format_predicate(pred: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements
+    """Format a predicate dict as a human-readable string."""
+    kind = pred.get("predicate")
+    signal = str(pred.get("signal", ""))
+    if kind == "equals":
+        return f"{signal} = {pred['value']:g}"
+    if kind == "lessThan":
+        return f"{signal} < {pred['value']:g}"
+    if kind == "greaterThan":
+        return f"{signal} > {pred['value']:g}"
+    if kind == "lessThanOrEqual":
+        return f"{signal} <= {pred['value']:g}"
+    if kind == "greaterThanOrEqual":
+        return f"{signal} >= {pred['value']:g}"
+    if kind == "between":
+        return f"{pred['min']:g} <= {signal} <= {pred['max']:g}"
+    if kind == "changedBy":
+        return f"|\u0394{signal}| > {pred['delta']:g}"
+    return "<unknown predicate>"
+
+
+def _format_timebound(ms: int) -> str:
+    """Format milliseconds as a human-readable time bound."""
+    if ms % 1_000 == 0:
+        return f"{ms // 1_000}s "
+    return f"{ms}ms "
+
+
+def _format_formula(formula: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements,too-many-branches
+    """Format an LTL formula dict as a human-readable string."""
+    op = formula.get("operator")
+    if op == "atomic":
+        return _format_predicate(cast(dict[str, object], formula["predicate"]))
+    if op == "not":
+        return "not(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
+    if op == "and":
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " and "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    if op == "or":
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " or "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    if op == "next":
+        return "next(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
+    if op == "always":
+        inner = cast(dict[str, object], formula["formula"])
+        # Detect Never pattern: always(not(atomic(p)))
+        if inner.get("operator") == "not":
+            inner_not = cast(dict[str, object], inner["formula"])
+            if inner_not.get("operator") == "atomic":
+                return "never " + _format_predicate(cast(dict[str, object], inner_not["predicate"]))
+        return "always(" + _format_formula(inner) + ")"
+    if op == "eventually":
+        return "eventually(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
+    if op == "until":
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " until "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    if op == "release":
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " release "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    if op == "metricAlways":
+        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
+        return ("always within " + tb + "("
+                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
+    if op == "metricEventually":
+        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
+        return ("eventually within " + tb + "("
+                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
+    if op == "metricUntil":
+        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " until within " + tb + " "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    if op == "metricRelease":
+        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
+        return (_format_formula(cast(dict[str, object], formula["left"]))
+                + " release within " + tb + " "
+                + _format_formula(cast(dict[str, object], formula["right"])))
+    return "<unknown>"
+
+
+def _collect_signals(formula: dict[str, object]) -> list[str]:
+    """Collect all signal names from a formula, deduplicated, in order."""
+    signals: list[str] = []
+    seen: set[str] = set()
+    _collect_signals_into(formula, signals, seen)
+    return signals
+
+
+def _collect_signals_into(
+    formula: dict[str, object], signals: list[str], seen: set[str],
+) -> None:
+    """Walk a formula collecting signal names."""
+    op = formula.get("operator")
+    if op == "atomic":
+        pred = cast(dict[str, object], formula["predicate"])
+        name = str(pred.get("signal", ""))
+        if name and name not in seen:
+            seen.add(name)
+            signals.append(name)
+    elif op in ("not", "next", "always", "eventually", "metricAlways", "metricEventually"):
+        _collect_signals_into(cast(dict[str, object], formula["formula"]), signals, seen)
+    elif op in ("and", "or", "until", "release", "metricUntil", "metricRelease"):
+        _collect_signals_into(cast(dict[str, object], formula["left"]), signals, seen)
+        _collect_signals_into(cast(dict[str, object], formula["right"]), signals, seen)
+
+
+def _build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
+    """Build a PropertyDiagnostic from a formula. Always succeeds."""
+    f = cast(dict[str, object], formula)
+    return PropertyDiagnostic(
+        signals=_collect_signals(f),
+        formula_desc=_format_formula(f),
+    )
+
+
+def _format_enriched_reason(
+    diag: PropertyDiagnostic, values: dict[str, float | None],
+) -> str:
+    """Build the enriched reason string."""
+    parts: list[str] = []
+    for sig in diag.signals:
+        val = values.get(sig)
+        if val is not None:
+            parts.append(f"{sig} = {val:g}")
+    if not parts:
+        return "violated: " + diag.formula_desc
+    return ", ".join(parts) + " (formula: " + diag.formula_desc + ")"
 
 
 class AletheiaClient:
@@ -68,8 +205,7 @@ class AletheiaClient:
        - format_dbc() - Export currently-loaded DBC as JSON
        - validate_dbc() - Validate a DBC for structural issues
     3. Streaming LTL checking:
-       - set_properties() - Set LTL properties (before streaming)
-       - set_check_diagnostics() - Register check metadata for enrichment
+       - set_properties() - Set LTL properties (auto-derives diagnostics)
        - start_stream() - Enter streaming mode
        - send_frame() - Send frames for incremental checking
        - end_stream() - Exit streaming mode
@@ -84,7 +220,7 @@ class AletheiaClient:
     ) -> None:
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
-        self._diags: dict[int, CheckDiag] = {}
+        self._diags: dict[int, PropertyDiagnostic] = {}
         self._signal_cache: ExtractionCache = {}
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
         self._rts_cores: int = rts_cores
@@ -379,6 +515,9 @@ class AletheiaClient:
     def set_properties(self, properties: list[LTLFormula]) -> SuccessResponse | ErrorResponse:
         """Set LTL properties to check. Must be called before start_stream().
 
+        Automatically derives diagnostics (formula description, referenced
+        signals) from each formula for violation enrichment.
+
         Args:
             properties: List of LTL formulas (from DSL .to_dict())
 
@@ -390,25 +529,13 @@ class AletheiaClient:
             "command": "setProperties",
             "properties": properties
         }
-        return self._success_or_error(self._send_command(cmd))
-
-    def set_check_diagnostics(self, checks: list[CheckResult]) -> None:
-        """Register check metadata for violation enrichment.
-
-        When diagnostics are registered, ``send_frame()`` will automatically
-        enrich ``PropertyViolationResponse`` with ``signal_name``,
-        ``actual_value``, and ``condition`` fields by calling
-        ``extract_signals`` (cached, bounded to 256 unique frames).
-
-        Call this after ``set_properties()`` with the same check list.
-        """
-        self._diags.clear()
-        self._signal_cache.clear()
-        for i, check in enumerate(checks):
-            sig = check.signal_name
-            cond = check.condition_desc
-            if sig and cond:
-                self._diags[i] = CheckDiag(signal_name=sig, condition_desc=cond)
+        response = self._success_or_error(self._send_command(cmd))
+        if response["status"] == "success":
+            self._diags.clear()
+            self._signal_cache.clear()
+            for i, formula in enumerate(properties):
+                self._diags[i] = _build_diagnostic(formula)
+        return response
 
     def add_checks(
         self, checks: list[CheckResult],
@@ -416,7 +543,8 @@ class AletheiaClient:
         """Set LTL checks, merging with registered default checks.
 
         Combines ``default_checks`` (from constructor) with *checks*,
-        calls ``set_properties()`` + ``set_check_diagnostics()`` atomically.
+        calls ``set_properties()`` atomically. Diagnostics are auto-derived
+        from the formula structure.
 
         Args:
             checks: Session-specific checks to add after defaults.
@@ -425,10 +553,7 @@ class AletheiaClient:
             SuccessResponse or ErrorResponse from ``set_properties()``.
         """
         all_checks = self._default_checks + checks
-        response = self.set_properties([c.to_dict() for c in all_checks])
-        if response["status"] == "success":
-            self.set_check_diagnostics(all_checks)
-        return response
+        return self.set_properties([c.to_dict() for c in all_checks])
 
     # =========================================================================
     # Streaming LTL Checking
@@ -462,34 +587,27 @@ class AletheiaClient:
         if diag is None:
             return
 
-        result["signal_name"] = diag.signal_name
-        result["condition"] = diag.condition_desc
-
-        # Try to extract the actual signal value (cached, bounded).
-        # Cache only successful extractions; failures fall back to Agda reason.
+        # Extract signal values (cached, bounded).
         cache_key: tuple[int, bytes] = (can_id, bytes(data))
-        signals: SignalExtractionResult | None = self._signal_cache.get(cache_key)
-        if signals is None and len(self._signal_cache) < MAX_EXTRACT_CACHE:
+        extraction: SignalExtractionResult | None = self._signal_cache.get(cache_key)
+        if extraction is None:
             try:
-                signals = self.extract_signals(can_id=can_id, data=data)
-                self._signal_cache[cache_key] = signals
+                extraction = self.extract_signals(can_id=can_id, data=data)
+                if len(self._signal_cache) < MAX_EXTRACT_CACHE:
+                    self._signal_cache[cache_key] = extraction
             except (AletheiaError, ValueError):
                 pass
 
-        actual: float | None = None
-        if signals is not None:
-            actual = signals.values.get(diag.signal_name)
-        result["actual_value"] = actual
+        values: dict[str, float | None] = {}
+        if extraction is not None:
+            for sig in diag.signals:
+                val = extraction.values.get(sig)
+                if val is not None:
+                    values[sig] = val
 
-        # Build enriched reason string
-        if actual is not None:
-            result["reason"] = (
-                f"{diag.signal_name} = {actual} (limit: {diag.condition_desc})"
-            )
-        else:
-            result["reason"] = (
-                f"{diag.signal_name} violated {diag.condition_desc}"
-            )
+        result["signals"] = values
+        result["formula"] = diag.formula_desc
+        result["enriched_reason"] = _format_enriched_reason(diag, values)
 
     def send_frame(
         self,
@@ -499,9 +617,9 @@ class AletheiaClient:
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
 
-        If check diagnostics have been registered via
-        ``set_check_diagnostics()``, violation responses are automatically
-        enriched with ``signal_name``, ``actual_value``, and ``condition``.
+        If properties have been set via ``set_properties()``, violation
+        responses are automatically enriched with ``signals``, ``formula``,
+        and ``enriched_reason``.
 
         Args:
             timestamp: Timestamp in microseconds
@@ -672,8 +790,8 @@ class AletheiaClient:
         diag = self._diags.get(idx)
         if diag is None:
             return
-        result["signal_name"] = diag.signal_name
-        result["condition"] = diag.condition_desc
+        result["formula"] = diag.formula_desc
+        result["enriched_reason"] = "violated: " + diag.formula_desc
 
     # =========================================================================
     # Signal Operations (available anytime after DBC loaded)

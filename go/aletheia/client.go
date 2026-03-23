@@ -18,6 +18,8 @@ type Client struct {
 	mu        sync.Mutex
 	closeOnce sync.Once
 	closed    bool
+	diags     []PropertyDiagnostic // one per property, auto-derived
+	cache     *extractCache        // extraction cache for enrichment
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -49,6 +51,11 @@ func (c *Client) Close() error {
 func (c *Client) process(input string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.processLocked(input)
+}
+
+// processLocked sends input to the backend. Caller must hold c.mu.
+func (c *Client) processLocked(input string) (string, error) {
 	if c.closed {
 		return "", stateError("client is closed")
 	}
@@ -126,23 +133,23 @@ func (c *Client) ExtractSignals(id CanID, data FramePayload) (*ExtractionResult,
 }
 
 // BuildFrame encodes signal values into a CAN frame payload.
-func (c *Client) BuildFrame(id CanID, signals []SignalValue) (*FramePayload, error) {
+func (c *Client) BuildFrame(id CanID, signals []SignalValue) (FramePayload, error) {
 	cmd, err := serializeCommand("buildFrame", map[string]any{
 		"canId":   id.Value(),
 		"signals": serializeSignalValues(signals),
 	})
 	if err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	resp, err := c.process(cmd)
 	if err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	return parseFrameDataResponse(resp)
 }
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
-func (c *Client) UpdateFrame(id CanID, data FramePayload, signals []SignalValue) (*FramePayload, error) {
+func (c *Client) UpdateFrame(id CanID, data FramePayload, signals []SignalValue) (FramePayload, error) {
 	byteSlice := make([]uint8, 8)
 	for i := 0; i < 8; i++ {
 		byteSlice[i] = data[i]
@@ -153,11 +160,11 @@ func (c *Client) UpdateFrame(id CanID, data FramePayload, signals []SignalValue)
 		"signals": serializeSignalValues(signals),
 	})
 	if err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	resp, err := c.process(cmd)
 	if err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	return parseFrameDataResponse(resp)
 }
@@ -165,6 +172,8 @@ func (c *Client) UpdateFrame(id CanID, data FramePayload, signals []SignalValue)
 // --- Streaming LTL operations ---
 
 // SetProperties installs LTL properties for stream monitoring.
+// Automatically derives diagnostic metadata from the formula structure for
+// violation enrichment.
 func (c *Client) SetProperties(properties []Formula) error {
 	props := make([]map[string]any, 0, len(properties))
 	for _, f := range properties {
@@ -180,7 +189,18 @@ func (c *Client) SetProperties(properties []Formula) error {
 	if err != nil {
 		return err
 	}
-	return parseSuccessResponse(resp)
+	if err := parseSuccessResponse(resp); err != nil {
+		return err
+	}
+	// Auto-derive diagnostics from formula structure.
+	c.mu.Lock()
+	c.diags = make([]PropertyDiagnostic, len(properties))
+	for i, f := range properties {
+		c.diags[i] = BuildDiagnostic(f)
+	}
+	c.cache = newExtractCache()
+	c.mu.Unlock()
+	return nil
 }
 
 // StartStream begins a new LTL monitoring stream.
@@ -194,32 +214,145 @@ func (c *Client) StartStream() error {
 	if err != nil {
 		return err
 	}
-	return parseSuccessResponse(resp)
+	if err := parseSuccessResponse(resp); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	if c.cache != nil {
+		c.cache.clear()
+	}
+	c.mu.Unlock()
+	return nil
 }
 
 // SendFrame sends a CAN frame to the active monitoring stream.
 // Returns Ack or Violation depending on whether any property was violated.
+// Violations are automatically enriched with signal values and a human-readable
+// formula description when diagnostics are available.
 func (c *Client) SendFrame(ts Timestamp, id CanID, data FramePayload) (FrameResponse, error) {
 	input, err := serializeDataFrame(ts, id, data)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.process(input)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp, err := c.processLocked(input)
 	if err != nil {
 		return nil, err
 	}
-	return parseFrameResponse(resp)
+	fr, err := parseFrameResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := fr.(Violation); ok && c.diags != nil {
+		c.enrichViolation(&v, id, data)
+		return v, nil
+	}
+	return fr, nil
 }
 
 // EndStream finalizes the monitoring stream and returns verdicts for all properties.
+// Failed verdicts are enriched with signal names and formula description.
 func (c *Client) EndStream() (*StreamResult, error) {
 	cmd, err := serializeCommand("endStream", nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.process(cmd)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
 	}
-	return parseStreamResponse(resp)
+	sr, err := parseStreamResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	if c.diags != nil {
+		for i := range sr.Results {
+			if sr.Results[i].Verdict == Fails {
+				c.enrichPropertyResult(&sr.Results[i])
+			}
+		}
+	}
+	return sr, nil
+}
+
+// enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold c.mu.
+func (c *Client) enrichViolation(v *Violation, id CanID, data FramePayload) {
+	idx := int(v.PropertyIndex)
+	if idx >= len(c.diags) {
+		return
+	}
+	diag := c.diags[idx]
+	values := c.extractSignalValues(diag, id, data)
+	reason := formatEnrichedReason(diag, values)
+	v.Enrichment = &ViolationEnrichment{
+		Signals:        values,
+		FormulaDesc:    diag.FormulaDesc,
+		EnrichedReason: reason,
+	}
+}
+
+// enrichPropertyResult adds a ViolationEnrichment to a failed PropertyResult. Caller must hold c.mu.
+func (c *Client) enrichPropertyResult(pr *PropertyResult) {
+	idx := int(pr.PropertyIndex)
+	if idx >= len(c.diags) {
+		return
+	}
+	diag := c.diags[idx]
+	pr.Enrichment = &ViolationEnrichment{
+		FormulaDesc:    diag.FormulaDesc,
+		EnrichedReason: "violated: " + diag.FormulaDesc,
+	}
+}
+
+// extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.
+// Caller must hold c.mu.
+func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, data FramePayload) map[SignalName]PhysicalValue {
+	if c.cache == nil {
+		return nil
+	}
+	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), data: data}
+	result, ok := c.cache.get(key)
+	if !ok {
+		result = c.extractSignalsLocked(id, data)
+		if result != nil {
+			c.cache.put(key, result)
+		}
+	}
+	if result == nil {
+		return nil
+	}
+	values := make(map[SignalName]PhysicalValue)
+	for _, sig := range diag.Signals {
+		if val, found := result.Get(sig); found {
+			values[sig] = val
+		}
+	}
+	return values
+}
+
+// extractSignalsLocked calls ExtractSignals without acquiring the mutex. Caller must hold c.mu.
+func (c *Client) extractSignalsLocked(id CanID, data FramePayload) *ExtractionResult {
+	byteSlice := make([]uint8, 8)
+	for i := 0; i < 8; i++ {
+		byteSlice[i] = data[i]
+	}
+	cmd, err := serializeCommand("extractAllSignals", map[string]any{
+		"canId": id.Value(),
+		"data":  byteSlice,
+	})
+	if err != nil {
+		return nil
+	}
+	resp, err := c.processLocked(cmd)
+	if err != nil {
+		return nil
+	}
+	result, err := parseExtractionResponse(resp)
+	if err != nil {
+		return nil
+	}
+	return result
 }

@@ -10,6 +10,7 @@
 #include <aletheia/backend.hpp>
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
+#include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/ltl.hpp>
 #include <aletheia/response.hpp>

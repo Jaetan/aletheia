@@ -24,6 +24,7 @@ FetchContent_MakeAvailable(json)
 
 add_library(aletheia-cpp
     src/client.cpp
+    src/enrich.cpp
     src/ffi_backend.cpp
     src/mock_backend.cpp
     src/json_serialize.cpp

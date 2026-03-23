@@ -376,36 +376,36 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 	return &ExtractionResult{Values: values, Errors: errors, Absent: absent}, nil
 }
 
-func parseFrameDataResponse(raw string) (*FramePayload, error) {
+func parseFrameDataResponse(raw string) (FramePayload, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	if err := checkErrorStatus(m); err != nil {
-		return nil, err
+		return FramePayload{}, err
 	}
 	status := getString(m, "status")
 	if status != "success" {
-		return nil, protocolError("expected success response, got status: " + status)
+		return FramePayload{}, protocolError("expected success response, got status: " + status)
 	}
 
 	data := getArray(m, "data")
 	if len(data) != 8 {
-		return nil, protocolError(fmt.Sprintf("expected 8-byte frame data, got %d bytes", len(data)))
+		return FramePayload{}, protocolError(fmt.Sprintf("expected 8-byte frame data, got %d bytes", len(data)))
 	}
 
 	var payload FramePayload
 	for i := 0; i < 8; i++ {
 		f, err := parseNumber(data[i])
 		if err != nil {
-			return nil, protocolError("invalid byte in frame data: " + err.Error())
+			return FramePayload{}, protocolError("invalid byte in frame data: " + err.Error())
 		}
 		if f < 0 || f > 255 {
-			return nil, protocolError(fmt.Sprintf("byte %d out of range: %v", i, f))
+			return FramePayload{}, protocolError(fmt.Sprintf("byte %d out of range: %v", i, f))
 		}
 		payload[i] = byte(f)
 	}
-	return &payload, nil
+	return payload, nil
 }
 
 func parseFrameResponse(raw string) (FrameResponse, error) {
@@ -587,7 +587,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		signals = append(signals, *sig)
+		signals = append(signals, sig)
 	}
 
 	return &DbcMessage{
@@ -599,7 +599,8 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 	}, nil
 }
 
-func parseDbcSignal(j map[string]any) (*DbcSignal, error) {
+func parseDbcSignal(j map[string]any) (DbcSignal, error) {
+	var zero DbcSignal
 	bo := LittleEndian
 	if getString(j, "byteOrder") == "big_endian" {
 		bo = BigEndian
@@ -607,43 +608,43 @@ func parseDbcSignal(j map[string]any) (*DbcSignal, error) {
 
 	factor, err := parseNumber(j["factor"])
 	if err != nil {
-		return nil, protocolError("invalid factor: " + err.Error())
+		return zero, protocolError("invalid factor: " + err.Error())
 	}
 	offset, err := parseNumber(j["offset"])
 	if err != nil {
-		return nil, protocolError("invalid offset: " + err.Error())
+		return zero, protocolError("invalid offset: " + err.Error())
 	}
 	minimum, err := parseNumber(j["minimum"])
 	if err != nil {
-		return nil, protocolError("invalid minimum: " + err.Error())
+		return zero, protocolError("invalid minimum: " + err.Error())
 	}
 	maximum, err := parseNumber(j["maximum"])
 	if err != nil {
-		return nil, protocolError("invalid maximum: " + err.Error())
+		return zero, protocolError("invalid maximum: " + err.Error())
 	}
 	startBit, err := parseNumber(j["startBit"])
 	if err != nil {
-		return nil, protocolError("invalid startBit: " + err.Error())
+		return zero, protocolError("invalid startBit: " + err.Error())
 	}
 	if startBit < 0 || startBit > 63 {
-		return nil, protocolError(fmt.Sprintf("startBit %v out of range (0-63)", startBit))
+		return zero, protocolError(fmt.Sprintf("startBit %v out of range (0-63)", startBit))
 	}
 	length, err := parseNumber(j["length"])
 	if err != nil {
-		return nil, protocolError("invalid length: " + err.Error())
+		return zero, protocolError("invalid length: " + err.Error())
 	}
 	if length < 1 || length > 64 {
-		return nil, protocolError(fmt.Sprintf("bit length %v out of range (1-64)", length))
+		return zero, protocolError(fmt.Sprintf("bit length %v out of range (1-64)", length))
 	}
 
 	var presence SignalPresence = AlwaysPresent{}
 	if muxName := getString(j, "multiplexor"); muxName != "" {
 		muxVal, err := parseNumber(j["multiplex_value"])
 		if err != nil {
-			return nil, protocolError("invalid multiplex_value: " + err.Error())
+			return zero, protocolError("invalid multiplex_value: " + err.Error())
 		}
 		if muxVal < 0 || muxVal > math.MaxUint32 {
-			return nil, protocolError(fmt.Sprintf("multiplex_value %v out of range (0-%d)", muxVal, uint32(math.MaxUint32)))
+			return zero, protocolError(fmt.Sprintf("multiplex_value %v out of range (0-%d)", muxVal, uint32(math.MaxUint32)))
 		}
 		presence = Multiplexed{
 			Multiplexor: SignalName(muxName),
@@ -651,7 +652,7 @@ func parseDbcSignal(j map[string]any) (*DbcSignal, error) {
 		}
 	}
 
-	return &DbcSignal{
+	return DbcSignal{
 		Name:      SignalName(getString(j, "name")),
 		StartBit:  BitPosition(startBit),
 		BitLength: BitLength(length),

@@ -64,7 +64,7 @@ MAX_EXTRACT_CACHE: int = 256
 
 
 @dataclass(slots=True)
-class CheckDiag:
-    """Per-check diagnostic metadata for violation enrichment."""
-    signal_name: str
-    condition_desc: str
+class PropertyDiagnostic:
+    """Per-property diagnostic metadata for violation enrichment."""
+    signals: list[str]
+    formula_desc: str

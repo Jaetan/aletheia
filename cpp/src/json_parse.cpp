@@ -282,7 +282,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
             if (idx < 0)
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
             auto ts = parse_rational_as_int(j.at("timestamp"));
-            std::optional<std::string> reason;
+            std::string reason;
             if (j.contains("reason") && j.at("reason").is_string())
                 reason = j.at("reason").get<std::string>();
             return FrameResponse{Violation{
@@ -332,7 +332,7 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
             if (r.contains("timestamp"))
                 ts = Timestamp{parse_rational_as_int(r.at("timestamp"))};
 
-            std::optional<std::string> reason;
+            std::string reason;
             if (r.contains("reason") && r.at("reason").is_string())
                 reason = r.at("reason").get<std::string>();
 

@@ -9,8 +9,13 @@
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
 
+#include <cstddef>
+#include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <span>
+#include <vector>
 
 namespace aletheia {
 
@@ -51,8 +56,27 @@ public:
     auto end_stream() -> Result<StreamResult>;
 
 private:
+    void enrich_violation(Violation& v, CanId id, std::span<const std::byte, 8> data);
+    void enrich_property_result(PropertyResult& pr);
+    auto extract_signal_values(const PropertyDiagnostic& diag, CanId id,
+                               std::span<const std::byte, 8> data)
+        -> std::map<SignalName, PhysicalValue>;
+    auto extract_signals_internal(CanId id, std::span<const std::byte, 8> data)
+        -> std::optional<ExtractionResult>;
+
     std::unique_ptr<IBackend> backend_;
     void* state_ = nullptr;
+    std::vector<PropertyDiagnostic> diags_;
+
+    // Extraction cache: keyed by (id_value, is_extended, payload)
+    struct FrameKey {
+        std::uint32_t id_value;
+        bool is_extended;
+        FramePayload data;
+        auto operator<=>(const FrameKey&) const = default;
+    };
+    static constexpr std::size_t max_cache_size_ = 256;
+    std::map<FrameKey, ExtractionResult> cache_;
 };
 
 } // namespace aletheia

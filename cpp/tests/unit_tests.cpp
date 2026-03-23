@@ -8,6 +8,7 @@
 #include "detail/json.hpp"
 #include "detail/mock_backend.hpp"
 #include <aletheia/aletheia.hpp>
+#include <aletheia/enrich.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -857,4 +858,370 @@ TEST_CASE("ExtractionResult::get helper", "[response]") {
     CHECK(result.get(SignalName{"Missing"}) == PhysicalValue{0.0});
     CHECK(result.get(SignalName{"Missing"}, PhysicalValue{-1.0}) == PhysicalValue{-1.0});
     CHECK_FALSE(result.has_errors());
+}
+
+// ===========================================================================
+// Formula pretty-printer tests
+// ===========================================================================
+
+TEST_CASE("format_formula always less than", "[enrich]") {
+    auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    CHECK(format_formula(f) == "always(Speed < 220)");
+}
+
+TEST_CASE("format_formula never pattern", "[enrich]") {
+    auto f = ltl::never(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{100.0}));
+    CHECK(format_formula(f) == "never Speed > 100");
+}
+
+TEST_CASE("format_formula eventually", "[enrich]") {
+    auto f = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    CHECK(format_formula(f) == "eventually(Mode = 1)");
+}
+
+TEST_CASE("format_formula metric always", "[enrich]") {
+    auto f = ltl::always_within(Timestamp{5'000'000},
+                                ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    CHECK(format_formula(f) == "always within 5s (Speed < 220)");
+}
+
+TEST_CASE("format_formula metric eventually", "[enrich]") {
+    auto f = ltl::within(Timestamp{2'000'000},
+                         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    CHECK(format_formula(f) == "eventually within 2s (Mode = 1)");
+}
+
+TEST_CASE("format_formula next", "[enrich]") {
+    auto f = ltl::next(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    CHECK(format_formula(f) == "next(Speed < 220)");
+}
+
+TEST_CASE("format_formula and", "[enrich]") {
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    CHECK(format_formula(f) == "Speed < 220 and RPM > 500");
+}
+
+TEST_CASE("format_formula or", "[enrich]") {
+    auto f = ltl::either(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                          ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    CHECK(format_formula(f) == "Speed < 220 or RPM > 500");
+}
+
+TEST_CASE("format_formula until", "[enrich]") {
+    auto f = ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{50.0})),
+                         ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
+    CHECK(format_formula(f) == "Speed < 50 until Brake = 1");
+}
+
+TEST_CASE("format_formula release", "[enrich]") {
+    auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1.0})),
+                           ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
+    CHECK(format_formula(f) == "A = 1 release B = 0");
+}
+
+TEST_CASE("format_formula all predicate types", "[enrich]") {
+    auto eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{42.0}));
+    CHECK(format_formula(eq) == "S = 42");
+
+    auto lt = ltl::atomic(ltl::less_than(SignalName{"S"}, PhysicalValue{10.0}));
+    CHECK(format_formula(lt) == "S < 10");
+
+    auto gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{5.0}));
+    CHECK(format_formula(gt) == "S > 5");
+
+    auto le = ltl::atomic(ltl::at_most(SignalName{"S"}, PhysicalValue{100.0}));
+    CHECK(format_formula(le) == "S <= 100");
+
+    auto ge = ltl::atomic(ltl::at_least(SignalName{"S"}, PhysicalValue{0.0}));
+    CHECK(format_formula(ge) == "S >= 0");
+
+    auto bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{10.0}, PhysicalValue{14.5}));
+    CHECK(format_formula(bw) == "10 <= S <= 14.5");
+
+    auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{5.0}));
+    auto cb_str = format_formula(cb);
+    CHECK_THAT(cb_str, ContainsSubstring("S"));
+    CHECK_THAT(cb_str, ContainsSubstring("> 5"));
+}
+
+// ===========================================================================
+// Signal collection tests
+// ===========================================================================
+
+TEST_CASE("collect_signals multi-signal", "[enrich]") {
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    auto signals = collect_signals(f);
+    REQUIRE(signals.size() == 2);
+    CHECK(signals[0] == SignalName{"Speed"});
+    CHECK(signals[1] == SignalName{"RPM"});
+}
+
+TEST_CASE("collect_signals dedup", "[enrich]") {
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
+    auto signals = collect_signals(f);
+    CHECK(signals.size() == 1);
+    CHECK(signals[0] == SignalName{"Speed"});
+}
+
+TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
+    auto f = ltl::always(ltl::both(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    auto diag = build_diagnostic(f);
+    CHECK(diag.signals.size() == 2);
+    CHECK_FALSE(diag.formula_desc.empty());
+    CHECK_THAT(diag.formula_desc, ContainsSubstring("Speed"));
+    CHECK_THAT(diag.formula_desc, ContainsSubstring("RPM"));
+}
+
+// ===========================================================================
+// Client enrichment tests
+// ===========================================================================
+
+TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    // set_properties success
+    mock_ptr->queue_response(R"({"status": "success"})");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+    REQUIRE(client.set_properties(props).has_value());
+
+    // Verify by triggering enrichment: start_stream, send_frame (violation), extraction
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 2000000,
+        "reason": "Atomic: predicate failed"
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+
+    REQUIRE(client.start_stream().has_value());
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{std::byte{0xF5}, std::byte{0x00}};
+    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<Violation>(*result));
+
+    auto& v = std::get<Violation>(*result);
+    REQUIRE(v.enrichment.has_value());
+    CHECK_THAT(v.enrichment->formula_desc, ContainsSubstring("Speed < 220"));
+    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("formula:"));
+    CHECK(v.enrichment->signals.size() == 1);
+    CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+}
+
+TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 2000000
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}, {"name": "RPM", "value": 3000}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(ltl::both(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{};
+    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    REQUIRE(result.has_value());
+    auto& v = std::get<Violation>(*result);
+    REQUIRE(v.enrichment.has_value());
+    CHECK(v.enrichment->signals.size() == 2);
+    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("RPM = 3000"));
+}
+
+TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    // Two violations, same frame — only one extraction
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 1000000
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 2000000
+    })");
+    // No second extraction response needed — cached
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{std::byte{0xF5}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    REQUIRE(r1.has_value());
+    CHECK(std::get<Violation>(*r1).enrichment.has_value());
+
+    auto r2 = client.send_frame(Timestamp{2'000'000}, id, data);
+    REQUIRE(r2.has_value());
+    CHECK(std::get<Violation>(*r2).enrichment.has_value());
+
+    // Count extractAllSignals commands (should be exactly 1)
+    std::size_t extract_count = 0;
+    for (const auto& captured : mock_ptr->captured()) {
+        auto j = json::parse(captured);
+        if (j.contains("command") && j["command"] == "extractAllSignals")
+            ++extract_count;
+    }
+    CHECK(extract_count == 1);
+}
+
+TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({"status": "ack"})");     // send_frame
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "violation", "property_index": 0,
+             "timestamp": 5000000, "reason": "Never satisfied"}
+        ]
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{};
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, data).has_value());
+
+    auto end_result = client.end_stream();
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+    CHECK(end_result->results[0].verdict == Verdict::Fails);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    CHECK_THAT(end_result->results[0].enrichment->formula_desc, ContainsSubstring("Mode = 1"));
+    CHECK_THAT(end_result->results[0].enrichment->enriched_reason, ContainsSubstring("violated:"));
+}
+
+TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 1000000
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+    // end first stream
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [{"type": "property", "status": "satisfaction", "property_index": 0}]
+    })");
+    // second stream
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream (clears cache)
+    mock_ptr->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 1000000
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 250}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{std::byte{0xF5}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    REQUIRE(r1.has_value());
+    REQUIRE(client.end_stream().has_value());
+
+    // Second stream: same frame data but cache cleared
+    REQUIRE(client.start_stream().has_value());
+    auto r2 = client.send_frame(Timestamp{1'000'000}, id, data);
+    REQUIRE(r2.has_value());
+    CHECK(std::get<Violation>(*r2).enrichment.has_value());
+
+    // Should have 2 extractAllSignals calls (cache was cleared)
+    std::size_t extract_count = 0;
+    for (const auto& captured : mock_ptr->captured()) {
+        auto j = json::parse(captured);
+        if (j.contains("command") && j["command"] == "extractAllSignals")
+            ++extract_count;
+    }
+    CHECK(extract_count == 2);
+}
+
+TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({
+        "status": "violation", "type": "property",
+        "property_index": 0, "timestamp": 2000000,
+        "reason": "Speed limit exceeded"
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto id = CanId{StandardId::create(0x100).value()};
+    FramePayload data{};
+    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+
+    REQUIRE(result.has_value());
+    auto& v = std::get<Violation>(*result);
+    CHECK_FALSE(v.enrichment.has_value());
 }

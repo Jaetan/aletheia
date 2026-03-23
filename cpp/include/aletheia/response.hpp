@@ -3,6 +3,7 @@
 
 #include <aletheia/types.hpp>
 
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -10,6 +11,21 @@
 #include <vector>
 
 namespace aletheia {
+
+// ---------------------------------------------------------------------------
+// Enrichment types (auto-derived from formula structure)
+// ---------------------------------------------------------------------------
+
+struct PropertyDiagnostic {
+    std::vector<SignalName> signals;
+    std::string formula_desc;
+};
+
+struct ViolationEnrichment {
+    std::map<SignalName, PhysicalValue> signals;
+    std::string formula_desc;
+    std::string enriched_reason;
+};
 
 // ---------------------------------------------------------------------------
 // Signal extraction result
@@ -40,7 +56,8 @@ struct Ack {};
 struct Violation {
     PropertyIndex property_index;
     Timestamp timestamp;
-    std::optional<std::string> reason;
+    std::string reason;
+    std::optional<ViolationEnrichment> enrichment;
 };
 
 using FrameResponse = std::variant<Ack, Violation>;
@@ -55,7 +72,8 @@ struct PropertyResult {
     PropertyIndex property_index{0};
     Verdict verdict = Verdict::Fails;
     std::optional<Timestamp> timestamp;
-    std::optional<std::string> reason;
+    std::string reason;
+    std::optional<ViolationEnrichment> enrichment;
 };
 
 struct StreamResult {

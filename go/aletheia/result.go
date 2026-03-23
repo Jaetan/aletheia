@@ -45,7 +45,8 @@ func (Ack) frameResponse() {}
 type Violation struct {
 	PropertyIndex PropertyIndex
 	Timestamp     Timestamp
-	Reason        string // may be empty
+	Reason        string               // may be empty
+	Enrichment    *ViolationEnrichment // nil when no diagnostic available
 }
 
 func (Violation) frameResponse() {}
@@ -75,8 +76,9 @@ func (v Verdict) String() string {
 type PropertyResult struct {
 	PropertyIndex PropertyIndex
 	Verdict       Verdict
-	Timestamp     *Timestamp // nil if not applicable
-	Reason        string     // may be empty
+	Timestamp     *Timestamp           // nil if not applicable
+	Reason        string               // may be empty
+	Enrichment    *ViolationEnrichment // nil when verdict is Holds or no diagnostic
 }
 
 // StreamResult contains the end-of-stream verdicts for all properties.
