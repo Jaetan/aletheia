@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-22
+**Last Updated**: 2026-03-23
 
 ---
 
@@ -285,20 +285,23 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 - ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc.), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. 53 test cases, 207 assertions across 3 layers (static compile-time, unit with mock, integration with threads). 5 rounds of 18-category code review — all categories pass, 0 clang-tidy warnings. CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
 
-- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[8]byte` payload, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. 11 source files, 29 tests (all pass with `-race`). 1 round of 18-category code review — H1-H7 + M1-M9 fixes applied, L1-L12 deferred.
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[8]byte` payload, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. 11 source files, 56 tests (all pass with `-race`). 3 rounds of 18-category code review + hardening pass.
+
+- ✅ C header (`include/aletheia.h`): Documents the 4 C-callable FFI functions + GHC RTS initialization contract. The contract all language bindings implement against. Shakefile packaging target (`cabal run shake -- dist`) bundles .so + header.
+
+- ✅ Big-endian (Motorola) signal fix: `convertStartBit` at parse time (`DBC/JSONParser.agda`), `unconvertStartBit` at format time (`DBC/Formatter.agda`). Byte-order-aware `BitsInFrame` predicate and `checkSignalExceedsDLC` validator. All soundness/completeness proofs updated (`ErrorChecks.agda`, `Composition.agda`). Verified against cantools for 5 signal types (byte-aligned, non-byte-aligned, single-bit, cross-byte, full-frame). Example DBC updated with BE signals.
+
+- ✅ Violation enrichment (all bindings): Client-side enrichment pipeline — formula description, signal value extraction with bounded cache, human-readable violation reason. Implemented in Python (`_client.py`), C++ (`enrich.hpp`/`enrich.cpp`), and Go (`enrich.go`). 235-line Python enrichment test suite. Type audit across all bindings (removed redundant optionals where types have natural empty states).
 
 **Planned / Research**:
 - CAN format converters (BLF, ASC, MF4)
 - Frame injection utilities
 - **Fat shared library + Docker**: Statically link all Haskell runtime libraries into a single `libaletheia-ffi.so` (Cabal `ghc-options: -optl-static`). Eliminates the 13-file GHC runtime dependency, making the .so self-contained (only system libs: libgmp, libffi, glibc). Also produce a Docker image for containerized deployment. Prerequisite for easy distribution of C++/Go bindings.
-- **C header (`aletheia.h`)**: Document the 4 C-callable functions + GHC RTS initialization contract in a proper header file. The contract all language bindings implement against.
-- **C++23 bindings**: Strong types — `std::byte` for frame data (not `uint8_t`, since data is uninterpreted), strong typedefs for CAN ID / timestamp / DLC, `std::span<const std::byte, 8>` for payload. `std::expected` for fallible operations, RAII for state lifecycle, dependency injection for testability (abstract FFI boundary behind an interface so tests can mock the Agda core). The C++23 layer is unproven — tightness of types compensates for the lack of formal verification. Target: automotive toolchains (CANoe, dSPACE, ETAS), HIL test benches, AUTOSAR integration.
-- **Go bindings**: Tight types — `[8]byte` for frame data, strong type aliases for CAN ID / timestamp / DLC. `cgo` for C FFI, `sync.Once` for GHC RTS initialization. Same philosophy as C++23: unproven layer, must be tight. Target: cloud-native CAN analytics (Kubernetes, Prometheus), vehicle telematics, CI/CD pipelines (single binary, no Python dependency), edge gateway deployment.
 - **CAN-FD support**: Extend frame model from fixed 8-byte CAN 2.0B to variable-length CAN-FD (up to 64 bytes). Affects `Frame.agda` (payload type), `DBC/Types.agda` (DLC range), `Validity.agda` (bounds checks), encoding proofs, and the FFI layer. Currently noted in `Frame.agda`, `Validity.agda`, and `DESIGN.md`. Natural first step toward SOME/IP: forces the frame type generalization (`Vec Byte 8` → variable-length) that both binary FFI and SOME/IP require, while staying within the familiar signal extraction model.
 - **Binary FFI protocol**: Replace JSON string serialization at the ctypes boundary with a dedicated binary C export for the hot path (`send_frame`). Analysis (2026-03-22): JSON overhead is ~30 µs of 108 µs per frame (28%); binary FFI would yield ~12,000 fps (24% gain) for CAN 2.0B — nice but not transformative since LTL evaluation dominates. Essential for SOME/IP at Ethernet throughput (1,400-byte payloads × 100K msg/s = 420 MB/s of JSON text). **Prerequisite**: CAN-FD frame type generalization — MAlonzo compiles `Vec Byte n` to n nested constructors, making binary marshalling of large payloads impractical without a flat representation. Recommended to defer until CAN-FD is done.
 - **SOME/IP support**: Investigate SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. Analysis (2026-03-22): SOME/IP is fundamentally service-oriented, not signal-based — 16-byte header (Service ID, Method ID, Client/Session ID, Protocol/Interface Version, Message Type, Return Code) + variable structured payload, not bit-packed signals. Requires a different frame model, different extraction logic, and different LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing) vs CAN's signal-value predicates. The LTL engine itself is reusable. Also covers CAN-over-Ethernet encapsulations (DoIP/ISO 13400, gateways). **Prerequisite sequence**: CAN-FD → binary FFI → SOME/IP frame model → SOME/IP properties.
 
-**Status**: In progress (DBC pretty-printer complete)
+**Status**: In progress
 
 ---
 
@@ -307,10 +310,15 @@ Ordered by impact descending; within same impact, easiest to hardest.
 **Codebase**:
 - Agda modules: 44 (36 production + 8 proof-only)
 - Python modules: 12
-- Lines of code: ~11,700 Agda + ~4,500 Python
+- C++ files: 14 (9 headers + 5 source, ~1,950 lines)
+- Go files: 11 source (~2,000 lines)
+- Lines of code: ~11,700 Agda + ~4,500 Python + ~1,950 C++ + ~2,000 Go
 
 **Testing**:
-- Unit tests: 372 passing (via FFI)
+- Python tests: 416 passing (via FFI)
+- C++ tests: 53 passing (207 assertions, mock backend)
+- Go tests: 56 passing (mock backend, `-race` clean)
+- Total: 525 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 - Build time: 0.26s (no-op), ~11s (incremental)
@@ -329,14 +337,18 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 ## Next Steps
 
-**Current**:
-- DBC validator formal proof — **COMPLETE**: soundness + completeness (1,267 lines, 6 modules)
-- Gap D adequacy — **COMPLETE**: all 13 operators, 1,061 lines
-- Product council presentation — **COMPLETE**: `docs/presentation/index.html` (36 slides, reveal.js)
-- Update docs (PYTHON_API.md, CLI.md) for new features.
+**Recent completions**:
+- Big-endian (Motorola) signal fix — **COMPLETE**: conversion at parse/format time, byte-order-aware DLC validation with updated proofs
+- Violation enrichment (all bindings) — **COMPLETE**: formula desc + signal values + human-readable reason
+- C++23 binding — **COMPLETE**: 5-round review, 53 tests, 207 assertions
+- Go binding — **COMPLETE**: 3-round review + hardening, 56 tests
+- C header + distribution packaging — **COMPLETE**
 
 **Future**:
-- Phase 5: Optional extensions (CAN format converters, frame injection, CAN-FD, binary FFI, Ethernet transport)
+- Fat shared library + Docker (self-contained .so for easy distribution)
+- CAN-FD support (variable-length frames, prerequisite for binary FFI and SOME/IP)
+- Binary FFI protocol (24% CAN gain, essential for SOME/IP throughput)
+- SOME/IP support (automotive Ethernet, service-oriented)
 
 ---
 

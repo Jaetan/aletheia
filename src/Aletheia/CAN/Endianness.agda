@@ -915,6 +915,56 @@ physicalBitPos-BE-involutive b b<64 =
     div-mod-identity : ∀ n → (n / 8) * 8 + (n % 8) ≡ n
     div-mod-identity n = trans (+-comm ((n / 8) * 8) (n % 8)) (sym (m≡m%n+[m/n]*n n 8))
 
+-- Roundtrip: unconvert ∘ convert ≡ id (for BigEndian)
+-- Preconditions:
+--   1 ≤ l (non-zero signal length)
+--   s < 64 (Motorola startBit in range)
+--   l ∸ 1 ≤ physicalBitPos BigEndian s (signal fits: no underflow in convert)
+convertStartBit-roundtrip : ∀ s l →
+  1 ≤ l → s < 64 → l ∸ 1 ≤ physicalBitPos BigEndian s →
+  unconvertStartBit BigEndian (convertStartBit BigEndian s l) l ≡ s
+convertStartBit-roundtrip s (suc k) _ s<64 k≤p =
+  begin
+    physicalBitPos BigEndian ((p ∸ k) + suc k ∸ 1)
+  ≡⟨ cong (λ x → physicalBitPos BigEndian (x ∸ 1)) (+-suc (p ∸ k) k) ⟩
+    physicalBitPos BigEndian (suc ((p ∸ k) + k) ∸ 1)
+  ≡⟨⟩
+    physicalBitPos BigEndian ((p ∸ k) + k)
+  ≡⟨ cong (physicalBitPos BigEndian) (m∸n+n≡m k≤p) ⟩
+    physicalBitPos BigEndian p
+  ≡⟨ physicalBitPos-BE-involutive s s<64 ⟩
+    s
+  ∎
+  where
+    open ≡-Reasoning
+    open import Data.Nat.Properties using (m∸n+n≡m)
+    p = physicalBitPos BigEndian s
+
+-- Roundtrip: convert ∘ unconvert ≡ id (for BigEndian)
+-- Preconditions:
+--   1 ≤ l (non-zero signal length)
+--   s + l ∸ 1 < 64 (internal startBit + length in range for involution)
+--   l ∸ 1 ≤ s (no underflow in the final subtraction)
+unconvertStartBit-roundtrip : ∀ s l →
+  1 ≤ l → s + l ∸ 1 < 64 → l ∸ 1 ≤ s →
+  convertStartBit BigEndian (unconvertStartBit BigEndian s l) l ≡ s
+unconvertStartBit-roundtrip s (suc k) _ sk<64 k≤s =
+  begin
+    physicalBitPos BigEndian (physicalBitPos BigEndian (s + suc k ∸ 1)) ∸ k
+  ≡⟨ cong (λ x → physicalBitPos BigEndian (physicalBitPos BigEndian x) ∸ k) reduce ⟩
+    physicalBitPos BigEndian (physicalBitPos BigEndian (s + k)) ∸ k
+  ≡⟨ cong (_∸ k) (physicalBitPos-BE-involutive (s + k) (subst (_< 64) reduce sk<64)) ⟩
+    (s + k) ∸ k
+  ≡⟨ m+n∸n≡m s k ⟩
+    s
+  ∎
+  where
+    open ≡-Reasoning
+    open import Data.Nat.Properties using (m+n∸n≡m)
+    -- s + suc k ∸ 1 reduces via +-suc: s + suc k ≡ suc (s + k), then suc n ∸ 1 = n
+    reduce : s + suc k ∸ 1 ≡ s + k
+    reduce = cong (_∸ 1) (+-suc s k)
+
 -- If p ≢ a+k for all k < m, then p < a or a+m ≤ p
 not-in-interval : ∀ a m p → (∀ k → k < m → p ≢ a + k) → p < a ⊎ a + m ≤ p
 not-in-interval a m p noHit = go a m p noHit
