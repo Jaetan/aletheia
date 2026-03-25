@@ -257,12 +257,10 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
 
         const auto& data = j.at("data");
-        if (data.size() != 8)
-            return std::unexpected(make_error(ErrorKind::Protocol, "Expected 8-byte frame data"));
-
-        FramePayload payload{};
-        for (std::size_t i = 0; i < 8; ++i)
-            payload[i] = static_cast<std::byte>(data[i].get<std::uint8_t>());
+        FramePayload payload;
+        payload.reserve(data.size());
+        for (const auto& byte_val : data)
+            payload.push_back(static_cast<std::byte>(byte_val.get<std::uint8_t>()));
         return payload;
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));

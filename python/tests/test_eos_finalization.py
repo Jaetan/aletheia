@@ -43,7 +43,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -58,7 +58,7 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").changed_by(0).never().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -90,7 +90,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -110,7 +110,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -128,7 +128,7 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").less_than(100).always().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert "results" in resp
             assert resp["status"] == "complete"
@@ -139,7 +139,7 @@ class TestEndOfStreamFinalization:
             client.parse_dbc(SIMPLE_DBC)
             client.set_properties([])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]

@@ -21,19 +21,22 @@ module Aletheia.CAN.Batch.Properties where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; inBounds; toSigned; injectSignal; injectSignal-preserves-disjoint-bits-physical; removeScaling)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; injectSignal; injectSignal-preserves-disjoint-bits-physical)
+open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned; removeScaling)
 open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
 open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
 open import Aletheia.CAN.BatchExtraction using (ExtractionResults; mkExtractionResults; categorizeResult; combineResults; emptyResults; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Properties using (
-  PhysicallyDisjoint; physicallyDisjoint-sym; _≟-DBCSignal_)
+  PhysicallyDisjoint; physicallyDisjoint-sym; _≟-DBCSignal_;
+  SignalPairValid; signalPairValid-sym;
+  extractDisjointness; CanCoexist; both-always)
 
 open import Data.List using (List; []; _∷_; length; map; foldr)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _+_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
+open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≟_ to _≟ᵣ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
@@ -93,13 +96,13 @@ open import Function using (case_of_)
 -- This is defined in Encoding.agda:
 --
 --   injectSignal-preserves-disjoint-bits-physical :
---     ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo₁ bo₂ : ByteOrder)
---       (frame frame' : CANFrame) (start₂ : ℕ)
+--     ∀ {n} {len₂} (v : ℚ) (sig : SignalDef) (bo₁ bo₂ : ByteOrder)
+--       (frame frame' : CANFrame n) (start₂ : ℕ)
 --     → injectSignal v sig bo₁ frame ≡ just frame'
 --     → (∀ k₁ → k₁ < bitLength sig → ∀ k₂ → k₂ < len₂
---        → physicalBitPos bo₁ (startBit sig + k₁) ≢ physicalBitPos bo₂ (start₂ + k₂))
---     → startBit sig + bitLength sig ≤ 64
---     → start₂ + len₂ ≤ 64
+--        → physicalBitPos n bo₁ (startBit sig + k₁) ≢ physicalBitPos n bo₂ (start₂ + k₂))
+--     → startBit sig + bitLength sig ≤ n * 8
+--     → start₂ + len₂ ≤ n * 8
 --     → extractBits {len₂} (extractionBytes frame' bo₂) start₂
 --       ≡ extractBits {len₂} (extractionBytes frame bo₂) start₂
 --
@@ -137,7 +140,6 @@ open import Function using (case_of_)
 
 open import Aletheia.CAN.BatchFrameBuilding using (injectAll)
 open import Data.Bool using (true; false)
-open import Relation.Binary.PropositionalEquality using (trans; cong)
 open import Aletheia.CAN.Encoding.Properties using (
   signalValue;
   injectSignal-reduces-unsigned; injectSignal-reduces-signed;
@@ -150,36 +152,37 @@ open import Data.Maybe.Properties using (just-injective)
 open import Data.Integer using (ℤ; +_; -[1+_])
 
 -- A signal is physically disjoint from all signals in a list
-data DisjointFromAll (sig : DBCSignal) : List (DBCSignal × ℚ) → Set where
-  dfa-nil : DisjointFromAll sig []
+-- n is the frame byte count (for physicalBitPos)
+data DisjointFromAll (n : ℕ) (sig : DBCSignal) : List (DBCSignal × ℚ) → Set where
+  dfa-nil : DisjointFromAll n sig []
   dfa-cons : ∀ {s v rest}
-    → PhysicallyDisjoint sig s
-    → DisjointFromAll sig rest
-    → DisjointFromAll sig ((s , v) ∷ rest)
+    → PhysicallyDisjoint n sig s
+    → DisjointFromAll n sig rest
+    → DisjointFromAll n sig ((s , v) ∷ rest)
 
 -- All pairs in a signal list are disjoint
-data AllPairsDisjoint : List (DBCSignal × ℚ) → Set where
-  apd-nil : AllPairsDisjoint []
+data AllPairsDisjoint (n : ℕ) : List (DBCSignal × ℚ) → Set where
+  apd-nil : AllPairsDisjoint n []
   apd-cons : ∀ {s v rest}
-    → DisjointFromAll s rest
-    → AllPairsDisjoint rest
-    → AllPairsDisjoint ((s , v) ∷ rest)
+    → DisjointFromAll n s rest
+    → AllPairsDisjoint n rest
+    → AllPairsDisjoint n ((s , v) ∷ rest)
 
--- All signals in a list fit within 64 bits
-data AllSignalsFit : List (DBCSignal × ℚ) → Set where
-  asf-nil : AllSignalsFit []
+-- All signals in a list fit within payloadBytes * 8 bits
+data AllSignalsFit (payloadBytes : ℕ) : List (DBCSignal × ℚ) → Set where
+  asf-nil : AllSignalsFit payloadBytes []
   asf-cons : ∀ {s v rest}
-    → SignalDef.startBit (DBCSignal.signalDef s) + SignalDef.bitLength (DBCSignal.signalDef s) ≤ 64
-    → AllSignalsFit rest
-    → AllSignalsFit ((s , v) ∷ rest)
+    → SignalDef.startBit (DBCSignal.signalDef s) + SignalDef.bitLength (DBCSignal.signalDef s) ≤ payloadBytes * 8
+    → AllSignalsFit payloadBytes rest
+    → AllSignalsFit payloadBytes ((s , v) ∷ rest)
 
 -- ============================================================================
 -- SINGLE INJECTION PRESERVES DISJOINT EXTRACTION
 -- ============================================================================
 
--- Helper: Signal fit bounds (used in many places)
-signalFits : SignalDef → Set
-signalFits sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
+-- Helper: Signal fit bounds (parameterized by payload byte count)
+signalFits : ℕ → SignalDef → Set
+signalFits payloadBytes sig = SignalDef.startBit sig + SignalDef.bitLength sig ≤ payloadBytes * 8
 
 -- ============================================================================
 -- HELPER IMPORTS
@@ -194,7 +197,7 @@ open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ)
 -- If the extracted bits are the same, extractSignal returns the same result
 -- This is because extractSignalCore, scaleExtracted, and inBounds are all deterministic
 private
-  extractSignal-bits-eq : ∀ frame₁ frame₂ sig bo
+  extractSignal-bits-eq : ∀ {n} (frame₁ frame₂ : CANFrame n) sig bo
     → extractBits {SignalDef.bitLength sig} (extractionBytes frame₁ bo) (SignalDef.startBit sig)
       ≡ extractBits {SignalDef.bitLength sig} (extractionBytes frame₂ bo) (SignalDef.startBit sig)
     → extractSignal frame₁ sig bo ≡ extractSignal frame₂ sig bo
@@ -232,10 +235,10 @@ private
 -- PhysicallyDisjoint is sufficient for any byte order combination.
 -- This connects injectSignal-preserves-disjoint-bits-physical to the signal level.
 single-inject-preserves :
-  ∀ (frame frame' : CANFrame) (s : DBCSignal) (v : ℚ) (sig : DBCSignal)
-  → PhysicallyDisjoint sig s
-  → signalFits (DBCSignal.signalDef s)
-  → signalFits (DBCSignal.signalDef sig)
+  ∀ {n} (frame frame' : CANFrame n) (s : DBCSignal) (v : ℚ) (sig : DBCSignal)
+  → PhysicallyDisjoint n sig s
+  → signalFits n (DBCSignal.signalDef s)
+  → signalFits n (DBCSignal.signalDef sig)
   → injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame ≡ just frame'
   → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
     ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
@@ -245,21 +248,21 @@ single-inject-preserves frame frame' s v sig pd fits-s fits-sig inj-eq =
     bits-preserved = injectSignal-preserves-disjoint-bits-physical v
       (DBCSignal.signalDef s) (DBCSignal.byteOrder s) (DBCSignal.byteOrder sig)
       frame frame' (SignalDef.startBit (DBCSignal.signalDef sig))
-      inj-eq (physicallyDisjoint-sym {sig} {s} pd) fits-s fits-sig
+      inj-eq (physicallyDisjoint-sym {_} {sig} {s} pd) fits-s fits-sig
 
 -- ============================================================================
 -- KEY LEMMA: injectAll preserves extraction at disjoint positions
 -- ============================================================================
--- Requires: pairwise physical disjointness, signals fit in 64 bits.
+-- Requires: pairwise physical disjointness, signals fit in frame.
 -- No byte order constraint: works for any mix of LE and BE signals.
 
 injectAll-preserves-disjoint :
-  ∀ (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+  ∀ {n} (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame n)
     (sig : DBCSignal)
-  → AllSignalsFit sigs
-  → signalFits (DBCSignal.signalDef sig)
+  → AllSignalsFit n sigs
+  → signalFits n (DBCSignal.signalDef sig)
   → injectAll frame sigs ≡ just frame'
-  → DisjointFromAll sig sigs
+  → DisjointFromAll n sig sigs
   → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
     ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
 
@@ -297,17 +300,17 @@ injectAll-preserves-disjoint ((s , v) ∷ rest) frame frame' sig
 -- ============================================================================
 
 -- A (signal, value) pair roundtrips: inject then extract returns v
-InjectRoundtrips : DBCSignal → ℚ → Set
-InjectRoundtrips sig v =
-  ∀ (frame frame' : CANFrame)
+InjectRoundtrips : ℕ → DBCSignal → ℚ → Set
+InjectRoundtrips n sig v =
+  ∀ (frame frame' : CANFrame n)
   → injectSignal v (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame ≡ just frame'
   → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) ≡ just v
 
 -- All signals in a list roundtrip
-data AllRoundtrip : List (DBCSignal × ℚ) → Set where
-  ar-nil  : AllRoundtrip []
+data AllRoundtrip (n : ℕ) : List (DBCSignal × ℚ) → Set where
+  ar-nil  : AllRoundtrip n []
   ar-cons : ∀ {s v rest}
-    → InjectRoundtrips s v → AllRoundtrip rest → AllRoundtrip ((s , v) ∷ rest)
+    → InjectRoundtrips n s v → AllRoundtrip n rest → AllRoundtrip n ((s , v) ∷ rest)
 
 -- ============================================================================
 -- BRIDGE LEMMAS: from existing roundtrips to InjectRoundtrips
@@ -315,15 +318,15 @@ data AllRoundtrip : List (DBCSignal × ℚ) → Set where
 
 -- Unsigned signals: bridge from Encoding.Properties roundtrip
 roundtrip-unsigned→IR :
-  ∀ (n : ℕ) (sig : DBCSignal)
+  ∀ {m} (n : ℕ) (sig : DBCSignal)
   → inBounds (signalValue (+ n) (DBCSignal.signalDef sig))
              (SignalDef.minimum (DBCSignal.signalDef sig))
              (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
   → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
   → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
-  → signalFits (DBCSignal.signalDef sig)
+  → signalFits m (DBCSignal.signalDef sig)
   → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
-  → InjectRoundtrips sig (signalValue (+ n) (DBCSignal.signalDef sig))
+  → InjectRoundtrips m sig (signalValue (+ n) (DBCSignal.signalDef sig))
 roundtrip-unsigned→IR n sig bounds-ok factor≢0 unsigned fits n<2^bl frame frame' inj-eq =
   subst (λ f → extractSignal f sd bo ≡ just v) frame'-eq extract-reduces
   where
@@ -336,7 +339,7 @@ roundtrip-unsigned→IR n sig bounds-ok factor≢0 unsigned fits n<2^bl frame fr
 
 -- Signed signals: bridge from Encoding.Properties roundtrip
 roundtrip-signed→IR :
-  ∀ (z : ℤ) (sig : DBCSignal)
+  ∀ {m} (z : ℤ) (sig : DBCSignal)
   → inBounds (signalValue z (DBCSignal.signalDef sig))
              (SignalDef.minimum (DBCSignal.signalDef sig))
              (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
@@ -344,8 +347,8 @@ roundtrip-signed→IR :
   → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
   → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
   → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))
-  → signalFits (DBCSignal.signalDef sig)
-  → InjectRoundtrips sig (signalValue z (DBCSignal.signalDef sig))
+  → signalFits m (DBCSignal.signalDef sig)
+  → InjectRoundtrips m sig (signalValue z (DBCSignal.signalDef sig))
 roundtrip-signed→IR z sig bounds-ok factor≢0 signed bl>0 sf fits frame frame' inj-eq =
   subst (λ f → extractSignal f sd bo ≡ just v) frame'-eq extract-reduces
   where
@@ -361,10 +364,10 @@ roundtrip-signed→IR z sig bounds-ok factor≢0 signed bl>0 sf fits frame frame
 -- ============================================================================
 
 injectAll-roundtrip :
-  ∀ (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
-  → AllPairsDisjoint sigs
-  → AllSignalsFit sigs
-  → AllRoundtrip sigs
+  ∀ {n} (sigs : List (DBCSignal × ℚ)) (frame frame' : CANFrame n)
+  → AllPairsDisjoint n sigs
+  → AllSignalsFit n sigs
+  → AllRoundtrip n sigs
   → injectAll frame sigs ≡ just frame'
   → ∀ {s v} → (s , v) ∈ sigs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
@@ -415,7 +418,7 @@ private
 
 -- Completeness: extractAllSignalsFromMessage produces exactly one entry per signal.
 -- Each signal is categorized into exactly one partition (values, errors, or absent).
-extractAll-complete : ∀ dbc frame msg
+extractAll-complete : ∀ {n} dbc (frame : CANFrame n) msg
   → totalEntries (extractAllSignalsFromMessage dbc frame msg)
     ≡ length (DBCMessage.signals msg)
 extractAll-complete dbc frame msg = go (DBCMessage.signals msg)
@@ -449,10 +452,6 @@ extractAll-complete dbc frame msg = go (DBCMessage.signals msg)
 import Data.List.Relation.Unary.All as StdAll
 import Data.List.Relation.Unary.AllPairs as StdAP
 open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factor≢0; BitsInFrame)
-open import Aletheia.DBC.Properties using (
-  SignalPairValid; signalPairValid-sym;
-  extractDisjointness; CanCoexist; both-always)
-open import Data.Nat.Properties using (≤-trans; *-monoˡ-≤)
 open import Data.Empty using (⊥-elim)
 
 -- --------------------------------------------------------------------------
@@ -547,10 +546,10 @@ pairsDistinct? ((s , v) ∷ rest) with distinctFromAll? s rest
 
 private
   -- Lookup in stdlib AllPairs (analogous to lookupSignalPairValid for AllSignalPairsValid)
-  allPairs-lookup : ∀ {sig₁ sig₂ sigs}
-    → StdAP.AllPairs SignalPairValid sigs
+  allPairs-lookup : ∀ {n sig₁ sig₂ sigs}
+    → StdAP.AllPairs (SignalPairValid n) sigs
     → sig₁ ∈ sigs → sig₂ ∈ sigs → sig₁ ≢ sig₂
-    → SignalPairValid sig₁ sig₂
+    → SignalPairValid n sig₁ sig₂
   allPairs-lookup (hd StdAP.∷ _) (here refl) (there sig₂∈) _ =
     StdAll.lookup hd sig₂∈
   allPairs-lookup (hd StdAP.∷ _) (there sig₁∈) (here refl) _ =
@@ -560,14 +559,15 @@ private
   allPairs-lookup _ (here refl) (here refl) sig≢ = ⊥-elim (sig≢ refl)
 
   -- Build DisjointFromAll from ValidDBC evidence
-  buildDFA : ∀ {msg} (s : DBCSignal) (rest : List (DBCSignal × ℚ))
-    → StdAP.AllPairs SignalPairValid (DBCMessage.signals msg)
+  -- n is the frame byte count for PhysicallyDisjoint
+  buildDFA : ∀ {n msg} (s : DBCSignal) (rest : List (DBCSignal × ℚ))
+    → StdAP.AllPairs (SignalPairValid n) (DBCMessage.signals msg)
     → s ∈ DBCMessage.signals msg
     → DBCSignal.presence s ≡ Always
     → AllFromMessage rest msg
     → AllAlwaysPresent rest
     → DistinctFromAll s rest
-    → DisjointFromAll s rest
+    → DisjointFromAll n s rest
   buildDFA _ [] _ _ _ _ _ _ = dfa-nil
   buildDFA s ((s' , _) ∷ rest) ap s∈ refl
       (afm-cons s'∈ afm-rest) (aap-cons refl aap-rest) (dist-cons s≢s' dist-rest) =
@@ -576,13 +576,14 @@ private
       (buildDFA s rest ap s∈ refl afm-rest aap-rest dist-rest)
 
 -- Bridge: ValidDBC → AllPairsDisjoint for always-present, distinct signals from one message
+-- Uses the message's DLC as the frame byte count for disjointness checking
 validDBC→allPairsDisjoint : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllAlwaysPresent pairs
   → AllFromMessage pairs msg
   → PairsDistinct pairs
-  → AllPairsDisjoint pairs
+  → AllPairsDisjoint (DBCMessage.dlc msg) pairs
 validDBC→allPairsDisjoint [] _ _ _ _ _ = apd-nil
 validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
     (aap-cons ps aap-rest) (afm-cons s∈ afm-rest) (pd-cons dist pd-rest) =
@@ -593,43 +594,30 @@ validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
     ap = StdAll.lookup (ValidDBC.sigPairsValid vdbc) msg∈
 
 -- --------------------------------------------------------------------------
--- Gap 2: BitsInFrame + ValidDLC → signalFits
--- --------------------------------------------------------------------------
-
--- BitsInFrame gives startBit + bitLength ≤ dlc * 8 (byte-order independent),
--- and ValidDLC gives dlc ≤ 8, so dlc * 8 ≤ 64 by monotonicity.
-bitsInFrame→signalFits : ∀ {dlc sig}
-  → BitsInFrame dlc sig → dlc ≤ 8
-  → signalFits (DBCSignal.signalDef sig)
-bitsInFrame→signalFits {dlc} bif dlc≤8 =
-  ≤-trans bif (*-monoˡ-≤ 8 dlc≤8)
-
--- --------------------------------------------------------------------------
--- Gap 3: ValidDBC → AllSignalsFit
+-- Gap 2: ValidDBC → AllSignalsFit
 -- --------------------------------------------------------------------------
 
 private
   buildASF : ∀ {msg} (pairs : List (DBCSignal × ℚ))
     → StdAll.All (BitsInFrame (DBCMessage.dlc msg)) (DBCMessage.signals msg)
-    → DBCMessage.dlc msg ≤ 8
     → AllFromMessage pairs msg
-    → AllSignalsFit pairs
-  buildASF [] _ _ _ = asf-nil
-  buildASF ((s , _) ∷ rest) bifs dlc≤8 (afm-cons s∈ afm-rest) =
+    → AllSignalsFit (DBCMessage.dlc msg) pairs
+  buildASF [] _ _ = asf-nil
+  buildASF ((s , _) ∷ rest) bifs (afm-cons s∈ afm-rest) =
     asf-cons
-      (bitsInFrame→signalFits {sig = s} (StdAll.lookup bifs s∈) dlc≤8)
-      (buildASF rest bifs dlc≤8 afm-rest)
+      (StdAll.lookup bifs s∈)
+      (buildASF rest bifs afm-rest)
 
--- Bridge: ValidDBC → AllSignalsFit for signals from one message
+-- Bridge: ValidDBC → AllSignalsFit for signals from one message.
+-- Uses the message's own DLC as the payload byte count.
 validDBC→allSignalsFit : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllFromMessage pairs msg
-  → AllSignalsFit pairs
+  → AllSignalsFit (DBCMessage.dlc msg) pairs
 validDBC→allSignalsFit pairs vdbc msg∈ afm =
   buildASF pairs
     (StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈)
-    (StdAll.lookup (ValidDBC.validDLCs vdbc) msg∈)
     afm
 
 -- --------------------------------------------------------------------------
@@ -639,19 +627,21 @@ validDBC→allSignalsFit pairs vdbc msg∈ afm =
 -- Top-level: ValidDBC guarantees batch roundtrip for always-present signals.
 --
 -- For any byte order combination, if signals are pairwise distinct and
--- always-present (derived from ValidDBC → physically disjoint), fit in 64 bits
--- (derived from BitsInFrame + ValidDLC), and you inject representable values,
+-- always-present (derived from ValidDBC → physically disjoint), fit in the
+-- frame (derived from BitsInFrame), and you inject representable values,
 -- then extracting any injected signal returns exactly its injected value.
 --
 -- Both AllPairsDisjoint and AllSignalsFit are derived internally from ValidDBC.
+-- The frame size is the message's DLC (works for both CAN 2.0B and CAN-FD).
 validDBC-roundtrip :
-  ∀ {dbc msg} (pairs : List (DBCSignal × ℚ)) (frame frame' : CANFrame)
+  ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
+    (frame frame' : CANFrame (DBCMessage.dlc msg))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllAlwaysPresent pairs
   → AllFromMessage pairs msg
   → PairsDistinct pairs
-  → AllRoundtrip pairs
+  → AllRoundtrip (DBCMessage.dlc msg) pairs
   → injectAll frame pairs ≡ just frame'
   → ∀ {s v} → (s , v) ∈ pairs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
@@ -755,19 +745,19 @@ representable? sig v factor≢0 = go (removeScaling v factor offset) refl
     ...   | true = goIS isSigned refl z remEq sv≡v bEq
 
 -- Bridge: Representable → InjectRoundtrips (given factor ≢ 0 and signalFits)
-representable→roundtrips : ∀ {sig v}
+representable→roundtrips : ∀ {m sig v}
   → Representable sig v
   → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
-  → signalFits (DBCSignal.signalDef sig)
-  → InjectRoundtrips sig v
-representable→roundtrips {sig} (repr-unsigned n v≡ bounds-ok unsigned n<) factor≢0 fits =
-  subst (InjectRoundtrips sig) (sym v≡)
+  → signalFits m (DBCSignal.signalDef sig)
+  → InjectRoundtrips m sig v
+representable→roundtrips {_} {sig} (repr-unsigned n v≡ bounds-ok unsigned n<) factor≢0 fits =
+  subst (InjectRoundtrips _ sig) (sym v≡)
     (roundtrip-unsigned→IR n sig
       (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
       factor≢0 unsigned fits n<)
   where sd = DBCSignal.signalDef sig
-representable→roundtrips {sig} (repr-signed z v≡ bounds-ok signed bl>0 sf) factor≢0 fits =
-  subst (InjectRoundtrips sig) (sym v≡)
+representable→roundtrips {_} {sig} (repr-signed z v≡ bounds-ok signed bl>0 sf) factor≢0 fits =
+  subst (InjectRoundtrips _ sig) (sym v≡)
     (roundtrip-signed→IR z sig
       (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
       factor≢0 signed bl>0 sf fits)
@@ -792,21 +782,21 @@ allRepresentable? ((s , v) ∷ rest) (f≢0 StdAll.∷ fs) with representable? s
 ...   | yes ar = yes (arep-cons r ar)
 
 -- Bridge: AllRepresentable → AllRoundtrip (given ValidDBC context)
+-- Uses the message's DLC as the frame byte count.
 allRepresentable→allRoundtrip : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllFromMessage pairs msg
   → AllRepresentable pairs
-  → AllRoundtrip pairs
+  → AllRoundtrip (DBCMessage.dlc msg) pairs
 allRepresentable→allRoundtrip [] _ _ _ _ = ar-nil
 allRepresentable→allRoundtrip ((s , v) ∷ rest) vdbc msg∈
     (afm-cons s∈ afm-rest) (arep-cons rep arep-rest) =
   ar-cons
     (representable→roundtrips rep
       (nonZeroFactor→factor≢0 {s} (StdAll.lookup nzfs s∈))
-      (bitsInFrame→signalFits {sig = s} (StdAll.lookup bifs s∈) dlc≤8))
+      (StdAll.lookup bifs s∈))
     (allRepresentable→allRoundtrip rest vdbc msg∈ afm-rest arep-rest)
   where
     nzfs = StdAll.lookup (ValidDBC.nonZeroFactors vdbc) msg∈
     bifs = StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈
-    dlc≤8 = StdAll.lookup (ValidDBC.validDLCs vdbc) msg∈

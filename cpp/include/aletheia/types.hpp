@@ -11,6 +11,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace aletheia {
 
@@ -78,10 +79,10 @@ using PropertyIndex = Strong<struct PropertyIndexTag, std::size_t>;
 using MultiplexValue = Strong<struct MultiplexValueTag, std::uint32_t>;
 
 // ---------------------------------------------------------------------------
-// Frame payload: raw bytes, not interpreted
+// Frame payload: variable-length raw bytes (up to 64 for CAN-FD)
 // ---------------------------------------------------------------------------
 
-using FramePayload = std::array<std::byte, 8>;
+using FramePayload = std::vector<std::byte>;
 
 // ---------------------------------------------------------------------------
 // CAN ID: two variants, validated at construction
@@ -126,7 +127,7 @@ using CanId = std::variant<StandardId, ExtendedId>;
 using Timestamp = std::chrono::microseconds;
 
 // ---------------------------------------------------------------------------
-// DLC: 0-8, validated at construction
+// DLC: 0-15 (CAN-FD), validated at construction
 // ---------------------------------------------------------------------------
 
 class Dlc {
@@ -135,14 +136,22 @@ class Dlc {
 
 public:
     static constexpr auto create(std::uint8_t v) -> std::expected<Dlc, std::string> {
-        if (v > 8)
-            return std::unexpected("DLC must be 0-8");
+        if (v > 15)
+            return std::unexpected("DLC must be 0-15");
         return Dlc{v};
     }
     [[nodiscard]] constexpr auto value() const -> std::uint8_t { return value_; }
     auto operator<=>(const Dlc&) const = default;
     bool operator==(const Dlc&) const = default;
 };
+
+// CAN-FD DLC to payload byte count mapping.
+// DLC 0-8 maps directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
+constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
+    constexpr std::array<std::size_t, 16> table = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+    return table[dlc.value()];
+}
 
 // ---------------------------------------------------------------------------
 // Byte order

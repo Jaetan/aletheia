@@ -11,14 +11,14 @@ AletheiaClient provides streaming LTL checking and signal operations:
         client.parse_dbc(dbc_json)
 
         # Signal operations work anytime after DBC loaded
-        result = client.extract_signals(can_id=0x100, data=frame_bytes)
+        result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
         speed = result.get("VehicleSpeed", 0.0)
 
         # Build frames from signal values
         frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 50.0})
 
         # Update specific signals in a frame
-        modified = client.update_frame(can_id=0x100, frame=data, signals={"VehicleSpeed": 130.0})
+        modified = client.update_frame(can_id=0x100, dlc=8, frame=data, signals={"VehicleSpeed": 130.0})
 
         # Streaming LTL checking
         client.set_properties([Signal("Speed").less_than(220).always().to_dict()])
@@ -26,7 +26,7 @@ AletheiaClient provides streaming LTL checking and signal operations:
 
         for frame in can_trace:
             # Signal ops work while streaming too!
-            response = client.send_frame(timestamp, can_id, data)
+            response = client.send_frame(timestamp, can_id, dlc, data)
 
         client.end_stream()
 
@@ -55,6 +55,7 @@ from .client import (
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
+    dlc_to_bytes,
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
@@ -68,6 +69,7 @@ __all__ = [
     # Client
     "AletheiaClient",
     "SignalExtractionResult",
+    "dlc_to_bytes",
     # Exceptions
     "AletheiaError",
     "ProcessError",

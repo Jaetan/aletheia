@@ -6,7 +6,7 @@
 -- and the weak inverse corollary (parse ∘ format ∘ parse = parse).
 -- Properties:
 --   parse-wellformed   : parseDBCWithErrors j ≡ inj₂ d → WellFormedDBC d
---   parse-format-parse : parseDBCWithErrors j ≡ inj₂ d → parseDBCWithErrors (formatDBC d) ≡ inj₂ d
+--   parse-format-parse : (deferred) requires proving PhysicallyValid for parsed signals
 -- Role: Completes the weak inverse pair together with Formatter.Properties.
 module Aletheia.DBC.JSONParser.Properties where
 
@@ -20,7 +20,8 @@ open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; 
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList)
 open import Aletheia.DBC.Formatter using (formatDBC)
-open import Aletheia.DBC.Formatter.Properties using (WellFormedDBC; format-parse-roundtrip)
+open import Aletheia.DBC.Formatter.Properties using (WellFormedDBC; WellFormedDBCRT;
+  format-parse-roundtrip)
 open import Aletheia.DBC.JSONParser.MessageWF using (parseMessageList-wf)
 
 -- ============================================================================
@@ -53,11 +54,12 @@ parse-wellformed (JArray _) d ()
 -- WEAK INVERSE: parse ∘ format ∘ parse = parse
 -- ============================================================================
 
--- If parsing succeeds, formatting and re-parsing recovers the original.
--- This is the reverse direction of the weak inverse pair.
--- Forward: format-parse-roundtrip (in Formatter.Properties)
--- Reverse: parse-format-parse (this theorem)
-parse-format-parse : ∀ j d
-  → parseDBCWithErrors j ≡ inj₂ d
-  → parseDBCWithErrors (formatDBC d) ≡ inj₂ d
-parse-format-parse j d eq = format-parse-roundtrip d (parse-wellformed j d eq)
+-- NOTE: The parse-format-parse corollary (if parsing succeeds, formatting and
+-- re-parsing recovers the original) is currently deferred. It requires proving
+-- that parsed signals satisfy PhysicallyValid (1 ≤ bitLength, signal fits in
+-- frame, Motorola MSB constraint). The parser does not enforce these invariants
+-- (e.g., bitLength=0 parses successfully), so this theorem cannot hold in full
+-- generality without strengthening the parser or adding preconditions.
+--
+-- The core format-parse-roundtrip (in Formatter.Properties) IS fully proven
+-- under WellFormedDBCRT, which includes the PhysicallyValid constraints.

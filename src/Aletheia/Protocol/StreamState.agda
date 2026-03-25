@@ -18,14 +18,13 @@ module Aletheia.Protocol.StreamState where
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_; reverse) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Nat using (ℕ; zero; suc; _+_; _%_)
+open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Product using (_×_; _,_; proj₁)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Function using (case_of_)
-open import Aletheia.Prelude using (standard-can-id-max)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
@@ -33,13 +32,14 @@ open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; 
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; TruthVal; True; False; Unknown; SignalCache; emptyCache; updateCache; evalPredicateTV; extractTruthValue)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; FinalVerdict; Holds; Fails; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; initProc; simplify)
-open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational; getNat)
+open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
 open import Data.Rational using (ℚ)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
+open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
@@ -148,7 +148,7 @@ mkPredTable dbc cache atoms n frame =
 -- Update cache with all signals extractable from a frame
 -- Iterates through all messages in DBC, finds matching message by ID,
 -- then extracts and caches all its signals
-updateCacheFromFrame : DBC → SignalCache → ℕ → CANFrame → SignalCache
+updateCacheFromFrame : ∀ {n} → DBC → SignalCache → ℕ → CANFrame n → SignalCache
 updateCacheFromFrame dbc cache ts frame =
   updateFromMessage (findMessageById (CANFrame.id frame) dbc)
   where
@@ -180,11 +180,11 @@ parseSignalList (obj ∷ rest) = do
   restParsed ← parseSignalList rest
   just ((name , value) ∷ restParsed)
 
--- Create frame from bytes and message ID
-makeFrame : CANId → Vec Byte 8 → CANFrame
-makeFrame msgId bytes = record
+-- Create frame from bytes, DLC, and message ID
+makeFrame : ∀ {n} → CANId → ℕ → Vec Byte n → CANFrame n
+makeFrame msgId dlc bytes = record
   { id = msgId
-  ; dlc = 8
+  ; dlc = dlc
   ; payload = bytes
   }
 
@@ -285,8 +285,8 @@ handleEndStream-State state with StreamState.phase state
 --   - Violated property halts iteration (remaining properties unchanged)
 --   - Other properties continue checking on subsequent frames
 --
-handleDataFrame : StreamState → ℕ → CANFrame → StreamState × Response
-handleDataFrame state timestamp frame with StreamState.phase state
+handleDataFrame : StreamState → TimedFrame → StreamState × Response
+handleDataFrame state tf with StreamState.phase state
 ... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before sending frames")
 ... | ReadyToStream = (state , Response.Error "Must call StartStream before sending frames")
 ... | Streaming with StreamState.dbc state
@@ -299,9 +299,8 @@ handleDataFrame state timestamp frame with StreamState.phase state
 
     processFrame : DBC → StreamState × Response
     processFrame dbc =
-      let timedFrame = record { timestamp = timestamp ; frame = frame }
-          updatedCache = updateCacheFromFrame dbc currentCache timestamp frame
-      in dispatchResult (iterate (propStep timedFrame) (StreamState.properties state)) timedFrame updatedCache
+      let updatedCache = updateCacheFromFrame dbc currentCache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
+      in dispatchResult (iterate (propStep tf) (StreamState.properties state)) tf updatedCache
       where
         -- Step one property using stepL with PredTable.
         -- Advance: updated property state (Continue, Satisfied)
@@ -332,38 +331,30 @@ handleDataFrame state timestamp frame with StreamState.phase state
 -- BATCH SIGNAL OPERATIONS HANDLERS (Phase 2B.1)
 -- ============================================================================
 
--- Common preamble: validate DBC loaded and parse CAN ID
+-- Common preamble: validate DBC loaded
 private
-  withDBCAndCANId : StreamState → JSON → (DBC → ℕ → StreamState × Response) → StreamState × Response
-  withDBCAndCANId state canIdJSON cont with StreamState.dbc state
-  ... | nothing = (state , Response.Error "DBC not loaded")
-  ... | just dbc with getNat canIdJSON
-  ...   | nothing = (state , Response.Error "Invalid CAN ID")
-  ...   | just canIdNat = cont dbc canIdNat
+  withDBC : StreamState → (DBC → StreamState × Response) → StreamState × Response
+  withDBC state cont with StreamState.dbc state
+  ... | nothing  = (state , Response.Error "DBC not loaded")
+  ... | just dbc = cont dbc
 
 -- Build CAN frame from signal values
-handleBuildFrame-State : JSON → List JSON → StreamState → StreamState × Response
-handleBuildFrame-State canIdJSON signalsJSON state =
-  withDBCAndCANId state canIdJSON buildCont
+handleBuildFrame-State : CANId → (dlc : ℕ) → List JSON → StreamState → StreamState × Response
+handleBuildFrame-State canId dlc signalsJSON state =
+  withDBC state λ dbc → parseSignals dbc signalsJSON
   where
-    buildCont : DBC → ℕ → StreamState × Response
-    buildCont dbc canIdNat =
-      let canId = CANId.Standard (canIdNat % standard-can-id-max)
-      in parseSignals dbc canId signalsJSON
-      where
-        parseSignals : DBC → CANId → List JSON → StreamState × Response
-        parseSignals dbc' canId signals with parseSignalList signals
-        ... | nothing = (state , Response.Error "Failed to parse signal list")
-        ... | just signalPairs with buildFrame dbc' canId signalPairs
-        ...   | nothing = (state , Response.Error "Frame building failed (signals overlap, not found, or values out of bounds)")
-        ...   | just frameBytes = (state , Response.ByteArray frameBytes)
+    parseSignals : DBC → List JSON → StreamState × Response
+    parseSignals dbc signals with parseSignalList signals
+    ... | nothing = (state , Response.Error "Failed to parse signal list")
+    ... | just signalPairs with buildFrame dbc canId dlc signalPairs
+    ...   | nothing = (state , Response.Error "Frame building failed (signals overlap, not found, or values out of bounds)")
+    ...   | just frameBytes = (state , Response.ByteArray frameBytes)
 
 -- Extract all signals from a CAN frame
-handleExtractAllSignals-State : JSON → Vec Byte 8 → StreamState → StreamState × Response
-handleExtractAllSignals-State canIdJSON bytes state =
-  withDBCAndCANId state canIdJSON λ dbc canIdNat →
-    let canId = CANId.Standard (canIdNat % standard-can-id-max)
-        frame = makeFrame canId bytes
+handleExtractAllSignals-State : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState → StreamState × Response
+handleExtractAllSignals-State canId dlc bytes state =
+  withDBC state λ dbc →
+    let frame = makeFrame canId dlc bytes
         results = extractAllSignals dbc frame
     in (state , Response.ExtractionResultsResponse
                   (ExtractionResults.values results)
@@ -371,22 +362,18 @@ handleExtractAllSignals-State canIdJSON bytes state =
                   (ExtractionResults.absent results))
 
 -- Update specific signals in a CAN frame
-handleUpdateFrame-State : JSON → Vec Byte 8 → List JSON → StreamState → StreamState × Response
-handleUpdateFrame-State canIdJSON bytes signalsJSON state =
-  withDBCAndCANId state canIdJSON updateCont
+handleUpdateFrame-State : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List JSON → StreamState → StreamState × Response
+handleUpdateFrame-State canId dlc bytes signalsJSON state =
+  withDBC state λ dbc →
+    let frame = makeFrame canId dlc bytes
+    in parseSignals dbc signalsJSON frame
   where
-    updateCont : DBC → ℕ → StreamState × Response
-    updateCont dbc canIdNat =
-      let canId = CANId.Standard (canIdNat % standard-can-id-max)
-          frame = makeFrame canId bytes
-      in parseSignals dbc canId signalsJSON frame
-      where
-        parseSignals : DBC → CANId → List JSON → CANFrame → StreamState × Response
-        parseSignals dbc' canId signals frame with parseSignalList signals
-        ... | nothing = (state , Response.Error "Failed to parse signal list")
-        ... | just signalPairs with updateFrame dbc' canId frame signalPairs
-        ...   | nothing = (state , Response.Error "Frame update failed (signals not found or values out of bounds)")
-        ...   | just updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
+    parseSignals : ∀ {m} → DBC → List JSON → CANFrame m → StreamState × Response
+    parseSignals dbc signals frame with parseSignalList signals
+    ... | nothing = (state , Response.Error "Failed to parse signal list")
+    ... | just signalPairs with updateFrame dbc canId frame signalPairs
+    ...   | nothing = (state , Response.Error "Frame update failed (signals not found or values out of bounds)")
+    ...   | just updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
 
 -- ============================================================================
 -- VALIDATE DBC HANDLER (read-only probe, does NOT update state)
@@ -421,9 +408,9 @@ processStreamCommand : StreamCommand → StreamState → StreamState × Response
 processStreamCommand (ParseDBC dbcJSON) state = handleParseDBC-State dbcJSON state
 processStreamCommand (SetProperties props) state = handleSetProperties-State props state
 processStreamCommand StartStream state = handleStartStream-State state
-processStreamCommand (BuildFrame canIdJSON signalsJSON) state = handleBuildFrame-State canIdJSON signalsJSON state
-processStreamCommand (ExtractAllSignals canIdJSON bytes) state = handleExtractAllSignals-State canIdJSON bytes state
-processStreamCommand (UpdateFrame canIdJSON bytes signalsJSON) state = handleUpdateFrame-State canIdJSON bytes signalsJSON state
+processStreamCommand (BuildFrame canId dlc signalsJSON) state = handleBuildFrame-State canId dlc signalsJSON state
+processStreamCommand (ExtractAllSignals canId dlc bytes) state = handleExtractAllSignals-State canId dlc bytes state
+processStreamCommand (UpdateFrame canId dlc bytes signalsJSON) state = handleUpdateFrame-State canId dlc bytes signalsJSON state
 processStreamCommand EndStream state = handleEndStream-State state
 processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC-State dbcJSON state
 processStreamCommand FormatDBC state = handleFormatDBC-State state

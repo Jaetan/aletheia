@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// FramePayload is an 8-byte CAN 2.0B frame payload.
-type FramePayload [8]byte
+// FramePayload is a variable-length CAN frame payload (up to 64 bytes for CAN-FD).
+type FramePayload []byte
 
 // SignalName identifies a signal within a DBC message.
 type SignalName string
@@ -105,16 +105,31 @@ func NewExtendedID(v uint32) (ExtendedID, error) {
 	return ExtendedID{value: v}, nil
 }
 
-// DLC is a CAN Data Length Code (0-8).
+// DLC is a CAN Data Length Code (0-15). DLC 0-8 map directly to byte counts;
+// DLC 9-15 map to 12, 16, 20, 24, 32, 48, 64 bytes (CAN-FD).
 type DLC struct{ value uint8 }
 
 // Value returns the raw DLC value.
 func (d DLC) Value() uint8 { return d.value }
 
-// NewDLC creates a DLC. Returns an error if v > 8.
+// ToBytes returns the payload byte count for this DLC.
+func (d DLC) ToBytes() int {
+	return DlcToBytes(d)
+}
+
+// NewDLC creates a DLC. Returns an error if v > 15.
 func NewDLC(v uint8) (DLC, error) {
-	if v > 8 {
-		return DLC{}, validationError(fmt.Sprintf("DLC %d exceeds CAN 2.0B range (0-8)", v))
+	if v > 15 {
+		return DLC{}, validationError(fmt.Sprintf("DLC %d exceeds CAN-FD range (0-15)", v))
 	}
 	return DLC{value: v}, nil
+}
+
+// dlcTable maps DLC values 0-15 to payload byte counts.
+var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
+
+// DlcToBytes returns the payload byte count for a DLC value.
+// DLC 0-8 map directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
+func DlcToBytes(dlc DLC) int {
+	return dlcTable[dlc.value]
 }

@@ -21,7 +21,7 @@ static auto can_id_extended(const CanId& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
 
-static auto data_to_json(std::span<const std::byte, 8> data) -> json {
+static auto data_to_json(std::span<const std::byte> data) -> json {
     json arr = json::array();
     for (auto b : data)
         arr.push_back(static_cast<std::uint8_t>(b));
@@ -199,27 +199,34 @@ auto serialize_format_dbc() -> std::string {
     return json{{"type", "command"}, {"command", "formatDBC"}}.dump();
 }
 
-auto serialize_extract_signals(const CanId& id, std::span<const std::byte, 8> data) -> std::string {
+auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
+    -> std::string {
     return json{{"type", "command"},
                 {"command", "extractAllSignals"},
                 {"canId", can_id_numeric(id)},
+                {"extended", can_id_extended(id)},
+                {"dlc", dlc.value()},
                 {"data", data_to_json(data)}}
         .dump();
 }
 
-auto serialize_build_frame(const CanId& id, std::span<const SignalValue> signals) -> std::string {
+auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals) -> std::string {
     return json{{"type", "command"},
                 {"command", "buildFrame"},
                 {"canId", can_id_numeric(id)},
+                {"extended", can_id_extended(id)},
+                {"dlc", dlc.value()},
                 {"signals", signals_to_json(signals)}}
         .dump();
 }
 
-auto serialize_update_frame(const CanId& id, std::span<const std::byte, 8> data,
+auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data,
                             std::span<const SignalValue> signals) -> std::string {
     return json{{"type", "command"},
                 {"command", "updateFrame"},
                 {"canId", can_id_numeric(id)},
+                {"extended", can_id_extended(id)},
+                {"dlc", dlc.value()},
                 {"data", data_to_json(data)},
                 {"signals", signals_to_json(signals)}}
         .dump();
@@ -237,11 +244,13 @@ auto serialize_start_stream() -> std::string {
     return json{{"type", "command"}, {"command", "startStream"}}.dump();
 }
 
-auto serialize_send_frame(Timestamp ts, const CanId& id, std::span<const std::byte, 8> data)
+auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
     return json{{"type", "data"},
                 {"timestamp", ts.count()},
                 {"id", can_id_numeric(id)},
+                {"extended", can_id_extended(id)},
+                {"dlc", dlc.value()},
                 {"data", data_to_json(data)}}
         .dump();
 }

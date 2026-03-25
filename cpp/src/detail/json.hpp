@@ -22,13 +22,14 @@ namespace aletheia::detail {
 auto serialize_parse_dbc(const DbcDefinition& dbc) -> std::string;
 auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string;
 auto serialize_format_dbc() -> std::string;
-auto serialize_extract_signals(const CanId& id, std::span<const std::byte, 8> data) -> std::string;
-auto serialize_build_frame(const CanId& id, std::span<const SignalValue> signals) -> std::string;
-auto serialize_update_frame(const CanId& id, std::span<const std::byte, 8> data,
+auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
+    -> std::string;
+auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals) -> std::string;
+auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data,
                             std::span<const SignalValue> signals) -> std::string;
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string;
 auto serialize_start_stream() -> std::string;
-auto serialize_send_frame(Timestamp ts, const CanId& id, std::span<const std::byte, 8> data)
+auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string;
 auto serialize_end_stream() -> std::string;
 

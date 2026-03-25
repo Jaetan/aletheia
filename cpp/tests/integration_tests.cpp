@@ -111,11 +111,12 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     // Speed = 1000 raw * 0.1 factor = 100.0 km/h
     // RPM   = 3000 raw * 1.0 factor = 3000 rpm
     auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, // 1000 LE
                       std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
-    auto result = client.extract_signals(id, data);
+    auto result = client.extract_signals(id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
     CHECK(result->get(SignalName{"Speed"}).get() == Catch::Approx(100.0));
@@ -135,7 +136,7 @@ TEST_CASE("build frame via real FFI", "[integration]") {
         {SignalName{"RPM"}, PhysicalValue{3000.0}},  // raw = 3000
     };
 
-    auto result = client.build_frame(id, signals);
+    auto result = client.build_frame(id, Dlc::create(8).value(), signals);
     REQUIRE(result.has_value());
     // Speed: 1000 = 0x03E8 LE → [0xE8, 0x03]
     CHECK((*result)[0] == std::byte{0xE8});
@@ -158,10 +159,10 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
         {SignalName{"RPM"}, PhysicalValue{1500.0}},
     };
 
-    auto built = client.build_frame(id, signals);
+    auto built = client.build_frame(id, Dlc::create(8).value(), signals);
     REQUIRE(built.has_value());
 
-    auto extracted = client.extract_signals(id, *built);
+    auto extracted = client.extract_signals(id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     // Round-trip: values should match (within quantization)
     CHECK(extracted->get(SignalName{"Speed"}).get() == Catch::Approx(42.5).margin(0.1));
@@ -185,6 +186,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
 
     // Send frames with Speed = 100, 120, 150 (all < 200)
     for (double speed : {100.0, 120.0, 150.0}) {
@@ -197,7 +199,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
                           std::byte{0},
                           std::byte{0},
                           std::byte{0}};
-        auto result = client.send_frame(Timestamp{1'000'000}, id, data);
+        auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         CHECK(std::holds_alternative<Ack>(*result));
     }
@@ -225,6 +227,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
     bool got_violation = false;
 
     for (double speed : {100.0, 110.0, 150.0}) {
@@ -237,7 +240,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
                           std::byte{0},
                           std::byte{0},
                           std::byte{0}};
-        auto result = client.send_frame(Timestamp{1'000'000}, id, data);
+        auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         if (std::holds_alternative<Violation>(*result))
             got_violation = true;
@@ -331,6 +334,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
 
             // Step 4: send frame with Speed = 150
             auto id = CanId{StandardId::create(0x100).value()};
+            auto dlc = Dlc::create(8).value();
             auto raw = static_cast<std::uint16_t>(150.0 / 0.1); // 1500
             FramePayload data{static_cast<std::byte>(raw & 0xFF),
                               static_cast<std::byte>((raw >> 8) & 0xFF),
@@ -340,7 +344,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
                               std::byte{0},
                               std::byte{0},
                               std::byte{0}};
-            auto send_result = client.send_frame(Timestamp{1'000'000}, id, data);
+            auto send_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
             if (!send_result.has_value()) {
                 out.error = "send_frame failed";
                 sync.arrive_and_drop();

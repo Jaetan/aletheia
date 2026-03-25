@@ -47,6 +47,7 @@ from ._types import (
     PropertyDiagnostic,
     ExtractionCache,
     MAX_EXTRACT_CACHE,
+    dlc_to_bytes,
 )
 
 if TYPE_CHECKING:
@@ -576,6 +577,7 @@ class AletheiaClient:
         self,
         result: PropertyViolationResponse,
         can_id: int,
+        dlc: int,
         data: bytearray,
     ) -> None:
         """Enrich a violation response with signal diagnostics (in-place)."""
@@ -592,7 +594,7 @@ class AletheiaClient:
         extraction: SignalExtractionResult | None = self._signal_cache.get(cache_key)
         if extraction is None:
             try:
-                extraction = self.extract_signals(can_id=can_id, data=data)
+                extraction = self.extract_signals(can_id=can_id, dlc=dlc, data=data)
                 if len(self._signal_cache) < MAX_EXTRACT_CACHE:
                     self._signal_cache[cache_key] = extraction
             except (AletheiaError, ValueError):
@@ -613,7 +615,9 @@ class AletheiaClient:
         self,
         timestamp: int,
         can_id: int,
-        data: bytearray
+        dlc: int,
+        data: bytearray,
+        extended: bool = False,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
 
@@ -624,25 +628,26 @@ class AletheiaClient:
         Args:
             timestamp: Timestamp in microseconds
             can_id: CAN ID (11-bit standard or 29-bit extended)
-            data: 8-byte payload
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            data: Frame payload
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
             AckResponse, PropertyViolationResponse, or ErrorResponse
         """
-        if len(data) != 8:
-            raise ValueError(f"Data must be exactly 8 bytes, got {len(data)}")
-
         frame: DataFrame = {
             "type": "data",
             "timestamp": timestamp,
             "id": can_id,
+            "dlc": dlc,
             "data": list(data),
+            "extended": extended,
         }
         response = self._send_command(frame)
         result = self._parse_frame_response(response)
 
         if result["status"] == "violation":
-            self._enrich_violation(result, can_id, data)
+            self._enrich_violation(result, can_id, dlc, data)
 
         return result
 
@@ -683,34 +688,32 @@ class AletheiaClient:
 
     def send_frames_batch(
         self,
-        frames: list[tuple[int, int, bytearray]]
+        frames: list[tuple[int, int, int, bytearray]],
+        extended: bool = False,
     ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
         """Send multiple CAN frames in a batch.
 
         Args:
-            frames: List of (timestamp, can_id, data) tuples where:
+            frames: List of (timestamp, can_id, dlc, data) tuples where:
                 - timestamp: Timestamp in microseconds
                 - can_id: CAN ID (11-bit standard or 29-bit extended)
-                - data: 8-byte payload
+                - dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+                - data: Frame payload
+            extended: True for 29-bit extended CAN IDs, False for 11-bit standard
 
         Returns:
             List of responses in same order as input frames.
 
         Raises:
-            ValueError: If any frame data is not exactly 8 bytes
             ProtocolError: If response status is unexpected
         """
-        for i, (_, _, data) in enumerate(frames):
-            if len(data) != 8:
-                raise ValueError(f"Frame {i}: data must be exactly 8 bytes, got {len(data)}")
-
         results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
-        for ts, cid, d in frames:
-            cmd: DataFrame = {"type": "data", "timestamp": ts, "id": cid, "data": list(d)}
+        for ts, cid, dlc, d in frames:
+            cmd: DataFrame = {"type": "data", "timestamp": ts, "id": cid, "dlc": dlc, "data": list(d), "extended": extended}
             raw = self._send_command(cmd)
             result = self._parse_frame_response(raw)
             if result["status"] == "violation":
-                self._enrich_violation(result, cid, d)
+                self._enrich_violation(result, cid, dlc, d)
             results.append(result)
         return results
 
@@ -797,30 +800,33 @@ class AletheiaClient:
     # Signal Operations (available anytime after DBC loaded)
     # =========================================================================
 
-    def extract_signals(self, can_id: int, data: bytearray) -> SignalExtractionResult:
+    def extract_signals(
+        self, can_id: int, dlc: int, data: bytearray,
+        extended: bool = False,
+    ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
 
         Works both inside and outside streaming mode.
 
         Args:
             can_id: CAN message ID
-            data: 8-byte frame data
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            data: Frame payload
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
             SignalExtractionResult with values/errors/absent partitioning
 
         Raises:
-            ValueError: If data is not exactly 8 bytes
             ProcessError: If extraction fails
         """
-        if len(data) != 8:
-            raise ValueError(f"Frame data must be 8 bytes, got {len(data)}")
-
         cmd: ExtractSignalsCommand = {
             "type": "command",
             "command": "extractAllSignals",
             "canId": can_id,
-            "data": list(data)
+            "dlc": dlc,
+            "data": list(data),
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
@@ -849,8 +855,10 @@ class AletheiaClient:
     def update_frame(
         self,
         can_id: int,
+        dlc: int,
         frame: bytearray,
-        signals: dict[str, float]
+        signals: dict[str, float],
+        extended: bool = False,
     ) -> bytearray:
         """Update specific signals in an existing frame.
 
@@ -859,19 +867,17 @@ class AletheiaClient:
 
         Args:
             can_id: CAN message ID
-            frame: Existing 8-byte frame data
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            frame: Existing frame data
             signals: Signal updates (name -> value)
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
-            New 8-byte frame with updated signals
+            New frame with updated signals
 
         Raises:
-            ValueError: If frame is not exactly 8 bytes
             ProcessError: If update fails
         """
-        if len(frame) != 8:
-            raise ValueError(f"Frame data must be 8 bytes, got {len(frame)}")
-
         for name, value in signals.items():
             self._check_signal_value(name, value)
         signals_json: list[SignalValue] = [
@@ -883,8 +889,10 @@ class AletheiaClient:
             "type": "command",
             "command": "updateFrame",
             "canId": can_id,
+            "dlc": dlc,
             "data": list(frame),
-            "signals": signals_json
+            "signals": signals_json,
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
@@ -892,9 +900,14 @@ class AletheiaClient:
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Update frame failed: {error_msg}")
 
-        return self._parse_frame_data(cast(UpdateFrameResponse, response))
+        return self._parse_frame_data(
+            cast(UpdateFrameResponse, response), dlc_to_bytes(dlc),
+        )
 
-    def build_frame(self, can_id: int, signals: dict[str, float]) -> bytearray:
+    def build_frame(
+        self, can_id: int, signals: dict[str, float], *,
+        dlc: int = 8, extended: bool = False,
+    ) -> bytearray:
         """Build a CAN frame from signal values.
 
         Works both inside and outside streaming mode.
@@ -903,9 +916,11 @@ class AletheiaClient:
         Args:
             can_id: CAN message ID
             signals: Signal values to encode (name -> value)
+            dlc: Data Length Code (0-15). Defaults to 8 (classic CAN).
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
-            8-byte CAN frame
+            CAN frame payload (length = dlc_to_bytes(dlc))
 
         Raises:
             ProcessError: If frame building fails
@@ -921,7 +936,9 @@ class AletheiaClient:
             "type": "command",
             "command": "buildFrame",
             "canId": can_id,
-            "signals": signals_json
+            "dlc": dlc,
+            "signals": signals_json,
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
@@ -929,19 +946,25 @@ class AletheiaClient:
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Build frame failed: {error_msg}")
 
-        return self._parse_frame_data(cast(BuildFrameResponse, response))
+        return self._parse_frame_data(
+            cast(BuildFrameResponse, response), dlc_to_bytes(dlc),
+        )
 
     # =========================================================================
     # Helper methods for parsing responses
     # =========================================================================
 
     @staticmethod
-    def _parse_frame_data(response: BuildFrameResponse | UpdateFrameResponse) -> bytearray:
-        """Extract and validate 8-byte frame data from a response."""
+    def _parse_frame_data(
+        response: BuildFrameResponse | UpdateFrameResponse,
+        expected_bytes: int,
+    ) -> bytearray:
+        """Extract and validate frame data from a response."""
         frame_data = response["data"]
-        if len(frame_data) != 8:
+        if len(frame_data) != expected_bytes:
             raise ProtocolError(
-                f"Invalid frame data: expected 8 bytes, got {len(frame_data)}"
+                f"Invalid frame data: expected {expected_bytes} bytes, "
+                + f"got {len(frame_data)}"
             )
         return bytearray(frame_data)
 

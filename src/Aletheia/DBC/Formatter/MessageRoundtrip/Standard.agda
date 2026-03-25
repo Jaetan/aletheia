@@ -17,10 +17,10 @@ open import Aletheia.DBC.JSONParser using (parseMessage;
   parseMessageId; parseMessageBody; parseCANId)
 open import Aletheia.CAN.Frame using (CANId; Standard)
 open import Aletheia.Prelude using (standard-can-id-max)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
+open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;
   getNat-ℕtoJSON; <→<ᵇ-true; ≤→≤ᵇ-true)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)
-open import Aletheia.DBC.Formatter.MessageRoundtrip.Shared
+open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
 
 private
   -- Stage 1: parseMessageId roundtrip (Standard)
@@ -38,21 +38,23 @@ private
     = canId-std rawId n dlc sender signals id-bound
 
   -- Stage 2: parseMessageBody roundtrip (Standard)
-  msgBody-std : ∀ rawId n dlc sender signals → dlc ≤ 8 → All WellFormedSignal signals
+  msgBody-std : ∀ rawId n dlc sender signals → dlc ≤ 64
+    → All WellFormedSignal signals → All (PhysicallyValid dlc) signals
     → parseMessageBody (ctx n) n (Standard rawId) (messageFields (mkMessage (Standard rawId) n dlc sender signals))
       ≡ inj₂ (mkMessage (Standard rawId) n dlc sender signals)
-  msgBody-std rawId n dlc sender signals dlc-bound sigs-wf
+  msgBody-std rawId n dlc sender signals dlc-bound sigs-wf sigs-pv
     rewrite getNat-ℕtoJSON dlc
-          | signal-list-roundtrip (ctx n) signals 0 sigs-wf
+          | signal-list-roundtrip dlc (ctx n) signals 0 sigs-wf dlc-bound sigs-pv
           | ≤→≤ᵇ-true dlc-bound
           | m<n⇒m%n≡m (s≤s dlc-bound)
     = refl
 
 -- Composed Standard message roundtrip
 message-roundtrip-std : ∀ rawId n dlc sender signals
-  → rawId < standard-can-id-max → dlc ≤ 8 → All WellFormedSignal signals
+  → rawId < standard-can-id-max → dlc ≤ 64
+  → All WellFormedSignal signals → All (PhysicallyValid dlc) signals
   → parseMessage (messageFields (mkMessage (Standard rawId) n dlc sender signals))
     ≡ inj₂ (mkMessage (Standard rawId) n dlc sender signals)
-message-roundtrip-std rawId n dlc sender signals id-bound dlc-bound sigs-wf =
+message-roundtrip-std rawId n dlc sender signals id-bound dlc-bound sigs-wf sigs-pv =
   trans (>>=ₑ-congʳ _ (msgId-std rawId n dlc sender signals id-bound))
-        (msgBody-std rawId n dlc sender signals dlc-bound sigs-wf)
+        (msgBody-std rawId n dlc sender signals dlc-bound sigs-wf sigs-pv)

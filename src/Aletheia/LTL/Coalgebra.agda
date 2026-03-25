@@ -197,9 +197,11 @@ stepL table (Until φ ψ) curr =
 stepL table (Release φ ψ) curr =
   combineAnd (stepL table ψ curr) (combineOr (stepL table φ curr) (Continue 0 (Release φ ψ)))
 
+-- All metric operators use `with` (not `if_then_else_`) so the boolean
+-- reduces under proof with-abstraction (see SimplifySound / Adequacy proofs).
+--
 -- MetricEventually: Rosu prog(F[w]φ, e) = prog(φ,e) ∨ F[w]φ (within window)
 -- Past window: always Violated (φ-satisfaction outside window doesn't count).
--- Uses `with` (not `if`) so the boolean reduces under proof with-abstraction.
 stepL table (MetricEventuallyProc windowMicros startTime φ) curr
   with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
 ... | false = Violated (mkCounterexample curr "MetricEventually: window expired")
@@ -208,7 +210,6 @@ stepL table (MetricEventuallyProc windowMicros startTime φ) curr
                           (MetricEventuallyProc windowMicros (suc (decodeStart startTime (timestamp curr))) φ))
 
 -- MetricAlways: Rosu prog(G[w]φ, e) = prog(φ,e) ∧ G[w]φ (within window)
--- Uses `with` (not `if`) so the boolean reduces under proof with-abstraction.
 stepL table (MetricAlwaysProc windowMicros startTime φ) curr
   with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
 ... | false = Satisfied  -- Window complete, always held
@@ -218,7 +219,6 @@ stepL table (MetricAlwaysProc windowMicros startTime φ) curr
 
 -- MetricUntil: Rosu prog(U[w](φ,ψ), e) = prog(ψ,e) ∨ (prog(φ,e) ∧ U[w](φ,ψ)) (within window)
 -- Past window: always Violated (ψ not satisfied within window).
--- Uses `with` (not `if`) so the boolean reduces under proof with-abstraction.
 stepL table (MetricUntilProc windowMicros startTime φ ψ) curr
   with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
 ... | false = Violated (mkCounterexample curr "MetricUntil: window expired before ψ")
@@ -228,7 +228,6 @@ stepL table (MetricUntilProc windowMicros startTime φ ψ) curr
                             (MetricUntilProc windowMicros (suc (decodeStart startTime (timestamp curr))) φ ψ)))
 
 -- MetricRelease: Rosu prog(R[w](φ,ψ), e) = prog(ψ,e) ∧ (prog(φ,e) ∨ R[w](φ,ψ)) (within window)
--- Uses `with` (not `if`) so the boolean reduces under proof with-abstraction.
 stepL table (MetricReleaseProc windowMicros startTime φ ψ) curr
   with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
 ... | false = Satisfied  -- Window complete, ψ held throughout

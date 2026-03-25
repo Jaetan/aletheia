@@ -20,15 +20,15 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 	return string(b), nil
 }
 
-func serializeDataFrame(ts Timestamp, id CanID, data FramePayload) (string, error) {
-	byteSlice := make([]uint8, 8)
-	for i := 0; i < 8; i++ {
-		byteSlice[i] = data[i]
-	}
+func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (string, error) {
+	byteSlice := make([]uint8, len(data))
+	copy(byteSlice, data)
 	m := map[string]any{
 		"type":      "data",
 		"timestamp": ts.Microseconds,
 		"id":        id.Value(),
+		"extended":  id.IsExtended(),
+		"dlc":       dlc.Value(),
 		"data":      byteSlice,
 	}
 	b, err := json.Marshal(m)
@@ -379,29 +379,25 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 func parseFrameDataResponse(raw string) (FramePayload, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	if err := checkErrorStatus(m); err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	status := getString(m, "status")
 	if status != "success" {
-		return FramePayload{}, protocolError("expected success response, got status: " + status)
+		return nil, protocolError("expected success response, got status: " + status)
 	}
 
 	data := getArray(m, "data")
-	if len(data) != 8 {
-		return FramePayload{}, protocolError(fmt.Sprintf("expected 8-byte frame data, got %d bytes", len(data)))
-	}
-
-	var payload FramePayload
-	for i := 0; i < 8; i++ {
-		f, err := parseNumber(data[i])
+	payload := make(FramePayload, len(data))
+	for i, item := range data {
+		f, err := parseNumber(item)
 		if err != nil {
-			return FramePayload{}, protocolError("invalid byte in frame data: " + err.Error())
+			return nil, protocolError("invalid byte in frame data: " + err.Error())
 		}
 		if f < 0 || f > 255 {
-			return FramePayload{}, protocolError(fmt.Sprintf("byte %d out of range: %v", i, f))
+			return nil, protocolError(fmt.Sprintf("byte %d out of range: %v", i, f))
 		}
 		payload[i] = byte(f)
 	}
@@ -626,8 +622,8 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 	if err != nil {
 		return zero, protocolError("invalid startBit: " + err.Error())
 	}
-	if startBit < 0 || startBit > 63 {
-		return zero, protocolError(fmt.Sprintf("startBit %v out of range (0-63)", startBit))
+	if startBit < 0 || startBit > 511 {
+		return zero, protocolError(fmt.Sprintf("startBit %v out of range (0-511)", startBit))
 	}
 	length, err := parseNumber(j["length"])
 	if err != nil {

@@ -86,13 +86,15 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
 
 TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]") {
     auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto str = detail::serialize_extract_signals(id, data);
+    auto str = detail::serialize_extract_signals(id, dlc, data);
     auto j = json::parse(str);
 
     CHECK(j["command"] == "extractAllSignals");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["data"].size() == 8);
     CHECK(j["data"][0] == 0xE8);
     CHECK(j["data"][1] == 0x03);
@@ -104,11 +106,12 @@ TEST_CASE("serialize_build_frame produces correct JSON", "[json][serialize]") {
         {SignalName{"Speed"}, PhysicalValue{120.0}},
         {SignalName{"RPM"}, PhysicalValue{3000.0}},
     };
-    auto str = detail::serialize_build_frame(id, signals);
+    auto str = detail::serialize_build_frame(id, Dlc::create(8).value(), signals);
     auto j = json::parse(str);
 
     CHECK(j["command"] == "buildFrame");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["signals"].size() == 2);
     CHECK(j["signals"][0]["name"] == "Speed");
     CHECK(j["signals"][0]["value"] == Catch::Approx(120.0));
@@ -134,13 +137,15 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
 
 TEST_CASE("serialize_send_frame produces correct JSON", "[json][serialize]") {
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto str = detail::serialize_send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto str = detail::serialize_send_frame(Timestamp{1'000'000}, id, dlc, data);
     auto j = json::parse(str);
 
     CHECK(j["type"] == "data");
     CHECK(j["timestamp"] == 1'000'000);
     CHECK(j["id"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["data"].size() == 8);
 }
 
@@ -314,6 +319,7 @@ TEST_CASE("parse_frame_data response", "[json][parse]") {
         "data": [232, 3, 0, 0, 0, 0, 0, 0]
     })");
     REQUIRE(result.has_value());
+    CHECK(result->size() == 8);
     CHECK((*result)[0] == std::byte{232});
     CHECK((*result)[1] == std::byte{3});
     CHECK((*result)[7] == std::byte{0});
@@ -449,8 +455,10 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xE8}, std::byte{0x03}};
-    auto result = client.extract_signals(id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    auto result = client.extract_signals(id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1);
@@ -460,6 +468,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     auto j = json::parse(mock_ptr->last_captured());
     CHECK(j["command"] == "extractAllSignals");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
 }
 
 TEST_CASE("client build_frame round-trip", "[client][mock]") {
@@ -471,7 +480,7 @@ TEST_CASE("client build_frame round-trip", "[client][mock]") {
     std::vector<SignalValue> signals{
         {SignalName{"Speed"}, PhysicalValue{100.0}},
     };
-    auto result = client.build_frame(id, signals);
+    auto result = client.build_frame(id, Dlc::create(8).value(), signals);
 
     REQUIRE(result.has_value());
     CHECK((*result)[0] == std::byte{232});
@@ -504,8 +513,9 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     CHECK(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
     CHECK(std::holds_alternative<Ack>(*frame_result));
 
@@ -580,8 +590,9 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
@@ -635,10 +646,28 @@ TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
     CHECK(result->absent.empty());
 }
 
-TEST_CASE("parse_frame_data rejects wrong array size", "[json][parse][error]") {
+TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
     auto result = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("8-byte"));
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 3);
+    CHECK((*result)[0] == std::byte{1});
+    CHECK((*result)[2] == std::byte{3});
+}
+
+TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
+    // DLC 15 → 64 bytes
+    std::string json_str = R"({"status": "success", "data": [)";
+    for (int i = 0; i < 64; ++i) {
+        if (i > 0)
+            json_str += ", ";
+        json_str += std::to_string(i);
+    }
+    json_str += "]}";
+    auto result = detail::parse_frame_data(json_str);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 64);
+    CHECK((*result)[0] == std::byte{0});
+    CHECK((*result)[63] == std::byte{63});
 }
 
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
@@ -1009,8 +1038,10 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
 
     REQUIRE(client.start_stream().has_value());
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}, std::byte{0x00}};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0x00}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
 
@@ -1050,8 +1081,9 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
     REQUIRE(v.enrichment.has_value());
@@ -1091,12 +1123,14 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     CHECK(std::get<Violation>(*r1).enrichment.has_value());
 
-    auto r2 = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto r2 = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -1134,8 +1168,9 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, data).has_value());
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto end_result = client.end_stream();
     REQUIRE(end_result.has_value());
@@ -1187,14 +1222,16 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     REQUIRE(client.end_stream().has_value());
 
     // Second stream: same frame data but cache cleared
     REQUIRE(client.start_stream().has_value());
-    auto r2 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto r2 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -1218,8 +1255,9 @@ TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);

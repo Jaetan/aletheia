@@ -13,6 +13,7 @@ module Aletheia.CAN.BatchFrameBuilding where
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
+open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String)
 open import Data.Rational using (ℚ)
@@ -79,12 +80,12 @@ lookupSignals ((name , value) ∷ rest) msg =
 -- ============================================================================
 
 -- Inject a single signal into a frame
-injectOne : CANFrame → (DBCSignal × ℚ) → Maybe CANFrame
+injectOne : ∀ {n} → CANFrame n → (DBCSignal × ℚ) → Maybe (CANFrame n)
 injectOne frame (sig , value) =
   injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame
 
 -- Inject all signals into a frame (left-to-right fold)
-injectAll : CANFrame → List (DBCSignal × ℚ) → Maybe CANFrame
+injectAll : ∀ {n} → CANFrame n → List (DBCSignal × ℚ) → Maybe (CANFrame n)
 injectAll frame [] = just frame
 injectAll frame (sig ∷ rest) =
   injectOne frame sig >>= λ frame' →
@@ -96,23 +97,23 @@ injectAll frame (sig ∷ rest) =
 -- - Any signal name not found in message
 -- - Signals overlap
 -- - Signal value out of bounds or injection fails
-buildFrame : DBC → CANId → List (String × ℚ) → Maybe (Vec Byte 8)
-buildFrame dbc canId signals =
+buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → Maybe (Vec Byte (dlcToBytes dlc))
+buildFrame dbc canId dlc signals =
   findMessageById canId dbc >>= λ msg →
   lookupSignals signals msg >>= λ signalDefs →
   validateAndBuild msg signalDefs
   where
     -- Validate no overlaps and build frame
-    validateAndBuild : DBCMessage → List (DBCSignal × ℚ) → Maybe (Vec Byte 8)
+    validateAndBuild : DBCMessage → List (DBCSignal × ℚ) → Maybe (Vec Byte (dlcToBytes dlc))
     validateAndBuild msg signalDefs =
       let sigs = map Data.Product.proj₁ signalDefs
       in if hasOverlaps sigs
          then nothing  -- Signals overlap, reject
          else -- Build frame from validated signals (no overlaps)
-           let emptyPayload : Vec Byte 8
-               emptyPayload = Vec.replicate 8 0
-               emptyFrame : CANFrame
-               emptyFrame = record { id = canId ; dlc = 8 ; payload = emptyPayload }
+           let emptyPayload : Vec Byte (dlcToBytes dlc)
+               emptyPayload = Vec.replicate (dlcToBytes dlc) 0
+               emptyFrame : CANFrame (dlcToBytes dlc)
+               emptyFrame = record { id = canId ; dlc = dlc ; payload = emptyPayload }
            in injectAll emptyFrame signalDefs >>= λ finalFrame →
               just (CANFrame.payload finalFrame)
 
@@ -126,7 +127,7 @@ buildFrame dbc canId signals =
 -- - Any signal name not found in message
 -- - Signal value out of bounds or injection fails
 -- Guarantees: Other signals in frame are preserved
-updateFrame : DBC → CANId → CANFrame → List (String × ℚ) → Maybe CANFrame
+updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → Maybe (CANFrame n)
 updateFrame dbc canId frame signals =
   -- Verify frame ID matches
   if canIdEquals canId (CANFrame.id frame)

@@ -291,7 +291,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 - ~9,700 frames/sec throughput (103 us/frame)
 
 **Next steps**:
-- Phase 5 (optional): Value tables, format converters, CAN-FD support
+- Phase 5 (optional): Value tables, format converters (CAN-FD support delivered)
 
 See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 
@@ -307,7 +307,7 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 
 **Limitations**:
 - Performance: ~9,700 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis, but not multi-bus)
-- Standard CAN only (no CAN-FD until Phase 5)
+- CAN-FD supported (variable-length payloads up to 64 bytes, DLC 0-15)
 - Learning curve for Agda core maintenance (Python API and Check API are easy)
 - Small ecosystem (fewer community resources than pure Python tools)
 

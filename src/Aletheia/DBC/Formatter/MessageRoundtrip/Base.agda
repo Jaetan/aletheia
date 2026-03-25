@@ -1,8 +1,9 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Shared helpers for message roundtrip proofs.
+-- Base helpers for message roundtrip proofs.
 -- Defines mkMessage, messageFields, ctx, and >>=ₑ-congʳ once.
-module Aletheia.DBC.Formatter.MessageRoundtrip.Shared where
+-- All exports are used by Standard.agda and Extended.agda.
+module Aletheia.DBC.Formatter.MessageRoundtrip.Base where
 
 open import Data.Nat using (ℕ)
 open import Data.List using (List; _∷_; map; []) renaming (_++_ to _++ₗ_)
@@ -27,7 +28,7 @@ messageFields msg =
   ("name"    , JString (DBCMessage.name msg)) ∷
   ("dlc"     , ℕtoJSON (DBCMessage.dlc msg)) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("signals" , JArray (map formatDBCSignal (DBCMessage.signals msg))) ∷
+  ("signals" , JArray (map (formatDBCSignal (DBCMessage.dlc msg)) (DBCMessage.signals msg))) ∷
   []
 
 ctx : String → String

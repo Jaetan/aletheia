@@ -24,7 +24,7 @@ open import Data.Nat using (ℕ; _%_; _≤ᵇ_; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; _>>=ₑ_)
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits; _>>=ₑ_)
 
 -- ============================================================================
 -- ERROR-RETURNING PARSER COMBINATORS
@@ -84,9 +84,10 @@ private
   addSignalContext ctx (inj₁ err) = inj₁ (ctx ++ₛ ": " ++ₛ err)
   addSignalContext _ (inj₂ x) = inj₂ x
 
--- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split)
-parseSignalFields : String → String → List (String × JSON) → String ⊎ DBCSignal
-parseSignalFields ctx name obj =
+-- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split).
+-- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
+parseSignalFields : ℕ → String → String → List (String × JSON) → String ⊎ DBCSignal
+parseSignalFields frameBytes ctx name obj =
   addSignalContext ctx (
     require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
     require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
@@ -99,12 +100,12 @@ parseSignalFields ctx name obj =
     require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
     require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
-    let sb = startBit % 64
-        bl = bitLength % 65
+    let sb = startBit % max-physical-bits
+        bl = bitLength % (1 + max-physical-bits)
     in inj₂ (record
       { name = name
       ; signalDef = record
-          { startBit = convertStartBit byteOrder sb bl
+          { startBit = convertStartBit frameBytes byteOrder sb bl
           ; bitLength = bl
           ; isSigned = isSigned
           ; factor = factor
@@ -117,21 +118,23 @@ parseSignalFields ctx name obj =
       ; presence = presence
       }))
 
--- Parse a single signal from JSON object
-parseSignal : String → List (String × JSON) → String ⊎ DBCSignal
-parseSignal context obj =
+-- Parse a single signal from JSON object.
+-- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
+parseSignal : ℕ → String → List (String × JSON) → String ⊎ DBCSignal
+parseSignal frameBytes context obj =
   require "name" (lookupString "name" obj) >>=ₑ λ name →
   let ctx = context ++ₛ ", signal '" ++ₛ name ++ₛ "'"
-  in parseSignalFields ctx name obj
+  in parseSignalFields frameBytes ctx name obj
 
--- Parse a list of signals from JSON array
-parseSignalList : String → List JSON → ℕ → String ⊎ (List DBCSignal)
-parseSignalList context [] _ = inj₂ []
-parseSignalList context (JObject sigObj ∷ rest) idx =
-  parseSignal context sigObj >>=ₑ λ sig →
-  parseSignalList context rest (idx + 1) >>=ₑ λ restParsed →
+-- Parse a list of signals from JSON array.
+-- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
+parseSignalList : ℕ → String → List JSON → ℕ → String ⊎ (List DBCSignal)
+parseSignalList frameBytes context [] _ = inj₂ []
+parseSignalList frameBytes context (JObject sigObj ∷ rest) idx =
+  parseSignal frameBytes context sigObj >>=ₑ λ sig →
+  parseSignalList frameBytes context rest (idx + 1) >>=ₑ λ restParsed →
   inj₂ (sig ∷ restParsed)
-parseSignalList context (_ ∷ _) idx =
+parseSignalList frameBytes context (_ ∷ _) idx =
   inj₁ (context ++ₛ ": signal at index " ++ₛ showℕ idx ++ₛ " is not a JSON object")
 
 -- Parse CAN ID from natural and optional "extended" field
@@ -161,16 +164,16 @@ parseMessageBody context name canId obj =
   require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
   require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
   require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
-  parseSignalList context signalsJSON 0 >>=ₑ λ signals →
-  if rawDlc ≤ᵇ 8
+  parseSignalList rawDlc context signalsJSON 0 >>=ₑ λ signals →
+  if rawDlc ≤ᵇ 64
     then inj₂ (record
       { id = canId
       ; name = name
-      ; dlc = rawDlc % 9
+      ; dlc = rawDlc % 65
       ; sender = sender
       ; signals = signals
       })
-    else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 8)")
+    else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 64)")
 
 -- Compose stages into full message field parser.
 -- Exposed at top level for compositional roundtrip proofs.

@@ -263,12 +263,14 @@ class TestSignalExceedsDLC:
         assert exceeds == []
 
     def test_big_endian_signal_exceeds_dlc(self) -> None:
-        # Formal spec (Validity.agda BitsInFrame): startBit + bitLength > dlc * 8
-        # Byte-order independent — proven sound and complete.
-        # startBit=25, length=8 → 25+8=33 > 4*8=32 → error
+        # After CAN-FD: convertStartBit uses actual DLC, not hardcoded 8.
+        # For BE signals, the internal start bit is mapped within the frame,
+        # so exceeding DLC requires bitLength > dlc * 8.
+        # startBit=7, length=33 in dlc=4 → internal start wraps to 0,
+        # 0+33=33 > 4*8=32 → error
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
-                _make_signal("TooFar", start_bit=25, length=8, byte_order="big_endian",
+                _make_signal("TooWide", start_bit=7, length=33, byte_order="big_endian",
                              maximum=255.0),
             ], dlc=4),
         ])
@@ -279,9 +281,10 @@ class TestSignalExceedsDLC:
         assert "signal_exceeds_dlc" in codes
 
     def test_big_endian_signal_fits_dlc(self) -> None:
-        # Formal spec (Validity.agda BitsInFrame): startBit + bitLength ≤ dlc * 8
-        # Byte-order independent — proven sound and complete.
-        # startBit=7, length=8 → 7+8=15 ≤ 4*8=32 → ok
+        # BitsInFrame checks startBit + bitLength ≤ dlc * 8 on the
+        # CONVERTED start bit. convertStartBit uses actual DLC.
+        # startBit=7, length=8, dlc=4 → physBit=31, converted=24,
+        # 24+8=32 ≤ 4*8=32 → fits
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
                 _make_signal("Fits", start_bit=7, length=8, byte_order="big_endian",
@@ -408,22 +411,54 @@ class TestDuplicateMessageName:
 
 
 class TestDLCOutOfRange:
-    """Check 12: DLC must not exceed 8."""
+    """Check 12: DLC byte count must be a valid CAN/CAN-FD size."""
 
     def test_dlc_too_large(self) -> None:
-        # Note: DBC JSON parser already rejects DLC > 8 at parse time.
-        # This test verifies the parser catches it (defense in depth).
+        # DBC parser rejects DLC > 64 at parse time (CAN-FD max payload).
         dbc = _make_dbc([
-            _make_message(0x100, "Msg1", [], dlc=9),
+            _make_message(0x100, "Msg1", [], dlc=65),
         ])
         with AletheiaClient() as client:
             from aletheia.client import ProtocolError
             with pytest.raises(ProtocolError, match="DLC.*out of range"):
                 client.validate_dbc(dbc)
 
+    def test_dlc_9_rejected(self) -> None:
+        """Byte count 9 is not a valid CAN-FD payload size."""
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [], dlc=9),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        dlc_issues = [i for i in result["issues"] if i["code"] == "dlc_out_of_range"]
+        assert len(dlc_issues) == 1
+
+    def test_dlc_12_accepted(self) -> None:
+        """Byte count 12 is valid CAN-FD payload (DLC code 9)."""
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [], dlc=12),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        dlc_issues = [i for i in result["issues"] if i["code"] == "dlc_out_of_range"]
+        assert dlc_issues == []
+
     def test_dlc_8_ok(self) -> None:
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [_make_signal("Sig1")], dlc=8),
+        ])
+        with AletheiaClient() as client:
+            result = client.validate_dbc(dbc)
+
+        dlc_issues = [i for i in result["issues"] if i["code"] == "dlc_out_of_range"]
+        assert dlc_issues == []
+
+    def test_dlc_64_ok(self) -> None:
+        """CAN-FD max payload (64 bytes) is valid."""
+        dbc = _make_dbc([
+            _make_message(0x100, "Msg1", [], dlc=64),
         ])
         with AletheiaClient() as client:
             result = client.validate_dbc(dbc)

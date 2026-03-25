@@ -4,7 +4,7 @@
 
 -- Signal extraction and injection from CAN frames (bit-level operations).
 --
--- Purpose: Extract/inject signal values from 8-byte CAN frames using DBC definitions.
+-- Purpose: Extract/inject signal values from CAN frames using DBC definitions.
 -- Operations: extractSignal (frame + signal → physical value with scaling),
 --             injectSignal (physical value + signal → frame with updated bits).
 -- Role: Core CAN processing, used by protocol handlers and verification.
@@ -15,80 +15,25 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; payloadIso; payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos; physicalBitPos-BE-involutive; physicalBitPos-BE-bounded; extractBits-swap-inject-preserves; not-in-interval; _≟-ByteOrder_)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; payloadIso; physicalBitPos; not-in-interval; _≟-ByteOrder_)
+open import Aletheia.CAN.Endianness.Properties using (payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos-BE-involutive; physicalBitPos-BE-bounded; extractBits-swap-inject-preserves)
+open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
-open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _^_; _<_; _<?_; _≤_; z≤n; s≤s)
-open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ)
-open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ)
-open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
-open import Relation.Nullary.Decidable as Dec using (⌊_⌋)
-open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _<?_; _≤_; z≤n; s≤s)
+open import Data.Rational using (ℚ)
+open import Data.Integer using (ℤ)
+open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Empty using (⊥-elim)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; subst)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; trans; subst) renaming (_≢_ to _≢ₚ_)
 open import Relation.Binary.PropositionalEquality.Properties using (module ≡-Reasoning)
 open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using () renaming (_≢_ to _≢ₚ_)
 open import Function using (case_of_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat.Properties using (<-≤-trans; m<m+n)
-
--- Convert a natural number to a signed integer based on bit length
--- Interprets as two's complement if isSigned is true
-toSigned : ℕ → ℕ → Bool → ℤ
-toSigned raw bitLength false = + raw
-toSigned raw bitLength true =
-  let signBitMask = 2 ^ (bitLength ∸ 1)
-      isNegative = signBitMask Data.Nat.≤ᵇ raw
-  in if isNegative
-     then -[1+ ((2 ^ bitLength) ∸ raw ∸ 1) ]
-     else + raw
-
--- Convert an integer back to unsigned representation
-fromSigned : ℤ → ℕ → ℕ
-fromSigned (+ n) _ = n
-fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
-
--- Apply scaling and offset to convert raw value to signal value
-applyScaling : ℤ → ℚ → ℚ → ℚ
-applyScaling raw factor offset =
-  let rawℚ = raw / 1
-  in (rawℚ *ᵣ factor) +ᵣ offset
-
--- Inverse of applyScaling: convert signal value back to raw integer
--- Formula: raw = floor((signalValue - offset) / factor)
--- Returns Nothing if factor is zero (malformed DBC file)
-removeScaling : ℚ → ℚ → ℚ → Maybe ℤ
-removeScaling signalValue factor offset =
-  if isZero factor
-  then nothing  -- Cannot divide by zero
-  else just (floor (divideByFactor (signalValue -ᵣ offset) factor))
-  where
-    -- Check if rational is zero
-    isZero : ℚ → Bool
-    isZero q = Dec.⌊ q Rat.≟ 0ℚ ⌋
-
-    -- Divide by factor (only called when factor ≠ 0, but Agda can't prove this)
-    -- We work with unnormalized rationals to avoid coprimality proofs
-    divideByFactor : ℚ → ℚ → ℚ
-    divideByFactor numer denom =
-      Rat.fromℚᵘ (divideUnnorm (Rat.toℚᵘ numer) (Rat.toℚᵘ denom))
-      where
-        -- Divide unnormalized rationals by pattern matching to expose nonzero structure
-        divideUnnorm : ℚᵘ → ℚᵘ → ℚᵘ
-        divideUnnorm n (ℚᵘ.mkℚᵘ (+ zero) _) = ℚᵘ.0ℚᵘ  -- Unreachable (isZero check prevents), but needed for coverage
-        divideUnnorm n (ℚᵘ.mkℚᵘ (+ suc num) denom) =  -- Explicit nonzero pattern, instance exists!
-          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ (+ suc num) denom)
-        divideUnnorm n (ℚᵘ.mkℚᵘ -[1+ num ] denom) =    -- Explicit nonzero pattern, instance exists!
-          n ℚᵘ.÷ (ℚᵘ.mkℚᵘ -[1+ num ] denom)
-
--- Check if a signal value is within bounds
-inBounds : ℚ → ℚ → ℚ → Bool
-inBounds value minVal maxVal = (minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal)
 
 -- ============================================================================
 -- COMPUTATIONAL CORE: Pure functions for proof ergonomics
@@ -97,7 +42,7 @@ inBounds value minVal maxVal = (minVal ≤ᵇ value) ∧ (value ≤ᵇ maxVal)
 -- No Maybe, no with, no Dec - just math.
 
 -- Extract raw signed integer from bytes (no bounds check, no scaling)
-extractSignalCore : Vec Byte 8 → SignalDef → ℤ
+extractSignalCore : ∀ {m} → Vec Byte m → SignalDef → ℤ
 extractSignalCore bytes sig =
   let open SignalDef sig in
   toSigned
@@ -110,7 +55,7 @@ scaleExtracted : ℤ → SignalDef → ℚ
 scaleExtracted raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
 
 -- Get the bytes to extract from (handles byte order)
-extractionBytes : CANFrame → ByteOrder → Vec Byte 8
+extractionBytes : ∀ {m} → CANFrame m → ByteOrder → Vec Byte m
 extractionBytes frame LittleEndian = CANFrame.payload frame
 extractionBytes frame BigEndian = swapBytes (CANFrame.payload frame)
 
@@ -118,7 +63,7 @@ extractionBytes frame BigEndian = swapBytes (CANFrame.payload frame)
 
 -- Extract a signal from a CAN frame
 -- Now a thin wrapper around the computational core
-extractSignal : CANFrame → SignalDef → ByteOrder → Maybe SignalValue
+extractSignal : ∀ {m} → CANFrame m → SignalDef → ByteOrder → Maybe SignalValue
 extractSignal frame sig byteOrder =
   let bytes = extractionBytes frame byteOrder
       raw = extractSignalCore bytes sig
@@ -128,7 +73,7 @@ extractSignal frame sig byteOrder =
      else nothing
 
 -- Inject a signal value into a CAN frame
-injectSignal : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
+injectSignal : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
 injectSignal value signalDef byteOrder frame =
   let open CANFrame frame
       open SignalDef signalDef
@@ -139,8 +84,8 @@ injectSignal value signalDef byteOrder frame =
      then injectHelper value signalDef byteOrder frame
      else nothing
   where
-    injectHelper : SignalValue → SignalDef → ByteOrder → CANFrame → Maybe CANFrame
-    injectHelper value signalDef byteOrder frame
+    injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
+    injectHelper {m} value signalDef byteOrder frame
       with removeScaling value factor offset
          where open SignalDef signalDef
     ... | nothing = nothing
@@ -158,13 +103,13 @@ injectSignal value signalDef byteOrder frame =
           rawBitVec : BitVec (bitLength)
           rawBitVec = ℕToBitVec rawUnsigned bounded
           -- Inject bits
-          bytes : Vec Byte 8
+          bytes : Vec Byte m
           bytes = if isBigEndian byteOrder
                   then swapBytes payload
                   else payload
-          updatedBytes : Vec Byte 8
+          updatedBytes : Vec Byte m
           updatedBytes = injectBits bytes (startBit) rawBitVec
-          finalBytes : Vec Byte 8
+          finalBytes : Vec Byte m
           finalBytes = if isBigEndian byteOrder
                        then swapBytes updatedBytes
                        else updatedBytes
@@ -181,23 +126,23 @@ injectSignal value signalDef byteOrder frame =
 -- This is captured by showing that extraction at a disjoint position is preserved.
 
 -- Helper: extractionBytes equals payloadIso (definitional by cases)
-extractionBytes≡payloadIso : ∀ frame bo → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)
+extractionBytes≡payloadIso : ∀ {m} (frame : CANFrame m) (bo : ByteOrder) → extractionBytes frame bo ≡ payloadIso bo (CANFrame.payload frame)
 extractionBytes≡payloadIso frame LittleEndian = refl
 extractionBytes≡payloadIso frame BigEndian = refl
 
 -- Key structural lemma: when injectSignal succeeds, bits at disjoint positions are preserved
 -- The proof mirrors injectSignal's structure using plain with-patterns (no rewrite, no in)
 injectSignal-preserves-disjoint-bits :
-  ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo : ByteOrder) (frame frame' : CANFrame)
+  ∀ {m} {len₂} (v : ℚ) (sig : SignalDef) (bo : ByteOrder) (frame frame' : CANFrame m)
     (start₂ : ℕ)
   → injectSignal v sig bo frame ≡ just frame'
   → SignalDef.startBit sig + SignalDef.bitLength sig ≤ start₂
     ⊎ start₂ + len₂ ≤ SignalDef.startBit sig  -- disjoint ranges
-  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
-  → start₂ + len₂ ≤ 64
+  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8
+  → start₂ + len₂ ≤ m * 8
   → extractBits {len₂} (extractionBytes frame' bo) start₂
     ≡ extractBits {len₂} (extractionBytes frame bo) start₂
-injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq disj fits₁ fits₂
+injectSignal-preserves-disjoint-bits {m} {len₂} v sig bo frame frame' start₂ eq disj fits₁ fits₂
   with inBounds v (SignalDef.minimum sig) (SignalDef.maximum sig)
 ... | false = case eq of λ ()
 ... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
@@ -256,18 +201,18 @@ injectSignal-preserves-disjoint-bits {len₂} v sig bo frame frame' start₂ eq 
 -- The physical disjointness condition ensures that the sets of physical bits
 -- touched by each signal don't overlap in the original payload.
 injectSignal-preserves-disjoint-bits-physical :
-  ∀ {len₂} (v : ℚ) (sig : SignalDef) (bo₁ bo₂ : ByteOrder) (frame frame' : CANFrame)
+  ∀ {n} {len₂} (v : ℚ) (sig : SignalDef) (bo₁ bo₂ : ByteOrder) (frame frame' : CANFrame n)
     (start₂ : ℕ)
   → injectSignal v sig bo₁ frame ≡ just frame'
   → (∀ k₁ → k₁ < SignalDef.bitLength sig
      → ∀ k₂ → k₂ < len₂
-     → physicalBitPos bo₁ (SignalDef.startBit sig + k₁)
-       ≢ₚ physicalBitPos bo₂ (start₂ + k₂))
-  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
-  → start₂ + len₂ ≤ 64
+     → physicalBitPos n bo₁ (SignalDef.startBit sig + k₁)
+       ≢ₚ physicalBitPos n bo₂ (start₂ + k₂))
+  → SignalDef.startBit sig + SignalDef.bitLength sig ≤ n * 8
+  → start₂ + len₂ ≤ n * 8
   → extractBits {len₂} (extractionBytes frame' bo₂) start₂
     ≡ extractBits {len₂} (extractionBytes frame bo₂) start₂
-injectSignal-preserves-disjoint-bits-physical {len₂} v sig bo₁ bo₂ frame frame' start₂ eq physDisj fits₁ fits₂
+injectSignal-preserves-disjoint-bits-physical {n} {len₂} v sig bo₁ bo₂ frame frame' start₂ eq physDisj fits₁ fits₂
   with inBounds v (SignalDef.minimum sig) (SignalDef.maximum sig)
 ... | false = case eq of λ ()
 ... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
@@ -325,7 +270,7 @@ injectSignal-preserves-disjoint-bits-physical {len₂} v sig bo₁ bo₂ frame f
               where
                 pw : ∀ k₁ → k₁ < l₁ → start₂ + k₂' ≢ₚ s₁ + k₁
                 pw k₁ k₁<l₁ eq₀ = physDisj k₁ k₁<l₁ k₂' k₂'<len₂
-                  (cong (physicalBitPos LittleEndian) (sym eq₀))
+                  (cong (physicalBitPos n LittleEndian) (sym eq₀))
         -- Same byte order (BE/BE): involutive + preserves-outside
         go BigEndian BigEndian refl refl =
           begin
@@ -341,18 +286,18 @@ injectSignal-preserves-disjoint-bits-physical {len₂} v sig bo₁ bo₂ frame f
               where
                 pw : ∀ k₁ → k₁ < l₁ → start₂ + k₂' ≢ₚ s₁ + k₁
                 pw k₁ k₁<l₁ eq₀ = physDisj k₁ k₁<l₁ k₂' k₂'<len₂
-                  (cong (physicalBitPos BigEndian) (sym eq₀))
+                  (cong (physicalBitPos n BigEndian) (sym eq₀))
         -- LE inject, BE extract: payloadIso BE (payloadIso LE x) ≡ swapBytes x
         go LittleEndian BigEndian refl refl =
           extractBits-swap-inject-preserves origPayload s₁ start₂ rawBitVec
             outside-LE-BE fits₁ fits₂
           where
-            outside-LE-BE : ∀ k → k < len₂ → physicalBitPos BigEndian (start₂ + k) < s₁
-                          ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian (start₂ + k)
+            outside-LE-BE : ∀ k → k < len₂ → physicalBitPos n BigEndian (start₂ + k) < s₁
+                          ⊎ s₁ + l₁ ≤ physicalBitPos n BigEndian (start₂ + k)
             outside-LE-BE k₂ k₂<len₂ =
-              not-in-interval s₁ l₁ (physicalBitPos BigEndian (start₂ + k₂)) pw
+              not-in-interval s₁ l₁ (physicalBitPos n BigEndian (start₂ + k₂)) pw
               where
-                pw : ∀ k₁ → k₁ < l₁ → physicalBitPos BigEndian (start₂ + k₂) ≢ₚ s₁ + k₁
+                pw : ∀ k₁ → k₁ < l₁ → physicalBitPos n BigEndian (start₂ + k₂) ≢ₚ s₁ + k₁
                 pw k₁ k₁<l₁ eq₀ = physDisj k₁ k₁<l₁ k₂ k₂<len₂ (sym eq₀)
         -- BE inject, LE extract: payloadIso LE (payloadIso BE x) ≡ swapBytes x
         go BigEndian LittleEndian refl refl =
@@ -367,19 +312,19 @@ injectSignal-preserves-disjoint-bits-physical {len₂} v sig bo₁ bo₂ frame f
             extractBits origPayload start₂
           ∎
           where
-            outside-BE : ∀ k → k < len₂ → physicalBitPos BigEndian (start₂ + k) < s₁
-                       ⊎ s₁ + l₁ ≤ physicalBitPos BigEndian (start₂ + k)
-            outside-BE k₂ k₂<len₂ = not-in-interval s₁ l₁ (physicalBitPos BigEndian (start₂ + k₂)) pw
+            outside-BE : ∀ k → k < len₂ → physicalBitPos n BigEndian (start₂ + k) < s₁
+                       ⊎ s₁ + l₁ ≤ physicalBitPos n BigEndian (start₂ + k)
+            outside-BE k₂ k₂<len₂ = not-in-interval s₁ l₁ (physicalBitPos n BigEndian (start₂ + k₂)) pw
               where
                 open import Data.Nat.Properties using (+-monoʳ-<)
-                start₂k₂<64 : start₂ + k₂ < 64
-                start₂k₂<64 = <-≤-trans (+-monoʳ-< start₂ k₂<len₂) fits₂
-                pw : ∀ k₁ → k₁ < l₁ → physicalBitPos BigEndian (start₂ + k₂) ≢ₚ s₁ + k₁
+                start₂k₂<n*8 : start₂ + k₂ < n * 8
+                start₂k₂<n*8 = <-≤-trans (+-monoʳ-< start₂ k₂<len₂) fits₂
+                pw : ∀ k₁ → k₁ < l₁ → physicalBitPos n BigEndian (start₂ + k₂) ≢ₚ s₁ + k₁
                 pw k₁ k₁<l₁ eq₀ = physDisj k₁ k₁<l₁ k₂ k₂<len₂ inner
                   where
-                    inner : physicalBitPos BigEndian (s₁ + k₁) ≡ start₂ + k₂
-                    inner = trans (sym (cong (physicalBitPos BigEndian) eq₀))
-                                  (physicalBitPos-BE-involutive (start₂ + k₂) start₂k₂<64)
+                    inner : physicalBitPos n BigEndian (s₁ + k₁) ≡ start₂ + k₂
+                    inner = trans (sym (cong (physicalBitPos n BigEndian) eq₀))
+                                  (physicalBitPos-BE-involutive n (start₂ + k₂) start₂k₂<n*8)
 
 -- Round-trip correctness properties defined in Aletheia.CAN.Encoding.Properties:
 -- 1. extractBits-injectBits-roundtrip: Bit-level roundtrip (no ℚ)

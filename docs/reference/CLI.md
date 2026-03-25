@@ -237,7 +237,7 @@ Supported via [python-can](https://python-can.readthedocs.io/):
 | `.mf4` | ASAM MDF4 |
 | `.trc` | PEAK TRC |
 
-Error frames and remote frames are skipped by default. Non-8-byte frames are padded/truncated to 8 bytes.
+Error frames and remote frames are skipped by default. Frame data is normalized to match the DLC byte count (padded or truncated as needed).
 
 ### DBC Sources
 

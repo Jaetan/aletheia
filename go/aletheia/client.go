@@ -113,14 +113,14 @@ func (c *Client) FormatDBC() (*DbcDefinition, error) {
 // --- Signal operations ---
 
 // ExtractSignals decodes all signals from a CAN frame using the loaded DBC.
-func (c *Client) ExtractSignals(id CanID, data FramePayload) (*ExtractionResult, error) {
-	byteSlice := make([]uint8, 8)
-	for i := 0; i < 8; i++ {
-		byteSlice[i] = data[i]
-	}
+func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*ExtractionResult, error) {
+	byteSlice := make([]uint8, len(data))
+	copy(byteSlice, data)
 	cmd, err := serializeCommand("extractAllSignals", map[string]any{
-		"canId": id.Value(),
-		"data":  byteSlice,
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"data":     byteSlice,
 	})
 	if err != nil {
 		return nil, err
@@ -133,38 +133,40 @@ func (c *Client) ExtractSignals(id CanID, data FramePayload) (*ExtractionResult,
 }
 
 // BuildFrame encodes signal values into a CAN frame payload.
-func (c *Client) BuildFrame(id CanID, signals []SignalValue) (FramePayload, error) {
+func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayload, error) {
 	cmd, err := serializeCommand("buildFrame", map[string]any{
-		"canId":   id.Value(),
-		"signals": serializeSignalValues(signals),
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"signals":  serializeSignalValues(signals),
 	})
 	if err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	resp, err := c.process(cmd)
 	if err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	return parseFrameDataResponse(resp)
 }
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
-func (c *Client) UpdateFrame(id CanID, data FramePayload, signals []SignalValue) (FramePayload, error) {
-	byteSlice := make([]uint8, 8)
-	for i := 0; i < 8; i++ {
-		byteSlice[i] = data[i]
-	}
+func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []SignalValue) (FramePayload, error) {
+	byteSlice := make([]uint8, len(data))
+	copy(byteSlice, data)
 	cmd, err := serializeCommand("updateFrame", map[string]any{
-		"canId":   id.Value(),
-		"data":    byteSlice,
-		"signals": serializeSignalValues(signals),
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"data":     byteSlice,
+		"signals":  serializeSignalValues(signals),
 	})
 	if err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	resp, err := c.process(cmd)
 	if err != nil {
-		return FramePayload{}, err
+		return nil, err
 	}
 	return parseFrameDataResponse(resp)
 }
@@ -229,8 +231,8 @@ func (c *Client) StartStream() error {
 // Returns Ack or Violation depending on whether any property was violated.
 // Violations are automatically enriched with signal values and a human-readable
 // formula description when diagnostics are available.
-func (c *Client) SendFrame(ts Timestamp, id CanID, data FramePayload) (FrameResponse, error) {
-	input, err := serializeDataFrame(ts, id, data)
+func (c *Client) SendFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
+	input, err := serializeDataFrame(ts, id, dlc, data)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +247,7 @@ func (c *Client) SendFrame(ts Timestamp, id CanID, data FramePayload) (FrameResp
 		return nil, err
 	}
 	if v, ok := fr.(Violation); ok && c.diags != nil {
-		c.enrichViolation(&v, id, data)
+		c.enrichViolation(&v, id, dlc, data)
 		return v, nil
 	}
 	return fr, nil
@@ -279,13 +281,13 @@ func (c *Client) EndStream() (*StreamResult, error) {
 }
 
 // enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold c.mu.
-func (c *Client) enrichViolation(v *Violation, id CanID, data FramePayload) {
+func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayload) {
 	idx := int(v.PropertyIndex)
 	if idx >= len(c.diags) {
 		return
 	}
 	diag := c.diags[idx]
-	values := c.extractSignalValues(diag, id, data)
+	values := c.extractSignalValues(diag, id, dlc, data)
 	reason := formatEnrichedReason(diag, values)
 	v.Enrichment = &ViolationEnrichment{
 		Signals:        values,
@@ -309,14 +311,14 @@ func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 
 // extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.
 // Caller must hold c.mu.
-func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, data FramePayload) map[SignalName]PhysicalValue {
+func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC, data FramePayload) map[SignalName]PhysicalValue {
 	if c.cache == nil {
 		return nil
 	}
-	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), data: data}
+	key := frameKey{idValue: id.Value(), isExtended: id.IsExtended(), dlc: dlc.Value(), data: string(data)}
 	result, ok := c.cache.get(key)
 	if !ok {
-		result = c.extractSignalsLocked(id, data)
+		result = c.extractSignalsLocked(id, dlc, data)
 		if result != nil {
 			c.cache.put(key, result)
 		}
@@ -334,14 +336,14 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, data Fra
 }
 
 // extractSignalsLocked calls ExtractSignals without acquiring the mutex. Caller must hold c.mu.
-func (c *Client) extractSignalsLocked(id CanID, data FramePayload) *ExtractionResult {
-	byteSlice := make([]uint8, 8)
-	for i := 0; i < 8; i++ {
-		byteSlice[i] = data[i]
-	}
+func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
+	byteSlice := make([]uint8, len(data))
+	copy(byteSlice, data)
 	cmd, err := serializeCommand("extractAllSignals", map[string]any{
-		"canId": id.Value(),
-		"data":  byteSlice,
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"data":     byteSlice,
 	})
 	if err != nil {
 		return nil

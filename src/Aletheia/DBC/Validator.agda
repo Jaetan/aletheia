@@ -16,12 +16,12 @@
 --  (d) Every multiplexor reference resolves to an always-present signal.
 --  (e) Signal names are globally unique across messages (advisory).
 --  (f) For every signal, minimum ≤ maximum.
---  (g) Every signal's bit range fits within its message's DLC × 8 bits.
---      LE: startBit + bitLength ≤ dlc × 8.
---      BE: (8 ∸ dlc) × 8 ≤ startBit (internal representation).
+--  (g) Every signal's bit range fits within dlcToBytes(dlc) × 8 bits.
+--      Unified: startBit + bitLength ≤ dlcToBytes(dlc) × 8
+--      (both LE and BE, using internal start bit representation).
 --  (h) Coexisting signals do not share bit positions (linear model).
 --  (i) No signal has bitLength = 0.
---  (j) DLC ∈ [0, 8].
+--  (j) DLC (byte count) ∈ valid CAN payload sizes (0–8 or CAN-FD sizes).
 --  (k) The declared [minimum, maximum] contains the physical range
 --      reachable by factor/offset/bitLength/signedness.
 --      Unsigned n-bit: raw ∈ [0, 2^n − 1].
@@ -29,8 +29,8 @@
 --      Physical = raw × factor + offset; if factor < 0, range inverts.
 --  (l) Messages without signals are flagged (advisory).
 --  (m) Message names are unique (advisory).
---  (n) startBit < 64 and bitLength ≤ 64 (defense-in-depth, enforced
---      by the JSON parser via % 64 / % 65).
+--  (n) startBit < max-physical-bits and bitLength ≤ max-physical-bits
+--      (defense-in-depth, enforced by JSON parser via modular arithmetic).
 -- ═══════════════════════════════════════════════════════════════════════
 --
 -- Checks (IsError):
@@ -56,11 +56,21 @@
 -- convention in DBC/Properties.agda. No raw Bool via ⌊_⌋.
 module Aletheia.DBC.Validator where
 
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When; ValidationIssue; mkIssue; IssueSeverity; IsError; IsWarning; IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero; MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero; DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage; StartBitOutOfRange; BitLengthExcessive)
+open import Aletheia.DBC.Types using
+  ( DBC; DBCMessage; DBCSignal; SignalPresence; Always; When
+  ; ValidationIssue; mkIssue; IssueSeverity; IsError; IsWarning
+  ; IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero
+  ; MultiplexorNotFound; MultiplexorNotAlwaysPresent
+  ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
+  ; SignalOverlap; BitLengthZero; DuplicateMessageName
+  ; DLCOutOfRange; OffsetScaleRange; EmptyMessage
+  ; StartBitOutOfRange; BitLengthExcessive
+  )
+open import Aletheia.Prelude using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.DLC using (bytesToDlc)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
@@ -165,10 +175,8 @@ checkFactorZeroSig msgName sig
 ... | no  _ = []
 
 checkAllFactorZero : List DBCMessage → List ValidationIssue
-checkAllFactorZero [] = []
-checkAllFactorZero (msg ∷ rest) =
+checkAllFactorZero = concatMap λ msg →
   concatMap (checkFactorZeroSig (DBCMessage.name msg)) (DBCMessage.signals msg)
-  ++ₗ checkAllFactorZero rest
 
 -- ============================================================================
 -- CHECK 4: MULTIPLEXOR NOT FOUND
@@ -185,12 +193,9 @@ checkMuxFoundSig msgName allSigs sig with DBCSignal.presence sig
                    ++ₛ "' not found in message") ∷ []
 
 checkAllMuxFound : List DBCMessage → List ValidationIssue
-checkAllMuxFound [] = []
-checkAllMuxFound (msg ∷ rest) =
-  let sigs    = DBCMessage.signals msg
-      msgName = DBCMessage.name msg
-  in concatMap (checkMuxFoundSig msgName sigs) sigs
-     ++ₗ checkAllMuxFound rest
+checkAllMuxFound = concatMap λ msg →
+  concatMap (checkMuxFoundSig (DBCMessage.name msg) (DBCMessage.signals msg))
+            (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 5: MULTIPLEXOR NOT ALWAYS PRESENT
@@ -209,12 +214,9 @@ checkMuxAlwaysPresentSig msgName allSigs sig with DBCSignal.presence sig
                               ++ₛ "' is itself conditionally present") ∷ []
 
 checkAllMuxAlwaysPresent : List DBCMessage → List ValidationIssue
-checkAllMuxAlwaysPresent [] = []
-checkAllMuxAlwaysPresent (msg ∷ rest) =
-  let sigs    = DBCMessage.signals msg
-      msgName = DBCMessage.name msg
-  in concatMap (checkMuxAlwaysPresentSig msgName sigs) sigs
-     ++ₗ checkAllMuxAlwaysPresent rest
+checkAllMuxAlwaysPresent = concatMap λ msg →
+  concatMap (checkMuxAlwaysPresentSig (DBCMessage.name msg) (DBCMessage.signals msg))
+            (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 6: GLOBAL NAME COLLISION (same signal name in different messages)
@@ -267,60 +269,51 @@ checkAllMinMax (msg ∷ rest) =
 -- CHECK 8: SIGNAL EXCEEDS DLC
 -- ============================================================================
 
--- Byte-order-aware DLC check:
---   LE: startBit + bitLength ≤ dlc * 8 (signal bits within declared frame)
---   BE: (8 ∸ dlc) * 8 ≤ startBit (converted startBit implies highest byte < dlc)
+-- Unified DLC check (both byte orders):
+-- After convertStartBit at parse time, startBit + bitLength ≤ dlc * 8
+-- holds for both LE and BE in the internal representation.
+-- Here dlc is the byte count (= DBCMessage.dlc), not the DLC code.
 checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC msgName dlc sig with DBCSignal.byteOrder sig
-... | LittleEndian with SignalDef.startBit (DBCSignal.signalDef sig)
-                       + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-...   | yes _ = []
-...   | no  _ = mkIssue IsError SignalExceedsDLC
-                  ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                   ++ₛ "': bit range exceeds DLC") ∷ []
-checkSignalExceedsDLC msgName dlc sig | BigEndian
-  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
+checkSignalExceedsDLC msgName dlc sig
+  with SignalDef.startBit (DBCSignal.signalDef sig)
+       + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
 ... | yes _ = []
 ... | no  _ = mkIssue IsError SignalExceedsDLC
                 ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
                  ++ₛ "': bit range exceeds DLC") ∷ []
 
 checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
-checkAllSignalExceedsDLC [] = []
-checkAllSignalExceedsDLC (msg ∷ rest) =
+checkAllSignalExceedsDLC = concatMap λ msg →
   concatMap (checkSignalExceedsDLC (DBCMessage.name msg) (DBCMessage.dlc msg))
             (DBCMessage.signals msg)
-  ++ₗ checkAllSignalExceedsDLC rest
 
 -- ============================================================================
 -- CHECK 9: SIGNAL OVERLAP
 -- ============================================================================
 
-checkOverlapPair : String → DBCSignal → DBCSignal → List ValidationIssue
-checkOverlapPair msgName s1 s2 with signalPairValid? s1 s2
+checkOverlapPair : String → ℕ → DBCSignal → DBCSignal → List ValidationIssue
+checkOverlapPair msgName n s1 s2 with signalPairValid? n s1 s2
 ... | yes _ = []
 ... | no  _ = mkIssue IsError SignalOverlap
                 ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ DBCSignal.name s1
                  ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap") ∷ []
 
-checkOverlapAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
-checkOverlapAgainstList _ _ [] = []
-checkOverlapAgainstList msgName sig (other ∷ rest) =
-  checkOverlapPair msgName sig other ++ₗ checkOverlapAgainstList msgName sig rest
+checkOverlapAgainstList : String → ℕ → DBCSignal → List DBCSignal → List ValidationIssue
+checkOverlapAgainstList _ _ _ [] = []
+checkOverlapAgainstList msgName n sig (other ∷ rest) =
+  checkOverlapPair msgName n sig other ++ₗ checkOverlapAgainstList msgName n sig rest
 
-checkOverlapTriangular : String → List DBCSignal → List ValidationIssue
-checkOverlapTriangular _ []           = []
-checkOverlapTriangular msgName (sig ∷ rest) =
-  checkOverlapAgainstList msgName sig rest ++ₗ checkOverlapTriangular msgName rest
+checkOverlapTriangular : String → ℕ → List DBCSignal → List ValidationIssue
+checkOverlapTriangular _ _ []           = []
+checkOverlapTriangular msgName n (sig ∷ rest) =
+  checkOverlapAgainstList msgName n sig rest ++ₗ checkOverlapTriangular msgName n rest
 
 checkOverlapsInMsg : DBCMessage → List ValidationIssue
 checkOverlapsInMsg msg =
-  checkOverlapTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
+  checkOverlapTriangular (DBCMessage.name msg) (DBCMessage.dlc msg) (DBCMessage.signals msg)
 
 checkAllSignalOverlaps : List DBCMessage → List ValidationIssue
-checkAllSignalOverlaps [] = []
-checkAllSignalOverlaps (msg ∷ rest) =
-  checkOverlapsInMsg msg ++ₗ checkAllSignalOverlaps rest
+checkAllSignalOverlaps = concatMap checkOverlapsInMsg
 
 -- ============================================================================
 -- CHECK 10: BIT LENGTH ZERO
@@ -334,10 +327,8 @@ checkBitLengthZero msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig
 ... | no  _ = []
 
 checkAllBitLengthZero : List DBCMessage → List ValidationIssue
-checkAllBitLengthZero [] = []
-checkAllBitLengthZero (msg ∷ rest) =
+checkAllBitLengthZero = concatMap λ msg →
   concatMap (checkBitLengthZero (DBCMessage.name msg)) (DBCMessage.signals msg)
-  ++ₗ checkAllBitLengthZero rest
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME
@@ -362,17 +353,17 @@ checkDuplicateMessageNames (m ∷ rest) =
 
 -- ============================================================================
 -- CHECK 12: DLC OUT OF RANGE
--- Defense-in-depth: the DBC JSON parser rejects DLC > 8 at parse time,
--- so this check cannot fire through the validateDBC API.  Retained for
--- programmatically-constructed DBC values that bypass the parser.
+-- Defense-in-depth: the DBC JSON parser validates byte count via bytesToDlc
+-- at parse time, so this check cannot fire through the validateDBC API.
+-- Retained for programmatically-constructed DBC values that bypass the parser.
 -- ============================================================================
 
 checkDLCOutOfRange : DBCMessage → List ValidationIssue
-checkDLCOutOfRange msg with DBCMessage.dlc msg ≤? 8
-... | yes _ = []
-... | no  _ = mkIssue IsError DLCOutOfRange
+checkDLCOutOfRange msg with bytesToDlc (DBCMessage.dlc msg)
+... | just _  = []
+... | nothing = mkIssue IsError DLCOutOfRange
                 ("Message '" ++ₛ DBCMessage.name msg
-                 ++ₛ "': DLC exceeds maximum of 8") ∷ []
+                 ++ₛ "': invalid DLC byte count") ∷ []
 
 checkAllDLCOutOfRange : List DBCMessage → List ValidationIssue
 checkAllDLCOutOfRange = concatMap checkDLCOutOfRange
@@ -472,16 +463,16 @@ checkAllEmptyMessage = concatMap checkEmptyMessage
 
 -- ============================================================================
 -- CHECK 15: START BIT OUT OF RANGE
--- Defense-in-depth: the DBC JSON parser stores startBit % 64, so
--- startBit ∈ [0,63] and this check cannot fire through validateDBC.
+-- Defense-in-depth: the DBC JSON parser stores startBit % max-physical-bits,
+-- so startBit ∈ [0,511] and this check cannot fire through validateDBC.
 -- ============================================================================
 
 checkStartBitOutOfRange : String → DBCSignal → List ValidationIssue
-checkStartBitOutOfRange msgName sig with SignalDef.startBit (DBCSignal.signalDef sig) <? 64
+checkStartBitOutOfRange msgName sig with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
 ... | yes _ = []
 ... | no  _ = mkIssue IsWarning StartBitOutOfRange
                 ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': start bit ≥ 64") ∷ []
+                 ++ₛ "': start bit ≥ max-physical-bits") ∷ []
 
 checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
 checkAllStartBitOutOfRange [] = []
@@ -491,16 +482,16 @@ checkAllStartBitOutOfRange (msg ∷ rest) =
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE
--- Defense-in-depth: the DBC JSON parser stores bitLength % 65, so
--- bitLength ∈ [0,64] and this check cannot fire through validateDBC.
+-- Defense-in-depth: the DBC JSON parser stores bitLength % (1 + max-physical-bits),
+-- so bitLength ∈ [0,512] and this check cannot fire through validateDBC.
 -- ============================================================================
 
 checkBitLengthExcessive : String → DBCSignal → List ValidationIssue
-checkBitLengthExcessive msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? 64
+checkBitLengthExcessive msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
 ... | yes _ = []
 ... | no  _ = mkIssue IsWarning BitLengthExcessive
                 ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit length exceeds 64") ∷ []
+                 ++ₛ "': bit length exceeds max-physical-bits") ∷ []
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
 checkAllBitLengthExcessive [] = []

@@ -10,11 +10,46 @@
 module Aletheia.DBC.Validity.Theorem where
 
 open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.DBC.Validator using (errorIssues; validateDBCFull; checkDuplicateMessageIds; checkAllDuplicateSignalNames; checkAllFactorZero; checkAllMuxFound; checkAllMuxAlwaysPresent; checkAllGlobalNameCollisions; checkAllMinMax; checkAllSignalExceedsDLC; checkAllSignalOverlaps; checkAllBitLengthZero; checkDuplicateMessageNames; checkAllDLCOutOfRange; checkAllOffsetScaleRange; checkAllEmptyMessage; checkAllStartBitOutOfRange; checkAllBitLengthExcessive)
+open import Aletheia.DBC.Validator using
+  ( errorIssues; validateDBCFull
+  ; checkDuplicateMessageIds; checkAllDuplicateSignalNames
+  ; checkAllFactorZero; checkAllMuxFound; checkAllMuxAlwaysPresent
+  ; checkAllGlobalNameCollisions; checkAllMinMax
+  ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
+  ; checkAllBitLengthZero; checkDuplicateMessageNames
+  ; checkAllDLCOutOfRange; checkAllOffsetScaleRange
+  ; checkAllEmptyMessage; checkAllStartBitOutOfRange
+  ; checkAllBitLengthExcessive
+  )
 open import Aletheia.DBC.Validity using (ValidDBC)
-open import Aletheia.DBC.Validity.Composition using (ei-split; ei-combine; ei-from-≡[]; errorIssues-allE-nil; errorIssues-allW; checkDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE; checkAllFactorZero-allE; checkAllMuxFound-allE; checkAllMuxAlwaysPresent-allE; checkAllSignalExceedsDLC-allE; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE; checkAllDLCOutOfRange-allE)
-open import Aletheia.DBC.Validity.ErrorChecks using (checkDuplicateMessageIds-sound; checkDuplicateMessageIds-complete; checkAllDuplicateSignalNames-sound; checkAllDuplicateSignalNames-complete; checkAllFactorZero-sound; checkAllFactorZero-complete; checkAllMuxFound-sound; checkAllMuxFound-complete; checkAllMuxAlwaysPresent-sound; checkAllMuxAlwaysPresent-complete; checkAllSignalExceedsDLC-sound; checkAllSignalExceedsDLC-complete; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete; checkAllDLCOutOfRange-sound; checkAllDLCOutOfRange-complete)
-open import Aletheia.DBC.Validity.WarningChecks using (checkAllGlobalNameCollisions-allW; checkAllMinMax-allW; checkDuplicateMessageNames-allW; checkAllOffsetScaleRange-allW; checkAllEmptyMessage-allW; checkAllStartBitOutOfRange-allW; checkAllBitLengthExcessive-allW)
+open import Aletheia.DBC.Validity.Composition using
+  ( ei-split; ei-combine; ei-from-≡[]; errorIssues-allE-nil
+  ; errorIssues-allW
+  ; checkDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE
+  ; checkAllFactorZero-allE; checkAllMuxFound-allE
+  ; checkAllMuxAlwaysPresent-allE; checkAllSignalExceedsDLC-allE
+  ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE
+  ; checkAllDLCOutOfRange-allE
+  )
+open import Aletheia.DBC.Validity.ErrorChecks using
+  ( checkDuplicateMessageIds-sound; checkDuplicateMessageIds-complete
+  ; checkAllDuplicateSignalNames-sound
+  ; checkAllDuplicateSignalNames-complete
+  ; checkAllFactorZero-sound; checkAllFactorZero-complete
+  ; checkAllMuxFound-sound; checkAllMuxFound-complete
+  ; checkAllMuxAlwaysPresent-sound
+  ; checkAllMuxAlwaysPresent-complete
+  ; checkAllSignalExceedsDLC-sound; checkAllSignalExceedsDLC-complete
+  ; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete
+  ; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete
+  ; checkAllDLCOutOfRange-sound; checkAllDLCOutOfRange-complete
+  )
+open import Aletheia.DBC.Validity.WarningChecks using
+  ( checkAllGlobalNameCollisions-allW; checkAllMinMax-allW
+  ; checkDuplicateMessageNames-allW; checkAllOffsetScaleRange-allW
+  ; checkAllEmptyMessage-allW; checkAllStartBitOutOfRange-allW
+  ; checkAllBitLengthExcessive-allW
+  )
 open import Data.List using (List; []) renaming (_++_ to _++ₗ_)
 open import Data.Product using (proj₁; proj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)

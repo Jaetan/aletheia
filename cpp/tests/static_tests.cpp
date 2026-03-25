@@ -72,10 +72,25 @@ static_assert(ExtendedId::create(1'000'000)->value() == 1'000'000);
 
 static_assert(Dlc::create(0).has_value());
 static_assert(Dlc::create(8).has_value());
-static_assert(!Dlc::create(9).has_value());
+static_assert(Dlc::create(15).has_value());
+static_assert(!Dlc::create(16).has_value());
 static_assert(!Dlc::create(255).has_value());
 
 static_assert(Dlc::create(4)->value() == 4);
+
+// ===========================================================================
+// dlc_to_bytes mapping (CAN-FD non-linear table)
+// ===========================================================================
+
+static_assert(dlc_to_bytes(Dlc::create(0).value()) == 0);
+static_assert(dlc_to_bytes(Dlc::create(8).value()) == 8);
+static_assert(dlc_to_bytes(Dlc::create(9).value()) == 12);
+static_assert(dlc_to_bytes(Dlc::create(10).value()) == 16);
+static_assert(dlc_to_bytes(Dlc::create(11).value()) == 20);
+static_assert(dlc_to_bytes(Dlc::create(12).value()) == 24);
+static_assert(dlc_to_bytes(Dlc::create(13).value()) == 32);
+static_assert(dlc_to_bytes(Dlc::create(14).value()) == 48);
+static_assert(dlc_to_bytes(Dlc::create(15).value()) == 64);
 
 // ===========================================================================
 // Strong type accessors (constexpr)
@@ -122,11 +137,10 @@ static_assert(static_cast<int>(ByteOrder::LittleEndian) == 0);
 static_assert(static_cast<int>(ByteOrder::BigEndian) == 1);
 
 // ===========================================================================
-// FramePayload layout
+// FramePayload is a vector of bytes (variable-length for CAN-FD)
 // ===========================================================================
 
-static_assert(sizeof(FramePayload) == 8);
-static_assert(std::is_same_v<FramePayload, std::array<std::byte, 8>>);
+static_assert(std::is_same_v<FramePayload, std::vector<std::byte>>);
 
 // ===========================================================================
 // Timestamp is chrono microseconds

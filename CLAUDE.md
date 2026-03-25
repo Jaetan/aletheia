@@ -69,12 +69,12 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 **Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
 
-† **55 total modules**: 53 use `--safe`, 2 coinductive without `--safe`
+† **61 total modules**: 59 use `--safe`, 2 coinductive without `--safe`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (55 total):
-- **52 modules**: `--safe --without-K` (standard safe modules, includes 9 proof-only)
+**By flag combination** (61 total):
+- **58 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **2 modules without `--safe`** (both use `--sized-types` for coinduction):
   - Main.agda: `--no-main --sized-types --without-K`
@@ -231,7 +231,7 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
 - **12 source files** in `go/aletheia/`: `backend.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
 - **1 test file**: `client_test.go` (56 tests, mock backend)
-- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[8]byte` payload, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
+- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned (`LockOSThread`)
 - **Build/test**: `cd go && go test ./aletheia/ -v -count=1 -race`
 - **Style**: `gofmt` + `go vet` clean; godoc on all exports
@@ -299,7 +299,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (81 test cases, 5-round review). Go binding complete (56 tests, 3-round review). Docker images complete (Dockerfile + Dockerfile.runtime + `shake docker`). 55 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete (all 13 steps + 7 review fixes + 5 code review fixes): `CANFrame` parameterized by `n`, `TimedFrame` dependent record with `.dlcValid` invariant, protocol messages generic with DLC validation (`≤ 15`), `physicalBitPos` parameterized, validation layer updated (`ValidDLC` via `Is-just (bytesToDlc ...)`), `PhysicallyDisjoint` parameterized by frame byte count, all proof functions generalized from `CANFrame 8` to `∀ {n}` (Endianness, Encoding, Batch/Properties), `buildFrame` parameterized by DLC, Python/C++/Go bindings updated, documentation updated. New modules: `CAN/DLC.agda` (DLC↔byte count with 5 proofs), `CAN/Encoding/Arithmetic.agda` (extracted numeric conversions). **Known issues**: Roundtrip proof modules (SignalRoundtrip, MessageRoundtrip/*) still broken (pre-existing, not in Main.agda build path). 61 Agda modules total.
 
 ---
 

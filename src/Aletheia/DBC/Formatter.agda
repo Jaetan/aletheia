@@ -10,7 +10,7 @@ module Aletheia.DBC.Formatter where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
-open import Data.Bool using (Bool; true)
+open import Data.Bool using (true)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
@@ -46,11 +46,11 @@ formatPresence (When mux v) = ("multiplexor" , JString mux) ∷ ("multiplex_valu
 -- SIGNAL / MESSAGE / DBC FORMATTERS
 -- ============================================================================
 
-formatDBCSignal : DBCSignal → JSON
-formatDBCSignal sig =
+formatDBCSignal : ℕ → DBCSignal → JSON
+formatDBCSignal frameBytes sig =
   let def = DBCSignal.signalDef sig
       bo  = DBCSignal.byteOrder sig
-      sb  = unconvertStartBit bo (SignalDef.startBit def) (SignalDef.bitLength def)
+      sb  = unconvertStartBit frameBytes bo (SignalDef.startBit def) (SignalDef.bitLength def)
   in JObject (
     ("name"      , JString (DBCSignal.name sig)) ∷
     ("startBit"  , ℕtoJSON sb) ∷
@@ -70,7 +70,7 @@ formatDBCMessage msg = JObject (
   ("name"    , JString (DBCMessage.name msg)) ∷
   ("dlc"     , ℕtoJSON (DBCMessage.dlc msg)) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("signals" , JArray (map formatDBCSignal (DBCMessage.signals msg))) ∷
+  ("signals" , JArray (map (formatDBCSignal (DBCMessage.dlc msg)) (DBCMessage.signals msg))) ∷
   [])
 
 formatDBC : DBC → JSON

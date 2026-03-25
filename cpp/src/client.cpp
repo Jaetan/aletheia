@@ -60,23 +60,23 @@ auto AletheiaClient::format_dbc() -> Result<DbcDefinition> {
 // Signals
 // ---------------------------------------------------------------------------
 
-auto AletheiaClient::extract_signals(CanId id, std::span<const std::byte, 8> data)
+auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
     -> Result<ExtractionResult> {
-    auto cmd = detail::serialize_extract_signals(id, data);
+    auto cmd = detail::serialize_extract_signals(id, dlc, data);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_extraction(resp);
 }
 
-auto AletheiaClient::build_frame(CanId id, std::span<const SignalValue> signals)
+auto AletheiaClient::build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
     -> Result<FramePayload> {
-    auto cmd = detail::serialize_build_frame(id, signals);
+    auto cmd = detail::serialize_build_frame(id, dlc, signals);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_frame_data(resp);
 }
 
-auto AletheiaClient::update_frame(CanId id, std::span<const std::byte, 8> data,
+auto AletheiaClient::update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
                                   std::span<const SignalValue> signals) -> Result<FramePayload> {
-    auto cmd = detail::serialize_update_frame(id, data, signals);
+    auto cmd = detail::serialize_update_frame(id, dlc, data, signals);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_frame_data(resp);
 }
@@ -108,14 +108,14 @@ auto AletheiaClient::start_stream() -> Result<void> {
     return result;
 }
 
-auto AletheiaClient::send_frame(Timestamp ts, CanId id, std::span<const std::byte, 8> data)
+auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
     -> Result<FrameResponse> {
-    auto cmd = detail::serialize_send_frame(ts, id, data);
+    auto cmd = detail::serialize_send_frame(ts, id, dlc, data);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty())
-            enrich_violation(*v, id, data);
+            enrich_violation(*v, id, dlc, data);
     }
     return result;
 }
@@ -137,13 +137,13 @@ auto AletheiaClient::end_stream() -> Result<StreamResult> {
 // Enrichment internals
 // ---------------------------------------------------------------------------
 
-void AletheiaClient::enrich_violation(Violation& v, CanId id,
-                                      std::span<const std::byte, 8> data) {
+void AletheiaClient::enrich_violation(Violation& v, CanId id, Dlc dlc,
+                                      std::span<const std::byte> data) {
     auto idx = v.property_index.get();
     if (idx >= diags_.size())
         return;
     const auto& diag = diags_[idx];
-    auto values = extract_signal_values(diag, id, data);
+    auto values = extract_signal_values(diag, id, dlc, data);
     std::string reason;
     if (values.empty()) {
         reason = "violated: " + diag.formula_desc;
@@ -182,18 +182,17 @@ void AletheiaClient::enrich_property_result(PropertyResult& pr) {
     };
 }
 
-auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId id,
-                                           std::span<const std::byte, 8> data)
+auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
+                                           std::span<const std::byte> data)
     -> std::map<SignalName, PhysicalValue> {
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
     auto is_extended = std::holds_alternative<ExtendedId>(id);
-    FramePayload payload{};
-    std::copy_n(data.begin(), 8, payload.begin());
-    FrameKey key{.id_value = id_value, .is_extended = is_extended, .data = payload};
+    FramePayload payload(data.begin(), data.end());
+    FrameKey key{.id_value = id_value, .is_extended = is_extended, .dlc = dlc.value(), .data = payload};
 
     auto cache_it = cache_.find(key);
     if (cache_it == cache_.end()) {
-        auto extraction = extract_signals_internal(id, data);
+        auto extraction = extract_signals_internal(id, dlc, data);
         if (!extraction.has_value())
             return {};
         if (cache_.size() < max_cache_size_)
@@ -225,9 +224,9 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
     return values;
 }
 
-auto AletheiaClient::extract_signals_internal(CanId id, std::span<const std::byte, 8> data)
+auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data)
     -> std::optional<ExtractionResult> {
-    auto cmd = detail::serialize_extract_signals(id, data);
+    auto cmd = detail::serialize_extract_signals(id, dlc, data);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_extraction(resp);
     if (!result.has_value())

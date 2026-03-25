@@ -358,7 +358,9 @@ class BuildFrameCommand(TypedDict):
     type: Literal["command"]
     command: Literal["buildFrame"]
     canId: int
+    dlc: int
     signals: list[SignalValue]
+    extended: bool
 
 
 class ExtractSignalsCommand(TypedDict):
@@ -366,7 +368,9 @@ class ExtractSignalsCommand(TypedDict):
     type: Literal["command"]
     command: Literal["extractAllSignals"]
     canId: int
+    dlc: int
     data: list[int]
+    extended: bool
 
 
 class UpdateFrameCommand(TypedDict):
@@ -374,8 +378,10 @@ class UpdateFrameCommand(TypedDict):
     type: Literal["command"]
     command: Literal["updateFrame"]
     canId: int
+    dlc: int
     data: list[int]
     signals: list[SignalValue]
+    extended: bool
 
 
 class ValidateDBCCommand(TypedDict):
@@ -396,7 +402,9 @@ class DataFrame(TypedDict):
     type: Literal["data"]
     timestamp: int
     id: int
+    dlc: int
     data: list[int]
+    extended: bool
 
 
 # Union type for all commands

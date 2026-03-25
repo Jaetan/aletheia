@@ -7,7 +7,18 @@
 module Aletheia.DBC.Validity.WarningChecks where
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision)
-open import Aletheia.DBC.Validator using (checkGlobalNamePair; checkGlobalNameAgainstList; checkAllGlobalNameCollisions; messageSignalNames; checkMinMaxSig; checkAllMinMax; checkDupNamePair; checkDupNameAgainstList; checkDuplicateMessageNames; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ; checkOffsetScaleRange; checkAllOffsetScaleRange; checkEmptyMessage; checkAllEmptyMessage; checkStartBitOutOfRange; checkAllStartBitOutOfRange; checkBitLengthExcessive; checkAllBitLengthExcessive)
+open import Aletheia.DBC.Validator using
+  ( checkGlobalNamePair; checkGlobalNameAgainstList
+  ; checkAllGlobalNameCollisions; messageSignalNames
+  ; checkMinMaxSig; checkAllMinMax
+  ; checkDupNamePair; checkDupNameAgainstList
+  ; checkDuplicateMessageNames
+  ; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ
+  ; checkOffsetScaleRange; checkAllOffsetScaleRange
+  ; checkEmptyMessage; checkAllEmptyMessage
+  ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
+  ; checkBitLengthExcessive; checkAllBitLengthExcessive
+  )
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
@@ -21,6 +32,7 @@ open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.Prelude using (max-physical-bits)
 
 private
   -- Severity predicate shorthand
@@ -159,7 +171,7 @@ checkAllEmptyMessage-allW msgs = All-concatMap (go msgs)
 
 checkStartBitOutOfRange-allW : ∀ msgName sig → All W (checkStartBitOutOfRange msgName sig)
 checkStartBitOutOfRange-allW msgName sig
-  with SignalDef.startBit (DBCSignal.signalDef sig) <? 64
+  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -179,7 +191,7 @@ checkAllStartBitOutOfRange-allW (msg ∷ rest) =
 
 checkBitLengthExcessive-allW : ∀ msgName sig → All W (checkBitLengthExcessive msgName sig)
 checkBitLengthExcessive-allW msgName sig
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? 64
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 

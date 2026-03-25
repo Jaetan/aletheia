@@ -71,7 +71,7 @@ emptyResults : ExtractionResults
 emptyResults = mkExtractionResults [] [] []
 
 -- Extract all signals from a message
-extractAllSignalsFromMessage : DBC → CANFrame → DBCMessage → ExtractionResults
+extractAllSignalsFromMessage : ∀ {n} → DBC → CANFrame n → DBCMessage → ExtractionResults
 extractAllSignalsFromMessage dbc frame msg =
   foldr combineResults emptyResults (map extractOne (DBCMessage.signals msg))
   where
@@ -83,7 +83,7 @@ extractAllSignalsFromMessage dbc frame msg =
 
 -- Extract all signals from a frame
 -- Returns structured results with success/error/absent partitioning
-extractAllSignals : DBC → CANFrame → ExtractionResults
+extractAllSignals : ∀ {n} → DBC → CANFrame n → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing =
     -- Message not found in DBC - return error

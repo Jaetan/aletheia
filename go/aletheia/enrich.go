@@ -201,7 +201,8 @@ const maxExtractCache = 256
 type frameKey struct {
 	idValue    uint32
 	isExtended bool
-	data       FramePayload
+	dlc        uint8
+	data       string // string([]byte) for comparable map key
 }
 
 type extractCache struct {

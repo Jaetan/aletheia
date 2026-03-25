@@ -63,6 +63,24 @@ type ExtractionCache = dict[FrameKey, SignalExtractionResult]
 MAX_EXTRACT_CACHE: int = 256
 
 
+_DLC_TO_BYTES: dict[int, int] = {
+    0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
+    9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64,
+}
+
+
+def dlc_to_bytes(dlc: int) -> int:
+    """Convert a DLC code (0-15) to payload byte count.
+
+    CAN 2.0B: DLC 0-8 maps directly.
+    CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
+    """
+    try:
+        return _DLC_TO_BYTES[dlc]
+    except KeyError:
+        raise ValueError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
+
+
 @dataclass(slots=True)
 class PropertyDiagnostic:
     """Per-property diagnostic metadata for violation enrichment."""

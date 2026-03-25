@@ -160,8 +160,7 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- REPETITION COMBINATORS (structurally recursive on input length)
 -- ============================================================================
 
--- NEW APPROACH: Make recursion structurally terminating by measuring progress
--- If a parser doesn't consume input, we stop to ensure termination
+-- Structural recursion on input length: if a parser doesn't consume input, we stop
 
 -- Helper: Check if two lists have the same length
 sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool

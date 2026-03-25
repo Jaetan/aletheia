@@ -1,12 +1,19 @@
 package aletheia_test
 
 import (
+	"bytes"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
+
+// dlc8 creates a DLC with value 8 for convenience in tests.
+func dlc8() aletheia.DLC {
+	d, _ := aletheia.NewDLC(8)
+	return d
+}
 
 // --- Helper: minimal DBC for testing ---
 
@@ -183,7 +190,7 @@ func TestExtractSignals(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x123)
-	result, err := c.ExtractSignals(sid, aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0})
+	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -231,7 +238,7 @@ func TestExtractSignals_RationalValue(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x100)
-	result, err := c.ExtractSignals(sid, aletheia.FramePayload{})
+	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -259,14 +266,15 @@ func TestBuildFrame(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x123)
+	dlc, _ := aletheia.NewDLC(8)
 	payload, err := c.BuildFrame(sid, []aletheia.SignalValue{
 		{Name: "Speed", Value: 120.5},
-	})
+	}, dlc)
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}
 	expected := aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0}
-	if payload != expected {
+	if !bytes.Equal(payload, expected) {
 		t.Errorf("expected %v, got %v", expected, payload)
 	}
 }
@@ -286,7 +294,7 @@ func TestUpdateFrame(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	payload, err := c.UpdateFrame(sid, data, []aletheia.SignalValue{
+	payload, err := c.UpdateFrame(sid, dlc8(), data, []aletheia.SignalValue{
 		{Name: "Speed", Value: 100.0},
 	})
 	if err != nil {
@@ -333,7 +341,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0x64, 0, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, data)
+	resp1, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame 1: %v", err)
 	}
@@ -341,7 +349,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		t.Errorf("expected Ack, got %T", resp1)
 	}
 
-	resp2, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000}, sid, data)
+	resp2, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame 2: %v", err)
 	}
@@ -398,7 +406,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0xFF, 0, 0, 0, 0, 0, 0}
 
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, data)
+	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -511,17 +519,35 @@ func TestExtendedID_Range(t *testing.T) {
 }
 
 func TestDLC_Range(t *testing.T) {
-	_, err := aletheia.NewDLC(9)
+	_, err := aletheia.NewDLC(16)
 	if err == nil {
-		t.Error("expected error for DLC > 8")
+		t.Error("expected error for DLC > 15")
 	}
 
-	dlc, err := aletheia.NewDLC(8)
+	dlc, err := aletheia.NewDLC(15)
 	if err != nil {
-		t.Fatalf("expected success for 8: %v", err)
+		t.Fatalf("expected success for 15: %v", err)
 	}
-	if dlc.Value() != 8 {
-		t.Errorf("expected 8, got %d", dlc.Value())
+	if dlc.Value() != 15 {
+		t.Errorf("expected 15, got %d", dlc.Value())
+	}
+	if dlc.ToBytes() != 64 {
+		t.Errorf("DLC 15 should map to 64 bytes, got %d", dlc.ToBytes())
+	}
+
+	// Verify CAN-FD DLC mapping
+	dlcMap := map[uint8]int{
+		0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
+		9: 12, 10: 16, 11: 20, 12: 24, 13: 32, 14: 48, 15: 64,
+	}
+	for v, expectedBytes := range dlcMap {
+		d, err := aletheia.NewDLC(v)
+		if err != nil {
+			t.Fatalf("NewDLC(%d): %v", v, err)
+		}
+		if d.ToBytes() != expectedBytes {
+			t.Errorf("DLC %d: expected %d bytes, got %d", v, expectedBytes, d.ToBytes())
+		}
 	}
 }
 
@@ -786,7 +812,7 @@ func TestExtractSignals_Errors(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x123)
-	result, err := c.ExtractSignals(sid, aletheia.FramePayload{})
+	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{})
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -880,7 +906,7 @@ func TestZeroDenominatorRational(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x100)
-	_, err = c.ExtractSignals(sid, aletheia.FramePayload{})
+	_, err = c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{})
 	if err == nil {
 		t.Fatal("expected error for zero denominator")
 	}
@@ -917,7 +943,8 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 
 	c.ParseDBC(testDBC())
 	sid, _ := aletheia.NewStandardID(0x123)
-	_, err = c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
+	dlc, _ := aletheia.NewDLC(8)
+	_, err = c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
 	if err == nil {
 		t.Fatal("expected error for byte value 256")
 	}
@@ -926,7 +953,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 }
 
-func TestBuildFrame_InvalidByteCount(t *testing.T) {
+func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`),
 		aletheia.Respond(`{"status":"success","data":[1,2,3,4,5,6,7]}`),
@@ -939,12 +966,13 @@ func TestBuildFrame_InvalidByteCount(t *testing.T) {
 
 	c.ParseDBC(testDBC())
 	sid, _ := aletheia.NewStandardID(0x123)
-	_, err = c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}})
-	if err == nil {
-		t.Fatal("expected error for 7-byte frame")
+	dlc, _ := aletheia.NewDLC(8)
+	payload, err := c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
+	if err != nil {
+		t.Fatalf("BuildFrame: %v", err)
 	}
-	if !strings.Contains(err.Error(), "8-byte") {
-		t.Errorf("expected '8-byte' in error, got: %s", err)
+	if !bytes.Equal(payload, aletheia.FramePayload{1, 2, 3, 4, 5, 6, 7}) {
+		t.Errorf("unexpected payload: %v", payload)
 	}
 }
 
@@ -961,7 +989,7 @@ func TestExtractSignals_InvalidStatus(t *testing.T) {
 
 	c.ParseDBC(testDBC())
 	sid, _ := aletheia.NewStandardID(0x123)
-	_, err = c.ExtractSignals(sid, aletheia.FramePayload{})
+	_, err = c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{})
 	if err == nil {
 		t.Fatal("expected error for unexpected status 'validation'")
 	}
@@ -983,7 +1011,7 @@ func TestExtractSignals_NonStringAbsent(t *testing.T) {
 
 	c.ParseDBC(testDBC())
 	sid, _ := aletheia.NewStandardID(0x123)
-	_, err = c.ExtractSignals(sid, aletheia.FramePayload{})
+	_, err = c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{})
 	if err == nil {
 		t.Fatal("expected error for non-string in absent array")
 	}
@@ -1054,7 +1082,7 @@ func TestConcurrentSendFrame(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, data)
+			_, _ = c.SendFrame(aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
 		}(i)
 	}
 	wg.Wait()
@@ -1301,7 +1329,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, data)
+	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -1358,7 +1386,7 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, data)
+	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -1411,7 +1439,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000000}, sid, data)
+	resp1, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1420,7 +1448,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 		t.Fatal("expected enriched violation 1")
 	}
 
-	resp2, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, data)
+	resp2, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1477,7 +1505,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 	for i := 0; i < 257; i++ {
 		sid, _ := aletheia.NewStandardID(uint16(i % 2048))
 		data := aletheia.FramePayload{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 0}
-		resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, data)
+		resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 		if err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
@@ -1521,7 +1549,7 @@ func TestEndStream_Enriched(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, data)
+	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1581,7 +1609,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, data)
+	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1599,7 +1627,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err = c.SendFrame(aletheia.Timestamp{Microseconds: 2000}, sid, data)
+	resp, err = c.SendFrame(aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1644,7 +1672,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, data)
+			_, _ = c.SendFrame(aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
 		}(i)
 	}
 	wg.Wait()

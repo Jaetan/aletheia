@@ -43,35 +43,37 @@ public:
     auto format_dbc() -> Result<DbcDefinition>;
 
     // --- Signals ---
-    auto extract_signals(CanId id, std::span<const std::byte, 8> data) -> Result<ExtractionResult>;
-    auto build_frame(CanId id, std::span<const SignalValue> signals) -> Result<FramePayload>;
-    auto update_frame(CanId id, std::span<const std::byte, 8> data,
+    auto extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
+        -> Result<ExtractionResult>;
+    auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals) -> Result<FramePayload>;
+    auto update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
                       std::span<const SignalValue> signals) -> Result<FramePayload>;
 
     // --- Streaming ---
     auto set_properties(std::span<const LtlFormula> properties) -> Result<void>;
     auto start_stream() -> Result<void>;
-    auto send_frame(Timestamp ts, CanId id, std::span<const std::byte, 8> data)
+    auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
     auto end_stream() -> Result<StreamResult>;
 
 private:
-    void enrich_violation(Violation& v, CanId id, std::span<const std::byte, 8> data);
+    void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data);
     void enrich_property_result(PropertyResult& pr);
-    auto extract_signal_values(const PropertyDiagnostic& diag, CanId id,
-                               std::span<const std::byte, 8> data)
+    auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
+                               std::span<const std::byte> data)
         -> std::map<SignalName, PhysicalValue>;
-    auto extract_signals_internal(CanId id, std::span<const std::byte, 8> data)
+    auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data)
         -> std::optional<ExtractionResult>;
 
     std::unique_ptr<IBackend> backend_;
     void* state_ = nullptr;
     std::vector<PropertyDiagnostic> diags_;
 
-    // Extraction cache: keyed by (id_value, is_extended, payload)
+    // Extraction cache: keyed by (id_value, is_extended, dlc, payload)
     struct FrameKey {
         std::uint32_t id_value;
         bool is_extended;
+        std::uint8_t dlc;
         FramePayload data;
         auto operator<=>(const FrameKey&) const = default;
     };

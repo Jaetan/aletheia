@@ -32,7 +32,8 @@ open import Codata.Sized.Thunk using (force)
 -- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing as Routing using (formatResponse; parseDataFrame; parseCommand)
+open import Aletheia.Protocol.Routing using (parseDataFrame; parseCommand)
+open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
 import Aletheia.Protocol.Message as Msg
 
@@ -72,10 +73,10 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
     -- Try to parse command with detailed tracing
     tryParseCommand : List (String × JSON) → StreamState × String
     tryParseCommand obj with parseCommand obj
-    ... | inj₁ errMsg = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
+    ... | inj₁ errMsg = (state , formatJSON (formatResponse (Msg.Response.Error errMsg)))
     ... | inj₂ cmd =
           let (newState , response) = processStreamCommand cmd state
-          in (newState , formatJSON (Routing.formatResponse response))
+          in (newState , formatJSON (formatResponse response))
 
     -- Trace all messages
     parseJSON_helperWithTrace : JSON → StreamState × String
@@ -84,27 +85,26 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
       in case_type typeField obj
       where
         case_type : Maybe String → List (String × JSON) → StreamState × String
-        case_type nothing obj = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Missing 'type' field in request")))
+        case_type nothing obj = (state , formatJSON (formatResponse (Msg.Response.Error "Missing 'type' field in request")))
         case_type (just msgType) obj =
           if ⌊ msgType ≟ "data" ⌋
           then trace_dataframe obj
           else if ⌊ msgType ≟ "command" ⌋
                then tryParseCommand obj
-               else (state , formatJSON (Routing.formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
+               else (state , formatJSON (formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
           where
             trace_dataframe : List (String × JSON) → StreamState × String
             trace_dataframe obj with parseDataFrame obj
-            ... | nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Failed to parse data frame")))
-            ... | just (inj₁ errMsg) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error errMsg)))
-            ... | just (inj₂ (timestamp , frame)) =
-                  let (newState , response) = handleDataFrame state timestamp frame
-                  in (newState , formatJSON (Routing.formatResponse response))
-    parseJSON_helperWithTrace json = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Request must be a JSON object")))
+            ... | inj₁ errMsg = (state , formatJSON (formatResponse (Msg.Response.Error errMsg)))
+            ... | inj₂ tf =
+                  let (newState , response) = handleDataFrame state tf
+                  in (newState , formatJSON (formatResponse response))
+    parseJSON_helperWithTrace json = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
     parseJSON_helper : Maybe JSON → StreamState × String
-    parseJSON_helper nothing = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Invalid JSON")))
+    parseJSON_helper nothing = (state , formatJSON (formatResponse (Msg.Response.Error "Invalid JSON")))
     parseJSON_helper (just (JObject obj)) = parseJSON_helperWithTrace (JObject obj)
-    parseJSON_helper (just _) = (state , formatJSON (Routing.formatResponse (Msg.Response.Error "Request must be a JSON object")))
+    parseJSON_helper (just _) = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
 -- ============================================================================
 -- COINDUCTIVE STREAMING INTERFACE (O(1) Memory)
