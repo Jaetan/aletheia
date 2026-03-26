@@ -109,4 +109,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     add_test(NAME integration_tests COMMAND integration_tests)
+
+    # Benchmark (uses real FFI backend — requires libaletheia-ffi.so)
+    add_executable(benchmark benchmarks/benchmark.cpp)
+    target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
 endif()

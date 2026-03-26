@@ -12,9 +12,13 @@ Usage:
 """
 
 import argparse
+import json
+import os
+import platform
 import statistics
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -156,7 +160,6 @@ def run_benchmark(
     for run in range(num_runs):
         fps = func(num_frames)
         results.append(fps)
-        print(f"  Run {run + 1}/{num_runs}: {fps:,.0f} ops/sec")
 
     return {
         "name": name,
@@ -170,19 +173,32 @@ def run_benchmark(
     }
 
 
+def get_system_info() -> dict:
+    """Collect system information for benchmark metadata."""
+    return {
+        "cpu": platform.processor() or platform.machine(),
+        "cores": os.cpu_count() or 0,
+        "platform": platform.system(),
+        "python": platform.python_version(),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Throughput benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
     parser.add_argument("--warmup", type=int, default=2, help="Warmup runs")
+    parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
     args = parser.parse_args()
 
-    print("=" * 70)
-    print("Aletheia Throughput Benchmark")
-    print("=" * 70)
-    print(f"Frames per run: {args.frames:,}")
-    print(f"Runs: {args.runs}")
-    print(f"Warmup runs: {args.warmup}")
+    out = sys.stderr if args.json else sys.stdout
+
+    print("=" * 70, file=out)
+    print("Aletheia Throughput Benchmark", file=out)
+    print("=" * 70, file=out)
+    print(f"Frames per run: {args.frames:,}", file=out)
+    print(f"Runs: {args.runs}", file=out)
+    print(f"Warmup runs: {args.warmup}", file=out)
 
     dbc = load_dbc()
     canfd_dbc = load_canfd_dbc()
@@ -222,20 +238,48 @@ def main():
 
     results = []
     for name, func in benchmarks:
-        print(f"\n{name}:")
-        print("-" * 40)
+        print(f"\n{name}:", file=out)
+        print("-" * 40, file=out)
         result = run_benchmark(name, func, args.frames, args.runs, args.warmup)
         results.append(result)
+        for run_idx, fps in enumerate(result["results"]):
+            print(f"  Run {run_idx + 1}/{args.runs}: {fps:,.0f} ops/sec", file=out)
 
     # Summary
-    print("\n" + "=" * 70)
-    print("Summary")
-    print("=" * 70)
-    print(f"{'Benchmark':<35} {'Mean':>12} {'Stdev':>10} {'Min':>10} {'Max':>10}")
-    print("-" * 80)
+    print("\n" + "=" * 70, file=out)
+    print("Summary", file=out)
+    print("=" * 70, file=out)
+    print(f"{'Benchmark':<35} {'Mean':>12} {'Stdev':>10} {'Min':>10} {'Max':>10}", file=out)
+    print("-" * 80, file=out)
     for r in results:
-        print(f"{r['name']:<35} {r['mean']:>10,.0f}/s {r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}")
-    print("=" * 70)
+        print(
+            f"{r['name']:<35} {r['mean']:>10,.0f}/s "
+            f"{r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}",
+            file=out,
+        )
+    print("=" * 70, file=out)
+
+    if args.json:
+        json_results = []
+        for r in results:
+            json_results.append({
+                "name": r["name"],
+                "frames": r["num_frames"],
+                "runs": r["num_runs"],
+                "fps_mean": round(r["mean"], 1),
+                "fps_stdev": round(r["stdev"], 1),
+                "fps_min": round(r["min"], 1),
+                "fps_max": round(r["max"], 1),
+                "us_per_frame": round(1_000_000 / r["mean"], 1) if r["mean"] > 0 else 0,
+            })
+        output = {
+            "benchmark": "throughput",
+            "language": "python",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "system": get_system_info(),
+            "results": json_results,
+        }
+        print(json.dumps(output, indent=2))
 
     return 0
 

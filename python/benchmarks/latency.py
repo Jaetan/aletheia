@@ -12,8 +12,12 @@ Usage:
 """
 
 import argparse
+import json
+import os
+import platform
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -121,19 +125,20 @@ def analyze_latencies(latencies: list[float]) -> dict:
     }
 
 
-def print_latency_stats(name: str, stats: dict):
+def print_latency_stats(name: str, stats: dict, file=None):
     """Print latency statistics."""
-    print(f"\n{name}:")
-    print("-" * 50)
-    print(f"  Count:    {stats['count']:,} operations")
-    print(f"  Mean:     {stats['mean_us']:,.1f} us")
-    print(f"  Min:      {stats['min_us']:,.1f} us")
-    print(f"  Max:      {stats['max_us']:,.1f} us")
-    print(f"  p50:      {stats['p50_us']:,.1f} us")
-    print(f"  p90:      {stats['p90_us']:,.1f} us")
-    print(f"  p99:      {stats['p99_us']:,.1f} us")
-    print(f"  p99.9:    {stats['p999_us']:,.1f} us")
-    print(f"  Implied:  {1_000_000 / stats['mean_us']:,.0f} ops/sec (from mean)")
+    out = file or sys.stdout
+    print(f"\n{name}:", file=out)
+    print("-" * 50, file=out)
+    print(f"  Count:    {stats['count']:,} operations", file=out)
+    print(f"  Mean:     {stats['mean_us']:,.1f} us", file=out)
+    print(f"  Min:      {stats['min_us']:,.1f} us", file=out)
+    print(f"  Max:      {stats['max_us']:,.1f} us", file=out)
+    print(f"  p50:      {stats['p50_us']:,.1f} us", file=out)
+    print(f"  p90:      {stats['p90_us']:,.1f} us", file=out)
+    print(f"  p99:      {stats['p99_us']:,.1f} us", file=out)
+    print(f"  p99.9:    {stats['p999_us']:,.1f} us", file=out)
+    print(f"  Implied:  {1_000_000 / stats['mean_us']:,.0f} ops/sec (from mean)", file=out)
 
 
 def run_latency_suite(
@@ -146,12 +151,14 @@ def run_latency_suite(
     properties: list[dict],
     num_ops: int,
     warmup: int,
+    file=None,
 ) -> list[tuple[str, dict]]:
     """Run streaming, extraction, and build latency for one frame type."""
+    out = file or sys.stdout
     all_stats = []
 
     # Streaming latency
-    print(f"\nBenchmarking {label} streaming...")
+    print(f"\nBenchmarking {label} streaming...", file=out)
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         client.set_properties(properties)
@@ -164,11 +171,11 @@ def run_latency_suite(
         client.end_stream()
 
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Streaming LTL", stats)
+    print_latency_stats(f"{label} Streaming LTL", stats, file=out)
     all_stats.append((f"{label} Streaming LTL", stats))
 
     # Extraction latency
-    print(f"\nBenchmarking {label} signal extraction...")
+    print(f"\nBenchmarking {label} signal extraction...", file=out)
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
 
@@ -178,11 +185,11 @@ def run_latency_suite(
         latencies = measure_latencies(client, "extract", num_ops, can_id, dlc, frame, signals)
 
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Signal Extraction", stats)
+    print_latency_stats(f"{label} Signal Extraction", stats, file=out)
     all_stats.append((f"{label} Signal Extraction", stats))
 
     # Frame building latency
-    print(f"\nBenchmarking {label} frame building...")
+    print(f"\nBenchmarking {label} frame building...", file=out)
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
 
@@ -192,23 +199,36 @@ def run_latency_suite(
         latencies = measure_latencies(client, "build", num_ops, can_id, dlc, frame, signals)
 
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Frame Building", stats)
+    print_latency_stats(f"{label} Frame Building", stats, file=out)
     all_stats.append((f"{label} Frame Building", stats))
 
     return all_stats
+
+
+def get_system_info() -> dict:
+    """Collect system information for benchmark metadata."""
+    return {
+        "cpu": platform.processor() or platform.machine(),
+        "cores": os.cpu_count() or 0,
+        "platform": platform.system(),
+        "python": platform.python_version(),
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Latency benchmark")
     parser.add_argument("--ops", type=int, default=5000, help="Operations to measure")
     parser.add_argument("--warmup", type=int, default=500, help="Warmup operations")
+    parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
     args = parser.parse_args()
 
-    print("=" * 70)
-    print("Aletheia Latency Benchmark")
-    print("=" * 70)
-    print(f"Operations: {args.ops:,}")
-    print(f"Warmup: {args.warmup:,}")
+    out = sys.stderr if args.json else sys.stdout
+
+    print("=" * 70, file=out)
+    print("Aletheia Latency Benchmark", file=out)
+    print("=" * 70, file=out)
+    print(f"Operations: {args.ops:,}", file=out)
+    print(f"Warmup: {args.warmup:,}", file=out)
 
     dbc = load_dbc()
     canfd_dbc = load_canfd_dbc()
@@ -228,28 +248,52 @@ def main():
     all_stats = run_latency_suite(
         "CAN 2.0B", dbc,
         CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
-        can20_properties, args.ops, args.warmup,
+        can20_properties, args.ops, args.warmup, file=out,
     )
 
     # CAN-FD suite
     all_stats += run_latency_suite(
         "CAN-FD", canfd_dbc,
         CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
-        canfd_properties, args.ops, args.warmup,
+        canfd_properties, args.ops, args.warmup, file=out,
     )
 
     # Summary table
-    print("\n" + "=" * 70)
-    print("Summary (all times in microseconds)")
-    print("=" * 70)
-    print(f"{'Operation':<30} {'Mean':>10} {'p50':>10} {'p99':>10} {'p99.9':>10}")
-    print("-" * 70)
+    print("\n" + "=" * 70, file=out)
+    print("Summary (all times in microseconds)", file=out)
+    print("=" * 70, file=out)
+    print(f"{'Operation':<30} {'Mean':>10} {'p50':>10} {'p99':>10} {'p99.9':>10}", file=out)
+    print("-" * 70, file=out)
     for name, stats in all_stats:
         print(
             f"{name:<30} {stats['mean_us']:>10.1f} {stats['p50_us']:>10.1f} "
-            f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}"
+            + f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}",
+            file=out,
         )
-    print("=" * 70)
+    print("=" * 70, file=out)
+
+    if args.json:
+        json_results = []
+        for name, stats in all_stats:
+            json_results.append({
+                "name": name,
+                "count": stats["count"],
+                "mean_us": round(stats["mean_us"], 1),
+                "min_us": round(stats["min_us"], 1),
+                "max_us": round(stats["max_us"], 1),
+                "p50_us": round(stats["p50_us"], 1),
+                "p90_us": round(stats["p90_us"], 1),
+                "p99_us": round(stats["p99_us"], 1),
+                "p999_us": round(stats["p999_us"], 1),
+            })
+        output = {
+            "benchmark": "latency",
+            "language": "python",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "system": get_system_info(),
+            "results": json_results,
+        }
+        print(json.dumps(output, indent=2))
 
     return 0
 
