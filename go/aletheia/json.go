@@ -6,6 +6,17 @@ import (
 	"math"
 )
 
+// bytesToIntSlice converts []byte to []int for JSON serialization.
+// Go's json.Marshal encodes []byte/[]uint8 as base64, but the Agda core
+// expects a JSON array of integers: [0, 64, 31, ...].
+func bytesToIntSlice(data []byte) []int {
+	out := make([]int, len(data))
+	for i, b := range data {
+		out[i] = int(b)
+	}
+	return out
+}
+
 // --- Serialization (Go → JSON for Agda core) ---
 
 func serializeCommand(command string, fields map[string]any) (string, error) {
@@ -21,15 +32,13 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 }
 
 func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (string, error) {
-	byteSlice := make([]uint8, len(data))
-	copy(byteSlice, data)
 	m := map[string]any{
 		"type":      "data",
 		"timestamp": ts.Microseconds,
 		"id":        id.Value(),
 		"extended":  id.IsExtended(),
 		"dlc":       dlc.Value(),
-		"data":      byteSlice,
+		"data":      bytesToIntSlice(data),
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -72,7 +81,7 @@ func serializeDBC(dbc DbcDefinition) map[string]any {
 			"id":       msg.ID.Value(),
 			"extended": msg.ID.IsExtended(),
 			"name":     string(msg.Name),
-			"dlc":      msg.DLC.Value(),
+			"dlc":      DlcToBytes(msg.DLC),
 			"sender":   string(msg.Sender),
 			"signals":  sigs,
 		}
@@ -568,7 +577,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 	if err != nil {
 		return nil, protocolError("invalid DLC: " + err.Error())
 	}
-	dlc, err := NewDLC(uint8(dlcVal))
+	dlc, err := BytesToDlc(int(dlcVal))
 	if err != nil {
 		return nil, protocolError(err.Error())
 	}

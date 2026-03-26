@@ -77,7 +77,7 @@ static auto message_to_json(const DbcMessage& m) -> json {
     return {
         {"id", can_id_numeric(m.id)},
         {"name", m.name.get()},
-        {"dlc", m.dlc.value()},
+        {"dlc", dlc_to_bytes(m.dlc)},
         {"sender", m.sender.get()},
         {"extended", can_id_extended(m.id)},
         {"signals", std::move(sigs)},

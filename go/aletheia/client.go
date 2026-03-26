@@ -114,13 +114,11 @@ func (c *Client) FormatDBC() (*DbcDefinition, error) {
 
 // ExtractSignals decodes all signals from a CAN frame using the loaded DBC.
 func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*ExtractionResult, error) {
-	byteSlice := make([]uint8, len(data))
-	copy(byteSlice, data)
 	cmd, err := serializeCommand("extractAllSignals", map[string]any{
 		"canId":    id.Value(),
 		"extended": id.IsExtended(),
 		"dlc":      dlc.Value(),
-		"data":     byteSlice,
+		"data":     bytesToIntSlice(data),
 	})
 	if err != nil {
 		return nil, err
@@ -152,13 +150,11 @@ func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayl
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
 func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []SignalValue) (FramePayload, error) {
-	byteSlice := make([]uint8, len(data))
-	copy(byteSlice, data)
 	cmd, err := serializeCommand("updateFrame", map[string]any{
 		"canId":    id.Value(),
 		"extended": id.IsExtended(),
 		"dlc":      dlc.Value(),
-		"data":     byteSlice,
+		"data":     bytesToIntSlice(data),
 		"signals":  serializeSignalValues(signals),
 	})
 	if err != nil {
@@ -337,13 +333,11 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 
 // extractSignalsLocked calls ExtractSignals without acquiring the mutex. Caller must hold c.mu.
 func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
-	byteSlice := make([]uint8, len(data))
-	copy(byteSlice, data)
 	cmd, err := serializeCommand("extractAllSignals", map[string]any{
 		"canId":    id.Value(),
 		"extended": id.IsExtended(),
 		"dlc":      dlc.Value(),
-		"data":     byteSlice,
+		"data":     bytesToIntSlice(data),
 	})
 	if err != nil {
 		return nil

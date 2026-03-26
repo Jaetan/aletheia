@@ -136,7 +136,7 @@ static auto parse_message_def(const json& j) -> DbcMessage {
         return CanId{*result};
     }();
 
-    auto dlc_result = Dlc::create(j.at("dlc").get<std::uint8_t>());
+    auto dlc_result = bytes_to_dlc(j.at("dlc").get<std::size_t>());
     if (!dlc_result)
         throw std::runtime_error("Invalid DLC: " + dlc_result.error());
 

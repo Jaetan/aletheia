@@ -133,3 +133,19 @@ var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
 func DlcToBytes(dlc DLC) int {
 	return dlcTable[dlc.value]
 }
+
+// bytesToDlcTable maps valid payload byte counts to DLC codes.
+var bytesToDlcTable = map[int]uint8{
+	0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
+	12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15,
+}
+
+// BytesToDlc converts a payload byte count to a DLC.
+// Returns an error if the byte count is not a valid CAN/CAN-FD payload size.
+func BytesToDlc(byteCount int) (DLC, error) {
+	code, ok := bytesToDlcTable[byteCount]
+	if !ok {
+		return DLC{}, validationError(fmt.Sprintf("invalid DLC byte count: %d", byteCount))
+	}
+	return DLC{value: code}, nil
+}
