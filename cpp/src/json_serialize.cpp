@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <format>
 
 using json = nlohmann::json; // NOLINT(readability-identifier-naming)
 
@@ -201,13 +202,17 @@ auto serialize_format_dbc() -> std::string {
 
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
-    return json{{"type", "command"},
-                {"command", "extractAllSignals"},
-                {"canId", can_id_numeric(id)},
-                {"extended", can_id_extended(id)},
-                {"dlc", dlc.value()},
-                {"data", data_to_json(data)}}
-        .dump();
+    // Hot path: direct string construction like serialize_send_frame.
+    std::string data_str;
+    data_str.reserve(data.size() * 4);
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        if (i > 0)
+            data_str += ',';
+        data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
+    }
+    return std::format(
+        R"({{"type":"command","command":"extractAllSignals","canId":{},"extended":{},"dlc":{},"data":[{}]}})",
+        can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(), data_str);
 }
 
 auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals) -> std::string {
@@ -246,13 +251,19 @@ auto serialize_start_stream() -> std::string {
 
 auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
-    return json{{"type", "data"},
-                {"timestamp", ts.count()},
-                {"id", can_id_numeric(id)},
-                {"extended", can_id_extended(id)},
-                {"dlc", dlc.value()},
-                {"data", data_to_json(data)}}
-        .dump();
+    // Hot path: build JSON directly via std::format instead of nlohmann tree.
+    // Avoids O(n) push_back allocations + tree traversal + dump().
+    std::string data_str;
+    data_str.reserve(data.size() * 4); // "255," = 4 chars max per byte
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        if (i > 0)
+            data_str += ',';
+        data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
+    }
+    return std::format(
+        R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
+        ts.count(), can_id_numeric(id), can_id_extended(id) ? "true" : "false",
+        dlc.value(), data_str);
 }
 
 auto serialize_end_stream() -> std::string {

@@ -11,7 +11,7 @@ module Aletheia.CAN.SignalExtraction where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractSignalCoreFast; scaleExtracted; extractionBytes)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; scaleExtracted; extractionBytes)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
@@ -63,7 +63,7 @@ extractSignalDirect msg frame sig with checkSignalPresence frame msg sig
         let sigDef = DBCSignal.signalDef sig
             bo = DBCSignal.byteOrder sig
             bytes = extractionBytes frame bo
-            raw = extractSignalCoreFast bytes sigDef
+            raw = extractSignalCore bytes sigDef
             value = scaleExtracted raw sigDef
             minVal = SignalDef.minimum sigDef
             maxVal = SignalDef.maximum sigDef

@@ -268,6 +268,13 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 }
 
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
+    // Fast path: byte-level check for the common ack response.
+    // Avoids full JSON parsing for ~99% of streaming frames.
+    static constexpr std::string_view ack_compact = R"({"status":"ack"})";
+    static constexpr std::string_view ack_spaced = R"({"status": "ack"})";
+    if (input == ack_compact || input == ack_spaced)
+        return FrameResponse{Ack{}};
+
     try {
         auto j = json::parse(input);
         auto status = j.value("status", "");

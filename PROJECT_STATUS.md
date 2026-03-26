@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-25
+**Last Updated**: 2026-03-26
 
 ---
 
@@ -296,6 +296,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 - ✅ Docker images: `Dockerfile` (multi-stage from-source build) and `Dockerfile.runtime` (lightweight from pre-built dist). Runtime image is ~200 MB (python:3.13-slim + .so bundle + pip deps). `ALETHEIA_LIB` env var for library discovery. `shake docker` target builds the runtime image. Fat single-file .so investigated and deferred — GHC's static archives lack `-fPIC`, so self-contained `.so` would require rebuilding GHC. Current approach: 15 `.so` files with `RPATH=$ORIGIN` (9.6 MB compressed tarball).
 
+- ✅ Cross-language benchmark suite (2026-03-26): Throughput, latency, and scaling benchmarks for all three language bindings with machine-readable JSON output. Runner script (`benchmarks/run_all.sh`), comparison script (`benchmarks/compare.py`). DLC serialization bug fixed in Go/C++ (was sending DLC code instead of byte count in DBC serialization). Hot-path optimizations: ack fast path (byte-level response check) and direct string serialization (bypass nlohmann/json.Marshal for frame commands) in C++ and Go.
+
 - ✅ CAN-FD support (started 2026-03-23, completed 2026-03-25): Variable-length payloads up to 64 bytes, DLC 0-15 with non-linear mapping (9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64). 13-step plan + 7 review fixes fully executed:
   - Steps 1-4: Agda core types (`CANFrame n`, `TimedFrame` dependent record, protocol messages generic, `physicalBitPos` parameterized, validation layer updated)
   - Steps 5-8: Proof generalization (all `CANFrame 8` → `∀ {n}` in Endianness, Encoding/Properties, Batch/Properties, Validity proofs)
@@ -327,18 +329,22 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - Lines of code: ~12,000 Agda + ~4,500 Python + ~1,950 C++ + ~2,000 Go
 
 **Testing**:
-- Python tests: 419 passing (via FFI)
+- Python tests: 429 passing (via FFI)
 - C++ tests: 81 passing (mock backend + Catch2)
 - Go tests: 56 passing (mock backend, `-race` clean)
-- Total: 556 tests
+- Total: 566 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 - Build time: 0.26s (no-op), ~11s (incremental)
-- Throughput (CAN 2.0B): 7,279 fps streaming LTL, 6,198 fps signal extraction, 4,290 fps frame building
-- Throughput (CAN-FD, 25 signals, 64 bytes): 1,197 fps streaming, 721 fps extraction, 2,212 fps building
-- Per-frame latency: 103 us (CAN 2.0B)
+- Throughput (CAN 2.0B, streaming LTL): 11,022 fps (C++), 9,689 fps (Go), 9,679 fps (Python)
+- Throughput (CAN 2.0B, signal extraction): 7,148 fps (C++), 6,838 fps (Go), 6,665 fps (Python)
+- Throughput (CAN 2.0B, frame building): 4,310 fps (C++), 5,181 fps (Go), 4,339 fps (Python)
+- Throughput (CAN-FD, streaming LTL): 1,868 fps (C++), 1,892 fps (Go), 1,710 fps (Python)
+- Throughput (CAN-FD, signal extraction): 1,067 fps (C++), 1,154 fps (Go), 988 fps (Python)
+- Throughput (CAN-FD, frame building): 2,097 fps (C++), 2,793 fps (Go), 2,176 fps (Python)
+- Per-frame latency: ~91 us (CAN 2.0B, C++ best)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
-- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — optimization in progress (P1 done: +12%, byte-at-a-time extraction started).
+- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — binary FFI expected to close the gap (projected ~17,500 fps CAN-FD).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
@@ -360,9 +366,10 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Recent completions**:
 - CAN-FD support — **COMPLETE**: All 13 steps executed (Agda core generalization, proof updates, Python/C++/Go bindings, documentation)
+- Cross-language benchmark suite — **COMPLETE**: Python/C++/Go throughput/latency/scaling with JSON output, comparison script, runner. DLC serialization bug fixed. Hot-path optimized (ack fast path + direct serialization).
 
 **Future**:
-- Binary FFI protocol (24% CAN gain, essential for SOME/IP throughput)
+- Binary FFI protocol (projected 10x CAN-FD gain, essential for SOME/IP throughput)
 - SOME/IP support (automotive Ethernet, service-oriented)
 
 ---

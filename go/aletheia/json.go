@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // bytesToIntSlice converts []byte to []int for JSON serialization.
@@ -32,19 +34,31 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 }
 
 func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (string, error) {
-	m := map[string]any{
-		"type":      "data",
-		"timestamp": ts.Microseconds,
-		"id":        id.Value(),
-		"extended":  id.IsExtended(),
-		"dlc":       dlc.Value(),
-		"data":      bytesToIntSlice(data),
+	// Hot path: build JSON directly instead of json.Marshal(map).
+	// Avoids map allocation, reflection-based marshaling, and []int conversion.
+	var buf strings.Builder
+	buf.Grow(128 + len(data)*4) // pre-size for typical frame
+	buf.WriteString(`{"type":"data","timestamp":`)
+	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
+	buf.WriteString(`,"id":`)
+	buf.WriteString(strconv.FormatUint(uint64(id.Value()), 10))
+	buf.WriteString(`,"extended":`)
+	if id.IsExtended() {
+		buf.WriteString("true")
+	} else {
+		buf.WriteString("false")
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "", protocolError("failed to serialize data frame: " + err.Error())
+	buf.WriteString(`,"dlc":`)
+	buf.WriteString(strconv.FormatUint(uint64(dlc.Value()), 10))
+	buf.WriteString(`,"data":[`)
+	for i, b := range data {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteString(strconv.FormatUint(uint64(b), 10))
 	}
-	return string(b), nil
+	buf.WriteString("]}")
+	return buf.String(), nil
 }
 
 func serializeDBC(dbc DbcDefinition) map[string]any {
@@ -413,7 +427,16 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 	return payload, nil
 }
 
+// Ack fast path constants — avoid json.Unmarshal for ~99% of streaming frames.
+const ackCompact = `{"status":"ack"}`
+const ackSpaced = `{"status": "ack"}`
+
 func parseFrameResponse(raw string) (FrameResponse, error) {
+	// Fast path: byte-level check before JSON parsing.
+	if raw == ackCompact || raw == ackSpaced {
+		return Ack{}, nil
+	}
+
 	m, err := parseResponse(raw)
 	if err != nil {
 		return nil, err

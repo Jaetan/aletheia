@@ -123,6 +123,9 @@ cd python && pylint aletheia/
 
 # Build and test C++ binding
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+
+# Run cross-language benchmarks (requires all bindings built)
+bash benchmarks/run_all.sh --frames 1000 --runs 5 --bench throughput
 ```
 
 ## Architecture (Three-Layer Design)
@@ -299,7 +302,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Signal extraction performance optimization in progress: P1 done (`extractSignalDirect` eliminates redundant lookups, +12% CAN-FD), byte-at-a-time `extractRaw` started in `Endianness.agda` but not yet wired into extraction path. Scientific notation support added to JSON parser (`parseRational` handles `e`/`E`). CAN-FD benchmarks added to all benchmark scripts. **Known issues**: Roundtrip proof modules (SignalRoundtrip, MessageRoundtrip/*) still broken (pre-existing, not in Main.agda build path). 61 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API planned (projected 10x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Known issues**: Roundtrip proof modules still broken (pre-existing). 61 Agda modules total.
 
 ---
 
