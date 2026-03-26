@@ -83,21 +83,33 @@ extractBits {suc length} {n} bytes startBit = bitValue ∷ restBits
     restBits = extractBits bytes (suc startBit)
 
 -- Raw value extraction using ℕ arithmetic (no BitVec allocation).
--- Computes the same value as bitVecToℕ (extractBits bytes startBit) but
--- uses integer shifts instead of allocating BitVec 8 per bit.
--- Structurally recursive on bitLength.
+-- Pre-slices the Vec to skip irrelevant leading bytes, reducing per-bit
+-- lookupSafe cost from O(byteIndex) to O(0..bitLength/8).
+-- For CAN-FD signal at byte 50: O(50) once instead of O(50) × bitLength.
 private
   -- Right-shift: x / 2^k via k divisions by 2 (avoids _^_ which is O(k) in MAlonzo)
   shiftR : ℕ → ℕ → ℕ
   shiftR x zero = x
   shiftR x (suc k) = shiftR (x Nat./ 2) k
 
+  -- Drop first k bytes from a Vec
+  dropVec : ∀ n k → Vec Byte n → Vec Byte (n ∸ k)
+  dropVec n zero bs = bs
+  dropVec zero (suc k) [] = []
+  dropVec (suc n) (suc k) (_ ∷ bs) = dropVec n k bs
+
+  -- Core bit-at-a-time extraction (structurally recursive on bitLength)
+  extractCore : (n : ℕ) → Vec Byte n → ℕ → (bitLength : ℕ) → ℕ
+  extractCore n bytes sb zero = 0
+  extractCore n bytes sb (suc bl) =
+    let byte = lookupSafe n (sb Nat./ 8) bytes
+        bitVal = shiftR byte (sb Nat.% 8) Nat.% 2
+    in bitVal + 2 * extractCore n bytes (suc sb) bl
+
 extractRaw : (n : ℕ) → Vec Byte n → ℕ → (bitLength : ℕ) → ℕ
-extractRaw n bytes startBit zero = 0
-extractRaw n bytes startBit (suc bl) =
-  let byte = lookupSafe n (startBit Nat./ 8) bytes
-      bitVal = shiftR byte (startBit Nat.% 8) Nat.% 2
-  in bitVal + 2 * extractRaw n bytes (suc startBit) bl
+extractRaw n bytes startBit bitLength =
+  let skip = startBit Nat./ 8
+  in extractCore (n ∸ skip) (dropVec n skip bytes) (startBit Nat.% 8) bitLength
 
 -- Inject bits into a byte vector at a given position
 -- Takes a BitVec (structural, not arithmetic)
