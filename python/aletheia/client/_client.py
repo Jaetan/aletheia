@@ -611,6 +611,10 @@ class AletheiaClient:
         result["formula"] = diag.formula_desc
         result["enriched_reason"] = _format_enriched_reason(diag, values)
 
+    # Pre-encoded ack response bytes for fast-path comparison
+    _ACK_BYTES = b'{"status":"ack"}'
+    _ACK_BYTES_SPACED = b'{"status": "ack"}'
+
     def send_frame(
         self,
         timestamp: int,
@@ -635,15 +639,33 @@ class AletheiaClient:
         Returns:
             AckResponse, PropertyViolationResponse, or ErrorResponse
         """
-        frame: DataFrame = {
-            "type": "data",
-            "timestamp": timestamp,
-            "id": can_id,
-            "dlc": dlc,
-            "data": list(data),
-            "extended": extended,
-        }
-        response = self._send_command(frame)
+        if self._lib is None or self._state is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
+
+        # Build JSON directly (skip dict construction + json.dumps)
+        data_str = ",".join(str(b) for b in data)
+        ext_str = "true" if extended else "false"
+        cmd = (
+            f'{{"type":"data","timestamp":{timestamp},"id":{can_id},'
+            f'"dlc":{dlc},"data":[{data_str}],"extended":{ext_str}}}'
+        ).encode("utf-8")
+
+        result_ptr = self._lib.aletheia_process(self._state, cmd)
+        try:
+            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+            if result_bytes is None:
+                raise ProtocolError("FFI returned null pointer")
+
+            # Fast path: ack response (overwhelmingly common in streaming)
+            if result_bytes == self._ACK_BYTES or result_bytes == self._ACK_BYTES_SPACED:
+                return {"status": "ack"}
+
+            # Slow path: violations/errors — full JSON parse
+            result_str = result_bytes.decode("utf-8")
+        finally:
+            self._lib.aletheia_free_str(result_ptr)
+
+        response = cast(Response, parse_json_object(result_str))
         result = self._parse_frame_response(response)
 
         if result["status"] == "violation":
