@@ -9,6 +9,9 @@ type Backend interface {
 	Init() (unsafe.Pointer, error)
 	// Process sends a JSON command and returns the JSON response.
 	Process(state unsafe.Pointer, input string) (string, error)
+	// SendFrameBinary sends a CAN frame via the binary FFI, bypassing JSON
+	// serialization on the input side. Returns the JSON response string.
+	SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error)
 	// Close finalizes and frees the session state.
 	Close(state unsafe.Pointer)
 }

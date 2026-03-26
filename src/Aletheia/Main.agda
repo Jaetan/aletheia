@@ -35,6 +35,7 @@ open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; 
 open import Aletheia.Protocol.Routing using (parseDataFrame; parseCommand)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
+open import Aletheia.Trace.CANTrace using (TimedFrame)
 import Aletheia.Protocol.Message as Msg
 
 -- ============================================================================
@@ -105,6 +106,22 @@ processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJ
     handleParsedJSON nothing = (state , formatJSON (formatResponse (Msg.Response.Error "Invalid JSON")))
     handleParsedJSON (just (JObject obj)) = dispatchMessage (JObject obj)
     handleParsedJSON (just _) = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
+
+-- ============================================================================
+-- BINARY FRAME ENTRY POINT (No JSON parsing)
+-- ============================================================================
+
+-- Binary entry point: process a pre-parsed data frame.
+-- Called by aletheia_send_frame via AletheiaFFI.hs.
+-- No JSON parsing — frame components passed directly by the Haskell shim.
+--
+-- This calls handleDataFrame directly, then formats the response.
+-- The proof obligation (refl) is in Protocol/FrameProcessor/Properties.agda.
+processFrameDirect : StreamState → TimedFrame → StreamState × String
+{-# NOINLINE processFrameDirect #-}
+processFrameDirect state tf =
+  let (newState , response) = handleDataFrame state tf
+  in (newState , formatJSON (formatResponse response))
 
 -- ============================================================================
 -- COINDUCTIVE STREAMING INTERFACE (O(1) Memory)

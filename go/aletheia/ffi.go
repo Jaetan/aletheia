@@ -9,6 +9,7 @@ package aletheia
 // #cgo LDFLAGS: -ldl
 //
 // #include <dlfcn.h>
+// #include <stdint.h>
 // #include <stdlib.h>
 //
 // // Typed trampolines so cgo can call function pointers loaded via dlsym.
@@ -28,6 +29,11 @@ package aletheia
 // }
 // static void call_close(void *fn, void *state) {
 //     ((void (*)(void*))fn)(state);
+// }
+// static char* call_send_frame(void *fn, void *state, uint64_t ts,
+//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
+//     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
+//                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
 // }
 import "C"
 
@@ -50,11 +56,12 @@ var hsInitOnce sync.Once
 // never finalized. All FFI calls are pinned to OS threads via
 // [runtime.LockOSThread] because the GHC RTS has per-capability state.
 type FFIBackend struct {
-	handle    unsafe.Pointer // dlopen handle
-	initFn    unsafe.Pointer
-	processFn unsafe.Pointer
-	freeStrFn unsafe.Pointer
-	closeFn   unsafe.Pointer
+	handle      unsafe.Pointer // dlopen handle
+	initFn      unsafe.Pointer
+	processFn   unsafe.Pointer
+	sendFrameFn unsafe.Pointer
+	freeStrFn   unsafe.Pointer
+	closeFn     unsafe.Pointer
 }
 
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
@@ -97,6 +104,11 @@ func NewFFIBackend(libPath string) (*FFIBackend, error) {
 		C.dlclose(handle)
 		return nil, err
 	}
+	sendFrameFn, err := loadSym(handle, "aletheia_send_frame")
+	if err != nil {
+		C.dlclose(handle)
+		return nil, err
+	}
 	freeStrFn, err := loadSym(handle, "aletheia_free_str")
 	if err != nil {
 		C.dlclose(handle)
@@ -116,11 +128,12 @@ func NewFFIBackend(libPath string) (*FFIBackend, error) {
 	})
 
 	return &FFIBackend{
-		handle:    handle,
-		initFn:    initFn,
-		processFn: processFn,
-		freeStrFn: freeStrFn,
-		closeFn:   closeFn,
+		handle:      handle,
+		initFn:      initFn,
+		processFn:   processFn,
+		sendFrameFn: sendFrameFn,
+		freeStrFn:   freeStrFn,
+		closeFn:     closeFn,
 	}, nil
 }
 
@@ -149,6 +162,38 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 	result := C.call_process(b.processFn, state, cInput)
 	if result == nil {
 		return "", ffiError("aletheia_process returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// SendFrameBinary sends a CAN frame via the binary FFI entry point,
+// bypassing JSON serialization on the input side.
+func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	var dataPtr *C.uint8_t
+	if len(data) > 0 {
+		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	result := C.call_send_frame(
+		b.sendFrameFn, state,
+		C.uint64_t(ts.Microseconds),
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		dataPtr,
+		C.uint8_t(len(data)),
+	)
+	if result == nil {
+		return "", ffiError("aletheia_send_frame returned null")
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil

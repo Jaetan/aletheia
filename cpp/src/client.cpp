@@ -110,8 +110,7 @@ auto AletheiaClient::start_stream() -> Result<void> {
 
 auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
     -> Result<FrameResponse> {
-    auto cmd = detail::serialize_send_frame(ts, id, dlc, data);
-    auto resp = backend_->process(state_, cmd);
+    auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data);
     auto result = detail::parse_frame_response(resp);
     if (result.has_value()) {
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty())

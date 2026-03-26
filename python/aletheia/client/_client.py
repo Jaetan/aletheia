@@ -241,6 +241,18 @@ class AletheiaClient:
         self._lib.aletheia_close.argtypes = [ctypes.c_void_p]
         self._lib.aletheia_close.restype = None
 
+        # Binary frame endpoint (hot path — bypasses JSON serialization on input)
+        self._lib.aletheia_send_frame.argtypes = [
+            ctypes.c_void_p,                 # state
+            ctypes.c_uint64,                 # timestamp
+            ctypes.c_uint32,                 # can_id
+            ctypes.c_uint8,                  # extended (0 or 1)
+            ctypes.c_uint8,                  # dlc
+            ctypes.POINTER(ctypes.c_uint8),  # data pointer
+            ctypes.c_uint8,                  # data_len
+        ]
+        self._lib.aletheia_send_frame.restype = ctypes.c_void_p
+
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
         RTSState.acquire(self._lib, self._rts_cores)
 
@@ -642,15 +654,17 @@ class AletheiaClient:
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
 
-        # Build JSON directly (skip dict construction + json.dumps)
-        data_str = ",".join(str(b) for b in data)
-        ext_str = "true" if extended else "false"
-        cmd = (
-            f'{{"type":"data","timestamp":{timestamp},"id":{can_id},'
-            f'"dlc":{dlc},"data":[{data_str}],"extended":{ext_str}}}'
-        ).encode("utf-8")
-
-        result_ptr = self._lib.aletheia_process(self._state, cmd)
+        # Binary FFI: pass frame components directly (no JSON serialization)
+        data_array = (ctypes.c_uint8 * len(data))(*data)
+        result_ptr = self._lib.aletheia_send_frame(
+            self._state,
+            ctypes.c_uint64(timestamp),
+            ctypes.c_uint32(can_id),
+            ctypes.c_uint8(1 if extended else 0),
+            ctypes.c_uint8(dlc),
+            data_array,
+            ctypes.c_uint8(len(data)),
+        )
         try:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:

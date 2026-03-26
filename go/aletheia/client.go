@@ -228,13 +228,12 @@ func (c *Client) StartStream() error {
 // Violations are automatically enriched with signal values and a human-readable
 // formula description when diagnostics are available.
 func (c *Client) SendFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
-	input, err := serializeDataFrame(ts, id, dlc, data)
-	if err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.processLocked(input)
+	if c.closed {
+		return nil, stateError("client is closed")
+	}
+	resp, err := c.backend.SendFrameBinary(c.state, ts, id, dlc, []byte(data))
 	if err != nil {
 		return nil, err
 	}
