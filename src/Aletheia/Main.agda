@@ -56,7 +56,7 @@ import Aletheia.Protocol.Message as Msg
 --   - parseCommand/parseDataFrame return error messages for detailed context
 --
 -- State Threading:
---   - State flows through: parseJSON_helper → routing → handler → response
+--   - State flows through: handleParsedJSON → routing → handler → response
 --   - On error: original state returned unchanged
 --   - On success: new state from handler (DBC parse, properties set, stream update)
 --
@@ -68,7 +68,7 @@ import Aletheia.Protocol.Message as Msg
 -- Returns: (new state, JSON response string)
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
-processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJSON (toList jsonLine)))
+processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJSON (toList jsonLine)))
   where
     -- Try to parse command with detailed tracing
     tryParseCommand : List (String × JSON) → StreamState × String
@@ -78,9 +78,9 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
           let (newState , response) = processStreamCommand cmd state
           in (newState , formatJSON (formatResponse response))
 
-    -- Trace all messages
-    parseJSON_helperWithTrace : JSON → StreamState × String
-    parseJSON_helperWithTrace (JObject obj) =
+    -- Dispatch by message type ("data" or "command")
+    dispatchMessage : JSON → StreamState × String
+    dispatchMessage (JObject obj) =
       let typeField = lookupString "type" obj
       in case_type typeField obj
       where
@@ -88,23 +88,23 @@ processJSONLine state jsonLine = parseJSON_helper (map proj₁ (runParser parseJ
         case_type nothing obj = (state , formatJSON (formatResponse (Msg.Response.Error "Missing 'type' field in request")))
         case_type (just msgType) obj =
           if ⌊ msgType ≟ "data" ⌋
-          then trace_dataframe obj
+          then handleDataMessage obj
           else if ⌊ msgType ≟ "command" ⌋
                then tryParseCommand obj
                else (state , formatJSON (formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
           where
-            trace_dataframe : List (String × JSON) → StreamState × String
-            trace_dataframe obj with parseDataFrame obj
+            handleDataMessage : List (String × JSON) → StreamState × String
+            handleDataMessage obj with parseDataFrame obj
             ... | inj₁ errMsg = (state , formatJSON (formatResponse (Msg.Response.Error errMsg)))
             ... | inj₂ tf =
                   let (newState , response) = handleDataFrame state tf
                   in (newState , formatJSON (formatResponse response))
-    parseJSON_helperWithTrace json = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
+    dispatchMessage json = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
-    parseJSON_helper : Maybe JSON → StreamState × String
-    parseJSON_helper nothing = (state , formatJSON (formatResponse (Msg.Response.Error "Invalid JSON")))
-    parseJSON_helper (just (JObject obj)) = parseJSON_helperWithTrace (JObject obj)
-    parseJSON_helper (just _) = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
+    handleParsedJSON : Maybe JSON → StreamState × String
+    handleParsedJSON nothing = (state , formatJSON (formatResponse (Msg.Response.Error "Invalid JSON")))
+    handleParsedJSON (just (JObject obj)) = dispatchMessage (JObject obj)
+    handleParsedJSON (just _) = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
 -- ============================================================================
 -- COINDUCTIVE STREAMING INTERFACE (O(1) Memory)

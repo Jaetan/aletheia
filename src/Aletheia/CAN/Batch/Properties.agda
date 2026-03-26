@@ -25,7 +25,7 @@ open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extra
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned; removeScaling)
 open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
-open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.BatchExtraction using (ExtractionResults; mkExtractionResults; categorizeResult; combineResults; emptyResults; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Properties using (
@@ -418,30 +418,30 @@ private
 
 -- Completeness: extractAllSignalsFromMessage produces exactly one entry per signal.
 -- Each signal is categorized into exactly one partition (values, errors, or absent).
-extractAll-complete : ∀ {n} dbc (frame : CANFrame n) msg
-  → totalEntries (extractAllSignalsFromMessage dbc frame msg)
+extractAll-complete : ∀ {n} (frame : CANFrame n) msg
+  → totalEntries (extractAllSignalsFromMessage frame msg)
     ≡ length (DBCMessage.signals msg)
-extractAll-complete dbc frame msg = go (DBCMessage.signals msg)
+extractAll-complete frame msg = go (DBCMessage.signals msg)
   where
     f : DBCSignal → ExtractionResults
     f sig = categorizeResult (DBCSignal.name sig)
-              (extractSignalWithContext dbc frame (DBCSignal.name sig))
+              (extractSignalDirect msg frame sig)
 
     go : ∀ sigs → totalEntries (foldr combineResults emptyResults (map f sigs))
                   ≡ length sigs
     go [] = refl
     go (sig ∷ sigs)
-      with extractSignalWithContext dbc frame (DBCSignal.name sig)
+      with extractSignalDirect msg frame sig
          | foldr combineResults emptyResults (map f sigs) | go sigs
     ... | Success _              | mkExtractionResults vs es as | ih =
       cong suc ih
-    ... | SignalNotInDBC _       | mkExtractionResults vs es as | ih =
+    ... | SignalNotInDBC         | mkExtractionResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
-    ... | SignalNotPresent _ _   | mkExtractionResults vs es as | ih =
+    ... | SignalNotPresent _     | mkExtractionResults vs es as | ih =
       trans (shift-last (length vs) (length es) (length as)) (cong suc ih)
-    ... | ValueOutOfBounds _ _ _ _ | mkExtractionResults vs es as | ih =
+    ... | ValueOutOfBounds _ _ _ | mkExtractionResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
-    ... | ExtractionFailed _ _   | mkExtractionResults vs es as | ih =
+    ... | ExtractionFailed _     | mkExtractionResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
 
 -- ============================================================================

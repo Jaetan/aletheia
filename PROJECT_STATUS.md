@@ -334,10 +334,11 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 - Build time: 0.26s (no-op), ~11s (incremental)
-- Throughput: 9,704 fps streaming LTL, 8,058 fps signal extraction, 5,913 fps frame building
-- Per-frame latency: 103 us
+- Throughput (CAN 2.0B): 7,279 fps streaming LTL, 6,198 fps signal extraction, 4,290 fps frame building
+- Throughput (CAN-FD, 25 signals, 64 bytes): 1,197 fps streaming, 721 fps extraction, 2,212 fps building
+- Per-frame latency: 103 us (CAN 2.0B)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
-- **Single-threaded runtime**: 9,654 fps on 1 CPU (no degradation vs multi-core). Parallelism is build-time only (`agda +RTS -N`). Deployable to minimal containers (1 vCPU) with 2.4x headroom over a 500 kbit/s CAN bus (~4,000 frames/sec).
+- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — optimization in progress (P1 done: +12%, byte-at-a-time extraction started).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:

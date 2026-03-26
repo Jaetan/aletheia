@@ -41,17 +41,20 @@ data StreamCommand : Set where
   -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
 
   -- Build CAN frame from signal name-value pairs
-  -- Args: CAN ID, DLC, list of {name: string, value: rational} objects
+  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
+  --       list of {name: string, value: rational} objects
   -- Returns: frame with all signals encoded (byte count = dlcToBytes DLC)
-  BuildFrame : CANId → ℕ → List JSON → StreamCommand
+  BuildFrame : CANId → (dlc : ℕ) → List JSON → StreamCommand
 
   -- Extract all signals from a CAN frame
-  -- Args: CAN ID, DLC, frame data (length = dlcToBytes DLC)
+  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
+  --       frame data (length = dlcToBytes DLC)
   -- Returns: Extraction results (values/errors/absent)
   ExtractAllSignals : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamCommand
 
   -- Update specific signals in an existing frame
-  -- Args: CAN ID, DLC, existing frame bytes, list of {name: string, value: rational} updates
+  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
+  --       existing frame bytes, list of {name: string, value: rational} updates
   -- Returns: Updated frame
   UpdateFrame : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List JSON → StreamCommand
 

@@ -11,7 +11,7 @@ module Aletheia.CAN.SignalExtraction where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; scaleExtracted; extractionBytes)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractSignalCoreFast; scaleExtracted; extractionBytes)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
@@ -54,25 +54,29 @@ checkSignalPresence frame msg sig with DBCSignal.presence sig
 ... | Always = nothing  -- Signal always present, no error
 ... | When muxName muxValue = checkMultiplexor frame msg muxName muxValue
 
+-- Extract signal from frame given known message and signal (no DBC lookups)
+-- This is the fast path used by batch extraction.
+extractSignalDirect : ∀ {n} → DBCMessage → CANFrame n → DBCSignal → ExtractionResult
+extractSignalDirect msg frame sig with checkSignalPresence frame msg sig
+... | just reason = SignalNotPresent reason
+... | nothing =
+        let sigDef = DBCSignal.signalDef sig
+            bo = DBCSignal.byteOrder sig
+            bytes = extractionBytes frame bo
+            raw = extractSignalCoreFast bytes sigDef
+            value = scaleExtracted raw sigDef
+            minVal = SignalDef.minimum sigDef
+            maxVal = SignalDef.maximum sigDef
+        in if inBounds value minVal maxVal
+           then Success value
+           else ValueOutOfBounds value minVal maxVal
+
 -- Extract signal value from frame with full error reporting
--- This is the primary interface for signal extraction
+-- This is the primary interface for single signal extraction by name.
 extractSignalWithContext : ∀ {n} → DBC → CANFrame n → String → ExtractionResult
 extractSignalWithContext dbc frame signalName with findMessageById (CANFrame.id frame) dbc
-... | nothing = SignalNotInDBC signalName
+... | nothing = SignalNotInDBC
 ... | just msg with findSignalByName signalName msg
-...   | nothing = SignalNotInDBC signalName
-...   | just sig with checkSignalPresence frame msg sig
-...     | just reason = SignalNotPresent signalName reason
-...     | nothing =
-            -- Use core extraction functions to get detailed error info
-            let sigDef = DBCSignal.signalDef sig
-                bo = DBCSignal.byteOrder sig
-                bytes = extractionBytes frame bo
-                raw = extractSignalCore bytes sigDef
-                value = scaleExtracted raw sigDef
-                minVal = SignalDef.minimum sigDef
-                maxVal = SignalDef.maximum sigDef
-            in if inBounds value minVal maxVal
-               then Success value
-               else ValueOutOfBounds signalName value minVal maxVal
+...   | nothing = SignalNotInDBC
+...   | just sig = extractSignalDirect msg frame sig
 

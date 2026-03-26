@@ -299,7 +299,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete (all 13 steps + 7 review fixes + 5 code review fixes): `CANFrame` parameterized by `n`, `TimedFrame` dependent record with `.dlcValid` invariant, protocol messages generic with DLC validation (`≤ 15`), `physicalBitPos` parameterized, validation layer updated (`ValidDLC` via `Is-just (bytesToDlc ...)`), `PhysicallyDisjoint` parameterized by frame byte count, all proof functions generalized from `CANFrame 8` to `∀ {n}` (Endianness, Encoding, Batch/Properties), `buildFrame` parameterized by DLC, Python/C++/Go bindings updated, documentation updated. New modules: `CAN/DLC.agda` (DLC↔byte count with 5 proofs), `CAN/Encoding/Arithmetic.agda` (extracted numeric conversions). **Known issues**: Roundtrip proof modules (SignalRoundtrip, MessageRoundtrip/*) still broken (pre-existing, not in Main.agda build path). 61 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Signal extraction performance optimization in progress: P1 done (`extractSignalDirect` eliminates redundant lookups, +12% CAN-FD), byte-at-a-time `extractRaw` started in `Endianness.agda` but not yet wired into extraction path. Scientific notation support added to JSON parser (`parseRational` handles `e`/`E`). CAN-FD benchmarks added to all benchmark scripts. **Known issues**: Roundtrip proof modules (SignalRoundtrip, MessageRoundtrip/*) still broken (pre-existing, not in Main.agda build path). 61 Agda modules total.
 
 ---
 

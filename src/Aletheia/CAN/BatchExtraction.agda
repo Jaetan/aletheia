@@ -12,7 +12,7 @@ module Aletheia.CAN.BatchExtraction where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
-open import Aletheia.CAN.SignalExtraction using (extractSignalWithContext)
+open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
@@ -48,17 +48,17 @@ record ExtractionResults : Set where
 categorizeResult : String → ExtractionResult → ExtractionResults
 categorizeResult sigName (Success value) =
   mkExtractionResults ((sigName , value) ∷ []) [] []
-categorizeResult sigName (SignalNotInDBC _) =
+categorizeResult sigName SignalNotInDBC =
   mkExtractionResults [] ((sigName , "Signal not found in DBC") ∷ []) []
-categorizeResult sigName (SignalNotPresent _ reason) =
+categorizeResult sigName (SignalNotPresent reason) =
   -- Multiplexed signal not present
   mkExtractionResults [] [] (sigName ∷ [])
-categorizeResult sigName (ValueOutOfBounds _ value min max) =
+categorizeResult sigName (ValueOutOfBounds value min max) =
   mkExtractionResults [] ((sigName , "Value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
   where
     formatBounds : ℚ → ℚ → ℚ → String
     formatBounds v mn mx = show v ++ₛ " not in [" ++ₛ show mn ++ₛ ", " ++ₛ show mx ++ₛ "]"
-categorizeResult sigName (ExtractionFailed _ reason) =
+categorizeResult sigName (ExtractionFailed reason) =
   mkExtractionResults [] ((sigName , reason) ∷ []) []
 
 -- Combine two extraction results
@@ -71,14 +71,14 @@ emptyResults : ExtractionResults
 emptyResults = mkExtractionResults [] [] []
 
 -- Extract all signals from a message
-extractAllSignalsFromMessage : ∀ {n} → DBC → CANFrame n → DBCMessage → ExtractionResults
-extractAllSignalsFromMessage dbc frame msg =
+extractAllSignalsFromMessage : ∀ {n} → CANFrame n → DBCMessage → ExtractionResults
+extractAllSignalsFromMessage frame msg =
   foldr combineResults emptyResults (map extractOne (DBCMessage.signals msg))
   where
     extractOne : DBCSignal → ExtractionResults
     extractOne sig =
       let sigName = DBCSignal.name sig
-          result = extractSignalWithContext dbc frame sigName
+          result = extractSignalDirect msg frame sig
       in categorizeResult sigName result
 
 -- Extract all signals from a frame
@@ -90,4 +90,4 @@ extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
     mkExtractionResults [] (("message" , "CAN ID not found in DBC") ∷ []) []
 ... | just msg =
     -- Extract all signals from this message
-    extractAllSignalsFromMessage dbc frame msg
+    extractAllSignalsFromMessage frame msg

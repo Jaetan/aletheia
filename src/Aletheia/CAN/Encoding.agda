@@ -15,7 +15,7 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; injectBits; payloadIso; physicalBitPos; not-in-interval; _≟-ByteOrder_)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; injectBits; payloadIso; physicalBitPos; not-in-interval; _≟-ByteOrder_)
 open import Aletheia.CAN.Endianness.Properties using (payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos-BE-involutive; physicalBitPos-BE-bounded; extractBits-swap-inject-preserves)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.Data.BitVec using (BitVec)
@@ -49,6 +49,13 @@ extractSignalCore bytes sig =
     (bitVecToℕ (extractBits {bitLength} bytes (startBit)))
     (bitLength)
     isSigned
+
+-- Byte-at-a-time signal extraction (efficient for MAlonzo: ~8x fewer Vec walks)
+-- Same result as extractSignalCore but uses extractRaw instead of extractBits.
+extractSignalCoreFast : ∀ {m} → Vec Byte m → SignalDef → ℤ
+extractSignalCoreFast {m} bytes sig =
+  let open SignalDef sig in
+  toSigned (extractRaw m bytes startBit bitLength) bitLength isSigned
 
 -- Apply scaling to raw extracted value
 scaleExtracted : ℤ → SignalDef → ℚ

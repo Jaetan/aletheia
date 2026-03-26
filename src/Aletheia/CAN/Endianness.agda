@@ -82,6 +82,23 @@ extractBits {suc length} {n} bytes startBit = bitValue ∷ restBits
     restBits : BitVec length
     restBits = extractBits bytes (suc startBit)
 
+-- Raw value extraction using ℕ arithmetic (no BitVec allocation).
+-- Computes the same value as bitVecToℕ (extractBits bytes startBit) but
+-- uses integer shifts instead of allocating BitVec 8 per bit.
+-- Structurally recursive on bitLength.
+private
+  -- Right-shift: x / 2^k via k divisions by 2 (avoids _^_ which is O(k) in MAlonzo)
+  shiftR : ℕ → ℕ → ℕ
+  shiftR x zero = x
+  shiftR x (suc k) = shiftR (x Nat./ 2) k
+
+extractRaw : (n : ℕ) → Vec Byte n → ℕ → (bitLength : ℕ) → ℕ
+extractRaw n bytes startBit zero = 0
+extractRaw n bytes startBit (suc bl) =
+  let byte = lookupSafe n (startBit Nat./ 8) bytes
+      bitVal = shiftR byte (startBit Nat.% 8) Nat.% 2
+  in bitVal + 2 * extractRaw n bytes (suc startBit) bl
+
 -- Inject bits into a byte vector at a given position
 -- Takes a BitVec (structural, not arithmetic)
 -- Parameterized by payload size n (supports any CAN/CAN-FD byte count).
