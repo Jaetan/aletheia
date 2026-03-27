@@ -257,72 +257,58 @@ handleEndStream-State state with StreamState.phase state
 ... | _ = (state , Response.Error "Not currently streaming")
 
 -- ============================================================================
+-- FRAME PROCESSING HELPERS (factored to module level for proof access)
+-- ============================================================================
+
+-- Classify a single stepL result into a StepOutcome.
+-- Continue/Satisfied → advance (property continues checking)
+-- Violated → halt (property failed, halt iteration)
+classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+classifyStepResult (Continue _ newProc) prop =
+  advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
+classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
+classifyStepResult Satisfied prop = advance prop
+
+-- Step one property: build PredTable, call stepL, classify result.
+stepProperty : DBC → SignalCache → TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
+stepProperty dbc cache tf prop =
+  let table = mkPredTable dbc cache (PropertyState.atoms prop)
+      result = stepL table (PropertyState.proc prop) tf
+  in classifyStepResult result prop
+
+-- Dispatch iteration result to StreamState × Response.
+-- nothing → Ack (all properties continued/satisfied)
+-- just (idx, ce) → PropertyResponse Violation
+dispatchIterResult : DBC → List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
+dispatchIterResult dbc (updatedProps , nothing) tf cache =
+  (mkStreamState Streaming (just dbc) updatedProps (just tf) cache , Response.Ack)
+dispatchIterResult dbc (allProps , just (idx , ce)) tf cache =
+  let open Counterexample ce
+      ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
+      violation = PR.PropertyResult.Violation idx ceData
+  in (mkStreamState Streaming (just dbc) allProps (just tf) cache , Response.PropertyResponse violation)
+
+-- ============================================================================
 -- FRAME PROCESSING (LTL Checking)
 -- ============================================================================
 
 -- Process incoming CAN frame with incremental LTL property checking.
 --
--- Algorithm:
---   1. Validate state machine: must be in Streaming phase with DBC loaded
---   2. Create TimedFrame from timestamp and frame
---   3. For each property: build PredTable from SignalCache, call stepL (Havelund-Rosu)
---   4. Classify StepResult: Continue → simplify and advance, Violated → halt, Satisfied → keep
---   5. Update SignalCache with newly extracted signal values
---   6. Update prevFrame to current frame for next iteration
+-- In Streaming phase: updates signal cache, iterates stepProperty over all
+-- properties (calling stepL for each), dispatches result to Ack or Violation.
 --
--- O(1) Memory Guarantee:
---   - Properties maintain fixed-size LTLProc state (no trace accumulation)
---   - Only prevFrame stored (for ChangedBy predicate support)
---   - stepL processes one frame at a time via formula progression
---   - Rosu simplification prevents tree growth (absorb idempotent subformulas)
---
--- Violation Reporting:
---   - First violation detected → PropertyResponse with counterexample
---   - Counterexample includes: timestamp, reason, property index
---   - Violated property halts iteration (remaining properties unchanged)
---   - Other properties continue checking on subsequent frames
---
+-- O(1) Memory: Properties maintain fixed-size LTLProc state (no trace accumulation).
+-- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
 handleDataFrame state tf with StreamState.phase state
 ... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before sending frames")
 ... | ReadyToStream = (state , Response.Error "Must call StartStream before sending frames")
 ... | Streaming with StreamState.dbc state
 ...   | nothing = (state , Response.Error "DBC not loaded")
-...   | just dbc = processFrame dbc
-  where
-    -- Current cache from state (before this frame's signals are extracted)
-    currentCache : SignalCache
-    currentCache = StreamState.signalCache state
-
-    processFrame : DBC → StreamState × Response
-    processFrame dbc =
-      let updatedCache = updateCacheFromFrame dbc currentCache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
-      in dispatchResult (iterate (propStep tf) (StreamState.properties state)) tf updatedCache
-      where
-        -- Step one property using stepL with PredTable.
-        -- Advance: updated property state (Continue, Satisfied)
-        -- Halt: violation evidence (property index + counterexample)
-        propStep : TimedFrame → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
-        propStep curr prop =
-          let table = mkPredTable dbc currentCache (PropertyState.atoms prop)
-              result = stepL table (PropertyState.proc prop) curr
-          in classifyResult result prop
-          where
-            classifyResult : StepResult LTLProc → PropertyState → StepOutcome PropertyState (ℕ × Counterexample)
-            classifyResult (Continue _ newProc) prop =
-              advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
-            classifyResult (Violated ce) prop = halt (PropertyState.index prop , ce)
-            classifyResult Satisfied prop = advance prop
-
-        -- Dispatch on iteration result: build StreamState × Response
-        dispatchResult : List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
-        dispatchResult (updatedProps , nothing) curr cache =
-          (mkStreamState Streaming (just dbc) updatedProps (just curr) cache , Response.Ack)
-        dispatchResult (allProps , just (idx , ce)) curr cache =
-          let open Counterexample ce
-              ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
-              violation = PR.PropertyResult.Violation idx ceData
-          in (mkStreamState Streaming (just dbc) allProps (just curr) cache , Response.PropertyResponse violation)
+...   | just dbc =
+  let cache = StreamState.signalCache state
+      updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
+  in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) (StreamState.properties state)) tf updatedCache
 
 -- ============================================================================
 -- BATCH SIGNAL OPERATIONS HANDLERS (Phase 2B.1)
