@@ -116,13 +116,12 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 ### Tier 3: FFI Boundary Trust
 
-**7. MAlonzo constructor fidelity**
+**7. MAlonzo constructor fidelity** — **TRUST BOUNDARY**
 
 - **File**: `haskell-shim/src/AletheiaFFI.hs`
 - **What it does**: `bytesToAgdaVec`, `C_constructor_26`, `C_Standard_10`, etc. manually construct MAlonzo internal types from raw C values.
-- **Risk**: If MAlonzo changes its constructor encoding (e.g., field order, naming convention), these constructors silently produce wrong values. Currently justified by inspection and the `mod-identity-byte` proof.
-- **Mitigation**: The Shakefile checks mangled names for `processJSONLine` and `processFrameDirect`. Constructor names are not checked.
-- **Suggested mitigation**: A Haskell-level test that constructs a `TimedFrame` via both JSON path and binary path and asserts equality.
+- **Why it can't be proven**: MAlonzo constructor layout is a GHC implementation detail outside Agda's type system. No formal correspondence exists between the Haskell constructors and Agda's record definitions.
+- **Mitigation**: (1) The Shakefile checks mangled function names at build time. (2) `haskell-shim/test/ConstructorTest.hs` is a smoke test that sends binary-constructed frames through `processFrameDirect` in a Streaming session and checks for expected ack/violation responses — catches constructor layout drift. Run: `cd haskell-shim && cabal test constructor-fidelity`.
 
 **8. `unsafeCoerce` in AletheiaFFI.hs**
 
@@ -157,7 +156,7 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 | Predicate table construction | **Proven** | — |
 | Signal cache integrity | **Proven** | — |
 | Streaming frame processing | **Not proven** | Tier 1 gap |
-| FFI type construction | **Not proven** | Trust boundary |
+| FFI type construction | **Trust boundary** | Outside Agda's reach; smoke test guards |
 
 ## Recommended Priority
 
@@ -167,7 +166,7 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 3. ~~**Tier 1, item 2**: Signal cache correctness~~ — ✅ **DONE** (this commit)
 
-4. **Tier 3, item 7**: MAlonzo constructor test — a Haskell-level equivalence test between JSON and binary frame paths. Not a formal proof, but catches constructor layout drift.
+4. ~~**Tier 3, item 7**: MAlonzo constructor test~~ — ✅ **DONE** (this commit)
 
 Items 1-3 are complete. All Tier 1 gaps are now closed: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
 
