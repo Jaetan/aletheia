@@ -16,27 +16,34 @@
 --   (5) handleDataFrame-streaming: decomposition into dispatchIterResult ∘ iterate ∘ stepProperty
 --   (6) handleDataFrame-ack-sound: Ack response ⇒ no property violated
 --   (7) handleDataFrame-violation-sound: PropertyResponse ⇒ some property violated
+--   (8) collectAtoms-faithful: atom indices in indexFormula look up correctly
+--   (9) mkPredTable-lookup: mkPredTable evaluates the looked-up predicate
 module Aletheia.Protocol.FrameProcessor.Properties where
 
 open import Aletheia.Protocol.StreamState
     using (StreamState; StreamPhase; WaitingForDBC; ReadyToStream; Streaming;
            handleDataFrame; PropertyState; mkPropertyState;
            classifyStepResult; stepProperty; dispatchIterResult;
-           mkPredTable; updateCacheFromFrame)
+           mkPredTable; updateCacheFromFrame;
+           collectAtomsAcc; collectAtoms; indexHelper; indexFormula; lookupAtom)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; simplify)
-open import Aletheia.LTL.SignalPredicate using (SignalCache)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
+    Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
+open import Aletheia.LTL.SignalPredicate using (SignalCache; SignalPredicate; evalPredicateTV)
 open import Aletheia.DBC.Types using (DBC)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.List using (List)
-open import Data.Nat using (ℕ; _<_; _%_)
+open import Data.List using (List; []; _∷_; _++_; length)
+open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++)
+open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; s≤s; z≤n; _%_)
+open import Data.Nat.Properties using (+-assoc; +-comm; +-identityʳ)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
 
 -- ============================================================================
 -- PROPERTY 1: State machine guards
@@ -195,3 +202,224 @@ handleDataFrame-violation-sound state tf dbc pr phase-eq dbc-eq resp-eq
                (StreamState.properties state) | resp-eq
 ... | (ps , nothing)    | ()
 ... | (ps , just e)     | _ = e , refl
+
+-- ============================================================================
+-- PROPERTY 9: mkPredTable faithfulness (atom indexing consistency)
+-- ============================================================================
+--
+-- Proves that indexHelper and collectAtomsAcc assign indices and collect
+-- atoms in the same left-to-right order, so mkPredTable evaluates
+-- the correct signal predicate for each atom index.
+
+-- Forward specification: atoms in left-to-right order (no accumulator).
+flattenAtoms : LTL SignalPredicate → List SignalPredicate
+flattenAtoms (Atomic a)               = a ∷ []
+flattenAtoms (Not φ)                  = flattenAtoms φ
+flattenAtoms (And φ ψ)               = flattenAtoms φ ++ flattenAtoms ψ
+flattenAtoms (Or φ ψ)                = flattenAtoms φ ++ flattenAtoms ψ
+flattenAtoms (Next φ)                 = flattenAtoms φ
+flattenAtoms (Always φ)               = flattenAtoms φ
+flattenAtoms (Eventually φ)           = flattenAtoms φ
+flattenAtoms (Until φ ψ)             = flattenAtoms φ ++ flattenAtoms ψ
+flattenAtoms (Release φ ψ)           = flattenAtoms φ ++ flattenAtoms ψ
+flattenAtoms (MetricEventually _ _ φ) = flattenAtoms φ
+flattenAtoms (MetricAlways _ _ φ)     = flattenAtoms φ
+flattenAtoms (MetricUntil _ _ φ ψ)   = flattenAtoms φ ++ flattenAtoms ψ
+flattenAtoms (MetricRelease _ _ φ ψ) = flattenAtoms φ ++ flattenAtoms ψ
+
+-- List lookup over concatenation: left part.
+lookupAtom-++-left : ∀ (xs ys : List SignalPredicate) k
+  → k < length xs → lookupAtom (xs ++ ys) k ≡ lookupAtom xs k
+lookupAtom-++-left []       ys k       ()
+lookupAtom-++-left (x ∷ xs) ys zero    _         = refl
+lookupAtom-++-left (x ∷ xs) ys (suc k) (s≤s k<n) = lookupAtom-++-left xs ys k k<n
+
+-- List lookup over concatenation: right part.
+lookupAtom-++-right : ∀ (xs ys : List SignalPredicate) k
+  → lookupAtom (xs ++ ys) (length xs + k) ≡ lookupAtom ys k
+lookupAtom-++-right []       ys k = refl
+lookupAtom-++-right (x ∷ xs) ys k = lookupAtom-++-right xs ys k
+
+private
+  -- Arithmetic: b + (a + n) ≡ (a + b) + n
+  +-swap-sum : ∀ a b n → b + (a + n) ≡ (a + b) + n
+  +-swap-sum a b n = trans (sym (+-assoc b a n)) (cong (_+ n) (+-comm b a))
+
+  -- Arithmetic: (a + k) + n ≡ k + (a + n)
+  ψ-index-eq : ∀ a k n → (a + k) + n ≡ k + (a + n)
+  ψ-index-eq a k n = trans (cong (_+ n) (+-comm a k)) (+-assoc k a n)
+
+  -- Extend k < |xs| to k < |xs ++ ys|
+  extend-< : ∀ {k} (xs ys : List SignalPredicate)
+    → k < length xs → k < length (xs ++ ys)
+  extend-<         []       ys ()
+  extend-< {zero}  (x ∷ xs) ys _         = s≤s z≤n
+  extend-< {suc k} (x ∷ xs) ys (s≤s k<) = s≤s (extend-< xs ys k<)
+
+  -- Shift k < |ys| to |xs| + k < |xs ++ ys|
+  shift-< : ∀ (xs ys : List SignalPredicate) {k}
+    → k < length ys → length xs + k < length (xs ++ ys)
+  shift-< []       ys k< = k<
+  shift-< (x ∷ xs) ys k< = s≤s (shift-< xs ys k<)
+
+-- Counter increment equals atom count.
+indexHelper-counter : ∀ (φ : LTL SignalPredicate) n
+  → proj₂ (indexHelper φ n) ≡ length (flattenAtoms φ) + n
+indexHelper-counter (Atomic _) n            = refl
+indexHelper-counter (Not φ) n               = indexHelper-counter φ n
+indexHelper-counter (And φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (Or φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (Next φ) n              = indexHelper-counter φ n
+indexHelper-counter (Always φ) n            = indexHelper-counter φ n
+indexHelper-counter (Eventually φ) n        = indexHelper-counter φ n
+indexHelper-counter (Until φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (Release φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (MetricEventually _ _ φ) n = indexHelper-counter φ n
+indexHelper-counter (MetricAlways _ _ φ) n     = indexHelper-counter φ n
+indexHelper-counter (MetricUntil _ _ φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (MetricRelease _ _ φ ψ) n
+  rewrite indexHelper-counter φ n
+  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
+  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
+  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+
+-- Per-index correctness: each atom index maps to the right predicate.
+-- Faithful atoms φ n holds when every Atomic k assigned by indexHelper φ n
+-- satisfies lookupAtom atoms k ≡ just pred.
+Faithful : List SignalPredicate → LTL SignalPredicate → ℕ → Set
+Faithful atoms (Atomic a) n               = lookupAtom atoms n ≡ just a
+Faithful atoms (Not φ) n                  = Faithful atoms φ n
+Faithful atoms (And φ ψ) n               = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+Faithful atoms (Or φ ψ) n                = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+Faithful atoms (Next φ) n                 = Faithful atoms φ n
+Faithful atoms (Always φ) n               = Faithful atoms φ n
+Faithful atoms (Eventually φ) n           = Faithful atoms φ n
+Faithful atoms (Until φ ψ) n             = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+Faithful atoms (Release φ ψ) n           = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+Faithful atoms (MetricEventually _ _ φ) n = Faithful atoms φ n
+Faithful atoms (MetricAlways _ _ φ) n     = Faithful atoms φ n
+Faithful atoms (MetricUntil _ _ φ ψ) n   = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+Faithful atoms (MetricRelease _ _ φ ψ) n = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
+
+-- Hypothesis constructors for binary formula cases.
+private
+  mk-φ-hyp : ∀ {n} ga (φ ψ : LTL SignalPredicate) →
+    (∀ k → k < length (flattenAtoms φ ++ flattenAtoms ψ) →
+       lookupAtom ga (k + n) ≡ lookupAtom (flattenAtoms φ ++ flattenAtoms ψ) k) →
+    ∀ k → k < length (flattenAtoms φ) → lookupAtom ga (k + n) ≡ lookupAtom (flattenAtoms φ) k
+  mk-φ-hyp ga φ ψ hyp k k< =
+    trans (hyp k (extend-< (flattenAtoms φ) (flattenAtoms ψ) k<))
+          (lookupAtom-++-left (flattenAtoms φ) (flattenAtoms ψ) k k<)
+
+  mk-ψ-hyp : ∀ ga (φ ψ : LTL SignalPredicate) n →
+    (∀ k → k < length (flattenAtoms φ ++ flattenAtoms ψ) →
+       lookupAtom ga (k + n) ≡ lookupAtom (flattenAtoms φ ++ flattenAtoms ψ) k) →
+    ∀ k → k < length (flattenAtoms ψ) →
+    lookupAtom ga (k + proj₂ (indexHelper φ n)) ≡ lookupAtom (flattenAtoms ψ) k
+  mk-ψ-hyp ga φ ψ n hyp k k<
+    rewrite indexHelper-counter φ n
+    | sym (ψ-index-eq (length (flattenAtoms φ)) k n)
+    = trans (hyp (length (flattenAtoms φ) + k) (shift-< (flattenAtoms φ) (flattenAtoms ψ) k<))
+            (lookupAtom-++-right (flattenAtoms φ) (flattenAtoms ψ) k)
+
+-- Generalized faithfulness: if the atom list matches flattenAtoms at offset n,
+-- then every atom index in the indexed formula looks up correctly.
+faithful-gen : ∀ ga (φ : LTL SignalPredicate) n →
+  (∀ k → k < length (flattenAtoms φ) → lookupAtom ga (k + n) ≡ lookupAtom (flattenAtoms φ) k) →
+  Faithful ga φ n
+faithful-gen ga (Atomic _) n hyp             = hyp 0 (s≤s z≤n)
+faithful-gen ga (Not φ) n hyp                = faithful-gen ga φ n hyp
+faithful-gen ga (And φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+faithful-gen ga (Or φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+faithful-gen ga (Next φ) n hyp               = faithful-gen ga φ n hyp
+faithful-gen ga (Always φ) n hyp             = faithful-gen ga φ n hyp
+faithful-gen ga (Eventually φ) n hyp         = faithful-gen ga φ n hyp
+faithful-gen ga (Until φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+faithful-gen ga (Release φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+faithful-gen ga (MetricEventually _ _ φ) n hyp = faithful-gen ga φ n hyp
+faithful-gen ga (MetricAlways _ _ φ) n hyp     = faithful-gen ga φ n hyp
+faithful-gen ga (MetricUntil _ _ φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+faithful-gen ga (MetricRelease _ _ φ ψ) n hyp =
+  faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
+  faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
+
+-- collectAtomsAcc matches the flattenAtoms specification.
+collectAtomsAcc-spec : ∀ φ acc → collectAtomsAcc φ acc ≡ flattenAtoms φ ++ acc
+collectAtomsAcc-spec (Atomic _) acc           = refl
+collectAtomsAcc-spec (Not φ) acc              = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (And φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (Or φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (Next φ) acc             = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (Always φ) acc           = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (Eventually φ) acc       = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (Until φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (Release φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (MetricEventually _ _ φ) acc = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (MetricAlways _ _ φ) acc     = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (MetricUntil _ _ φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (MetricRelease _ _ φ ψ) acc
+  rewrite collectAtomsAcc-spec ψ acc
+  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ acc)
+  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+
+-- collectAtoms is exactly flattenAtoms.
+collectAtoms-is-flattenAtoms : ∀ φ → collectAtoms φ ≡ flattenAtoms φ
+collectAtoms-is-flattenAtoms φ =
+  trans (collectAtomsAcc-spec φ []) (++-identityʳ (flattenAtoms φ))
+
+-- Main theorem: atom indices in indexFormula look up correctly in collectAtoms.
+collectAtoms-faithful : ∀ φ → Faithful (collectAtoms φ) φ 0
+collectAtoms-faithful φ rewrite collectAtoms-is-flattenAtoms φ =
+  faithful-gen (flattenAtoms φ) φ 0
+    (λ k _ → cong (lookupAtom (flattenAtoms φ)) (+-identityʳ k))
+
+-- mkPredTable evaluates the predicate found by lookupAtom.
+mkPredTable-lookup : ∀ dbc cache atoms k pred frame →
+  lookupAtom atoms k ≡ just pred →
+  mkPredTable dbc cache atoms k frame ≡ evalPredicateTV dbc cache pred (TimedFrame.frame frame)
+mkPredTable-lookup dbc cache atoms k pred frame eq rewrite eq = refl

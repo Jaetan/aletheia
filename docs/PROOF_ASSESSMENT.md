@@ -68,12 +68,11 @@ Ranked by safety impact. If any of these is wrong, LTL verdicts can be silently 
 
 These functions form the path from "frame received" to "stepL called." The Adequacy theorem guarantees stepL is sound, but only if the predicate table faithfully represents the formula's atoms evaluated against the frame.
 
-**1. Predicate table construction (`mkPredTable`)**
+**1. Predicate table construction (`mkPredTable`)** — **PROVEN**
 
 - **File**: `Protocol/StreamState.agda:135`
 - **What it does**: Maps signal predicates to a truth-value function over frames. For each atom index, extracts the relevant signal from the frame and evaluates the predicate.
-- **Risk**: If the mapping is wrong (e.g., atom indices don't match `collectAtoms` order, or signal extraction returns a stale/wrong value), `stepL` evaluates the correct formula against wrong truth values.
-- **Suggested proof**: `mkPredTable` applied to atom index `i` evaluates predicate `i` from `collectAtoms` against the current frame.
+- **Status**: ✅ Proven in `Protocol/FrameProcessor/Properties.agda`. The `Faithful` relation establishes that for every atom index `i`, `lookupAtom (collectAtoms φ) i ≡ just pred_i` where `pred_i` is the `i`-th predicate in left-to-right tree order. `mkPredTable-lookup` then shows `mkPredTable` evaluates that predicate. Key lemmas: `collectAtoms-faithful`, `faithful-gen`, `collectAtomsAcc-spec`, `indexHelper-counter`.
 
 **2. Signal cache update (`updateCacheFromFrame`)**
 
@@ -152,22 +151,22 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 | Signal encode/decode roundtrip | Proven | No spec for real-world frames |
 | DBC format/parse roundtrip | Proven | — |
 | Binary FFI guards | Partial | Only non-Streaming cases |
-| Predicate table construction | **Not proven** | Tier 1 gap |
+| Predicate table construction | **Proven** | — |
 | Signal cache integrity | **Not proven** | Tier 1 gap |
 | Streaming frame processing | **Not proven** | Tier 1 gap |
 | FFI type construction | **Not proven** | Trust boundary |
 
 ## Recommended Priority
 
-1. **Tier 1, item 3**: `handleDataFrame` Streaming case — Violation iff `stepL` returned Violated. This is the most impactful single proof: it closes the gap between "stepL is sound" and "the system reports correct verdicts."
+1. ~~**Tier 1, item 3**: `handleDataFrame` Streaming case~~ — ✅ **DONE** (commit `65c4080`)
 
-2. **Tier 1, item 1**: `mkPredTable` faithfulness — atom index `i` evaluates the `i`-th predicate from `collectAtoms`. This ensures Adequacy's soundness guarantee actually applies to the predicates the user specified.
+2. ~~**Tier 1, item 1**: `mkPredTable` faithfulness~~ — ✅ **DONE** (this commit)
 
 3. **Tier 1, item 2**: Signal cache correctness — after update, cache reflects current frame's signal values. This ensures temporal predicates (changed-by, previous-value) are evaluated correctly.
 
 4. **Tier 3, item 7**: MAlonzo constructor test — a Haskell-level equivalence test between JSON and binary frame paths. Not a formal proof, but catches constructor layout drift.
 
-Items 1-3 together would close the gap: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
+Items 1-2 are complete. Item 3 would close the remaining Tier 1 gap: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
 
 ---
 

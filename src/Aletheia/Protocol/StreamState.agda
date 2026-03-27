@@ -85,41 +85,41 @@ initialState = mkStreamState WaitingForDBC nothing [] nothing emptyCache
 -- ============================================================================
 
 -- Collect all atomic predicates in left-to-right tree order (O(n) via accumulator).
+-- Factored to module level for proof access.
+collectAtomsAcc : LTL SignalPredicate → List SignalPredicate → List SignalPredicate
+collectAtomsAcc (Atomic a)                 acc = a ∷ acc
+collectAtomsAcc (Not φ)                    acc = collectAtomsAcc φ acc
+collectAtomsAcc (And φ ψ)                  acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+collectAtomsAcc (Or φ ψ)                   acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+collectAtomsAcc (Next φ)                   acc = collectAtomsAcc φ acc
+collectAtomsAcc (Always φ)                 acc = collectAtomsAcc φ acc
+collectAtomsAcc (Eventually φ)             acc = collectAtomsAcc φ acc
+collectAtomsAcc (Until φ ψ)                acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+collectAtomsAcc (Release φ ψ)              acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+collectAtomsAcc (MetricEventually _ _ φ)   acc = collectAtomsAcc φ acc
+collectAtomsAcc (MetricAlways _ _ φ)       acc = collectAtomsAcc φ acc
+collectAtomsAcc (MetricUntil _ _ φ ψ)      acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+collectAtomsAcc (MetricRelease _ _ φ ψ)    acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
+
 -- The resulting list maps ℕ indices to predicates for PredTable construction.
 collectAtoms : LTL SignalPredicate → List SignalPredicate
-collectAtoms formula = go formula []
-  where
-    go : LTL SignalPredicate → List SignalPredicate → List SignalPredicate
-    go (Atomic a)                 acc = a ∷ acc
-    go (Not φ)                    acc = go φ acc
-    go (And φ ψ)                  acc = go φ (go ψ acc)
-    go (Or φ ψ)                   acc = go φ (go ψ acc)
-    go (Next φ)                   acc = go φ acc
-    go (Always φ)                 acc = go φ acc
-    go (Eventually φ)             acc = go φ acc
-    go (Until φ ψ)                acc = go φ (go ψ acc)
-    go (Release φ ψ)              acc = go φ (go ψ acc)
-    go (MetricEventually _ _ φ)   acc = go φ acc
-    go (MetricAlways _ _ φ)       acc = go φ acc
-    go (MetricUntil _ _ φ ψ)      acc = go φ (go ψ acc)
-    go (MetricRelease _ _ φ ψ)    acc = go φ (go ψ acc)
+collectAtoms formula = collectAtomsAcc formula []
 
 -- Replace each atom with its position index (counter-based, matches collectAtoms order)
-private
-  indexHelper : LTL SignalPredicate → ℕ → LTL ℕ × ℕ
-  indexHelper (Atomic _) n            = (Atomic n , suc n)
-  indexHelper (Not φ) n               = let (φ' , n') = indexHelper φ n in (Not φ' , n')
-  indexHelper (And φ ψ) n             = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (And φ' ψ' , n'')
-  indexHelper (Or φ ψ) n              = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Or φ' ψ' , n'')
-  indexHelper (Next φ) n              = let (φ' , n') = indexHelper φ n in (Next φ' , n')
-  indexHelper (Always φ) n            = let (φ' , n') = indexHelper φ n in (Always φ' , n')
-  indexHelper (Eventually φ) n        = let (φ' , n') = indexHelper φ n in (Eventually φ' , n')
-  indexHelper (Until φ ψ) n           = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Until φ' ψ' , n'')
-  indexHelper (Release φ ψ) n         = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Release φ' ψ' , n'')
-  indexHelper (MetricEventually w s φ) n    = let (φ' , n') = indexHelper φ n in (MetricEventually w s φ' , n')
-  indexHelper (MetricAlways w s φ) n        = let (φ' , n') = indexHelper φ n in (MetricAlways w s φ' , n')
-  indexHelper (MetricUntil w s φ ψ) n      = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricUntil w s φ' ψ' , n'')
-  indexHelper (MetricRelease w s φ ψ) n    = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricRelease w s φ' ψ' , n'')
+indexHelper : LTL SignalPredicate → ℕ → LTL ℕ × ℕ
+indexHelper (Atomic _) n            = (Atomic n , suc n)
+indexHelper (Not φ) n               = let (φ' , n') = indexHelper φ n in (Not φ' , n')
+indexHelper (And φ ψ) n             = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (And φ' ψ' , n'')
+indexHelper (Or φ ψ) n              = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Or φ' ψ' , n'')
+indexHelper (Next φ) n              = let (φ' , n') = indexHelper φ n in (Next φ' , n')
+indexHelper (Always φ) n            = let (φ' , n') = indexHelper φ n in (Always φ' , n')
+indexHelper (Eventually φ) n        = let (φ' , n') = indexHelper φ n in (Eventually φ' , n')
+indexHelper (Until φ ψ) n           = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Until φ' ψ' , n'')
+indexHelper (Release φ ψ) n         = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Release φ' ψ' , n'')
+indexHelper (MetricEventually w s φ) n    = let (φ' , n') = indexHelper φ n in (MetricEventually w s φ' , n')
+indexHelper (MetricAlways w s φ) n        = let (φ' , n') = indexHelper φ n in (MetricAlways w s φ' , n')
+indexHelper (MetricUntil w s φ ψ) n      = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricUntil w s φ' ψ' , n'')
+indexHelper (MetricRelease w s φ ψ) n    = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (MetricRelease w s φ' ψ' , n'')
 
 indexFormula : LTL SignalPredicate → LTL ℕ
 indexFormula φ = proj₁ (indexHelper φ 0)
