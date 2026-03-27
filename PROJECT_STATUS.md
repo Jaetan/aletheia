@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-26
+**Last Updated**: 2026-03-27
 
 ---
 
@@ -298,6 +298,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 - ✅ Cross-language benchmark suite (2026-03-26): Throughput, latency, and scaling benchmarks for all three language bindings with machine-readable JSON output. Runner script (`benchmarks/run_all.sh`), comparison script (`benchmarks/compare.py`). DLC serialization bug fixed in Go/C++ (was sending DLC code instead of byte count in DBC serialization). Hot-path optimizations: ack fast path (byte-level response check) and direct string serialization (bypass nlohmann/json.Marshal for frame commands) in C++ and Go.
 
+- ✅ Binary FFI for streaming hot path (2026-03-27): `aletheia_send_frame` binary entry point eliminates JSON serialization for CAN data frames. Haskell shim constructs MAlonzo types (`Vec Byte n`, `TimedFrame`, `CANFrame`) directly from raw bytes. `processFrameDirect` in Main.agda calls `handleDataFrame` directly. StreamState.agda promoted from `--sized-types` to `--safe` (60/62 modules now `--safe`). Agda proofs in `Protocol/FrameProcessor/Properties.agda`: state machine guards (`handleDataFrame` preserves state when not streaming) and byte modulus identity (justifies Haskell shim skipping `% 256` for Word8 inputs). All three bindings updated with strong types at API surface (`Timestamp`/`CanId`/`Dlc` — raw C types only inside FFI implementation). CMakeLists.txt fixed to default to Release build. Result: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps).
+
 - ✅ CAN-FD support (started 2026-03-23, completed 2026-03-25): Variable-length payloads up to 64 bytes, DLC 0-15 with non-linear mapping (9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64). 13-step plan + 7 review fixes fully executed:
   - Steps 1-4: Agda core types (`CANFrame n`, `TimedFrame` dependent record, protocol messages generic, `physicalBitPos` parameterized, validation layer updated)
   - Steps 5-8: Proof generalization (all `CANFrame 8` → `∀ {n}` in Endianness, Encoding/Properties, Batch/Properties, Validity proofs)
@@ -312,8 +314,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
 **Planned / Research**:
 - CAN format converters (BLF, ASC, MF4)
 - Frame injection utilities
-- **Binary FFI protocol**: Replace JSON string serialization at the ctypes boundary with a dedicated binary C export for the hot path (`send_frame`). Analysis (2026-03-22): JSON overhead is ~30 µs of 108 µs per frame (28%); binary FFI would yield ~12,000 fps (24% gain) for CAN 2.0B — nice but not transformative since LTL evaluation dominates. Essential for SOME/IP at Ethernet throughput (1,400-byte payloads × 100K msg/s = 420 MB/s of JSON text). **Prerequisite**: CAN-FD frame type generalization — MAlonzo compiles `Vec Byte n` to n nested constructors, making binary marshalling of large payloads impractical without a flat representation. Recommended to defer until CAN-FD is done.
-- **SOME/IP support**: Investigate SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. Analysis (2026-03-22): SOME/IP is fundamentally service-oriented, not signal-based — 16-byte header (Service ID, Method ID, Client/Session ID, Protocol/Interface Version, Message Type, Return Code) + variable structured payload, not bit-packed signals. Requires a different frame model, different extraction logic, and different LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing) vs CAN's signal-value predicates. The LTL engine itself is reusable. Also covers CAN-over-Ethernet encapsulations (DoIP/ISO 13400, gateways). **Prerequisite sequence**: CAN-FD → binary FFI → SOME/IP frame model → SOME/IP properties.
+- Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
+- **SOME/IP support**: Investigate SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. Analysis (2026-03-22): SOME/IP is fundamentally service-oriented, not signal-based — 16-byte header (Service ID, Method ID, Client/Session ID, Protocol/Interface Version, Message Type, Return Code) + variable structured payload, not bit-packed signals. Requires a different frame model, different extraction logic, and different LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing) vs CAN's signal-value predicates. The LTL engine itself is reusable. Also covers CAN-over-Ethernet encapsulations (DoIP/ISO 13400, gateways). **Prerequisite sequence**: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
 
 **Status**: In progress
 
@@ -322,7 +324,7 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 61 (59 `--safe`, 2 `--sized-types`)
+- Agda modules: 62 (60 `--safe`, 1 `--sized-types`, 1 new proof module)
 - Python modules: 12
 - C++ files: 16 (10 headers + 6 source)
 - Go files: 12 source
@@ -335,21 +337,28 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - Total: 566 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
+
+*Benchmarks: 10,000 frames × 5 runs, AMD Ryzen 9 5950X, Linux 6.6 (WSL2). C++ g++-15 -O3, Go 1.26.1, Python 3.13.12. 2026-03-27.*
+
+| Benchmark | C++ (fps) | Go (fps) | Python (fps) |
+|---|---:|---:|---:|
+| CAN 2.0B: Stream LTL (2 props) | **47,847** | 45,807 | 42,086 |
+| CAN 2.0B: Signal Extraction | **8,646** | 6,766 | 6,370 |
+| CAN 2.0B: Frame Building | 5,205 | **5,337** | 4,429 |
+| CAN-FD: Stream LTL (3 props) | **17,077** | 16,270 | 14,545 |
+| CAN-FD: Signal Extraction | **900** | 802 | 716 |
+| CAN-FD: Frame Building | 2,611 | **2,662** | 2,250 |
+
 - Build time: 0.26s (no-op), ~11s (incremental)
-- Throughput (CAN 2.0B, streaming LTL): 11,022 fps (C++), 9,689 fps (Go), 9,679 fps (Python)
-- Throughput (CAN 2.0B, signal extraction): 7,148 fps (C++), 6,838 fps (Go), 6,665 fps (Python)
-- Throughput (CAN 2.0B, frame building): 4,310 fps (C++), 5,181 fps (Go), 4,339 fps (Python)
-- Throughput (CAN-FD, streaming LTL): 1,868 fps (C++), 1,892 fps (Go), 1,710 fps (Python)
-- Throughput (CAN-FD, signal extraction): 1,067 fps (C++), 1,154 fps (Go), 988 fps (Python)
-- Throughput (CAN-FD, frame building): 2,097 fps (C++), 2,793 fps (Go), 2,176 fps (Python)
-- Per-frame latency: ~91 us (CAN 2.0B, C++ best)
+- Per-frame latency: ~21 us (CAN 2.0B streaming, C++)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
-- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — binary FFI expected to close the gap (projected ~17,500 fps CAN-FD).
+- **Binary FFI gain** (2026-03-27): Streaming LTL uses `aletheia_send_frame` (binary path, no JSON parsing). Compared to JSON-only baseline: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps). Signal extraction and frame building still use JSON path.
+- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — binary FFI delivers 17,077 fps (2x headroom).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- Safe modules: 59 of 61 use `--safe` (58 with `--without-K`, 1 with `--without-K --no-main`)
-- Coinductive modules: 2 use `--sized-types` (for infinite trace semantics)
+- Safe modules: 60 of 62 use `--safe` (59 with `--without-K`, 1 with `--without-K --no-main`)
+- Coinductive modules: 1 uses `--sized-types` (Main.agda, for infinite trace semantics)
 - Zero postulates in production code
 
 ---
@@ -365,11 +374,11 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - C header + distribution packaging — **COMPLETE**
 
 **Recent completions**:
+- Binary FFI for streaming hot path — **COMPLETE**: `aletheia_send_frame` eliminates JSON on data frames. 4.3x CAN 2.0B, 9.1x CAN-FD. Agda proofs for state guards and byte boundary. C++ CMakeLists.txt defaults to Release.
 - CAN-FD support — **COMPLETE**: All 13 steps executed (Agda core generalization, proof updates, Python/C++/Go bindings, documentation)
 - Cross-language benchmark suite — **COMPLETE**: Python/C++/Go throughput/latency/scaling with JSON output, comparison script, runner. DLC serialization bug fixed. Hot-path optimized (ack fast path + direct serialization).
 
 **Future**:
-- Binary FFI protocol (projected 10x CAN-FD gain, essential for SOME/IP throughput)
 - SOME/IP support (automotive Ethernet, service-oriented)
 
 ---
