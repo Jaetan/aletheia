@@ -24,10 +24,12 @@ The DBC validator (`DBC/Validator.agda`) is both sound and complete for 16 struc
 
 ### Signal Encoding Roundtrip
 
-Extracting a signal from a frame that was built by injecting that signal returns the original value. Covers both byte orders (little-endian, big-endian/Motorola), signed and unsigned signals, and mixed byte-order commutativity.
+Extracting a signal from a frame that was built by injecting that signal returns the original value. Covers both byte orders (little-endian, big-endian/Motorola), signed and unsigned signals, mixed byte-order commutativity, and scaling arithmetic.
 
 - **Modules**: `CAN/Encoding/Properties.agda`, `CAN/Endianness/Properties.agda`, `CAN/Batch/Properties.agda`
 - **Key lemma**: `extractBits-injectBits-roundtrip`
+- **Scaling**: `removeScaling-applyScaling-exact` (roundtrip), `applyScaling-injective`, `ℚ-cancel` (field cancellation)
+- **Batch**: `extractAll-complete` (partition completeness), `injectAll-preserves-disjoint` (value preservation)
 - **Capstone**: `validDBC-roundtrip` (all 7 preconditions decidable)
 
 ### DBC Format-Parse Roundtrip
@@ -69,7 +71,7 @@ Each `Response` and `PropertyResult` constructor maps to the expected JSON struc
 - **LTL JSON roundtrip**: `LTL/JSON/Properties.agda`
 - **Protocol JSON schemas**: `Protocol/JSON/Properties.agda`
 - **DBC parser well-formedness**: `DBC/JSONParser/Properties.agda` (parsed DBCs satisfy `WellFormedDBC`)
-- **Batch extraction completeness**: `extractAll-complete` — every signal produces exactly one entry across the three result partitions
+- **Batch extraction**: `extractAll-complete` (partition completeness), `injectAll-preserves-disjoint` (value preservation), `validDBC-roundtrip` (capstone: validated DBC + inject + extract = original)
 
 ---
 
@@ -117,18 +119,26 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 ### Tier 2: Signal Extraction Correctness
 
-**5. Signal extraction from real frames (`extractSignal`, `scaleExtracted`)**
+**5. Signal extraction from real frames (`extractSignal`, `scaleExtracted`)** — **PROVEN** (algebraic correctness)
 
 - **File**: `CAN/Encoding.agda:62-77`
-- **What IS proven**: Roundtrip — `extract(inject(v)) = v`. This proves the encoding scheme is internally consistent.
-- **What is NOT proven**: That `extractSignal` applied to a frame received from a CAN bus (not one we constructed) returns the value the sender intended. This requires a specification of the DBC signal layout matching the physical bus encoding, which is outside Agda's scope (it's a real-world correspondence).
-- **Also unproven**: `scaleExtracted` (rational arithmetic: `factor * raw + offset`) — no proof that the scaling is algebraically correct. Low risk since it's a direct application of `Data.Rational` operations.
+- **What IS proven**:
+  - Roundtrip — `extract(inject(v)) = v` for both byte orders and signedness (`extractSignal-injectSignal-roundtrip`)
+  - Scaling algebraic correctness — `removeScaling(applyScaling(raw, f, o), f, o) ≡ just raw` when `f ≢ 0` (`removeScaling-applyScaling-exact` in `Encoding/Properties.agda`). `scaleExtracted` is definitionally `applyScaling raw (factor sig) (offset sig)`, so this covers it completely.
+  - Scaling injectivity — `applyScaling raw₁ f o ≡ applyScaling raw₂ f o → raw₁ ≡ raw₂` (`applyScaling-injective`)
+  - Field cancellation — `((x * f + o) - o) / f ≡ x` (`ℚ-cancel`)
+  - Disjoint signal preservation — injecting at one position preserves extraction at physically disjoint positions, for all four byte-order combinations (`injectSignal-preserves-disjoint-bits-physical`)
+- **What is NOT proven**: That `extractSignal` applied to a frame received from a CAN bus (not one we constructed) returns the value the sender intended. This requires the DBC signal layout to match the physical bus encoding — a real-world specification correspondence outside Agda's scope.
 
-**6. Batch extraction correctness (`extractAllSignals`)**
+**6. Batch extraction correctness (`extractAllSignals`)** — **PROVEN**
 
 - **File**: `CAN/BatchExtraction.agda`
-- **What IS proven**: Completeness — every signal produces exactly one entry across three partitions (values, errors, absent).
-- **What is NOT proven**: That each entry contains the correct value. This would follow from item 5 above.
+- **Modules**: `CAN/Batch/Properties.agda`
+- **What IS proven**:
+  - Completeness — every signal produces exactly one entry across three partitions (`extractAll-complete`)
+  - Value preservation — injecting multiple signals preserves extraction of disjoint signals (`injectAll-preserves-disjoint`)
+  - Capstone — `validDBC-roundtrip`: for a validated DBC, injecting signal values and extracting them back returns the originals (composes DBC validation, disjointness, and encoding roundtrip)
+- **What is NOT proven**: Same real-world correspondence as item 5 — the DBC must match the physical bus.
 
 ### Tier 3: FFI Boundary Trust
 
@@ -165,7 +175,9 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 |--------|--------|---------|
 | LTL evaluation (`stepL`) | Proven sound | Assumes correct predicate table |
 | DBC validation | Proven sound + complete | Individual checkers not proven |
-| Signal encode/decode roundtrip | Proven | No spec for real-world frames |
+| Signal encode/decode roundtrip | **Proven** | Real-world DBC-bus correspondence assumed |
+| Signal scaling (`scaleExtracted`) | **Proven** | Roundtrip + injectivity via `applyScaling` |
+| Batch extraction | **Proven** | Completeness + value preservation + capstone |
 | DBC format/parse roundtrip | Proven | — |
 | Binary FFI guards | **Proven** | — |
 | Predicate table construction | **Proven** | — |
@@ -189,7 +201,7 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 6. ~~**Tier 4, item 9**: Response formatting correctness~~ — ✅ **DONE**
 
-Items 1-6 are complete. All Tier 1 gaps are closed: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation). Tier 4 items (initProc, formatResponse) are also proven. All 64 Agda modules now use `--safe`.
+Items 1-6 are complete. All Tier 1, Tier 2, and Tier 4 gaps are closed. The only remaining items (7-8) are the MAlonzo FFI trust boundary, which is outside Agda's type system by nature and mitigated by build-time checks and smoke tests. All 64 Agda modules use `--safe`.
 
 ---
 
@@ -209,6 +221,6 @@ Every proof listed in "What Is Proven" remains necessary:
 
 The validator works for both CAN 2.0B and CAN-FD. `checkDLCOutOfRange` uses `bytesToDlc` which accepts all CAN-FD payload sizes (12, 16, 20, 24, 32, 48, 64 bytes). `checkSignalExceedsDLC` validates signal bit ranges against `dlc * 8` where `dlc` is the byte count. The `ValidDBC` record's 9 conditions are all CAN-FD-aware. Soundness and completeness are proven for all 9 error checks.
 
-### All gaps must be proven
+### Remaining unproven items
 
-All items listed in "What Is NOT Proven" are required proof work, not aspirational. The priority order above reflects implementation sequence, not optionality.
+The only unproven items (7-8) are the MAlonzo FFI trust boundary — constructor layout and `unsafeCoerce` usage in `AletheiaFFI.hs`. These are outside Agda's type system by nature: MAlonzo's internal representation is a GHC implementation detail. Mitigation is via build-time name checks and the `constructor-fidelity` smoke test. All items that can be proven in Agda have been proven.
