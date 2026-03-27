@@ -6,14 +6,11 @@
 
 ## Current Position
 
-**Phase 4 - Production Hardening** ✅
+**Phase 5 - Optional Extensions** ⏳
 
-Phases 1-4 complete. Phase 4 made Aletheia usable by non-developers
-(automotive technicians, test engineers) and production-ready for deployment.
+Phases 1-4 complete. Phase 5 adds optional extensions driven by user feedback: CAN-FD, multi-language bindings (C++, Go), binary FFI, formal verification completion, benchmarks. All provable correctness properties are proven.
 
-**Status**: Phase 4 complete
-
-**Latest Release**: v1.0.0 (Phase 4 complete)
+**Status**: Phase 5 in progress
 
 ---
 
@@ -107,7 +104,7 @@ Phases 1-4 complete. Phase 4 made Aletheia usable by non-developers
    - `CAN/Endianness.agda`: extractBits-injectBits-roundtrip, injectBits-preserves-disjoint, injectBits-commute
    - `CAN/Encoding.agda`: injectSignal-preserves-disjoint-bits (key structural lemma)
    - `CAN/Batch/Properties.agda`: injectAll-preserves-disjoint (batch operations preserve extraction)
-   - Note: Same byte order required for batch proofs; mixed byte order research in Phase 5
+   - Mixed byte-order injection commutativity proven in Phase 5
 4. ✅ DSL translation correctness proofs - COMPLETE
    - `LTL/JSON/Format.agda`: formatSignalPredicate, formatLTL, ltlDepth functions
    - `LTL/JSON/Properties.agda`: Roundtrip and completeness proofs
@@ -234,45 +231,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 ---
 
-### Streaming Verification Gaps 🔍 TRACKED
-
-Comprehensive audit of all bisimilarity and streaming proofs identified 6 gaps.
-Ordered by impact descending; within same impact, easiest to hardest.
-
-| # | Gap | Impact | Difficulty | Status |
-|---|-----|--------|------------|--------|
-| A | `init-relate`: prove `initState φ` relates to initial `LTLProc` | HIGH | EASY | ✅ Complete |
-| B | Multi-step composition: N-frame induction over `step-bisim` | MEDIUM | MODERATE | ✅ Complete |
-| C | StreamState `handleDataFrame` iteration logic verification | MEDIUM | HARD | ✅ Complete |
-| F | Satisfied/Violated terminal state idempotence | LOW | EASY | ✅ Complete |
-| E | Signal predicate evaluation trust boundary (documentation) | LOW | BY DESIGN | ✅ Complete |
-| D | Semantic grounding against denotational LTL semantics | LOW | RESEARCH | ✅ Complete (adequacy theorem — all 13 operators type-check) |
-
-**Current proof coverage** (zero postulates, zero holes):
-- **DBC Validator soundness/completeness** (`DBC/Validity/Theorem.agda`) — ✅ COMPLETE:
-  - `ValidDBC`: formal predicate (9 conditions) for when a DBC defines a well-defined partial function
-  - `soundness : errorIssues (validateDBCFull dbc) ≡ [] → ValidDBC dbc`
-  - `completeness : ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []`
-  - 1,267 lines across 6 proof modules, all `--safe --without-K`
-  - First formally verified CAN database validator
-- `iterate-correct`: Property-list iteration ≡ forward specification (spec-equivalence)
-- Signal predicate trust boundary documented (parametric by design)
-- **Gap D modules** (`LTL/Semantics.agda`, `LTL/Adequacy.agda`, `LTL/Coalgebra.agda`) — ✅ COMPLETE:
-  - Denotational LTLf semantics for all 13 operators (`⟦_⟧`) ✅
-  - Coalgebra: Rosu formula progression with combineAnd/combineOr ✅
-  - `Sound` relation (6-ctor monitoring soundness) ✅
-  - **Rosu refactoring (10-step plan)**:
-    - ✅ Steps 18a–18h: All Rosu refactoring + adequacy theorem complete
-    - ✅ Step 18i: Simplification — removed 429 lines of dead code (1490 → 1061)
-    - ✅ Step 18j: Build ✅, 344 tests ✅, benchmarks ✅ (9,704 fps streaming LTL, Rosu tree growth fixed)
-    - Deleted: Bisimilarity.agda, CoalgebraBisim.agda, StepResultBisim.agda
-  - **Adequacy theorem** (1061 lines): Four-layer proof (Sound compositionality → operational decomposition → soundness transport → non-recursive metric helpers). Zero postulates, zero holes.
-- All proof modules use `--safe --without-K`
-- All files type-check with zero holes
-
----
-
-### Phase 5: Optional Extensions ⏳ PLANNED
+### Phase 5: Optional Extensions ⏳ IN PROGRESS
 
 **Scope**: Features driven by user feedback and real-world needs
 
@@ -298,7 +257,9 @@ Ordered by impact descending; within same impact, easiest to hardest.
 
 - ✅ Cross-language benchmark suite (2026-03-26): Throughput, latency, and scaling benchmarks for all three language bindings with machine-readable JSON output. Runner script (`benchmarks/run_all.sh`), comparison script (`benchmarks/compare.py`). DLC serialization bug fixed in Go/C++ (was sending DLC code instead of byte count in DBC serialization). Hot-path optimizations: ack fast path (byte-level response check) and direct string serialization (bypass nlohmann/json.Marshal for frame commands) in C++ and Go.
 
-- ✅ Binary FFI for streaming hot path (2026-03-27): `aletheia_send_frame` binary entry point eliminates JSON serialization for CAN data frames. Haskell shim constructs MAlonzo types (`Vec Byte n`, `TimedFrame`, `CANFrame`) directly from raw bytes. `processFrameDirect` in Main.agda calls `handleDataFrame` directly. StreamState.agda promoted from `--sized-types` to `--safe` (60/62 modules now `--safe`). Agda proofs in `Protocol/FrameProcessor/Properties.agda`: state machine guards (`handleDataFrame` preserves state when not streaming) and byte modulus identity (justifies Haskell shim skipping `% 256` for Word8 inputs). All three bindings updated with strong types at API surface (`Timestamp`/`CanId`/`Dlc` — raw C types only inside FFI implementation). CMakeLists.txt fixed to default to Release build. Result: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps).
+- ✅ Binary FFI for streaming hot path (2026-03-27): `aletheia_send_frame` binary entry point eliminates JSON serialization for CAN data frames. Haskell shim constructs MAlonzo types (`Vec Byte n`, `TimedFrame`, `CANFrame`) directly from raw bytes. `processFrameDirect` in Main.agda calls `handleDataFrame` directly. All 64 modules use `--safe`. Agda proofs in `Protocol/FrameProcessor/Properties.agda`: 15 properties covering state machine guards, streaming decomposition, ack/violation soundness + completeness, predicate table faithfulness, and signal cache correctness. All three bindings updated with strong types at API surface (`Timestamp`/`CanId`/`Dlc` — raw C types only inside FFI implementation). CMakeLists.txt fixed to default to Release build. Result: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps).
+
+- ✅ Dead code removal + proof completion (2026-03-27): Removed vestigial JSON data frame path (`parseDataFrame`, `Request` type, `DataFrame`, `processStream`, `parseRequest-sound` proof) — all bindings use binary FFI exclusively. Main.agda upgraded from `--sized-types` to `--safe`. New proofs: `initProc-correct` (initial LTL state correctness, `LTL/Coalgebra/Properties.agda`), response formatting correctness (8 refl proofs, `Protocol/ResponseFormat/Properties.agda`). All provable items in the proof assessment are now proven; only the MAlonzo FFI trust boundary remains (outside Agda's type system, mitigated by build-time checks and smoke tests).
 
 - ✅ CAN-FD support (started 2026-03-23, completed 2026-03-25): Variable-length payloads up to 64 bytes, DLC 0-15 with non-linear mapping (9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64). 13-step plan + 7 review fixes fully executed:
   - Steps 1-4: Agda core types (`CANFrame n`, `TimedFrame` dependent record, protocol messages generic, `physicalBitPos` parameterized, validation layer updated)
@@ -312,10 +273,8 @@ Ordered by impact descending; within same impact, easiest to hardest.
   - Code review round (R1-R5): `WellFormed.agda` uses `max-physical-bits` constant (was hardcoded 512), accurate CAN-FD comments in `Endianness.agda`, explicit `payloadSize = dlcToBytes dlc` in `Routing.agda`, numeric conversions extracted to `Encoding/Arithmetic.agda` (Encoding.agda 391→336 lines), `readBit-updateSafe-same`/`readBit-updateSafe-diff` proof helpers in `Endianness/Properties.agda`
 
 **Planned / Research**:
-- CAN format converters (BLF, ASC, MF4)
-- Frame injection utilities
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
-- **SOME/IP support**: Investigate SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. Analysis (2026-03-22): SOME/IP is fundamentally service-oriented, not signal-based — 16-byte header (Service ID, Method ID, Client/Session ID, Protocol/Interface Version, Message Type, Return Code) + variable structured payload, not bit-packed signals. Requires a different frame model, different extraction logic, and different LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing) vs CAN's signal-value predicates. The LTL engine itself is reusable. Also covers CAN-over-Ethernet encapsulations (DoIP/ISO 13400, gateways). **Prerequisite sequence**: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
+- **SOME/IP support**: SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. SOME/IP is service-oriented, not signal-based — 16-byte header + variable structured payload. Requires a different frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400). Sequence: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
 
 **Status**: In progress
 
@@ -324,17 +283,17 @@ Ordered by impact descending; within same impact, easiest to hardest.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 62 (60 `--safe`, 1 `--sized-types`, 1 new proof module)
+- Agda modules: 64 (all `--safe --without-K`)
 - Python modules: 12
 - C++ files: 16 (10 headers + 6 source)
 - Go files: 12 source
-- Lines of code: ~12,000 Agda + ~4,500 Python + ~1,950 C++ + ~2,000 Go
+- Lines of code: ~14,800 Agda + ~4,900 Python + ~2,050 C++ + ~2,100 Go
 
 **Testing**:
 - Python tests: 429 passing (via FFI)
-- C++ tests: 81 passing (mock backend + Catch2)
+- C++ tests: 82 TEST_CASEs + 113 static_asserts (mock backend + Catch2)
 - Go tests: 56 passing (mock backend, `-race` clean)
-- Total: 566 tests
+- Total: 567+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
@@ -357,29 +316,16 @@ Ordered by impact descending; within same impact, easiest to hardest.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- Safe modules: 60 of 62 use `--safe` (59 with `--without-K`, 1 with `--without-K --no-main`)
-- Coinductive modules: 1 uses `--sized-types` (Main.agda, for infinite trace semantics)
+- All 64 Agda modules use `--safe --without-K` (2 also use `--no-main`)
 - Zero postulates in production code
+- All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
 
 ---
 
-## Next Steps
+## Future
 
-**Recent completions**:
-- Docker images — **COMPLETE**: `Dockerfile` (from-source) + `Dockerfile.runtime` (pre-built), `shake docker` target
-- Big-endian (Motorola) signal fix — **COMPLETE**: conversion at parse/format time, byte-order-aware DLC validation with updated proofs
-- Violation enrichment (all bindings) — **COMPLETE**: formula desc + signal values + human-readable reason
-- C++23 binding — **COMPLETE**: 5-round review, 81 test cases
-- Go binding — **COMPLETE**: 3-round review + hardening, 56 tests
-- C header + distribution packaging — **COMPLETE**
-
-**Recent completions**:
-- Binary FFI for streaming hot path — **COMPLETE**: `aletheia_send_frame` eliminates JSON on data frames. 4.3x CAN 2.0B, 9.1x CAN-FD. Agda proofs for state guards and byte boundary. C++ CMakeLists.txt defaults to Release.
-- CAN-FD support — **COMPLETE**: All 13 steps executed (Agda core generalization, proof updates, Python/C++/Go bindings, documentation)
-- Cross-language benchmark suite — **COMPLETE**: Python/C++/Go throughput/latency/scaling with JSON output, comparison script, runner. DLC serialization bug fixed. Hot-path optimized (ack fast path + direct serialization).
-
-**Future**:
 - SOME/IP support (automotive Ethernet, service-oriented)
+- Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
 
 ---
 
