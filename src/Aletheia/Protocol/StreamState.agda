@@ -142,25 +142,24 @@ mkPredTable dbc cache atoms n frame =
 -- SIGNAL CACHE UPDATES
 -- ============================================================================
 
+-- Update cache with all signals from a signal list.
+-- Factored to module level for proof access.
+updateSignals : ∀ {n} → DBC → CANFrame n → ℕ → List DBCSignal → SignalCache → SignalCache
+updateSignals dbc frame ts [] c = c
+updateSignals dbc frame ts (sig ∷ sigs) c =
+  let sigName = DBCSignal.name sig
+  in case extractTruthValue sigName dbc frame of λ where
+    nothing  → updateSignals dbc frame ts sigs c
+    (just v) → updateSignals dbc frame ts sigs (updateCache sigName v ts c)
+
 -- Update cache with all signals extractable from a frame
 -- Iterates through all messages in DBC, finds matching message by ID,
 -- then extracts and caches all its signals
 updateCacheFromFrame : ∀ {n} → DBC → SignalCache → ℕ → CANFrame n → SignalCache
 updateCacheFromFrame dbc cache ts frame =
-  updateFromMessage (findMessageById (CANFrame.id frame) dbc)
-  where
-    -- Update cache with all signals from a message
-    updateSignals : List DBCSignal → SignalCache → SignalCache
-    updateSignals [] c = c
-    updateSignals (sig ∷ sigs) c =
-      let sigName = DBCSignal.name sig
-      in case extractTruthValue sigName dbc frame of λ where
-        nothing  → updateSignals sigs c
-        (just v) → updateSignals sigs (updateCache sigName v ts c)
-
-    updateFromMessage : Maybe DBCMessage → SignalCache
-    updateFromMessage nothing = cache  -- No matching message, keep cache unchanged
-    updateFromMessage (just msg) = updateSignals (DBCMessage.signals msg) cache
+  case findMessageById (CANFrame.id frame) dbc of λ where
+    nothing    → cache
+    (just msg) → updateSignals dbc frame ts (DBCMessage.signals msg) cache
 
 -- ============================================================================
 -- HELPER FUNCTIONS FOR FRAME CONSTRUCTION

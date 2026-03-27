@@ -18,13 +18,17 @@
 --   (7) handleDataFrame-violation-sound: PropertyResponse ⇒ some property violated
 --   (8) collectAtoms-faithful: atom indices in indexFormula look up correctly
 --   (9) mkPredTable-lookup: mkPredTable evaluates the looked-up predicate
+--  (10) lookupCache-updateCache-hit: looking up after updateCache returns new value
+--  (11) lookupCache-updateCache-miss: updating one name doesn't affect other lookups
+--  (12) updateSignals-step-hit/miss: updateSignals decomposes into updateCache steps
+--  (13) updateCacheFromFrame-no-match/match: decomposition into updateSignals
 module Aletheia.Protocol.FrameProcessor.Properties where
 
 open import Aletheia.Protocol.StreamState
     using (StreamState; StreamPhase; WaitingForDBC; ReadyToStream; Streaming;
            handleDataFrame; PropertyState; mkPropertyState;
            classifyStepResult; stepProperty; dispatchIterResult;
-           mkPredTable; updateCacheFromFrame;
+           mkPredTable; updateCacheFromFrame; updateSignals;
            collectAtomsAcc; collectAtoms; indexHelper; indexFormula; lookupAtom)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
@@ -34,8 +38,15 @@ open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Sati
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; simplify)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
     Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.SignalPredicate using (SignalCache; SignalPredicate; evalPredicateTV)
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.LTL.SignalPredicate
+    using (SignalCache; SignalPredicate; evalPredicateTV;
+           CachedSignal; mkCachedSignal; lookupCache; updateCache; extractTruthValue)
+open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage)
+open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.DBCHelpers using (findMessageById)
+open import Data.String using (String)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Rational using (ℚ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.List using (List; []; _∷_; _++_; length)
@@ -43,7 +54,11 @@ open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; s≤s; z≤n; _%_)
 open import Data.Nat.Properties using (+-assoc; +-comm; +-identityʳ)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
+open import Data.Bool using (true; false)
+open import Data.Empty using (⊥-elim)
+open import Relation.Nullary using (yes; no)
+open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong)
 
 -- ============================================================================
 -- PROPERTY 1: State machine guards
@@ -423,3 +438,98 @@ mkPredTable-lookup : ∀ dbc cache atoms k pred frame →
   lookupAtom atoms k ≡ just pred →
   mkPredTable dbc cache atoms k frame ≡ evalPredicateTV dbc cache pred (TimedFrame.frame frame)
 mkPredTable-lookup dbc cache atoms k pred frame eq rewrite eq = refl
+
+-- ============================================================================
+-- PROPERTY 10: Signal cache update — same name lookup
+-- ============================================================================
+
+private
+  -- Helper: looking up name in (name , v) ∷ rest returns just v.
+  -- Uses Dec-based `with` so ⌊ name ≟ₛ name ⌋ reduces inside lookupCache.
+  lookupCache-head : ∀ name v rest →
+    lookupCache name ((name , v) ∷ rest) ≡ just v
+  lookupCache-head name v rest with name ≟ₛ name
+  ... | yes _ = refl
+  ... | no ¬p = ⊥-elim (¬p refl)
+
+  -- Helper: looking up name' ≢ name skips the head entry.
+  lookupCache-skip : ∀ name' name v rest →
+    name' ≢ name →
+    lookupCache name' ((name , v) ∷ rest) ≡ lookupCache name' rest
+  lookupCache-skip name' name v rest neq with name' ≟ₛ name
+  ... | yes p = ⊥-elim (neq p)
+  ... | no  _ = refl
+
+-- After updateCache, looking up the updated name returns the new value.
+-- This proves the association-list update is correct for the target key.
+--
+-- Key insight: `with name ≟ₛ n` abstracts the Dec inside updateCache, making it
+-- reduce. But lookupCache on the result creates a FRESH `name ≟ₛ n` not covered
+-- by the `with`. We use `trans` with lookupCache-skip/lookupCache-head to handle
+-- these fresh occurrences.
+lookupCache-updateCache-hit : ∀ name val ts cache →
+  lookupCache name (updateCache name val ts cache) ≡ just (mkCachedSignal val ts)
+lookupCache-updateCache-hit name val ts [] =
+  lookupCache-head name (mkCachedSignal val ts) []
+lookupCache-updateCache-hit name val ts ((n , cached) ∷ rest)
+  with name ≟ₛ n
+... | yes _ = lookupCache-head name (mkCachedSignal val ts) rest
+... | no ¬a = trans (lookupCache-skip name n cached (updateCache name val ts rest) ¬a)
+                    (lookupCache-updateCache-hit name val ts rest)
+
+-- ============================================================================
+-- PROPERTY 11: Signal cache update — different name lookup unchanged
+-- ============================================================================
+
+-- After updateCache, looking up a different name returns the original value.
+-- Combined with Property 10, this proves updateCache is a correct map-update.
+lookupCache-updateCache-miss : ∀ name name' val ts cache →
+  name ≢ name' →
+  lookupCache name' (updateCache name val ts cache) ≡ lookupCache name' cache
+lookupCache-updateCache-miss name name' val ts [] name≢name' =
+  lookupCache-skip name' name (mkCachedSignal val ts) [] (λ p → name≢name' (sym p))
+lookupCache-updateCache-miss name name' val ts ((n , cached) ∷ rest) name≢name'
+  with name ≟ₛ n | name' ≟ₛ n
+... | yes p | yes q = ⊥-elim (name≢name' (trans p (sym q)))
+... | yes _ | no  _ =
+  lookupCache-skip name' name (mkCachedSignal val ts) rest (λ p → name≢name' (sym p))
+... | no  _ | yes refl =
+  lookupCache-head name' cached (updateCache name val ts rest)
+... | no  _ | no ¬b =
+  trans (lookupCache-skip name' n cached (updateCache name val ts rest) ¬b)
+        (lookupCache-updateCache-miss name name' val ts rest name≢name')
+
+-- ============================================================================
+-- PROPERTY 12: updateSignals step decomposition
+-- ============================================================================
+
+-- When extraction succeeds, updateSignals steps to updateCache + recurse.
+updateSignals-step-hit : ∀ {n} dbc (frame : CANFrame n) ts sig sigs cache v →
+  extractTruthValue (DBCSignal.name sig) dbc frame ≡ just v →
+  updateSignals dbc frame ts (sig ∷ sigs) cache
+    ≡ updateSignals dbc frame ts sigs (updateCache (DBCSignal.name sig) v ts cache)
+updateSignals-step-hit dbc frame ts sig sigs cache v eq rewrite eq = refl
+
+-- When extraction fails, updateSignals skips the signal.
+updateSignals-step-miss : ∀ {n} dbc (frame : CANFrame n) ts sig sigs cache →
+  extractTruthValue (DBCSignal.name sig) dbc frame ≡ nothing →
+  updateSignals dbc frame ts (sig ∷ sigs) cache
+    ≡ updateSignals dbc frame ts sigs cache
+updateSignals-step-miss dbc frame ts sig sigs cache eq rewrite eq = refl
+
+-- ============================================================================
+-- PROPERTY 13: updateCacheFromFrame decomposition
+-- ============================================================================
+
+-- When no message matches the frame, cache is unchanged.
+updateCacheFromFrame-no-match : ∀ {n} dbc cache ts (frame : CANFrame n) →
+  findMessageById (CANFrame.id frame) dbc ≡ nothing →
+  updateCacheFromFrame dbc cache ts frame ≡ cache
+updateCacheFromFrame-no-match dbc cache ts frame eq rewrite eq = refl
+
+-- When a message matches, updateCacheFromFrame delegates to updateSignals.
+updateCacheFromFrame-match : ∀ {n} dbc cache ts (frame : CANFrame n) msg →
+  findMessageById (CANFrame.id frame) dbc ≡ just msg →
+  updateCacheFromFrame dbc cache ts frame
+    ≡ updateSignals dbc frame ts (DBCMessage.signals msg) cache
+updateCacheFromFrame-match dbc cache ts frame msg eq rewrite eq = refl

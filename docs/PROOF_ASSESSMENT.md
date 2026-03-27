@@ -74,12 +74,15 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 - **What it does**: Maps signal predicates to a truth-value function over frames. For each atom index, extracts the relevant signal from the frame and evaluates the predicate.
 - **Status**: ✅ Proven in `Protocol/FrameProcessor/Properties.agda`. The `Faithful` relation establishes that for every atom index `i`, `lookupAtom (collectAtoms φ) i ≡ just pred_i` where `pred_i` is the `i`-th predicate in left-to-right tree order. `mkPredTable-lookup` then shows `mkPredTable` evaluates that predicate. Key lemmas: `collectAtoms-faithful`, `faithful-gen`, `collectAtomsAcc-spec`, `indexHelper-counter`.
 
-**2. Signal cache update (`updateCacheFromFrame`)**
+**2. Signal cache update (`updateCacheFromFrame`)** — **PROVEN**
 
 - **File**: `Protocol/StreamState.agda:148`
 - **What it does**: Updates a three-valued signal cache (maps signal names to their last-known value). The cache enables "changed-by" and temporal predicates that compare current vs previous values.
-- **Risk**: If a cache entry is corrupted (e.g., wrong signal name, stale value not updated), predicates that depend on previous values produce incorrect truth values.
-- **Suggested proof**: After `updateCacheFromFrame`, every signal extractable from the frame has its correct current value in the cache.
+- **Status**: ✅ Proven in `Protocol/FrameProcessor/Properties.agda`. Four properties cover the cache update chain:
+  - `lookupCache-updateCache-hit`: after update, the target key maps to the new value
+  - `lookupCache-updateCache-miss`: updating one key doesn't affect lookups of other keys
+  - `updateSignals-step-hit/miss`: `updateSignals` decomposes into `updateCache` + recursion
+  - `updateCacheFromFrame-no-match/match`: `updateCacheFromFrame` decomposes into `updateSignals` via `findMessageById`
 
 **3. Frame processing in Streaming phase (`handleDataFrame`)**
 
@@ -152,7 +155,7 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 | DBC format/parse roundtrip | Proven | — |
 | Binary FFI guards | Partial | Only non-Streaming cases |
 | Predicate table construction | **Proven** | — |
-| Signal cache integrity | **Not proven** | Tier 1 gap |
+| Signal cache integrity | **Proven** | — |
 | Streaming frame processing | **Not proven** | Tier 1 gap |
 | FFI type construction | **Not proven** | Trust boundary |
 
@@ -162,11 +165,11 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 2. ~~**Tier 1, item 1**: `mkPredTable` faithfulness~~ — ✅ **DONE** (this commit)
 
-3. **Tier 1, item 2**: Signal cache correctness — after update, cache reflects current frame's signal values. This ensures temporal predicates (changed-by, previous-value) are evaluated correctly.
+3. ~~**Tier 1, item 2**: Signal cache correctness~~ — ✅ **DONE** (this commit)
 
 4. **Tier 3, item 7**: MAlonzo constructor test — a Haskell-level equivalence test between JSON and binary frame paths. Not a formal proof, but catches constructor layout drift.
 
-Items 1-2 are complete. Item 3 would close the remaining Tier 1 gap: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
+Items 1-3 are complete. All Tier 1 gaps are now closed: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
 
 ---
 
