@@ -67,7 +67,7 @@ mkTimedFrame timestamp canIdVal isExtended dlc bytes =
 sendFrame :: AgdaState.T_StreamState_34 -> AgdaTrace.T_TimedFrame_8
           -> (AgdaState.T_StreamState_34, T.Text)
 sendFrame state tf =
-    extractResult (Agda.d_processFrameDirect_82 state (unsafeCoerce tf))
+    extractResult (Agda.d_processFrameDirect_58 state (unsafeCoerce tf))
 
 -- | Assert a response contains an expected substring.
 assertContains :: String -> String -> String -> IO Bool

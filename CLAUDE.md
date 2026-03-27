@@ -67,34 +67,16 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
-
-† **61 total modules**: 59 use `--safe`, 2 coinductive without `--safe`
+**Current Status**: ✅ All 64 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (61 total):
-- **58 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (64 total):
+- **62 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
-- **2 modules without `--safe`** (both use `--sized-types` for coinduction):
-  - Main.agda: `--no-main --sized-types --without-K`
-  - Protocol/StreamState.agda: `--sized-types --without-K`
+- **1 module**: `--safe --without-K --no-main` (Main.agda)
 
-**Modules not using `--safe` flag (2 of 55)**:
-
-Two modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
-
-1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
-   - Required for: MAlonzo compilation with coinductive LTL evaluation
-   - Safety trade-off: Entry point marshals between Agda and Haskell I/O
-
-2. **Protocol/StreamState.agda** - Uses `--sized-types` for streaming LTL checking
-   - Required for: Coinductive stream processing of large trace files
-   - Safety trade-off: Sized types for productivity checking instead of --safe
-
-**Rationale**: Coinductive types (required for infinite traces and streaming) need `--sized-types` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
-
-**Verification Status**: Both modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
+**All 61 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -302,7 +284,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API planned (projected 10x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Known issues**: Roundtrip proof modules still broken (pre-existing). 61 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API planned (projected 10x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Known issues**: Roundtrip proof modules still broken (pre-existing). 64 Agda modules total.
 
 ---
 

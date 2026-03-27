@@ -16,6 +16,8 @@
 --   (5) handleDataFrame-streaming: decomposition into dispatchIterResult ∘ iterate ∘ stepProperty
 --   (6) handleDataFrame-ack-sound: Ack response ⇒ no property violated
 --   (7) handleDataFrame-violation-sound: PropertyResponse ⇒ some property violated
+--  (14) handleDataFrame-ack-complete: no property violated ⇒ Ack response
+--  (15) handleDataFrame-violation-complete: some property violated ⇒ PropertyResponse
 --   (8) collectAtoms-faithful: atom indices in indexFormula look up correctly
 --   (9) mkPredTable-lookup: mkPredTable evaluates the looked-up predicate
 --  (10) lookupCache-updateCache-hit: looking up after updateCache returns new value
@@ -32,7 +34,7 @@ open import Aletheia.Protocol.StreamState
            collectAtomsAcc; collectAtoms; indexHelper; indexFormula; lookupAtom)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; simplify)
@@ -533,3 +535,49 @@ updateCacheFromFrame-match : ∀ {n} dbc cache ts (frame : CANFrame n) msg →
   updateCacheFromFrame dbc cache ts frame
     ≡ updateSignals dbc frame ts (DBCMessage.signals msg) cache
 updateCacheFromFrame-match dbc cache ts frame msg eq rewrite eq = refl
+
+-- ============================================================================
+-- PROPERTY 14: Ack completeness — no violation ⇒ Ack
+-- ============================================================================
+
+-- If no property's stepProperty halts, handleDataFrame returns Ack.
+-- Combined with Property 7 (ack soundness), this gives: Ack iff no violation.
+handleDataFrame-ack-complete : ∀ state tf dbc
+  → StreamState.phase state ≡ Streaming
+  → StreamState.dbc state ≡ just dbc
+  → specHalt (stepProperty dbc (StreamState.signalCache state) tf)
+             (StreamState.properties state) ≡ nothing
+  → proj₂ (handleDataFrame state tf) ≡ Response.Ack
+handleDataFrame-ack-complete state tf dbc phase-eq dbc-eq spec-eq
+  with StreamState.phase state | phase-eq
+... | .Streaming | refl with StreamState.dbc state | dbc-eq
+... | .(just dbc) | refl
+  rewrite iterate-correct (stepProperty dbc (StreamState.signalCache state) tf)
+                          (StreamState.properties state)
+  rewrite spec-eq
+  = refl
+
+-- ============================================================================
+-- PROPERTY 15: Violation completeness — some violation ⇒ PropertyResponse
+-- ============================================================================
+
+-- If some property's stepProperty halts, handleDataFrame returns PropertyResponse.
+-- Combined with Property 8 (violation soundness), this gives: PropertyResponse iff some violation.
+handleDataFrame-violation-complete : ∀ state tf dbc idx ce
+  → StreamState.phase state ≡ Streaming
+  → StreamState.dbc state ≡ just dbc
+  → specHalt (stepProperty dbc (StreamState.signalCache state) tf)
+             (StreamState.properties state) ≡ just (idx , ce)
+  → proj₂ (handleDataFrame state tf)
+    ≡ Response.PropertyResponse
+        (PR.PropertyResult.Violation idx
+          (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
+                                (Counterexample.reason ce)))
+handleDataFrame-violation-complete state tf dbc idx ce phase-eq dbc-eq spec-eq
+  with StreamState.phase state | phase-eq
+... | .Streaming | refl with StreamState.dbc state | dbc-eq
+... | .(just dbc) | refl
+  rewrite iterate-correct (stepProperty dbc (StreamState.signalCache state) tf)
+                          (StreamState.properties state)
+  rewrite spec-eq
+  = refl

@@ -1,4 +1,4 @@
-{-# OPTIONS --no-main --sized-types --without-K #-}
+{-# OPTIONS --safe --without-K --no-main #-}
 
 -- Main entry point for Aletheia (JSON streaming protocol).
 --
@@ -9,13 +9,11 @@
 -- Compilation: Compiled to Haskell via MAlonzo, called from AletheiaFFI.hs.
 -- Integration: Python loads libaletheia-ffi.so via ctypes (direct FFI, no subprocess).
 --
--- State machine logic delegated to Protocol.StreamState; Main provides processJSONLine only.
+-- Exports: processJSONLine (JSON commands), processFrameDirect (binary data frames).
+-- State machine logic delegated to Protocol.StreamState.
 --
 -- Key design: ALL logic lives in Agda (parsing, validation, state, LTL checking).
 -- Haskell FFI shim (AletheiaFFI.hs) only handles C-callable exports and state management.
---
--- NOTE: This module uses --sized-types which is incompatible with --safe.
--- This is required because it imports modules with sized types.
 module Aletheia.Main where
 
 open import Data.String using (String; toList; _≟_) renaming (_++_ to _++ₛ_)
@@ -25,14 +23,10 @@ open import Data.List using (List; []; _∷_)
 open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Size using (Size)
-open import Codata.Sized.Colist using (Colist; []; _∷_)
-open import Codata.Sized.Thunk using (force)
 
--- Phase 2B: JSON streaming protocol
 open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing using (parseDataFrame; parseCommand)
+open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
@@ -47,14 +41,14 @@ import Aletheia.Protocol.Message as Msg
 -- Algorithm:
 --   1. Parse JSON string → Maybe JSON
 --   2. Validate JSON is an object with "type" field
---   3. Route by type: "command" → command handler, "data" → data frame handler
+--   3. Route by type: "command" → command handler
 --   4. Update state machine and generate response
 --   5. Format response as JSON string
 --
 -- Error Handling:
 --   - Graceful degradation: invalid input → error response, state unchanged
 --   - Descriptive error messages at each parsing stage (JSON parse, type field, routing)
---   - parseCommand/parseDataFrame return error messages for detailed context
+--   - parseCommand returns error messages for detailed context
 --
 -- State Threading:
 --   - State flows through: handleParsedJSON → routing → handler → response
@@ -79,7 +73,7 @@ processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJ
           let (newState , response) = processStreamCommand cmd state
           in (newState , formatJSON (formatResponse response))
 
-    -- Dispatch by message type ("data" or "command")
+    -- Dispatch by message type
     dispatchMessage : JSON → StreamState × String
     dispatchMessage (JObject obj) =
       let typeField = lookupString "type" obj
@@ -88,18 +82,9 @@ processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJ
         case_type : Maybe String → List (String × JSON) → StreamState × String
         case_type nothing obj = (state , formatJSON (formatResponse (Msg.Response.Error "Missing 'type' field in request")))
         case_type (just msgType) obj =
-          if ⌊ msgType ≟ "data" ⌋
-          then handleDataMessage obj
-          else if ⌊ msgType ≟ "command" ⌋
-               then tryParseCommand obj
-               else (state , formatJSON (formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
-          where
-            handleDataMessage : List (String × JSON) → StreamState × String
-            handleDataMessage obj with parseDataFrame obj
-            ... | inj₁ errMsg = (state , formatJSON (formatResponse (Msg.Response.Error errMsg)))
-            ... | inj₂ tf =
-                  let (newState , response) = handleDataFrame state tf
-                  in (newState , formatJSON (formatResponse response))
+          if ⌊ msgType ≟ "command" ⌋
+          then tryParseCommand obj
+          else (state , formatJSON (formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
     dispatchMessage json = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
 
     handleParsedJSON : Maybe JSON → StreamState × String
@@ -123,16 +108,3 @@ processFrameDirect state tf =
   let (newState , response) = handleDataFrame state tf
   in (newState , formatJSON (formatResponse response))
 
--- ============================================================================
--- COINDUCTIVE STREAMING INTERFACE (O(1) Memory)
--- ============================================================================
-
--- Process a colist of JSON lines and produce a colist of responses
--- This is the O(1) memory interface: processes frames one at a time without accumulation
--- State is threaded through the stream computation
-processStream : ∀ {i} → StreamState → Colist String i → Colist String i
-{-# NOINLINE processStream #-}
-processStream state [] = []
-processStream state (line ∷ rest) =
-  let (newState , response) = processJSONLine state line
-  in response ∷ λ where .force → processStream newState (force rest)

@@ -51,6 +51,19 @@ JSON parser is deterministic. Parser monad satisfies monad laws.
 - **Module**: `Parser/Properties.agda`
 - **Key lemma**: `parseJSON-deterministic`
 
+### Initial LTL State Correctness
+
+`initProc` produces the correct initial state: `denot table (initProc φ) ≡ mapLTL table φ`. Combined with adequacy, this gives end-to-end soundness from formula specification to runtime verdict.
+
+- **Module**: `LTL/Coalgebra/Properties.agda`
+- **Theorem**: `initProc-correct`
+
+### Response Formatting Correctness
+
+Each `Response` and `PropertyResult` constructor maps to the expected JSON structure. Proved by definitional equality (refl) for all 8 constructors: Ack, Success, Error, ByteArray, DBCResponse, Violation, Satisfaction, StreamComplete.
+
+- **Module**: `Protocol/ResponseFormat/Properties.agda`
+
 ### Other Proofs
 
 - **LTL JSON roundtrip**: `LTL/JSON/Properties.agda`
@@ -84,20 +97,23 @@ These functions form the path from "frame received" to "stepL called." The Adequ
   - `updateSignals-step-hit/miss`: `updateSignals` decomposes into `updateCache` + recursion
   - `updateCacheFromFrame-no-match/match`: `updateCacheFromFrame` decomposes into `updateSignals` via `findMessageById`
 
-**3. Frame processing in Streaming phase (`handleDataFrame`)**
+**3. Frame processing in Streaming phase (`handleDataFrame`)** — **PROVEN**
 
 - **File**: `Protocol/StreamState.agda:285`
 - **What it does**: In Streaming phase: updates signal cache, evaluates each property's LTL formula via `stepL`, collects violations, advances state.
-- **What IS proven**: Non-Streaming guards (state unchanged).
-- **What is NOT proven**: The Streaming case correctly threads state through all properties, produces a Violation response if and only if some property's `stepL` returned `Violated`, and preserves all non-evaluated properties unchanged.
-- **Suggested proof**: (i) Violation iff some `stepL` returned `Violated`. (ii) Ack iff all returned `Continue`. (iii) Each property's formula is advanced exactly once.
+- **Status**: ✅ Proven in `Protocol/FrameProcessor/Properties.agda`. 15 properties covering the full frame processing pipeline:
+  - Guards: non-Streaming state returns unchanged (properties 1-2)
+  - Streaming decomposition: `handleDataFrame ≡ dispatchIterResult ∘ iterate ∘ stepProperty` (property 6)
+  - Ack soundness + completeness: Ack iff no property's `stepL` returned `Violated` (properties 7, 14)
+  - Violation soundness + completeness: `PropertyResponse` iff some `stepL` returned `Violated` (properties 8, 15)
+  - `stepProperty` faithfulness: halt iff `stepL` returned `Violated` (properties 3-4)
+  - `dispatchIterResult` characterization: `nothing → Ack`, `just → PropertyResponse` (property 5)
+  - Predicate table faithfulness: atom indices map to correct predicates (properties 8-9)
+  - Signal cache correctness: hit/miss/decomposition (properties 10-13)
 
-**4. Frame parsing (`parseDataFrame`)**
+**4. Frame parsing (`parseDataFrame`)** — **REMOVED**
 
-- **File**: `Protocol/Routing.agda`
-- **What it does**: Parses a JSON object into a `TimedFrame` (timestamp, CAN ID, DLC, payload bytes).
-- **Risk**: If parsing constructs a malformed `TimedFrame`, all downstream processing (signal extraction, LTL evaluation) operates on garbage.
-- **Note**: The binary FFI path (`aletheia_send_frame`) bypasses this entirely — frames are constructed in the Haskell shim. This risk only applies to the JSON path, which is no longer used for data frames in production.
+- **Status**: Dead code removed. All language bindings (Python, C++, Go) use binary FFI (`aletheia_send_frame` → `processFrameDirect`). The JSON data frame path (`parseDataFrame`, `parseRequest`, `Request.DataFrame`, `processStream`) has been eliminated. No proof obligation remains.
 
 ### Tier 2: Signal Extraction Correctness
 
@@ -131,16 +147,15 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 ### Tier 4: Lower Risk
 
-**9. Response formatting (`formatResponse`)**
+**9. Response formatting (`formatResponse`)** — **PROVEN**
 
 - **File**: `Protocol/ResponseFormat.agda`
-- **Risk**: If Ack is formatted as a Violation JSON or vice versa, language bindings misinterpret the result. Low probability (simple pattern match on Response constructors), but no proof.
+- **Status**: ✅ Proven in `Protocol/ResponseFormat/Properties.agda`. Definitional equalities (refl) for each Response and PropertyResult constructor, establishing the exact JSON output structure. Covers Ack, Success, Error, ByteArray, DBCResponse, Violation, Satisfaction, and StreamComplete.
 
-**10. Initial LTL state (`initProc`, `denot`)**
+**10. Initial LTL state (`initProc`, `denot`)** — **PROVEN**
 
 - **File**: `LTL/Coalgebra.agda`
-- **Risk**: If the initial LTL process state doesn't match the formula, the entire Adequacy guarantee is vacuous. The adequacy proof takes `proc` as a parameter — it doesn't prove `initProc` produces the right initial state for a given formula.
-- **Suggested proof**: `initProc formula` is the correct initial state for `denot formula`.
+- **Status**: ✅ Proven in `LTL/Coalgebra/Properties.agda`. The `initProc-correct` theorem establishes `denot table (initProc φ) ≡ mapLTL table φ` — the initial process state correctly represents the user's formula with atoms mapped through the predicate table. Combined with adequacy, this gives end-to-end soundness from formula specification to runtime verdict.
 
 ---
 
@@ -152,10 +167,12 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 | DBC validation | Proven sound + complete | Individual checkers not proven |
 | Signal encode/decode roundtrip | Proven | No spec for real-world frames |
 | DBC format/parse roundtrip | Proven | — |
-| Binary FFI guards | Partial | Only non-Streaming cases |
+| Binary FFI guards | **Proven** | — |
 | Predicate table construction | **Proven** | — |
 | Signal cache integrity | **Proven** | — |
-| Streaming frame processing | **Not proven** | Tier 1 gap |
+| Streaming frame processing | **Proven** | Ack/violation iff, decomposition, 15 properties |
+| Initial LTL state (`initProc`) | **Proven** | — |
+| Response formatting | **Proven** | All constructors verified |
 | FFI type construction | **Trust boundary** | Outside Agda's reach; smoke test guards |
 
 ## Recommended Priority
@@ -168,7 +185,11 @@ These functions form the path from "frame received" to "stepL called." The Adequ
 
 4. ~~**Tier 3, item 7**: MAlonzo constructor test~~ — ✅ **DONE** (this commit)
 
-Items 1-3 are complete. All Tier 1 gaps are now closed: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation).
+5. ~~**Tier 4, item 10**: `initProc` correctness~~ — ✅ **DONE**
+
+6. ~~**Tier 4, item 9**: Response formatting correctness~~ — ✅ **DONE**
+
+Items 1-6 are complete. All Tier 1 gaps are closed: "if the user specifies an LTL formula and sends frames, the reported verdict is correct" — assuming correct signal encoding (proven via roundtrip) and correct DBC (proven via validation). Tier 4 items (initProc, formatResponse) are also proven. All 64 Agda modules now use `--safe`.
 
 ---
 

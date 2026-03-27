@@ -4,7 +4,7 @@
 --
 -- Purpose: Define command and response types for the streaming protocol.
 -- Types: StreamCommand (parseDBC, setProperties, startStream, endStream),
---        Request (command or data frame), Response (success, error, ack, property).
+--        Response (success, error, ack, property).
 -- Role: Core types used by Protocol.Routing and Protocol.StreamState.
 module Aletheia.Protocol.Message where
 
@@ -16,7 +16,6 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (Byte; CANId)
 open import Aletheia.CAN.DLC using (dlcToBytes)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
@@ -67,15 +66,6 @@ data StreamCommand : Set where
 
   -- Format the currently-loaded DBC back to JSON
   FormatDBC : StreamCommand
-
--- ============================================================================
--- REQUEST TYPES
--- ============================================================================
-
--- Request types: either a command or a data frame
-data Request : Set where
-  CommandRequest : StreamCommand → Request
-  DataFrame : TimedFrame → Request
 
 -- ============================================================================
 -- RESPONSE TYPES

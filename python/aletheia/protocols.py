@@ -397,16 +397,6 @@ class FormatDBCCommand(TypedDict):
     command: Literal["formatDBC"]
 
 
-class DataFrame(TypedDict):
-    """CAN data frame"""
-    type: Literal["data"]
-    timestamp: int
-    id: int
-    dlc: int
-    data: list[int]
-    extended: bool
-
-
 # Union type for all commands
 Command = (
     ParseDBCCommand |
@@ -417,8 +407,7 @@ Command = (
     ExtractSignalsCommand |
     UpdateFrameCommand |
     ValidateDBCCommand |
-    FormatDBCCommand |
-    DataFrame
+    FormatDBCCommand
 )
 
 

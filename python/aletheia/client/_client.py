@@ -17,7 +17,6 @@ from ..protocols import (
     SetPropertiesCommand,
     StartStreamCommand,
     EndStreamCommand,
-    DataFrame,
     BuildFrameCommand,
     BuildFrameResponse,
     ExtractSignalsCommand,
@@ -743,15 +742,7 @@ class AletheiaClient:
         Raises:
             ProtocolError: If response status is unexpected
         """
-        results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
-        for ts, cid, dlc, d in frames:
-            cmd: DataFrame = {"type": "data", "timestamp": ts, "id": cid, "dlc": dlc, "data": list(d), "extended": extended}
-            raw = self._send_command(cmd)
-            result = self._parse_frame_response(raw)
-            if result["status"] == "violation":
-                self._enrich_violation(result, cid, dlc, d)
-            results.append(result)
-        return results
+        return [self.send_frame(ts, cid, dlc, d, extended=extended) for ts, cid, dlc, d in frames]
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.

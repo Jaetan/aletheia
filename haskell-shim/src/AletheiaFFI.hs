@@ -102,7 +102,7 @@ aletheia_send_frame statePtr timestamp canId extended dlc dataPtr dataLen = do
     let agdaTF = AgdaTrace.C_constructor_26
             (toInteger timestamp) (toInteger dataLen) agdaFrame
     -- Call Agda processFrameDirect: StreamState → TimedFrame → Σ (StreamState × String)
-    let result = Agda.d_processFrameDirect_82 state (unsafeCoerce agdaTF)
+    let result = Agda.d_processFrameDirect_58 state (unsafeCoerce agdaTF)
     -- Extract pair components
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text

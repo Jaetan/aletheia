@@ -1,16 +1,14 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Request parsing and routing for the streaming protocol.
+-- Command parsing for the streaming protocol.
 --
--- Purpose: Parse JSON requests and route to appropriate handlers.
--- Operations: parseRequest (JSON → Request), parseCommand, parseDataFrame.
--- Role: Entry point for all incoming JSON messages, used by Main.processLine.
---
--- Routing: Checks "type" field → "command" (parse command type) or "data" (parse frame).
+-- Purpose: Parse JSON commands and dispatch to appropriate handlers.
+-- Operations: parseCommand (JSON → StreamCommand).
+-- Role: Parses the "command" field from JSON objects, used by Main.processJSONLine.
 -- Validation: All required fields checked, descriptive error messages on failure.
 module Aletheia.Protocol.Routing where
 
-open import Data.String using (String; _≟_) renaming (_++_ to _++ₛ_)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -21,14 +19,11 @@ open import Data.Nat.Properties using (_≤?_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Relation.Binary.PropositionalEquality using (refl)
 open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; extended-can-id-max; _>>=ₑ_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupBool; lookupNat; lookupArray; getInt)
-open import Aletheia.Protocol.Message using (Request; CommandRequest; DataFrame; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
+open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId; Standard; Extended)
 open import Aletheia.CAN.DLC using (dlcToBytes)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
 
 -- ============================================================================
 -- JSON → REQUEST PARSING
@@ -178,48 +173,5 @@ parseCommand obj with lookupString "command" obj
 ... | nothing = inj₁ "Missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
 
--- Parse data frame from JSON object
--- Returns error message (inj₁) or parsed TimedFrame (inj₂)
-parseDataFrame : List (String × JSON) → String ⊎ TimedFrame
-parseDataFrame obj =
-  require "Data frame: missing or invalid 'timestamp' field" (lookupNat "timestamp" obj) >>=ₑ λ timestamp →
-  parseCANIdField "Data frame" "id" obj >>=ₑ λ canId →
-  require "Data frame: missing or invalid 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
-  requireValidDLC "Data frame" dlc >>=ₑ λ _ →
-  require "Data frame: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
-  require "Data frame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-  require "Data frame: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
-  inj₂ record
-    { timestamp = timestamp
-    ; payloadSize = dlcToBytes dlc
-    ; frame = record
-        { id = canId
-        ; dlc = dlc
-        ; payload = bytes
-        }
-    ; dlcValid = refl
-    }
 
--- Parse Request from JSON
-parseRequest : JSON → Maybe Request
-parseRequest (JObject obj) with lookupString "type" obj
-... | nothing = nothing
-... | just msgType = routeByType msgType obj
-  where
-    tryCommand : List (String × JSON) → Maybe Request
-    tryCommand obj with parseCommand obj
-    ... | inj₁ _ = nothing
-    ... | inj₂ cmd = just (CommandRequest cmd)
-
-    tryDataFrame : List (String × JSON) → Maybe Request
-    tryDataFrame obj with parseDataFrame obj
-    ... | inj₁ _ = nothing
-    ... | inj₂ tf = just (DataFrame tf)
-
-    routeByType : String → List (String × JSON) → Maybe Request
-    routeByType msgType obj =
-      if ⌊ msgType ≟ "command" ⌋ then tryCommand obj
-      else if ⌊ msgType ≟ "data" ⌋ then tryDataFrame obj
-      else nothing
-parseRequest _ = nothing  -- Not a JSON object
 
