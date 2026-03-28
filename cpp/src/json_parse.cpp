@@ -131,8 +131,8 @@ static auto parse_message_def(const json& j) -> DbcMessage {
                                      " exceeds uint16 range");
         auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
         if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) +
-                                     ": " + result.error());
+            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
         return CanId{*result};
     }();
 
@@ -221,9 +221,9 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
-        if (status.empty())
+        if (status != "success")
             return std::unexpected(
-                make_error(ErrorKind::Protocol, "Missing 'status' field in response"));
+                make_error(ErrorKind::Protocol, "Unexpected extraction status: " + status));
 
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", json::array()))
@@ -255,6 +255,9 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
+        if (status != "success")
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Unexpected frame data status: " + status));
 
         const auto& data = j.at("data");
         FramePayload payload;
@@ -287,6 +290,8 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
             if (idx < 0)
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
             auto ts = parse_rational_as_int(j.at("timestamp"));
+            if (ts < 0)
+                throw std::runtime_error("Negative timestamp: " + std::to_string(ts));
             std::string reason;
             if (j.contains("reason") && j.at("reason").is_string())
                 reason = j.at("reason").get<std::string>();
@@ -334,8 +339,12 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
 
             std::optional<Timestamp> ts;
-            if (r.contains("timestamp"))
-                ts = Timestamp{parse_rational_as_int(r.at("timestamp"))};
+            if (r.contains("timestamp")) {
+                auto ts_val = parse_rational_as_int(r.at("timestamp"));
+                if (ts_val < 0)
+                    throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
+                ts = Timestamp{ts_val};
+            }
 
             std::string reason;
             if (r.contains("reason") && r.at("reason").is_string())
@@ -361,6 +370,9 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
+        if (status != "success")
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Unexpected DBC response status: " + status));
         if (!j.contains("dbc"))
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Missing 'dbc' field in response"));

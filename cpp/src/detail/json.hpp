@@ -24,7 +24,8 @@ auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string;
 auto serialize_format_dbc() -> std::string;
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string;
-auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals) -> std::string;
+auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)
+    -> std::string;
 auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data,
                             std::span<const SignalValue> signals) -> std::string;
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string;

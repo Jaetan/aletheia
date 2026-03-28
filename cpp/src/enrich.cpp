@@ -28,15 +28,20 @@ auto format_predicate(const Predicate& p) -> std::string {
         [](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Equals>)
-                return std::format("{} = {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} = {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, LessThan>)
-                return std::format("{} < {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} < {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, GreaterThan>)
-                return std::format("{} > {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} > {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, LessThanOrEqual>)
-                return std::format("{} <= {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} <= {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
-                return std::format("{} >= {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} >= {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, Between>)
                 return std::format("{} <= {} <= {}", format_value(v.min.get()),
                                    std::string_view{v.signal}, format_value(v.max.get()));
@@ -50,17 +55,7 @@ auto format_predicate(const Predicate& p) -> std::string {
 }
 
 auto predicate_signal(const Predicate& p) -> SignalName {
-    return std::visit(
-        [](const auto& v) -> SignalName {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Between>)
-                return v.signal;
-            else if constexpr (std::is_same_v<T, ChangedBy>)
-                return v.signal;
-            else
-                return v.signal;
-        },
-        p);
+    return std::visit([](const auto& v) -> SignalName { return v.signal; }, p);
 }
 
 void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {

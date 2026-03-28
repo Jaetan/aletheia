@@ -909,8 +909,9 @@ TEST_CASE("format_formula eventually", "[enrich]") {
 }
 
 TEST_CASE("format_formula metric always", "[enrich]") {
-    auto f = ltl::always_within(Timestamp{5'000'000},
-                                ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto f =
+        ltl::always_within(Timestamp{5'000'000},
+                           ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     CHECK(format_formula(f) == "always within 5s (Speed < 220)");
 }
 
@@ -927,25 +928,25 @@ TEST_CASE("format_formula next", "[enrich]") {
 
 TEST_CASE("format_formula and", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     CHECK(format_formula(f) == "Speed < 220 and RPM > 500");
 }
 
 TEST_CASE("format_formula or", "[enrich]") {
     auto f = ltl::either(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                          ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     CHECK(format_formula(f) == "Speed < 220 or RPM > 500");
 }
 
 TEST_CASE("format_formula until", "[enrich]") {
     auto f = ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{50.0})),
-                         ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
+                        ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
     CHECK(format_formula(f) == "Speed < 50 until Brake = 1");
 }
 
 TEST_CASE("format_formula release", "[enrich]") {
     auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1.0})),
-                           ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
+                          ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
     CHECK(format_formula(f) == "A = 1 release B = 0");
 }
 
@@ -980,7 +981,7 @@ TEST_CASE("format_formula all predicate types", "[enrich]") {
 
 TEST_CASE("collect_signals multi-signal", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     auto signals = collect_signals(f);
     REQUIRE(signals.size() == 2);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -989,16 +990,16 @@ TEST_CASE("collect_signals multi-signal", "[enrich]") {
 
 TEST_CASE("collect_signals dedup", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
     auto signals = collect_signals(f);
     CHECK(signals.size() == 1);
     CHECK(signals[0] == SignalName{"Speed"});
 }
 
 TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
-    auto f = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    auto f = ltl::always(
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
     auto diag = build_diagnostic(f);
     CHECK(diag.signals.size() == 2);
     CHECK_FALSE(diag.formula_desc.empty());
@@ -1018,7 +1019,8 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -1071,9 +1073,9 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    auto formula = ltl::always(
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1115,7 +1117,8 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     // No second extraction response needed — cached
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1160,7 +1163,8 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1214,7 +1218,8 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 

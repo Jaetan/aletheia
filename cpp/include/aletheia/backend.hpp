@@ -31,9 +31,9 @@ public:
 
     // Binary frame FFI — bypasses JSON serialization on the send path.
     // Returns the raw JSON response string from the backend.
-    [[nodiscard]] virtual auto send_frame_binary(
-        void* state, Timestamp ts, const CanId& id, Dlc dlc,
-        std::span<const std::byte> data) -> std::string = 0;
+    [[nodiscard]] virtual auto send_frame_binary(void* state, Timestamp ts, const CanId& id,
+                                                 Dlc dlc, std::span<const std::byte> data)
+        -> std::string = 0;
 
 protected:
     IBackend() = default;

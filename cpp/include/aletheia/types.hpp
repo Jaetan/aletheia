@@ -148,8 +148,8 @@ public:
 // CAN-FD DLC to payload byte count mapping.
 // DLC 0-8 maps directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
 constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
-    constexpr std::array<std::size_t, 16> table = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+    constexpr std::array<std::size_t, 16> table = {0, 1,  2,  3,  4,  5,  6,  7,
+                                                   8, 12, 16, 20, 24, 32, 48, 64};
     return table[dlc.value()];
 }
 
@@ -157,8 +157,22 @@ constexpr auto dlc_to_bytes(Dlc dlc) -> std::size_t {
 // Returns the DLC code for a valid CAN/CAN-FD payload size, or an error.
 inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::string> {
     constexpr std::array<std::pair<std::size_t, std::uint8_t>, 16> table = {{
-        {0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 6}, {7, 7}, {8, 8},
-        {12, 9}, {16, 10}, {20, 11}, {24, 12}, {32, 13}, {48, 14}, {64, 15},
+        {0, 0},
+        {1, 1},
+        {2, 2},
+        {3, 3},
+        {4, 4},
+        {5, 5},
+        {6, 6},
+        {7, 7},
+        {8, 8},
+        {12, 9},
+        {16, 10},
+        {20, 11},
+        {24, 12},
+        {32, 13},
+        {48, 14},
+        {64, 15},
     }};
     for (auto [bytes, code] : table)
         if (bytes == byte_count)

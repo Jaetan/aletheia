@@ -206,33 +206,34 @@ static auto make_canfd_dbc() -> DbcDefinition {
         .name = MessageName{"SensorFusion"},
         .dlc = Dlc::create(15).value(),
         .sender = NodeName{"SensorGateway"},
-        .signals = {
-            sig("GPSLatitude",   0,   32, true,  0.0000001, 0, -90,          90,          "deg"),
-            sig("GPSLongitude",  32,  32, true,  0.0000001, 0, -180,         180,         "deg"),
-            sig("GPSAltitude",   64,  16, true,  0.1,       0, -1000,        5553.5,      "m"),
-            sig("GPSSpeed",      80,  16, false, 0.01,      0, 0,            655.35,      "m/s"),
-            sig("YawRate",       96,  16, true,  0.01,      0, -327.68,      327.67,      "deg/s"),
-            sig("LateralAccel",  112, 16, true,  0.01,      0, -327.68,      327.67,      "m/s2"),
-            sig("LongAccel",     128, 16, true,  0.01,      0, -327.68,      327.67,      "m/s2"),
-            sig("SteeringAngle", 144, 16, true,  0.1,       0, -3276.8,      3276.7,      "deg"),
-            sig("WheelSpeedFL",  160, 16, false, 0.01,      0, 0,            655.35,      "m/s"),
-            sig("WheelSpeedFR",  176, 16, false, 0.01,      0, 0,            655.35,      "m/s"),
-            sig("WheelSpeedRL",  192, 16, false, 0.01,      0, 0,            655.35,      "m/s"),
-            sig("WheelSpeedRR",  208, 16, false, 0.01,      0, 0,            655.35,      "m/s"),
-            sig("BrakeTempFL",   224, 12, false, 0.1,       0, 0,            409.5,       "celsius"),
-            sig("BrakeTempFR",   236, 12, false, 0.1,       0, 0,            409.5,       "celsius"),
-            sig("BrakeTempRL",   248, 12, false, 0.1,       0, 0,            409.5,       "celsius"),
-            sig("BrakeTempRR",   260, 12, false, 0.1,       0, 0,            409.5,       "celsius"),
-            sig("TirePressFL",   272, 8,  false, 0.01,      0, 0,            2.55,        "bar"),
-            sig("TirePressFR",   280, 8,  false, 0.01,      0, 0,            2.55,        "bar"),
-            sig("TirePressRL",   288, 8,  false, 0.01,      0, 0,            2.55,        "bar"),
-            sig("TirePressRR",   296, 8,  false, 0.01,      0, 0,            2.55,        "bar"),
-            sig("SensorStatus",  304, 8,  false, 1.0,       0, 0,            255,         ""),
-            sig("IMUTemp",       312, 8,  true,  1.0,       -40, -40,        215,         "celsius"),
-            sig("BatteryVolt",   320, 12, false, 0.01,      0, 0,            40.95,       "V"),
-            sig("GPSHeading",    332, 16, false, 0.01,      0, 0,            655.35,      "deg"),
-            sig("TimestampMs",   348, 32, false, 1.0,       0, 0,            4294967295,  "ms"),
-        },
+        .signals =
+            {
+                sig("GPSLatitude", 0, 32, true, 0.0000001, 0, -90, 90, "deg"),
+                sig("GPSLongitude", 32, 32, true, 0.0000001, 0, -180, 180, "deg"),
+                sig("GPSAltitude", 64, 16, true, 0.1, 0, -1000, 5553.5, "m"),
+                sig("GPSSpeed", 80, 16, false, 0.01, 0, 0, 655.35, "m/s"),
+                sig("YawRate", 96, 16, true, 0.01, 0, -327.68, 327.67, "deg/s"),
+                sig("LateralAccel", 112, 16, true, 0.01, 0, -327.68, 327.67, "m/s2"),
+                sig("LongAccel", 128, 16, true, 0.01, 0, -327.68, 327.67, "m/s2"),
+                sig("SteeringAngle", 144, 16, true, 0.1, 0, -3276.8, 3276.7, "deg"),
+                sig("WheelSpeedFL", 160, 16, false, 0.01, 0, 0, 655.35, "m/s"),
+                sig("WheelSpeedFR", 176, 16, false, 0.01, 0, 0, 655.35, "m/s"),
+                sig("WheelSpeedRL", 192, 16, false, 0.01, 0, 0, 655.35, "m/s"),
+                sig("WheelSpeedRR", 208, 16, false, 0.01, 0, 0, 655.35, "m/s"),
+                sig("BrakeTempFL", 224, 12, false, 0.1, 0, 0, 409.5, "celsius"),
+                sig("BrakeTempFR", 236, 12, false, 0.1, 0, 0, 409.5, "celsius"),
+                sig("BrakeTempRL", 248, 12, false, 0.1, 0, 0, 409.5, "celsius"),
+                sig("BrakeTempRR", 260, 12, false, 0.1, 0, 0, 409.5, "celsius"),
+                sig("TirePressFL", 272, 8, false, 0.01, 0, 0, 2.55, "bar"),
+                sig("TirePressFR", 280, 8, false, 0.01, 0, 0, 2.55, "bar"),
+                sig("TirePressRL", 288, 8, false, 0.01, 0, 0, 2.55, "bar"),
+                sig("TirePressRR", 296, 8, false, 0.01, 0, 0, 2.55, "bar"),
+                sig("SensorStatus", 304, 8, false, 1.0, 0, 0, 255, ""),
+                sig("IMUTemp", 312, 8, true, 1.0, -40, -40, 215, "celsius"),
+                sig("BatteryVolt", 320, 12, false, 0.01, 0, 0, 40.95, "V"),
+                sig("GPSHeading", 332, 16, false, 0.01, 0, 0, 655.35, "deg"),
+                sig("TimestampMs", 348, 32, false, 1.0, 0, 0, 4294967295, "ms"),
+            },
     };
 
     return DbcDefinition{.version = "", .messages = {sensor_fusion}};
@@ -252,24 +253,34 @@ static const auto can20_dlc = Dlc::create(8).value();
 static auto make_canfd_frame() -> FramePayload {
     FramePayload frame(64, std::byte{0x00});
     // GPSLatitude  (raw ~100000000 -> 10.0 deg)
-    frame[0] = std::byte{0x00}; frame[1] = std::byte{0xE1};
-    frame[2] = std::byte{0xF5}; frame[3] = std::byte{0x05};
+    frame[0] = std::byte{0x00};
+    frame[1] = std::byte{0xE1};
+    frame[2] = std::byte{0xF5};
+    frame[3] = std::byte{0x05};
     // GPSLongitude (raw ~48100000 -> 4.81 deg)
-    frame[4] = std::byte{0x00}; frame[5] = std::byte{0x6C};
-    frame[6] = std::byte{0xDC}; frame[7] = std::byte{0x02};
+    frame[4] = std::byte{0x00};
+    frame[5] = std::byte{0x6C};
+    frame[6] = std::byte{0xDC};
+    frame[7] = std::byte{0x02};
     // GPSAltitude  (raw 1000 -> 100.0 m)
-    frame[8] = std::byte{0xE8}; frame[9] = std::byte{0x03};
+    frame[8] = std::byte{0xE8};
+    frame[9] = std::byte{0x03};
     // GPSSpeed     (raw 2000 -> 20.0 m/s)
-    frame[10] = std::byte{0xD0}; frame[11] = std::byte{0x07};
+    frame[10] = std::byte{0xD0};
+    frame[11] = std::byte{0x07};
     // YawRate, LateralAccel, LongAccel, SteeringAngle: all 0
     // WheelSpeedFL (raw 1000 -> 10.0 m/s)
-    frame[20] = std::byte{0xE8}; frame[21] = std::byte{0x03};
+    frame[20] = std::byte{0xE8};
+    frame[21] = std::byte{0x03};
     // WheelSpeedFR
-    frame[22] = std::byte{0xE8}; frame[23] = std::byte{0x03};
+    frame[22] = std::byte{0xE8};
+    frame[23] = std::byte{0x03};
     // WheelSpeedRL
-    frame[24] = std::byte{0xE8}; frame[25] = std::byte{0x03};
+    frame[24] = std::byte{0xE8};
+    frame[25] = std::byte{0x03};
     // WheelSpeedRR
-    frame[26] = std::byte{0xE8}; frame[27] = std::byte{0x03};
+    frame[26] = std::byte{0xE8};
+    frame[27] = std::byte{0x03};
     return frame;
 }
 
@@ -326,17 +337,17 @@ static auto make_scaling_property(int index) -> LtlFormula {
         return ltl::always(ltl::atomic(
             ltl::between(SignalName{"EngineTemp"}, PhysicalValue{-40.0}, PhysicalValue{215.0})));
     case 2:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{6553.5})));
+        return ltl::always(
+            ltl::atomic(ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{6553.5})));
     case 3:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{7000.0})));
+        return ltl::always(
+            ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{7000.0})));
     case 4:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{200.0})));
+        return ltl::always(
+            ltl::atomic(ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{200.0})));
     case 5:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{5000.0})));
+        return ltl::always(
+            ltl::atomic(ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{5000.0})));
     case 6:
         return ltl::always(ltl::atomic(
             ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{500.0}, PhysicalValue{7500.0})));
@@ -347,8 +358,8 @@ static auto make_scaling_property(int index) -> LtlFormula {
         return ltl::always(ltl::atomic(
             ltl::between(SignalName{"BrakePressure"}, PhysicalValue{0.0}, PhysicalValue{4000.0})));
     default:
-        return ltl::always(ltl::atomic(
-            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{6000.0})));
+        return ltl::always(
+            ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{6000.0})));
     }
 }
 
@@ -426,13 +437,16 @@ static auto compute_latency_stats(std::vector<double>& latencies_us) -> LatencyS
 static std::FILE* out_file = stdout;
 
 static void print_header(const char* title) {
-    std::fprintf(out_file, "======================================================================\n");
+    std::fprintf(out_file,
+                 "======================================================================\n");
     std::fprintf(out_file, "%s\n", title);
-    std::fprintf(out_file, "======================================================================\n");
+    std::fprintf(out_file,
+                 "======================================================================\n");
 }
 
 static void print_separator() {
-    std::fprintf(out_file, "----------------------------------------------------------------------\n");
+    std::fprintf(out_file,
+                 "----------------------------------------------------------------------\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +468,8 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
     client.set_properties(properties);
     client.start_stream();
 
@@ -475,7 +490,8 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
@@ -492,7 +508,8 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
@@ -503,9 +520,8 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
     return static_cast<double>(num_frames) / elapsed;
 }
 
-static auto run_throughput_bench(const char* name,
-                                 auto bench_fn,
-                                 int num_frames, int num_runs, int warmup_runs) -> ThroughputResult {
+static auto run_throughput_bench(const char* name, auto bench_fn, int num_frames, int num_runs,
+                                 int warmup_runs) -> ThroughputResult {
     // Warmup
     for (int w = 0; w < warmup_runs; ++w)
         bench_fn(num_frames / 10);
@@ -549,8 +565,10 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
     // CAN 2.0B benchmarks
     results.push_back(run_throughput_bench(
         "CAN 2.0B: Stream LTL (2 props)",
-        [&](int n) { return bench_streaming(lib, dbc_20, make_can20_properties(),
-                                            can20_id, can20_dlc, can20_frame, n); },
+        [&](int n) {
+            return bench_streaming(lib, dbc_20, make_can20_properties(), can20_id, can20_dlc,
+                                   can20_frame, n);
+        },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
@@ -566,8 +584,10 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
     // CAN-FD benchmarks
     results.push_back(run_throughput_bench(
         "CAN-FD:   Stream LTL (3 props)",
-        [&](int n) { return bench_streaming(lib, dbc_fd, make_canfd_properties(),
-                                            canfd_id, canfd_dlc, canfd_frame, n); },
+        [&](int n) {
+            return bench_streaming(lib, dbc_fd, make_canfd_properties(), canfd_id, canfd_dlc,
+                                   canfd_frame, n);
+        },
         num_frames, num_runs, warmup));
 
     results.push_back(run_throughput_bench(
@@ -583,14 +603,15 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
     // Summary table
     std::fprintf(out_file, "\n");
     print_header("Summary");
-    std::fprintf(out_file, "%-35s %12s %10s %10s %10s\n",
-                 "Benchmark", "Mean", "Stdev", "Min", "Max");
+    std::fprintf(out_file, "%-35s %12s %10s %10s %10s\n", "Benchmark", "Mean", "Stdev", "Min",
+                 "Max");
     print_separator();
     for (const auto& r : results) {
-        std::fprintf(out_file, "%-35s %10.0f/s %9.0f %9.0f %9.0f\n",
-                     r.name.c_str(), r.fps.mean, r.fps.stdev, r.fps.min_val, r.fps.max_val);
+        std::fprintf(out_file, "%-35s %10.0f/s %9.0f %9.0f %9.0f\n", r.name.c_str(), r.fps.mean,
+                     r.fps.stdev, r.fps.min_val, r.fps.max_val);
     }
-    std::fprintf(out_file, "======================================================================\n");
+    std::fprintf(out_file,
+                 "======================================================================\n");
 
     if (emit_json) {
         json json_results = json::array();
@@ -608,10 +629,8 @@ static void run_throughput(const fs::path& lib, int num_frames, int num_runs, in
             });
         }
         json output = {
-            {"benchmark", "throughput"},
-            {"language", "cpp"},
-            {"timestamp", iso_timestamp()},
-            {"system", get_system_info()},
+            {"benchmark", "throughput"},    {"language", "cpp"},
+            {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
         };
         std::printf("%s\n", output.dump(2).c_str());
@@ -643,13 +662,15 @@ static void print_latency(const char* name, const LatencyStats& s) {
 }
 
 static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& dbc,
-                                     std::vector<LtlFormula> properties, CanId id, Dlc dlc,
-                                     const FramePayload& frame, int warmup, int ops) -> LatencyStats {
+                                    std::vector<LtlFormula> properties, CanId id, Dlc dlc,
+                                    const FramePayload& frame, int warmup, int ops)
+    -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
     client.set_properties(properties);
     client.start_stream();
 
@@ -673,13 +694,14 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
 }
 
 static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& dbc, CanId id,
-                                      Dlc dlc, const FramePayload& frame, int warmup,
-                                      int ops) -> LatencyStats {
+                                     Dlc dlc, const FramePayload& frame, int warmup, int ops)
+    -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
@@ -698,14 +720,15 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     return compute_latency_stats(latencies);
 }
 
-static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc, CanId id,
-                                    Dlc dlc, const std::vector<SignalValue>& signals, int warmup,
-                                    int ops) -> LatencyStats {
+static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc, CanId id, Dlc dlc,
+                                   const std::vector<SignalValue>& signals, int warmup, int ops)
+    -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
     auto parse_result = client.parse_dbc(dbc);
     if (!parse_result)
-        throw std::runtime_error("parse_dbc failed: " + std::string(parse_result.error().message()));
+        throw std::runtime_error("parse_dbc failed: " +
+                                 std::string(parse_result.error().message()));
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
@@ -740,8 +763,8 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
         char name[128];
 
         std::fprintf(out_file, "\nBenchmarking %s streaming...\n", label);
-        auto s1 = bench_latency_streaming(lib, dbc, std::move(properties), id, dlc, frame,
-                                           warmup, ops);
+        auto s1 =
+            bench_latency_streaming(lib, dbc, std::move(properties), id, dlc, frame, warmup, ops);
         std::snprintf(name, sizeof(name), "%s Streaming LTL", label);
         print_latency(name, s1);
         results.push_back({name, s1});
@@ -767,14 +790,15 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
     // Summary table
     std::fprintf(out_file, "\n");
     print_header("Summary (all times in microseconds)");
-    std::fprintf(out_file, "%-30s %10s %10s %10s %10s\n", "Operation", "Mean", "p50", "p99", "p99.9");
+    std::fprintf(out_file, "%-30s %10s %10s %10s %10s\n", "Operation", "Mean", "p50", "p99",
+                 "p99.9");
     print_separator();
     for (const auto& r : results) {
-        std::fprintf(out_file, "%-30s %10.1f %10.1f %10.1f %10.1f\n",
-                     r.name.c_str(), r.stats.mean_us, r.stats.p50_us,
-                     r.stats.p99_us, r.stats.p999_us);
+        std::fprintf(out_file, "%-30s %10.1f %10.1f %10.1f %10.1f\n", r.name.c_str(),
+                     r.stats.mean_us, r.stats.p50_us, r.stats.p99_us, r.stats.p999_us);
     }
-    std::fprintf(out_file, "======================================================================\n");
+    std::fprintf(out_file,
+                 "======================================================================\n");
 
     if (emit_json) {
         json json_results = json::array();
@@ -792,10 +816,8 @@ static void run_latency(const fs::path& lib, int ops, int warmup, bool emit_json
             });
         }
         json output = {
-            {"benchmark", "latency"},
-            {"language", "cpp"},
-            {"timestamp", iso_timestamp()},
-            {"system", get_system_info()},
+            {"benchmark", "latency"},       {"language", "cpp"},
+            {"timestamp", iso_timestamp()}, {"system", get_system_info()},
             {"results", json_results},
         };
         std::printf("%s\n", output.dump(2).c_str());
@@ -831,7 +853,8 @@ static void run_scaling(const fs::path& lib, int num_frames, int num_runs, bool 
     std::fprintf(out_file, "\n");
     print_header("Property Count Scaling");
     std::fprintf(out_file, "Testing throughput as property count increases...\n\n");
-    std::fprintf(out_file, "%10s %12s %10s %10s\n", "Properties", "Frames/sec", "us/frame", "Relative");
+    std::fprintf(out_file, "%10s %12s %10s %10s\n", "Properties", "Frames/sec", "us/frame",
+                 "Relative");
     print_separator();
 
     constexpr int counts[] = {1, 2, 3, 5, 7, 10};
@@ -851,8 +874,8 @@ static void run_scaling(const fs::path& lib, int num_frames, int num_runs, bool 
             std::vector<LtlFormula> props_copy;
             for (int i = 0; i < count; ++i)
                 props_copy.push_back(make_scaling_property(i));
-            fps_runs.push_back(bench_streaming(lib, dbc, std::move(props_copy),
-                                               can20_id, can20_dlc, can20_frame, num_frames));
+            fps_runs.push_back(bench_streaming(lib, dbc, std::move(props_copy), can20_id, can20_dlc,
+                                               can20_frame, num_frames));
         }
         auto stats = compute_stats(fps_runs);
         double fps = stats.mean;
@@ -867,7 +890,8 @@ static void run_scaling(const fs::path& lib, int num_frames, int num_runs, bool 
     }
 
     std::fprintf(out_file, "\nExpected: Some degradation, but should be sub-linear\n");
-    std::fprintf(out_file, "======================================================================\n");
+    std::fprintf(out_file,
+                 "======================================================================\n");
 
     if (emit_json) {
         json json_results = json::array();
@@ -895,12 +919,12 @@ static void run_scaling(const fs::path& lib, int num_frames, int num_runs, bool 
 // ---------------------------------------------------------------------------
 
 struct Args {
-    std::string mode;        // "throughput", "latency", "scaling"
+    std::string mode; // "throughput", "latency", "scaling"
     int frames = 10000;
     int runs = 5;
     int warmup = 2;
-    int ops = 5000;          // latency mode: number of operations
-    int warmup_ops = 500;    // latency mode: warmup operations
+    int ops = 5000;       // latency mode: number of operations
+    int warmup_ops = 500; // latency mode: warmup operations
     bool json_output = false;
 };
 
@@ -909,7 +933,9 @@ static void print_usage(const char* argv0) {
     std::fprintf(stderr, "Options:\n");
     std::fprintf(stderr, "  --frames N   Frames per run (default: 10000, throughput/scaling)\n");
     std::fprintf(stderr, "  --runs N     Number of runs (default: 5, throughput/scaling)\n");
-    std::fprintf(stderr, "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n");
+    std::fprintf(
+        stderr,
+        "  --warmup N   Warmup runs (default: 2, throughput) or ops (default: 500, latency)\n");
     std::fprintf(stderr, "  --ops N      Operations to measure (default: 5000, latency)\n");
     std::fprintf(stderr, "  --json       Emit JSON to stdout\n");
 }

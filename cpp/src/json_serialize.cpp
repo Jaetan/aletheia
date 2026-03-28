@@ -76,12 +76,9 @@ static auto message_to_json(const DbcMessage& m) -> json {
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     return {
-        {"id", can_id_numeric(m.id)},
-        {"name", m.name.get()},
-        {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()},
-        {"extended", can_id_extended(m.id)},
-        {"signals", std::move(sigs)},
+        {"id", can_id_numeric(m.id)},        {"name", m.name.get()},
+        {"dlc", dlc_to_bytes(m.dlc)},        {"sender", m.sender.get()},
+        {"extended", can_id_extended(m.id)}, {"signals", std::move(sigs)},
     };
 }
 
@@ -215,13 +212,11 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
         can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(), data_str);
 }
 
-auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals) -> std::string {
-    return json{{"type", "command"},
-                {"command", "buildFrame"},
-                {"canId", can_id_numeric(id)},
-                {"extended", can_id_extended(id)},
-                {"dlc", dlc.value()},
-                {"signals", signals_to_json(signals)}}
+auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)
+    -> std::string {
+    return json{{"type", "command"},           {"command", "buildFrame"},
+                {"canId", can_id_numeric(id)}, {"extended", can_id_extended(id)},
+                {"dlc", dlc.value()},          {"signals", signals_to_json(signals)}}
         .dump();
 }
 
@@ -262,8 +257,8 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
     }
     return std::format(
         R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
-        ts.count(), can_id_numeric(id), can_id_extended(id) ? "true" : "false",
-        dlc.value(), data_str);
+        ts.count(), can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+        data_str);
 }
 
 auto serialize_end_stream() -> std::string {

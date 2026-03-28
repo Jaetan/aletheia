@@ -16,9 +16,8 @@ namespace {
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const char*);
-using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t,
-                                      std::uint8_t, std::uint8_t,
-                                      std::uint8_t*, std::uint8_t);
+using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t,
+                                      std::uint8_t, std::uint8_t*, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
@@ -87,10 +86,10 @@ public:
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        const auto can_id = std::visit(
-            [](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended = static_cast<std::uint8_t>(
-            std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
         const auto data_len = static_cast<std::uint8_t>(data.size());
 

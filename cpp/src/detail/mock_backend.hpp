@@ -53,8 +53,7 @@ public:
                 data_str += ',';
             data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
         }
-        auto can_id = std::visit(
-            [](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        auto can_id = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         auto extended = std::holds_alternative<ExtendedId>(id);
         auto json_cmd = std::format(
             R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",

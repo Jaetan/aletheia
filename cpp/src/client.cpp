@@ -187,7 +187,8 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
     auto is_extended = std::holds_alternative<ExtendedId>(id);
     FramePayload payload(data.begin(), data.end());
-    FrameKey key{.id_value = id_value, .is_extended = is_extended, .dlc = dlc.value(), .data = payload};
+    FrameKey key{
+        .id_value = id_value, .is_extended = is_extended, .dlc = dlc.value(), .data = payload};
 
     auto cache_it = cache_.find(key);
     if (cache_it == cache_.end()) {

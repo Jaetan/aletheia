@@ -45,7 +45,8 @@ public:
     // --- Signals ---
     auto extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<ExtractionResult>;
-    auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals) -> Result<FramePayload>;
+    auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
+        -> Result<FramePayload>;
     auto update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
                       std::span<const SignalValue> signals) -> Result<FramePayload>;
 
