@@ -1,43 +1,35 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Partial soundness results for Rosu simplification.
+-- Soundness of Rosu simplification.
 --
--- Purpose: Prove properties of `simplify`/`absorb` from Coalgebra.agda.
+-- Purpose: Prove that `simplify`/`absorb` from Coalgebra.agda preserve `runL`.
 --
--- What IS proved (complete, no holes):
+-- Main theorem: simplify-runL (simplify preserves runL for all formulas and traces).
+-- This enables the pipeline adequacy proof in Adequacy/Pipeline.agda.
+--
+-- Proof structure:
 --   1. ≡ᵇ-proc-correct: Boolean equality on LTLProc reflects propositional equality
 --   2. and-idem-runL / or-idem-runL: And a a ≡ a and Or a a ≡ a at runL level
 --   3. and-nested-idem-runL / or-nested-idem-runL: And a (And a b) ≡ And a b at runL level
 --   4. and-always-nonempty / or-eventually-nonempty: Always/Eventually absorption
 --      on non-empty traces
---
--- What CANNOT be proved for arbitrary formulas:
---   The Until/Release absorption rules (e.g., And φ (Until φ ψ) → Until φ ψ) are
---   NOT sound for all φ, ψ. Counterexample:
---     Let stepL φ x = Violated ce, stepL ψ x = Satisfied.
---     Then: stepL (Until φ ψ) x = combineOr Satisfied (Violated _) = Satisfied → True
---           stepL (And φ (Until φ ψ)) x = combineAnd (Violated ce) Satisfied = Violated → False
---   These rules ARE correct when restricted to formulas reachable via stepL (the left
---   conjunct comes from the same temporal operator's progression). A complete proof
---   would require characterizing the reachable formula space — a worthwhile extension.
---
--- Production impact: `simplify` is applied after each `stepL` call. The absorption
--- rules fire only when `≡ᵇ-proc φ ψ ≡ true` (structural equality). Since `stepL`
--- produces formulas where the absorbed subformula originates from the same operator,
--- the counterexample cannot arise in practice. This module proves the foundation;
--- a restricted soundness proof over reachable states would close the gap.
+--   5. Finalization agreement + metric non-empty lemmas
+--   6. absorb-runL: absorb preserves runL (all rules, all traces)
+--   7. simplify-runL: simplify preserves runL (structural induction)
 
 module Aletheia.LTL.SimplifySound where
 
 open import Aletheia.Prelude
 open import Data.Bool using (T)
 open import Data.Bool.Properties using (T-∧)
+open import Data.Unit using (tt)
+open import Relation.Binary.PropositionalEquality using (subst)
 open import Data.Nat using (_⊔_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
 open import Aletheia.LTL.Coalgebra using (
-  LTLProc; PredTable; stepL; finalizeL;
+  LTLProc; PredTable; stepL; finalizeL; finalizesHolds; absorb; simplify;
   Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
   MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc;
   _≡ᵇ-proc_)
@@ -220,22 +212,269 @@ or-eventually-nonempty table φ x rest with stepL table φ x
 ... | Continue n φ'  = or-nested-idem-runL table φ' (Eventually φ) rest
 
 -- ============================================================================
--- NOTE: Until/Release absorption rules
+-- SECTION 5: runL congruence infrastructure
 -- ============================================================================
---
--- The remaining 10 absorption rules (Until, Release, and metric variants) are NOT
--- provable for arbitrary formulas. Counterexample for And φ (Until φ ψ) ≡ Until φ ψ:
---   Let stepL φ x = Violated ce, stepL ψ x = Satisfied.
---   Then: stepL (Until φ ψ) x = combineOr Satisfied (Violated _) = Satisfied
---         stepL (And φ (Until φ ψ)) x = combineAnd (Violated ce) Satisfied = Violated
---   So runL differs on the trace (x ∷ []).
---
--- These rules ARE correct in the Rosu monitoring model when restricted to formulas
--- produced by stepL's progression (the left conjunct originates from the same temporal
--- operator). Proving this requires characterizing the reachable state space of stepL,
--- which is a non-trivial extension left for future work.
---
--- Production impact: minimal. The absorption rules fire only when ≡ᵇ-proc returns true,
--- meaning the absorbed subformula is structurally identical to the temporal operator's
--- inner formula. This structural constraint ensures the counterexample pattern (where
--- φ and ψ progress independently) cannot arise from stepL's actual output.
+
+-- When the right side of And evaluates to True, And a b ≡ a at runL level.
+runL-and-right-True : ∀ table a b σ → runL table b σ ≡ True →
+  runL table (And a b) σ ≡ runL table a σ
+runL-and-right-True table a b [] hyp with finalizeL a
+... | Fails _ = refl
+... | Holds with finalizeL b
+...   | Holds   = refl
+...   | Fails _ with () ← hyp
+runL-and-right-True table a b (x ∷ rest) hyp
+  with stepL table a x | stepL table b x
+... | Violated _    | _              = refl
+... | Satisfied     | Satisfied      = refl
+... | Satisfied     | Violated _     with () ← hyp
+... | Satisfied     | Continue _ _   = hyp
+... | Continue _ _  | Satisfied      = refl
+... | Continue _ _  | Violated _     with () ← hyp
+... | Continue _ a' | Continue _ b'  = runL-and-right-True table a' b' rest hyp
+
+-- When the right side of And evaluates to False, And a b ≡ False.
+runL-and-right-False : ∀ table a b σ → runL table b σ ≡ False →
+  runL table (And a b) σ ≡ False
+runL-and-right-False table a b [] hyp with finalizeL a
+... | Fails _ = refl
+... | Holds with finalizeL b
+...   | Holds   with () ← hyp
+...   | Fails _ = refl
+runL-and-right-False table a b (x ∷ rest) hyp
+  with stepL table a x | stepL table b x
+... | Violated _    | _              = refl
+... | Satisfied     | Satisfied      with () ← hyp
+... | Satisfied     | Violated _     = refl
+... | Satisfied     | Continue _ _   = hyp
+... | Continue _ _  | Satisfied      with () ← hyp
+... | Continue _ _  | Violated _     = refl
+... | Continue _ a' | Continue _ b'  = runL-and-right-False table a' b' rest hyp
+
+-- Pointwise congruence: if b₁ ≡ b₂ at runL level, And a b₁ ≡ And a b₂.
+runL-and-cong-r : ∀ table a b₁ b₂ σ →
+  runL table b₁ σ ≡ runL table b₂ σ →
+  runL table (And a b₁) σ ≡ runL table (And a b₂) σ
+runL-and-cong-r table a b₁ b₂ [] hyp with finalizeL a
+... | Fails _ = refl
+... | Holds with finalizeL b₁ | finalizeL b₂
+...   | Holds   | Holds   = refl
+...   | Holds   | Fails _ with () ← hyp
+...   | Fails _ | Holds   with () ← hyp
+...   | Fails _ | Fails _ = refl
+runL-and-cong-r table a b₁ b₂ (x ∷ rest) hyp
+  with stepL table a x | stepL table b₁ x | stepL table b₂ x
+... | Violated _    | _              | _              = refl
+... | Satisfied     | Satisfied      | Satisfied      = refl
+... | Satisfied     | Satisfied      | Violated _     with () ← hyp
+... | Satisfied     | Satisfied      | Continue _ _   = hyp
+... | Satisfied     | Violated _     | Satisfied      with () ← hyp
+... | Satisfied     | Violated _     | Violated _     = refl
+... | Satisfied     | Violated _     | Continue _ _   = hyp
+... | Satisfied     | Continue _ _   | Satisfied      = hyp
+... | Satisfied     | Continue _ _   | Violated _     = hyp
+... | Satisfied     | Continue _ _   | Continue _ _   = hyp
+... | Continue _ a' | Satisfied      | Satisfied      = refl
+... | Continue _ _  | Satisfied      | Violated _     with () ← hyp
+... | Continue _ a' | Satisfied      | Continue _ b₂' =
+      sym (runL-and-right-True table a' b₂' rest (sym hyp))
+... | Continue _ _  | Violated _     | Satisfied      with () ← hyp
+... | Continue _ _  | Violated _     | Violated _     = refl
+... | Continue _ a' | Violated _     | Continue _ b₂' =
+      sym (runL-and-right-False table a' b₂' rest (sym hyp))
+... | Continue _ a' | Continue _ b₁' | Satisfied      =
+      runL-and-right-True table a' b₁' rest hyp
+... | Continue _ a' | Continue _ b₁' | Violated _     =
+      runL-and-right-False table a' b₁' rest hyp
+... | Continue _ a' | Continue _ b₁' | Continue _ b₂' =
+      runL-and-cong-r table a' b₁' b₂' rest hyp
+
+-- When the right side of Or evaluates to True, Or a b ≡ True.
+runL-or-right-True : ∀ table a b σ → runL table b σ ≡ True →
+  runL table (Or a b) σ ≡ True
+runL-or-right-True table a b [] hyp with finalizeL a
+... | Holds   = refl
+... | Fails _ with finalizeL b
+...   | Holds   = refl
+...   | Fails _ with () ← hyp
+runL-or-right-True table a b (x ∷ rest) hyp
+  with stepL table a x | stepL table b x
+... | Satisfied     | _              = refl
+... | Violated _    | Satisfied      = refl
+... | Violated _    | Violated _     with () ← hyp
+... | Violated _    | Continue _ _   = hyp
+... | Continue _ _  | Satisfied      = refl
+... | Continue _ _  | Violated _     with () ← hyp
+... | Continue _ a' | Continue _ b'  = runL-or-right-True table a' b' rest hyp
+
+-- When the right side of Or evaluates to False, Or a b ≡ a at runL level.
+runL-or-right-False : ∀ table a b σ → runL table b σ ≡ False →
+  runL table (Or a b) σ ≡ runL table a σ
+runL-or-right-False table a b [] hyp with finalizeL a
+... | Holds   = refl
+... | Fails _ with finalizeL b
+...   | Holds   with () ← hyp
+...   | Fails _ = refl
+runL-or-right-False table a b (x ∷ rest) hyp
+  with stepL table a x | stepL table b x
+... | Satisfied     | _              = refl
+... | Violated _    | Satisfied      with () ← hyp
+... | Violated _    | Violated _     = refl
+... | Violated _    | Continue _ _   = hyp
+... | Continue _ _  | Satisfied      with () ← hyp
+... | Continue _ a' | Violated _     = refl
+... | Continue _ a' | Continue _ b'  = runL-or-right-False table a' b' rest hyp
+
+-- Pointwise congruence: if b₁ ≡ b₂ at runL level, Or a b₁ ≡ Or a b₂.
+runL-or-cong-r : ∀ table a b₁ b₂ σ →
+  runL table b₁ σ ≡ runL table b₂ σ →
+  runL table (Or a b₁) σ ≡ runL table (Or a b₂) σ
+runL-or-cong-r table a b₁ b₂ [] hyp with finalizeL a
+... | Holds   = refl
+... | Fails _ with finalizeL b₁ | finalizeL b₂
+...   | Holds   | Holds   = refl
+...   | Holds   | Fails _ with () ← hyp
+...   | Fails _ | Holds   with () ← hyp
+...   | Fails _ | Fails _ = refl
+runL-or-cong-r table a b₁ b₂ (x ∷ rest) hyp
+  with stepL table a x | stepL table b₁ x | stepL table b₂ x
+... | Satisfied     | _              | _              = refl
+... | Violated _    | Satisfied      | Satisfied      = refl
+... | Violated _    | Satisfied      | Violated _     with () ← hyp
+... | Violated _    | Satisfied      | Continue _ _   = hyp
+... | Violated _    | Violated _     | Satisfied      with () ← hyp
+... | Violated _    | Violated _     | Violated _     = refl
+... | Violated _    | Violated _     | Continue _ _   = hyp
+... | Violated _    | Continue _ _   | Satisfied      = hyp
+... | Violated _    | Continue _ _   | Violated _     = hyp
+... | Violated _    | Continue _ _   | Continue _ _   = hyp
+... | Continue _ a' | Satisfied      | Satisfied      = refl
+... | Continue _ _  | Satisfied      | Violated _     with () ← hyp
+... | Continue _ a' | Satisfied      | Continue _ b₂' =
+      sym (runL-or-right-True table a' b₂' rest (sym hyp))
+... | Continue _ _  | Violated _     | Satisfied      with () ← hyp
+... | Continue _ _  | Violated _     | Violated _     = refl
+... | Continue _ a' | Violated _     | Continue _ b₂' =
+      sym (runL-or-right-False table a' b₂' rest (sym hyp))
+... | Continue _ a' | Continue _ b₁' | Satisfied      =
+      runL-or-right-True table a' b₁' rest hyp
+... | Continue _ a' | Continue _ b₁' | Violated _     =
+      runL-or-right-False table a' b₁' rest hyp
+... | Continue _ a' | Continue _ b₁' | Continue _ b₂' =
+      runL-or-cong-r table a' b₁' b₂' rest hyp
+
+-- ============================================================================
+-- SECTION 6: absorb preserves runL
+-- ============================================================================
+
+private
+  -- Always absorption is sound when φ ≡ ψ and finalizesHolds φ.
+  always-absorb-sound : ∀ table φ σ →
+    finalizesHolds φ ≡ true →
+    runL table (Always φ) σ ≡ runL table (And φ (Always φ)) σ
+  always-absorb-sound table φ (x ∷ rest) _ =
+    sym (and-always-nonempty table φ x rest)
+  always-absorb-sound table φ [] fh with finalizeL φ
+  ... | Holds   = refl
+  ... | Fails _ with () ← fh
+
+  -- Eventually absorption is sound when φ ≡ ψ and ¬ finalizesHolds φ.
+  eventually-absorb-sound : ∀ table φ σ →
+    finalizesHolds φ ≡ false →
+    runL table (Eventually φ) σ ≡ runL table (Or φ (Eventually φ)) σ
+  eventually-absorb-sound table φ (x ∷ rest) _ =
+    sym (or-eventually-nonempty table φ x rest)
+  eventually-absorb-sound table φ [] fh with finalizeL φ
+  ... | Holds with () ← fh
+  ... | Fails _ = refl
+
+absorb-runL : ∀ table φ σ → runL table (absorb φ) σ ≡ runL table φ σ
+-- Always absorption: φ ∧ G(ψ) → G(ψ) when φ ≡ᵇ ψ and finalizesHolds φ
+absorb-runL table (And φ (Always ψ)) σ
+  with φ ≡ᵇ-proc ψ in beq | finalizesHolds φ in fheq
+... | false | _     = refl
+... | true  | false = refl
+... | true  | true
+  with refl ← ≡ᵇ-proc-correct φ ψ (subst T (sym beq) tt)
+  = always-absorb-sound table φ σ fheq
+-- Eventually absorption: φ ∨ F(ψ) → F(ψ) when φ ≡ᵇ ψ and ¬ finalizesHolds φ
+absorb-runL table (Or φ (Eventually ψ)) σ
+  with φ ≡ᵇ-proc ψ in beq | finalizesHolds φ in fheq
+... | false | _     = refl
+... | true  | true  = refl
+... | true  | false
+  with refl ← ≡ᵇ-proc-correct φ ψ (subst T (sym beq) tt)
+  = eventually-absorb-sound table φ σ fheq
+-- And-And idempotency: a ∧ (b ∧ c) → a ∧ c when a ≡ᵇ b
+absorb-runL table (And a (And b c)) σ
+  with a ≡ᵇ-proc b in beq
+... | false = refl
+... | true
+  with refl ← ≡ᵇ-proc-correct a b (subst T (sym beq) tt)
+  = sym (and-nested-idem-runL table a c σ)
+-- Or-Or idempotency: a ∨ (b ∨ c) → a ∨ c when a ≡ᵇ b
+absorb-runL table (Or a (Or b c)) σ
+  with a ≡ᵇ-proc b in beq
+... | false = refl
+... | true
+  with refl ← ≡ᵇ-proc-correct a b (subst T (sym beq) tt)
+  = sym (or-nested-idem-runL table a c σ)
+-- Catch-all: And with second arg ∉ {Always, And} — absorb returns input
+absorb-runL table (And _ (Atomic _)) σ = refl
+absorb-runL table (And _ (Not _)) σ = refl
+absorb-runL table (And _ (Or _ _)) σ = refl
+absorb-runL table (And _ (Next _)) σ = refl
+absorb-runL table (And _ (Eventually _)) σ = refl
+absorb-runL table (And _ (Until _ _)) σ = refl
+absorb-runL table (And _ (Release _ _)) σ = refl
+absorb-runL table (And _ (MetricEventuallyProc _ _ _)) σ = refl
+absorb-runL table (And _ (MetricAlwaysProc _ _ _)) σ = refl
+absorb-runL table (And _ (MetricUntilProc _ _ _ _)) σ = refl
+absorb-runL table (And _ (MetricReleaseProc _ _ _ _)) σ = refl
+-- Catch-all: Or with second arg ∉ {Eventually, Or} — absorb returns input
+absorb-runL table (Or _ (Atomic _)) σ = refl
+absorb-runL table (Or _ (Not _)) σ = refl
+absorb-runL table (Or _ (And _ _)) σ = refl
+absorb-runL table (Or _ (Next _)) σ = refl
+absorb-runL table (Or _ (Always _)) σ = refl
+absorb-runL table (Or _ (Until _ _)) σ = refl
+absorb-runL table (Or _ (Release _ _)) σ = refl
+absorb-runL table (Or _ (MetricEventuallyProc _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricAlwaysProc _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricUntilProc _ _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricReleaseProc _ _ _ _)) σ = refl
+-- All other constructors — absorb returns input
+absorb-runL table (Atomic _) σ = refl
+absorb-runL table (Not _) σ = refl
+absorb-runL table (Next _) σ = refl
+absorb-runL table (Always _) σ = refl
+absorb-runL table (Eventually _) σ = refl
+absorb-runL table (Until _ _) σ = refl
+absorb-runL table (Release _ _) σ = refl
+absorb-runL table (MetricEventuallyProc _ _ _) σ = refl
+absorb-runL table (MetricAlwaysProc _ _ _) σ = refl
+absorb-runL table (MetricUntilProc _ _ _ _) σ = refl
+absorb-runL table (MetricReleaseProc _ _ _ _) σ = refl
+
+-- ============================================================================
+-- SECTION 7: simplify preserves runL
+-- ============================================================================
+
+simplify-runL : ∀ table φ σ → runL table (simplify φ) σ ≡ runL table φ σ
+simplify-runL table (And a b) σ =
+  trans (absorb-runL table (And a (simplify b)) σ)
+        (runL-and-cong-r table a (simplify b) b σ (simplify-runL table b σ))
+simplify-runL table (Or a b) σ =
+  trans (absorb-runL table (Or a (simplify b)) σ)
+        (runL-or-cong-r table a (simplify b) b σ (simplify-runL table b σ))
+simplify-runL table (Atomic _) σ = refl
+simplify-runL table (Not _) σ = refl
+simplify-runL table (Next _) σ = refl
+simplify-runL table (Always _) σ = refl
+simplify-runL table (Eventually _) σ = refl
+simplify-runL table (Until _ _) σ = refl
+simplify-runL table (Release _ _) σ = refl
+simplify-runL table (MetricEventuallyProc _ _ _) σ = refl
+simplify-runL table (MetricAlwaysProc _ _ _) σ = refl
+simplify-runL table (MetricUntilProc _ _ _ _) σ = refl
+simplify-runL table (MetricReleaseProc _ _ _ _) σ = refl

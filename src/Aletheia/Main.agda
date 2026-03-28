@@ -3,7 +3,8 @@
 -- Main entry point for Aletheia (JSON streaming protocol).
 --
 -- Purpose: Process line-delimited JSON requests and emit JSON responses.
--- Protocol: parse_dbc → set_properties → start_stream → data_frames* → end_stream
+-- Protocol: parse_dbc → set_properties → start_stream → data_frames* → end_stream,
+--   plus build_frame, extract_all_signals, update_frame, validate_dbc, format_dbc
 -- State Machine: WaitingForDBC → ReadyToStream → Streaming
 --
 -- Compilation: Compiled to Haskell via MAlonzo, called from AletheiaFFI.hs.
@@ -28,7 +29,8 @@ open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
 open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
-open import Aletheia.Protocol.StreamState using (StreamState; initialState; processStreamCommand; handleDataFrame)
+open import Aletheia.Protocol.StreamState using (StreamState; initialState; handleDataFrame)
+open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 import Aletheia.Protocol.Message as Msg
 

@@ -272,6 +272,8 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
   - Review fixes (F1-F7): Stale comments fixed, `TimedFrame.dlcValid` invariant added, DLC bounds check (`≤ 15`) at protocol entry points, `ValidDLC` tightened to exact CAN/CAN-FD byte counts via `bytesToDlc`, `buildFrame` parameterized by DLC, `PhysicallyDisjoint` parameterized by frame byte count, disjointness proofs generalized (`lookupSafe-swapBytes`, `swap-updateSafe-swap` from case-enumeration to induction, `injectSignal-preserves-disjoint-bits-physical` from `CANFrame 8` to `∀ {n}`, capstone `validDBC-roundtrip` uses message DLC directly)
   - Code review round (R1-R5): `WellFormed.agda` uses `max-physical-bits` constant (was hardcoded 512), accurate CAN-FD comments in `Endianness.agda`, explicit `payloadSize = dlcToBytes dlc` in `Routing.agda`, numeric conversions extracted to `Encoding/Arithmetic.agda` (Encoding.agda 391→336 lines), `readBit-updateSafe-same`/`readBit-updateSafe-diff` proof helpers in `Endianness/Properties.agda`
 
+- ⏳ Pipeline soundness fix (started 2026-03-28): Discovered 8 unsound absorption rules in `simplify/absorb` (Coalgebra.agda). Until/Release rules genuinely unsound even for reachable formulas; Always/Eventually rules unsound at finalization only. Phase 0 complete (fix absorb: remove Until/Release rules, add finalizesHolds guards, add structural idempotency). Phase 1 in progress (absorb-runL proof in SimplifySound.agda). Phases 2-3 pending (simplify-runL, pipeline adequacy theorem).
+
 **Planned / Research**:
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
 - **SOME/IP support**: SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. SOME/IP is service-oriented, not signal-based — 16-byte header + variable structured payload. Requires a different frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400). Sequence: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
@@ -283,7 +285,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 64 (all `--safe --without-K`)
+- Agda modules: 66 (all `--safe --without-K`)
 - Python modules: 12
 - C++ files: 16 (10 headers + 6 source)
 - Go files: 12 source
@@ -316,9 +318,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 64 Agda modules use `--safe --without-K` (2 also use `--no-main`)
+- All 66 Agda modules use `--safe --without-K` (2 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
+- **Pipeline soundness fix in progress**: 8 unsound absorption rules removed from `simplify/absorb`, 4 remaining rules guarded with `finalizesHolds` predicate, 2 structural idempotency rules added for performance recovery. `absorb-runL` and `simplify-runL` proofs in progress — will enable pipeline adequacy theorem (`runL-s ≡ runL`)
 
 ---
 

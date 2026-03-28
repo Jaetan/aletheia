@@ -26,7 +26,7 @@ open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; u
 open import Aletheia.CAN.Endianness.Properties using (physicalBitPos-BE-bounded-any)
 open import Aletheia.Protocol.JSON using (getNat)
 open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits)
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits; 8≤max-physical-bits)
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATES
@@ -118,9 +118,6 @@ private
   0∸x≡0 : ∀ m → 0 ∸ m ≡ 0
   0∸x≡0 zero    = refl
   0∸x≡0 (suc _) = refl
-
-  8≤max-physical-bits : 8 ≤ max-physical-bits
-  8≤max-physical-bits = s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s z≤n)))))))
 
 unconvertSB-bound-BE-zero : ∀ s l → unconvertStartBit 0 BigEndian s l < max-physical-bits
 unconvertSB-bound-BE-zero s l = bound

@@ -279,8 +279,11 @@ parseRational = do
     ... | suc m = suc (9 + m * 10)
     ... | zero = suc 0  -- Unreachable but needed for coverage
 
+    ascii-zero : ℕ
+    ascii-zero = 48
+
     charToDigit : Char → ℕ
-    charToDigit c = toℕ c ∸ 48  -- 48 = ASCII '0'
+    charToDigit c = toℕ c ∸ ascii-zero
 
     parseDigitList : List Char → ℕ
     parseDigitList = foldl (λ acc d → acc * 10 + charToDigit d) 0

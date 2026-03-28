@@ -31,7 +31,7 @@ open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList;
   parseByteOrder; parseSigned; parseSignalPresence)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal)
-open import Aletheia.Prelude using (max-physical-bits)
+open import Aletheia.Prelude using (max-physical-bits; 8≤max-physical-bits)
 
 -- ============================================================================
 -- HELPER: convertStartBit bound for parser well-formedness
@@ -49,9 +49,6 @@ private
   -- BE case (zero): physicalBitPos 0 BE s = (0 ∸ (s/8))*8 + s%8; rewrite stuck
   --   subtraction via 0∸n≡0 to get s%8 ∸ (l∸1) < 8 ≤ max-physical-bits.
   -- BE case (suc n): uses generic convertStartBit-wf-bound.
-  8≤mpb : 8 ≤ max-physical-bits
-  8≤mpb = s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s z≤n)))))))
-
   convertSB-bound : ∀ n bo s l → n ≤ 64 → s < max-physical-bits → convertStartBit n bo s l < max-physical-bits
   convertSB-bound _ LittleEndian s _ _ s<mpb = s<mpb
   convertSB-bound zero BigEndian s l _ _ = subst (_< max-physical-bits) (sym eq) bound
@@ -59,7 +56,7 @@ private
       eq : convertStartBit 0 BigEndian s l ≡ s % 8 ∸ (l ∸ 1)
       eq = cong (_∸ (l ∸ 1)) (cong (λ x → x * 8 + s % 8) (0∸n≡0 (s / 8)))
       bound : s % 8 ∸ (l ∸ 1) < max-physical-bits
-      bound = ≤-trans (≤-trans (s≤s (m∸n≤m (s % 8) (l ∸ 1))) (m%n<n s 8)) 8≤mpb
+      bound = ≤-trans (≤-trans (s≤s (m∸n≤m (s % 8) (l ∸ 1))) (m%n<n s 8)) 8≤max-physical-bits
   convertSB-bound (suc n) BigEndian s l n≤64 s<mpb =
     convertStartBit-wf-bound (suc n) BigEndian s l (s≤s z≤n) (*-monoˡ-≤ 8 n≤64) s<mpb
 

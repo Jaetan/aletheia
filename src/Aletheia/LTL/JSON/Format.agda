@@ -108,10 +108,8 @@ formatLTL (LTL.MetricRelease n _ f g) =
 -- DEPTH FUNCTION
 -- ============================================================================
 
--- Compute the minimum depth required to parse a formatted LTL formula.
--- The parser consumes depth at three points per nesting level:
---   parseLTL (1 suc), parseLTLObject (1 suc), parseUnary/parseBinary (1 suc)
--- Atomic formulas need only 2 (parseAtomic doesn't consume depth).
+-- Structural depth of an LTL formula (maximum nesting level).
+-- Retained for use in complexity analysis; no longer needed by the parser.
 ltlDepth : LTL SignalPredicate → ℕ
 ltlDepth (LTL.Atomic _)              = 2
 ltlDepth (LTL.Not f)                 = suc (suc (suc (ltlDepth f)))

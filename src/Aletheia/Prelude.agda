@@ -92,6 +92,16 @@ standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)
 extended-can-id-max : ℕ
 extended-can-id-max = 536870912  -- 2^29 (29-bit extended CAN IDs: 0x00000000-0x1FFFFFFF)
 
+-- Bits per byte (universal constant for CAN bit/byte arithmetic)
+bits-per-byte : ℕ
+bits-per-byte = 8
+
 -- Maximum physical bits in a CAN-FD frame (64 bytes × 8 bits)
 max-physical-bits : ℕ
 max-physical-bits = 512
+
+-- 8 ≤ 512 (bits-per-byte fits in max-physical-bits)
+-- Defined once to avoid duplicating the 8-deep s≤s chain
+8≤max-physical-bits : 8 ≤ max-physical-bits
+8≤max-physical-bits = s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s z≤n)))))))
+  where open import Data.Nat using (z≤n; s≤s)

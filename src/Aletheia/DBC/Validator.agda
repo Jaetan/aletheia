@@ -112,6 +112,20 @@ findSignalPresence name (sig ∷ rest) with DBCSignal.name sig ≟ name
 ... | no  _ = findSignalPresence name rest
 
 -- ============================================================================
+-- GENERIC TRIANGULAR CHECK COMBINATOR
+-- ============================================================================
+
+-- Check one element against a list using a pairwise checker
+checkAgainst : ∀ {A : Set} → (A → A → List ValidationIssue) → A → List A → List ValidationIssue
+checkAgainst _ _ [] = []
+checkAgainst check x (y ∷ ys) = check x y ++ₗ checkAgainst check x ys
+
+-- Check all pairs (i, j) where i < j (triangular iteration)
+triangularCheck : ∀ {A : Set} → (A → A → List ValidationIssue) → List A → List ValidationIssue
+triangularCheck _ [] = []
+triangularCheck check (x ∷ xs) = checkAgainst check x xs ++ₗ triangularCheck check xs
+
+-- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs
 -- ============================================================================
 
@@ -123,14 +137,10 @@ checkDupIdPair m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
 ... | no  _ = []
 
 checkDupIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDupIdAgainstList _ [] = []
-checkDupIdAgainstList m (other ∷ rest) =
-  checkDupIdPair m other ++ₗ checkDupIdAgainstList m rest
+checkDupIdAgainstList = checkAgainst checkDupIdPair
 
 checkDuplicateMessageIds : List DBCMessage → List ValidationIssue
-checkDuplicateMessageIds [] = []
-checkDuplicateMessageIds (m ∷ rest) =
-  checkDupIdAgainstList m rest ++ₗ checkDuplicateMessageIds rest
+checkDuplicateMessageIds = triangularCheck checkDupIdPair
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (within a message)
@@ -144,14 +154,10 @@ checkDupSigPair msgName s1 s2 with DBCSignal.name s1 ≟ DBCSignal.name s2
 ... | no  _ = []
 
 checkDupSigAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
-checkDupSigAgainstList _ _ [] = []
-checkDupSigAgainstList msgName sig (other ∷ rest) =
-  checkDupSigPair msgName sig other ++ₗ checkDupSigAgainstList msgName sig rest
+checkDupSigAgainstList msgName = checkAgainst (checkDupSigPair msgName)
 
 checkDupSigTriangular : String → List DBCSignal → List ValidationIssue
-checkDupSigTriangular _ []           = []
-checkDupSigTriangular msgName (sig ∷ rest) =
-  checkDupSigAgainstList msgName sig rest ++ₗ checkDupSigTriangular msgName rest
+checkDupSigTriangular msgName = triangularCheck (checkDupSigPair msgName)
 
 checkDuplicateSignalNamesInMsg : DBCMessage → List ValidationIssue
 checkDuplicateSignalNamesInMsg msg =
@@ -236,14 +242,10 @@ checkGlobalNamePair m1 m2 =
                    ++ₛ DBCMessage.name m2 ++ₛ "'")) shared
 
 checkGlobalNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkGlobalNameAgainstList _ [] = []
-checkGlobalNameAgainstList m (other ∷ rest) =
-  checkGlobalNamePair m other ++ₗ checkGlobalNameAgainstList m rest
+checkGlobalNameAgainstList = checkAgainst checkGlobalNamePair
 
 checkAllGlobalNameCollisions : List DBCMessage → List ValidationIssue
-checkAllGlobalNameCollisions [] = []
-checkAllGlobalNameCollisions (m ∷ rest) =
-  checkGlobalNameAgainstList m rest ++ₗ checkAllGlobalNameCollisions rest
+checkAllGlobalNameCollisions = triangularCheck checkGlobalNamePair
 
 -- ============================================================================
 -- CHECK 7: MIN EXCEEDS MAX
@@ -299,14 +301,10 @@ checkOverlapPair msgName n s1 s2 with signalPairValid? n s1 s2
                  ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap") ∷ []
 
 checkOverlapAgainstList : String → ℕ → DBCSignal → List DBCSignal → List ValidationIssue
-checkOverlapAgainstList _ _ _ [] = []
-checkOverlapAgainstList msgName n sig (other ∷ rest) =
-  checkOverlapPair msgName n sig other ++ₗ checkOverlapAgainstList msgName n sig rest
+checkOverlapAgainstList msgName n = checkAgainst (checkOverlapPair msgName n)
 
 checkOverlapTriangular : String → ℕ → List DBCSignal → List ValidationIssue
-checkOverlapTriangular _ _ []           = []
-checkOverlapTriangular msgName n (sig ∷ rest) =
-  checkOverlapAgainstList msgName n sig rest ++ₗ checkOverlapTriangular msgName n rest
+checkOverlapTriangular msgName n = triangularCheck (checkOverlapPair msgName n)
 
 checkOverlapsInMsg : DBCMessage → List ValidationIssue
 checkOverlapsInMsg msg =
@@ -342,14 +340,10 @@ checkDupNamePair m1 m2 with DBCMessage.name m1 ≟ DBCMessage.name m2
 ... | no  _ = []
 
 checkDupNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDupNameAgainstList _ [] = []
-checkDupNameAgainstList m (other ∷ rest) =
-  checkDupNamePair m other ++ₗ checkDupNameAgainstList m rest
+checkDupNameAgainstList = checkAgainst checkDupNamePair
 
 checkDuplicateMessageNames : List DBCMessage → List ValidationIssue
-checkDuplicateMessageNames [] = []
-checkDuplicateMessageNames (m ∷ rest) =
-  checkDupNameAgainstList m rest ++ₗ checkDuplicateMessageNames rest
+checkDuplicateMessageNames = triangularCheck checkDupNamePair
 
 -- ============================================================================
 -- CHECK 12: DLC OUT OF RANGE

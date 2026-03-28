@@ -7,8 +7,7 @@
 -- Interfaces: Functor, Applicative, Monad for parser composition.
 -- Role: Foundation for all parsing (JSON, DBC, LTL, protocol).
 --
--- Performance: Rewritten from fuel-based approach, type-checks in ~10s (was >120s).
--- The `many` combinator terminates structurally by tracking consumed input length.
+-- The `many` combinator terminates by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
 open import Data.List using (List; []; _∷_; _++_; length)

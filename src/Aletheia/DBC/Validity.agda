@@ -19,13 +19,17 @@ open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
-open import Data.Nat using (ℕ; _+_; _*_; _≤_; _∸_)
+open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
 open import Data.Integer using (+_)
-open import Data.Rational using (ℚ; 0ℚ)
+open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
 open import Data.Maybe using (Maybe; just; nothing; Is-just)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
+open import Data.String using (String)
+open import Data.Bool using (Bool; true; false)
+open import Data.Product using (_×_)
+open import Aletheia.Prelude using (max-physical-bits)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -111,3 +115,47 @@ record ValidDBC (dbc : DBC) : Set where
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
     -- 9. Valid DLCs
     validDLCs         : All ValidDLC msgs
+
+-- ============================================================================
+-- WARNING PREDICATES (advisory, not part of ValidDBC)
+-- ============================================================================
+
+-- Check 7: Signal minimum ≤ maximum
+MinLeqMax : DBCSignal → Set
+MinLeqMax sig =
+  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵣ
+  SignalDef.maximum (DBCSignal.signalDef sig)
+
+-- Check 11: Message names pairwise distinct
+DistinctMessageNames : DBCMessage → DBCMessage → Set
+DistinctMessageNames m1 m2 = DBCMessage.name m1 ≢ DBCMessage.name m2
+
+-- Check 14: Message has at least one signal
+NonEmptySignals : DBCMessage → Set
+NonEmptySignals msg = DBCMessage.signals msg ≢ []
+
+-- Check 15: startBit < max-physical-bits
+StartBitInRange : DBCSignal → Set
+StartBitInRange sig =
+  SignalDef.startBit (DBCSignal.signalDef sig) < max-physical-bits
+
+-- Check 16: bitLength ≤ max-physical-bits
+BitLengthInRange : DBCSignal → Set
+BitLengthInRange sig =
+  SignalDef.bitLength (DBCSignal.signalDef sig) ≤ max-physical-bits
+
+-- Check 6: No shared signal names between messages
+DisjointSignalNames : List String → List String → Set
+DisjointSignalNames names1 names2 = All (λ n → Any (n ≡_) names2 → ⊥) names1
+
+-- Check 13: Component predicates for offset/scale range checking
+RangeLowOK : ℚ → ℚ → Set
+RangeLowOK physMin declMin = declMin ≤ᵣ physMin
+
+RangeHighOK : ℚ → ℚ → Set
+RangeHighOK physMax declMax = physMax ≤ᵣ declMax
+
+-- Composed range check, parameterized by factor sign
+RangeBoundsOK : Bool → ℚ → ℚ → ℚ → ℚ → Set
+RangeBoundsOK false physA physB declMin declMax = RangeLowOK physA declMin × RangeHighOK physB declMax
+RangeBoundsOK true  physA physB declMin declMax = RangeLowOK physB declMin × RangeHighOK physA declMax

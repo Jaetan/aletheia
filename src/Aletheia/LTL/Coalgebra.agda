@@ -297,6 +297,17 @@ finalizeL (MetricUntilProc _ _ _ _) = Fails "MetricUntil: ψ never satisfied wit
 finalizeL (MetricReleaseProc _ _ _ _) = Holds
 
 -- ============================================================================
+-- FINALIZATION PREDICATE
+-- ============================================================================
+
+-- Boolean check: does finalizeL give Holds?
+-- Used by absorb to guard Always/Eventually rules against finalization mismatch.
+finalizesHolds : LTLProc → Bool
+finalizesHolds proc with finalizeL proc
+... | Holds   = true
+... | Fails _ = false
+
+-- ============================================================================
 -- ROSU SIMPLIFICATION
 -- ============================================================================
 
@@ -331,58 +342,45 @@ _ ≡ᵇ-proc _ = false
 --
 -- Two-phase approach:
 --   Phase 1 (simplify): recurse into right subterms of And/Or to handle
---     nested patterns (e.g., Until/Release produce double nesting)
---   Phase 2 (absorb): apply Rosu absorption rules at the top level
+--     nested patterns
+--   Phase 2 (absorb): apply absorption rules at the top level
 --
--- Absorption rules (from Rosu's original paper, extended to all operators):
---   φ ∧ G(φ)     → G(φ)        φ ∨ F(φ)     → F(φ)
---   φ ∧ (φ U ψ)  → φ U ψ      ψ ∨ (φ U ψ)  → φ U ψ
---   ψ ∧ (φ R ψ)  → φ R ψ      φ ∨ (φ R ψ)  → φ R ψ
---   (and metric variants)
+-- Sound absorption rules (proven in SimplifySound.agda, absorb-runL):
+--   φ ∧ G(φ) → G(φ)  (guarded: finalizesHolds φ)
+--   φ ∨ F(φ) → F(φ)  (guarded: ¬ finalizesHolds φ)
+--   φ ∧ (φ ∧ ψ) → φ ∧ ψ   (structural And-And idempotency)
+--   φ ∨ (φ ∨ ψ) → φ ∨ ψ   (structural Or-Or idempotency)
 --
--- Semantically valid: e.g. ⟦ And φ (Always φ) ⟧ ≡ ⟦ Always φ ⟧ by idempotence of ∧TV.
--- Applied after stepL in the streaming pipeline (does not affect adequacy proof).
+-- NOT absorbed (unsound):
+--   Until/Release rules (φ ∧ (φ U ψ) → φ U ψ, etc.): unsound on non-empty
+--     traces even for reachable formulas (counterexample in SimplifySound.agda).
+--   MetricAlways/MetricEventually (φ ∧ G[w]φ → G[w]φ, etc.): unsound when
+--     the metric window expires mid-trace (outer φ still evaluating, inner
+--     metric operator resolves to Satisfied/Violated). Structural idempotency
+--     rules recover O(1) formula size for all these operators.
+--
+-- The finalize guard on Always/Eventually prevents a mismatch at end-of-stream:
+-- without it, finalizeL(And (Eventually ψ) (Always (Eventually ψ))) = Fails but
+-- finalizeL(Always (Eventually ψ)) = Holds — unsound at pipeline level.
+-- The guard ensures absorption only fires when finalization agrees.
 
 -- Phase 2: apply absorption rules (non-recursive)
 absorb : LTLProc → LTLProc
--- And absorption: φ ∧ G(φ) → G(φ), φ ∧ (φ U ψ) → φ U ψ, ψ ∧ (φ R ψ) → φ R ψ
-absorb (And φ (Always ψ)) with φ ≡ᵇ-proc ψ
-... | true  = Always ψ
-... | false = And φ (Always ψ)
-absorb (And φ (Until ψ χ)) with φ ≡ᵇ-proc ψ
-... | true  = Until ψ χ
-... | false = And φ (Until ψ χ)
-absorb (And ψ (Release φ χ)) with ψ ≡ᵇ-proc χ
-... | true  = Release φ χ
-... | false = And ψ (Release φ χ)
-absorb (And φ (MetricAlwaysProc w s ψ)) with φ ≡ᵇ-proc ψ
-... | true  = MetricAlwaysProc w s ψ
-... | false = And φ (MetricAlwaysProc w s ψ)
-absorb (And φ (MetricUntilProc w s ψ χ)) with φ ≡ᵇ-proc ψ
-... | true  = MetricUntilProc w s ψ χ
-... | false = And φ (MetricUntilProc w s ψ χ)
-absorb (And ψ (MetricReleaseProc w s φ χ)) with ψ ≡ᵇ-proc χ
-... | true  = MetricReleaseProc w s φ χ
-... | false = And ψ (MetricReleaseProc w s φ χ)
--- Or absorption: φ ∨ F(φ) → F(φ), ψ ∨ (φ U ψ) → φ U ψ, φ ∨ (φ R ψ) → φ R ψ
-absorb (Or φ (Eventually ψ)) with φ ≡ᵇ-proc ψ
-... | true  = Eventually ψ
-... | false = Or φ (Eventually ψ)
-absorb (Or ψ (Until φ χ)) with ψ ≡ᵇ-proc χ
-... | true  = Until φ χ
-... | false = Or ψ (Until φ χ)
-absorb (Or φ (Release ψ χ)) with φ ≡ᵇ-proc ψ
-... | true  = Release ψ χ
-... | false = Or φ (Release ψ χ)
-absorb (Or φ (MetricEventuallyProc w s ψ)) with φ ≡ᵇ-proc ψ
-... | true  = MetricEventuallyProc w s ψ
-... | false = Or φ (MetricEventuallyProc w s ψ)
-absorb (Or ψ (MetricUntilProc w s φ χ)) with ψ ≡ᵇ-proc χ
-... | true  = MetricUntilProc w s φ χ
-... | false = Or ψ (MetricUntilProc w s φ χ)
-absorb (Or φ (MetricReleaseProc w s ψ χ)) with φ ≡ᵇ-proc ψ
-... | true  = MetricReleaseProc w s ψ χ
-... | false = Or φ (MetricReleaseProc w s ψ χ)
+-- And absorption: φ ∧ G(φ) → G(φ) (guarded by finalizesHolds)
+absorb (And φ (Always ψ)) with φ ≡ᵇ-proc ψ | finalizesHolds φ
+... | true  | true  = Always ψ
+... | _     | _     = And φ (Always ψ)
+-- Or absorption: φ ∨ F(φ) → F(φ) (guarded by ¬ finalizesHolds)
+absorb (Or φ (Eventually ψ)) with φ ≡ᵇ-proc ψ | finalizesHolds φ
+... | true  | false = Eventually ψ
+... | _     | _     = Or φ (Eventually ψ)
+-- Structural idempotency: φ ∧ (φ ∧ ψ) → φ ∧ ψ, φ ∨ (φ ∨ ψ) → φ ∨ ψ
+absorb (And a (And b c)) with a ≡ᵇ-proc b
+... | true  = And a c
+... | false = And a (And b c)
+absorb (Or a (Or b c)) with a ≡ᵇ-proc b
+... | true  = Or a c
+... | false = Or a (Or b c)
 absorb x = x
 
 -- Phase 1: recurse right to handle nested patterns, then absorb

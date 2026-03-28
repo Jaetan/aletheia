@@ -26,36 +26,18 @@ open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId; Standard; Extended)
 open import Aletheia.CAN.DLC using (dlcToBytes)
 
 -- ============================================================================
--- JSON → REQUEST PARSING
--- ============================================================================
-
--- Parse a JSON array as a list of bytes
-parseByteArray : List JSON → Maybe (List ℕ)
-parseByteArray [] = just []
-parseByteArray (jn ∷ rest) = do
-  n ← getInt jn  -- Extract integer from JSON (rational must have denominator 1)
-  extractNat n rest
-  where
-    extractNat : ℤ → List JSON → Maybe (List ℕ)
-    extractNat (+ nℕ) rest = do
-      restParsed ← parseByteArray rest
-      just (nℕ ∷ restParsed)
-    extractNat -[1+ _ ] _ = nothing  -- Negative number
-
--- Convert List ℕ to Vec Byte n (if length is exactly n)
-listToVec : (n : ℕ) → List ℕ → Maybe (Vec Byte n)
-listToVec zero    []       = just Data.Vec.[]
-listToVec zero    (_ ∷ _)  = nothing
-listToVec (suc n) []       = nothing
-listToVec (suc n) (x ∷ xs) =
-  listToVec n xs >>= λ rest →
-  just ((x % 256) Data.Vec.∷ rest)
-
--- ============================================================================
--- COMMAND PARSERS
+-- INTERNAL HELPERS
 -- ============================================================================
 
 private
+  -- Maximum DLC code (CAN-FD)
+  max-dlc-code : ℕ
+  max-dlc-code = 15
+
+  -- Byte modulus for truncating values to 0..255
+  byte-modulus : ℕ
+  byte-modulus = 256
+
   -- Lift Maybe to String ⊎ A with an error message on Nothing
   require : ∀ {A : Set} → String → Maybe A → String ⊎ A
   require msg nothing  = inj₁ msg
@@ -63,9 +45,9 @@ private
 
   -- Validate DLC ≤ 15 (max CAN-FD DLC code)
   requireValidDLC : String → ℕ → String ⊎ ℕ
-  requireValidDLC ctx dlc with dlc ≤? 15
+  requireValidDLC ctx dlc with dlc ≤? max-dlc-code
   ... | yes _ = inj₂ dlc
-  ... | no  _ = inj₁ (ctx ++ₛ ": DLC exceeds maximum value of 15")
+  ... | no  _ = inj₁ (ctx ++ₛ ": DLC exceeds maximum value")
 
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
   parseCANIdField : String → String → List (String × JSON) → String ⊎ CANId
@@ -85,87 +67,109 @@ private
                         then inj₂ (Standard (rawId % standard-can-id-max))
                         else inj₁ (ctx' ++ₛ ": CAN ID out of range for standard ID")
 
--- Parse ParseDBC command
-tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
-tryParseDBC obj with lookupByKey "dbc" obj
-... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
-... | just dbc = inj₂ (ParseDBC dbc)
+  -- Parse a JSON array as a list of bytes
+  parseByteArray : List JSON → Maybe (List ℕ)
+  parseByteArray [] = just []
+  parseByteArray (jn ∷ rest) = do
+    n ← getInt jn
+    extractNat n rest
+    where
+      extractNat : ℤ → List JSON → Maybe (List ℕ)
+      extractNat (+ nℕ) rest = do
+        restParsed ← parseByteArray rest
+        just (nℕ ∷ restParsed)
+      extractNat -[1+ _ ] _ = nothing
 
--- Parse SetProperties command
-trySetProperties : List (String × JSON) → String ⊎ StreamCommand
-trySetProperties obj with lookupArray "properties" obj
-... | nothing = inj₁ "SetProperties: missing 'properties' field"
-... | just props = inj₂ (SetProperties props)
+  -- Convert List ℕ to Vec Byte n (if length is exactly n)
+  listToVec : (n : ℕ) → List ℕ → Maybe (Vec Byte n)
+  listToVec zero    []       = just Data.Vec.[]
+  listToVec zero    (_ ∷ _)  = nothing
+  listToVec (suc n) []       = nothing
+  listToVec (suc n) (x ∷ xs) =
+    listToVec n xs >>= λ rest →
+    just ((x % byte-modulus) Data.Vec.∷ rest)
 
--- Parse StartStream command
-tryStartStream : List (String × JSON) → String ⊎ StreamCommand
-tryStartStream _ = inj₂ StartStream
+  -- Parse ParseDBC command
+  tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryParseDBC obj with lookupByKey "dbc" obj
+  ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
+  ... | just dbc = inj₂ (ParseDBC dbc)
 
--- Parse BuildFrame command
-tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
-tryBuildFrame obj =
-  parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
-  require "BuildFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
-  requireValidDLC "BuildFrame" dlc >>=ₑ λ _ →
-  require "BuildFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
-  inj₂ (BuildFrame canId dlc signals)
+  -- Parse SetProperties command
+  trySetProperties : List (String × JSON) → String ⊎ StreamCommand
+  trySetProperties obj with lookupArray "properties" obj
+  ... | nothing = inj₁ "SetProperties: missing 'properties' field"
+  ... | just props = inj₂ (SetProperties props)
 
--- Parse ExtractAllSignals command
-tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
-tryExtractAllSignals obj =
-  parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
-  require "ExtractAllSignals: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
-  requireValidDLC "ExtractAllSignals" dlc >>=ₑ λ _ →
-  require "ExtractAllSignals: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
-  require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-  require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
-  inj₂ (ExtractAllSignals canId dlc bytes)
+  -- Parse StartStream command
+  tryStartStream : List (String × JSON) → String ⊎ StreamCommand
+  tryStartStream _ = inj₂ StartStream
 
--- Parse UpdateFrame command
-tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
-tryUpdateFrame obj =
-  parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
-  require "UpdateFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
-  requireValidDLC "UpdateFrame" dlc >>=ₑ λ _ →
-  require "UpdateFrame: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
-  require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-  require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
-  require "UpdateFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
-  inj₂ (UpdateFrame canId dlc bytes signals)
+  -- Parse BuildFrame command
+  tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
+  tryBuildFrame obj =
+    parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
+    require "BuildFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireValidDLC "BuildFrame" dlc >>=ₑ λ _ →
+    require "BuildFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
+    inj₂ (BuildFrame canId dlc signals)
 
--- Parse EndStream command
-tryEndStream : List (String × JSON) → String ⊎ StreamCommand
-tryEndStream _ = inj₂ EndStream
+  -- Parse ExtractAllSignals command
+  tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
+  tryExtractAllSignals obj =
+    parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
+    require "ExtractAllSignals: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireValidDLC "ExtractAllSignals" dlc >>=ₑ λ _ →
+    require "ExtractAllSignals: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+    require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
+    inj₂ (ExtractAllSignals canId dlc bytes)
 
--- Parse ValidateDBC command
-tryValidateDBC : List (String × JSON) → String ⊎ StreamCommand
-tryValidateDBC obj with lookupByKey "dbc" obj
-... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
-... | just dbc = inj₂ (ValidateDBC dbc)
+  -- Parse UpdateFrame command
+  tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
+  tryUpdateFrame obj =
+    parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
+    require "UpdateFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireValidDLC "UpdateFrame" dlc >>=ₑ λ _ →
+    require "UpdateFrame: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+    require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
+    require "UpdateFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
+    inj₂ (UpdateFrame canId dlc bytes signals)
 
--- Parse FormatDBC command (no arguments needed)
-tryFormatDBC : List (String × JSON) → String ⊎ StreamCommand
-tryFormatDBC _ = inj₂ FormatDBC
+  -- Parse EndStream command
+  tryEndStream : List (String × JSON) → String ⊎ StreamCommand
+  tryEndStream _ = inj₂ EndStream
 
--- Dispatch table for command parsers
-commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
-commandDispatchTable =
-  ("parseDBC" , tryParseDBC) ∷
-  ("setProperties" , trySetProperties) ∷
-  ("startStream" , tryStartStream) ∷
-  ("buildFrame" , tryBuildFrame) ∷
-  ("extractAllSignals" , tryExtractAllSignals) ∷
-  ("updateFrame" , tryUpdateFrame) ∷
-  ("endStream" , tryEndStream) ∷
-  ("validateDBC" , tryValidateDBC) ∷
-  ("formatDBC" , tryFormatDBC) ∷
-  []
+  -- Parse ValidateDBC command
+  tryValidateDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryValidateDBC obj with lookupByKey "dbc" obj
+  ... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
+  ... | just dbc = inj₂ (ValidateDBC dbc)
 
--- Dispatch using table lookup
-dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
-dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
-... | nothing = inj₁ ("Unknown command: " ++ₛ cmdType)
-... | just parser = parser obj
+  -- Parse FormatDBC command (no arguments needed)
+  tryFormatDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryFormatDBC _ = inj₂ FormatDBC
+
+  -- Dispatch table for command parsers
+  commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
+  commandDispatchTable =
+    ("parseDBC" , tryParseDBC) ∷
+    ("setProperties" , trySetProperties) ∷
+    ("startStream" , tryStartStream) ∷
+    ("buildFrame" , tryBuildFrame) ∷
+    ("extractAllSignals" , tryExtractAllSignals) ∷
+    ("updateFrame" , tryUpdateFrame) ∷
+    ("endStream" , tryEndStream) ∷
+    ("validateDBC" , tryValidateDBC) ∷
+    ("formatDBC" , tryFormatDBC) ∷
+    []
+
+  -- Dispatch using table lookup
+  dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
+  dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
+  ... | nothing = inj₁ ("Unknown command: " ++ₛ cmdType)
+  ... | just parser = parser obj
 
 -- Parse StreamCommand from JSON object (returns error message on failure)
 parseCommand : List (String × JSON) → String ⊎ StreamCommand

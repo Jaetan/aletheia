@@ -36,11 +36,6 @@ open import Function using (case_of_)
 -- for startBit, % (1 + max-physical-bits) for bitLength; Routing uses
 -- % standard-can-id-max / % extended-can-id-max for CAN IDs, and ≤? 15 for DLC.
 
--- Extractors for CAN ID values (now just identity since fields are ℕ)
-messageId-value : CANId → ℕ
-messageId-value (Standard x) = x
-messageId-value (Extended x) = x
-
 -- ============================================================================
 -- DECIDABLE EQUALITY FOR DBC TYPES
 -- ============================================================================

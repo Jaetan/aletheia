@@ -18,21 +18,27 @@ open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)
 
+-- Two's complement helpers: sign bit mask and full range for a given bit length
+signBitMask : ℕ → ℕ
+signBitMask bitLength = 2 ^ (bitLength ∸ 1)
+
+fullRange : ℕ → ℕ
+fullRange bitLength = 2 ^ bitLength
+
 -- Convert a natural number to a signed integer based on bit length
 -- Interprets as two's complement if isSigned is true
 toSigned : ℕ → ℕ → Bool → ℤ
 toSigned raw bitLength false = + raw
 toSigned raw bitLength true =
-  let signBitMask = 2 ^ (bitLength ∸ 1)
-      isNegative = signBitMask Data.Nat.≤ᵇ raw
+  let isNegative = signBitMask bitLength Data.Nat.≤ᵇ raw
   in if isNegative
-     then -[1+ ((2 ^ bitLength) ∸ raw ∸ 1) ]
+     then -[1+ (fullRange bitLength ∸ raw ∸ 1) ]
      else + raw
 
 -- Convert an integer back to unsigned representation
 fromSigned : ℤ → ℕ → ℕ
 fromSigned (+ n) _ = n
-fromSigned -[1+ n ] bitLength = (2 ^ bitLength) ∸ (suc n)
+fromSigned -[1+ n ] bitLength = fullRange bitLength ∸ suc n
 
 -- Apply scaling and offset to convert raw value to signal value
 applyScaling : ℤ → ℚ → ℚ → ℚ

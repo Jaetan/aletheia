@@ -6,7 +6,7 @@
 -- Types: DBC (top-level), Message (CAN message definition), Signal (signal within message).
 -- Role: Core data structure used throughout CAN processing and verification.
 --
--- Design: Matches DBC file format with type-safe representations.
+-- Design: Represents DBC file content semantically with type-safe fields.
 -- All numeric fields use ℕ for O(1) MAlonzo allocation.
 module Aletheia.DBC.Types where
 

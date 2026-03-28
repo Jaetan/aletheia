@@ -67,16 +67,16 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 64 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 67 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (64 total):
-- **62 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (67 total):
+- **65 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **1 module**: `--safe --without-K --no-main` (Main.agda)
 
-**All 61 modules use `--safe`**. No modules require `--sized-types`.
+**All 67 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -284,7 +284,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API planned (projected 10x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Known issues**: Roundtrip proof modules still broken (pre-existing). 64 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review round**: all 7 batches complete (23 fixes + pipeline soundness fix with full proof). Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). 67 Agda modules total.
 
 ---
 

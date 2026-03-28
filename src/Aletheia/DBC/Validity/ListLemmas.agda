@@ -6,11 +6,13 @@
 -- to propositional emptiness (≡ []) and All predicates.
 module Aletheia.DBC.Validity.ListLemmas where
 
-open import Data.List using (List; []; _∷_; _++_; concatMap)
+open import Data.List using (List; []; _∷_; _++_; concatMap; map; filter)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Product using (_×_; _,_)
+open import Relation.Nullary using (Dec; yes; no; ¬_)
+open import Data.Empty using (⊥-elim)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 private
@@ -88,3 +90,32 @@ AllPairs-map⁻ : {R S : A → A → Set} →
   (∀ x y → S x y → R x y) → ∀ {xs} → AllPairs S xs → AllPairs R xs
 AllPairs-map⁻ f []       = []
 AllPairs-map⁻ f (px ∷ pxs) = All-map (λ y → f _ y) px ∷ AllPairs-map⁻ f pxs
+
+-- ============================================================================
+-- MAP AND EMPTINESS
+-- ============================================================================
+
+-- If map f xs ≡ [], then xs ≡ []
+map-[]-inv : (f : A → B) (xs : List A) → map f xs ≡ [] → xs ≡ []
+map-[]-inv f []      _  = refl
+map-[]-inv f (_ ∷ _) ()
+
+-- ============================================================================
+-- FILTER AND ALL
+-- ============================================================================
+
+-- If filter returns [], then P doesn't hold for any element
+filter-[]-sound : {P : A → Set} (P? : ∀ x → Dec (P x)) (xs : List A) →
+  filter P? xs ≡ [] → All (λ x → ¬ (P x)) xs
+filter-[]-sound P? [] _ = []
+filter-[]-sound P? (x ∷ xs) eq with P? x
+filter-[]-sound P? (x ∷ xs) () | yes _
+filter-[]-sound P? (x ∷ xs) eq | no ¬p = ¬p ∷ filter-[]-sound P? xs eq
+
+-- If P doesn't hold for any element, filter returns []
+filter-[]-complete : {P : A → Set} (P? : ∀ x → Dec (P x)) (xs : List A) →
+  All (λ x → ¬ (P x)) xs → filter P? xs ≡ []
+filter-[]-complete P? [] [] = refl
+filter-[]-complete P? (x ∷ xs) (¬p ∷ rest) with P? x
+... | yes p = ⊥-elim (¬p p)
+... | no  _ = filter-[]-complete P? xs rest
