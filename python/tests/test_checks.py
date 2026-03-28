@@ -8,6 +8,8 @@ Tests cover:
 - Equivalence: every Check produces the same formula as the equivalent DSL chain
 """
 
+import pytest
+
 from aletheia.checks import Check, CheckResult
 from aletheia.dsl import Signal, Property
 
@@ -110,6 +112,11 @@ class TestCheckSignal:
             }
         }
 
+    def test_settles_negative_time_rejected(self) -> None:
+        """settles_between().within(-1) is rejected."""
+        with pytest.raises(ValueError, match="non-negative"):
+            Check.signal("Temp").settles_between(60, 80).within(-1)
+
 
 # ============================================================================
 # When / Then causal checks
@@ -164,6 +171,11 @@ class TestCheckWhenThen:
             .to_dict()
         )
         assert result.to_dict() == expected
+
+    def test_when_then_negative_time_rejected(self) -> None:
+        """when/then .within(-1) is rejected."""
+        with pytest.raises(ValueError, match="non-negative"):
+            Check.when("Brake").exceeds(50).then("Light").equals(1).within(-1)
 
 
 # ============================================================================

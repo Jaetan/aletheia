@@ -7,17 +7,14 @@ This provides better type safety and IDE support.
 from __future__ import annotations
 
 from enum import Enum
-from typing import TypedDict, TypeGuard, NotRequired, Literal
+from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow ``object`` to ``dict[str, object]``.
-
-    JSON/YAML objects always have string keys, so ``isinstance(val, dict)``
-    is sufficient at runtime.  The TypeGuard tells basedpyright the
-    key/value types, avoiding ``dict[Unknown, Unknown]``.
-    """
-    return isinstance(val, dict)
+    """Narrow ``object`` to ``dict[str, object]``."""
+    return isinstance(val, dict) and all(
+        isinstance(k, str) for k in cast(dict[object, object], val)
+    )
 
 
 def is_object_list(val: object) -> TypeGuard[list[object]]:

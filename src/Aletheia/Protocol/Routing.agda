@@ -43,6 +43,13 @@ private
   require msg nothing  = inj₁ msg
   require _   (just x) = inj₂ x
 
+  -- Require a named field, producing a standardized "missing 'X'" error
+  requireNat : String → String → List (String × JSON) → String ⊎ ℕ
+  requireNat cmd name obj = require (cmd ++ₛ ": missing '" ++ₛ name ++ₛ "' field") (lookupNat name obj)
+
+  requireArray : String → String → List (String × JSON) → String ⊎ List JSON
+  requireArray cmd name obj = require (cmd ++ₛ ": missing '" ++ₛ name ++ₛ "' array") (lookupArray name obj)
+
   -- Validate DLC ≤ 15 (max CAN-FD DLC code)
   requireValidDLC : String → ℕ → String ⊎ ℕ
   requireValidDLC ctx dlc with dlc ≤? max-dlc-code
@@ -52,7 +59,7 @@ private
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
   parseCANIdField : String → String → List (String × JSON) → String ⊎ CANId
   parseCANIdField ctx key obj =
-    require (ctx ++ₛ ": missing '" ++ₛ key ++ₛ "' field") (lookupNat key obj) >>=ₑ λ rawId →
+    requireNat ctx key obj >>=ₑ λ rawId →
     parseCANIdFromNat ctx rawId obj
     where
     parseCANIdFromNat : String → ℕ → List (String × JSON) → String ⊎ CANId
@@ -109,18 +116,18 @@ private
   tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
   tryBuildFrame obj =
     parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
-    require "BuildFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireNat "BuildFrame" "dlc" obj >>=ₑ λ dlc →
     requireValidDLC "BuildFrame" dlc >>=ₑ λ _ →
-    require "BuildFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
+    requireArray "BuildFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (BuildFrame canId dlc signals)
 
   -- Parse ExtractAllSignals command
   tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
   tryExtractAllSignals obj =
     parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
-    require "ExtractAllSignals: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireNat "ExtractAllSignals" "dlc" obj >>=ₑ λ dlc →
     requireValidDLC "ExtractAllSignals" dlc >>=ₑ λ _ →
-    require "ExtractAllSignals: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+    requireArray "ExtractAllSignals" "data" obj >>=ₑ λ bytesJSON →
     require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
     require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
@@ -129,12 +136,12 @@ private
   tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
   tryUpdateFrame obj =
     parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
-    require "UpdateFrame: missing 'dlc' field" (lookupNat "dlc" obj) >>=ₑ λ dlc →
+    requireNat "UpdateFrame" "dlc" obj >>=ₑ λ dlc →
     requireValidDLC "UpdateFrame" dlc >>=ₑ λ _ →
-    require "UpdateFrame: missing 'data' array" (lookupArray "data" obj) >>=ₑ λ bytesJSON →
+    requireArray "UpdateFrame" "data" obj >>=ₑ λ bytesJSON →
     require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
     require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
-    require "UpdateFrame: missing 'signals' array" (lookupArray "signals" obj) >>=ₑ λ signals →
+    requireArray "UpdateFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (UpdateFrame canId dlc bytes signals)
 
   -- Parse EndStream command

@@ -194,10 +194,10 @@ dispatchIterResult dbc (allProps , just (idx , ce)) tf cache =
 -- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
 handleDataFrame state tf with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before sending frames")
-... | ReadyToStream = (state , Response.Error "Must call StartStream before sending frames")
+... | WaitingForDBC = (state , Response.Error "DataFrame: DBC not loaded")
+... | ReadyToStream = (state , Response.Error "DataFrame: stream not started")
 ... | Streaming with StreamState.dbc state
-...   | nothing = (state , Response.Error "DBC not loaded")
+...   | nothing = (state , Response.Error "DataFrame: DBC not loaded")
 ...   | just dbc =
   let cache = StreamState.signalCache state
       updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)

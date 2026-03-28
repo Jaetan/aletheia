@@ -358,6 +358,41 @@ class TestAletheiaClientWithDemoDBC:
             client.end_stream()
 
 
+class TestStateMachineErrors:
+    """Test that invalid state transitions produce correct errors."""
+
+    def test_extract_signals_without_dbc(self) -> None:
+        """extract_signals before parse_dbc raises ProcessError."""
+        with AletheiaClient() as client:
+            with pytest.raises(ProcessError, match="DBC not loaded"):
+                client.extract_signals(can_id=256, dlc=8, data=bytearray(8))
+
+    def test_build_frame_without_dbc(self) -> None:
+        """build_frame before parse_dbc raises ProcessError."""
+        with AletheiaClient() as client:
+            with pytest.raises(ProcessError, match="DBC not loaded"):
+                client.build_frame(can_id=256, signals={"Sig": 1.0})
+
+    def test_send_frame_without_stream(self, simple_dbc: dict) -> None:
+        """send_frame before start_stream returns error response."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([
+                Signal("TestSignal").less_than(1000).always().to_dict()
+            ])
+            response = client.send_frame(
+                timestamp=0, can_id=256, dlc=8, data=bytearray(8),
+            )
+            assert response["status"] == "error"
+
+    def test_end_stream_without_start(self, simple_dbc: dict) -> None:
+        """end_stream without start_stream returns error response."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            response = client.end_stream()
+            assert response["status"] == "error"
+
+
 class TestCANFDFrames:
     """CAN-FD frame tests: DLC 9-15, payloads 12-64 bytes."""
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import warnings
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -37,6 +38,7 @@ from ..protocols import (
     is_str_dict,
     is_object_list,
 )
+from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object, RTSState, find_ffi_library
 from ._types import (
     AletheiaError,
@@ -51,143 +53,6 @@ from ._types import (
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
-
-
-# ============================================================================
-# Formula enrichment (module-level, testable without client)
-# ============================================================================
-
-def _format_predicate(pred: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements
-    """Format a predicate dict as a human-readable string."""
-    kind = pred.get("predicate")
-    signal = str(pred.get("signal", ""))
-    if kind == "equals":
-        return f"{signal} = {pred['value']:g}"
-    if kind == "lessThan":
-        return f"{signal} < {pred['value']:g}"
-    if kind == "greaterThan":
-        return f"{signal} > {pred['value']:g}"
-    if kind == "lessThanOrEqual":
-        return f"{signal} <= {pred['value']:g}"
-    if kind == "greaterThanOrEqual":
-        return f"{signal} >= {pred['value']:g}"
-    if kind == "between":
-        return f"{pred['min']:g} <= {signal} <= {pred['max']:g}"
-    if kind == "changedBy":
-        return f"|\u0394{signal}| > {pred['delta']:g}"
-    return "<unknown predicate>"
-
-
-def _format_timebound(ms: int) -> str:
-    """Format milliseconds as a human-readable time bound."""
-    if ms % 1_000 == 0:
-        return f"{ms // 1_000}s "
-    return f"{ms}ms "
-
-
-def _format_formula(formula: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements,too-many-branches
-    """Format an LTL formula dict as a human-readable string."""
-    op = formula.get("operator")
-    if op == "atomic":
-        return _format_predicate(cast(dict[str, object], formula["predicate"]))
-    if op == "not":
-        return "not(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "and":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " and "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "or":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " or "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "next":
-        return "next(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "always":
-        inner = cast(dict[str, object], formula["formula"])
-        # Detect Never pattern: always(not(atomic(p)))
-        if inner.get("operator") == "not":
-            inner_not = cast(dict[str, object], inner["formula"])
-            if inner_not.get("operator") == "atomic":
-                return "never " + _format_predicate(cast(dict[str, object], inner_not["predicate"]))
-        return "always(" + _format_formula(inner) + ")"
-    if op == "eventually":
-        return "eventually(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "until":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " until "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "release":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " release "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "metricAlways":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return ("always within " + tb + "("
-                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
-    if op == "metricEventually":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return ("eventually within " + tb + "("
-                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
-    if op == "metricUntil":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " until within " + tb + " "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "metricRelease":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " release within " + tb + " "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    return "<unknown>"
-
-
-def _collect_signals(formula: dict[str, object]) -> list[str]:
-    """Collect all signal names from a formula, deduplicated, in order."""
-    signals: list[str] = []
-    seen: set[str] = set()
-    _collect_signals_into(formula, signals, seen)
-    return signals
-
-
-def _collect_signals_into(
-    formula: dict[str, object], signals: list[str], seen: set[str],
-) -> None:
-    """Walk a formula collecting signal names."""
-    op = formula.get("operator")
-    if op == "atomic":
-        pred = cast(dict[str, object], formula["predicate"])
-        name = str(pred.get("signal", ""))
-        if name and name not in seen:
-            seen.add(name)
-            signals.append(name)
-    elif op in ("not", "next", "always", "eventually", "metricAlways", "metricEventually"):
-        _collect_signals_into(cast(dict[str, object], formula["formula"]), signals, seen)
-    elif op in ("and", "or", "until", "release", "metricUntil", "metricRelease"):
-        _collect_signals_into(cast(dict[str, object], formula["left"]), signals, seen)
-        _collect_signals_into(cast(dict[str, object], formula["right"]), signals, seen)
-
-
-def _build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
-    """Build a PropertyDiagnostic from a formula. Always succeeds."""
-    f = cast(dict[str, object], formula)
-    return PropertyDiagnostic(
-        signals=_collect_signals(f),
-        formula_desc=_format_formula(f),
-    )
-
-
-def _format_enriched_reason(
-    diag: PropertyDiagnostic, values: dict[str, float | None],
-) -> str:
-    """Build the enriched reason string."""
-    parts: list[str] = []
-    for sig in diag.signals:
-        val = values.get(sig)
-        if val is not None:
-            parts.append(f"{sig} = {val:g}")
-    if not parts:
-        return "violated: " + diag.formula_desc
-    return ", ".join(parts) + " (formula: " + diag.formula_desc + ")"
 
 
 class AletheiaClient:
@@ -546,7 +411,7 @@ class AletheiaClient:
             self._diags.clear()
             self._signal_cache.clear()
             for i, formula in enumerate(properties):
-                self._diags[i] = _build_diagnostic(formula)
+                self._diags[i] = build_diagnostic(formula)
         return response
 
     def add_checks(
@@ -608,8 +473,11 @@ class AletheiaClient:
                 extraction = self.extract_signals(can_id=can_id, dlc=dlc, data=data)
                 if len(self._signal_cache) < MAX_EXTRACT_CACHE:
                     self._signal_cache[cache_key] = extraction
-            except (AletheiaError, ValueError):
-                pass
+            except (AletheiaError, ValueError) as exc:
+                warnings.warn(
+                    f"Signal enrichment failed for violation (property {idx}): {exc}",
+                    stacklevel=2,
+                )
 
         values: dict[str, float | None] = {}
         if extraction is not None:
@@ -620,13 +488,13 @@ class AletheiaClient:
 
         result["signals"] = values
         result["formula"] = diag.formula_desc
-        result["enriched_reason"] = _format_enriched_reason(diag, values)
+        result["enriched_reason"] = format_enriched_reason(diag, values)
 
     # Pre-encoded ack response bytes for fast-path comparison
     _ACK_BYTES = b'{"status":"ack"}'
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
 
-    def send_frame(
+    def send_frame(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         timestamp: int,
         can_id: int,
@@ -670,7 +538,7 @@ class AletheiaClient:
                 raise ProtocolError("FFI returned null pointer")
 
             # Fast path: ack response (overwhelmingly common in streaming)
-            if result_bytes == self._ACK_BYTES or result_bytes == self._ACK_BYTES_SPACED:
+            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
                 return {"status": "ack"}
 
             # Slow path: violations/errors — full JSON parse
@@ -860,6 +728,8 @@ class AletheiaClient:
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Extract signals failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
         # Parse response
         values_raw = response.get("values", [])
@@ -879,7 +749,7 @@ class AletheiaClient:
 
         return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
-    def update_frame(
+    def update_frame(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         can_id: int,
         dlc: int,
@@ -926,6 +796,8 @@ class AletheiaClient:
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Update frame failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
         return self._parse_frame_data(
             cast(UpdateFrameResponse, response), dlc_to_bytes(dlc),
@@ -972,6 +844,8 @@ class AletheiaClient:
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Build frame failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
         return self._parse_frame_data(
             cast(BuildFrameResponse, response), dlc_to_bytes(dlc),

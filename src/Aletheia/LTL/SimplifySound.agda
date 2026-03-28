@@ -23,7 +23,7 @@ open import Aletheia.Prelude
 open import Data.Bool using (T)
 open import Data.Bool.Properties using (T-∧)
 open import Data.Unit using (tt)
-open import Relation.Binary.PropositionalEquality using (subst)
+open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 open import Data.Nat using (_⊔_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
@@ -45,10 +45,6 @@ open import Aletheia.LTL.Adequacy using (runL; verdictToSV)
 -- ============================================================================
 
 private
-  cong₂ : ∀ {A B C : Set} (f : A → B → C) {a₁ a₂ b₁ b₂} →
-           a₁ ≡ a₂ → b₁ ≡ b₂ → f a₁ b₁ ≡ f a₂ b₂
-  cong₂ f refl refl = refl
-
   cong₃ : ∀ {A B C D : Set} (f : A → B → C → D) {a₁ a₂ b₁ b₂ c₁ c₂} →
            a₁ ≡ a₂ → b₁ ≡ b₂ → c₁ ≡ c₂ → f a₁ b₁ c₁ ≡ f a₂ b₂ c₂
   cong₃ f refl refl refl = refl

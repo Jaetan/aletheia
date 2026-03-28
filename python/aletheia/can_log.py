@@ -19,11 +19,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import can
 
-CANFrameTuple = tuple[int, int, int, bytearray]
+CANFrameTuple: TypeAlias = tuple[int, int, int, bytearray]
 """(timestamp_us, arbitration_id, dlc, data) — matches send_frame() signature."""
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({

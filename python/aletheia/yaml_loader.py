@@ -61,53 +61,24 @@ from pathlib import Path
 import yaml
 
 from .checks import Check, CheckResult
-from .protocols import is_str_dict, is_object_list
+from .protocols import is_object_list, is_str_dict
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
+    SIMPLE_EQUALS_CONDITIONS,
     WHEN_CONDITIONS,
     ALL_THEN_CONDITIONS,
     dispatch_simple,
     dispatch_when,
 )
+from ._loader_utils import get_str, get_number, get_int, get_dict
 
 
-# ============================================================================
-# Field accessors with runtime type checking
-# ============================================================================
-
-def _get_str(d: dict[str, object], key: str, check_name: str) -> str:
-    """Extract a required string field from a dict."""
-    val = d.get(key)
-    if not isinstance(val, str):
-        raise ValueError(f"Check '{check_name}': missing or invalid '{key}' (expected string)")
-    return val
-
-
-def _get_number(d: dict[str, object], key: str, check_name: str) -> float:
-    """Extract a required numeric field from a dict."""
-    val = d.get(key)
-    if isinstance(val, (int, float)) and not isinstance(val, bool):
-        return float(val)
-    raise ValueError(f"Check '{check_name}': missing or invalid '{key}' (expected number)")
-
-
-def _get_int(d: dict[str, object], key: str, check_name: str) -> int:
-    """Extract a required integer field from a dict."""
-    val = d.get(key)
-    if isinstance(val, int) and not isinstance(val, bool):
-        return val
-    raise ValueError(f"Check '{check_name}': missing or invalid '{key}' (expected integer)")
-
-
-def _get_dict(d: dict[str, object], key: str, check_name: str) -> dict[str, object]:
-    """Extract a required dict field from a dict."""
-    val = d.get(key)
-    if not is_str_dict(val):
-        raise ValueError(f"Check '{check_name}': missing or invalid '{key}' (expected mapping)")
-    return val
+def _ctx(name: str) -> str:
+    """Format a check name as an error context string."""
+    return f"Check '{name}'"
 
 
 def _check_name(entry: dict[str, object]) -> str:
@@ -204,7 +175,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
     condition = entry.get("condition", "")
     if not isinstance(condition, str):
         raise ValueError(f"Check '{name}': 'condition' must be a string")
-    signal = _get_str(entry, "signal", name)
+    signal = get_str(entry, "signal", _ctx(name))
 
     if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown condition '{condition}'")
@@ -214,7 +185,7 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
             raise ValueError(
                 f"Check '{name}': condition '{condition}' requires 'value'"
             )
-        return dispatch_simple(signal, condition, _get_number(entry, "value", name))
+        return dispatch_simple(signal, condition, get_number(entry, "value", _ctx(name)))
 
     if condition in SIMPLE_RANGE_CONDITIONS:
         if "min" not in entry or "max" not in entry:
@@ -222,8 +193,8 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
                 f"Check '{name}': condition '{condition}' requires 'min' and 'max'"
             )
         return Check.signal(signal).stays_between(
-            _get_number(entry, "min", name),
-            _get_number(entry, "max", name),
+            get_number(entry, "min", _ctx(name)),
+            get_number(entry, "max", _ctx(name)),
         )
 
     if condition in SIMPLE_SETTLES_CONDITIONS:
@@ -236,16 +207,18 @@ def _parse_simple_check(entry: dict[str, object]) -> CheckResult:
                 f"Check '{name}': condition 'settles_between' requires 'within_ms'"
             )
         return Check.signal(signal).settles_between(
-            _get_number(entry, "min", name),
-            _get_number(entry, "max", name),
-        ).within(_get_int(entry, "within_ms", name))
+            get_number(entry, "min", _ctx(name)),
+            get_number(entry, "max", _ctx(name)),
+        ).within(get_int(entry, "within_ms", _ctx(name)))
 
-    # equals → equals().always()
-    if "value" not in entry:
-        raise ValueError(
-            f"Check '{name}': condition 'equals' requires 'value'"
-        )
-    return Check.signal(signal).equals(_get_number(entry, "value", name)).always()
+    if condition in SIMPLE_EQUALS_CONDITIONS:
+        if "value" not in entry:
+            raise ValueError(
+                f"Check '{name}': condition 'equals' requires 'value'"
+            )
+        return Check.signal(signal).equals(get_number(entry, "value", _ctx(name))).always()
+
+    raise ValueError(f"Check '{name}': unknown condition '{condition}'")
 
 
 def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
@@ -261,40 +234,40 @@ def _parse_when_then_check(entry: dict[str, object]) -> CheckResult:
             f"Check '{name}': when/then checks require 'within_ms'"
         )
 
-    when = _get_dict(entry, "when", name)
-    then = _get_dict(entry, "then", name)
-    within_ms = _get_int(entry, "within_ms", name)
+    when = get_dict(entry, "when", _ctx(name))
+    then = get_dict(entry, "then", _ctx(name))
+    within_ms = get_int(entry, "within_ms", _ctx(name))
 
     # Validate when clause
-    when_cond = _get_str(when, "condition", name)
+    when_cond = get_str(when, "condition", _ctx(name))
     if when_cond not in WHEN_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown when condition '{when_cond}'")
 
-    when_signal = _get_str(when, "signal", name)
-    when_value = _get_number(when, "value", name)
+    when_signal = get_str(when, "signal", _ctx(name))
+    when_value = get_number(when, "value", _ctx(name))
 
     when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
 
     # Validate then clause
-    then_cond = _get_str(then, "condition", name)
+    then_cond = get_str(then, "condition", _ctx(name))
     if then_cond not in ALL_THEN_CONDITIONS:
         raise ValueError(f"Check '{name}': unknown then condition '{then_cond}'")
 
-    then_signal = _get_str(then, "signal", name)
+    then_signal = get_str(then, "signal", _ctx(name))
     then_builder = when_result.then(then_signal)
 
     if then_cond == "equals":
-        then_result = then_builder.equals(_get_number(then, "value", name))
+        then_result = then_builder.equals(get_number(then, "value", _ctx(name)))
     elif then_cond == "exceeds":
-        then_result = then_builder.exceeds(_get_number(then, "value", name))
+        then_result = then_builder.exceeds(get_number(then, "value", _ctx(name)))
     else:  # stays_between
         if "min" not in then or "max" not in then:
             raise ValueError(
                 f"Check '{name}': then condition 'stays_between' requires 'min' and 'max'"
             )
         then_result = then_builder.stays_between(
-            _get_number(then, "min", name),
-            _get_number(then, "max", name),
+            get_number(then, "min", _ctx(name)),
+            get_number(then, "max", _ctx(name)),
         )
 
     return then_result.within(within_ms)

@@ -13,7 +13,7 @@ module Aletheia.Data.BitVec.Conversion where
 open import Aletheia.Data.BitVec using (BitVec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; s≤s; z≤n; pred; NonZero; _≡ᵇ_)
 open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n)
-open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ; ≤⇒≯; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; <-irrelevant; *-cancelˡ-≡; m+1+n≢m; suc-injective)
+open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ; ≤⇒≯; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; m+1+n≢m; suc-injective)
 open import Data.Fin using (Fin; toℕ; fromℕ<)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Bool using (Bool; true; false; if_then_else_; T)

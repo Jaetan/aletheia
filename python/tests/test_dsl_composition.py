@@ -346,7 +346,7 @@ class TestRealWorldExamples:
         data = cast(UntilFormula, prop.to_dict())
         assert data['operator'] == 'until'
 
-    def test_multi_error_detection(self):
+    def test_multi_error_detection(self) -> None:
         """Multiple error codes can never occur (desugars to always(not(...)))"""
         err1 = Signal("ErrorCode1").equals(0xFF).never()
         err2 = Signal("ErrorCode2").equals(0xFF).never()
@@ -363,7 +363,7 @@ class TestRealWorldExamples:
         assert left_not['operator'] == 'not'
         assert right_not['operator'] == 'not'
 
-    def test_turn_signal_pattern(self):
+    def test_turn_signal_pattern(self) -> None:
         """Turn signal blinks regularly (simplified)"""
         on = Signal("LeftTurnSignal").equals(1)
         off = Signal("LeftTurnSignal").equals(0)

@@ -329,6 +329,22 @@ class TestLoadDBCFromExcel:
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
 
+    def test_signed_integer_one(self, tmp_path: Path) -> None:
+        """Signed column as integer 1 (Excel data_only mode) accepted."""
+        p = _make_dbc_workbook(tmp_path, [
+            [256, "Msg", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""],
+        ])
+        dbc = load_dbc_from_excel(p)
+        assert dbc["messages"][0]["signals"][0]["signed"] is True
+
+    def test_signed_integer_zero(self, tmp_path: Path) -> None:
+        """Signed column as integer 0 (Excel data_only mode) accepted."""
+        p = _make_dbc_workbook(tmp_path, [
+            [256, "Msg", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""],
+        ])
+        dbc = load_dbc_from_excel(p)
+        assert dbc["messages"][0]["signals"][0]["signed"] is False
+
     def test_missing_unit_defaults_empty(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
             [256, "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, None],

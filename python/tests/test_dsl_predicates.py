@@ -5,6 +5,7 @@ Tests cover:
 - Predicate logical operators (and_, or_, not_, implies)
 """
 
+import pytest
 from typing import cast
 from aletheia.dsl import Signal, Predicate, Property
 from aletheia.protocols import (
@@ -167,13 +168,10 @@ class TestSignalComparison:
         assert inner_pred['min'] == 5
         assert inner_pred['max'] == 5
 
-    def test_between_reversed_bounds(self) -> None:
-        """between() accepts reversed bounds (validation in Agda)"""
-        pred = Signal("X").between(10, 5)
-        formula = cast(AtomicFormula, pred.to_formula())
-        inner_pred = cast(BetweenPredicate, formula['predicate'])
-        assert inner_pred['min'] == 10
-        assert inner_pred['max'] == 5
+    def test_between_reversed_bounds_rejected(self) -> None:
+        """between() rejects reversed bounds"""
+        with pytest.raises(ValueError, match="must be <="):
+            Signal("X").between(10, 5)
 
 
 # ============================================================================

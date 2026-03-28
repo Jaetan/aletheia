@@ -98,6 +98,8 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
 
         Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
         result = CheckResult(prop)
         result.signal_name = self._signal_name
@@ -175,6 +177,8 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
 
     def within(self, time_ms: int) -> CheckResult:
         """``G(trigger → F≤t(then_predicate))``"""
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         prop = self._trigger.implies(
             self._then_pred.within(time_ms)
         ).always()

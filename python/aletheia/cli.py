@@ -106,7 +106,10 @@ def parse_hex_data(s: str) -> bytearray:
 
 def rational_to_int(r: RationalNumber) -> int:
     """Convert a RationalNumber {numerator, denominator} to int."""
-    return r["numerator"] // r["denominator"]
+    denom = r["denominator"]
+    if denom == 0:
+        raise ValueError(f"Invalid rational: denominator is zero ({r!r})")
+    return r["numerator"] // denom
 
 
 def format_timestamp(us: int) -> str:

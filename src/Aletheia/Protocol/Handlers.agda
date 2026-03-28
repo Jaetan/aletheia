@@ -69,10 +69,10 @@ private
     ; payload = bytes
     }
 
-  -- Common preamble: validate DBC loaded
-  withDBC : StreamState → (DBC → StreamState × Response) → StreamState × Response
-  withDBC state cont with StreamState.dbc state
-  ... | nothing  = (state , Response.Error "DBC not loaded")
+  -- Common preamble: validate DBC loaded (prefixes error with command name)
+  withDBC : String → StreamState → (DBC → StreamState × Response) → StreamState × Response
+  withDBC cmd state cont with StreamState.dbc state
+  ... | nothing  = (state , Response.Error (cmd ++ₛ ": DBC not loaded"))
   ... | just dbc = cont dbc
 
 -- ============================================================================
@@ -86,11 +86,11 @@ handleParseDBC dbcJSON state =
   where
     parseHelper : String ⊎ DBC → StreamState × Response
     parseHelper (inj₁ parseError) =
-      (state , Response.Error ("DBC parse error: " ++ₛ parseError))
+      (state , Response.Error ("ParseDBC: parse error: " ++ₛ parseError))
     parseHelper (inj₂ dbc) =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
-         then (state , Response.Error ("DBC validation failed: "
+         then (state , Response.Error ("ParseDBC: validation failed: "
                 ++ₛ formatIssuesText (errorIssues issues)))
          else let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache
               in (newState , Response.Success "DBC parsed and validated successfully")
@@ -98,7 +98,7 @@ handleParseDBC dbcJSON state =
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties propJSONs state with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before SetProperties")
+... | WaitingForDBC = (state , Response.Error "SetProperties: DBC not loaded")
 ... | ReadyToStream = parseAllProperties propJSONs 0 []
   where
     parseAllProperties : List JSON → ℕ → List PropertyState → StreamState × Response
@@ -106,22 +106,22 @@ handleSetProperties propJSONs state with StreamState.phase state
       let newState = mkStreamState ReadyToStream (StreamState.dbc state) (reverse acc) nothing emptyCache
       in (newState , Response.Success "Properties set successfully")
     parseAllProperties (json ∷ rest) idx acc with parseProperty json
-    ... | nothing = (state , Response.Error ("Failed to parse property " ++ₛ showℕ idx))
+    ... | nothing = (state , Response.Error ("SetProperties: failed to parse property " ++ₛ showℕ idx))
     ... | just prop =
         let atoms = collectAtoms prop
             proc = initProc (indexFormula prop)
             propState = mkPropertyState idx prop atoms proc
         in parseAllProperties rest (idx + 1) (propState ∷ acc)
-... | Streaming = (state , Response.Error "Cannot set properties while streaming")
+... | Streaming = (state , Response.Error "SetProperties: stream is active")
 
 -- Start stream command: transition to streaming mode
 handleStartStream : StreamState → StreamState × Response
 handleStartStream state with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error "Must call ParseDBC before StartStream")
+... | WaitingForDBC = (state , Response.Error "StartStream: DBC not loaded")
 ... | ReadyToStream =
   let newState = mkStreamState Streaming (StreamState.dbc state) (StreamState.properties state) nothing (StreamState.signalCache state)
   in (newState , Response.Success "Streaming started")
-... | Streaming = (state , Response.Error "Already streaming")
+... | Streaming = (state , Response.Error "StartStream: already streaming")
 
 -- End stream command: finalize all properties and transition back to ready state
 handleEndStream : StreamState → StreamState × Response
@@ -139,24 +139,24 @@ handleEndStream state with StreamState.phase state
     finalizeProperties (propState ∷ rest) =
       verdictToResult (PropertyState.index propState) (finalizeL (PropertyState.proc propState))
       ∷ finalizeProperties rest
-... | _ = (state , Response.Error "Not currently streaming")
+... | _ = (state , Response.Error "EndStream: not currently streaming")
 
 -- Build CAN frame from signal values
 handleBuildFrame : CANId → (dlc : ℕ) → List JSON → StreamState → StreamState × Response
 handleBuildFrame canId dlc signalsJSON state =
-  withDBC state λ dbc → parseSignals dbc signalsJSON
+  withDBC "BuildFrame" state λ dbc → parseSignals dbc signalsJSON
   where
     parseSignals : DBC → List JSON → StreamState × Response
     parseSignals dbc signals with parseSignalList signals
-    ... | nothing = (state , Response.Error "Failed to parse signal list")
+    ... | nothing = (state , Response.Error "BuildFrame: failed to parse signal list")
     ... | just signalPairs with buildFrame dbc canId dlc signalPairs
-    ...   | inj₁ err = (state , Response.Error err)
+    ...   | inj₁ err = (state , Response.Error ("BuildFrame: " ++ₛ err))
     ...   | inj₂ frameBytes = (state , Response.ByteArray frameBytes)
 
 -- Extract all signals from a CAN frame
 handleExtractAllSignals : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState → StreamState × Response
 handleExtractAllSignals canId dlc bytes state =
-  withDBC state λ dbc →
+  withDBC "ExtractAllSignals" state λ dbc →
     let frame = makeFrame canId dlc bytes
         results = extractAllSignals dbc frame
     in (state , Response.ExtractionResultsResponse
@@ -167,15 +167,15 @@ handleExtractAllSignals canId dlc bytes state =
 -- Update specific signals in a CAN frame
 handleUpdateFrame : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List JSON → StreamState → StreamState × Response
 handleUpdateFrame canId dlc bytes signalsJSON state =
-  withDBC state λ dbc →
+  withDBC "UpdateFrame" state λ dbc →
     let frame = makeFrame canId dlc bytes
     in parseSignals dbc signalsJSON frame
   where
     parseSignals : ∀ {m} → DBC → List JSON → CANFrame m → StreamState × Response
     parseSignals dbc signals frame with parseSignalList signals
-    ... | nothing = (state , Response.Error "Failed to parse signal list")
+    ... | nothing = (state , Response.Error "UpdateFrame: failed to parse signal list")
     ... | just signalPairs with updateFrame dbc canId frame signalPairs
-    ...   | inj₁ err = (state , Response.Error err)
+    ...   | inj₁ err = (state , Response.Error ("UpdateFrame: " ++ₛ err))
     ...   | inj₂ updatedFrame = (state , Response.ByteArray (CANFrame.payload updatedFrame))
 
 -- Validate DBC structure: parse JSON, then run comprehensive validator
@@ -185,14 +185,14 @@ handleValidateDBC dbcJSON state =
   where
     parseHelper : String ⊎ DBC → StreamState × Response
     parseHelper (inj₁ parseErr) =
-      (state , Response.Error ("DBC parse error: " ++ₛ parseErr))
+      (state , Response.Error ("ValidateDBC: parse error: " ++ₛ parseErr))
     parseHelper (inj₂ dbc) =
       (state , Response.ValidationResponse (validateDBCFull dbc))
 
 -- Format DBC: returns currently-loaded DBC as JSON
 handleFormatDBC : StreamState → StreamState × Response
 handleFormatDBC state =
-  withDBC state λ dbc → (state , Response.DBCResponse (formatDBC dbc))
+  withDBC "FormatDBC" state λ dbc → (state , Response.DBCResponse (formatDBC dbc))
 
 -- ============================================================================
 -- COMMAND DISPATCH
