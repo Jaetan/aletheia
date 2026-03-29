@@ -1,3 +1,5 @@
+//go:build cgo && linux
+
 package aletheia
 
 // FFI backend — loads libaletheia-ffi.so via cgo + dlopen.
@@ -38,6 +40,7 @@ package aletheia
 import "C"
 
 import (
+	"fmt"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -81,6 +84,11 @@ func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 // the GHC RTS. The library handle is never closed — the GHC RTS owns threads
 // that reference it.
 func NewFFIBackend(libPath string) (*FFIBackend, error) {
+	// Pin goroutine to OS thread — dlerror() is thread-local, and goroutine
+	// migration between dlsym and dlerror in loadSym could return stale data.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 
@@ -88,45 +96,53 @@ func NewFFIBackend(libPath string) (*FFIBackend, error) {
 	if handle == nil {
 		return nil, ffiError("dlopen failed: " + C.GoString(C.dlerror()))
 	}
+	// Close handle on error; the library is intentionally kept open on success
+	// because the GHC RTS owns threads that reference it.
+	closeOnErr := true
+	defer func() {
+		if closeOnErr {
+			C.dlclose(handle)
+		}
+	}()
 
+	// Required symbols from libaletheia-ffi.so:
+	//   hs_init           — GHC RTS initialization (called once per process)
+	//   aletheia_init     — create a new session (returns StablePtr)
+	//   aletheia_process  — send JSON command, receive JSON response
+	//   aletheia_send_frame — binary frame entry point (bypasses JSON input)
+	//   aletheia_free_str — free Haskell-allocated response strings
+	//   aletheia_close    — finalize and free session state
 	hsInit, err := loadSym(handle, "hs_init")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 	initFn, err := loadSym(handle, "aletheia_init")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 	processFn, err := loadSym(handle, "aletheia_process")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 	sendFrameFn, err := loadSym(handle, "aletheia_send_frame")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 	freeStrFn, err := loadSym(handle, "aletheia_free_str")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 	closeFn, err := loadSym(handle, "aletheia_close")
 	if err != nil {
-		C.dlclose(handle)
 		return nil, err
 	}
 
 	// Initialize GHC RTS exactly once per process.
 	hsInitOnce.Do(func() {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
 		C.call_hs_init(hsInit, nil, nil)
 	})
 
+	closeOnErr = false
 	return &FFIBackend{
 		handle:      handle,
 		initFn:      initFn,
@@ -176,6 +192,10 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 	var ext C.uint8_t
 	if id.IsExtended() {
 		ext = 1
+	}
+
+	if len(data) > 64 {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
 	}
 
 	var dataPtr *C.uint8_t

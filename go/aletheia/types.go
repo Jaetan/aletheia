@@ -42,6 +42,17 @@ func (t Timestamp) Duration() time.Duration {
 	return time.Duration(t.Microseconds) * time.Microsecond
 }
 
+// TimeBound is a time duration for metric temporal operators, in microseconds.
+// A zero value is valid and checks only the current time step.
+type TimeBound struct {
+	Microseconds int64
+}
+
+// Duration returns the TimeBound as a time.Duration.
+func (t TimeBound) Duration() time.Duration {
+	return time.Duration(t.Microseconds) * time.Microsecond
+}
+
 // PropertyIndex identifies a property by its position in the property list.
 type PropertyIndex uint
 
@@ -58,7 +69,21 @@ const (
 	BigEndian
 )
 
-// BitPosition is a start bit position within a CAN frame (0-63).
+// String returns the protocol wire name: "little_endian" or "big_endian".
+func (b ByteOrder) String() string {
+	switch b {
+	case LittleEndian:
+		return "little_endian"
+	case BigEndian:
+		return "big_endian"
+	default:
+		return "unknown"
+	}
+}
+
+// BitPosition is a start bit position within a CAN frame.
+// Valid domain is 0-511 (64 bytes × 8 bits); out-of-range values are rejected
+// by the Agda core during DBC validation.
 type BitPosition uint16
 
 // BitLength is a signal length in bits (1-64).
@@ -113,8 +138,9 @@ type DLC struct{ value uint8 }
 func (d DLC) Value() uint8 { return d.value }
 
 // ToBytes returns the payload byte count for this DLC.
+// DLC 0-8 map directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
 func (d DLC) ToBytes() int {
-	return DlcToBytes(d)
+	return dlcTable[d.value]
 }
 
 // NewDLC creates a DLC. Returns an error if v > 15.
@@ -128,21 +154,15 @@ func NewDLC(v uint8) (DLC, error) {
 // dlcTable maps DLC values 0-15 to payload byte counts.
 var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
 
-// DlcToBytes returns the payload byte count for a DLC value.
-// DLC 0-8 map directly; 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64.
-func DlcToBytes(dlc DLC) int {
-	return dlcTable[dlc.value]
-}
-
 // bytesToDlcTable maps valid payload byte counts to DLC codes.
 var bytesToDlcTable = map[int]uint8{
 	0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
 	12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15,
 }
 
-// BytesToDlc converts a payload byte count to a DLC.
+// BytesToDLC converts a payload byte count to a DLC.
 // Returns an error if the byte count is not a valid CAN/CAN-FD payload size.
-func BytesToDlc(byteCount int) (DLC, error) {
+func BytesToDLC(byteCount int) (DLC, error) {
 	code, ok := bytesToDlcTable[byteCount]
 	if !ok {
 		return DLC{}, validationError(fmt.Sprintf("invalid DLC byte count: %d", byteCount))

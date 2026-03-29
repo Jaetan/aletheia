@@ -1,6 +1,7 @@
 package aletheia
 
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 )
@@ -46,13 +47,13 @@ func (m *MockBackend) Init() (unsafe.Pointer, error) {
 }
 
 // NewMockError creates a simple error for use with [RespondErr].
-func NewMockError(msg string) error { return fmt.Errorf("%s", msg) }
+func NewMockError(msg string) error { return errors.New(msg) }
 
 // Process returns the next canned response, recording the input.
 func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
 	m.Inputs = append(m.Inputs, input)
 	if m.cursor >= len(m.responses) {
-		return "", fmt.Errorf("MockBackend: no more responses (got %d calls, have %d responses)", m.cursor+1, len(m.responses))
+		return "", fmt.Errorf("mock backend: no more responses (got %d calls, have %d responses)", m.cursor+1, len(m.responses))
 	}
 	resp := m.responses[m.cursor]
 	m.cursor++
