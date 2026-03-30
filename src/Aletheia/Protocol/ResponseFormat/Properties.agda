@@ -59,7 +59,7 @@ formatResponse-dbc _ = refl
 formatPropertyResult-violation : ∀ idx ce → formatPropertyResult (PropertyResult.Violation idx ce)
   ≡ JObject (
       ("type" , JString "property") ∷
-      ("status" , JString "violation") ∷
+      ("status" , JString "fails") ∷
       ("property_index" , JNumber (ℕtoℚ idx)) ∷
       ("timestamp" , JNumber (ℕtoℚ (CounterexampleData.timestamp ce))) ∷
       ("reason" , JString (CounterexampleData.reason ce)) ∷
@@ -69,7 +69,7 @@ formatPropertyResult-violation _ _ = refl
 formatPropertyResult-satisfaction : ∀ idx → formatPropertyResult (PropertyResult.Satisfaction idx)
   ≡ JObject (
       ("type" , JString "property") ∷
-      ("status" , JString "satisfaction") ∷
+      ("status" , JString "holds") ∷
       ("property_index" , JNumber (ℕtoℚ idx)) ∷
       [])
 formatPropertyResult-satisfaction _ = refl

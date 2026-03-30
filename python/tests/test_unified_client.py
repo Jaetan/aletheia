@@ -135,7 +135,7 @@ class TestAletheiaClientStreaming:
                 dlc=8,
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
             )
-            assert response.get("status") == "violation"
+            assert response.get("status") == "fails"
 
             client.end_stream()
 
@@ -283,8 +283,8 @@ class TestAletheiaClientLifecycle:
                         barrier.wait()
                         for ts, cid, dlc, data in FRAMES:
                             resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
-                            if resp.get("status") == "violation":
-                                results[name] = "violation"
+                            if resp.get("status") == "fails":
+                                results[name] = "fails"
                                 client.end_stream()
                                 return
                         resp = client.end_stream()
@@ -312,7 +312,7 @@ class TestAletheiaClientLifecycle:
         )
         out = json.loads(result.stdout)
         assert not out["errors"], f"Thread raised: {out['errors']}"
-        assert out["results"]["A"] == "violation", (
+        assert out["results"]["A"] == "fails", (
             f"Thread A should violate, got {out['results']['A']}"
         )
         assert out["results"]["B"] == "complete", (
@@ -353,7 +353,7 @@ class TestAletheiaClientWithDemoDBC:
             # Inject fault: speed = 130 kph (exceeds 120 limit)
             fault_frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 130.0})
             response = client.send_frame(timestamp=500000, can_id=0x100, dlc=8, data=fault_frame)
-            assert response.get("status") == "violation"
+            assert response.get("status") == "fails"
 
             client.end_stream()
 
@@ -608,6 +608,6 @@ class TestCANFDFrames:
             resp = client.send_frame(
                 timestamp=5000, can_id=0x200, dlc=9, data=data,
             )
-            assert resp["status"] == "violation"
+            assert resp["status"] == "fails"
 
             client.end_stream()

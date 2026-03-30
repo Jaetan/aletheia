@@ -16,7 +16,7 @@ func TestStreamingLTL_NoViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"satisfaction"}]
+			"results":[{"property_index":0,"status":"holds"}]
 		}`), // EndStream
 	)
 	c, err := aletheia.NewClient(mock)
@@ -75,7 +75,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
-			"status":"violation",
+			"status":"fails",
 			"property_index":0,
 			"timestamp":5000,
 			"reason":"Speed >= 200"
@@ -83,7 +83,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`), // extraction for enrichment
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"violation","timestamp":5000,"reason":"Speed >= 200"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Speed >= 200"}]
 		}`), // EndStream
 	)
 	c, err := aletheia.NewClient(mock)
@@ -145,7 +145,7 @@ func TestViolation_CoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
-			"status":"violation",
+			"status":"fails",
 			"property_index":0,
 			"timestamp":5000,
 			"reason":"MetricEventually: window expired"
@@ -153,7 +153,7 @@ func TestViolation_CoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // extraction
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"violation","timestamp":5000,"reason":"MetricEventually: window expired"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"MetricEventually: window expired"}]
 		}`), // EndStream
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":50}],"errors":[],"absent":[]}`), // EOS extraction
 	)
@@ -219,7 +219,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
-			"status":"violation",
+			"status":"fails",
 			"property_index":0,
 			"timestamp":5000
 		}`), // SendFrame — violation with no reason field
@@ -297,7 +297,7 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 			"status":"complete",
 			"results":[{
 				"property_index":0,
-				"status":"satisfaction",
+				"status":"holds",
 				"reason":"",
 				"timestamp":"not_a_number"
 			}]
@@ -552,7 +552,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties (1 property)
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
-			"status":"violation",
+			"status":"fails",
 			"property_index":5,
 			"timestamp":1000,
 			"reason":"out of bounds"
@@ -598,7 +598,7 @@ func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":5,"status":"violation","timestamp":1000,"reason":"out of bounds"}]
+			"results":[{"property_index":5,"status":"fails","timestamp":1000,"reason":"out of bounds"}]
 		}`), // EndStream — result with OOB index
 	)
 	c, err := aletheia.NewClient(mock)

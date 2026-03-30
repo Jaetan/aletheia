@@ -2,6 +2,21 @@ package aletheia
 
 import "unsafe"
 
+// FFIBackendOption configures optional [FFIBackend] behavior.
+type FFIBackendOption func(*ffiConfig)
+
+type ffiConfig struct {
+	rtsCores int
+}
+
+// WithRTSCores sets the number of GHC RTS capabilities (-N flag).
+// Use 1 (default) for single-bus monitoring. Set to the number of CAN
+// buses for multi-bus monitoring from separate goroutines. Only takes
+// effect on the first [NewFFIBackend] call in a process.
+func WithRTSCores(n int) FFIBackendOption {
+	return func(c *ffiConfig) { c.rtsCores = n }
+}
+
 // Backend abstracts the FFI boundary to the Agda core.
 // Production code uses [FFIBackend]; tests use [MockBackend].
 type Backend interface {

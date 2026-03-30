@@ -36,7 +36,7 @@ formatPropertyResult : PropertyResult → JSON
 formatPropertyResult (PropertyResult.Violation idx counterex) =
   JObject (
     ("type" , JString "property") ∷
-    ("status" , JString "violation") ∷
+    ("status" , JString "fails") ∷
     ("property_index" , JNumber (ℕtoℚ idx)) ∷
     ("timestamp" , JNumber (ℕtoℚ (CounterexampleData.timestamp counterex))) ∷
     ("reason" , JString (CounterexampleData.reason counterex)) ∷
@@ -44,7 +44,7 @@ formatPropertyResult (PropertyResult.Violation idx counterex) =
 formatPropertyResult (PropertyResult.Satisfaction idx) =
   JObject (
     ("type" , JString "property") ∷
-    ("status" , JString "satisfaction") ∷
+    ("status" , JString "holds") ∷
     ("property_index" , JNumber (ℕtoℚ idx)) ∷
     [])
 formatPropertyResult PropertyResult.StreamComplete =

@@ -468,7 +468,7 @@ def _run_checks(  # pylint: disable=too-many-locals
         for ts, can_id, dlc, data in iter_can_log(logfile):
             total_frames += 1
             response = client.send_frame(ts, can_id, dlc, data)
-            if response["status"] == "violation":
+            if response["status"] == "fails":
                 violations.append(_build_violation(response, all_checks))
 
         end_resp = client.end_stream()
@@ -476,7 +476,7 @@ def _run_checks(  # pylint: disable=too-many-locals
             _die(f"end stream failed: {end_resp['message']}")
         # Collect end-of-stream violations from finalization
         for result in end_resp["results"]:
-            if result["status"] == "violation":
+            if result["status"] == "fails":
                 violations.append(_build_eos_violation(result, all_checks))
 
     return violations, total_frames

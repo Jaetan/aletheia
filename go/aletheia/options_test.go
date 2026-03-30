@@ -19,7 +19,7 @@ func TestWithLogger(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"satisfaction"}]
+			"results":[{"property_index":0,"status":"holds"}]
 		}`), // EndStream
 	)
 	c, err := aletheia.NewClient(mock, aletheia.WithLogger(logger))
@@ -63,12 +63,12 @@ func TestWithLogger_Enrichment(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame → violation
-		aletheia.Respond(`{"status":"violation","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"status":"fails","property_index":0,"timestamp":5000,"reason":"Atomic: predicate failed"}`),
 		// Extraction for enrichment
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"violation","timestamp":5000,"reason":"Atomic: predicate failed"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"Atomic: predicate failed"}]
 		}`), // EndStream
 		// EOS extraction
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":250}],"errors":[],"absent":[]}`),
@@ -146,7 +146,7 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame → violation
-		aletheia.Respond(`{"status":"violation","property_index":0,"timestamp":5000,"reason":"test"}`),
+		aletheia.Respond(`{"status":"fails","property_index":0,"timestamp":5000,"reason":"test"}`),
 		// Extraction fails with protocol error
 		aletheia.Respond(`{"status":"error","message":"no DBC loaded"}`),
 	)

@@ -2,13 +2,13 @@
 // Tests include this header directly to queue responses and inspect requests.
 #pragma once
 
+#include "json.hpp"
+
 #include <aletheia/backend.hpp>
 
-#include <format>
 #include <queue>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 namespace aletheia {
@@ -45,20 +45,7 @@ public:
 
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
                            std::span<const std::byte> data) -> std::string override {
-        // Build the equivalent JSON command and delegate to process().
-        std::string data_str;
-        data_str.reserve(data.size() * 4);
-        for (std::size_t i = 0; i < data.size(); ++i) {
-            if (i > 0)
-                data_str += ',';
-            data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
-        }
-        auto can_id = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        auto extended = std::holds_alternative<ExtendedId>(id);
-        auto json_cmd = std::format(
-            R"({{"type":"data","timestamp":{},"id":{},"extended":{},"dlc":{},"data":[{}]}})",
-            ts.count(), can_id, extended ? "true" : "false", dlc.value(), data_str);
-        return process(state, json_cmd);
+        return process(state, detail::serialize_send_frame(ts, id, dlc, data));
     }
 
     void close(void* /*state*/) override {}

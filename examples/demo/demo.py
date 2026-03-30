@@ -91,7 +91,7 @@ with AletheiaClient() as client:
     violations = []
     for frame in NORMAL_DRIVE:
         response = client.send_frame(frame.timestamp_us, frame.can_id, frame.data)
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             violations.append(response)
 
     client.end_stream()
@@ -121,7 +121,7 @@ with AletheiaClient() as client:
     violations = []
     for frame in OVERSPEED_DRIVE:
         response = client.send_frame(frame.timestamp_us, frame.can_id, frame.data)
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             violations.append(response)
 
     client.end_stream()

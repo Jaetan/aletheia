@@ -252,7 +252,7 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// SendFrame violation response (consumed first by processLocked)
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
 		// Extraction response (consumed by enrichment's extractSignalsLocked)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
 	)
@@ -306,7 +306,7 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// Violation response (consumed first by processLocked)
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"Atomic: predicate failed"}`),
 		// Extraction response (consumed by enrichment)
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245},{"name":"RPM","value":3000}],"errors":[],"absent":[]}`),
 	)
@@ -360,10 +360,10 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		// First violation, then extraction (cached)
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":1000000,"reason":"test"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000000,"reason":"test"}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":245}],"errors":[],"absent":[]}`),
 		// Second violation with same frame — no new extraction (cache hit)
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":2000000,"reason":"test"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000000,"reason":"test"}`),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -423,11 +423,11 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 
 	// First 256 frames: violation then extraction (cached)
 	for i := 0; i < 256; i++ {
-		responses = append(responses, aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+		responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
 		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 	}
 	// 257th frame: violation, then extraction (extracted but not cached — cache full)
-	responses = append(responses, aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+	responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
 	responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 
 	mock := aletheia.NewMockBackend(responses...)
@@ -473,7 +473,7 @@ func TestEndStream_Enriched(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"violation","timestamp":5000000,"reason":"Atomic: predicate failed"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000000,"reason":"Atomic: predicate failed"}]
 		}`), // EndStream
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":150}],"errors":[],"absent":[]}`), // EOS extraction
 	)
@@ -534,13 +534,13 @@ func TestStartStream_ClearsCache(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // SetProperties
 		aletheia.Respond(`{"status":"success"}`), // StartStream (1st)
 		// Violation then extraction for first stream
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`),
-		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"violation","timestamp":1000,"reason":"test"}]}`),
+		aletheia.Respond(`{"status":"complete","results":[{"property_index":0,"status":"fails","timestamp":1000,"reason":"test"}]}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`), // EOS extraction
 		aletheia.Respond(`{"status":"success"}`), // StartStream (2nd)
 		// Violation then new extraction for same frame (cache was cleared)
-		aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":2000,"reason":"test"}`),
+		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":2000,"reason":"test"}`),
 		aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":200}],"errors":[],"absent":[]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -618,7 +618,7 @@ func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`),     // SendFrame (stores frame in lastFrames)
 		aletheia.Respond(`{
 			"status":"complete",
-			"results":[{"property_index":0,"status":"violation","timestamp":5000,"reason":"test"}]
+			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"test"}]
 		}`), // EndStream
 		aletheia.Respond(`{"status":"error","message":"no DBC loaded"}`), // EOS extraction fails
 	)
@@ -678,7 +678,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // SetProperties
 	responses = append(responses, aletheia.Respond(`{"status":"success"}`)) // StartStream
 	for i := 0; i < n; i++ {
-		responses = append(responses, aletheia.Respond(`{"status":"violation","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
+		responses = append(responses, aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":1000,"reason":"test"}`))
 		responses = append(responses, aletheia.Respond(`{"status":"success","values":[{"name":"Speed","value":100}],"errors":[],"absent":[]}`))
 	}
 	mock := aletheia.NewMockBackend(responses...)

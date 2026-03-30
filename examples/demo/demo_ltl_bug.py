@@ -55,7 +55,7 @@ def run_ltl_check(
             response = client.send_frame(
                 frame.timestamp_us, frame.can_id, frame.data
             )
-            if response.get("status") == "violation":
+            if response.get("status") == "fails":
                 violations.append(response)
 
         client.end_stream()

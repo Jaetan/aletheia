@@ -8,19 +8,20 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 **Pre-existing issues are in scope.** If a review surfaces it, it gets fixed. Do not dismiss findings because they predate the current change.
 
-**Reviews cover design and architecture, not just implementation.** A review is re-reading all the code and checking if every detail makes sense and is built correctly. Reviews are the only opportunity to reconsider design and architectural choices. Nothing is "disproportionate" for a review round. Cascading type-level changes, API redesigns, and module restructuring are all valid review outcomes.
+**Reviews cover specification, design, and architecture, not just implementation.** A review is re-reading all the code and checking if every detail makes sense and is built correctly. Question the specification itself: are the features right? Do they make sense? Are assumptions correct? Should something be reworked? Reviews are the only opportunity to reconsider these choices. Nothing is "disproportionate" for a review round. Cascading type-level changes, API redesigns, module restructuring, and specification corrections are all valid review outcomes.
 
 **No category may be skipped.** Every category listed below must be checked in every review round, against every file in scope. Large files are not an excuse to skim -- recommending a split is itself a valid finding.
 
 **Both local and end-to-end issues are in scope.** Review each file individually AND consider cross-module interactions, data flow, and layer boundaries.
 
+**Dismissals require user approval.** Suspected false positives must be identified with explicit justification, but no finding may be discarded from the plan without the user's permission. Present all findings -- including those believed to be false positives -- and let the user decide.
+
 ## Review Procedure
 
 1. Launch parallel review agents (typically 3), each covering a subset of categories.
 2. Cross-verify all findings against the actual code before planning.
-3. Dismiss false positives with explicit justification.
-4. Enter plan mode to collate findings into a single actionable fix list.
-5. Implement all fixes, then run the verification suite.
+3. Enter plan mode to collate findings into a single actionable plan. Present suspected false positives with justification; the user decides what to dismiss.
+4. Implement all approved fixes, then run the verification suite.
 
 ---
 
@@ -46,16 +47,32 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 ### Deep (4)
 
 13. **Architectural** -- module boundaries, dependency direction, abstraction leaks, circular or unnecessary dependencies
-14. **Specification** -- do the types/proofs capture the intended properties? Gaps where a property is stated but not fully proven, or where the formalization diverges from the real-world requirement
+14. **Specification** -- do the types/proofs capture the intended properties? Gaps where a property is stated but not fully proven, or where the formalization diverges from the real-world requirement. Proof correctness, completeness, and strategy -- are the right things being proven? Are proofs about the code that runs?
 15. **Performance** -- MAlonzo compilation patterns that hurt runtime (Fin vs N, unnecessary normalization, large pattern matches that compile poorly)
-16. **Cross-layer** -- Agda <-> Haskell <-> Python/C++/Go boundary correctness: FFI assumptions, marshalling, type alignment
+16. **Cross-layer** -- Agda <-> Haskell <-> Python/C++/Go boundary correctness: FFI assumptions, marshalling, type alignment. All bindings must have identical behavior -- any divergence is a finding.
 
-### Always in Scope
+### Guidelines
 
-- Question all implementation choices -- is this the right algorithm, data structure, approach?
-- Question all design and architecture -- are module boundaries right, are abstractions justified, is coupling minimized?
-- Proof correctness, completeness, and strategy -- are the right things being proven? Are proofs about the code that runs?
-- End-to-end issues that span multiple modules or layers
+**Import hygiene:**
+- Bare `using ()` with no renaming clause is dead code -- remove the import line entirely.
+- `using () renaming (A to B)` is valid and intentional -- it imports ONLY the renamed name. Do NOT flag as empty import.
+
+**Proof style:**
+- Prefer `cong`/`subst`/`trans` over chained `rewrite`. Each `rewrite` desugars to a with-auxiliary that copies the full goal type; on large goals (e.g., records with many fields), even 2 rewrites can cause >8 GB memory blowup. Max 1 rewrite per function on large goals.
+- Don't pile up nested `suc`/`s≤s` constructors in absurd patterns. Use `_≤?_` with yes/no case analysis, helper lemmas, `Fin n`, or `toWitness`/`fromWitness` instead.
+- Prove properties directly about the code that runs -- don't mediate through equivalence with an old code path. The specification is the desired behavior, not a prior implementation.
+- Proofs can be updated for performance. When optimizing core functions, modify them directly and update dependent proofs rather than maintaining parallel "fast" and "proof" variants.
+
+**Generalization:**
+- When parameterizing types (e.g., `CANFrame n` for CAN-FD), generalize ALL layers (proofs, protocol, trace) with `∀ {n}` from the start. Do not pin at a fixed size as a shortcut.
+
+### Verification
+
+```bash
+cd src && agda +RTS -N32 -M4G -RTS Aletheia/YourModule.agda
+```
+
+Use `-M4G` for all proof modules (catches memory blowups from rewrite chains). Use `-M8G` for larger modules if `-M4G` is too tight.
 
 ---
 
@@ -98,7 +115,7 @@ Scope: ALL Go source files and test files in `go/aletheia/`.
 19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
 20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
 21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
-22. **Cross-layer alignment** -- does the Go binding correctly mirror the Agda core's semantics? Protocol details where the binding diverges?
+22. **Cross-layer alignment** -- does the Go binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding.
 
 ### Verification
 
@@ -150,7 +167,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
 20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
 21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
-22. **Cross-layer alignment** -- does the C++ binding correctly mirror the Agda core's semantics? Protocol details where the binding diverges?
+22. **Cross-layer alignment** -- does the C++ binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding.
 
 ### Verification
 
@@ -160,9 +177,51 @@ cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
 
 ---
 
-## Python
+## Python (22 categories)
 
-Python reviews follow the same principles as Go and C++. The Python binding is the original and most mature. Review with the same rigor.
+Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
+
+**Tooling gates (hard requirements):**
+- `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
+- `basedpyright` must produce **zero errors and zero warnings**. Any new diagnostic is a blocking finding.
+- **Adding any suppression annotation** (`# type: ignore`, `# pylint: disable`, `# noqa`, `# pyright: ignore`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
+
+### Hygiene/Style (6)
+
+1. **PEP 8 & formatting** -- consistent style, line lengths, import ordering
+2. **Naming conventions** -- snake_case for functions/variables, PascalCase for classes, UPPER_CASE for constants, leading underscore for private
+3. **Dead code** -- unused imports, unreachable branches, unused variables, commented-out code
+4. **Comment/doc quality** -- Google-style docstrings on public API, explains "why" not "what", no stale comments
+5. **Error message consistency** -- consistent format across client, CLI, loaders; actionable messages
+6. **Module organization** -- each module has a single concern; no circular imports; private modules prefixed with underscore
+
+### Type & Safety (4)
+
+7. **Type annotation coverage** -- all public functions fully annotated; basedpyright strict mode clean; TypedDict/Protocol/Literal used correctly
+8. **Strong type usage** -- no bare `dict`/`list`/`Any` where a TypedDict, Protocol, or domain type exists; validated constructors
+9. **Error handling** -- exceptions are specific (not bare `except`), raised with context, documented in docstrings; no silent swallowing
+10. **Resource safety** -- ctypes handles cleaned up, file handles closed, context managers used where appropriate
+
+### Correctness (4)
+
+11. **Serialization fidelity** -- JSON output matches Agda protocol exactly (field names, types, structure, command strings)
+12. **Parsing robustness** -- handles all response variants, all number formats (int/float/rational dict), error paths; no silent data loss
+13. **FFI lifecycle** -- ctypes CDLL loading, hs_init ref-counting, string marshalling, GHC RTS constraints (never hs_exit)
+14. **Test adequacy** -- public API coverage, edge cases, negative paths, fixture reuse via conftest; pytest -v clean
+
+### Architecture (4)
+
+15. **API ergonomics** -- Pythonic API (context managers, keyword args, sensible defaults), pit of success, clear import path from `aletheia`
+16. **Package boundaries** -- clean separation between client, DSL, checks, loaders, CLI; no leaking of internal modules
+17. **Extensibility** -- adding new predicates, loaders, or check types doesn't break existing callers
+18. **Dependency discipline** -- minimal external deps; cantools/openpyxl/python-can/pyyaml justified; no unnecessary additions
+
+### Specification/Design (4)
+
+19. **Domain model fidelity** -- do the types and abstractions faithfully represent the CAN/DBC/LTL domain? Are there gaps?
+20. **Design coherence** -- are the right things grouped together? Are abstractions justified or gratuitous? Is coupling minimized?
+21. **Use-case coverage** -- does the API serve its intended users well? Are there missing capabilities or workflows harder than they should be?
+22. **Cross-layer alignment** -- does the Python binding correctly mirror the Agda core's semantics? All bindings (Python, C++, Go) must have identical behavior -- any divergence is a finding.
 
 ### Verification
 

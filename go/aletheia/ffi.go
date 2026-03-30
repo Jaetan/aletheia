@@ -12,7 +12,9 @@ package aletheia
 //
 // #include <dlfcn.h>
 // #include <stdint.h>
+// #include <stdio.h>
 // #include <stdlib.h>
+// #include <string.h>
 //
 // // Typed trampolines so cgo can call function pointers loaded via dlsym.
 // // cgo cannot call through C function pointer variables directly.
@@ -37,16 +39,37 @@ package aletheia
 //     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
 //                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
 // }
+//
+// // call_hs_init_rts builds argv and calls hs_init with +RTS -N<cores> -RTS.
+// // Keeps argv in C heap — hs_init may retain pointers.
+// static void call_hs_init_rts(void *fn, int cores) {
+//     char buf[16];
+//     snprintf(buf, sizeof(buf), "-N%d", cores);
+//     char *args[4];
+//     args[0] = strdup("aletheia");
+//     args[1] = strdup("+RTS");
+//     args[2] = strdup(buf);
+//     args[3] = strdup("-RTS");
+//     int argc = 4;
+//     char **argv = args;
+//     ((void (*)(int*, char***))fn)(&argc, &argv);
+//     // Intentionally not freed — GHC RTS may retain argv pointers.
+// }
 import "C"
 
 import (
 	"fmt"
+	"log/slog"
 	"runtime"
 	"sync"
 	"unsafe"
 )
 
-var hsInitOnce sync.Once
+var (
+	hsInitMu    sync.Mutex
+	hsInitDone  bool
+	hsInitCores int
+)
 
 // FFIBackend implements [Backend] by loading libaletheia-ffi.so via dlopen.
 //
@@ -83,7 +106,7 @@ func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 // NewFFIBackend opens libaletheia-ffi.so at the given path and initializes
 // the GHC RTS. The library handle is never closed — the GHC RTS owns threads
 // that reference it.
-func NewFFIBackend(libPath string) (*FFIBackend, error) {
+func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error) {
 	// Pin goroutine to OS thread — dlerror() is thread-local, and goroutine
 	// migration between dlsym and dlerror in loadSym could return stale data.
 	runtime.LockOSThread()
@@ -137,10 +160,28 @@ func NewFFIBackend(libPath string) (*FFIBackend, error) {
 		return nil, err
 	}
 
+	// Apply options.
+	cfg := ffiConfig{rtsCores: 1}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	// Initialize GHC RTS exactly once per process.
-	hsInitOnce.Do(func() {
-		C.call_hs_init(hsInit, nil, nil)
-	})
+	hsInitMu.Lock()
+	if !hsInitDone {
+		if cfg.rtsCores > 1 {
+			C.call_hs_init_rts(hsInit, C.int(cfg.rtsCores))
+		} else {
+			C.call_hs_init(hsInit, nil, nil)
+		}
+		hsInitCores = cfg.rtsCores
+		hsInitDone = true
+	} else if cfg.rtsCores != hsInitCores {
+		slog.Warn("GHC RTS already initialized; ignoring WithRTSCores",
+			"active_cores", hsInitCores,
+			"requested_cores", cfg.rtsCores)
+	}
+	hsInitMu.Unlock()
 
 	closeOnErr = false
 	return &FFIBackend{

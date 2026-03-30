@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-27
+**Last Updated**: 2026-03-31
 
 ---
 
@@ -245,7 +245,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc.), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. 53 test cases, 207 assertions across 3 layers (static compile-time, unit with mock, integration with threads). 5 rounds of 18-category code review — all categories pass, 0 clang-tidy warnings. CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
 
-- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. 12 source files, 56 tests (all pass with `-race`). 3 rounds of 18-category code review + hardening pass.
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (8 event types, `ClientOption`/`WithLogger`). `ViolationEnrichment.CoreReason` carries Agda core reason strings. 13 source files, 7 test files, 92 tests (all pass with `-race`). 9 rounds of 22-category code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
 
 - ✅ C header (`include/aletheia.h`): Documents the 4 C-callable FFI functions + GHC RTS initialization contract. The contract all language bindings implement against. Shakefile packaging target (`cabal run shake -- dist`) bundles .so + header.
 
@@ -272,7 +272,13 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
   - Review fixes (F1-F7): Stale comments fixed, `TimedFrame.dlcValid` invariant added, DLC bounds check (`≤ 15`) at protocol entry points, `ValidDLC` tightened to exact CAN/CAN-FD byte counts via `bytesToDlc`, `buildFrame` parameterized by DLC, `PhysicallyDisjoint` parameterized by frame byte count, disjointness proofs generalized (`lookupSafe-swapBytes`, `swap-updateSafe-swap` from case-enumeration to induction, `injectSignal-preserves-disjoint-bits-physical` from `CANFrame 8` to `∀ {n}`, capstone `validDBC-roundtrip` uses message DLC directly)
   - Code review round (R1-R5): `WellFormed.agda` uses `max-physical-bits` constant (was hardcoded 512), accurate CAN-FD comments in `Endianness.agda`, explicit `payloadSize = dlcToBytes dlc` in `Routing.agda`, numeric conversions extracted to `Encoding/Arithmetic.agda` (Encoding.agda 391→336 lines), `readBit-updateSafe-same`/`readBit-updateSafe-diff` proof helpers in `Endianness/Properties.agda`
 
-- ⏳ Pipeline soundness fix (started 2026-03-28): Discovered 8 unsound absorption rules in `simplify/absorb` (Coalgebra.agda). Until/Release rules genuinely unsound even for reachable formulas; Always/Eventually rules unsound at finalization only. Phase 0 complete (fix absorb: remove Until/Release rules, add finalizesHolds guards, add structural idempotency). Phase 1 in progress (absorb-runL proof in SimplifySound.agda). Phases 2-3 pending (simplify-runL, pipeline adequacy theorem).
+- ✅ Pipeline soundness fix (2026-03-28): Discovered 8 unsound absorption rules in `simplify/absorb` (Coalgebra.agda). Fixed: removed Until/Release rules, added `finalizesHolds` guards to Always/Eventually, added structural idempotency (And-And, Or-Or). Proofs complete: `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` in `Adequacy/Pipeline.agda`.
+
+- ✅ AGENTS.md (2026-03-29): Review protocol document for all languages (Agda 16 categories, Go 22, C++ 22, Python, Documentation 14). Universal rules: all findings must be fixed, pre-existing issues in scope, design/architecture in scope.
+
+- ✅ RTS cores for all bindings (2026-03-31): GHC RTS `-N` flag configurable in all three language bindings. Python: `AletheiaClient(rts_cores=N)`. C++: `make_ffi_backend(path, rts_cores)` with `int rts_cores = 1` default. Go: `NewFFIBackend(path, WithRTSCores(n))` functional option. All: once-per-process, warn on mismatch, never reinitializable. Enables multi-bus monitoring with parallel GHC capabilities.
+
+- ✅ Opt-in structured logging for all bindings (2026-03-31): 12 log events matching Go's slog event set, implemented in all three bindings. C++: custom `Logger` class (`log.hpp`, ~80 lines) — callback-based `LogRecord` with `LogLevel`, event name, `initializer_list<LogField>`, `source_location`; zero-cost when default-constructed. Python: `logging.getLogger("aletheia")` — standard library, no handler = silent. Go: `slog.Logger` via `WithLogger` option (already existed). Events: `properties.set` (Info), `stream.started` (Info), `stream.ended` (Info), `frame.processed` (Debug), `cache.hit`/`miss` (Debug), `cache.full` (Warn), `enrichment.property_index_oob` (Warn), `enrichment.extraction_failed` (Warn), `extraction.serialize_failed`/`process_failed`/`parse_failed` (Warn). Tests: C++ 2 logger tests, Python 5 logger tests.
 
 **Planned / Research**:
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
@@ -285,17 +291,17 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 66 (all `--safe --without-K`)
+- Agda modules: 67 (all `--safe --without-K`)
 - Python modules: 12
-- C++ files: 16 (10 headers + 6 source)
-- Go files: 12 source
-- Lines of code: ~14,800 Agda + ~4,900 Python + ~2,050 C++ + ~2,100 Go
+- C++ files: 17 (11 headers + 6 source)
+- Go files: 13 source + 7 test
+- Lines of code: ~14,800 Agda + ~4,900 Python + ~2,150 C++ + ~2,100 Go
 
 **Testing**:
-- Python tests: 429 passing (via FFI)
-- C++ tests: 82 TEST_CASEs + 113 static_asserts (mock backend + Catch2)
-- Go tests: 56 passing (mock backend, `-race` clean)
-- Total: 567+ tests
+- Python tests: 446 passing (via FFI)
+- C++ tests: 84 TEST_CASEs + 113 static_asserts (mock backend + Catch2)
+- Go tests: 92 passing (mock backend, `-race` clean)
+- Total: 622+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
@@ -318,10 +324,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 66 Agda modules use `--safe --without-K` (2 also use `--no-main`)
+- All 67 Agda modules use `--safe --without-K` (2 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
-- **Pipeline soundness fix in progress**: 8 unsound absorption rules removed from `simplify/absorb`, 4 remaining rules guarded with `finalizesHolds` predicate, 2 structural idempotency rules added for performance recovery. `absorb-runL` and `simplify-runL` proofs in progress — will enable pipeline adequacy theorem (`runL-s ≡ runL`)
+- **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`
 
 ---
 

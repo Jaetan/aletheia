@@ -40,7 +40,8 @@ protected:
 };
 
 // Production: loads libaletheia-ffi.so via dlopen
-auto make_ffi_backend(const std::filesystem::path& lib_path) -> std::unique_ptr<IBackend>;
+auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores = 1)
+    -> std::unique_ptr<IBackend>;
 
 // Test: returns canned responses
 auto make_mock_backend() -> std::unique_ptr<IBackend>;

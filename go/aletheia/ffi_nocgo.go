@@ -9,7 +9,7 @@ import "unsafe"
 type FFIBackend struct{}
 
 // NewFFIBackend returns an error because cgo/linux is not available in this build.
-func NewFFIBackend(_ string) (*FFIBackend, error) {
+func NewFFIBackend(_ string, _ ...FFIBackendOption) (*FFIBackend, error) {
 	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
 }
 

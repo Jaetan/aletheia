@@ -46,9 +46,11 @@ static auto presence_to_json(const SignalPresence& p, json& sig) -> void {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, AlwaysPresent>) {
                 sig["presence"] = "always";
-            } else {
+            } else if constexpr (std::is_same_v<T, Multiplexed>) {
                 sig["multiplexor"] = v.multiplexor.get();
                 sig["multiplex_value"] = v.mux_value.get();
+            } else {
+                static_assert(sizeof(T) == 0, "Unhandled SignalPresence type");
             }
         },
         p);
@@ -118,15 +120,15 @@ static auto predicate_to_json(const Predicate& p) -> json {
                         {"signal", v.signal.get()},
                         {"min", v.min.get()},
                         {"max", v.max.get()}};
-            else // ChangedBy
+            else if constexpr (std::is_same_v<T, ChangedBy>)
                 return {{"predicate", "changedBy"},
                         {"signal", v.signal.get()},
                         {"delta", v.delta.get()}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_to_json");
         },
         p);
 }
-
-static auto formula_to_json(const LtlFormula& f) -> json;
 
 // Recursively serialize an LTL formula tree to JSON for the Agda core.
 static auto formula_to_json(const LtlFormula& f) -> json {
@@ -172,11 +174,13 @@ static auto formula_to_json(const LtlFormula& f) -> json {
                         {"timebound", v.bound.count()},
                         {"left", formula_to_json(*v.left)},
                         {"right", formula_to_json(*v.right)}};
-            else // MetricRelease
+            else if constexpr (std::is_same_v<T, MetricRelease>)
                 return {{"operator", "metricRelease"},
                         {"timebound", v.bound.count()},
                         {"left", formula_to_json(*v.left)},
                         {"right", formula_to_json(*v.right)}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled formula type in formula_to_json");
         },
         static_cast<const LtlFormula::variant&>(f));
 }
@@ -207,9 +211,10 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
             data_str += ',';
         data_str += std::to_string(static_cast<std::uint8_t>(data[i]));
     }
-    return std::format(
-        R"({{"type":"command","command":"extractAllSignals","canId":{},"extended":{},"dlc":{},"data":[{}]}})",
-        can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(), data_str);
+    return std::format(R"({{"type":"command","command":"extractAllSignals",)"
+                       R"("canId":{},"extended":{},"dlc":{},"data":[{}]}})",
+                       can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
+                       data_str);
 }
 
 auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)

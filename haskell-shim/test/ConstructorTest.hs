@@ -133,7 +133,7 @@ main = do
     let (_, r2) = sendFrame state4 tf2
     let r2s = T.unpack r2
     putStrLn $ "  Response: " ++ r2s
-    pass2 <- assertContains "Violation response" "\"status\": \"violation\"" r2s
+    pass2 <- assertContains "Violation response" "\"status\": \"fails\"" r2s
 
     -- Test 3: Non-matching CAN ID → Ack (no signal extraction)
     putStrLn "Test 3: CAN ID 0x200, no DBC match, expect ack"

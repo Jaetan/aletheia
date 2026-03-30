@@ -3,8 +3,11 @@
 
 #include <dlfcn.h>
 
+#include <array>
 #include <cstdint>
+#include <iostream>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -20,6 +23,17 @@ using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::
                                       std::uint8_t, std::uint8_t*, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
+
+struct RTSState {
+    std::mutex mu;
+    bool initialized = false;
+    int cores = 0;
+};
+
+auto rts_state() -> RTSState& {
+    static RTSState s;
+    return s;
+}
 
 class FfiBackend : public IBackend {
     void* handle_ = nullptr;
@@ -38,7 +52,7 @@ class FfiBackend : public IBackend {
     }
 
 public:
-    explicit FfiBackend(const std::filesystem::path& lib_path)
+    explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
         : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
         if (handle_ == nullptr)
             throw std::runtime_error(std::string("dlopen failed: ") + dlerror());
@@ -51,8 +65,28 @@ public:
             free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
             close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
 
-            // Initialize GHC RTS (ref-counted internally, safe to call multiple times)
-            hs_init(nullptr, nullptr);
+            // Initialize GHC RTS (once per process, never finalized).
+            auto& rts = rts_state();
+            const std::lock_guard lock(rts.mu);
+            if (!rts.initialized) {
+                if (rts_cores > 1) {
+                    auto n_arg = "-N" + std::to_string(rts_cores);
+                    std::array<const char*, 4> args = {"aletheia", "+RTS", n_arg.c_str(), "-RTS"};
+                    auto argc = static_cast<int>(args.size());
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+                    auto* argv = const_cast<char**>(args.data());
+                    hs_init(&argc, &argv);
+                } else {
+                    hs_init(nullptr, nullptr);
+                }
+                rts.cores = rts_cores;
+                rts.initialized = true;
+            } else if (rts_cores != rts.cores) {
+                std::cerr << "Warning: GHC RTS already initialized with " << rts.cores
+                          << " core(s); ignoring rts_cores=" << rts_cores
+                          << ". Set rts_cores on the first "
+                          << "make_ffi_backend() call in the process.\n";
+            }
         } catch (...) {
             // RTS was never started — safe to release the library handle.
             dlclose(handle_);
@@ -110,8 +144,9 @@ public:
 
 } // anonymous namespace
 
-auto make_ffi_backend(const std::filesystem::path& lib_path) -> std::unique_ptr<IBackend> {
-    return std::make_unique<FfiBackend>(lib_path);
+auto make_ffi_backend(const std::filesystem::path& lib_path, int rts_cores)
+    -> std::unique_ptr<IBackend> {
+    return std::make_unique<FfiBackend>(lib_path, rts_cores);
 }
 
 } // namespace aletheia

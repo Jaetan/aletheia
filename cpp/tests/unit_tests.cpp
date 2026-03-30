@@ -333,7 +333,7 @@ TEST_CASE("parse_frame_response ack", "[json][parse]") {
 
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": 0,
         "timestamp": 5000000,
@@ -349,7 +349,7 @@ TEST_CASE("parse_frame_response violation", "[json][parse]") {
 
 TEST_CASE("parse_frame_response violation with rational index", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": {"numerator": 2, "denominator": 1},
         "timestamp": {"numerator": 3000000, "denominator": 1}
@@ -364,8 +364,8 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "satisfaction", "property_index": 0},
-            {"type": "property", "status": "violation", "property_index": 1,
+            {"type": "property", "status": "holds", "property_index": 0},
+            {"type": "property", "status": "fails", "property_index": 1,
              "timestamp": 5000000, "reason": "Never satisfied"}
         ]
     })");
@@ -498,7 +498,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     mock_ptr->queue_response(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "satisfaction", "property_index": 0}
+            {"type": "property", "status": "holds", "property_index": 0}
         ]
     })");
 
@@ -581,7 +581,7 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
 TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": {"numerator": 0, "denominator": 1},
         "timestamp": {"numerator": 2000000, "denominator": 1},
@@ -787,7 +787,7 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "property_index": 0,
         "timestamp": {"numerator": 1000, "denominator": 0}
     })");
@@ -809,7 +809,7 @@ TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][er
 
 TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "property_index": -1,
         "timestamp": 100
     })");
@@ -821,11 +821,52 @@ TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse]
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",
-        "results": [{"status": "satisfaction", "property_index": -5}]
+        "results": [{"status": "holds", "property_index": -5}]
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_frame_response rejects fails with missing timestamp", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "property_index": 0
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_frame_response rejects fails with missing property_index",
+          "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse][error]") {
+    auto result = detail::parse_stream_result(R"({
+        "status": "complete",
+        "results": [{"property_index": 0}]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unknown verdict status"));
+}
+
+TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][error]") {
+    // {"numerator": 3, "denominator": 2} → 1.5, not an integer
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "property_index": {"numerator": 3, "denominator": 2},
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Non-exact rational"));
 }
 
 TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[json][parse]") {
@@ -1028,7 +1069,7 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     // Verify by triggering enrichment: start_stream, send_frame (violation), extraction
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000,
         "reason": "Atomic: predicate failed"
     })");
@@ -1054,6 +1095,9 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("formula:"));
     CHECK(v.enrichment->signals.size() == 1);
     CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK(v.enrichment->core_reason == "Atomic: predicate failed");
+    CHECK_THAT(v.enrichment->enriched_reason,
+               ContainsSubstring("[core: Atomic: predicate failed]"));
 }
 
 TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
@@ -1063,7 +1107,7 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000
     })");
     mock_ptr->queue_response(R"({
@@ -1102,7 +1146,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     // Two violations, same frame — only one extraction
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1111,7 +1155,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
         "errors": [], "absent": []
     })");
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000
     })");
     // No second extraction response needed — cached
@@ -1157,9 +1201,15 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     mock_ptr->queue_response(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "violation", "property_index": 0,
+            {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "Never satisfied"}
         ]
+    })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Mode", "value": 0}],
+        "errors": [], "absent": []
     })");
 
     AletheiaClient client(std::move(mock));
@@ -1182,7 +1232,10 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     CHECK(end_result->results[0].verdict == Verdict::Fails);
     REQUIRE(end_result->results[0].enrichment.has_value());
     CHECK_THAT(end_result->results[0].enrichment->formula_desc, ContainsSubstring("Mode = 1"));
-    CHECK_THAT(end_result->results[0].enrichment->enriched_reason, ContainsSubstring("violated:"));
+    CHECK_THAT(end_result->results[0].enrichment->enriched_reason, ContainsSubstring("Mode = 0"));
+    CHECK(end_result->results[0].enrichment->core_reason == "Never satisfied");
+    CHECK_THAT(end_result->results[0].enrichment->enriched_reason,
+               ContainsSubstring("[core: Never satisfied]"));
 }
 
 TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
@@ -1192,7 +1245,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1203,12 +1256,12 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     // end first stream
     mock_ptr->queue_response(R"({
         "status": "complete",
-        "results": [{"type": "property", "status": "satisfaction", "property_index": 0}]
+        "results": [{"type": "property", "status": "holds", "property_index": 0}]
     })");
     // second stream
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream (clears cache)
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1253,7 +1306,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
 TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000,
         "reason": "Speed limit exceeded"
     })");
@@ -1267,4 +1320,390 @@ TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
     CHECK_FALSE(v.enrichment.has_value());
+}
+
+// ===========================================================================
+// CoreReason enrichment tests
+// ===========================================================================
+
+TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})"); // set_properties
+    mock->queue_response(R"({"status": "success"})"); // start_stream
+    mock->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 0, "timestamp": 2000000
+    })");
+    mock->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    auto& v = std::get<Violation>(*result);
+    REQUIRE(v.enrichment.has_value());
+    CHECK(v.enrichment->core_reason.empty());
+    // enriched_reason should NOT contain "[core:" when reason is empty
+    CHECK_THAT(v.enrichment->enriched_reason, !ContainsSubstring("[core:"));
+}
+
+// ===========================================================================
+// End-of-stream last-known signal values test
+// ===========================================================================
+
+TEST_CASE("end_stream enrichment includes last-known signal values", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    // First frame: violation triggers extraction → populates cache
+    mock_ptr->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 0, "timestamp": 1000000,
+        "reason": "Atomic: predicate failed"
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+    // Second frame: ack (no violation)
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    // End stream: violation at EOS
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "MetricEventually: window expired"}
+        ]
+    })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.send_frame(Timestamp{2'000'000}, id, dlc, data).has_value());
+
+    auto end_result = client.end_stream();
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto& enrichment = *end_result->results[0].enrichment;
+
+    // Last-known values from last-frame tracking (populated by send_frame)
+    CHECK_FALSE(enrichment.signals.empty());
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK(enrichment.core_reason == "MetricEventually: window expired");
+    CHECK_THAT(enrichment.enriched_reason,
+               ContainsSubstring("[core: MetricEventually: window expired]"));
+}
+
+// ===========================================================================
+// update_frame tests
+// ===========================================================================
+
+TEST_CASE("serialize_update_frame produces correct JSON", "[json][serialize]") {
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    std::vector<SignalValue> signals{
+        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+    };
+    auto str = detail::serialize_update_frame(id, dlc, data, signals);
+    auto j = json::parse(str);
+
+    CHECK(j["command"] == "updateFrame");
+    CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
+    CHECK(j["data"].size() == 8);
+    CHECK(j["data"][0] == 0xE8);
+    CHECK(j["data"][1] == 0x03);
+    CHECK(j["signals"].size() == 1);
+    CHECK(j["signals"][0]["name"] == "RPM");
+    CHECK(j["signals"][0]["value"] == Catch::Approx(3000.0));
+}
+
+TEST_CASE("client update_frame round-trip", "[client][mock]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success", "data": [232, 3, 184, 11, 0, 0, 0, 0]})");
+
+    AletheiaClient client(std::move(mock));
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    std::vector<SignalValue> signals{
+        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+    };
+
+    auto result = client.update_frame(id, dlc, data, signals);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 8);
+    CHECK((*result)[0] == std::byte{232});
+    CHECK((*result)[2] == std::byte{184});
+    CHECK((*result)[3] == std::byte{11});
+}
+
+// ===========================================================================
+// Payload validation tests
+// ===========================================================================
+
+TEST_CASE("send_frame rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value(); // expects 8 bytes
+    FramePayload short_data(3, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, short_data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("payload length 3"));
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("expected 8 bytes"));
+}
+
+TEST_CASE("extract_signals rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
+    auto result = client.extract_signals(id, dlc, long_data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload bad_data(5, std::byte{0});
+    std::vector<SignalValue> signals{{SignalName{"S"}, PhysicalValue{1.0}}};
+    auto result = client.update_frame(id, dlc, bad_data, signals);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("send_frame accepts correct payload length", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})");
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
+TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})");
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
+    FramePayload data(64, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
+// ===========================================================================
+// Negative timestamp validation test
+// ===========================================================================
+
+TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{-1000}, id, dlc, data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
+}
+
+// ===========================================================================
+// EOS enrichment from ack-only frames (last-frame tracking)
+// ===========================================================================
+
+TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    // Frame gets ack (no violation) — NOT in extraction cache, but tracked in last_frames_
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    // End stream: property fails at EOS
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "MetricEventually: window expired"}
+        ]
+    })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 150}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    // Send a frame that gets ack (no violation, so no extraction cache entry)
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    REQUIRE(frame_result.has_value());
+    CHECK(std::holds_alternative<Ack>(*frame_result));
+
+    auto end_result = client.end_stream();
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto& enrichment = *end_result->results[0].enrichment;
+
+    // Signal values came from last-frame tracking, not the extraction cache
+    CHECK_FALSE(enrichment.signals.empty());
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{150.0});
+    CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 150"));
+}
+
+// ===========================================================================
+// Logger
+// ===========================================================================
+
+TEST_CASE("logger captures streaming events", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    // Queue: set_properties, start_stream, send_frame (ack), end_stream (holds)
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "holds", "property_index": 0}
+        ]
+    })");
+
+    // Collect log events
+    std::vector<std::pair<LogLevel, std::string>> events;
+    Logger logger([&](const LogRecord& r) {
+        events.emplace_back(r.level, std::string{r.event});
+    });
+
+    AletheiaClient client(std::move(mock), logger);
+
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.end_stream().has_value());
+
+    // Verify event sequence
+    REQUIRE(events.size() >= 4);
+
+    // First four are the lifecycle events
+    CHECK(events[0].first == LogLevel::Info);
+    CHECK(events[0].second == "properties.set");
+    CHECK(events[1].first == LogLevel::Info);
+    CHECK(events[1].second == "stream.started");
+    // frame.processed may be preceded by cache.miss
+    bool found_frame = false;
+    bool found_ended = false;
+    for (const auto& [level, event] : events) {
+        if (event == "frame.processed") {
+            CHECK(level == LogLevel::Debug);
+            found_frame = true;
+        }
+        if (event == "stream.ended") {
+            CHECK(level == LogLevel::Info);
+            found_ended = true;
+        }
+    }
+    CHECK(found_frame);
+    CHECK(found_ended);
+}
+
+TEST_CASE("null logger has zero overhead", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})");
+
+    // Default-constructed logger — no callback
+    AletheiaClient client(std::move(mock));
+
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    // Should not crash or produce output
+    REQUIRE(client.set_properties(props).has_value());
 }

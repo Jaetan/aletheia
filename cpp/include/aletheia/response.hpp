@@ -25,6 +25,9 @@ struct ViolationEnrichment {
     std::map<SignalName, PhysicalValue> signals;
     std::string formula_desc;
     std::string enriched_reason;
+    // Raw reason from the Agda core (e.g., "MetricEventually: window expired").
+    // May be empty.
+    std::string core_reason;
 };
 
 // ---------------------------------------------------------------------------

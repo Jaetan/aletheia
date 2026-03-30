@@ -79,6 +79,8 @@ static auto parse_rational_as_int(const json& j) -> std::int64_t {
         auto den = j.at("denominator").get<std::int64_t>();
         if (den == 0)
             throw std::runtime_error("Zero denominator in rational: " + j.dump());
+        if (num % den != 0)
+            throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
         return num / den;
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
@@ -285,7 +287,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "ack")
             return FrameResponse{Ack{}};
 
-        if (status == "violation") {
+        if (status == "fails") {
             auto idx = parse_rational_as_int(j.at("property_index"));
             if (idx < 0)
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
@@ -328,9 +330,9 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
         for (const auto& r : j.at("results")) {
             auto entry_status = r.value("status", "");
             Verdict verdict{};
-            if (entry_status == "satisfaction")
+            if (entry_status == "holds")
                 verdict = Verdict::Holds;
-            else if (entry_status == "violation")
+            else if (entry_status == "fails")
                 verdict = Verdict::Fails;
             else
                 throw std::runtime_error("Unknown verdict status: " + entry_status);

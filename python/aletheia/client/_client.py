@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import json
-import warnings
+import logging
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -53,6 +53,8 @@ from ._types import (
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
+
+_logger = logging.getLogger("aletheia")
 
 
 class AletheiaClient:
@@ -412,6 +414,7 @@ class AletheiaClient:
             self._signal_cache.clear()
             for i, formula in enumerate(properties):
                 self._diags[i] = build_diagnostic(formula)
+            _logger.info("properties.set count=%d", len(properties))
         return response
 
     def add_checks(
@@ -447,7 +450,10 @@ class AletheiaClient:
             "type": "command",
             "command": "startStream"
         }
-        return self._success_or_error(self._send_command(cmd))
+        response = self._success_or_error(self._send_command(cmd))
+        if response["status"] == "success":
+            _logger.info("stream.started")
+        return response
 
     def _enrich_violation(
         self,
@@ -463,21 +469,32 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
+            _logger.warning(
+                "enrichment.property_index_oob index=%d count=%d",
+                idx, len(self._diags),
+            )
             return
 
         # Extract signal values (cached, bounded).
         cache_key: tuple[int, bytes] = (can_id, bytes(data))
         extraction: SignalExtractionResult | None = self._signal_cache.get(cache_key)
         if extraction is None:
+            _logger.debug("cache.miss canId=%d dlc=%d", can_id, dlc)
             try:
                 extraction = self.extract_signals(can_id=can_id, dlc=dlc, data=data)
                 if len(self._signal_cache) < MAX_EXTRACT_CACHE:
                     self._signal_cache[cache_key] = extraction
+                else:
+                    _logger.warning(
+                        "cache.full size=%d", len(self._signal_cache),
+                    )
             except (AletheiaError, ValueError) as exc:
-                warnings.warn(
-                    f"Signal enrichment failed for violation (property {idx}): {exc}",
-                    stacklevel=2,
+                _logger.warning(
+                    "enrichment.extraction_failed canId=%d error=%s",
+                    can_id, exc,
                 )
+        else:
+            _logger.debug("cache.hit canId=%d dlc=%d", can_id, dlc)
 
         values: dict[str, float | None] = {}
         if extraction is not None:
@@ -539,6 +556,10 @@ class AletheiaClient:
 
             # Fast path: ack response (overwhelmingly common in streaming)
             if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+                _logger.debug(
+                    "frame.processed ts=%d canId=%d extended=%s response=ack",
+                    timestamp, can_id, extended,
+                )
                 return {"status": "ack"}
 
             # Slow path: violations/errors — full JSON parse
@@ -549,8 +570,17 @@ class AletheiaClient:
         response = cast(Response, parse_json_object(result_str))
         result = self._parse_frame_response(response)
 
-        if result["status"] == "violation":
+        if result["status"] == "fails":
             self._enrich_violation(result, can_id, dlc, data)
+            _logger.debug(
+                "frame.processed ts=%d canId=%d extended=%s response=violation",
+                timestamp, can_id, extended,
+            )
+        else:
+            _logger.debug(
+                "frame.processed ts=%d canId=%d extended=%s response=%s",
+                timestamp, can_id, extended, result.get("status", "unknown"),
+            )
 
         return result
 
@@ -563,14 +593,14 @@ class AletheiaClient:
         if status == "ack":
             return {"status": "ack"}
 
-        if status == "violation":
+        if status == "fails":
             prop_type = response.get("type")
             if prop_type != "property":
                 raise ProtocolError(f"Expected type='property', got {prop_type}")
             prop_index = self._validate_rational("property_index", response.get("property_index"))
             ts_rational = self._validate_rational("timestamp", response.get("timestamp"))
             result_violation: PropertyViolationResponse = {
-                "status": "violation",
+                "status": "fails",
                 "type": "property",
                 "property_index": prop_index,
                 "timestamp": ts_rational,
@@ -620,8 +650,8 @@ class AletheiaClient:
             ErrorResponse if not currently streaming.
 
         The ``results`` list contains one entry per property:
-        - ``status="satisfaction"`` if the property held on the finite trace
-        - ``status="violation"`` if the property failed at end-of-stream
+        - ``status="holds"`` if the property held on the finite trace
+        - ``status="fails"`` if the property failed at end-of-stream
           (e.g., safety property never resolved, liveness never satisfied)
 
         Violations are enriched with ``signal_name``, ``actual_value``, and
@@ -637,6 +667,11 @@ class AletheiaClient:
 
         if status == "complete":
             results = self._parse_finalization_results(response)
+            num_fails = sum(1 for r in results if r["status"] == "fails")
+            _logger.info(
+                "stream.ended numResults=%d numFails=%d",
+                len(results), num_fails,
+            )
             return {"status": "complete", "results": results}
 
         if status == "error":
@@ -664,7 +699,7 @@ class AletheiaClient:
                 "status": entry_status,
                 "property_index": prop_index,
             }
-            if entry_status == "violation":
+            if entry_status == "fails":
                 ts = raw.get("timestamp")
                 if ts is not None:
                     result_entry["timestamp"] = self._validate_rational(
@@ -687,6 +722,10 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
+            _logger.warning(
+                "enrichment.property_index_oob index=%d count=%d",
+                idx, len(self._diags),
+            )
             return
         result["formula"] = diag.formula_desc
         result["enriched_reason"] = "violated: " + diag.formula_desc

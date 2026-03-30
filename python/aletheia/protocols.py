@@ -427,7 +427,7 @@ class AckResponse(TypedDict):
 
 class PropertyViolationResponse(TypedDict):
     """Property violation response"""
-    status: Literal["violation"]
+    status: Literal["fails"]
     type: Literal["property"]
     property_index: RationalNumber
     timestamp: RationalNumber
@@ -440,7 +440,7 @@ class PropertyViolationResponse(TypedDict):
 class PropertyResultEntry(TypedDict):
     """A single property finalization result at end-of-stream"""
     type: Literal["property"]
-    status: Literal["violation", "satisfaction"]
+    status: Literal["fails", "holds"]
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
     reason: NotRequired[str]  # Only for violations

@@ -49,7 +49,7 @@ auto format_predicate(const Predicate& p) -> std::string {
                 return std::format("|{}{}| > {}", "\xce\x94", std::string_view{v.signal},
                                    format_value(v.delta.get()));
             else
-                return "<unknown predicate>";
+                static_assert(sizeof(T) == 0, "Unhandled predicate type in format_predicate");
         },
         p);
 }
@@ -82,6 +82,8 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
                                  std::is_same_v<T, MetricRelease>) {
                 collect_signals_into(*v.left, signals);
                 collect_signals_into(*v.right, signals);
+            } else {
+                static_assert(sizeof(T) == 0, "Unhandled formula type in collect_signals_into");
             }
         },
         f);
@@ -128,7 +130,7 @@ auto format_formula(const LtlFormula& f) -> std::string {
                 return format_formula(*v.left) + " release within " + format_timebound(v.bound) +
                        " " + format_formula(*v.right);
             else
-                return "<unknown>";
+                static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
         },
         f);
 }

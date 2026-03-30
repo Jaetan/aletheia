@@ -21,7 +21,8 @@ func WithLogger(l *slog.Logger) ClientOption {
 }
 
 // Client provides Aletheia operations over a Backend.
-// A Client is safe for concurrent use from multiple goroutines.
+// A Client is safe for concurrent use from multiple goroutines; calls are
+// serialized internally because the underlying LTL automaton is sequential.
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
 type Client struct {
 	backend    Backend

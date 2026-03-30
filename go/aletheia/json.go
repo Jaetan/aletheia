@@ -90,6 +90,8 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			if mux, ok := sig.Presence.(Multiplexed); ok {
 				s["multiplexor"] = string(mux.Multiplexor)
 				s["multiplex_value"] = mux.MuxValue
+			} else {
+				s["presence"] = "always"
 			}
 			sigs = append(sigs, s)
 		}
@@ -554,7 +556,7 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 	switch status {
 	case "ack":
 		return Ack{}, nil
-	case "violation":
+	case "fails":
 		idx, err := parseNumberAsInt64(m["property_index"])
 		if err != nil {
 			return nil, wrapProtocol("invalid property_index", err)
@@ -616,9 +618,9 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	entryStatus := getString(r, "status")
 	var verdict Verdict
 	switch entryStatus {
-	case "satisfaction":
+	case "holds":
 		verdict = Holds
-	case "violation":
+	case "fails":
 		verdict = Fails
 	default:
 		return zero, protocolError(fmt.Sprintf("unknown verdict status: %q", entryStatus))

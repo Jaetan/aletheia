@@ -25,6 +25,10 @@ func TestParseDBC(t *testing.T) {
 	if len(mock.Inputs) != 1 {
 		t.Fatalf("expected 1 input, got %d", len(mock.Inputs))
 	}
+	// AlwaysPresent signals must emit "presence":"always" for cross-language parity.
+	if !strings.Contains(mock.Inputs[0], `"presence":"always"`) {
+		t.Errorf("expected presence field in serialized DBC, got: %s", mock.Inputs[0])
+	}
 }
 
 func TestValidateDBC_NoErrors(t *testing.T) {
