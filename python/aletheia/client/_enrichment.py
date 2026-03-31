@@ -32,11 +32,13 @@ def _format_predicate(pred: dict[str, object]) -> str:  # pylint: disable=too-ma
     return "<unknown predicate>"
 
 
-def _format_timebound(ms: int) -> str:
-    """Format milliseconds as a human-readable time bound."""
-    if ms % 1_000 == 0:
-        return f"{ms // 1_000}s "
-    return f"{ms}ms "
+def _format_timebound(us: int) -> str:
+    """Format microseconds as a human-readable time bound."""
+    if us % 1_000_000 == 0:
+        return f"{us // 1_000_000}s "
+    if us % 1_000 == 0:
+        return f"{us // 1_000}ms "
+    return f"{us}\u00b5s "
 
 
 def _get_timebound(formula: dict[str, object]) -> str:

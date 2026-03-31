@@ -209,7 +209,7 @@ class TestJSONSerialization:
         prop = Signal("Voltage").between(11.5, 14.5).for_at_least(1000)
         data = cast(MetricAlwaysFormula, prop.to_dict())
 
-        assert data['timebound'] == 1000
+        assert data['timebound'] == 1_000_000
         formula = cast(AtomicFormula, data['formula'])
         inner_pred = cast(BetweenPredicate, formula['predicate'])
         assert inner_pred['min'] == 11.5
@@ -260,7 +260,7 @@ class TestEdgeCases:
         """Very large time bounds work"""
         prop = Signal("X").equals(1).within(999999999)
         data = cast(MetricEventuallyFormula, prop.to_dict())
-        assert data['timebound'] == 999999999
+        assert data['timebound'] == 999_999_999_000
 
     def test_chaining_same_operators(self) -> None:
         """Chaining same operator multiple times"""
@@ -325,7 +325,7 @@ class TestRealWorldExamples:
         """Door closed signal must be stable (debounced)"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
         data = cast(MetricAlwaysFormula, prop.to_dict())
-        assert data['timebound'] == 50
+        assert data['timebound'] == 50_000
 
     def test_emergency_brake(self) -> None:
         """Emergency brake -> Speed decreases quickly (desugars to or)"""
@@ -335,7 +335,7 @@ class TestRealWorldExamples:
 
         data = cast(OrFormula, prop.to_dict())
         consequent = cast(MetricEventuallyFormula, data['right'])
-        assert consequent['timebound'] == 200
+        assert consequent['timebound'] == 200_000
 
     def test_gear_sequence(self) -> None:
         """Gear in park until ignition on"""
@@ -372,4 +372,4 @@ class TestRealWorldExamples:
 
         data = cast(OrFormula, prop.to_dict())
         consequent = cast(MetricEventuallyFormula, data['right'])
-        assert consequent['timebound'] == 500
+        assert consequent['timebound'] == 500_000

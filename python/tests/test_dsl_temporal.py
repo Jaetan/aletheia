@@ -68,14 +68,14 @@ class TestTemporalOperators:
         prop = Signal("BrakePressed").equals(1).within(100)
         data = cast(MetricEventuallyFormula, prop.to_dict())
         assert data['operator'] == 'metricEventually'
-        assert data['timebound'] == 100
+        assert data['timebound'] == 100_000
 
     def test_for_at_least(self) -> None:
         """Predicate.for_at_least() creates bounded temporal property"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
         data = cast(MetricAlwaysFormula, prop.to_dict())
         assert data['operator'] == 'metricAlways'
-        assert data['timebound'] == 50
+        assert data['timebound'] == 50_000
 
     def test_within_zero_ms(self) -> None:
         """within(0) is valid (immediate)"""
@@ -93,7 +93,7 @@ class TestTemporalOperators:
         """Large time bounds work (hours)"""
         prop = Signal("EngineOn").equals(1).for_at_least(3600000)  # 1 hour
         data = cast(MetricAlwaysFormula, prop.to_dict())
-        assert data['timebound'] == 3600000
+        assert data['timebound'] == 3_600_000_000
 
     def test_negative_timebound_within(self) -> None:
         """Negative time bound is rejected."""
@@ -204,7 +204,7 @@ class TestMetricUntilOperator:
 
         data = cast(MetricUntilFormula, prop.to_dict())
         assert data['operator'] == 'metricUntil'
-        assert data['timebound'] == 1000
+        assert data['timebound'] == 1_000_000
         assert 'left' in data
         assert 'right' in data
 
@@ -224,7 +224,7 @@ class TestMetricUntilOperator:
         prop = left.metric_until(3600000, right)
 
         data = cast(MetricUntilFormula, prop.to_dict())
-        assert data['timebound'] == 3600000
+        assert data['timebound'] == 3_600_000_000
 
 
 # ============================================================================
@@ -242,7 +242,7 @@ class TestMetricReleaseOperator:
 
         data = cast(MetricReleaseFormula, prop.to_dict())
         assert data['operator'] == 'metricRelease'
-        assert data['timebound'] == 5000
+        assert data['timebound'] == 5_000_000
         assert 'left' in data
         assert 'right' in data
 
@@ -259,7 +259,7 @@ class TestMetricReleaseOperator:
         # Large time (24 hours)
         prop_large = left.metric_release(86400000, right)
         data_large = cast(MetricReleaseFormula, prop_large.to_dict())
-        assert data_large['timebound'] == 86400000
+        assert data_large['timebound'] == 86_400_000_000
 
 
 # ============================================================================

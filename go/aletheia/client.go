@@ -20,20 +20,26 @@ func WithLogger(l *slog.Logger) ClientOption {
 	return func(c *Client) { c.logger = l }
 }
 
+// WithDefaultChecks sets checks that are prepended to every AddChecks call.
+func WithDefaultChecks(checks ...CheckResult) ClientOption {
+	return func(c *Client) { c.defaultChecks = checks }
+}
+
 // Client provides Aletheia operations over a Backend.
 // A Client is safe for concurrent use from multiple goroutines; calls are
 // serialized internally because the underlying LTL automaton is sequential.
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
 type Client struct {
-	backend    Backend
-	state      unsafe.Pointer
-	mu         sync.Mutex
-	closeOnce  sync.Once
-	closed     bool
-	logger     *slog.Logger                   // nil = no logging
-	diags      []PropertyDiagnostic           // one per property, auto-derived
-	cache      *extractCache                  // extraction cache for enrichment
-	lastFrames map[lastFrameKey]lastFrameData // last frame seen per CAN ID, for EOS enrichment
+	backend       Backend
+	state         unsafe.Pointer
+	mu            sync.Mutex
+	closeOnce     sync.Once
+	closed        bool
+	logger        *slog.Logger                   // nil = no logging
+	defaultChecks []CheckResult                  // prepended by AddChecks
+	diags         []PropertyDiagnostic           // one per property, auto-derived
+	cache         *extractCache                  // extraction cache for enrichment
+	lastFrames    map[lastFrameKey]lastFrameData // last frame seen per CAN ID, for EOS enrichment
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -265,6 +271,19 @@ func (c *Client) SetProperties(properties []Formula) error {
 		c.logger.Info("properties.set", "count", len(properties))
 	}
 	return nil
+}
+
+// AddChecks extracts formulas from the given checks, prepends any default checks
+// set via WithDefaultChecks, and calls SetProperties.
+func (c *Client) AddChecks(checks []CheckResult) error {
+	all := make([]Formula, 0, len(c.defaultChecks)+len(checks))
+	for _, dc := range c.defaultChecks {
+		all = append(all, dc.Formula())
+	}
+	for _, ch := range checks {
+		all = append(all, ch.Formula())
+	}
+	return c.SetProperties(all)
 }
 
 // StartStream begins a new LTL monitoring stream.

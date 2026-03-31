@@ -2,6 +2,7 @@
 #pragma once
 
 #include <aletheia/backend.hpp>
+#include <aletheia/check.hpp>
 #include <aletheia/dbc.hpp>
 #include <aletheia/error.hpp>
 #include <aletheia/log.hpp>
@@ -61,6 +62,7 @@ public:
     // start_stream() resets the extraction cache and last-frame tracking.
     // set_properties() may be called again after end_stream() to install new properties.
     auto set_properties(std::span<const LtlFormula> properties) -> Result<void>;
+    auto add_checks(std::vector<CheckResult> checks) -> Result<void>;
     auto start_stream() -> Result<void>;
     // On violation, the returned Violation includes an optional ViolationEnrichment
     // with extracted signal values and a formatted reason string (requires

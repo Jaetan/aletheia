@@ -8,6 +8,7 @@
 #pragma once
 
 #include <aletheia/backend.hpp>
+#include <aletheia/check.hpp>
 #include <aletheia/client.hpp>
 #include <aletheia/dbc.hpp>
 #include <aletheia/enrich.hpp>

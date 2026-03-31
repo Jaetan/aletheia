@@ -242,6 +242,15 @@ static_assert(std::variant_size_v<FrameResponse> == 2);
 static_assert(std::is_same_v<std::variant_alternative_t<0, FrameResponse>, Ack>);
 static_assert(std::is_same_v<std::variant_alternative_t<1, FrameResponse>, Violation>);
 
+// ===========================================================================
+// CheckResult — move-only (holds formula)
+// ===========================================================================
+
+static_assert(std::is_move_constructible_v<CheckResult>);
+static_assert(!std::is_copy_constructible_v<CheckResult>);
+static_assert(std::is_move_assignable_v<CheckResult>);
+static_assert(!std::is_copy_assignable_v<CheckResult>);
+
 // If this file compiles, all 100+ static assertions pass.
 int main() {
     return 0;

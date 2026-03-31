@@ -121,6 +121,19 @@ auto AletheiaClient::set_properties(std::span<const LtlFormula> properties) -> R
     return result;
 }
 
+auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void> {
+    std::vector<LtlFormula> formulas;
+    formulas.reserve(checks.size());
+    for (auto& check : checks) {
+        auto f = check.to_formula();
+        if (!f)
+            return std::unexpected(
+                AletheiaError{ErrorKind::Validation, "check has no formula (already consumed)"});
+        formulas.push_back(std::move(*f));
+    }
+    return set_properties(formulas);
+}
+
 auto AletheiaClient::start_stream() -> Result<void> {
     auto cmd = detail::serialize_start_stream();
     auto resp = backend_->process(state_, cmd);

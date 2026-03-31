@@ -317,7 +317,7 @@ class Predicate:
             raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricEventuallyFormula = {
             'operator': 'metricEventually',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'formula': self._data
         }
         return Property(formula)
@@ -341,7 +341,7 @@ class Predicate:
             raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricAlwaysFormula = {
             'operator': 'metricAlways',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'formula': self._data
         }
         return Property(formula)
@@ -565,7 +565,7 @@ class Property:
             raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricUntilFormula = {
             'operator': 'metricUntil',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'left': self._data,
             'right': other.to_formula()
         }
@@ -589,7 +589,7 @@ class Property:
             raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricReleaseFormula = {
             'operator': 'metricRelease',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'left': self._data,
             'right': other.to_formula()
         }

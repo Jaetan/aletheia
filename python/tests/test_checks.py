@@ -100,7 +100,7 @@ class TestCheckSignal:
         assert isinstance(result, CheckResult)
         assert result.to_dict() == {
             'operator': 'metricAlways',
-            'timebound': 500,
+            'timebound': 500_000,
             'formula': {
                 'operator': 'atomic',
                 'predicate': {
