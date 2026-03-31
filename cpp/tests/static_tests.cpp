@@ -20,13 +20,16 @@ static_assert(!std::is_same_v<MessageName, NodeName>);
 static_assert(!std::is_same_v<MessageName, Unit>);
 static_assert(!std::is_same_v<NodeName, Unit>);
 
-// Numeric physical types (4 choose 2 = 6 pairs)
-static_assert(!std::is_same_v<PhysicalValue, ScaleFactor>);
-static_assert(!std::is_same_v<PhysicalValue, ScaleOffset>);
+// Numeric physical types
 static_assert(!std::is_same_v<PhysicalValue, Delta>);
-static_assert(!std::is_same_v<ScaleFactor, ScaleOffset>);
-static_assert(!std::is_same_v<ScaleFactor, Delta>);
-static_assert(!std::is_same_v<ScaleOffset, Delta>);
+
+// Rational strong types (all distinct from each other and from double types)
+static_assert(!std::is_same_v<RationalFactor, RationalOffset>);
+static_assert(!std::is_same_v<RationalFactor, RationalBound>);
+static_assert(!std::is_same_v<RationalOffset, RationalBound>);
+static_assert(!std::is_same_v<RationalFactor, PhysicalValue>);
+static_assert(!std::is_same_v<RationalOffset, PhysicalValue>);
+static_assert(!std::is_same_v<RationalBound, Delta>);
 
 // Integer domain types (4 choose 2 = 6 pairs)
 static_assert(!std::is_same_v<BitPosition, BitLength>);
@@ -98,8 +101,9 @@ static_assert(dlc_to_bytes(Dlc::create(15).value()) == 64);
 
 static_assert(PhysicalValue{42.0}.get() == 42.0);
 static_assert(PhysicalValue{-1.5}.get() == -1.5);
-static_assert(ScaleFactor{0.25}.get() == 0.25);
-static_assert(ScaleOffset{-40.0}.get() == -40.0);
+static_assert(RationalFactor{Rational{1, 4}}.get() == Rational{1, 4});
+static_assert(RationalOffset{Rational{-40, 1}}.get() == Rational{-40, 1});
+static_assert(RationalBound{Rational{0, 1}}.get() == Rational{0, 1});
 static_assert(Delta{100.0}.get() == 100.0);
 
 static_assert(BitPosition{0}.get() == 0);
@@ -197,6 +201,8 @@ static_assert(!std::is_copy_constructible_v<AletheiaClient>);
 static_assert(!std::is_copy_assignable_v<AletheiaClient>);
 static_assert(std::is_move_constructible_v<AletheiaClient>);
 static_assert(std::is_move_assignable_v<AletheiaClient>);
+static_assert(std::is_nothrow_move_constructible_v<AletheiaClient>);
+static_assert(std::is_nothrow_move_assignable_v<AletheiaClient>);
 
 // ===========================================================================
 // IBackend — abstract (has pure virtuals)
@@ -223,7 +229,7 @@ static_assert(!std::is_convertible_v<BitPosition, std::uint16_t>);
 // ===========================================================================
 
 static_assert(!std::is_convertible_v<SignalName, MessageName>);
-static_assert(!std::is_convertible_v<PhysicalValue, ScaleFactor>);
+static_assert(!std::is_convertible_v<PhysicalValue, RationalFactor>);
 static_assert(!std::is_convertible_v<BitPosition, BitLength>);
 
 // ===========================================================================

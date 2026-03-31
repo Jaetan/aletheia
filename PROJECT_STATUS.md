@@ -243,9 +243,9 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - ✅ extractAllSignals completeness proof: `extractAll-complete` proves `totalEntries (extractAllSignalsFromMessage dbc frame msg) ≡ length (DBCMessage.signals msg)` (~40 lines in `CAN/Batch/Properties.agda`). Every signal produces exactly one entry across the three result partitions (values, errors, absent). Proof by foldr induction with `with`-decomposition of the recursive accumulator.
 - ✅ Mixed byte-order injection commutativity: `injectPayload-commute-mixed` proves disjoint `injectPayload` calls commute for all 4 byte-order combinations (~278 lines in `CAN/Endianness.agda`). 4-layer proof: swap-conjugation converts cross-BO operations to `applyWrites` at physical positions, then existing `applyWrites-comm` handles commutativity. Layered architecture: concrete Vec Byte 8 → single BitWrite → write list → AllDiffPos structural conversion → 4-case dispatch.
 
-- ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc.), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. 53 test cases, 207 assertions across 3 layers (static compile-time, unit with mock, integration with threads). 5 rounds of 18-category code review — all categories pass, 0 clang-tidy warnings. CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
+- ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc., `Rational` for exact signal values), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. Hash-map `DbcIndex` for O(1) signal lookups. Formula depth limit (100). 135 unit TEST_CASEs + 8 integration TEST_CASEs + static_asserts across 3 layers (static compile-time, unit with mock, integration with threads). 7 rounds of code review — all categories pass, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
 
-- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (8 event types, `ClientOption`/`WithLogger`). `ViolationEnrichment.CoreReason` carries Agda core reason strings. 13 source files, 7 test files, 92 tests (all pass with `-race`). 9 rounds of 22-category code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC, `Rational` for exact signal values). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (12 event types, `ClientOption`/`WithLogger`). Hash-map indexes in `Dbc` for O(1) signal lookups. Formula depth limit (100). 14 source files, 10 test files, 146 tests (all pass with `-race`). 10 rounds of code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
 
 - ✅ C header (`include/aletheia.h`): Documents the 4 C-callable FFI functions + GHC RTS initialization contract. The contract all language bindings implement against. Shakefile packaging target (`cabal run shake -- dist`) bundles .so + header.
 
@@ -274,11 +274,13 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Pipeline soundness fix (2026-03-28): Discovered 8 unsound absorption rules in `simplify/absorb` (Coalgebra.agda). Fixed: removed Until/Release rules, added `finalizesHolds` guards to Always/Eventually, added structural idempotency (And-And, Or-Or). Proofs complete: `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` in `Adequacy/Pipeline.agda`.
 
-- ✅ AGENTS.md (2026-03-29): Review protocol document for all languages (Agda 16 categories, Go 22, C++ 22, Python, Documentation 14). Universal rules: all findings must be fixed, pre-existing issues in scope, design/architecture in scope.
+- ✅ AGENTS.md (2026-03-29, rewritten 2026-03-31): Review protocol document for all languages (Agda 16 categories, Go 22, C++ 22, Python, Documentation 14). Origin-blind finding rules: findings have no origin, age, or owner -- they are things that are wrong and get fixed. C++ section adds clang-format and clang-tidy as hard gates (zero violations/warnings required).
 
 - ✅ RTS cores for all bindings (2026-03-31): GHC RTS `-N` flag configurable in all three language bindings. Python: `AletheiaClient(rts_cores=N)`. C++: `make_ffi_backend(path, rts_cores)` with `int rts_cores = 1` default. Go: `NewFFIBackend(path, WithRTSCores(n))` functional option. All: once-per-process, warn on mismatch, never reinitializable. Enables multi-bus monitoring with parallel GHC capabilities.
 
 - ✅ Opt-in structured logging for all bindings (2026-03-31): 12 log events matching Go's slog event set, implemented in all three bindings. C++: custom `Logger` class (`log.hpp`, ~80 lines) — callback-based `LogRecord` with `LogLevel`, event name, `initializer_list<LogField>`, `source_location`; zero-cost when default-constructed. Python: `logging.getLogger("aletheia")` — standard library, no handler = silent. Go: `slog.Logger` via `WithLogger` option (already existed). Events: `properties.set` (Info), `stream.started` (Info), `stream.ended` (Info), `frame.processed` (Debug), `cache.hit`/`miss` (Debug), `cache.full` (Warn), `enrichment.property_index_oob` (Warn), `enrichment.extraction_failed` (Warn), `extraction.serialize_failed`/`process_failed`/`parse_failed` (Warn). Tests: C++ 2 logger tests, Python 5 logger tests.
+
+- ✅ Cross-language code review round 4 (2026-03-31): 27 fixes across all bindings. **Python** (12 fixes): formula depth limit (100), `Rational` type for DBC signals (exact numerator/denominator, no float), hash-map DBC index for O(1) signal lookups, `dbc_queries.py` module, `_types.py` for shared types, enrichment refactored to use index. **C++** (12 fixes + 6 clang-tidy): `Rational` type replacing `double` in `DbcSignal`/`SignalValue`, hash-map indexes (`DbcIndex`) for O(1) lookups, formula depth limit (100), `parse_dbc_string` endpoint, `DbcSignal` index-based lookup in enrichment, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). **Go** (3 fixes): `Rational` type replacing `float64` in `DbcSignal`/`SignalValue`, hash-map indexes in `Dbc` type, formula depth limit (100).
 
 **Planned / Research**:
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
@@ -292,16 +294,16 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 **Codebase**:
 - Agda modules: 67 (all `--safe --without-K`)
-- Python modules: 12
-- C++ files: 17 (11 headers + 6 source)
-- Go files: 13 source + 7 test
-- Lines of code: ~14,800 Agda + ~4,900 Python + ~2,150 C++ + ~2,100 Go
+- Python modules: 18
+- C++ files: 23 (12 headers + 6 source + 2 detail headers + 3 test files)
+- Go files: 14 source + 10 test
+- Lines of code: ~14,800 Agda + ~9,100 Python + ~2,900 C++ + ~7,000 Go
 
 **Testing**:
-- Python tests: 446 passing (via FFI)
-- C++ tests: 84 TEST_CASEs + 113 static_asserts (mock backend + Catch2)
-- Go tests: 92 passing (mock backend, `-race` clean)
-- Total: 622+ tests
+- Python tests: 481 passing (via FFI)
+- C++ tests: 135 unit TEST_CASEs + 8 integration TEST_CASEs + static_asserts (mock backend + Catch2)
+- Go tests: 146 passing (mock backend, `-race` clean)
+- Total: 770+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
@@ -328,6 +330,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`
+- **All verification suites green**: Python (basedpyright 0 errors, pylint 10.00/10), C++ (clang-format clean, clang-tidy clean, ctest 3/3), Go (go test -race, go vet, gofmt all clean)
 
 ---
 

@@ -4,9 +4,9 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 ## Universal Rules (All Languages)
 
-**Every finding must be fixed.** There are no exceptions. Nits, test gaps, polish, documentation, architecture, design -- everything. There is no such thing as "separate concern from a code review" or "not a review fix."
+**A finding is a finding.** Every diagnostic surfaced by a tool run or manual review is an action item. Do not label, group, or annotate findings by when or by whom the code was introduced -- that information is irrelevant to the review and creates a false decision point. A finding has no origin, no age, and no owner. It is a thing that is wrong, and it gets fixed.
 
-**Pre-existing issues are in scope.** If a review surfaces it, it gets fixed. Do not dismiss findings because they predate the current change.
+**Every finding must be fixed.** There are no exceptions. Nits, test gaps, polish, documentation, architecture, design -- everything. There is no such thing as "separate concern from a code review", "not a review fix", "pre-existing", or "out of scope."
 
 **Reviews cover specification, design, and architecture, not just implementation.** A review is re-reading all the code and checking if every detail makes sense and is built correctly. Question the specification itself: are the features right? Do they make sense? Are assumptions correct? Should something be reworked? Reviews are the only opportunity to reconsider these choices. Nothing is "disproportionate" for a review round. Cascading type-level changes, API redesigns, module restructuring, and specification corrections are all valid review outcomes.
 
@@ -14,7 +14,7 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 **Both local and end-to-end issues are in scope.** Review each file individually AND consider cross-module interactions, data flow, and layer boundaries.
 
-**Dismissals require user approval.** Suspected false positives must be identified with explicit justification, but no finding may be discarded from the plan without the user's permission. Present all findings -- including those believed to be false positives -- and let the user decide.
+**The only valid dismissal is "suspected false positive".** Suspected false positives must be identified with explicit justification, but no finding may be discarded from the plan without the user's permission. Present all findings -- including those believed to be false positives -- and let the user decide.
 
 ## Review Procedure
 
@@ -132,6 +132,11 @@ cd go && CGO_ENABLED=0 go build ./aletheia/
 
 Scope: ALL source files, headers, and test files in `cpp/`.
 
+**Tooling gates (hard requirements):**
+- `clang-format --dry-run -Werror` must produce **zero violations** on all source files.
+- `clang-tidy -p build` must produce **zero errors and zero warnings** on all source files.
+- **Adding any suppression annotation** (`NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN/END`) **requires user approval**. Propose the annotation with justification; do not add it without explicit permission.
+
 ### Hygiene/Style (6)
 
 1. **Naming consistency** -- matches .clang-tidy conventions across all files
@@ -173,6 +178,8 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 ```bash
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+clang-format --dry-run -Werror include/aletheia/*.hpp src/*.cpp src/detail/*.hpp tests/*.cpp
+clang-tidy -p build src/*.cpp
 ```
 
 ---

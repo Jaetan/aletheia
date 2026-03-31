@@ -20,7 +20,7 @@ using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
 using AletheiaProcessFn = char* (*)(void*, const char*);
 using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t,
-                                      std::uint8_t, std::uint8_t*, std::uint8_t);
+                                      std::uint8_t, const std::uint8_t*, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
@@ -127,11 +127,9 @@ public:
         const auto dlc_val = dlc.value();
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result = send_frame_fn_(
-            state, timestamp, can_id, extended, dlc_val,
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-            const_cast<std::uint8_t*>(reinterpret_cast<const std::uint8_t*>(data.data())),
-            data_len);
+        char* result = send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
+                                      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                                      reinterpret_cast<const std::uint8_t*>(data.data()), data_len);
         if (result == nullptr)
             throw std::runtime_error("aletheia_send_frame returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };

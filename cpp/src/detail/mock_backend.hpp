@@ -14,7 +14,7 @@
 namespace aletheia {
 
 class MockBackend : public IBackend {
-    static inline char sentinel_ = 0;
+    static inline char sentinel = 0;
     std::vector<std::string> captured_;
     std::queue<std::string> responses_;
 
@@ -31,7 +31,7 @@ public:
             responses_.pop();
     }
 
-    auto init() -> void* override { return &sentinel_; }
+    auto init() -> void* override { return &sentinel; }
 
     auto process(void* /*state*/, std::string_view input) -> std::string override {
         captured_.emplace_back(input);

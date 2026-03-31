@@ -34,6 +34,8 @@ Example:
 from ._client import AletheiaClient
 from ._types import (
     AletheiaError,
+    BatchError,
+    FrameResponse,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
@@ -41,10 +43,6 @@ from ._types import (
 )
 
 __all__ = [
-    "AletheiaClient",
-    "AletheiaError",
-    "ProcessError",
-    "ProtocolError",
-    "SignalExtractionResult",
-    "dlc_to_bytes",
+    "AletheiaClient", "AletheiaError", "BatchError", "dlc_to_bytes",
+    "FrameResponse", "ProcessError", "ProtocolError", "SignalExtractionResult",
 ]

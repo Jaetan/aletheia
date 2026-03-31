@@ -42,6 +42,7 @@ from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object, RTSState, find_ffi_library
 from ._types import (
     AletheiaError,
+    BatchError,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
@@ -78,6 +79,9 @@ class AletheiaClient:
        - end_stream() - Exit streaming mode
 
     Signal operations work both inside and outside streaming mode.
+
+    Thread safety: not thread-safe. Create one client per thread. The
+    underlying GHC RTS is ref-counted and shared safely across instances.
     """
 
     def __init__(
@@ -164,6 +168,24 @@ class AletheiaClient:
         return cast(Response, parse_json_object(result_str))
 
     @staticmethod
+    def _extract_rational_from_dict(
+        d: dict[str, object], context: str,
+    ) -> tuple[int, int]:
+        """Extract (numerator, denominator) from a rational dict.
+
+        Raises ProtocolError if the dict is malformed or denominator is zero.
+        """
+        numerator = d.get("numerator")
+        denominator = d.get("denominator")
+        if not isinstance(numerator, int):
+            raise ProtocolError(f"Expected {context}.numerator to be int")
+        if not isinstance(denominator, int):
+            raise ProtocolError(f"Expected {context}.denominator to be int")
+        if denominator == 0:
+            raise ProtocolError(f"Expected {context}.denominator to be nonzero")
+        return numerator, denominator
+
+    @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field."""
         if isinstance(raw_value, int):
@@ -172,16 +194,8 @@ class AletheiaClient:
             raise ProtocolError(
                 f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
             )
-        value_dict = raw_value
-        numerator = value_dict.get("numerator")
-        denominator = value_dict.get("denominator")
-        if not isinstance(numerator, int):
-            raise ProtocolError(f"Expected {field_name}.numerator to be int")
-        if not isinstance(denominator, int):
-            raise ProtocolError(f"Expected {field_name}.denominator to be int")
-        if denominator == 0:
-            raise ProtocolError(f"Expected {field_name}.denominator to be nonzero")
-        return {"numerator": numerator, "denominator": denominator}
+        n, d = AletheiaClient._extract_rational_from_dict(raw_value, field_name)
+        return {"numerator": n, "denominator": d}
 
     @staticmethod
     def _parse_rational(value_raw: object) -> float:
@@ -189,14 +203,13 @@ class AletheiaClient:
         if isinstance(value_raw, (int, float)):
             return float(value_raw)
         if is_str_dict(value_raw):
-            numerator = value_raw.get("numerator")
-            denominator = value_raw.get("denominator")
-            if isinstance(numerator, int) and isinstance(denominator, int):
-                if denominator == 0:
-                    raise ProtocolError(
-                        f"Division by zero in rational: {value_raw!r}"
-                    )
-                return numerator / denominator
+            try:
+                n, d = AletheiaClient._extract_rational_from_dict(
+                    value_raw, "rational",
+                )
+                return n / d
+            except ProtocolError:
+                pass
         if isinstance(value_raw, str):
             if "/" in value_raw:
                 parts = value_raw.split("/")
@@ -221,21 +234,6 @@ class AletheiaClient:
             + f"or rational string, got {type(value_raw).__name__}"
         )
 
-    @staticmethod
-    def _check_signal_value(name: str, value: float) -> None:
-        """Guard against values that json.dumps encodes in scientific notation.
-
-        Agda's JSON parser handles integers and decimals (e.g., 42, 3.14)
-        but not exponent notation (e.g., 1.5e-10). Reject such values early
-        with a clear error rather than getting a cryptic parse failure.
-        """
-        s = json.dumps(value)
-        if "e" in s or "E" in s:
-            raise ValueError(
-                f"Signal value {value} for '{name}' would be JSON-encoded as {s}; "
-                + "Agda's parser does not support scientific notation"
-            )
-
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
         """Parse a response that should be success or error."""
         status = response.get("status")
@@ -253,7 +251,9 @@ class AletheiaClient:
                 err["message"] = message
             return err
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     # =========================================================================
     # DBC and Properties
@@ -308,7 +308,9 @@ class AletheiaClient:
             message = response.get("message", "Unknown error")
             raise ProtocolError(f"validateDBC failed: {message}")
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     def format_dbc(self) -> DBCDefinition:
         """Export the currently-loaded DBC as a JSON dict.
@@ -340,7 +342,9 @@ class AletheiaClient:
             message = response.get("message", "Unknown error")
             raise ProtocolError(f"formatDBC failed: {message}")
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
     _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -353,21 +357,6 @@ class AletheiaClient:
             if field in sig:
                 sig[field] = AletheiaClient._parse_rational(sig[field])
         return cast(DBCSignal, sig)
-
-    @staticmethod
-    def _normalize_message(raw_msg: dict[str, object]) -> DBCMessage:
-        """Normalize a single Agda message dict into a DBCMessage."""
-        raw_signals = raw_msg.get("signals")
-        if not is_object_list(raw_signals):
-            raise ProtocolError("Expected 'signals' to be a list")
-        signals: list[DBCSignal] = []
-        for s in raw_signals:
-            if not is_str_dict(s):
-                raise ProtocolError("Expected each signal to be a dict")
-            signals.append(AletheiaClient._normalize_signal(s))
-        msg: dict[str, object] = dict(raw_msg)
-        msg["signals"] = signals
-        return cast(DBCMessage, msg)
 
     @staticmethod
     def _normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
@@ -385,7 +374,17 @@ class AletheiaClient:
         for m in raw_messages:
             if not is_str_dict(m):
                 raise ProtocolError("Expected each message to be a dict")
-            messages.append(AletheiaClient._normalize_message(m))
+            raw_signals = m.get("signals")
+            if not is_object_list(raw_signals):
+                raise ProtocolError("Expected 'signals' to be a list")
+            signals: list[DBCSignal] = []
+            for s in raw_signals:
+                if not is_str_dict(s):
+                    raise ProtocolError("Expected each signal to be a dict")
+                signals.append(AletheiaClient._normalize_signal(s))
+            msg: dict[str, object] = dict(m)
+            msg["signals"] = signals
+            messages.append(cast(DBCMessage, msg))
         return {
             "version": str(raw.get("version", "")),
             "messages": messages,
@@ -617,7 +616,9 @@ class AletheiaClient:
                 result_error["message"] = message
             return result_error
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     def send_frames_batch(
         self,
@@ -625,6 +626,11 @@ class AletheiaClient:
         extended: bool = False,
     ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
         """Send multiple CAN frames in a batch.
+
+        A violation is a normal response and does not stop the batch.
+        Processing stops at the first transport or validation error. Partial
+        results from frames processed before the error are returned via
+        the ``partial_results`` attribute on the raised ``BatchError``.
 
         Args:
             frames: List of (timestamp, can_id, dlc, data) tuples where:
@@ -638,9 +644,16 @@ class AletheiaClient:
             List of responses in same order as input frames.
 
         Raises:
-            ProtocolError: If response status is unexpected
+            BatchError: Wraps the underlying exception and carries
+                ``partial_results`` with responses collected before the error.
         """
-        return [self.send_frame(ts, cid, dlc, d, extended=extended) for ts, cid, dlc, d in frames]
+        results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
+        for ts, cid, dlc, d in frames:
+            try:
+                results.append(self.send_frame(ts, cid, dlc, d, extended=extended))
+            except Exception as exc:
+                raise BatchError(exc, results) from exc
+        return results
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.
@@ -680,7 +693,9 @@ class AletheiaClient:
                 result_error["message"] = message
             return result_error
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     def _parse_finalization_results(
         self, response: Response,
@@ -753,6 +768,7 @@ class AletheiaClient:
 
         Raises:
             ProcessError: If extraction fails
+            ValueError: If dlc is outside 0-15
         """
         cmd: ExtractSignalsCommand = {
             "type": "command",
@@ -813,9 +829,8 @@ class AletheiaClient:
 
         Raises:
             ProcessError: If update fails
+            ValueError: If dlc is outside 0-15
         """
-        for name, value in signals.items():
-            self._check_signal_value(name, value)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()
@@ -862,9 +877,8 @@ class AletheiaClient:
 
         Raises:
             ProcessError: If frame building fails
+            ValueError: If dlc is outside 0-15
         """
-        for name, value in signals.items():
-            self._check_signal_value(name, value)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()

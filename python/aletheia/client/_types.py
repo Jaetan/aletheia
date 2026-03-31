@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import override
+
+from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
+
+type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
 
 
 class AletheiaError(Exception):
@@ -16,6 +21,23 @@ class ProcessError(AletheiaError):
 
 class ProtocolError(AletheiaError):
     """Protocol-related errors (invalid JSON, missing response, etc.)"""
+
+
+class BatchError(AletheiaError):
+    """Raised by send_frames_batch when a frame fails mid-batch.
+
+    Attributes:
+        cause: The underlying exception that caused the batch to stop.
+        partial_results: Responses from frames processed before the error.
+    """
+
+    cause: Exception
+    partial_results: Sequence[FrameResponse]
+
+    def __init__(self, cause: Exception, partial_results: Sequence[FrameResponse]) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.partial_results = partial_results
 
 
 class SignalExtractionResult:

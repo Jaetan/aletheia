@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
 #include <map>
@@ -81,6 +82,23 @@ struct PropertyResult {
 
 struct StreamResult {
     std::vector<PropertyResult> results;
+};
+
+// ---------------------------------------------------------------------------
+// Batch frame result
+// ---------------------------------------------------------------------------
+
+/// Result of sending multiple frames via send_frames().
+/// On success, error is nullopt and responses contains all results.
+/// On mid-batch failure, responses contains results from frames processed
+/// before the error, and error carries the failure.
+/// A Violation is a normal response and is included in responses — only
+/// transport or validation errors stop the batch.
+struct BatchResult {
+    std::vector<FrameResponse> responses;
+    std::optional<AletheiaError> error;
+
+    [[nodiscard]] auto has_error() const -> bool { return error.has_value(); }
 };
 
 } // namespace aletheia

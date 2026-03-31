@@ -52,6 +52,8 @@ Use the fluent Signal interface to build properties:
 from .client import (
     AletheiaClient,
     AletheiaError,
+    BatchError,
+    FrameResponse,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
@@ -62,6 +64,17 @@ from .dsl import Signal, Predicate, Property, infinitely_often, eventually_alway
 from .excel_loader import load_checks_from_excel, load_dbc_from_excel, create_template
 from .can_log import load_can_log, iter_can_log
 from .dbc_converter import dbc_to_json, dbc_to_text
+from .dbc_queries import (
+    is_multiplexed,
+    always_present_signals,
+    multiplexed_signals,
+    multiplexor_names,
+    mux_values,
+    signals_for_mux_value,
+    message_by_id,
+    message_by_name,
+    signal_by_name,
+)
 from .yaml_loader import load_checks
 
 __version__ = "1.0.0"
@@ -70,8 +83,10 @@ __all__ = [
     "AletheiaClient",
     "SignalExtractionResult",
     "dlc_to_bytes",
-    # Exceptions
+    # Exceptions & response types
     "AletheiaError",
+    "BatchError",
+    "FrameResponse",
     "ProcessError",
     "ProtocolError",
     # Check API
@@ -89,6 +104,16 @@ __all__ = [
     "dbc_to_text",
     # YAML loader
     "load_checks",
+    # DBC queries
+    "is_multiplexed",
+    "always_present_signals",
+    "multiplexed_signals",
+    "multiplexor_names",
+    "mux_values",
+    "signals_for_mux_value",
+    "message_by_id",
+    "message_by_name",
+    "signal_by_name",
     # DSL
     "Signal",
     "Predicate",

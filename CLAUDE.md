@@ -208,7 +208,7 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 ### C++ Binding
 
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **11 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`
+- **12 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`
 - **6 source files** in `src/`: `client.cpp`, `enrich.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`
 - **3 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2)
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
@@ -220,8 +220,8 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 ### Go Binding
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **13 source files** in `go/aletheia/`: `backend.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
-- **7 test files**: `helpers_test.go`, `types_test.go`, `dbc_test.go`, `stream_test.go`, `enrich_test.go`, `error_test.go`, `options_test.go` (92 tests, mock backend)
+- **14 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
+- **10 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go` (146 tests, mock backend)
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
 - **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning
@@ -292,7 +292,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 3 rounds (20 fixes), C++ 2 rounds (7 fixes), Go 9 rounds (92 tests). Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). AGENTS.md documents review protocol for all languages. 67 Agda modules total. **Cross-language parity**: RTS cores (`-N`) for all 3 bindings. Opt-in structured logging (12 events) for all 3 bindings: C++ `Logger` class, Go `slog`, Python `logging`.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 4 rounds (32 fixes, 481 tests), C++ 4 rounds (25 fixes + Rational redesign, 135+8 tests), Go 12 rounds (146 tests + Rational redesign). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. C++ tooling gates: clang-format + clang-tidy zero warnings. AGENTS.md rewritten with origin-blind finding rules. Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). 67 Agda modules total. **Cross-language parity**: RTS cores (`-N`) for all 3 bindings. Opt-in structured logging (12 events) for all 3 bindings: C++ `Logger` class, Go `slog`, Python `logging`.
 
 ---
 
@@ -397,6 +397,15 @@ docs(BUILDING): Add macOS-specific notes
 ---
 
 ## Current Session Progress
+
+Code review round 4 complete across all three bindings:
+- **Python**: 12 fixes (481 tests, pylint 10.00)
+- **C++**: 18 fixes + Rational redesign (135+8 tests, clang-format + clang-tidy zero warnings)
+- **Go**: 3 fixes + Rational redesign (146 tests)
+- C++/Go DBC signal types redesigned from `double` to `Rational` (numerator/denominator)
+- Hash map indexes for O(1) DBC lookups in C++ and Go
+- Formula depth limits in all 3 bindings
+- AGENTS.md rewritten with origin-blind finding rules
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 

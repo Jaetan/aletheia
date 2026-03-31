@@ -68,8 +68,14 @@ public:
     // with extracted signal values and a formatted reason string (requires
     // set_properties() to have been called to install diagnostics).
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
+    // For batch operations, see send_frames().
     auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
+    // Send multiple frames in a single batch. A Violation is a normal response
+    // and does not stop the batch. Processing stops at the first transport or
+    // validation error; earlier successful responses are returned via
+    // BatchResult::responses alongside the error.
+    auto send_frames(std::span<const Frame> frames) -> BatchResult;
     // Properties with Verdict::Fails include an optional ViolationEnrichment
     // populated from the last-known frame values for each relevant CAN ID.
     auto end_stream() -> Result<StreamResult>;
@@ -91,7 +97,7 @@ private:
     std::vector<PropertyDiagnostic> diags_;
 
     // Extraction cache: keyed by (id_value, is_extended, dlc, payload).
-    // Capped at max_cache_size_ entries; when full, new extractions are
+    // Capped at max_cache_size entries; when full, new extractions are
     // performed but not cached (silent fallback to per-frame extraction).
     struct FrameKey {
         std::uint32_t id_value;
@@ -100,7 +106,7 @@ private:
         FramePayload data;
         auto operator<=>(const FrameKey&) const = default;
     };
-    static constexpr std::size_t max_cache_size_ = 256;
+    static constexpr std::size_t max_cache_size = 256;
     std::map<FrameKey, ExtractionResult> cache_;
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.

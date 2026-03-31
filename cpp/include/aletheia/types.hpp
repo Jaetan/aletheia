@@ -20,8 +20,8 @@ namespace aletheia {
 // ---------------------------------------------------------------------------
 
 // Prevents implicit mixing of semantically distinct types that share a
-// representation. A ScaleFactor is not a PhysicalValue, even though both
-// are double underneath.
+// representation. A RationalFactor is not a PhysicalValue, even though
+// both carry numeric values.
 template<typename Tag, typename T>
 class Strong {
     T value_;
@@ -30,7 +30,6 @@ public:
     constexpr explicit Strong(T v) : value_(std::move(v)) {}
     [[nodiscard]] constexpr auto get() const -> const T& { return value_; }
     auto operator<=>(const Strong&) const = default;
-    bool operator==(const Strong&) const = default;
 };
 
 // String strong types add implicit string_view conversion for ergonomic use
@@ -45,7 +44,6 @@ public:
     // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
     [[nodiscard]] operator std::string_view() const noexcept { return value_; }
     auto operator<=>(const StrongString&) const = default;
-    bool operator==(const StrongString&) const = default;
 };
 
 // ---------------------------------------------------------------------------
@@ -58,16 +56,43 @@ using NodeName = StrongString<struct NodeNameTag>;
 using Unit = StrongString<struct UnitTag>;
 
 // ---------------------------------------------------------------------------
-// Numeric physical types (all double underneath, all distinct)
+// Numeric physical types (double underneath, distinct)
 // ---------------------------------------------------------------------------
 
-// Physical measurement domain (signal readouts, thresholds, min/max bounds)
+// Physical measurement domain (signal readouts, thresholds)
 using PhysicalValue = Strong<struct PhysicalValueTag, double>;
-// DBC signal scaling parameters (not physical values)
-using ScaleFactor = Strong<struct ScaleFactorTag, double>;
-using ScaleOffset = Strong<struct ScaleOffsetTag, double>;
 // Absolute change magnitude for ChangedBy predicates
 using Delta = Strong<struct DeltaTag, double>;
+
+// ---------------------------------------------------------------------------
+// Rational: exact numerator/denominator (for DBC signal parameters)
+// ---------------------------------------------------------------------------
+
+struct Rational {
+    std::int64_t numerator = 0;
+    std::int64_t denominator = 1; // always > 0
+
+    [[nodiscard]] constexpr auto to_double() const -> double {
+        return static_cast<double>(numerator) / static_cast<double>(denominator);
+    }
+
+    // Cross-multiply comparison (avoids floating-point).
+    constexpr auto operator<=>(const Rational& rhs) const {
+        // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
+        auto lhs_prod = static_cast<__int128>(numerator) * rhs.denominator;
+        auto rhs_prod = static_cast<__int128>(rhs.numerator) * denominator;
+        return lhs_prod <=> rhs_prod;
+    }
+    constexpr bool operator==(const Rational& rhs) const {
+        return (*this <=> rhs) == std::strong_ordering::equal;
+    }
+};
+
+// DBC signal scaling parameters — stored as exact rationals.
+// PhysicalValue (double) remains for predicate thresholds and extraction results.
+using RationalFactor = Strong<struct RationalFactorTag, Rational>;
+using RationalOffset = Strong<struct RationalOffsetTag, Rational>;
+using RationalBound = Strong<struct RationalBoundTag, Rational>;
 
 // ---------------------------------------------------------------------------
 // Integer domain types (distinct bit-level types)
@@ -100,7 +125,6 @@ public:
     }
     [[nodiscard]] constexpr auto value() const -> std::uint16_t { return value_; }
     auto operator<=>(const StandardId&) const = default;
-    bool operator==(const StandardId&) const = default;
 };
 
 class ExtendedId {
@@ -115,7 +139,6 @@ public:
     }
     [[nodiscard]] constexpr auto value() const -> std::uint32_t { return value_; }
     auto operator<=>(const ExtendedId&) const = default;
-    bool operator==(const ExtendedId&) const = default;
 };
 
 using CanId = std::variant<StandardId, ExtendedId>;
@@ -142,7 +165,6 @@ public:
     }
     [[nodiscard]] constexpr auto value() const -> std::uint8_t { return value_; }
     auto operator<=>(const Dlc&) const = default;
-    bool operator==(const Dlc&) const = default;
 };
 
 // CAN-FD DLC to payload byte count mapping.
@@ -193,6 +215,17 @@ enum class ByteOrder { LittleEndian, BigEndian };
 struct SignalValue {
     SignalName name;
     PhysicalValue value{0.0};
+};
+
+// ---------------------------------------------------------------------------
+// Frame: bundles all parameters for send_frame / send_frames
+// ---------------------------------------------------------------------------
+
+struct Frame {
+    Timestamp timestamp;
+    CanId id;
+    Dlc dlc;
+    FramePayload data;
 };
 
 } // namespace aletheia

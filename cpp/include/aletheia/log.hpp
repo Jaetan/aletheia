@@ -51,7 +51,7 @@ public:
              std::source_location loc = std::source_location::current()) const {
         if (!cb_ || lvl < min_)
             return;
-        cb_(LogRecord{lvl, event, fields, loc});
+        cb_(LogRecord{.level = lvl, .event = event, .fields = fields, .location = loc});
     }
 
     void debug(std::string_view event, std::initializer_list<LogField> fields = {},

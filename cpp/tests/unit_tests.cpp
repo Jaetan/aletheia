@@ -30,10 +30,10 @@ static auto make_test_dbc() -> DbcDefinition {
         .bit_length = BitLength{16},
         .byte_order = ByteOrder::LittleEndian,
         .is_signed = false,
-        .factor = ScaleFactor{0.1},
-        .offset = ScaleOffset{0.0},
-        .minimum = PhysicalValue{0.0},
-        .maximum = PhysicalValue{300.0},
+        .factor = RationalFactor{Rational{1, 10}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational{300, 1}},
         .unit = Unit{"km/h"},
         .presence = AlwaysPresent{},
     };
@@ -76,10 +76,11 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(sig["length"] == 16);
     CHECK(sig["byteOrder"] == "little_endian");
     CHECK(sig["signed"] == false);
-    CHECK(sig["factor"] == Catch::Approx(0.1));
-    CHECK(sig["offset"] == Catch::Approx(0.0));
-    CHECK(sig["minimum"] == Catch::Approx(0.0));
-    CHECK(sig["maximum"] == Catch::Approx(300.0));
+    CHECK(sig["factor"]["numerator"] == 1);
+    CHECK(sig["factor"]["denominator"] == 10);
+    CHECK(sig["offset"] == 0);
+    CHECK(sig["minimum"] == 0);
+    CHECK(sig["maximum"] == 300);
     CHECK(sig["unit"] == "km/h");
     CHECK(sig["presence"] == "always");
 }
@@ -159,10 +160,10 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         .bit_length = BitLength{8},
         .byte_order = ByteOrder::BigEndian,
         .is_signed = true,
-        .factor = ScaleFactor{1.0},
-        .offset = ScaleOffset{-40.0},
-        .minimum = PhysicalValue{-40.0},
-        .maximum = PhysicalValue{215.0},
+        .factor = RationalFactor{Rational{1, 1}},
+        .offset = RationalOffset{Rational{-40, 1}},
+        .minimum = RationalBound{Rational{-40, 1}},
+        .maximum = RationalBound{Rational{215, 1}},
         .unit = Unit{"C"},
         .presence = Multiplexed{SignalName{"MuxSelector"}, MultiplexValue{3}},
     };
@@ -409,7 +410,7 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
     CHECK(result->messages.size() == 1);
     CHECK(result->messages[0].name == MessageName{"TestMsg"});
     CHECK(result->messages[0].signals[0].name == SignalName{"Sig1"});
-    CHECK(result->messages[0].signals[0].factor == ScaleFactor{1.0});
+    CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 1}});
 }
 
 // ===========================================================================
@@ -575,7 +576,7 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
 
     REQUIRE(result.has_value());
     CHECK(result->version == "1.0");
-    CHECK(result->messages[0].signals[0].factor == ScaleFactor{0.1});
+    CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 10}});
 }
 
 TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]") {
@@ -1947,4 +1948,469 @@ TEST_CASE("add_checks rejects consumed check", "[check][client]") {
     auto result = client.add_checks(std::move(checks));
     REQUIRE_FALSE(result.has_value());
     CHECK(std::string(result.error().message()).find("already consumed") != std::string::npos);
+}
+
+// ===========================================================================
+// Multiplexing query helpers
+// ===========================================================================
+
+static auto make_mux_dbc() -> DbcDefinition {
+    auto id = StandardId::create(0x200).value();
+    auto dlc = Dlc::create(8).value();
+
+    std::vector<DbcSignal> sigs;
+    sigs.push_back(DbcSignal{.name = SignalName{"MuxSelector"},
+                             .start_bit = BitPosition{0},
+                             .bit_length = BitLength{8},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 1}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{255, 1}},
+                             .unit = Unit{""},
+                             .presence = AlwaysPresent{}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Temperature"},
+                             .start_bit = BitPosition{8},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = true,
+                             .factor = RationalFactor{Rational{1, 10}},
+                             .offset = RationalOffset{Rational{-40, 1}},
+                             .minimum = RationalBound{Rational{-40, 1}},
+                             .maximum = RationalBound{Rational{215, 1}},
+                             .unit = Unit{"degC"},
+                             .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                                     .mux_value = MultiplexValue{0}}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Pressure"},
+                             .start_bit = BitPosition{8},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 100}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{655, 1}},
+                             .unit = Unit{"bar"},
+                             .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                                     .mux_value = MultiplexValue{1}}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Voltage"},
+                             .start_bit = BitPosition{40},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 100}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{65, 1}},
+                             .unit = Unit{"V"},
+                             .presence = AlwaysPresent{}});
+
+    DbcMessage msg{.id = CanId{id},
+                   .name = MessageName{"MuxMessage"},
+                   .dlc = dlc,
+                   .sender = NodeName{"ECU"},
+                   .signals = std::move(sigs)};
+    return DbcDefinition{.version = "1.0", .messages = {std::move(msg)}};
+}
+
+TEST_CASE("DbcMessage::is_multiplexed", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    CHECK(dbc.messages[0].is_multiplexed());
+
+    auto plain = make_test_dbc();
+    CHECK_FALSE(plain.messages[0].is_multiplexed());
+}
+
+TEST_CASE("DbcMessage::always_present_signals", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto ap = dbc.messages[0].always_present_signals();
+    REQUIRE(ap.size() == 2);
+    CHECK(ap[0].name == SignalName{"MuxSelector"});
+    CHECK(ap[1].name == SignalName{"Voltage"});
+}
+
+TEST_CASE("DbcMessage::multiplexed_signals", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto ms = dbc.messages[0].multiplexed_signals();
+    REQUIRE(ms.size() == 2);
+    CHECK(ms[0].name == SignalName{"Temperature"});
+    CHECK(ms[1].name == SignalName{"Pressure"});
+}
+
+TEST_CASE("DbcMessage::multiplexor_names", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto mn = dbc.messages[0].multiplexor_names();
+    REQUIRE(mn.size() == 1);
+    CHECK(mn[0] == SignalName{"MuxSelector"});
+}
+
+TEST_CASE("DbcMessage::mux_values", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto mv = dbc.messages[0].mux_values(SignalName{"MuxSelector"});
+    REQUIRE(mv.size() == 2);
+    CHECK(mv[0] == MultiplexValue{0});
+    CHECK(mv[1] == MultiplexValue{1});
+
+    auto empty = dbc.messages[0].mux_values(SignalName{"NonExistent"});
+    CHECK(empty.empty());
+}
+
+TEST_CASE("DbcMessage::signals_for_mux_value", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+
+    auto s0 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{0});
+    REQUIRE(s0.size() == 3); // MuxSelector + Temperature + Voltage
+    CHECK(s0[0].name == SignalName{"MuxSelector"});
+    CHECK(s0[1].name == SignalName{"Temperature"});
+    CHECK(s0[2].name == SignalName{"Voltage"});
+
+    auto s1 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{1});
+    REQUIRE(s1.size() == 3); // MuxSelector + Pressure + Voltage
+    CHECK(s1[1].name == SignalName{"Pressure"});
+
+    auto s99 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{99});
+    CHECK(s99.size() == 2); // only always-present
+
+    // Unknown multiplexor name — only always-present signals returned.
+    auto su = dbc.messages[0].signals_for_mux_value(SignalName{"NonExistent"}, MultiplexValue{0});
+    CHECK(su.size() == 2);
+    CHECK(su[0].name == SignalName{"MuxSelector"});
+    CHECK(su[1].name == SignalName{"Voltage"});
+}
+
+TEST_CASE("DbcMessage::multiplexor_names non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    CHECK(plain.messages[0].multiplexor_names().empty());
+}
+
+TEST_CASE("DbcMessage::always_present_signals non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    auto ap = plain.messages[0].always_present_signals();
+    CHECK(ap.size() == plain.messages[0].signals.size());
+}
+
+TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
+    REQUIRE(sig != nullptr);
+    CHECK(sig->is_signed == true);
+
+    // Always-present signal.
+    auto* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
+    REQUIRE(mux_sel != nullptr);
+    CHECK(std::holds_alternative<AlwaysPresent>(mux_sel->presence));
+
+    CHECK(dbc.messages[0].signal_by_name(SignalName{"NoSuch"}) == nullptr);
+}
+
+TEST_CASE("DbcMessage::mux_values non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    CHECK(plain.messages[0].mux_values(SignalName{"Anything"}).empty());
+}
+
+TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    // Unknown multiplexor on a non-mux message returns all signals (all always-present).
+    auto sigs = plain.messages[0].signals_for_mux_value(SignalName{"Anything"}, MultiplexValue{0});
+    CHECK(sigs.size() == plain.messages[0].signals.size());
+}
+
+TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto id = StandardId::create(0x200).value();
+    auto* msg = dbc.message_by_id(CanId{id});
+    REQUIRE(msg != nullptr);
+    CHECK(msg->name == MessageName{"MuxMessage"});
+
+    auto missing = StandardId::create(0x7FF).value(); // valid 11-bit, not in DBC
+    CHECK(dbc.message_by_id(CanId{missing}) == nullptr);
+
+    // Extended ID 0x200 should not match standard ID 0x200.
+    auto ext = ExtendedId::create(0x200).value();
+    CHECK(dbc.message_by_id(CanId{ext}) == nullptr);
+}
+
+TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
+    auto std_id = StandardId::create(0x200).value();
+    auto ext_id = ExtendedId::create(0x200).value();
+    DbcMessage std_msg{.id = CanId{std_id},
+                       .name = MessageName{"StdMsg"},
+                       .dlc = Dlc::create(8).value(),
+                       .sender = NodeName{"ECU"},
+                       .signals = {}};
+    DbcMessage ext_msg{.id = CanId{ext_id},
+                       .name = MessageName{"ExtMsg"},
+                       .dlc = Dlc::create(8).value(),
+                       .sender = NodeName{"ECU"},
+                       .signals = {}};
+    DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
+
+    auto* found_std = dbc.message_by_id(CanId{std_id});
+    REQUIRE(found_std != nullptr);
+    CHECK(found_std->name == MessageName{"StdMsg"});
+
+    auto* found_ext = dbc.message_by_id(CanId{ext_id});
+    REQUIRE(found_ext != nullptr);
+    CHECK(found_ext->name == MessageName{"ExtMsg"});
+}
+
+TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto* msg = dbc.message_by_name(MessageName{"MuxMessage"});
+    REQUIRE(msg != nullptr);
+    CHECK(msg->signals.size() == 4);
+
+    CHECK(dbc.message_by_name(MessageName{"NoSuch"}) == nullptr);
+
+    // Empty DBC returns nullptr.
+    DbcDefinition empty{.version = "1.0", .messages = {}};
+    CHECK(empty.message_by_name(MessageName{"Anything"}) == nullptr);
+}
+
+// ===========================================================================
+// send_frames batch
+// ===========================================================================
+
+TEST_CASE("send_frames all ack", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    backend->queue_response(R"({"status":"ack"})");     // frame 2
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    client.set_properties(std::span{&prop, 1});
+    client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{2000}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE_FALSE(result.has_error());
+    REQUIRE(result.responses.size() == 2);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+    CHECK(std::holds_alternative<Ack>(result.responses[1]));
+}
+
+TEST_CASE("send_frames stops on error with partial results", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1 — ok
+    // frame 2 has mismatched DLC/payload — validation error before backend call
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    client.set_properties(std::span{&prop, 1});
+    client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload good(8, std::byte{0});
+    FramePayload bad(3, std::byte{0}); // 3 bytes vs DLC 8
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, good},
+        {Timestamp{2000}, CanId{sid}, dlc, bad},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE(result.has_error());
+    CHECK(result.error->message().find("payload") != std::string::npos);
+    // Partial results: frame 1 succeeded before frame 2 failed.
+    REQUIRE(result.responses.size() == 1);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+}
+
+TEST_CASE("send_frames with violation continues", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    backend->queue_response(
+        R"({"status":"fails","property_index":0,"timestamp":2000,"reason":"test"})"); // frame 2
+    // Enrichment triggers extract_signals for the violating frame:
+    backend->queue_response(
+        R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})");
+    backend->queue_response(R"({"status":"ack"})"); // frame 3
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    client.set_properties(std::span{&prop, 1});
+    client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{2000}, CanId{sid}, dlc, data},
+        {Timestamp{3000}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE_FALSE(result.has_error());
+    REQUIRE(result.responses.size() == 3);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+    CHECK(std::holds_alternative<Violation>(result.responses[1]));
+    CHECK(std::holds_alternative<Ack>(result.responses[2]));
+}
+
+TEST_CASE("send_frames negative timestamp", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    client.set_properties(std::span{&prop, 1});
+    client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{-1}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE(result.has_error());
+    CHECK(result.error->message().find("non-negative") != std::string::npos);
+    REQUIRE(result.responses.size() == 1);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+}
+
+TEST_CASE("send_frames empty", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    client.set_properties(std::span{&prop, 1});
+    client.start_stream();
+
+    auto result = client.send_frames({});
+    REQUIRE_FALSE(result.has_error());
+    CHECK(result.responses.empty());
+}
+
+// ===========================================================================
+// Move-assignment runtime test
+// ===========================================================================
+
+TEST_CASE("move-assignment transfers client state", "[client]") {
+    // Source client: configured for streaming.
+    auto backend_a = std::make_unique<MockBackend>();
+    backend_a->queue_response(R"({"status":"success"})"); // set_properties
+    backend_a->queue_response(R"({"status":"success"})"); // start_stream
+    backend_a->queue_response(R"({"status":"ack"})");     // send_frame
+    AletheiaClient a(std::move(backend_a));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    a.set_properties(std::span{&prop, 1});
+    a.start_stream();
+
+    // Target client: separate backend (will be destroyed on assignment).
+    auto backend_b = std::make_unique<MockBackend>();
+    AletheiaClient b(std::move(backend_b));
+
+    // Move-assign: b takes over a's state.
+    b = std::move(a);
+
+    auto id = StandardId::create(0x100).value();
+    auto dlc = Dlc::create(8).value();
+    std::array<std::byte, 8> data{};
+    auto resp = b.send_frame(Timestamp{1000}, CanId{id}, dlc, data);
+    REQUIRE(resp.has_value());
+    CHECK(std::holds_alternative<Ack>(resp.value()));
+}
+
+// ===========================================================================
+// Cache-full test (C2): extraction cache eviction beyond 256 entries
+// ===========================================================================
+
+TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][cache]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    // Queue: set_properties, start_stream
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "success"})");
+
+    // Queue 257 ack responses for send_frame
+    for (int i = 0; i < 257; ++i)
+        mock_ptr->queue_response(R"({"status": "ack"})");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+
+    // Send 257 frames with distinct data payloads to fill and overflow the cache
+    for (int i = 0; i < 257; ++i) {
+        FramePayload data(8, std::byte{0});
+        // Vary first two bytes to make each frame key unique
+        data[0] = static_cast<std::byte>(i & 0xFF);
+        data[1] = static_cast<std::byte>((i >> 8) & 0xFF);
+        auto result =
+            client.send_frame(Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
+        REQUIRE(result.has_value());
+        CHECK(std::holds_alternative<Ack>(*result));
+    }
+}
+
+// ===========================================================================
+// Property index OOB test (C3): violation with out-of-bounds property_index
+// ===========================================================================
+
+TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+
+    // Queue: set_properties, start_stream, send_frame (violation with index 999)
+    mock->queue_response(R"({"status": "success"})"); // set_properties
+    mock->queue_response(R"({"status": "success"})"); // start_stream
+    mock->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 999, "timestamp": 1000000,
+        "reason": "some reason"
+    })");
+
+    AletheiaClient client(std::move(mock));
+    // Set only 1 property — index 999 is out of bounds
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<Violation>(*result));
+    auto& v = std::get<Violation>(*result);
+    CHECK(v.property_index == PropertyIndex{999});
+    CHECK(v.reason == "some reason");
+    // Enrichment skipped due to OOB property index
+    CHECK_FALSE(v.enrichment.has_value());
 }

@@ -318,9 +318,34 @@ func (c *Client) StartStream() error {
 // Returns Ack or Violation depending on whether any property was violated.
 // Violations are automatically enriched with signal values and a human-readable
 // formula description when diagnostics are available.
+// For batch operations, see [Client.SendFrames].
 func (c *Client) SendFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.sendFrameLocked(ts, id, dlc, data)
+}
+
+// SendFrames sends multiple CAN frames in a single batch, amortizing mutex
+// acquisition. The batch is atomic: no other goroutine can interleave frames
+// between members. Returns a response for each frame. A [Violation] is a normal
+// response and does not stop the batch. Processing stops at the first transport
+// or validation error; earlier successful responses are still returned.
+func (c *Client) SendFrames(frames []Frame) ([]FrameResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	results := make([]FrameResponse, 0, len(frames))
+	for _, f := range frames {
+		resp, err := c.sendFrameLocked(f.Timestamp, f.ID, f.DLC, f.Data)
+		if err != nil {
+			return results, err
+		}
+		results = append(results, resp)
+	}
+	return results, nil
+}
+
+// sendFrameLocked is the inner implementation of SendFrame. Caller must hold c.mu.
+func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
 	}

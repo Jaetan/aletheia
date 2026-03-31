@@ -23,11 +23,18 @@ type Unit string
 // PhysicalValue is a physical signal reading (e.g. 120.5 km/h).
 type PhysicalValue float64
 
-// ScaleFactor is a DBC signal scaling factor.
-type ScaleFactor float64
+// Rational represents an exact numerator/denominator value.
+// Used for DBC signal parameters (factor, offset, min, max) where
+// precision beyond float64 matters. Denominator is always positive.
+type Rational struct {
+	Numerator   int64
+	Denominator int64 // always > 0
+}
 
-// ScaleOffset is a DBC signal scaling offset.
-type ScaleOffset float64
+// Float64 converts the rational to a float64.
+func (r Rational) Float64() float64 {
+	return float64(r.Numerator) / float64(r.Denominator)
+}
 
 // Delta is an absolute change magnitude for ChangedBy predicates.
 type Delta float64
@@ -58,6 +65,15 @@ type PropertyIndex uint
 
 // MultiplexValue is a multiplexor selector value.
 type MultiplexValue uint32
+
+// Frame bundles all parameters needed to send a CAN frame during streaming.
+// Use with [Client.SendFrames] for batch operations.
+type Frame struct {
+	Timestamp Timestamp
+	ID        CanID
+	DLC       DLC
+	Data      FramePayload
+}
 
 // ByteOrder specifies the byte ordering for a CAN signal.
 type ByteOrder int

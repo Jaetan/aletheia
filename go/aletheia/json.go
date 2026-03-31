@@ -73,10 +73,10 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 				"startBit": sig.StartBit,
 				"length":   sig.BitLength,
 				"signed":   sig.IsSigned,
-				"factor":   float64(sig.Factor),
-				"offset":   float64(sig.Offset),
-				"minimum":  float64(sig.Minimum),
-				"maximum":  float64(sig.Maximum),
+				"factor":   serializeRational(sig.Factor),
+				"offset":   serializeRational(sig.Offset),
+				"minimum":  serializeRational(sig.Minimum),
+				"maximum":  serializeRational(sig.Maximum),
 				"unit":     string(sig.Unit),
 			}
 			switch sig.ByteOrder {
@@ -156,7 +156,16 @@ func validateTimeBound(t TimeBound) error {
 	return nil
 }
 
+const maxFormulaDepth = 100
+
 func serializeFormula(f Formula) (map[string]any, error) {
+	return serializeFormulaDepth(f, 0)
+}
+
+func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
+	if depth > maxFormulaDepth {
+		return nil, fmt.Errorf("formula nesting depth exceeds %d", maxFormulaDepth)
+	}
 	switch f := f.(type) {
 	case Atomic:
 		pred, err := serializePredicate(f.Predicate)
@@ -165,65 +174,65 @@ func serializeFormula(f Formula) (map[string]any, error) {
 		}
 		return map[string]any{"operator": "atomic", "predicate": pred}, nil
 	case Not:
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "not", "formula": inner}, nil
 	case And:
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "and", "left": left, "right": right}, nil
 	case Or:
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "or", "left": left, "right": right}, nil
 	case Next:
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "next", "formula": inner}, nil
 	case Always:
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "always", "formula": inner}, nil
 	case Eventually:
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "eventually", "formula": inner}, nil
 	case Until:
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"operator": "until", "left": left, "right": right}, nil
 	case Release:
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +241,7 @@ func serializeFormula(f Formula) (map[string]any, error) {
 		if err := validateTimeBound(f.Bound); err != nil {
 			return nil, err
 		}
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -241,7 +250,7 @@ func serializeFormula(f Formula) (map[string]any, error) {
 		if err := validateTimeBound(f.Bound); err != nil {
 			return nil, err
 		}
-		inner, err := serializeFormula(f.Inner)
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -250,11 +259,11 @@ func serializeFormula(f Formula) (map[string]any, error) {
 		if err := validateTimeBound(f.Bound); err != nil {
 			return nil, err
 		}
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -263,11 +272,11 @@ func serializeFormula(f Formula) (map[string]any, error) {
 		if err := validateTimeBound(f.Bound); err != nil {
 			return nil, err
 		}
-		left, err := serializeFormula(f.Left)
+		left, err := serializeFormulaDepth(f.Left, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		right, err := serializeFormula(f.Right)
+		right, err := serializeFormulaDepth(f.Right, depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -275,6 +284,41 @@ func serializeFormula(f Formula) (map[string]any, error) {
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported formula type %T", f))
 	}
+}
+
+// --- Rational helpers ---
+
+func parseRational(v any) (Rational, error) {
+	switch n := v.(type) {
+	case float64:
+		// Agda sends integers as float64 in JSON.
+		return Rational{Numerator: int64(n), Denominator: 1}, nil
+	case map[string]any:
+		num, ok1 := n["numerator"].(float64)
+		den, ok2 := n["denominator"].(float64)
+		if !ok1 || !ok2 {
+			return Rational{}, fmt.Errorf("rational dict missing fields: %v", v)
+		}
+		if den == 0 {
+			return Rational{}, fmt.Errorf("zero denominator in rational: %v", v)
+		}
+		d := int64(den)
+		nu := int64(num)
+		if d < 0 {
+			nu = -nu
+			d = -d
+		}
+		return Rational{Numerator: nu, Denominator: d}, nil
+	default:
+		return Rational{}, fmt.Errorf("expected number or rational dict, got %T", v)
+	}
+}
+
+func serializeRational(r Rational) any {
+	if r.Denominator == 1 {
+		return r.Numerator
+	}
+	return map[string]any{"numerator": r.Numerator, "denominator": r.Denominator}
 }
 
 // --- Deserialization (JSON from Agda core → Go) ---
@@ -688,10 +732,12 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 		}
 		messages = append(messages, *msg)
 	}
-	return &DbcDefinition{
+	def := &DbcDefinition{
 		Version:  getString(j, "version"),
 		Messages: messages,
-	}, nil
+	}
+	def.buildIndexes()
+	return def, nil
 }
 
 func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
@@ -749,13 +795,15 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 		return nil, protocolError("message missing required field: name")
 	}
 
-	return &DbcMessage{
+	msg := &DbcMessage{
 		ID:      id,
 		Name:    MessageName(msgName),
 		DLC:     dlc,
 		Sender:  NodeName(getString(j, "sender")),
 		Signals: signals,
-	}, nil
+	}
+	msg.buildSignalIndex()
+	return msg, nil
 }
 
 func parseDbcSignal(j map[string]any) (DbcSignal, error) {
@@ -770,19 +818,19 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		return zero, protocolError(fmt.Sprintf("unrecognized byte order: %q", getString(j, "byteOrder")))
 	}
 
-	factor, err := parseNumber(j["factor"])
+	factor, err := parseRational(j["factor"])
 	if err != nil {
 		return zero, wrapProtocol("invalid factor", err)
 	}
-	offset, err := parseNumber(j["offset"])
+	offset, err := parseRational(j["offset"])
 	if err != nil {
 		return zero, wrapProtocol("invalid offset", err)
 	}
-	minimum, err := parseNumber(j["minimum"])
+	minimum, err := parseRational(j["minimum"])
 	if err != nil {
 		return zero, wrapProtocol("invalid minimum", err)
 	}
-	maximum, err := parseNumber(j["maximum"])
+	maximum, err := parseRational(j["maximum"])
 	if err != nil {
 		return zero, wrapProtocol("invalid maximum", err)
 	}
@@ -817,10 +865,10 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		BitLength: BitLength(length),
 		ByteOrder: bo,
 		IsSigned:  getBool(j, "signed"),
-		Factor:    ScaleFactor(factor),
-		Offset:    ScaleOffset(offset),
-		Minimum:   PhysicalValue(minimum),
-		Maximum:   PhysicalValue(maximum),
+		Factor:    factor,
+		Offset:    offset,
+		Minimum:   minimum,
+		Maximum:   maximum,
 		Unit:      Unit(getString(j, "unit")),
 		Presence:  presence,
 	}, nil

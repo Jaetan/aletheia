@@ -66,19 +66,14 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
                 auto name = predicate_signal(v.predicate);
                 if (std::ranges::find(signals, name) == signals.end())
                     signals.push_back(name);
-            } else if constexpr (std::is_same_v<T, Not>) {
-                collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
-                                 std::is_same_v<T, Until> || std::is_same_v<T, Release>) {
-                collect_signals_into(*v.left, signals);
-                collect_signals_into(*v.right, signals);
-            } else if constexpr (std::is_same_v<T, Next> || std::is_same_v<T, Always> ||
-                                 std::is_same_v<T, Eventually>) {
-                collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, MetricAlways> ||
+            } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
+                                 std::is_same_v<T, Always> || std::is_same_v<T, Eventually> ||
+                                 std::is_same_v<T, MetricAlways> ||
                                  std::is_same_v<T, MetricEventually>) {
                 collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, MetricUntil> ||
+            } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
+                                 std::is_same_v<T, Until> || std::is_same_v<T, Release> ||
+                                 std::is_same_v<T, MetricUntil> ||
                                  std::is_same_v<T, MetricRelease>) {
                 collect_signals_into(*v.left, signals);
                 collect_signals_into(*v.right, signals);

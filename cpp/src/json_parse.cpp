@@ -71,6 +71,26 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
     return IssueCode::Unknown;
 }
 
+// Parse a JSON value as an exact Rational (for DBC signal parameters).
+// Accepts plain integers or {numerator, denominator} dicts.
+static auto parse_rational(const json& j) -> Rational {
+    if (j.is_number_integer())
+        return {.numerator = j.get<std::int64_t>(), .denominator = 1};
+    if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
+        auto num = j.at("numerator").get<std::int64_t>();
+        auto den = j.at("denominator").get<std::int64_t>();
+        if (den == 0)
+            throw std::runtime_error("Zero denominator in rational: " + j.dump());
+        // Normalize: denominator always positive
+        if (den < 0) {
+            num = -num;
+            den = -den;
+        }
+        return {.numerator = num, .denominator = den};
+    }
+    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
+}
+
 static auto parse_rational_as_int(const json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
@@ -79,6 +99,8 @@ static auto parse_rational_as_int(const json& j) -> std::int64_t {
         auto den = j.at("denominator").get<std::int64_t>();
         if (den == 0)
             throw std::runtime_error("Zero denominator in rational: " + j.dump());
+        if (den == -1 && num == std::numeric_limits<std::int64_t>::min())
+            throw std::runtime_error("Integer overflow in rational: " + j.dump());
         if (num % den != 0)
             throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
         return num / den;
@@ -107,10 +129,10 @@ static auto parse_signal_def(const json& j) -> DbcSignal {
         .bit_length = BitLength{j.at("length").get<std::uint8_t>()},
         .byte_order = bo,
         .is_signed = j.value("signed", false),
-        .factor = ScaleFactor{parse_number(j.at("factor"))},
-        .offset = ScaleOffset{parse_number(j.at("offset"))},
-        .minimum = PhysicalValue{parse_number(j.at("minimum"))},
-        .maximum = PhysicalValue{parse_number(j.at("maximum"))},
+        .factor = RationalFactor{parse_rational(j.at("factor"))},
+        .offset = RationalOffset{parse_rational(j.at("offset"))},
+        .minimum = RationalBound{parse_rational(j.at("minimum"))},
+        .maximum = RationalBound{parse_rational(j.at("maximum"))},
         .unit = Unit{j.value("unit", "")},
         .presence = std::move(presence),
     };

@@ -310,13 +310,13 @@ func TestMultiplexedSignal(t *testing.T) {
 				{
 					Name: "MuxSelector", StartBit: 0, BitLength: 8,
 					ByteOrder: aletheia.LittleEndian, Presence: aletheia.AlwaysPresent{},
-					Factor: 1, Offset: 0, Minimum: 0, Maximum: 3, Unit: "",
+					Factor: aletheia.Rational{Numerator: 1, Denominator: 1}, Offset: aletheia.Rational{Numerator: 0, Denominator: 1}, Minimum: aletheia.Rational{Numerator: 0, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 3, Denominator: 1}, Unit: "",
 				},
 				{
 					Name: "TempA", StartBit: 8, BitLength: 16,
 					ByteOrder: aletheia.LittleEndian,
 					Presence:  aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValue: 0},
-					Factor:    0.1, Offset: -40, Minimum: -40, Maximum: 215, Unit: "degC",
+					Factor:    aletheia.Rational{Numerator: 1, Denominator: 10}, Offset: aletheia.Rational{Numerator: -40, Denominator: 1}, Minimum: aletheia.Rational{Numerator: -40, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 215, Denominator: 1}, Unit: "degC",
 				},
 			},
 		}},

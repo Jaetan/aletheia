@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <format>
+#include <stdexcept>
 
 using json = nlohmann::json; // NOLINT(readability-identifier-naming)
 
@@ -40,6 +41,12 @@ static auto signals_to_json(std::span<const SignalValue> signals) -> json {
     return arr;
 }
 
+static auto rational_to_json(const Rational& r) -> json {
+    if (r.denominator == 1)
+        return r.numerator;
+    return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+}
+
 static auto presence_to_json(const SignalPresence& p, json& sig) -> void {
     std::visit(
         [&sig](auto&& v) {
@@ -63,10 +70,10 @@ static auto signal_def_to_json(const DbcSignal& s) -> json {
         {"length", s.bit_length.get()},
         {"byteOrder", s.byte_order == ByteOrder::LittleEndian ? "little_endian" : "big_endian"},
         {"signed", s.is_signed},
-        {"factor", s.factor.get()},
-        {"offset", s.offset.get()},
-        {"minimum", s.minimum.get()},
-        {"maximum", s.maximum.get()},
+        {"factor", rational_to_json(s.factor.get())},
+        {"offset", rational_to_json(s.offset.get())},
+        {"minimum", rational_to_json(s.minimum.get())},
+        {"maximum", rational_to_json(s.maximum.get())},
         {"unit", s.unit.get()},
     };
     presence_to_json(s.presence, sig);
@@ -131,54 +138,58 @@ static auto predicate_to_json(const Predicate& p) -> json {
 }
 
 // Recursively serialize an LTL formula tree to JSON for the Agda core.
-static auto formula_to_json(const LtlFormula& f) -> json {
+static auto formula_to_json(const LtlFormula& f, int depth = 0) -> json {
+    if (depth > 100)
+        throw std::runtime_error("Formula nesting depth exceeds 100");
     return std::visit(
-        [](auto&& v) -> json {
+        [depth](auto&& v) -> json {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Atomic>)
                 return {{"operator", "atomic"}, {"predicate", predicate_to_json(v.predicate)}};
             else if constexpr (std::is_same_v<T, Not>)
-                return {{"operator", "not"}, {"formula", formula_to_json(*v.formula)}};
+                return {{"operator", "not"}, {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, And>)
                 return {{"operator", "and"},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, Or>)
                 return {{"operator", "or"},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, Next>)
-                return {{"operator", "next"}, {"formula", formula_to_json(*v.formula)}};
+                return {{"operator", "next"}, {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, Always>)
-                return {{"operator", "always"}, {"formula", formula_to_json(*v.formula)}};
+                return {{"operator", "always"},
+                        {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, Eventually>)
-                return {{"operator", "eventually"}, {"formula", formula_to_json(*v.formula)}};
+                return {{"operator", "eventually"},
+                        {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, Until>)
                 return {{"operator", "until"},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, Release>)
                 return {{"operator", "release"},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, MetricAlways>)
                 return {{"operator", "metricAlways"},
                         {"timebound", v.bound.count()},
-                        {"formula", formula_to_json(*v.formula)}};
+                        {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, MetricEventually>)
                 return {{"operator", "metricEventually"},
                         {"timebound", v.bound.count()},
-                        {"formula", formula_to_json(*v.formula)}};
+                        {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, MetricUntil>)
                 return {{"operator", "metricUntil"},
                         {"timebound", v.bound.count()},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, MetricRelease>)
                 return {{"operator", "metricRelease"},
                         {"timebound", v.bound.count()},
-                        {"left", formula_to_json(*v.left)},
-                        {"right", formula_to_json(*v.right)}};
+                        {"left", formula_to_json(*v.left, depth + 1)},
+                        {"right", formula_to_json(*v.right, depth + 1)}};
             else
                 static_assert(sizeof(T) == 0, "Unhandled formula type in formula_to_json");
         },
