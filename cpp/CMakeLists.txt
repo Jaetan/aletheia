@@ -21,7 +21,20 @@ FetchContent_Declare(json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
     URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
 
-FetchContent_MakeAvailable(json)
+# yaml-cpp 0.8.0 and OpenXLSX use old cmake_minimum_required; allow with CMake 4.x
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+
+FetchContent_Declare(yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(OpenXLSX
+    GIT_REPOSITORY https://github.com/troldal/OpenXLSX.git
+    GIT_TAG master)
+
+FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 
 # ---------------------------------------------------------------------------
 # Library
@@ -30,10 +43,12 @@ FetchContent_MakeAvailable(json)
 add_library(aletheia-cpp
     src/client.cpp
     src/enrich.cpp
+    src/excel.cpp
     src/ffi_backend.cpp
     src/mock_backend.cpp
     src/json_serialize.cpp
-    src/json_parse.cpp)
+    src/json_parse.cpp
+    src/yaml.cpp)
 
 target_include_directories(aletheia-cpp
     PUBLIC
@@ -42,7 +57,10 @@ target_include_directories(aletheia-cpp
     PRIVATE src)
 
 target_link_libraries(aletheia-cpp
-    PRIVATE dl $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>)
+    PRIVATE dl
+        $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>
+        $<BUILD_INTERFACE:yaml-cpp::yaml-cpp>
+        $<BUILD_INTERFACE:OpenXLSX::OpenXLSX>)
 
 set_target_properties(aletheia-cpp PROPERTIES
     SOVERSION 1
@@ -114,6 +132,18 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(integration_tests
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     add_test(NAME integration_tests COMMAND integration_tests)
+
+    # Layer 4: YAML loader tests (yaml-cpp, Catch2)
+    add_executable(yaml_tests tests/yaml_tests.cpp)
+    target_link_libraries(yaml_tests
+        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    add_test(NAME yaml_tests COMMAND yaml_tests)
+
+    # Layer 5: Excel loader tests (OpenXLSX, Catch2)
+    add_executable(excel_tests tests/excel_tests.cpp)
+    target_link_libraries(excel_tests
+        PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
+    add_test(NAME excel_tests COMMAND excel_tests)
 
     # Benchmark (uses real FFI backend — requires libaletheia-ffi.so)
     add_executable(benchmark benchmarks/benchmark.cpp)

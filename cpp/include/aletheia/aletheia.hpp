@@ -13,8 +13,10 @@
 #include <aletheia/dbc.hpp>
 #include <aletheia/enrich.hpp>
 #include <aletheia/error.hpp>
+#include <aletheia/excel.hpp>
 #include <aletheia/log.hpp>
 #include <aletheia/ltl.hpp>
 #include <aletheia/response.hpp>
 #include <aletheia/types.hpp>
 #include <aletheia/validation.hpp>
+#include <aletheia/yaml.hpp>

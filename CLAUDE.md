@@ -208,9 +208,9 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 ### C++ Binding
 
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **12 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`
-- **6 source files** in `src/`: `client.cpp`, `enrich.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`
-- **3 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2)
+- **14 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `excel.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`, `yaml.hpp`
+- **8 source files** in `src/`: `client.cpp`, `enrich.cpp`, `excel.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`, `yaml.cpp`
+- **5 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2), `yaml_tests.cpp`, `excel_tests.cpp`
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
 - **Observability**: Custom `Logger` class (`log.hpp`, ~80 lines) — callback-based structured logging with 12 event types matching Go's slog; zero-cost when null (default)
 - **RTS cores**: `make_ffi_backend(path, rts_cores)` — default 1; once-per-process with mismatch warning
@@ -220,8 +220,8 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 ### Go Binding
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **14 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
-- **10 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go` (146 tests, mock backend)
+- **17 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `excel.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
+- **12 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `excel_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (233 tests, mock backend)
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
 - **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning
@@ -292,7 +292,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 4 rounds (32 fixes, 481 tests), C++ 4 rounds (25 fixes + Rational redesign, 135+8 tests), Go 12 rounds (146 tests + Rational redesign). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. C++ tooling gates: clang-format + clang-tidy zero warnings. AGENTS.md rewritten with origin-blind finding rules. Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). 67 Agda modules total. **Cross-language parity**: RTS cores (`-N`) for all 3 bindings. Opt-in structured logging (12 events) for all 3 bindings: C++ `Logger` class, Go `slog`, Python `logging`.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 4 rounds (32 fixes, 481 tests), C++ 4 rounds (25 fixes + Rational redesign, 135+8 tests), Go 12 rounds (146 tests + Rational redesign). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. C++ tooling gates: clang-format + clang-tidy zero warnings. AGENTS.md rewritten with origin-blind finding rules. Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). 67 Agda modules total. **Cross-language parity**: RTS cores (`-N`) for all 3 bindings. Opt-in structured logging (12 events) for all 3 bindings: C++ `Logger` class, Go `slog`, Python `logging`. **YAML and Excel loaders** implemented for C++ and Go — four-tier check interface (Excel/YAML/Check API/DSL) now complete across all three bindings.
 
 ---
 
@@ -398,14 +398,12 @@ docs(BUILDING): Add macOS-specific notes
 
 ## Current Session Progress
 
-Code review round 4 complete across all three bindings:
-- **Python**: 12 fixes (481 tests, pylint 10.00)
-- **C++**: 18 fixes + Rational redesign (135+8 tests, clang-format + clang-tidy zero warnings)
-- **Go**: 3 fixes + Rational redesign (146 tests)
-- C++/Go DBC signal types redesigned from `double` to `Rational` (numerator/denominator)
-- Hash map indexes for O(1) DBC lookups in C++ and Go
-- Formula depth limits in all 3 bindings
-- AGENTS.md rewritten with origin-blind finding rules
+Code review round 4 committed (632b7e2). YAML and Excel loaders implemented for C++ and Go (uncommitted):
+- **C++**: `yaml.hpp`/`yaml.cpp` + `excel.hpp`/`excel.cpp` (yaml-cpp + OpenXLSX via FetchContent), 76 YAML + 120 Excel test assertions
+- **Go**: `yaml.go` + `excel.go` + `loader.go`, 88 new tests (30 YAML + 58 Excel), 233 total
+- Four-tier check interface (Excel/YAML/Check API/DSL) now complete across all three bindings
+- AGENTS.md updated with systemic attribution rule
+- All verification suites green
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 

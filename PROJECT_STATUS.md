@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-01
 
 ---
 
@@ -282,6 +282,8 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Cross-language code review round 4 (2026-03-31): 27 fixes across all bindings. **Python** (12 fixes): formula depth limit (100), `Rational` type for DBC signals (exact numerator/denominator, no float), hash-map DBC index for O(1) signal lookups, `dbc_queries.py` module, `_types.py` for shared types, enrichment refactored to use index. **C++** (12 fixes + 6 clang-tidy): `Rational` type replacing `double` in `DbcSignal`/`SignalValue`, hash-map indexes (`DbcIndex`) for O(1) lookups, formula depth limit (100), `parse_dbc_string` endpoint, `DbcSignal` index-based lookup in enrichment, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). **Go** (3 fixes): `Rational` type replacing `float64` in `DbcSignal`/`SignalValue`, hash-map indexes in `Dbc` type, formula depth limit (100).
 
+- ✅ YAML and Excel loaders for C++ and Go (2026-04-01): Four-tier check interface (Excel → YAML → Check API → DSL) now complete across all three bindings. C++ uses yaml-cpp + OpenXLSX (FetchContent), Go uses gopkg.in/yaml.v3 + excelize/v2. Both match Python's API: `load_checks_from_yaml`, `load_checks_from_excel`, `load_dbc_from_excel`, `create_excel_template`. Condition dispatch through existing Check DSL builders. Error messages match Python format for cross-language parity. C++: 76 YAML + 120 Excel test assertions. Go: 88 new tests (30 YAML + 58 Excel).
+
 **Planned / Research**:
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
 - **SOME/IP support**: SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. SOME/IP is service-oriented, not signal-based — 16-byte header + variable structured payload. Requires a different frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400). Sequence: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
@@ -295,15 +297,15 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 **Codebase**:
 - Agda modules: 67 (all `--safe --without-K`)
 - Python modules: 18
-- C++ files: 23 (12 headers + 6 source + 2 detail headers + 3 test files)
-- Go files: 14 source + 10 test
+- C++ files: 29 (14 headers + 8 source + 2 detail headers + 5 test files)
+- Go files: 17 source + 12 test
 - Lines of code: ~14,800 Agda + ~9,100 Python + ~2,900 C++ + ~7,000 Go
 
 **Testing**:
 - Python tests: 481 passing (via FFI)
-- C++ tests: 135 unit TEST_CASEs + 8 integration TEST_CASEs + static_asserts (mock backend + Catch2)
-- Go tests: 146 passing (mock backend, `-race` clean)
-- Total: 770+ tests
+- C++ tests: 135 unit TEST_CASEs + 8 integration TEST_CASEs + static_asserts + yaml/excel test suites (mock backend + Catch2)
+- Go tests: 233 passing (mock backend, `-race` clean)
+- Total: 857+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 

@@ -4,9 +4,9 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 ## Universal Rules (All Languages)
 
-**A finding is a finding.** Every diagnostic surfaced by a tool run or manual review is an action item. Do not label, group, or annotate findings by when or by whom the code was introduced -- that information is irrelevant to the review and creates a false decision point. A finding has no origin, no age, and no owner. It is a thing that is wrong, and it gets fixed.
+**A finding is a finding.** Every diagnostic surfaced by a tool run or manual review is an action item. The only correct response to a finding is to investigate it. Do not classify findings before investigating them. Any label that could justify inaction -- temporal ("pre-existing"), authorial ("not from our changes"), systemic ("build system artifact", "tooling issue", "compiler warning"), or scoping ("out of scope", "separate concern") -- is a dismissal mechanism disguised as a category. A finding has no origin, no age, no owner, and no source system. It is a thing that is wrong, and it gets fixed.
 
-**Every finding must be fixed.** There are no exceptions. Nits, test gaps, polish, documentation, architecture, design -- everything. There is no such thing as "separate concern from a code review", "not a review fix", "pre-existing", or "out of scope."
+**Every finding must be fixed.** There are no exceptions. Nits, test gaps, polish, documentation, architecture, design -- everything. "Investigate" means: understand what is producing the diagnostic, determine whether the project can eliminate it, and either fix it or surface it to the user with an explanation. Concluding that a finding is not actionable without investigation is never acceptable.
 
 **Reviews cover specification, design, and architecture, not just implementation.** A review is re-reading all the code and checking if every detail makes sense and is built correctly. Question the specification itself: are the features right? Do they make sense? Are assumptions correct? Should something be reworked? Reviews are the only opportunity to reconsider these choices. Nothing is "disproportionate" for a review round. Cascading type-level changes, API redesigns, module restructuring, and specification corrections are all valid review outcomes.
 
