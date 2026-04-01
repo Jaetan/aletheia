@@ -6,6 +6,7 @@
 
 #include <aletheia/backend.hpp>
 
+#include <cassert>
 #include <queue>
 #include <string>
 #include <string_view>
@@ -23,7 +24,10 @@ public:
 
     [[nodiscard]] auto captured() const -> const std::vector<std::string>& { return captured_; }
 
-    [[nodiscard]] auto last_captured() const -> const std::string& { return captured_.back(); }
+    [[nodiscard]] auto last_captured() const -> const std::string& {
+        assert(!captured_.empty());
+        return captured_.back();
+    }
 
     void clear() {
         captured_.clear();

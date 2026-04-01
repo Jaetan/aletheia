@@ -19,14 +19,6 @@ class CANFrame:
     data: bytearray
 
 
-__all__ = [
-    "CANFrame",
-    "_sample_dbc",
-    "_sample_property",
-    "_sample_can_frame",
-]
-
-
 @pytest.fixture(name="sample_dbc")
 def _sample_dbc() -> DBCDefinition:
     """Sample DBC JSON structure for testing"""

@@ -50,9 +50,9 @@ const std::vector<std::string> wt_hdr = {
     "Then Value", "Then Min",    "Then Max",       "Within (ms)", "Severity"};
 
 const std::vector<std::string> dbc_hdr = {
-    "Message ID", "Message Name", "DLC",    "Signal",      "Start Bit",
-    "Length",     "Byte Order",   "Signed", "Factor",      "Offset",
-    "Min",        "Max",          "Unit",   "Multiplexor", "Multiplex Value",
+    "Message ID",      "Message Name", "DLC",    "Signal", "Start Bit", "Length", "Byte Order",
+    "Signed",          "Factor",       "Offset", "Min",    "Max",       "Unit",   "Multiplexor",
+    "Multiplex Value", "Extended",
 };
 
 void write_header(OpenXLSX::XLWorksheet& ws, const std::vector<std::string>& headers) {
@@ -261,7 +261,7 @@ TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
     // Byte Order, Signed, Factor, Offset, Min, Max, Unit,
     // Multiplexor, Multiplex Value
     make_dbc_workbook(tf.path, {{"256", "VehicleSpeed", "8", "Speed", "0", "16", "little_endian",
-                                 "FALSE", "0.1", "0", "0", "300", "km/h", "", ""}});
+                                 "FALSE", "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     REQUIRE(result->messages.size() == 1);
@@ -278,17 +278,19 @@ TEST_CASE("excel: DBC single signal", "[excel][dbc]") {
     CHECK(!sig.is_signed);
     CHECK(sig.unit.get() == "km/h");
     CHECK(std::holds_alternative<AlwaysPresent>(sig.presence));
+    // Standard ID (256 <= 2047, not extended)
+    CHECK(std::holds_alternative<StandardId>(msg.id));
 }
 
 TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
     TempFile tf("excel_dbc_group.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg1", "8", "Sig1", "0", "8", "little_endian", "FALSE",
-                                    "1", "0", "0", "255", "", "", ""},
+                                    "1", "0", "0", "255", "", "", "", ""},
                                    {"256", "Msg1", "8", "Sig2", "8", "8", "little_endian", "FALSE",
-                                    "1", "0", "0", "255", "", "", ""},
+                                    "1", "0", "0", "255", "", "", "", ""},
                                    {"512", "Msg2", "4", "Sig3", "0", "16", "big_endian", "TRUE",
-                                    "0.5", "10", "-100", "100", "C", "", ""},
+                                    "0.5", "10", "-100", "100", "C", "", "", ""},
                                });
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -302,7 +304,7 @@ TEST_CASE("excel: DBC message grouping", "[excel][dbc]") {
 TEST_CASE("excel: DBC hex message ID", "[excel][dbc]") {
     TempFile tf("excel_dbc_hex.xlsx");
     make_dbc_workbook(tf.path, {{"0x100", "HexMsg", "8", "Sig", "0", "8", "little_endian", "FALSE",
-                                 "1", "0", "0", "255", "", "", ""}});
+                                 "1", "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     auto& msg = result->messages[0];
@@ -315,11 +317,11 @@ TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
     TempFile tf("excel_dbc_signed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "M1", "8", "S1", "0", "8", "little_endian", "TRUE", "1",
-                                    "0", "-128", "127", "", "", ""},
+                                    "0", "-128", "127", "", "", "", ""},
                                    {"256", "M1", "8", "S2", "8", "8", "little_endian", "1", "1",
-                                    "0", "0", "255", "", "", ""},
+                                    "0", "0", "255", "", "", "", ""},
                                    {"256", "M1", "8", "S3", "16", "8", "little_endian", "0", "1",
-                                    "0", "0", "255", "", "", ""},
+                                    "0", "0", "255", "", "", "", ""},
                                });
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -332,7 +334,7 @@ TEST_CASE("excel: DBC signed variants", "[excel][dbc]") {
 TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
     TempFile tf("excel_dbc_no_unit.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
-                                 "0", "0", "255", "", "", ""}});
+                                 "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     CHECK(result->messages[0].signals[0].unit.get().empty());
@@ -345,7 +347,7 @@ TEST_CASE("excel: DBC missing unit defaults to empty", "[excel][dbc]") {
 TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
     TempFile tf("excel_mux_always.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
-                                 "0", "0", "255", "", "", ""}});
+                                 "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     CHECK(std::holds_alternative<AlwaysPresent>(result->messages[0].signals[0].presence));
@@ -354,7 +356,7 @@ TEST_CASE("excel: DBC always present signal", "[excel][mux]") {
 TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
     TempFile tf("excel_mux_muxed.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "MuxSig", "0", "8", "little_endian", "FALSE",
-                                 "1", "0", "0", "255", "", "Selector", "3"}});
+                                 "1", "0", "0", "255", "", "Selector", "3", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     auto& pres = result->messages[0].signals[0].presence;
@@ -368,9 +370,9 @@ TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
     TempFile tf("excel_mux_mixed.xlsx");
     make_dbc_workbook(tf.path, {
                                    {"256", "Msg", "8", "AlwaysSig", "0", "8", "little_endian",
-                                    "FALSE", "1", "0", "0", "255", "", "", ""},
+                                    "FALSE", "1", "0", "0", "255", "", "", "", ""},
                                    {"256", "Msg", "8", "MuxSig", "8", "8", "little_endian", "FALSE",
-                                    "1", "0", "0", "255", "", "Selector", "1"},
+                                    "1", "0", "0", "255", "", "Selector", "1", ""},
                                });
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
@@ -383,7 +385,7 @@ TEST_CASE("excel: DBC partial mux error", "[excel][mux]") {
     TempFile tf("excel_mux_partial.xlsx");
     // Only Multiplexor provided, no Multiplex Value
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
-                                 "0", "0", "255", "", "Selector", ""}});
+                                 "0", "0", "255", "", "Selector", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -427,11 +429,13 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
     OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
     OpenXLSX::XLCellValue v4 = ws.cell(1, 4).value();
     OpenXLSX::XLCellValue v15 = ws.cell(1, 15).value();
+    OpenXLSX::XLCellValue v16 = ws.cell(1, 16).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Message ID");
     CHECK(v4.get<std::string>() == "Signal");
     CHECK(v15.get<std::string>() == "Multiplex Value");
+    CHECK(v16.get<std::string>() == "Extended");
 }
 
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {
@@ -550,7 +554,7 @@ TEST_CASE("excel: unknown then condition", "[excel][error]") {
 TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
     TempFile tf("excel_err_byte_order.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "wrong_order", "FALSE", "1",
-                                 "0", "0", "255", "", "", ""}});
+                                 "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()),
@@ -560,7 +564,7 @@ TEST_CASE("excel: DBC invalid byte order", "[excel][error]") {
 TEST_CASE("excel: DBC invalid message ID", "[excel][error]") {
     TempFile tf("excel_err_msgid.xlsx");
     make_dbc_workbook(tf.path, {{"not_a_number", "Msg", "8", "Sig", "0", "8", "little_endian",
-                                 "FALSE", "1", "0", "0", "255", "", "", ""}});
+                                 "FALSE", "1", "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(!result.has_value());
     CHECK_THAT(std::string(result.error().message()), ContainsSubstring("invalid 'Message ID'"));
@@ -618,7 +622,7 @@ TEST_CASE("excel: empty rows are skipped", "[excel][simple]") {
 TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
     TempFile tf("excel_dbc_int_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE", "1",
-                                 "0", "0", "255", "", "", ""}});
+                                 "0", "0", "255", "", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     auto& factor = result->messages[0].signals[0].factor.get();
@@ -630,11 +634,73 @@ TEST_CASE("excel: DBC factor as integer rational", "[excel][dbc]") {
 TEST_CASE("excel: DBC factor as fractional rational", "[excel][dbc]") {
     TempFile tf("excel_dbc_frac_factor.xlsx");
     make_dbc_workbook(tf.path, {{"256", "Msg", "8", "Sig", "0", "8", "little_endian", "FALSE",
-                                 "0.1", "0", "0", "300", "km/h", "", ""}});
+                                 "0.1", "0", "0", "300", "km/h", "", "", ""}});
     auto result = load_dbc_from_excel(tf.path);
     REQUIRE(result.has_value());
     auto& factor = result->messages[0].signals[0].factor.get();
     // 0.1 should be represented as 1/10 (after GCD simplification)
     CHECK(factor.numerator == 1);
     CHECK(factor.denominator == 10);
+}
+
+// ===========================================================================
+// Extended CAN ID via "Extended" column
+// ===========================================================================
+
+TEST_CASE("excel: DBC extended CAN ID via Extended column", "[excel][dbc]") {
+    TempFile tf("excel_dbc_extended_id.xlsx");
+    // ID 0x10000 (65536) with Extended=TRUE — must produce ExtendedId
+    make_dbc_workbook(tf.path, {{"65536", "ExtMsg", "8", "Sig1", "0", "16", "little_endian",
+                                 "FALSE", "1", "0", "0", "65535", "", "", "", "TRUE"}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+
+    auto& msg = result->messages[0];
+    CHECK(msg.name.get() == "ExtMsg");
+    REQUIRE(std::holds_alternative<ExtendedId>(msg.id));
+    CHECK(std::get<ExtendedId>(msg.id).value() == 65536);
+}
+
+TEST_CASE("excel: DBC standard ID with Extended=FALSE", "[excel][dbc]") {
+    TempFile tf("excel_dbc_std_explicit.xlsx");
+    // ID 256 with Extended=FALSE — must produce StandardId
+    make_dbc_workbook(tf.path, {{"256", "StdMsg", "8", "Sig1", "0", "8", "little_endian", "FALSE",
+                                 "1", "0", "0", "255", "", "", "", "FALSE"}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    CHECK(std::holds_alternative<StandardId>(result->messages[0].id));
+    CHECK(std::get<StandardId>(result->messages[0].id).value() == 256);
+}
+
+TEST_CASE("excel: DBC standard ID without Extended column", "[excel][dbc]") {
+    TempFile tf("excel_dbc_std_empty.xlsx");
+    // Extended column empty — defaults to standard
+    make_dbc_workbook(tf.path, {{"256", "StdMsg2", "8", "Sig1", "0", "8", "little_endian", "FALSE",
+                                 "1", "0", "0", "255", "", "", "", ""}});
+    auto result = load_dbc_from_excel(tf.path);
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    CHECK(std::holds_alternative<StandardId>(result->messages[0].id));
+}
+
+// ===========================================================================
+// Template creation roundtrip
+// ===========================================================================
+
+TEST_CASE("excel: template roundtrip — load checks from empty template", "[excel][template]") {
+    TempFile tf("excel_template_roundtrip.xlsx");
+    auto create_result = create_excel_template(tf.path);
+    REQUIRE(create_result.has_value());
+
+    // Load checks from the empty template — should return empty valid result
+    auto checks = load_checks_from_excel(tf.path);
+    REQUIRE(checks.has_value());
+    CHECK(checks->empty());
+
+    // Load DBC from the empty template — should fail (no data rows)
+    auto dbc = load_dbc_from_excel(tf.path);
+    REQUIRE(!dbc.has_value());
+    CHECK_THAT(std::string(dbc.error().message()), ContainsSubstring("no data rows"));
 }

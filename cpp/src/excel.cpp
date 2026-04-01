@@ -11,7 +11,9 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <string>
 #include <tuple>
@@ -28,9 +30,9 @@ namespace {
 // ---------------------------------------------------------------------------
 
 const std::vector<std::string> dbc_headers = {
-    "Message ID", "Message Name", "DLC",    "Signal",      "Start Bit",
-    "Length",     "Byte Order",   "Signed", "Factor",      "Offset",
-    "Min",        "Max",          "Unit",   "Multiplexor", "Multiplex Value",
+    "Message ID",      "Message Name", "DLC",    "Signal", "Start Bit", "Length", "Byte Order",
+    "Signed",          "Factor",       "Offset", "Min",    "Max",       "Unit",   "Multiplexor",
+    "Multiplex Value", "Extended",
 };
 
 const std::vector<std::string> checks_headers = {
@@ -118,8 +120,22 @@ auto get_int(const CellMap& cells, const std::string& key, const std::string& ct
     auto it = cells.find(key);
     if (it == cells.end() || it->second.empty())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
+    // Reject booleans (cell_to_string converts Excel booleans to "TRUE"/"FALSE")
+    auto upper = it->second;
+    std::ranges::transform(upper, upper.begin(), [](unsigned char ch) -> char {
+        return static_cast<char>(std::toupper(ch));
+    });
+    if (upper == "TRUE" || upper == "FALSE")
+        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
     try {
+        // Detect float truncation: parse as double first and reject non-integral values.
+        auto dval = std::stod(it->second);
+        if (dval != std::floor(dval))
+            throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second +
+                                     " is not an integer (would be silently truncated)");
         return std::stoll(it->second);
+    } catch (const std::runtime_error&) {
+        throw; // re-throw our own truncation error
     } catch (const std::exception&) {
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
     }
@@ -324,17 +340,34 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
                                            "must both be provided or both be empty");
 
     SignalPresence presence;
-    if (has_muxor)
+    if (has_muxor) {
+        auto mux_val = get_int(cells, "Multiplex Value", ctx_str);
+        if (mux_val < 0 ||
+            mux_val > static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()))
+            throw std::runtime_error(ctx_str + ": 'Multiplex Value' out of range [0, " +
+                                     std::to_string(std::numeric_limits<std::uint32_t>::max()) +
+                                     "]: " + std::to_string(mux_val));
         presence = Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
-                               .mux_value = MultiplexValue{static_cast<std::uint32_t>(
-                                   get_int(cells, "Multiplex Value", ctx_str))}};
-    else
+                               .mux_value = MultiplexValue{static_cast<std::uint32_t>(mux_val)}};
+    } else {
         presence = AlwaysPresent{};
+    }
+
+    auto start_bit_val = get_int(cells, "Start Bit", ctx_str);
+    if (start_bit_val < 0 || start_bit_val > std::numeric_limits<std::uint16_t>::max())
+        throw std::runtime_error(ctx_str + ": 'Start Bit' out of range [0, " +
+                                 std::to_string(std::numeric_limits<std::uint16_t>::max()) +
+                                 "]: " + std::to_string(start_bit_val));
+    auto bit_length_val = get_int(cells, "Length", ctx_str);
+    if (bit_length_val < 0 || bit_length_val > std::numeric_limits<std::uint8_t>::max())
+        throw std::runtime_error(ctx_str + ": 'Length' out of range [0, " +
+                                 std::to_string(std::numeric_limits<std::uint8_t>::max()) +
+                                 "]: " + std::to_string(bit_length_val));
 
     return DbcSignal{
         .name = SignalName{get_str(cells, "Signal", ctx_str)},
-        .start_bit = BitPosition{static_cast<std::uint16_t>(get_int(cells, "Start Bit", ctx_str))},
-        .bit_length = BitLength{static_cast<std::uint8_t>(get_int(cells, "Length", ctx_str))},
+        .start_bit = BitPosition{static_cast<std::uint16_t>(start_bit_val)},
+        .bit_length = BitLength{static_cast<std::uint8_t>(bit_length_val)},
         .byte_order = byte_order,
         .is_signed = get_bool(cells, "Signed", ctx_str),
         .factor = RationalFactor{detail::double_to_rational(get_number(cells, "Factor", ctx_str))},
@@ -345,12 +378,6 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         .presence = presence,
     };
 }
-
-// ---------------------------------------------------------------------------
-// Message grouping key
-// ---------------------------------------------------------------------------
-
-using MessageKey = std::tuple<std::uint32_t, std::string, std::int64_t>;
 
 // ---------------------------------------------------------------------------
 // Sheet existence check
@@ -467,8 +494,9 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
                 AletheiaError{ErrorKind::Validation, "DBC sheet has no data rows"});
 
         // Group by message key, preserving insertion order
-        std::map<MessageKey, std::vector<std::size_t>> groups;
-        std::vector<MessageKey> insertion_order;
+        using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
+        std::map<MessageKeyExt, std::vector<std::size_t>> groups;
+        std::vector<MessageKeyExt> insertion_order;
 
         for (std::size_t i = 0; i < data_rows.size(); ++i) {
             auto& cells = data_rows[i];
@@ -477,7 +505,9 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             auto msg_id = parse_message_id(msg_id_str, row_ctx(rn));
             auto msg_name = get_str(cells, "Message Name", row_ctx(rn));
             auto dlc = get_int(cells, "DLC", row_ctx(rn));
-            const MessageKey key{msg_id, msg_name, dlc};
+            const bool extended =
+                has_key(cells, "Extended") && get_bool(cells, "Extended", row_ctx(rn));
+            const MessageKeyExt key{msg_id, msg_name, dlc, extended};
             if (groups.find(key) == groups.end())
                 insertion_order.push_back(key);
             groups[key].push_back(i);
@@ -491,16 +521,21 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             for (auto idx : indices)
                 signals.push_back(parse_dbc_signal(data_rows[idx], row_numbers[idx]));
 
-            auto [msg_id, msg_name, dlc] = key;
-            auto can_id_result = (msg_id <= 2047)
-                                     ? StandardId::create(static_cast<std::uint16_t>(msg_id))
-                                           .transform([](auto sid) -> CanId { return CanId{sid}; })
-                                     : ExtendedId::create(msg_id).transform(
-                                           [](auto eid) -> CanId { return CanId{eid}; });
+            auto [msg_id, msg_name, dlc, extended] = key;
+            auto can_id_result = extended
+                                     ? ExtendedId::create(msg_id).transform(
+                                           [](auto eid) -> CanId { return CanId{eid}; })
+                                     : StandardId::create(static_cast<std::uint16_t>(msg_id))
+                                           .transform([](auto sid) -> CanId { return CanId{sid}; });
             if (!can_id_result.has_value())
                 return std::unexpected(AletheiaError{ErrorKind::Validation,
                                                      "Invalid CAN ID: " + std::to_string(msg_id)});
 
+            if (dlc < 0 || dlc > 15)
+                return std::unexpected(
+                    AletheiaError{ErrorKind::Validation,
+                                  row_ctx(row_numbers[indices[0]]) +
+                                      ": DLC out of range [0, 15]: " + std::to_string(dlc)});
             auto dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
             if (!dlc_result.has_value())
                 return std::unexpected(

@@ -114,6 +114,11 @@ type CanID interface {
 	IsExtended() bool
 }
 
+const (
+	maxStandardID = 1<<11 - 1 // 11-bit CAN ID
+	maxExtendedID = 1<<29 - 1 // 29-bit CAN ID
+)
+
 // StandardID is an 11-bit CAN identifier (0-2047).
 type StandardID struct{ value uint16 }
 
@@ -124,8 +129,8 @@ func (id StandardID) String() string   { return fmt.Sprintf("0x%03X", id.value) 
 
 // NewStandardID creates a standard 11-bit CAN ID. Returns an error if v > 2047.
 func NewStandardID(v uint16) (StandardID, error) {
-	if v > 2047 {
-		return StandardID{}, validationError(fmt.Sprintf("standard CAN ID %d exceeds 11-bit range (0-2047)", v))
+	if v > maxStandardID {
+		return StandardID{}, validationError(fmt.Sprintf("standard CAN ID %d exceeds 11-bit range (0-%d)", v, maxStandardID))
 	}
 	return StandardID{value: v}, nil
 }
@@ -140,8 +145,8 @@ func (id ExtendedID) String() string   { return fmt.Sprintf("0x%08X", id.value) 
 
 // NewExtendedID creates an extended 29-bit CAN ID. Returns an error if v > 536870911.
 func NewExtendedID(v uint32) (ExtendedID, error) {
-	if v > 536870911 {
-		return ExtendedID{}, validationError(fmt.Sprintf("extended CAN ID %d exceeds 29-bit range (0-536870911)", v))
+	if v > maxExtendedID {
+		return ExtendedID{}, validationError(fmt.Sprintf("extended CAN ID %d exceeds 29-bit range (0-%d)", v, maxExtendedID))
 	}
 	return ExtendedID{value: v}, nil
 }

@@ -188,7 +188,7 @@ class TestFrameFiltering:
             msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is not None
-        assert result[2] == 12
+        assert result[2] == 9  # DLC code for 12-byte CAN-FD payload
         assert len(result[3]) == 12
 
 

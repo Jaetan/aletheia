@@ -32,7 +32,7 @@ set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(OpenXLSX
     GIT_REPOSITORY https://github.com/troldal/OpenXLSX.git
-    GIT_TAG master)
+    GIT_TAG 5723411d47643ce3b5b9994064c26ca8cd841f13)  # Post-v0.4.1: includes <cstdint> fix for GCC 15
 
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 

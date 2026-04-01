@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace aletheia {
@@ -44,41 +45,41 @@ public:
     AletheiaClient& operator=(AletheiaClient&& other) noexcept;
 
     // --- DBC ---
-    auto parse_dbc(const DbcDefinition& dbc) -> Result<void>;
-    auto validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult>;
-    auto format_dbc() -> Result<DbcDefinition>;
+    [[nodiscard]] auto parse_dbc(const DbcDefinition& dbc) -> Result<void>;
+    [[nodiscard]] auto validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult>;
+    [[nodiscard]] auto format_dbc() -> Result<DbcDefinition>;
 
     // --- Signals ---
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
-    auto extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
+    [[nodiscard]] auto extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<ExtractionResult>;
-    auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
+    [[nodiscard]] auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
         -> Result<FramePayload>;
-    auto update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
-                      std::span<const SignalValue> signals) -> Result<FramePayload>;
+    [[nodiscard]] auto update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
+                                    std::span<const SignalValue> signals) -> Result<FramePayload>;
 
     // --- Streaming ---
     // Expected workflow: set_properties → start_stream → send_frame* → end_stream.
     // start_stream() resets the extraction cache and last-frame tracking.
     // set_properties() may be called again after end_stream() to install new properties.
-    auto set_properties(std::span<const LtlFormula> properties) -> Result<void>;
-    auto add_checks(std::vector<CheckResult> checks) -> Result<void>;
-    auto start_stream() -> Result<void>;
+    [[nodiscard]] auto set_properties(std::span<const LtlFormula> properties) -> Result<void>;
+    [[nodiscard]] auto add_checks(std::vector<CheckResult> checks) -> Result<void>;
+    [[nodiscard]] auto start_stream() -> Result<void>;
     // On violation, the returned Violation includes an optional ViolationEnrichment
     // with extracted signal values and a formatted reason string (requires
     // set_properties() to have been called to install diagnostics).
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
     // For batch operations, see send_frames().
-    auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
+    [[nodiscard]] auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
     // Send multiple frames in a single batch. A Violation is a normal response
     // and does not stop the batch. Processing stops at the first transport or
     // validation error; earlier successful responses are returned via
     // BatchResult::responses alongside the error.
-    auto send_frames(std::span<const Frame> frames) -> BatchResult;
+    [[nodiscard]] auto send_frames(std::span<const Frame> frames) -> BatchResult;
     // Properties with Verdict::Fails include an optional ViolationEnrichment
     // populated from the last-known frame values for each relevant CAN ID.
-    auto end_stream() -> Result<StreamResult>;
+    [[nodiscard]] auto end_stream() -> Result<StreamResult>;
 
 private:
     void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data);
@@ -119,5 +120,10 @@ private:
     };
     std::map<LastFrameKey, LastFrame> last_frames_;
 };
+
+static_assert(!std::is_copy_constructible_v<AletheiaClient>,
+              "AletheiaClient is not thread-safe and must not be copied");
+static_assert(!std::is_copy_assignable_v<AletheiaClient>,
+              "AletheiaClient is not thread-safe and must not be copied");
 
 } // namespace aletheia

@@ -68,9 +68,10 @@ using Delta = Strong<struct DeltaTag, double>;
 // Rational: exact numerator/denominator (for DBC signal parameters)
 // ---------------------------------------------------------------------------
 
+// Invariant: denominator must be > 0; enforced by parse_rational, not by construction.
 struct Rational {
     std::int64_t numerator = 0;
-    std::int64_t denominator = 1; // always > 0
+    std::int64_t denominator = 1;
 
     [[nodiscard]] constexpr auto to_double() const -> double {
         return static_cast<double>(numerator) / static_cast<double>(denominator);
@@ -117,9 +118,11 @@ class StandardId {
     std::uint16_t value_;
     explicit constexpr StandardId(std::uint16_t v) : value_(v) {}
 
+    static constexpr std::uint16_t max_id = (1U << 11U) - 1; // 11-bit CAN ID
+
 public:
     static constexpr auto create(std::uint16_t v) -> std::expected<StandardId, std::string> {
-        if (v > 2047)
+        if (v > max_id)
             return std::unexpected("Standard CAN ID must be 0-2047");
         return StandardId{v};
     }
@@ -131,9 +134,11 @@ class ExtendedId {
     std::uint32_t value_;
     explicit constexpr ExtendedId(std::uint32_t v) : value_(v) {}
 
+    static constexpr std::uint32_t max_id = (1U << 29U) - 1; // 29-bit CAN ID
+
 public:
     static constexpr auto create(std::uint32_t v) -> std::expected<ExtendedId, std::string> {
-        if (v > 536'870'911)
+        if (v > max_id)
             return std::unexpected("Extended CAN ID must be 0-536870911");
         return ExtendedId{v};
     }
@@ -198,7 +203,7 @@ inline auto bytes_to_dlc(std::size_t byte_count) -> std::expected<Dlc, std::stri
     }};
     for (auto [bytes, code] : table)
         if (bytes == byte_count)
-            return Dlc::create(code).value();
+            return *Dlc::create(code);
     return std::unexpected("invalid DLC byte count: " + std::to_string(byte_count));
 }
 

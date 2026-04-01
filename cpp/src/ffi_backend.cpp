@@ -5,9 +5,10 @@
 
 #include <array>
 #include <cstdint>
-#include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <print>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -54,6 +55,8 @@ class FfiBackend : public IBackend {
 public:
     explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
         : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
+        if (rts_cores < 1)
+            throw std::invalid_argument("rts_cores must be >= 1, got " + std::to_string(rts_cores));
         if (handle_ == nullptr)
             throw std::runtime_error(std::string("dlopen failed: ") + dlerror());
 
@@ -82,10 +85,11 @@ public:
                 rts.cores = rts_cores;
                 rts.initialized = true;
             } else if (rts_cores != rts.cores) {
-                std::cerr << "Warning: GHC RTS already initialized with " << rts.cores
-                          << " core(s); ignoring rts_cores=" << rts_cores
-                          << ". Set rts_cores on the first "
-                          << "make_ffi_backend() call in the process.\n";
+                std::println(stderr,
+                             "Warning: GHC RTS already initialized with {} core(s); "
+                             "ignoring rts_cores={}. Set rts_cores on the first "
+                             "make_ffi_backend() call in the process.",
+                             rts.cores, rts_cores);
             }
         } catch (...) {
             // RTS was never started — safe to release the library handle.
@@ -125,6 +129,10 @@ public:
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
+        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+            throw std::runtime_error("data length exceeds " +
+                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
+                                     " bytes");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         char* result = send_frame_fn_(state, timestamp, can_id, extended, dlc_val,

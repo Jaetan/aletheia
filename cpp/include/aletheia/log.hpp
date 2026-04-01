@@ -5,6 +5,7 @@
 #include <functional>
 #include <initializer_list>
 #include <source_location>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <variant>
@@ -33,7 +34,7 @@ using LogField = std::pair<std::string_view, LogValue>;
 struct LogRecord {
     LogLevel level;
     std::string_view event;
-    std::initializer_list<LogField> fields;
+    std::span<const LogField> fields;
     std::source_location location;
 };
 
@@ -51,7 +52,10 @@ public:
              std::source_location loc = std::source_location::current()) const {
         if (!cb_ || lvl < min_)
             return;
-        cb_(LogRecord{.level = lvl, .event = event, .fields = fields, .location = loc});
+        cb_(LogRecord{.level = lvl,
+                      .event = event,
+                      .fields = std::span<const LogField>{fields.begin(), fields.end()},
+                      .location = loc});
     }
 
     void debug(std::string_view event, std::initializer_list<LogField> fields = {},

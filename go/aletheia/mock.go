@@ -66,10 +66,7 @@ func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
 // SendFrameBinary delegates to Process by building the JSON string via
 // serializeDataFrame. This keeps mock tests working without the real .so.
 func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error) {
-	input, err := serializeDataFrame(ts, id, dlc, FramePayload(data))
-	if err != nil {
-		return "", err
-	}
+	input := serializeDataFrame(ts, id, dlc, FramePayload(data))
 	return m.Process(nil, input)
 }
 

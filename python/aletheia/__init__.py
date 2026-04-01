@@ -57,6 +57,7 @@ from .client import (
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
+    bytes_to_dlc,
     dlc_to_bytes,
 )
 from .checks import Check, CheckResult
@@ -82,6 +83,7 @@ __all__ = [
     # Client
     "AletheiaClient",
     "SignalExtractionResult",
+    "bytes_to_dlc",
     "dlc_to_bytes",
     # Exceptions & response types
     "AletheiaError",

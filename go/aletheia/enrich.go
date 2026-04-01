@@ -125,14 +125,19 @@ func formatPredicate(p Predicate) string {
 // formatValue formats a float64 without trailing zeros.
 func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
 
+const (
+	usPerSecond      = 1_000_000
+	usPerMillisecond = 1_000
+)
+
 // formatTimebound formats a TimeBound as a human-readable time bound.
 func formatTimebound(t TimeBound) string {
 	us := t.Microseconds
-	if us%1000000 == 0 {
-		return fmt.Sprintf("%ds", us/1000000)
+	if us%usPerSecond == 0 {
+		return fmt.Sprintf("%ds", us/usPerSecond)
 	}
-	if us%1000 == 0 {
-		return fmt.Sprintf("%dms", us/1000)
+	if us%usPerMillisecond == 0 {
+		return fmt.Sprintf("%dms", us/usPerMillisecond)
 	}
 	return fmt.Sprintf("%dμs", us)
 }

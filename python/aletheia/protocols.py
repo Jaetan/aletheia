@@ -173,7 +173,7 @@ class BetweenPredicate(TypedDict):
 
 
 class ChangedByPredicate(TypedDict):
-    """ChangedBy predicate: |signal_now - signal_prev| <= delta"""
+    """ChangedBy predicate: |signal_now - signal_prev| > delta"""
     predicate: Literal["changedBy"]
     signal: str
     delta: float

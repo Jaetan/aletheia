@@ -50,6 +50,7 @@ from ._types import (
     ExtractionCache,
     MAX_EXTRACT_CACHE,
     dlc_to_bytes,
+    validate_can_id,
 )
 
 if TYPE_CHECKING:
@@ -127,19 +128,23 @@ class AletheiaClient:
         RTSState.acquire(self._lib, self._rts_cores)
 
         # Create Aletheia state
-        self._state = ctypes.c_void_p(self._lib.aletheia_init())
+        raw = self._lib.aletheia_init()
+        if not raw:
+            raise ProcessError("aletheia_init() returned null — FFI initialization failed")
+        self._state = ctypes.c_void_p(raw)
 
         return self
 
     def close(self) -> None:
         """Free state and release RTS reference."""
-        if self._lib is not None and self._state is not None:
-            self._lib.aletheia_close(self._state)
+        try:
+            if self._lib is not None and self._state is not None:
+                self._lib.aletheia_close(self._state)
+        finally:
             self._state = None
-
-        if self._lib is not None:
-            RTSState.release()
-            self._lib = None
+            if self._lib is not None:
+                RTSState.release()
+                self._lib = None
 
     def __exit__(
         self,
@@ -309,7 +314,7 @@ class AletheiaClient:
             raise ProtocolError(f"validateDBC failed: {message}")
 
         raise ProtocolError(
-            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+            f"Unexpected response status: {status!r} (expected 'validation' or 'error')"
         )
 
     def format_dbc(self) -> DBCDefinition:
@@ -510,12 +515,13 @@ class AletheiaClient:
     _ACK_BYTES = b'{"status":"ack"}'
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
 
-    def send_frame(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def send_frame(  # pylint: disable=too-many-arguments
         self,
         timestamp: int,
         can_id: int,
         dlc: int,
         data: bytearray,
+        *,
         extended: bool = False,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
@@ -536,6 +542,10 @@ class AletheiaClient:
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
+        validate_can_id(can_id, extended=extended)
+        dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
 
         # Binary FFI: pass frame components directly (no JSON serialization)
         data_array = (ctypes.c_uint8 * len(data))(*data)
@@ -617,12 +627,13 @@ class AletheiaClient:
             return result_error
 
         raise ProtocolError(
-            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+            f"Unexpected response status: {status!r} (expected 'ack', 'fails', or 'error')"
         )
 
     def send_frames_batch(
         self,
         frames: list[tuple[int, int, int, bytearray]],
+        *,
         extended: bool = False,
     ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
         """Send multiple CAN frames in a batch.
@@ -694,7 +705,7 @@ class AletheiaClient:
             return result_error
 
         raise ProtocolError(
-            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+            f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
         )
 
     def _parse_finalization_results(
@@ -751,7 +762,7 @@ class AletheiaClient:
 
     def extract_signals(
         self, can_id: int, dlc: int, data: bytearray,
-        extended: bool = False,
+        *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
 
@@ -770,6 +781,8 @@ class AletheiaClient:
             ProcessError: If extraction fails
             ValueError: If dlc is outside 0-15
         """
+        dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
+        validate_can_id(can_id, extended=extended)
         cmd: ExtractSignalsCommand = {
             "type": "command",
             "command": "extractAllSignals",
@@ -804,12 +817,13 @@ class AletheiaClient:
 
         return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
-    def update_frame(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
         dlc: int,
         frame: bytearray,
         signals: dict[str, float],
+        *,
         extended: bool = False,
     ) -> bytearray:
         """Update specific signals in an existing frame.
@@ -831,6 +845,7 @@ class AletheiaClient:
             ProcessError: If update fails
             ValueError: If dlc is outside 0-15
         """
+        validate_can_id(can_id, extended=extended)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()
@@ -879,6 +894,7 @@ class AletheiaClient:
             ProcessError: If frame building fails
             ValueError: If dlc is outside 0-15
         """
+        validate_can_id(can_id, extended=extended)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()

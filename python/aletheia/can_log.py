@@ -23,6 +23,8 @@ from typing import Literal, TypeAlias
 
 import can
 
+from aletheia.client._types import bytes_to_dlc
+
 CANFrameTuple: TypeAlias = tuple[int, int, int, bytearray]
 """(timestamp_us, arbitration_id, dlc, data) — matches send_frame() signature."""
 
@@ -135,8 +137,8 @@ def _convert_message(
         return None
 
     timestamp_us = _timestamp_to_us(msg.timestamp)
-    dlc: int = msg.dlc
-    data = _normalize_data(msg.data, dlc)
+    dlc: int = bytes_to_dlc(msg.dlc)
+    data = _normalize_data(msg.data, msg.dlc)
 
     return (timestamp_us, msg.arbitration_id, dlc, data)
 

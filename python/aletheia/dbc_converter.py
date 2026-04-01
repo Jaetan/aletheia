@@ -246,21 +246,3 @@ def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None
         _ = Path(output_path).write_text(json_str, encoding='utf-8')
 
     return json_str
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python -m aletheia.dbc_converter <input.dbc> [output.json]")
-        sys.exit(1)
-
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
-
-    json_output = convert_dbc_file(input_file, output_file)
-
-    if output_file:
-        print(f"Converted {input_file} to {output_file}")
-    else:
-        print(json_output)

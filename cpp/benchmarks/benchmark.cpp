@@ -475,15 +475,15 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
-    client.set_properties(properties);
-    client.start_stream();
+    (void)client.set_properties(properties);
+    (void)client.start_stream();
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        client.send_frame(Timestamp{i}, id, dlc, frame);
+        (void)client.send_frame(Timestamp{i}, id, dlc, frame);
     auto end = std::chrono::high_resolution_clock::now();
 
-    client.end_stream();
+    (void)client.end_stream();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
     return static_cast<double>(num_frames) / elapsed;
@@ -500,7 +500,7 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(id, dlc, frame);
     auto end = std::chrono::high_resolution_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -518,7 +518,7 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        client.build_frame(id, dlc, signals);
+        (void)client.build_frame(id, dlc, signals);
     auto end = std::chrono::high_resolution_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -676,25 +676,25 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
-    client.set_properties(properties);
-    client.start_stream();
+    (void)client.set_properties(properties);
+    (void)client.start_stream();
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        client.send_frame(Timestamp{i}, id, dlc, frame);
+        (void)client.send_frame(Timestamp{i}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        client.send_frame(Timestamp{warmup + i}, id, dlc, frame);
+        (void)client.send_frame(Timestamp{warmup + i}, id, dlc, frame);
         auto end = std::chrono::high_resolution_clock::now();
         auto us = std::chrono::duration<double, std::micro>(end - start).count();
         latencies.push_back(us);
     }
 
-    client.end_stream();
+    (void)client.end_stream();
     return compute_latency_stats(latencies);
 }
 
@@ -710,14 +710,14 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(id, dlc, frame);
         auto end = std::chrono::high_resolution_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
@@ -737,14 +737,14 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        client.build_frame(id, dlc, signals);
+        (void)client.build_frame(id, dlc, signals);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        client.build_frame(id, dlc, signals);
+        (void)client.build_frame(id, dlc, signals);
         auto end = std::chrono::high_resolution_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }

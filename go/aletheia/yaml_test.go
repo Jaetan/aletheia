@@ -381,12 +381,11 @@ func TestLoadYAMLFromFile(t *testing.T) {
 }
 
 func TestLoadYAMLFileNotFound(t *testing.T) {
+	// When the file doesn't exist, LoadChecksFromYAML treats it as inline YAML,
+	// which fails during parsing. Use LoadChecksFromYAMLFile for explicit file errors.
 	_, err := LoadChecksFromYAML("/nonexistent/path/checks.yaml")
 	if err == nil {
-		t.Fatal("expected error for non-existent file")
-	}
-	if !strings.Contains(err.Error(), "YAML file not found") {
-		t.Errorf("error message should contain 'YAML file not found', got: %v", err)
+		t.Fatal("expected error for non-existent path treated as inline YAML")
 	}
 }
 
@@ -607,7 +606,7 @@ checks:
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "Check 'My Check'") {
+	if !strings.Contains(err.Error(), "check 'My Check'") {
 		t.Errorf("error should contain check name, got: %v", err)
 	}
 }
@@ -622,7 +621,7 @@ checks:
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "Check '<unnamed>'") {
+	if !strings.Contains(err.Error(), "check '<unnamed>'") {
 		t.Errorf("error should contain '<unnamed>', got: %v", err)
 	}
 }

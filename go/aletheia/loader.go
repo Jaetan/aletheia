@@ -69,11 +69,6 @@ func applyMetadata(r CheckResult, name, severity string) CheckResult {
 	return r
 }
 
-// checkCtx formats a check name as an error context string.
-func checkCtx(name string) string {
-	return fmt.Sprintf("Check '%s'", name)
-}
-
 // checkName extracts the check name from an entry, defaulting to "<unnamed>".
 func checkName(name string) string {
 	if name != "" {

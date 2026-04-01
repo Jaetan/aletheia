@@ -39,10 +39,12 @@ from ._types import (
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
+    bytes_to_dlc,
     dlc_to_bytes,
 )
 
 __all__ = [
-    "AletheiaClient", "AletheiaError", "BatchError", "dlc_to_bytes",
-    "FrameResponse", "ProcessError", "ProtocolError", "SignalExtractionResult",
+    "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
+    "dlc_to_bytes", "FrameResponse", "ProcessError", "ProtocolError",
+    "SignalExtractionResult",
 ]

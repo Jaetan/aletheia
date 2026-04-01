@@ -1,6 +1,5 @@
 // Layer 2: Unit tests with mock backend.
 // Tests JSON serialization, parsing, and client round-trips.
-#define CATCH_CONFIG_MAIN
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -868,6 +867,26 @@ TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][err
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Non-exact rational"));
+}
+
+TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {
+    // A floating-point 1.5 should be rejected (not integer, not {num, den} dict)
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "", "messages": [{
+                "id": 1, "name": "M", "dlc": 8, "extended": false,
+                "signals": [{
+                    "name": "S", "startBit": 0, "length": 8,
+                    "byteOrder": "little_endian", "signed": false,
+                    "factor": 1.5, "offset": 0, "minimum": 0,
+                    "maximum": 255, "unit": ""
+                }]
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[json][parse]") {
@@ -2181,8 +2200,8 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     AletheiaClient client(std::move(backend));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    client.set_properties(std::span{&prop, 1});
-    client.start_stream();
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -2208,8 +2227,8 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     AletheiaClient client(std::move(backend));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    client.set_properties(std::span{&prop, 1});
-    client.start_stream();
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -2242,8 +2261,8 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     AletheiaClient client(std::move(backend));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    client.set_properties(std::span{&prop, 1});
-    client.start_stream();
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -2270,8 +2289,8 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     AletheiaClient client(std::move(backend));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    client.set_properties(std::span{&prop, 1});
-    client.start_stream();
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -2295,8 +2314,8 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     AletheiaClient client(std::move(backend));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    client.set_properties(std::span{&prop, 1});
-    client.start_stream();
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
 
     auto result = client.send_frames({});
     REQUIRE_FALSE(result.has_error());
@@ -2316,8 +2335,8 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     AletheiaClient a(std::move(backend_a));
 
     auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
-    a.set_properties(std::span{&prop, 1});
-    a.start_stream();
+    (void)a.set_properties(std::span{&prop, 1});
+    (void)a.start_stream();
 
     // Target client: separate backend (will be destroyed on assignment).
     auto backend_b = std::make_unique<MockBackend>();
@@ -2413,4 +2432,102 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     CHECK(v.reason == "some reason");
     // Enrichment skipped due to OOB property index
     CHECK_FALSE(v.enrichment.has_value());
+}
+
+// ===========================================================================
+// bytes_to_dlc error paths
+// ===========================================================================
+
+TEST_CASE("bytes_to_dlc valid CAN 2.0B sizes", "[types]") {
+    auto r7 = bytes_to_dlc(7);
+    REQUIRE(r7.has_value());
+    CHECK(r7->value() == 7);
+
+    auto r8 = bytes_to_dlc(8);
+    REQUIRE(r8.has_value());
+    CHECK(r8->value() == 8);
+}
+
+TEST_CASE("bytes_to_dlc valid CAN-FD sizes", "[types]") {
+    auto r12 = bytes_to_dlc(12);
+    REQUIRE(r12.has_value());
+    CHECK(r12->value() == 9);
+
+    auto r64 = bytes_to_dlc(64);
+    REQUIRE(r64.has_value());
+    CHECK(r64->value() == 15);
+}
+
+TEST_CASE("bytes_to_dlc invalid sizes return error", "[types]") {
+    auto r9 = bytes_to_dlc(9);
+    REQUIRE_FALSE(r9.has_value());
+    CHECK_THAT(r9.error(), ContainsSubstring("invalid DLC"));
+
+    auto r65 = bytes_to_dlc(65);
+    REQUIRE_FALSE(r65.has_value());
+    CHECK_THAT(r65.error(), ContainsSubstring("invalid DLC"));
+}
+
+// ===========================================================================
+// format_formula MetricUntil and MetricRelease
+// ===========================================================================
+
+TEST_CASE("format_formula metric until", "[enrich]") {
+    using namespace std::chrono_literals;
+    auto f = LtlFormula{MetricUntil{.bound = Timestamp{3'000'000},
+                                    .left = std::make_unique<LtlFormula>(ltl::atomic(
+                                        ltl::less_than(SignalName{"Speed"}, PhysicalValue{50}))),
+                                    .right = std::make_unique<LtlFormula>(ltl::atomic(
+                                        ltl::equals(SignalName{"Brake"}, PhysicalValue{1})))}};
+    CHECK(format_formula(f) == "Speed < 50 until within 3s Brake = 1");
+}
+
+TEST_CASE("format_formula metric release", "[enrich]") {
+    using namespace std::chrono_literals;
+    auto f =
+        LtlFormula{MetricRelease{.bound = Timestamp{500'000},
+                                 .left = std::make_unique<LtlFormula>(
+                                     ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1}))),
+                                 .right = std::make_unique<LtlFormula>(
+                                     ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0})))}};
+    CHECK(format_formula(f) == "A = 1 release within 500ms B = 0");
+}
+
+// ===========================================================================
+// Rational comparison
+// ===========================================================================
+
+TEST_CASE("Rational operator<=> and operator==", "[types]") {
+    Rational a{1, 2};  // 0.5
+    Rational b{2, 4};  // 0.5
+    Rational c{3, 4};  // 0.75
+    Rational d{-1, 2}; // -0.5
+
+    SECTION("equality") {
+        CHECK(a == b);
+        CHECK_FALSE(a == c);
+    }
+
+    SECTION("less than") {
+        CHECK(a < c);
+        CHECK(d < a);
+        CHECK_FALSE(c < a);
+    }
+
+    SECTION("greater than") {
+        CHECK(c > a);
+        CHECK_FALSE(a > c);
+    }
+
+    SECTION("less than or equal") {
+        CHECK(a <= b);
+        CHECK(a <= c);
+        CHECK_FALSE(c <= a);
+    }
+
+    SECTION("negative values") {
+        Rational neg{-3, 4};
+        CHECK(neg < a);
+        CHECK(d == Rational{-1, 2});
+    }
 }

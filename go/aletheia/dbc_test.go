@@ -101,7 +101,7 @@ func TestFormatDBC(t *testing.T) {
 					"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU",
 					"signals":[{
 						"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian",
-						"signed":false,"factor":0.1,"offset":0,"minimum":0,"maximum":300,"unit":"km/h"
+						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":0,"minimum":0,"maximum":300,"unit":"km/h"
 					}]
 				}]
 			}
@@ -374,7 +374,7 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":3,"unit":""
 					},{
 						"name":"TempA","startBit":8,"length":16,"byteOrder":"little_endian",
-						"signed":false,"factor":0.1,"offset":-40,"minimum":-40,"maximum":215,"unit":"degC",
+						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":-40,"minimum":-40,"maximum":215,"unit":"degC",
 						"multiplexor":"MuxSel","multiplex_value":0
 					}]
 				}]

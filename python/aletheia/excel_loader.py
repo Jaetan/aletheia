@@ -100,7 +100,6 @@ class _MessageKey:
     dlc: int
 
 
-
 # ============================================================================
 # Sheet headers
 # ============================================================================
@@ -130,6 +129,7 @@ _WHEN_THEN_HEADERS = [
 def _row_ctx(row_num: int) -> str:
     """Format a row number as an error context string."""
     return f"Row {row_num}"
+
 
 def _row_to_dict(headers: list[str], row: ExcelRow) -> dict[str, object]:
     """Zip headers with cell values, skipping None values."""

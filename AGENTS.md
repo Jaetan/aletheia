@@ -16,6 +16,8 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 **The only valid dismissal is "suspected false positive".** Suspected false positives must be identified with explicit justification, but no finding may be discarded from the plan without the user's permission. Present all findings -- including those believed to be false positives -- and let the user decide.
 
+**Backward compatibility is never a reason to avoid a change.** When writing or reviewing code, never let "this would break backward compatibility" prevent making the right design choice. Compatibility shims, deprecated aliases, old field names kept alongside new ones, and preserved-but-wrong interfaces are all forms of technical debt. Design the cleanest interface for the current need.
+
 ## Review Procedure
 
 1. Launch parallel review agents (typically 3), each covering a subset of categories.

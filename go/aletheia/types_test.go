@@ -197,3 +197,65 @@ func TestImpliesConstructor(t *testing.T) {
 		t.Fatalf("expected Atomic on right, got %T", or.Right)
 	}
 }
+
+func TestBytesToDLC(t *testing.T) {
+	// Valid CAN 2.0 byte counts (0-8 map directly).
+	for b := 0; b <= 8; b++ {
+		dlc, err := aletheia.BytesToDLC(b)
+		if err != nil {
+			t.Fatalf("BytesToDLC(%d): unexpected error: %v", b, err)
+		}
+		if dlc.ToBytes() != b {
+			t.Errorf("BytesToDLC(%d).ToBytes() = %d, want %d", b, dlc.ToBytes(), b)
+		}
+	}
+
+	// Valid CAN-FD byte counts.
+	fdCases := map[int]uint8{
+		12: 9, 16: 10, 20: 11, 24: 12, 32: 13, 48: 14, 64: 15,
+	}
+	for bytes, wantDLC := range fdCases {
+		dlc, err := aletheia.BytesToDLC(bytes)
+		if err != nil {
+			t.Fatalf("BytesToDLC(%d): unexpected error: %v", bytes, err)
+		}
+		if dlc.Value() != wantDLC {
+			t.Errorf("BytesToDLC(%d).Value() = %d, want %d", bytes, dlc.Value(), wantDLC)
+		}
+	}
+
+	// Invalid byte counts.
+	invalidCases := []int{9, 10, 11, 13, 15, 33, 65, -1, 100}
+	for _, b := range invalidCases {
+		_, err := aletheia.BytesToDLC(b)
+		if err == nil {
+			t.Errorf("BytesToDLC(%d): expected error, got nil", b)
+		}
+		aErr, ok := err.(*aletheia.Error)
+		if !ok {
+			t.Errorf("BytesToDLC(%d): expected *aletheia.Error, got %T", b, err)
+		} else if aErr.Kind != aletheia.ErrValidation {
+			t.Errorf("BytesToDLC(%d): expected ErrValidation, got %s", b, aErr.Kind)
+		}
+	}
+}
+
+func TestRational_Float64(t *testing.T) {
+	tests := []struct {
+		r    aletheia.Rational
+		want float64
+	}{
+		{aletheia.Rational{Numerator: 3, Denominator: 4}, 0.75},
+		{aletheia.Rational{Numerator: 1, Denominator: 1}, 1.0},
+		{aletheia.Rational{Numerator: 0, Denominator: 1}, 0.0},
+		{aletheia.Rational{Numerator: -1, Denominator: 2}, -0.5},
+		{aletheia.Rational{Numerator: 7, Denominator: 3}, 7.0 / 3.0},
+	}
+	for _, tt := range tests {
+		got := tt.r.Float64()
+		if got != tt.want {
+			t.Errorf("Rational{%d, %d}.Float64() = %v, want %v",
+				tt.r.Numerator, tt.r.Denominator, got, tt.want)
+		}
+	}
+}

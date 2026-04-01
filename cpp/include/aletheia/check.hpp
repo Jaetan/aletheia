@@ -123,6 +123,8 @@ public:
     }
 
     auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
+        if (lo.get() > hi.get())
+            throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
         return {std::move(f), name_, std::format("between {:g} and {:g}", lo.get(), hi.get())};
     }
@@ -138,6 +140,8 @@ public:
     }
 
     auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
+        if (lo.get() > hi.get())
+            throw std::invalid_argument("settles_between: lo must be <= hi");
         return {name_, lo, hi};
     }
 
@@ -194,6 +198,8 @@ public:
     }
 
     auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
+        if (lo.get() > hi.get())
+            throw std::invalid_argument("stays_between: lo must be <= hi");
         return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
                 std::format("between {:g} and {:g}", lo.get(), hi.get())};
     }

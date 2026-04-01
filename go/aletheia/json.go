@@ -36,7 +36,7 @@ func serializeCommand(command string, fields map[string]any) (string, error) {
 // serializeDataFrame serializes a CAN frame as a JSON data event.
 // Uses direct string building rather than json.Marshal to avoid map allocation
 // and reflection overhead on the streaming hot path.
-func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (string, error) {
+func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) string {
 	// Avoids map allocation, reflection-based marshaling, and []int conversion.
 	var buf strings.Builder
 	buf.Grow(128 + len(data)*4) // pre-size for typical frame
@@ -60,7 +60,7 @@ func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (str
 		buf.WriteString(strconv.FormatUint(uint64(b), 10))
 	}
 	buf.WriteString("]}")
-	return buf.String(), nil
+	return buf.String()
 }
 
 func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
@@ -164,7 +164,7 @@ func serializeFormula(f Formula) (map[string]any, error) {
 
 func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 	if depth > maxFormulaDepth {
-		return nil, fmt.Errorf("formula nesting depth exceeds %d", maxFormulaDepth)
+		return nil, validationError(fmt.Sprintf("formula nesting depth exceeds %d", maxFormulaDepth))
 	}
 	switch f := f.(type) {
 	case Atomic:
@@ -292,15 +292,18 @@ func parseRational(v any) (Rational, error) {
 	switch n := v.(type) {
 	case float64:
 		// Agda sends integers as float64 in JSON.
+		if math.Trunc(n) != n {
+			return Rational{}, protocolError(fmt.Sprintf("expected integer rational, got fractional float64: %v", n))
+		}
 		return Rational{Numerator: int64(n), Denominator: 1}, nil
 	case map[string]any:
 		num, ok1 := n["numerator"].(float64)
 		den, ok2 := n["denominator"].(float64)
 		if !ok1 || !ok2 {
-			return Rational{}, fmt.Errorf("rational dict missing fields: %v", v)
+			return Rational{}, protocolError(fmt.Sprintf("rational dict missing fields: %v", v))
 		}
 		if den == 0 {
-			return Rational{}, fmt.Errorf("zero denominator in rational: %v", v)
+			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
 		}
 		d := int64(den)
 		nu := int64(num)
@@ -310,7 +313,7 @@ func parseRational(v any) (Rational, error) {
 		}
 		return Rational{Numerator: nu, Denominator: d}, nil
 	default:
-		return Rational{}, fmt.Errorf("expected number or rational dict, got %T", v)
+		return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 	}
 }
 
@@ -334,14 +337,14 @@ func parseNumber(v any) (float64, error) {
 		numF, ok1 := n["numerator"].(float64)
 		denF, ok2 := n["denominator"].(float64)
 		if !ok1 || !ok2 {
-			return 0, fmt.Errorf("expected {numerator: number, denominator: number}, got %v", n)
+			return 0, protocolError(fmt.Sprintf("expected {numerator: number, denominator: number}, got %v", n))
 		}
 		if denF == 0 {
-			return 0, fmt.Errorf("zero denominator in rational")
+			return 0, protocolError("zero denominator in rational")
 		}
 		return numF / denF, nil
 	default:
-		return 0, fmt.Errorf("expected number, got %T: %v", v, v)
+		return 0, protocolError(fmt.Sprintf("expected number, got %T: %v", v, v))
 	}
 }
 
@@ -353,10 +356,10 @@ func parseNumberAsInt64(v any) (int64, error) {
 	switch n := v.(type) {
 	case float64:
 		if n != math.Trunc(n) {
-			return 0, fmt.Errorf("expected integer, got fractional: %v", n)
+			return 0, protocolError(fmt.Sprintf("expected integer, got fractional: %v", n))
 		}
 		if n > math.MaxInt64 || n < math.MinInt64 {
-			return 0, fmt.Errorf("integer out of int64 range: %v", n)
+			return 0, protocolError(fmt.Sprintf("integer out of int64 range: %v", n))
 		}
 		return int64(n), nil
 	case map[string]any:
@@ -364,21 +367,21 @@ func parseNumberAsInt64(v any) (int64, error) {
 		numF, ok1 := n["numerator"].(float64)
 		denF, ok2 := n["denominator"].(float64)
 		if !ok1 || !ok2 {
-			return 0, fmt.Errorf("expected {numerator: number, denominator: number}, got %v", n)
+			return 0, protocolError(fmt.Sprintf("expected {numerator: number, denominator: number}, got %v", n))
 		}
 		if numF != math.Trunc(numF) || denF != math.Trunc(denF) {
-			return 0, fmt.Errorf("expected integer rational, got %v/%v", numF, denF)
+			return 0, protocolError(fmt.Sprintf("expected integer rational, got %v/%v", numF, denF))
 		}
 		numI, denI := int64(numF), int64(denF)
 		if denI == 0 {
-			return 0, fmt.Errorf("zero denominator in rational")
+			return 0, protocolError("zero denominator in rational")
 		}
 		if numI%denI != 0 {
-			return 0, fmt.Errorf("expected integer, got non-exact rational %d/%d", numI, denI)
+			return 0, protocolError(fmt.Sprintf("expected integer, got non-exact rational %d/%d", numI, denI))
 		}
 		return numI / denI, nil
 	default:
-		return 0, fmt.Errorf("expected integer, got %T: %v", v, v)
+		return 0, protocolError(fmt.Sprintf("expected integer, got %T: %v", v, v))
 	}
 }
 

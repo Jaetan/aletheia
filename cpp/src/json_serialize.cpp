@@ -16,7 +16,7 @@ namespace aletheia::detail {
 // ---------------------------------------------------------------------------
 
 static auto can_id_numeric(const CanId& id) -> std::uint32_t {
-    return std::visit([](auto&& v) -> std::uint32_t { return v.value(); }, id);
+    return std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
 }
 
 static auto can_id_extended(const CanId& id) -> bool {
@@ -138,9 +138,12 @@ static auto predicate_to_json(const Predicate& p) -> json {
 }
 
 // Recursively serialize an LTL formula tree to JSON for the Agda core.
+static constexpr int max_formula_depth = 100;
+
 static auto formula_to_json(const LtlFormula& f, int depth = 0) -> json {
-    if (depth > 100)
-        throw std::runtime_error("Formula nesting depth exceeds 100");
+    if (depth > max_formula_depth)
+        throw std::runtime_error("Formula nesting depth exceeds " +
+                                 std::to_string(max_formula_depth));
     return std::visit(
         [depth](auto&& v) -> json {
             using T = std::decay_t<decltype(v)>;
@@ -214,7 +217,7 @@ auto serialize_format_dbc() -> std::string {
 
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
-    // Hot path: direct string construction like serialize_send_frame.
+    // Direct string construction like serialize_send_frame.
     std::string data_str;
     data_str.reserve(data.size() * 4);
     for (std::size_t i = 0; i < data.size(); ++i) {
@@ -262,8 +265,8 @@ auto serialize_start_stream() -> std::string {
 
 auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string {
-    // Hot path: build JSON directly via std::format instead of nlohmann tree.
-    // Avoids O(n) push_back allocations + tree traversal + dump().
+    // Used by the mock backend for testing; the real hot path uses binary FFI
+    // (send_frame_binary) which bypasses JSON serialization entirely.
     std::string data_str;
     data_str.reserve(data.size() * 4); // "255," = 4 chars max per byte
     for (std::size_t i = 0; i < data.size(); ++i) {

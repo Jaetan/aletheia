@@ -1,7 +1,6 @@
 // Layer 3: Integration tests with real libaletheia-ffi.so.
 // Requires: cabal run shake -- build (produces build/libaletheia-ffi.so)
 // Run with: ctest -R integration (or ./integration_tests)
-#define CATCH_CONFIG_MAIN
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 

@@ -1,6 +1,7 @@
 package aletheia
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,9 +361,9 @@ func TestLoadExcelWhenThenMetadata(t *testing.T) {
 // ===========================================================================
 
 func TestLoadExcelDbcSingleSignal(t *testing.T) {
-	// id, name, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
+	// id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "EngineData", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
+		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -416,9 +417,9 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 
 func TestLoadExcelDbcMessageGrouping(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "EngineData", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
-		{256, "EngineData", 8, "Temp", 16, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C"},
-		{512, "BrakeData", 4, "BrakePressure", 0, 16, "big_endian", "FALSE", 0.1, 0, 0, 6553.5, "bar"},
+		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
+		{256, "EngineData", "FALSE", 8, "Temp", 16, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C"},
+		{512, "BrakeData", "FALSE", 4, "BrakePressure", 0, 16, "big_endian", "FALSE", 0.1, 0, 0, 6553.5, "bar"},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -449,7 +450,7 @@ func TestLoadExcelDbcMessageGrouping(t *testing.T) {
 
 func TestLoadExcelDbcHexID(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{"0x100", "EngineData", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
+		{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -462,7 +463,7 @@ func TestLoadExcelDbcHexID(t *testing.T) {
 
 func TestLoadExcelDbcSignedTrue(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "EngineData", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
+		{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -475,7 +476,7 @@ func TestLoadExcelDbcSignedTrue(t *testing.T) {
 
 func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -488,7 +489,7 @@ func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
 
 func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -501,7 +502,7 @@ func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
 
 func TestLoadExcelDbcMissingUnit(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "EngineData", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
+		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -518,7 +519,7 @@ func TestLoadExcelDbcMissingUnit(t *testing.T) {
 
 func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -532,7 +533,7 @@ func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
 
 func TestLoadExcelDbcMultiplexed(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "MuxSignal", 8, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", "Selector", 3},
+		{256, "Msg", "FALSE", 8, "MuxSignal", 8, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", "Selector", 3},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -553,9 +554,9 @@ func TestLoadExcelDbcMultiplexed(t *testing.T) {
 
 func TestLoadExcelDbcMixedPresence(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Selector", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", nil, nil},
-		{256, "Msg", 8, "TempA", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 0},
-		{256, "Msg", 8, "TempB", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 1},
+		{256, "Msg", "FALSE", 8, "Selector", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", nil, nil},
+		{256, "Msg", "FALSE", 8, "TempA", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 0},
+		{256, "Msg", "FALSE", 8, "TempB", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 1},
 	})
 	dbc, err := LoadDbcFromExcel(path)
 	if err != nil {
@@ -578,7 +579,7 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 
 func TestLoadExcelDbcPartialMuxError(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
 	})
 	_, err := LoadDbcFromExcel(path)
 	if err == nil {
@@ -591,7 +592,7 @@ func TestLoadExcelDbcPartialMuxError(t *testing.T) {
 
 func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
 	})
 	_, err := LoadDbcFromExcel(path)
 	if err == nil {
@@ -755,7 +756,7 @@ func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when file exists")
 	}
-	if !strings.Contains(err.Error(), "File already exists") {
+	if !strings.Contains(err.Error(), "file already exists") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -898,7 +899,7 @@ func TestLoadExcelUnknownThenCondition(t *testing.T) {
 
 func TestLoadExcelInvalidByteOrder(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{256, "Msg", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
+		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbcFromExcel(path)
 	if err == nil {
@@ -911,7 +912,7 @@ func TestLoadExcelInvalidByteOrder(t *testing.T) {
 
 func TestLoadExcelInvalidMessageID(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
-		{"not_a_number", "Msg", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
+		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbcFromExcel(path)
 	if err == nil {
@@ -1043,14 +1044,20 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 // ===========================================================================
 
 func TestDoubleToRationalInteger(t *testing.T) {
-	r := doubleToRational(42.0)
+	r, err := doubleToRational(42.0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r.Numerator != 42 || r.Denominator != 1 {
 		t.Errorf("expected 42/1, got %d/%d", r.Numerator, r.Denominator)
 	}
 }
 
 func TestDoubleToRationalFraction(t *testing.T) {
-	r := doubleToRational(0.25)
+	r, err := doubleToRational(0.25)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r.Float64() != 0.25 {
 		t.Errorf("expected 0.25, got %f", r.Float64())
 	}
@@ -1061,19 +1068,32 @@ func TestDoubleToRationalFraction(t *testing.T) {
 }
 
 func TestDoubleToRationalNegative(t *testing.T) {
-	r := doubleToRational(-40.0)
+	r, err := doubleToRational(-40.0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r.Numerator != -40 || r.Denominator != 1 {
 		t.Errorf("expected -40/1, got %d/%d", r.Numerator, r.Denominator)
 	}
 }
 
 func TestDoubleToRationalNegativeFraction(t *testing.T) {
-	r := doubleToRational(-0.5)
+	r, err := doubleToRational(-0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r.Float64() != -0.5 {
 		t.Errorf("expected -0.5, got %f", r.Float64())
 	}
 	if r.Numerator != -1 || r.Denominator != 2 {
 		t.Errorf("expected -1/2, got %d/%d", r.Numerator, r.Denominator)
+	}
+}
+
+func TestDoubleToRationalOverflow(t *testing.T) {
+	_, err := doubleToRational(math.MaxFloat64)
+	if err == nil {
+		t.Fatal("expected error for overflow, got nil")
 	}
 }
 
@@ -1103,5 +1123,74 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
+	}
+}
+
+// ===========================================================================
+// Extended CAN ID
+// ===========================================================================
+
+func TestLoadExcelDbcExtendedID(t *testing.T) {
+	// Extended ID > 2047: must be marked Extended=TRUE.
+	path := makeDbcWorkbook(t, [][]interface{}{
+		{0x18FEF100, "J1939Msg", "TRUE", 8, "EngineSpeed", 0, 16, "little_endian", "FALSE", 0.125, 0, 0, 8031.875, "rpm"},
+	})
+	dbc, err := LoadDbcFromExcel(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dbc.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(dbc.Messages))
+	}
+	msg := dbc.Messages[0]
+	if !msg.ID.IsExtended() {
+		t.Error("expected extended CAN ID")
+	}
+	if msg.ID.Value() != 0x18FEF100 {
+		t.Errorf("ID: got 0x%X, want 0x%X", msg.ID.Value(), 0x18FEF100)
+	}
+	if string(msg.Name) != "J1939Msg" {
+		t.Errorf("Name: got %q", msg.Name)
+	}
+}
+
+func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
+	// Mix of standard (Extended=FALSE) and extended (Extended=TRUE) messages.
+	path := makeDbcWorkbook(t, [][]interface{}{
+		{256, "StdMsg", "FALSE", 4, "Sig1", 0, 16, "little_endian", "FALSE", 1, 0, 0, 65535, ""},
+		{0x18FF0100, "ExtMsg", "TRUE", 8, "Sig2", 0, 16, "big_endian", "FALSE", 1, 0, 0, 65535, ""},
+	})
+	dbc, err := LoadDbcFromExcel(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dbc.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(dbc.Messages))
+	}
+	if dbc.Messages[0].ID.IsExtended() {
+		t.Error("msg[0] should be standard")
+	}
+	if !dbc.Messages[1].ID.IsExtended() {
+		t.Error("msg[1] should be extended")
+	}
+	if dbc.Messages[1].ID.Value() != 0x18FF0100 {
+		t.Errorf("msg[1] ID: got 0x%X, want 0x18FF0100", dbc.Messages[1].ID.Value())
+	}
+}
+
+func TestLoadExcelDbcLowIDExtended(t *testing.T) {
+	// A low ID (< 2048) can still be extended if the column says so.
+	path := makeDbcWorkbook(t, [][]interface{}{
+		{100, "LowExtMsg", "TRUE", 8, "Sig", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, ""},
+	})
+	dbc, err := LoadDbcFromExcel(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dbc.Messages[0].ID.IsExtended() {
+		t.Error("expected extended CAN ID even though value < 2048")
+	}
+	if dbc.Messages[0].ID.Value() != 100 {
+		t.Errorf("ID: got %d, want 100", dbc.Messages[0].ID.Value())
 	}
 }

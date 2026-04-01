@@ -115,9 +115,9 @@ struct DbcMessage {
                                              MultiplexValue value) const -> std::vector<DbcSignal> {
         std::vector<DbcSignal> out;
         for (const auto& s : signals) {
-            const bool dominated = std::holds_alternative<AlwaysPresent>(s.presence);
+            const bool is_always_present = std::holds_alternative<AlwaysPresent>(s.presence);
             const auto* m = std::get_if<Multiplexed>(&s.presence);
-            if (dominated ||
+            if (is_always_present ||
                 (m != nullptr && m->multiplexor == multiplexor && m->mux_value == value))
                 out.push_back(s);
         }
@@ -134,7 +134,7 @@ struct DbcMessage {
         return &signals[it->second];
     }
 
-    // Lazy index — mutable to preserve aggregate initialization.
+    // Internal: lazy index — mutable for const-correct caching. Do not access directly.
     mutable bool signal_indexed = false;
     mutable std::unordered_map<std::string, std::size_t> signal_idx;
     void ensure_signal_index() const {
@@ -177,7 +177,7 @@ struct DbcDefinition {
         return &messages[it->second];
     }
 
-    // Lazy indexes — mutable to preserve aggregate initialization.
+    // Internal: lazy indexes — mutable for const-correct caching. Do not access directly.
     mutable bool name_indexed = false;
     mutable std::unordered_map<std::string, std::size_t> name_idx;
     mutable bool id_indexed = false;

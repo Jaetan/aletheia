@@ -14,12 +14,15 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
+constexpr std::int64_t us_per_second = 1'000'000;
+constexpr std::int64_t us_per_millisecond = 1'000;
+
 auto format_timebound(Timestamp t) -> std::string {
     auto us = t.count();
-    if (us % 1'000'000 == 0)
-        return std::format("{}s ", us / 1'000'000);
-    if (us % 1'000 == 0)
-        return std::format("{}ms ", us / 1'000);
+    if (us % us_per_second == 0)
+        return std::format("{}s ", us / us_per_second);
+    if (us % us_per_millisecond == 0)
+        return std::format("{}ms ", us / us_per_millisecond);
     return std::format("{}us ", us);
 }
 
@@ -46,6 +49,7 @@ auto format_predicate(const Predicate& p) -> std::string {
                 return std::format("{} <= {} <= {}", format_value(v.min.get()),
                                    std::string_view{v.signal}, format_value(v.max.get()));
             else if constexpr (std::is_same_v<T, ChangedBy>)
+                // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
                 return std::format("|{}{}| > {}", "\xce\x94", std::string_view{v.signal},
                                    format_value(v.delta.get()));
             else
@@ -120,10 +124,10 @@ auto format_formula(const LtlFormula& f) -> std::string {
                        format_formula(*v.formula) + ")";
             else if constexpr (std::is_same_v<T, MetricUntil>)
                 return format_formula(*v.left) + " until within " + format_timebound(v.bound) +
-                       " " + format_formula(*v.right);
+                       format_formula(*v.right);
             else if constexpr (std::is_same_v<T, MetricRelease>)
                 return format_formula(*v.left) + " release within " + format_timebound(v.bound) +
-                       " " + format_formula(*v.right);
+                       format_formula(*v.right);
             else
                 static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
         },

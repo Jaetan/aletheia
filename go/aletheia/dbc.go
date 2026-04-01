@@ -182,19 +182,21 @@ func (d *DbcDefinition) buildIndexes() {
 	}
 }
 
+const extendedIDFlag = 1 << 32 // bit 32 distinguishes extended from standard IDs in map keys
+
 // canIDKey returns a uint64 key that encodes both the CAN ID value and its type
 // (standard vs extended) for use as a map key.
 func canIDKey(id CanID) uint64 {
 	k := uint64(id.Value())
 	if id.IsExtended() {
-		k |= 1 << 32
+		k |= extendedIDFlag
 	}
 	return k
 }
 
 // MessageByID returns the first message with the given CAN ID, or nil if not found.
 // The returned pointer is a deep copy; mutating it does not affect the DbcDefinition.
-func (d DbcDefinition) MessageByID(id CanID) *DbcMessage {
+func (d *DbcDefinition) MessageByID(id CanID) *DbcMessage {
 	if d.idIndex != nil {
 		if idx, ok := d.idIndex[canIDKey(id)]; ok {
 			return copyMessage(&d.Messages[idx])
@@ -212,7 +214,7 @@ func (d DbcDefinition) MessageByID(id CanID) *DbcMessage {
 
 // MessageByName returns the first message with the given name, or nil if not found.
 // The returned pointer is a deep copy; mutating it does not affect the DbcDefinition.
-func (d DbcDefinition) MessageByName(name MessageName) *DbcMessage {
+func (d *DbcDefinition) MessageByName(name MessageName) *DbcMessage {
 	if d.nameIndex != nil {
 		if idx, ok := d.nameIndex[string(name)]; ok {
 			return copyMessage(&d.Messages[idx])

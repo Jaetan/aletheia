@@ -1,6 +1,10 @@
 package aletheia
 
-import "testing"
+import (
+	"encoding/json"
+	"errors"
+	"testing"
+)
 
 // ===========================================================================
 // One-shot methods
@@ -270,5 +274,98 @@ func TestAddChecksWithDefaults(t *testing.T) {
 	}
 	if err := client.AddChecks(sessionChecks); err != nil {
 		t.Errorf("AddChecks with defaults: %v", err)
+	}
+}
+
+func TestSerializeDataFrame(t *testing.T) {
+	sid, err := NewStandardID(0x100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlc, err := NewDLC(4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := Timestamp{Microseconds: 1000}
+	data := FramePayload{0x01, 0x02, 0x03, 0x04}
+
+	result := serializeDataFrame(ts, sid, dlc, data)
+
+	// Parse the output as JSON and verify fields.
+	var m map[string]any
+	if err := json.Unmarshal([]byte(result), &m); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if m["type"] != "data" {
+		t.Errorf("type = %v, want %q", m["type"], "data")
+	}
+	if m["timestamp"] != float64(1000) {
+		t.Errorf("timestamp = %v, want 1000", m["timestamp"])
+	}
+	if m["id"] != float64(0x100) {
+		t.Errorf("id = %v, want %d", m["id"], 0x100)
+	}
+	if m["extended"] != false {
+		t.Errorf("extended = %v, want false", m["extended"])
+	}
+	if m["dlc"] != float64(4) {
+		t.Errorf("dlc = %v, want 4", m["dlc"])
+	}
+	dataArr, ok := m["data"].([]any)
+	if !ok {
+		t.Fatalf("data is not an array: %T", m["data"])
+	}
+	if len(dataArr) != 4 {
+		t.Fatalf("data length = %d, want 4", len(dataArr))
+	}
+	for i, want := range []float64{1, 2, 3, 4} {
+		if dataArr[i] != want {
+			t.Errorf("data[%d] = %v, want %v", i, dataArr[i], want)
+		}
+	}
+}
+
+func TestSerializeDataFrameExtended(t *testing.T) {
+	eid, err := NewExtendedID(0x18FEF100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlc, err := NewDLC(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := Timestamp{Microseconds: 500}
+	data := FramePayload{0xFF, 0x00, 0xAA, 0x55, 0x01, 0x02, 0x03, 0x04}
+
+	result := serializeDataFrame(ts, eid, dlc, data)
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(result), &m); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if m["extended"] != true {
+		t.Errorf("extended = %v, want true", m["extended"])
+	}
+	if m["id"] != float64(0x18FEF100) {
+		t.Errorf("id = %v, want %d", m["id"], 0x18FEF100)
+	}
+}
+
+func TestSerializeFormulaDepthLimit(t *testing.T) {
+	// Build a formula nested 101 levels deep (exceeds maxFormulaDepth=100).
+	var f Formula = Atomic{Predicate: Equals{Signal: "S", Value: 1}}
+	for i := 0; i < 101; i++ {
+		f = Not{Inner: f}
+	}
+	_, err := serializeFormula(f)
+	if err == nil {
+		t.Fatal("expected error for deeply nested formula, got nil")
+	}
+	var aleErr *Error
+	if !errors.As(err, &aleErr) {
+		t.Fatalf("expected *Error, got %T", err)
+	}
+	if aleErr.Kind != ErrValidation {
+		t.Errorf("kind = %v, want ErrValidation", aleErr.Kind)
 	}
 }

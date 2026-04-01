@@ -83,6 +83,8 @@ static auto parse_rational(const json& j) -> Rational {
             throw std::runtime_error("Zero denominator in rational: " + j.dump());
         // Normalize: denominator always positive
         if (den < 0) {
+            if (num == std::numeric_limits<std::int64_t>::min())
+                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
             num = -num;
             den = -den;
         }

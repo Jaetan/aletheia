@@ -356,7 +356,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     with AletheiaClient() as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp['message']}")
+            _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
         result = client.extract_signals(can_id=can_id, dlc=msg["dlc"], data=data)
 
     if getattr(args, "json", False):
@@ -397,7 +397,7 @@ def _build_violation(
 
     reason = response.get("enriched_reason", response.get("reason", ""))
     signals = response.get("signals", {})
-    # For backward compat with CLI display, pick first signal
+    # Pick first signal for single-line violation display
     signal_name = ""
     actual_value: float | None = None
     if signals:

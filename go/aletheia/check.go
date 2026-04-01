@@ -1,6 +1,9 @@
 package aletheia
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // CheckResult is the terminal object produced by a check builder chain.
 // It wraps an LTL formula with optional metadata for display/reporting.
@@ -73,7 +76,11 @@ func (b CheckSignalBuilder) NeverBelow(value PhysicalValue) CheckResult {
 }
 
 // StaysBetween produces G(lo <= signal <= hi).
+// Panics if lo > hi (inverted range is always false — programming error).
 func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) CheckResult {
+	if lo > hi {
+		panic("StaysBetween: lo must be <= hi")
+	}
 	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: lo, Max: hi}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
@@ -100,7 +107,11 @@ func (b CheckSignalBuilder) Equals(value PhysicalValue) CheckSignalPredicate {
 }
 
 // SettlesBetween begins a settles_between(lo, hi).Within(ms) chain.
+// Panics if lo > hi (inverted range is always false — programming error).
 func (b CheckSignalBuilder) SettlesBetween(lo, hi PhysicalValue) SettlesBuilder {
+	if lo > hi {
+		panic("SettlesBetween: lo must be <= hi")
+	}
 	return SettlesBuilder{signalName: b.name, lo: lo, hi: hi}
 }
 
@@ -128,7 +139,10 @@ type SettlesBuilder struct {
 // Within completes the check: signal must settle between lo and hi within timeMs milliseconds.
 func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
 	if timeMs < 0 {
-		return CheckResult{}, fmt.Errorf("time must be non-negative, got %d", timeMs)
+		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
+	}
+	if timeMs > math.MaxInt64/1000 {
+		return CheckResult{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
 	}
 	f := AlwaysWithin(
 		TimeBound{Microseconds: timeMs * 1000},
@@ -208,7 +222,11 @@ func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
 }
 
 // StaysBetween requires the then-signal to stay between lo and hi.
+// Panics if lo > hi (inverted range is always false — programming error).
 func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
+	if lo > hi {
+		panic("StaysBetween: lo must be <= hi")
+	}
 	return ThenCondition{
 		trigger:    b.trigger,
 		thenPred:   Between{Signal: SignalName(b.thenName), Min: lo, Max: hi},
@@ -228,7 +246,10 @@ type ThenCondition struct {
 // Within completes the causal check: G(trigger → F≤t(response)).
 func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
 	if timeMs < 0 {
-		return CheckResult{}, fmt.Errorf("time must be non-negative, got %d", timeMs)
+		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
+	}
+	if timeMs > math.MaxInt64/1000 {
+		return CheckResult{}, validationError(fmt.Sprintf("time %d ms overflows microsecond conversion", timeMs))
 	}
 	us := TimeBound{Microseconds: timeMs * 1000}
 	f := Always{Inner: Implies(

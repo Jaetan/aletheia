@@ -235,6 +235,10 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		ext = 1
 	}
 
+	if ts.Microseconds < 0 {
+		return "", validationError("timestamp must be non-negative")
+	}
+
 	if len(data) > 64 {
 		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
 	}

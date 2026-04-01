@@ -135,15 +135,16 @@ def _load_yaml(source: str | Path) -> object:
     if isinstance(source, Path):
         with open(source, encoding="utf-8") as f:
             return yaml.safe_load(f)
-    # String: detect whether it's a file path or inline YAML
-    if "\n" in source or source.lstrip().startswith("checks:"):
-        return yaml.safe_load(source)
-    # Treat as file path
+    # String: existing file takes priority over inline detection
     path = Path(source)
-    if not path.exists():
-        raise FileNotFoundError(f"YAML file not found: {source}")
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    # Multi-line or YAML-structured strings are inline YAML
+    if "\n" in source or source.lstrip().startswith(("checks:", "-", "{", "[")):
+        return yaml.safe_load(source)
+    # Doesn't exist and doesn't look like inline YAML
+    raise FileNotFoundError(f"YAML file not found: {source}")
 
 
 def _parse_check(entry: dict[str, object]) -> CheckResult:
