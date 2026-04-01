@@ -3,7 +3,7 @@
 -- Batch frame building from signal name-value pairs.
 --
 -- Purpose: Build CAN frames from multiple signal values at once with validation.
--- Operations: buildFrame (DBC + CAN ID + signals → Maybe frame).
+-- Operations: buildFrame (DBC + CAN ID + signals → String ⊎ frame).
 -- Role: Batch encoding for Python API (Phase 2B.1).
 --
 -- Validation: Signal name existence, signal overlap detection, multiplexing consistency.
@@ -13,15 +13,17 @@ module Aletheia.CAN.BatchFrameBuilding where
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
+open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
-open import Data.String using (String)
+open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
-open import Data.Maybe using (Maybe; just; nothing; _>>=_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Vec as Vec using (Vec; replicate)
 open import Data.Nat using (ℕ; _+_; _∸_; _≤ᵇ_)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 
 -- ============================================================================
 -- OVERLAP DETECTION
@@ -66,71 +68,74 @@ hasOverlaps (sig ∷ rest) = anyOverlap sig rest ∨ hasOverlaps rest
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 
 -- Lookup signal definitions for a list of (name, value) pairs
--- Returns Nothing if any signal name is not found
-lookupSignals : List (String × ℚ) → DBCMessage → Maybe (List (DBCSignal × ℚ))
-lookupSignals [] msg = just []
-lookupSignals ((name , value) ∷ rest) msg =
-  findSignalByName name msg >>= λ sig →
-  lookupSignals rest msg >>= λ restSigs →
-  just ((sig , value) ∷ restSigs)
+-- Returns error message if any signal name is not found
+lookupSignals : List (String × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
+lookupSignals [] msg = inj₂ []
+lookupSignals ((name , value) ∷ rest) msg with findSignalByName name msg
+... | nothing = inj₁ ("Signal not found: " ++ₛ name)
+... | just sig with lookupSignals rest msg
+...   | inj₁ err = inj₁ err
+...   | inj₂ restSigs = inj₂ ((sig , value) ∷ restSigs)
 
 -- ============================================================================
 -- FRAME BUILDING
 -- ============================================================================
 
 -- Inject a single signal into a frame
-injectOne : CANFrame → (DBCSignal × ℚ) → Maybe CANFrame
-injectOne frame (sig , value) =
-  injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame
+injectOne : ∀ {n} → CANFrame n → (DBCSignal × ℚ) → String ⊎ CANFrame n
+injectOne frame (sig , value) with injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame
+... | nothing = inj₁ ("Injection failed for signal: " ++ₛ DBCSignal.name sig)
+... | just f  = inj₂ f
 
 -- Inject all signals into a frame (left-to-right fold)
-injectAll : CANFrame → List (DBCSignal × ℚ) → Maybe CANFrame
-injectAll frame [] = just frame
-injectAll frame (sig ∷ rest) =
-  injectOne frame sig >>= λ frame' →
-  injectAll frame' rest
+injectAll : ∀ {n} → CANFrame n → List (DBCSignal × ℚ) → String ⊎ CANFrame n
+injectAll frame [] = inj₂ frame
+injectAll frame (sig ∷ rest) with injectOne frame sig
+... | inj₁ err = inj₁ err
+... | inj₂ frame' = injectAll frame' rest
 
 -- Build a CAN frame from signal name-value pairs
--- Returns Nothing if:
+-- Returns error message if:
 -- - CAN ID not found in DBC
 -- - Any signal name not found in message
 -- - Signals overlap
 -- - Signal value out of bounds or injection fails
-buildFrame : DBC → CANId → List (String × ℚ) → Maybe (Vec Byte 8)
-buildFrame dbc canId signals =
-  findMessageById canId dbc >>= λ msg →
-  lookupSignals signals msg >>= λ signalDefs →
-  validateAndBuild msg signalDefs
+buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+buildFrame dbc canId dlc signals with findMessageById canId dbc
+... | nothing = inj₁ "CAN ID not found in DBC"
+... | just msg with lookupSignals signals msg
+...   | inj₁ err = inj₁ err
+...   | inj₂ signalDefs = validateAndBuild signalDefs
   where
-    -- Validate no overlaps and build frame
-    validateAndBuild : DBCMessage → List (DBCSignal × ℚ) → Maybe (Vec Byte 8)
-    validateAndBuild msg signalDefs =
-      let sigs = map Data.Product.proj₁ signalDefs
-      in if hasOverlaps sigs
-         then nothing  -- Signals overlap, reject
-         else -- Build frame from validated signals (no overlaps)
-           let emptyPayload : Vec Byte 8
-               emptyPayload = Vec.replicate 8 0
-               emptyFrame : CANFrame
-               emptyFrame = record { id = canId ; dlc = 8 ; payload = emptyPayload }
-           in injectAll emptyFrame signalDefs >>= λ finalFrame →
-              just (CANFrame.payload finalFrame)
+    emptyFrame : CANFrame (dlcToBytes dlc)
+    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcToBytes dlc) 0 }
+
+    validateAndBuild : List (DBCSignal × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+    validateAndBuild defs with hasOverlaps (map Data.Product.proj₁ defs)
+    ... | true = inj₁ "Signals overlap"
+    ... | false with injectAll emptyFrame defs
+    ...   | inj₁ err = inj₁ err
+    ...   | inj₂ finalFrame = inj₂ (CANFrame.payload finalFrame)
 
 -- ============================================================================
 -- FRAME UPDATING
 -- ============================================================================
 
 -- Update specific signals in an existing frame
--- Returns Nothing if:
+-- Returns error message if:
 -- - CAN ID doesn't match frame
 -- - Any signal name not found in message
 -- - Signal value out of bounds or injection fails
 -- Guarantees: Other signals in frame are preserved
-updateFrame : DBC → CANId → CANFrame → List (String × ℚ) → Maybe CANFrame
+updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → String ⊎ CANFrame n
 updateFrame dbc canId frame signals =
-  -- Verify frame ID matches
   if canIdEquals canId (CANFrame.id frame)
-  then (findMessageById canId dbc >>= λ msg →
-        lookupSignals signals msg >>= λ signalDefs →
-        injectAll frame signalDefs)  -- Inject updates into existing frame
-  else nothing
+  then findAndInject
+  else inj₁ "CAN ID does not match frame"
+  where
+    findAndInject : String ⊎ CANFrame _
+    findAndInject with findMessageById canId dbc
+    ... | nothing = inj₁ "CAN ID not found in DBC"
+    ... | just msg with lookupSignals signals msg
+    ...   | inj₁ err = inj₁ err
+    ...   | inj₂ signalDefs = injectAll frame signalDefs

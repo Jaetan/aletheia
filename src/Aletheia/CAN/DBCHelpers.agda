@@ -36,7 +36,7 @@ canIdEquals _ _ = false
 -- DBC MESSAGE LOOKUP
 -- ============================================================================
 
--- Find message by CAN ID in DBC
+-- Find message by CAN ID in DBC (O(n) linear scan)
 -- Returns first message whose ID matches (DBC should have unique IDs)
 findMessageById : CANId → DBC → Maybe DBCMessage
 findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
@@ -48,7 +48,7 @@ findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
 -- SIGNAL LOOKUP
 -- ============================================================================
 
--- Find signal by name in a message
+-- Find signal by name in a message (O(n) linear scan)
 -- Returns first signal whose name matches (DBC should have unique names per message)
 findSignalByName : String → DBCMessage → Maybe DBCSignal
 findSignalByName name msg = findByPredicate matchesName (DBCMessage.signals msg)

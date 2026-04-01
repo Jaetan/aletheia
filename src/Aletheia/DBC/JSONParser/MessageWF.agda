@@ -8,16 +8,18 @@
 -- Role: Used by Properties for the top-level parse-wellformed theorem.
 module Aletheia.DBC.JSONParser.MessageWF where
 
-open import Data.Nat using (ℕ; _+_; _<_; _≤_; s≤s)
+open import Data.Nat using (ℕ; _+_; _<_; _≤_; s≤s; _≤ᵇ_)
 open import Data.Nat.DivMod using (m%n<n)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
 open import Data.Product using (_×_)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (Bool; true; false; T)
+open import Data.Unit using (tt)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
+open import Data.Nat.Properties using (≤ᵇ⇒≤)
 
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
   lookupString; lookupBool; lookupNat; lookupArray)
@@ -98,14 +100,15 @@ parseMessageBody-wf ctx name canId obj msg id-wf eq
     with lookupArray "signals" obj | eq₂
 ...     | nothing | ()
 ...     | just signalsJSON | eq₃
-      with parseSignalList ctx signalsJSON 0 in sig-eq | eq₃
+      with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₃
 ...       | inj₁ _ | ()
 ...       | inj₂ signals | eq₄
-        with Data.Nat._≤ᵇ_ rawDlc 8 | eq₄
+        with rawDlc ≤ᵇ 64 in leq-eq | eq₄
 ...         | true  | refl = record
-              { dlc-bound  = <suc⇒≤ (m%n<n rawDlc 9)
+              { dlc-bound  = <suc⇒≤ (m%n<n rawDlc 65)
               ; id-wf      = id-wf
-              ; signals-wf = parseSignalList-wf ctx signalsJSON 0 signals sig-eq
+              ; signals-wf = parseSignalList-wf rawDlc ctx signalsJSON 0 signals
+                               (≤ᵇ⇒≤ rawDlc 64 (subst T (sym leq-eq) tt)) sig-eq
               }
 ...         | false | ()
 

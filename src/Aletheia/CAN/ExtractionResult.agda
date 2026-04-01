@@ -24,16 +24,16 @@ data ExtractionResult : Set where
   Success : ℚ → ExtractionResult
 
   -- Signal not found in DBC
-  SignalNotInDBC : (signalName : String) → ExtractionResult
+  SignalNotInDBC : ExtractionResult
 
   -- Signal exists but is multiplexed out (not present in this frame)
-  SignalNotPresent : (signalName : String) → (reason : String) → ExtractionResult
+  SignalNotPresent : (reason : String) → ExtractionResult
 
   -- Signal extracted but value out of bounds
-  ValueOutOfBounds : (signalName : String) → (value : ℚ) → (minimum : ℚ) → (maximum : ℚ) → ExtractionResult
+  ValueOutOfBounds : (value : ℚ) → (minimum : ℚ) → (maximum : ℚ) → ExtractionResult
 
   -- Bit extraction or scaling failed
-  ExtractionFailed : (signalName : String) → (reason : String) → ExtractionResult
+  ExtractionFailed : (reason : String) → ExtractionResult
 
 -- ============================================================================
 -- HELPER FUNCTIONS

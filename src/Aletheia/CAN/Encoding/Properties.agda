@@ -14,8 +14,10 @@
 -- The hard proofs (testBit-setBit) are now trivial because we use the right representation.
 module Aletheia.CAN.Encoding.Properties where
 
-open import Aletheia.CAN.Encoding using (toSigned; fromSigned; applyScaling; removeScaling; inBounds; extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; extractBits-injectBits-roundtrip; injectPayload; swapBytes-involutive)
+open import Aletheia.CAN.Encoding using (extractSignalCore; scaleExtracted; extractionBytes; extractSignal; injectSignal)
+open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; extractBits; injectBits; swapBytes; injectPayload)
+open import Aletheia.CAN.Endianness.Properties using (extractBits-injectBits-roundtrip; swapBytes-involutive)
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.Data.BitVec using (BitVec)
@@ -26,8 +28,7 @@ open import Data.Nat.Coprimality using (1-coprimeTo) renaming (sym to coprime-sy
 open import Data.Nat.DivMod as ℕ using (n/1≡n; n%1≡0)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Integer.DivMod as ℤ using (div-pos-is-/ℕ)
-open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; normalize; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ)
-open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
+open import Data.Rational as ℚ using (ℚ; 0ℚ; 1ℚ; floor; normalize; 1/_; NonZero; ≢-nonZero; mkℚ; toℚᵘ; fromℚᵘ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_; _≤_ to _≤ᵣ_; _<_ to _<ᵣ_; _/_ to _/ᵣ_; _÷_ to _÷ᵣ_; -_ to -ᵣ_)
 open import Data.Rational.Unnormalised.Base as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Rational.Literals using (fromℤ)
 open import Data.Rational.Properties using (normalize-coprime; mkℚ-cong; +-inverseʳ; *-inverseʳ; *-identityʳ; *-assoc; fromℚᵘ-toℚᵘ; toℚᵘ-homo-*; toℚᵘ-homo-1/; fromℚᵘ-cong; ↥p≡0⇒p≡0) renaming (+-identityʳ to ℚ-+-identityʳ; +-assoc to ℚ-+-assoc)
@@ -316,12 +317,12 @@ private
       aux eq rewrite eq | ℕ.n/1≡n (ℕ.suc n) = refl
 
   -- Prove that z / 1 equals fromℤ z (localizes all gcd/normalization complexity)
-  z/1≡fromℤ : ∀ (z : ℤ) → z Data.Rational./ 1 ≡ fromℤ z
+  z/1≡fromℤ : ∀ (z : ℤ) → z /ᵣ 1 ≡ fromℤ z
   z/1≡fromℤ (+ n) = trans (normalize-coprime (coprime-sym (1-coprimeTo n))) (mkℚ-cong refl refl)
-  z/1≡fromℤ -[1+ n ] = trans (cong Data.Rational.-_ (normalize-coprime (coprime-sym (1-coprimeTo (suc n)))))
+  z/1≡fromℤ -[1+ n ] = trans (cong -ᵣ_ (normalize-coprime (coprime-sym (1-coprimeTo (suc n)))))
                         (trans (mkℚ-cong refl refl) refl)
 
-  floor-int : ∀ (z : ℤ) → floor (z Data.Rational./ 1) ≡ z
+  floor-int : ∀ (z : ℤ) → floor (z /ᵣ 1) ≡ z
   floor-int z = trans (cong floor (z/1≡fromℤ z)) (floor-fromℤ z)
 
 -- Semantic bridge lemma: what does removeScaling ∘ applyScaling evaluate to?
@@ -380,18 +381,18 @@ private
     ∀ (raw : ℤ) (factor offset : ℚ)
     → factor ≢ 0ℚ
     → removeScaling (applyScaling raw factor offset) factor offset
-      ≡ just (floor (raw Data.Rational./ 1))
+      ≡ just (floor (raw /ᵣ 1))
   removeScaling-applyScaling-value raw factor@(mkℚ (+ 0) _ _) offset factor≢0 =
     ⊥-elim (ℚ-nonzero⇒num-nonzero factor factor≢0 refl)
   removeScaling-applyScaling-value raw factor@(mkℚ (+ ℕ.suc _) _ _) offset factor≢0 =
     -- After pattern match, divideUnnorm reduces to ÷ᵘ, and fromℚᵘ (... ÷ᵘ ...) ≡ ... ÷ᵣ ... by ÷-via-ℚᵘ
     let numer = (applyScaling raw factor offset) -ᵣ offset
     in cong just (trans (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))
-                        (cong floor (ℚ-cancel (raw Data.Rational./ 1) factor offset {{≢-nonZero factor≢0}})))
+                        (cong floor (ℚ-cancel (raw /ᵣ 1) factor offset {{≢-nonZero factor≢0}})))
   removeScaling-applyScaling-value raw factor@(mkℚ -[1+ _ ] _ _) offset factor≢0 =
     let numer = (applyScaling raw factor offset) -ᵣ offset
     in cong just (trans (cong floor (÷-via-ℚᵘ numer factor {{≢-nonZero factor≢0}}))
-                        (cong floor (ℚ-cancel (raw Data.Rational./ 1) factor offset {{≢-nonZero factor≢0}})))
+                        (cong floor (ℚ-cancel (raw /ᵣ 1) factor offset {{≢-nonZero factor≢0}})))
 
 -- Property: removeScaling-applyScaling-exact
 -- ---------------------------------------------
@@ -431,7 +432,7 @@ private
 
   -- Floor lower bound: floor(q) / 1 ≤ q
   -- Strategy: floor q = ↥q ℤ./ ↧q, use [n/d]*d≤n, lift via *≤*
-  floor-lower : ∀ (q : ℚ) → (floor q Data.Rational./ 1) ≤ᵣ q
+  floor-lower : ∀ (q : ℚ) → (floor q /ᵣ 1) ≤ᵣ q
   floor-lower q@(mkℚ n d-1 _) = subst (_≤ᵣ q) (sym (z/1≡fromℤ (floor q))) fromℤ-floor-≤
     where
       open import Data.Integer.Properties as ℤ using (*-identityʳ)
@@ -449,7 +450,7 @@ private
 
   -- Floor upper bound: q < (floor(q) + 1) / 1
   -- Strategy: use n<s[n/ℕd]*d, lift via *<*
-  floor-upper : ∀ (q : ℚ) → q <ᵣ ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+  floor-upper : ∀ (q : ℚ) → q <ᵣ ((floor q ℤ.+ ℤ.+ 1) /ᵣ 1)
   floor-upper q@(mkℚ n d-1 _) = subst (q <ᵣ_) (sym (z/1≡fromℤ (floor q ℤ.+ ℤ.+ 1))) fromℤ-suc-floor->
     where
       open import Data.Integer as ℤ using (suc; _<_)
@@ -542,7 +543,7 @@ private
 
   -- (raw + 1)/1 * factor ≡ raw/1 * factor + factor
   raw+1*f≡raw*f+f : ∀ (raw : ℤ) (f : ℚ) →
-    ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ f ≡ (raw Data.Rational./ 1) *ᵣ f +ᵣ f
+    ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ f ≡ (raw /ᵣ 1) *ᵣ f +ᵣ f
   raw+1*f≡raw*f+f raw f = begin
     ((raw ℤ.+ ℤ.+ 1) /₁ 1) *ᵣ f             ≡⟨ cong (_*ᵣ f) (z/1≡fromℤ (raw ℤ.+ ℤ.+ 1)) ⟩
     fromℤ (raw ℤ.+ ℤ.+ 1) *ᵣ f              ≡⟨ cong (λ x → fromℤ x *ᵣ f) (ℤ.+-comm raw (ℤ.+ 1)) ⟩
@@ -558,11 +559,11 @@ private
 
   -- (raw/1 * f + f) + o ≡ applyScaling raw f o + f (rearrange for bounds proofs)
   apply-rearrange : ∀ (raw : ℤ) (factor offset : ℚ) →
-    ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
+    ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) +ᵣ offset ≡ applyScaling raw factor offset +ᵣ factor
   apply-rearrange raw factor offset = begin
-    ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) factor offset ⟩
-    (raw Data.Rational./ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw Data.Rational./ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
-    (raw Data.Rational./ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw Data.Rational./ 1) *ᵣ factor) offset factor) ⟩
+    ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) +ᵣ offset  ≡⟨ ℚ-+-assoc ((raw /ᵣ 1) *ᵣ factor) factor offset ⟩
+    (raw /ᵣ 1) *ᵣ factor +ᵣ (factor +ᵣ offset)  ≡⟨ cong ((raw /ᵣ 1) *ᵣ factor +ᵣ_) (ℚ-+-comm factor offset) ⟩
+    (raw /ᵣ 1) *ᵣ factor +ᵣ (offset +ᵣ factor)  ≡⟨ sym (ℚ-+-assoc ((raw /ᵣ 1) *ᵣ factor) offset factor) ⟩
     applyScaling raw factor offset +ᵣ factor                  ∎
     where open import Data.Rational.Properties renaming (+-assoc to ℚ-+-assoc; +-comm to ℚ-+-comm)
 
@@ -627,17 +628,17 @@ private
       -- Step 1: floor bounds with substitution
       -- floor-lower q : (floor q / 1) ≤ᵣ q
       -- floor≡raw : floor q ≡ raw, so floor q / 1 ≡ raw / 1 by cong
-      floor/1≡raw/1 : (floor q Data.Rational./ 1) ≡ (raw Data.Rational./ 1)
+      floor/1≡raw/1 : (floor q /ᵣ 1) ≡ (raw /ᵣ 1)
       floor/1≡raw/1 = cong (Data.Rational._/ 1) floor≡raw
 
-      raw/1≤q : (raw Data.Rational./ 1) ≤ᵣ q
+      raw/1≤q : (raw /ᵣ 1) ≤ᵣ q
       raw/1≤q = subst (_≤ᵣ q) floor/1≡raw/1 (floor-lower q)
 
       -- floor-upper q : q <ᵣ ((floor q + 1) / 1)
-      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1) ≡ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
-      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) Data.Rational./ 1) floor≡raw
+      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) /ᵣ 1) ≡ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1)
+      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) /ᵣ 1) floor≡raw
 
-      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1)
       q<raw+1/1 = <-respʳ-≡ floor+1/1≡raw+1/1 (floor-upper q)
 
       -- Step 2: multiply by positive factor (preserves order)
@@ -650,31 +651,31 @@ private
         _ : NonZero factor
         _ = >-nonZero factor-pos
 
-      raw/1*f≤q*f : (raw Data.Rational./ 1) *ᵣ factor ≤ᵣ q *ᵣ factor
+      raw/1*f≤q*f : (raw /ᵣ 1) *ᵣ factor ≤ᵣ q *ᵣ factor
       raw/1*f≤q*f = *-monoʳ-≤-nonNeg factor raw/1≤q
 
-      q*f<raw+1/1*f : q *ᵣ factor <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor
+      q*f<raw+1/1*f : q *ᵣ factor <ᵣ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor
       q*f<raw+1/1*f = *-monoˡ-<-pos factor q<raw+1/1
 
       -- Step 3: cancel division (q * f = value - offset)
-      raw/1*f≤v-o : (raw Data.Rational./ 1) *ᵣ factor ≤ᵣ value -ᵣ offset
-      raw/1*f≤v-o = subst ((raw Data.Rational./ 1) *ᵣ factor ≤ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw/1*f≤q*f
+      raw/1*f≤v-o : (raw /ᵣ 1) *ᵣ factor ≤ᵣ value -ᵣ offset
+      raw/1*f≤v-o = subst ((raw /ᵣ 1) *ᵣ factor ≤ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw/1*f≤q*f
 
-      v-o<raw+1/1*f : value -ᵣ offset <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor
-      v-o<raw+1/1*f = subst (_<ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f<raw+1/1*f
+      v-o<raw+1/1*f : value -ᵣ offset <ᵣ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor
+      v-o<raw+1/1*f = subst (_<ᵣ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f<raw+1/1*f
 
       -- Step 4: shift offset, use raw+1*f identity for upper bound
       left-bound : applyScaling raw factor offset ≤ᵣ value
-      left-bound = ≤-shift-offset ((raw Data.Rational./ 1) *ᵣ factor) value offset raw/1*f≤v-o
+      left-bound = ≤-shift-offset ((raw /ᵣ 1) *ᵣ factor) value offset raw/1*f≤v-o
 
       -- For right bound: v - o < raw/1*f + f, add offset to get v < raw/1*f + f + o
       -- Then rewrite: (raw/1*f + f) + o = (raw/1*f + o) + f = result + f by commutativity
       -- raw+1*f≡raw*f+f : (raw+1)/1 * f ≡ raw/1 * f + f
-      v-o<raw/1*f+f : value -ᵣ offset <ᵣ (raw Data.Rational./ 1) *ᵣ factor +ᵣ factor
+      v-o<raw/1*f+f : value -ᵣ offset <ᵣ (raw /ᵣ 1) *ᵣ factor +ᵣ factor
       v-o<raw/1*f+f = subst (value -ᵣ offset <ᵣ_) (raw+1*f≡raw*f+f raw factor) v-o<raw+1/1*f
 
-      v<raw/1*f+f+o : value <ᵣ ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset
-      v<raw/1*f+f+o = <-shift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset v-o<raw/1*f+f
+      v<raw/1*f+f+o : value <ᵣ ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) +ᵣ offset
+      v<raw/1*f+f+o = <-shift-offset value ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) offset v-o<raw/1*f+f
 
       right-bound : value <ᵣ applyScaling raw factor offset +ᵣ factor
       right-bound = subst (value <ᵣ_) (apply-rearrange raw factor offset) v<raw/1*f+f+o
@@ -695,16 +696,16 @@ private
       _ = negative factor-neg
 
       -- Step 1: floor bounds with substitution (same as positive case)
-      floor/1≡raw/1 : (floor q Data.Rational./ 1) ≡ (raw Data.Rational./ 1)
+      floor/1≡raw/1 : (floor q /ᵣ 1) ≡ (raw /ᵣ 1)
       floor/1≡raw/1 = cong (Data.Rational._/ 1) floor≡raw
 
-      raw/1≤q : (raw Data.Rational./ 1) ≤ᵣ q
+      raw/1≤q : (raw /ᵣ 1) ≤ᵣ q
       raw/1≤q = subst (_≤ᵣ q) floor/1≡raw/1 (floor-lower q)
 
-      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) Data.Rational./ 1) ≡ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
-      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) Data.Rational./ 1) floor≡raw
+      floor+1/1≡raw+1/1 : ((floor q ℤ.+ ℤ.+ 1) /ᵣ 1) ≡ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1)
+      floor+1/1≡raw+1/1 = cong (λ x → (x ℤ.+ ℤ.+ 1) /ᵣ 1) floor≡raw
 
-      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1)
+      q<raw+1/1 : q <ᵣ ((raw ℤ.+ ℤ.+ 1) /ᵣ 1)
       q<raw+1/1 = <-respʳ-≡ floor+1/1≡raw+1/1 (floor-upper q)
 
       -- Step 2: multiply by negative factor (REVERSES order)
@@ -719,36 +720,36 @@ private
 
       -- *-monoʳ-≤-nonPos : p ≤ q → (p * r) ≥ (q * r) for nonPos r
       -- So raw/1 ≤ q gives q*f ≤ raw/1*f
-      q*f≤raw/1*f : q *ᵣ factor ≤ᵣ (raw Data.Rational./ 1) *ᵣ factor
+      q*f≤raw/1*f : q *ᵣ factor ≤ᵣ (raw /ᵣ 1) *ᵣ factor
       q*f≤raw/1*f = *-monoʳ-≤-nonPos factor raw/1≤q
 
       -- *-monoˡ-<-neg : p < q → (p * r) > (q * r) for neg r
       -- So q < raw+1/1 gives raw+1/1*f < q*f
-      raw+1/1*f<q*f : ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ q *ᵣ factor
+      raw+1/1*f<q*f : ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor <ᵣ q *ᵣ factor
       raw+1/1*f<q*f = *-monoˡ-<-neg factor q<raw+1/1
 
       -- Step 3: cancel division (q * f = value - offset)
       -- q*f ≤ raw/1*f becomes value - offset ≤ raw/1*f
-      v-o≤raw/1*f : value -ᵣ offset ≤ᵣ (raw Data.Rational./ 1) *ᵣ factor
-      v-o≤raw/1*f = subst (_≤ᵣ (raw Data.Rational./ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f≤raw/1*f
+      v-o≤raw/1*f : value -ᵣ offset ≤ᵣ (raw /ᵣ 1) *ᵣ factor
+      v-o≤raw/1*f = subst (_≤ᵣ (raw /ᵣ 1) *ᵣ factor) (÷-*-cancel (value -ᵣ offset) factor) q*f≤raw/1*f
 
       -- raw+1/1*f < q*f becomes raw+1/1*f < value - offset
-      raw+1/1*f<v-o : ((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ value -ᵣ offset
-      raw+1/1*f<v-o = subst (((raw ℤ.+ ℤ.+ 1) Data.Rational./ 1) *ᵣ factor <ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw+1/1*f<q*f
+      raw+1/1*f<v-o : ((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor <ᵣ value -ᵣ offset
+      raw+1/1*f<v-o = subst (((raw ℤ.+ ℤ.+ 1) /ᵣ 1) *ᵣ factor <ᵣ_) (÷-*-cancel (value -ᵣ offset) factor) raw+1/1*f<q*f
 
       -- Step 4: unshift offset
       -- For right bound: value - offset ≤ raw/1*f implies value ≤ raw/1*f + offset = result
       right-bound : value ≤ᵣ applyScaling raw factor offset
-      right-bound = ≤-unshift-offset value ((raw Data.Rational./ 1) *ᵣ factor) offset v-o≤raw/1*f
+      right-bound = ≤-unshift-offset value ((raw /ᵣ 1) *ᵣ factor) offset v-o≤raw/1*f
 
       -- For left bound: raw+1/1*f < value - offset
       -- Convert raw+1/1*f to raw/1*f + f using raw+1*f≡raw*f+f
-      raw/1*f+f<v-o : (raw Data.Rational./ 1) *ᵣ factor +ᵣ factor <ᵣ value -ᵣ offset
+      raw/1*f+f<v-o : (raw /ᵣ 1) *ᵣ factor +ᵣ factor <ᵣ value -ᵣ offset
       raw/1*f+f<v-o = subst (_<ᵣ value -ᵣ offset) (raw+1*f≡raw*f+f raw factor) raw+1/1*f<v-o
 
       -- raw/1*f + f < value - offset implies (raw/1*f + f) + offset < value
-      raw/1*f+f+o<v : ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) +ᵣ offset <ᵣ value
-      raw/1*f+f+o<v = <-unshift-offset value ((raw Data.Rational./ 1) *ᵣ factor +ᵣ factor) offset raw/1*f+f<v-o
+      raw/1*f+f+o<v : ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) +ᵣ offset <ᵣ value
+      raw/1*f+f+o<v = <-unshift-offset value ((raw /ᵣ 1) *ᵣ factor +ᵣ factor) offset raw/1*f+f<v-o
 
       left-bound : applyScaling raw factor offset +ᵣ factor <ᵣ value
       left-bound = subst (_<ᵣ value) (apply-rearrange raw factor offset) raw/1*f+f+o<v
@@ -901,8 +902,8 @@ private
   --
   -- Unsigned case: raw = + n
   signal-roundtrip-unsigned :
-    ∀ (n : ℕ) (bytes : Vec Byte 8) (startBit bitLength : ℕ)
-    → (fits-in-frame : startBit + bitLength ≤ 64)
+    ∀ {m} (n : ℕ) (bytes : Vec Byte m) (startBit bitLength : ℕ)
+    → (fits-in-frame : startBit + bitLength ≤ m * 8)
     → (n<2^bl : n < 2 ^ bitLength)
     → toSigned (bitVecToℕ (extractBits {bitLength}
         (injectBits {bitLength} bytes startBit (ℕToBitVec {bitLength} n n<2^bl))
@@ -928,9 +929,9 @@ private
 
   -- Signed case: use toSigned-fromSigned-roundtrip
   signal-roundtrip-signed :
-    ∀ (raw : ℤ) (bytes : Vec Byte 8) (startBit bitLength : ℕ)
+    ∀ {m} (raw : ℤ) (bytes : Vec Byte m) (startBit bitLength : ℕ)
     → (bitLength>0 : bitLength > 0)
-    → (fits-in-frame : startBit + bitLength ≤ 64)
+    → (fits-in-frame : startBit + bitLength ≤ m * 8)
     → (sf : SignedFits raw bitLength)
     → (fits-in-bits : fromSigned raw bitLength < 2 ^ bitLength)
     → toSigned (bitVecToℕ (extractBits {bitLength}
@@ -1004,16 +1005,16 @@ signalValue raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset 
 
 -- Helper: compute the frame that injectSignal produces
 -- Uses injectPayload abstraction to factor out byte order handling
-injectedFrame : ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+injectedFrame : ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → n < 2 ^ SignalDef.bitLength sig
-  → CANFrame
+  → CANFrame m
 injectedFrame n sig byteOrder frame n<2^bl =
   record frame { payload = injectPayload (SignalDef.startBit sig) (ℕToBitVec {SignalDef.bitLength sig} n n<2^bl) byteOrder (CANFrame.payload frame) }
 
 -- Reduction Lemma A: injectSignal reduces to a known frame
 -- This is more useful than existence because it eliminates ∃ from proofs
 injectSignal-reduces-unsigned :
-  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
@@ -1051,10 +1052,10 @@ injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl 
 -- Reduction Lemma B: extractSignal on injectedFrame returns the original value
 -- Now uses the refactored extractSignal with computational core
 extractSignal-reduces-unsigned :
-  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (unsigned : SignalDef.isSigned sig ≡ false)
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64)
+  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
   → extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue (+ n) sig)
 
@@ -1068,7 +1069,7 @@ extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-
     value = signalValue (+ n) sig
 
     -- The bytes we extract from (definitional for LittleEndian via injectPayload)
-    injectedBytes : Vec Byte 8
+    injectedBytes : Vec Byte _
     injectedBytes = injectBits {bitLength} payload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- Core roundtrip: extractSignalCore returns + n for unsigned signals
@@ -1108,10 +1109,10 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     value = signalValue (+ n) sig
 
     -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
-    swappedPayload : Vec Byte 8
+    swappedPayload : Vec Byte _
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Vec Byte 8
+    injectedBytesSwapped : Vec Byte _
     injectedBytesSwapped = injectBits {bitLength} swappedPayload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
@@ -1123,7 +1124,7 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
     core-eq rewrite unsigned = signal-roundtrip-unsigned n swappedPayload startBit (bitLength) fits-in-frame n<2^bl
 
     -- Factor out: what extractSignal returns given bytes to extract from
-    resultOf : Vec Byte 8 → Maybe ℚ
+    resultOf : Vec Byte _ → Maybe ℚ
     resultOf bytes = let raw = extractSignalCore bytes sig
                          v = scaleExtracted raw sig
                      in if inBounds v minimum maximum then just v else nothing
@@ -1151,11 +1152,11 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
         step3 rewrite core-eq' | bounds-eq = refl
 
 extractSignal-injectSignal-roundtrip-unsigned :
-  ∀ (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
   → (unsigned : SignalDef.isSigned sig ≡ false)
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64)
+  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
   → (injectSignal (signalValue (+ n) sig) sig byteOrder frame >>= λ frame' →
        extractSignal frame' sig byteOrder) ≡ just (signalValue (+ n) sig)
@@ -1185,7 +1186,7 @@ extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok fa
 -- Reduction Lemma A (Signed): injectSignal reduces to a known frame
 -- The raw value is fromSigned z bitLength, which we prove fits in bitLength bits
 injectSignal-reduces-signed :
-  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
   → (bl>0 : SignalDef.bitLength sig > 0)
@@ -1232,12 +1233,12 @@ injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf =
 -- Reduction Lemma B (Signed): extractSignal on injectedFrame returns the original value
 -- Uses signal-roundtrip-signed which uses toSigned with isSigned = true
 extractSignal-reduces-signed :
-  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (signed : SignalDef.isSigned sig ≡ true)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64)
+  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → let n = fromSigned z (SignalDef.bitLength sig)
         n<2^bl = SignedFits-implies-fromSigned-bounded z (SignalDef.bitLength sig) bl>0 sf
     in extractSignal (injectedFrame n sig byteOrder frame n<2^bl) sig byteOrder ≡ just (signalValue z sig)
@@ -1258,7 +1259,7 @@ extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf f
     n<2^bl = SignedFits-implies-fromSigned-bounded z (bitLength) bl>0 sf
 
     -- The bytes we extract from
-    injectedBytes : Vec Byte 8
+    injectedBytes : Vec Byte _
     injectedBytes = injectBits {bitLength} payload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- Core roundtrip: extractSignalCore returns z for signed signals
@@ -1299,10 +1300,10 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     n<2^bl = SignedFits-implies-fromSigned-bounded z (bitLength) bl>0 sf
 
     -- For BigEndian, injectedFrame's payload = swapBytes (injectBits (swapBytes payload) startBit bv)
-    swappedPayload : Vec Byte 8
+    swappedPayload : Vec Byte _
     swappedPayload = swapBytes payload
 
-    injectedBytesSwapped : Vec Byte 8
+    injectedBytesSwapped : Vec Byte _
     injectedBytesSwapped = injectBits {bitLength} swappedPayload startBit (ℕToBitVec {bitLength} n n<2^bl)
 
     -- extractionBytes (injectedFrame ...) BigEndian = swapBytes (swapBytes injectedBytesSwapped) = injectedBytesSwapped
@@ -1314,7 +1315,7 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
     core-eq rewrite signed = signal-roundtrip-signed z swappedPayload startBit (bitLength) bl>0 fits-in-frame sf n<2^bl
 
     -- Factor out: what extractSignal returns given bytes to extract from
-    resultOf : Vec Byte 8 → Maybe ℚ
+    resultOf : Vec Byte _ → Maybe ℚ
     resultOf bytes = let raw = extractSignalCore bytes sig
                          v = scaleExtracted raw sig
                      in if inBounds v minimum maximum then just v else nothing
@@ -1338,13 +1339,13 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
 
 -- Main theorem (Signed): inject then extract returns original value
 extractSignal-injectSignal-roundtrip-signed :
-  ∀ (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame)
+  ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
   → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
   → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
   → (signed : SignalDef.isSigned sig ≡ true)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
-  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64)
+  → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (injectSignal (signalValue z sig) sig byteOrder frame >>= λ frame' →
        extractSignal frame' sig byteOrder) ≡ just (signalValue z sig)
 extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok factor≢0 signed bl>0 sf fits-in-frame =
@@ -1372,57 +1373,3 @@ extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok fact
     proof : (injectSignal value sig byteOrder frame >>= λ f → extractSignal f sig byteOrder) ≡ just value
     proof rewrite inject-reduces = extract-reduces
 
--- ============================================================================
--- IMPLEMENTATION NOTES
--- ============================================================================
-{-
-Proof Strategy:
-===============
-
-Phase 3 verification proof status (updated 2026-01-21):
-
-PROOF STATUS BY LAYER:
-======================
-
-LAYER 0 (BitVec): ✅ COMPLETE
-  - testBit-setBit-same, testBit-setBit-diff, setBit-setBit-comm
-  - Location: Aletheia.Data.BitVec
-
-LAYER 1 (Bit operations): ✅ COMPLETE
-  - extractBits-injectBits-roundtrip ✅
-  - injectBits-preserves-earlier-bit ✅
-  - injectBits-preserves-later-bit ✅
-  - injectBits-preserves-disjoint ✅
-  - Location: Aletheia.CAN.Endianness
-
-LAYER 2 (Integer conversion): ✅ COMPLETE
-  - fromSigned-toSigned-roundtrip ✅
-  - toSigned-fromSigned-roundtrip ✅
-  - fromSigned-bounded-neg ✅
-  - SignedFits-implies-fromSigned-bounded ✅
-  - Location: This module (Properties.agda)
-
-LAYER 3 (Scaling): ✅ COMPLETE (both directions)
-  - removeScaling-applyScaling-exact ✅ (ℤ → ℚ → ℤ roundtrip, exact)
-  - applyScaling-removeScaling-bounded ✅ (ℚ → ℤ → ℚ roundtrip, bounded by factor)
-  - applyScaling-injective ✅
-  - removeScaling-factor-zero-iff-nothing ✅
-  - scaling-bounds-pos ✅, scaling-bounds-neg ✅
-  - Location: This module (Properties.agda)
-
-LAYER 4 (Composition): ✅ COMPLETE
-  - extractSignal-injectSignal-roundtrip-unsigned ✅
-  - extractSignal-injectSignal-roundtrip-signed ✅
-  - injectSignal-reduces-unsigned ✅, injectSignal-reduces-signed ✅
-  - extractSignal-reduces-unsigned ✅, extractSignal-reduces-signed ✅
-  - Location: This module (Properties.agda)
-
-  Key refactoring: extractSignal uses pure computational core functions
-  (extractSignalCore, scaleExtracted, extractionBytes) to enable clean
-  rewriting in proofs. See Aletheia.CAN.Encoding for these helpers.
-
-NON-OVERLAP: Superseded by PhysicallyDisjoint-based proofs in Batch/Properties.agda
-  - single-inject-preserves (any byte order combo)
-  - injectAll-preserves-disjoint (batch preservation)
-  - injectAll-roundtrip (batch roundtrip)
--}

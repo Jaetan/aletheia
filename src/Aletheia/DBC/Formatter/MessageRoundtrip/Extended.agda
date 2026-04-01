@@ -18,10 +18,10 @@ open import Aletheia.DBC.JSONParser using (parseMessage;
   parseMessageId; parseMessageBody; parseCANId)
 open import Aletheia.CAN.Frame using (CANId; Extended)
 open import Aletheia.Prelude using (extended-can-id-max)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
+open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;
   getNat-ℕtoJSON; <→<ᵇ-true; ≤→≤ᵇ-true)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)
-open import Aletheia.DBC.Formatter.MessageRoundtrip.Shared
+open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
 
 private
   -- Stage 1: parseMessageId roundtrip (Extended)
@@ -41,12 +41,13 @@ private
 
   -- Stage 2: parseMessageBody roundtrip (Extended)
   -- Uses 3 rewrites + cong to stay within memory bounds
-  msgBody-ext : ∀ rawId n dlc sender signals → dlc ≤ 8 → All WellFormedSignal signals
+  msgBody-ext : ∀ rawId n dlc sender signals → dlc ≤ 64
+    → All WellFormedSignal signals → All (PhysicallyValid dlc) signals
     → parseMessageBody (ctx n) n (Extended rawId) (messageFields (mkMessage (Extended rawId) n dlc sender signals))
       ≡ inj₂ (mkMessage (Extended rawId) n dlc sender signals)
-  msgBody-ext rawId n dlc sender signals dlc-bound sigs-wf
+  msgBody-ext rawId n dlc sender signals dlc-bound sigs-wf sigs-pv
     rewrite getNat-ℕtoJSON dlc
-          | signal-list-roundtrip (ctx n) signals 0 sigs-wf
+          | signal-list-roundtrip dlc (ctx n) signals 0 sigs-wf dlc-bound sigs-pv
           | ≤→≤ᵇ-true dlc-bound
     = cong (λ x → inj₂ (record
         { id = Extended rawId ; name = n ; dlc = x
@@ -55,9 +56,10 @@ private
 
 -- Composed Extended message roundtrip
 message-roundtrip-ext : ∀ rawId n dlc sender signals
-  → rawId < extended-can-id-max → dlc ≤ 8 → All WellFormedSignal signals
+  → rawId < extended-can-id-max → dlc ≤ 64
+  → All WellFormedSignal signals → All (PhysicallyValid dlc) signals
   → parseMessage (messageFields (mkMessage (Extended rawId) n dlc sender signals))
     ≡ inj₂ (mkMessage (Extended rawId) n dlc sender signals)
-message-roundtrip-ext rawId n dlc sender signals id-bound dlc-bound sigs-wf =
+message-roundtrip-ext rawId n dlc sender signals id-bound dlc-bound sigs-wf sigs-pv =
   trans (>>=ₑ-congʳ _ (msgId-ext rawId n dlc sender signals id-bound))
-        (msgBody-ext rawId n dlc sender signals dlc-bound sigs-wf)
+        (msgBody-ext rawId n dlc sender signals dlc-bound sigs-wf sigs-pv)

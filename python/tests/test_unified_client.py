@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from aletheia import AletheiaClient, Signal
+from aletheia import AletheiaClient, Signal, dlc_to_bytes
+from aletheia.client._types import ProcessError
 from aletheia.dbc_converter import dbc_to_json
 
 
@@ -68,7 +69,7 @@ class TestAletheiaClientBasics:
         """Test signal extraction."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            result = client.extract_signals(can_id=256, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
+            result = client.extract_signals(can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
             assert result.get("TestSignal") == 100.0
 
     def test_build_frame(self, simple_dbc: dict) -> None:
@@ -78,7 +79,7 @@ class TestAletheiaClientBasics:
             frame = client.build_frame(can_id=256, signals={"TestSignal": 1000.0})
             assert len(frame) == 8
             # Verify by extracting
-            result = client.extract_signals(can_id=256, data=frame)
+            result = client.extract_signals(can_id=256, dlc=8, data=frame)
             assert result.get("TestSignal") == 1000.0
 
     def test_update_frame(self, simple_dbc: dict) -> None:
@@ -86,10 +87,10 @@ class TestAletheiaClientBasics:
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
-            updated = client.update_frame(can_id=256, frame=original, signals={"TestSignal": 200.0})
+            updated = client.update_frame(can_id=256, dlc=8, frame=original, signals={"TestSignal": 200.0})
             assert len(updated) == 8
             # Verify
-            result = client.extract_signals(can_id=256, data=updated)
+            result = client.extract_signals(can_id=256, dlc=8, data=updated)
             assert result.get("TestSignal") == 200.0
 
 
@@ -110,6 +111,7 @@ class TestAletheiaClientStreaming:
                 response = client.send_frame(
                     timestamp=i * 1000,
                     can_id=256,
+                    dlc=8,
                     data=bytearray([i * 10, 0, 0, 0, 0, 0, 0, 0])  # Values 0-90
                 )
                 assert response.get("status") == "ack"
@@ -130,9 +132,10 @@ class TestAletheiaClientStreaming:
             response = client.send_frame(
                 timestamp=1000,
                 can_id=256,
+                dlc=8,
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
             )
-            assert response.get("status") == "violation"
+            assert response.get("status") == "fails"
 
             client.end_stream()
 
@@ -150,14 +153,14 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Send a frame
-            client.send_frame(timestamp=1000, can_id=256, data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(timestamp=1000, can_id=256, dlc=8, data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]))
 
             # Extract signals while streaming (should work!)
-            result = client.extract_signals(can_id=256, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
+            result = client.extract_signals(can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
             assert result.get("TestSignal") == 100.0
 
             # Continue streaming
-            client.send_frame(timestamp=2000, can_id=256, data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(timestamp=2000, can_id=256, dlc=8, data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]))
 
             client.end_stream()
 
@@ -172,10 +175,10 @@ class TestAletheiaClientMixedOperations:
 
             # Update a frame while streaming
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
-            updated = client.update_frame(can_id=256, frame=original, signals={"TestSignal": 75.0})
+            updated = client.update_frame(can_id=256, dlc=8, frame=original, signals={"TestSignal": 75.0})
 
             # Send the updated frame
-            response = client.send_frame(timestamp=1000, can_id=256, data=updated)
+            response = client.send_frame(timestamp=1000, can_id=256, dlc=8, data=updated)
             assert response.get("status") == "ack"
 
             client.end_stream()
@@ -193,7 +196,7 @@ class TestAletheiaClientMixedOperations:
             frame = client.build_frame(can_id=256, signals={"TestSignal": 500.0})
 
             # Send it
-            response = client.send_frame(timestamp=1000, can_id=256, data=frame)
+            response = client.send_frame(timestamp=1000, can_id=256, dlc=8, data=frame)
             assert response.get("status") == "ack"
 
             client.end_stream()
@@ -219,12 +222,12 @@ class TestAletheiaClientLifecycle:
 
             # First stream
             client.start_stream()
-            client.send_frame(timestamp=0, can_id=256, data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(timestamp=0, can_id=256, dlc=8, data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]))
             client.end_stream()
 
             # Second stream (same client, same DBC)
             client.start_stream()
-            resp = client.send_frame(timestamp=1, can_id=256, data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]))
+            resp = client.send_frame(timestamp=1, can_id=256, dlc=8, data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]))
             assert resp.get("status") == "ack"
             client.end_stream()
 
@@ -262,7 +265,7 @@ class TestAletheiaClientLifecycle:
                 }]
             }
             FRAMES = [
-                (i * 1000, 256, bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
+                (i * 1000, 256, 8, bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
                 for i in range(20)
             ]
             results = {"A": None, "B": None}
@@ -278,10 +281,10 @@ class TestAletheiaClientLifecycle:
                         ])
                         client.start_stream()
                         barrier.wait()
-                        for ts, cid, data in FRAMES:
-                            resp = client.send_frame(timestamp=ts, can_id=cid, data=data)
-                            if resp.get("status") == "violation":
-                                results[name] = "violation"
+                        for ts, cid, dlc, data in FRAMES:
+                            resp = client.send_frame(timestamp=ts, can_id=cid, dlc=dlc, data=data)
+                            if resp.get("status") == "fails":
+                                results[name] = "fails"
                                 client.end_stream()
                                 return
                         resp = client.end_stream()
@@ -309,7 +312,7 @@ class TestAletheiaClientLifecycle:
         )
         out = json.loads(result.stdout)
         assert not out["errors"], f"Thread raised: {out['errors']}"
-        assert out["results"]["A"] == "violation", (
+        assert out["results"]["A"] == "fails", (
             f"Thread A should violate, got {out['results']['A']}"
         )
         assert out["results"]["B"] == "complete", (
@@ -329,7 +332,7 @@ class TestAletheiaClientWithDemoDBC:
             frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
 
             # Extract and verify
-            result = client.extract_signals(can_id=0x100, data=frame)
+            result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
             assert abs(result.get("VehicleSpeed") - 72.0) < 0.01
 
     def test_fault_injection_single_session(self, demo_dbc: dict) -> None:
@@ -344,12 +347,267 @@ class TestAletheiaClientWithDemoDBC:
             # Send normal frames
             for i in range(5):
                 frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 50.0 + i})
-                response = client.send_frame(timestamp=i * 100000, can_id=0x100, data=frame)
+                response = client.send_frame(timestamp=i * 100000, can_id=0x100, dlc=8, data=frame)
                 assert response.get("status") == "ack"
 
             # Inject fault: speed = 130 kph (exceeds 120 limit)
             fault_frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 130.0})
-            response = client.send_frame(timestamp=500000, can_id=0x100, data=fault_frame)
-            assert response.get("status") == "violation"
+            response = client.send_frame(timestamp=500000, can_id=0x100, dlc=8, data=fault_frame)
+            assert response.get("status") == "fails"
+
+            client.end_stream()
+
+
+class TestStateMachineErrors:
+    """Test that invalid state transitions produce correct errors."""
+
+    def test_extract_signals_without_dbc(self) -> None:
+        """extract_signals before parse_dbc raises ProcessError."""
+        with AletheiaClient() as client:
+            with pytest.raises(ProcessError, match="DBC not loaded"):
+                client.extract_signals(can_id=256, dlc=8, data=bytearray(8))
+
+    def test_build_frame_without_dbc(self) -> None:
+        """build_frame before parse_dbc raises ProcessError."""
+        with AletheiaClient() as client:
+            with pytest.raises(ProcessError, match="DBC not loaded"):
+                client.build_frame(can_id=256, signals={"Sig": 1.0})
+
+    def test_send_frame_without_stream(self, simple_dbc: dict) -> None:
+        """send_frame before start_stream returns error response."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([
+                Signal("TestSignal").less_than(1000).always().to_dict()
+            ])
+            response = client.send_frame(
+                timestamp=0, can_id=256, dlc=8, data=bytearray(8),
+            )
+            assert response["status"] == "error"
+
+    def test_end_stream_without_start(self, simple_dbc: dict) -> None:
+        """end_stream without start_stream returns error response."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            response = client.end_stream()
+            assert response["status"] == "error"
+
+
+class TestCANFDFrames:
+    """CAN-FD frame tests: DLC 9-15, payloads 12-64 bytes."""
+
+    CANFD_DBC_12 = {
+        "version": "1.0",
+        "messages": [{
+            "id": 0x200,
+            "name": "CANFDMessage12",
+            "dlc": 12,
+            "sender": "ECU",
+            "signals": [
+                {
+                    "name": "BaseSignal",
+                    "startBit": 0,
+                    "length": 8,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 1.0, "offset": 0.0,
+                    "minimum": 0.0, "maximum": 255.0,
+                    "unit": "", "presence": "always",
+                },
+                {
+                    "name": "WideSignal",
+                    "startBit": 64,
+                    "length": 16,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 1.0, "offset": 0.0,
+                    "minimum": 0.0, "maximum": 65535.0,
+                    "unit": "", "presence": "always",
+                },
+            ],
+        }],
+    }
+
+    CANFD_DBC_64 = {
+        "version": "1.0",
+        "messages": [{
+            "id": 0x300,
+            "name": "CANFDMessage64",
+            "dlc": 64,
+            "sender": "ECU",
+            "signals": [
+                {
+                    "name": "FirstByte",
+                    "startBit": 0,
+                    "length": 8,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 1.0, "offset": 0.0,
+                    "minimum": 0.0, "maximum": 255.0,
+                    "unit": "", "presence": "always",
+                },
+                {
+                    "name": "LastWord",
+                    "startBit": 496,
+                    "length": 16,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 1.0, "offset": 0.0,
+                    "minimum": 0.0, "maximum": 65535.0,
+                    "unit": "", "presence": "always",
+                },
+            ],
+        }],
+    }
+
+    def test_canfd_extract_12_byte_frame(self):
+        """Extract signals from a 12-byte CAN-FD frame (DLC code 9)."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            data = bytearray(12)
+            data[0] = 42          # BaseSignal = 42
+            data[8] = 0xCD        # WideSignal low byte
+            data[9] = 0xAB        # WideSignal high byte -> 0xABCD = 43981
+            result = client.extract_signals(can_id=0x200, dlc=9, data=data)
+            assert result.values["BaseSignal"] == 42.0
+            assert result.values["WideSignal"] == 43981.0
+            assert not result.errors
+
+    def test_canfd_extract_64_byte_frame(self):
+        """Extract signals from a 64-byte CAN-FD frame (DLC code 15)."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_64)
+            data = bytearray(64)
+            data[0] = 99          # FirstByte = 99
+            data[62] = 0x34       # LastWord low byte
+            data[63] = 0x12       # LastWord high byte -> 0x1234 = 4660
+            result = client.extract_signals(can_id=0x300, dlc=15, data=data)
+            assert result.values["FirstByte"] == 99.0
+            assert result.values["LastWord"] == 4660.0
+            assert not result.errors
+
+    def test_canfd_build_12_byte_frame(self):
+        """Build a 12-byte CAN-FD frame from signal values."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            frame = client.build_frame(
+                can_id=0x200, dlc=9,
+                signals={"BaseSignal": 42.0, "WideSignal": 1000.0},
+            )
+            assert len(frame) == 12
+            # Round-trip: extract back
+            result = client.extract_signals(can_id=0x200, dlc=9, data=frame)
+            assert result.values["BaseSignal"] == 42.0
+            assert result.values["WideSignal"] == 1000.0
+
+    def test_canfd_build_64_byte_frame(self):
+        """Build a 64-byte CAN-FD frame from signal values."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_64)
+            frame = client.build_frame(
+                can_id=0x300, dlc=15,
+                signals={"FirstByte": 200.0, "LastWord": 5000.0},
+            )
+            assert len(frame) == 64
+            result = client.extract_signals(can_id=0x300, dlc=15, data=frame)
+            assert result.values["FirstByte"] == 200.0
+            assert result.values["LastWord"] == 5000.0
+
+    def test_canfd_update_frame(self):
+        """Update signals in a CAN-FD frame."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            original = client.build_frame(
+                can_id=0x200, dlc=9,
+                signals={"BaseSignal": 10.0, "WideSignal": 500.0},
+            )
+            updated = client.update_frame(
+                can_id=0x200, dlc=9, frame=original,
+                signals={"WideSignal": 9999.0},
+            )
+            assert len(updated) == 12
+            result = client.extract_signals(can_id=0x200, dlc=9, data=updated)
+            assert result.values["BaseSignal"] == 10.0  # unchanged
+            assert result.values["WideSignal"] == 9999.0  # updated
+
+    def test_canfd_all_valid_dlc_codes(self):
+        """All DLC codes 0-15 produce valid frames with correct byte counts."""
+        dbc = {
+            "version": "1.0",
+            "messages": [{
+                "id": 0x400,
+                "name": "GenericMsg",
+                "dlc": 8,
+                "sender": "ECU",
+                "signals": [{
+                    "name": "Sig",
+                    "startBit": 0,
+                    "length": 8,
+                    "byteOrder": "little_endian",
+                    "signed": False,
+                    "factor": 1.0, "offset": 0.0,
+                    "minimum": 0.0, "maximum": 255.0,
+                    "unit": "", "presence": "always",
+                }],
+            }],
+        }
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(dbc)
+            for dlc_code in range(16):
+                nbytes = dlc_to_bytes(dlc_code)
+                data = bytearray(nbytes)
+                if nbytes > 0:
+                    data[0] = dlc_code  # encode DLC code as signal value
+                result = client.extract_signals(
+                    can_id=0x400, dlc=dlc_code, data=data,
+                )
+                expected = float(dlc_code) if nbytes > 0 else 0.0
+                assert result.values["Sig"] == expected, (
+                    f"DLC {dlc_code} ({nbytes} bytes): expected {expected}, "
+                    f"got {result.values.get('Sig')}"
+                )
+
+    def test_canfd_invalid_dlc_rejected(self):
+        """DLC > 15 is rejected by the Python layer."""
+        with pytest.raises(ValueError, match="Invalid DLC code"):
+            dlc_to_bytes(16)
+        with pytest.raises(ValueError, match="Invalid DLC code"):
+            dlc_to_bytes(255)
+
+    def test_canfd_byte_count_mismatch(self):
+        """Payload byte count must match DLC."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            # DLC 9 expects 12 bytes, send 11 — backend rejects the mismatch
+            data = bytearray(11)
+            with pytest.raises(ProcessError, match="byte count doesn't match DLC"):
+                client.extract_signals(can_id=0x200, dlc=9, data=data)
+
+    def test_canfd_ltl_streaming(self):
+        """Stream CAN-FD frames with LTL property checking."""
+        with AletheiaClient(rts_cores=2) as client:
+            client.parse_dbc(self.CANFD_DBC_12)
+            client.set_properties([
+                Signal("WideSignal").less_than(50000).always().to_dict()
+            ])
+            client.start_stream()
+
+            # Send frames with WideSignal < 50000 — should pass
+            for i in range(5):
+                data = bytearray(12)
+                data[8] = i  # WideSignal = i (small value)
+                resp = client.send_frame(
+                    timestamp=i * 1000, can_id=0x200, dlc=9, data=data,
+                )
+                assert resp["status"] == "ack", f"Frame {i}: {resp}"
+
+            # Send frame with WideSignal = 60000 > 50000 — should violate
+            data = bytearray(12)
+            data[8] = 0x60  # 0xEA60 = 60000
+            data[9] = 0xEA
+            resp = client.send_frame(
+                timestamp=5000, can_id=0x200, dlc=9, data=data,
+            )
+            assert resp["status"] == "fails"
 
             client.end_stream()

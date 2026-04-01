@@ -7,17 +7,14 @@ This provides better type safety and IDE support.
 from __future__ import annotations
 
 from enum import Enum
-from typing import TypedDict, TypeGuard, NotRequired, Literal
+from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
 
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
-    """Narrow ``object`` to ``dict[str, object]``.
-
-    JSON/YAML objects always have string keys, so ``isinstance(val, dict)``
-    is sufficient at runtime.  The TypeGuard tells basedpyright the
-    key/value types, avoiding ``dict[Unknown, Unknown]``.
-    """
-    return isinstance(val, dict)
+    """Narrow ``object`` to ``dict[str, object]``."""
+    return isinstance(val, dict) and all(
+        isinstance(k, str) for k in cast(dict[object, object], val)
+    )
 
 
 def is_object_list(val: object) -> TypeGuard[list[object]]:
@@ -176,7 +173,7 @@ class BetweenPredicate(TypedDict):
 
 
 class ChangedByPredicate(TypedDict):
-    """ChangedBy predicate: |signal_now - signal_prev| <= delta"""
+    """ChangedBy predicate: |signal_now - signal_prev| > delta"""
     predicate: Literal["changedBy"]
     signal: str
     delta: float
@@ -358,7 +355,9 @@ class BuildFrameCommand(TypedDict):
     type: Literal["command"]
     command: Literal["buildFrame"]
     canId: int
+    dlc: int
     signals: list[SignalValue]
+    extended: bool
 
 
 class ExtractSignalsCommand(TypedDict):
@@ -366,7 +365,9 @@ class ExtractSignalsCommand(TypedDict):
     type: Literal["command"]
     command: Literal["extractAllSignals"]
     canId: int
+    dlc: int
     data: list[int]
+    extended: bool
 
 
 class UpdateFrameCommand(TypedDict):
@@ -374,8 +375,10 @@ class UpdateFrameCommand(TypedDict):
     type: Literal["command"]
     command: Literal["updateFrame"]
     canId: int
+    dlc: int
     data: list[int]
     signals: list[SignalValue]
+    extended: bool
 
 
 class ValidateDBCCommand(TypedDict):
@@ -391,14 +394,6 @@ class FormatDBCCommand(TypedDict):
     command: Literal["formatDBC"]
 
 
-class DataFrame(TypedDict):
-    """CAN data frame"""
-    type: Literal["data"]
-    timestamp: int
-    id: int
-    data: list[int]
-
-
 # Union type for all commands
 Command = (
     ParseDBCCommand |
@@ -409,8 +404,7 @@ Command = (
     ExtractSignalsCommand |
     UpdateFrameCommand |
     ValidateDBCCommand |
-    FormatDBCCommand |
-    DataFrame
+    FormatDBCCommand
 )
 
 
@@ -433,7 +427,7 @@ class AckResponse(TypedDict):
 
 class PropertyViolationResponse(TypedDict):
     """Property violation response"""
-    status: Literal["violation"]
+    status: Literal["fails"]
     type: Literal["property"]
     property_index: RationalNumber
     timestamp: RationalNumber
@@ -446,7 +440,7 @@ class PropertyViolationResponse(TypedDict):
 class PropertyResultEntry(TypedDict):
     """A single property finalization result at end-of-stream"""
     type: Literal["property"]
-    status: Literal["violation", "satisfaction"]
+    status: Literal["fails", "holds"]
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
     reason: NotRequired[str]  # Only for violations

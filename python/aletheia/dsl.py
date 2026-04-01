@@ -158,6 +158,10 @@ class Signal:
         Example:
             Signal("BatteryVoltage").between(11.5, 14.5)
         """
+        if min_val > max_val:
+            raise ValueError(
+                f"min_val ({min_val}) must be <= max_val ({max_val})"
+            )
         formula: AtomicFormula = _atomic({
             'predicate': PredicateType.BETWEEN.value,
             'signal': self.name,
@@ -301,7 +305,7 @@ class Predicate:
         More robust than Next for CAN networks with jitter.
 
         Args:
-            time_ms: Time bound in milliseconds
+            time_ms: Time bound in milliseconds (must be >= 0)
 
         Returns:
             Bounded temporal property
@@ -309,9 +313,11 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricEventuallyFormula = {
             'operator': 'metricEventually',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'formula': self._data
         }
         return Property(formula)
@@ -323,7 +329,7 @@ class Predicate:
         Useful for debouncing and stability checks.
 
         Args:
-            time_ms: Duration in milliseconds
+            time_ms: Duration in milliseconds (must be >= 0)
 
         Returns:
             Bounded temporal property
@@ -331,9 +337,11 @@ class Predicate:
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricAlwaysFormula = {
             'operator': 'metricAlways',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'formula': self._data
         }
         return Property(formula)
@@ -543,7 +551,7 @@ class Property:
         Tolerates CAN jitter and ECU timing uncertainty.
 
         Args:
-            time_ms: Time bound in milliseconds
+            time_ms: Time bound in milliseconds (must be >= 0)
             other: Property that must eventually hold
 
         Returns:
@@ -553,9 +561,11 @@ class Property:
             # Speed must stay above 50 until brake within 1000ms
             speed_ok.metric_until(1000, brake_pressed)
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricUntilFormula = {
             'operator': 'metricUntil',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'left': self._data,
             'right': other.to_formula()
         }
@@ -565,7 +575,7 @@ class Property:
         """Temporal release with time bound: other holds until self releases it, within time_ms
 
         Args:
-            time_ms: Time bound in milliseconds
+            time_ms: Time bound in milliseconds (must be >= 0)
             other: Property that must hold until released
 
         Returns:
@@ -575,9 +585,11 @@ class Property:
             # Brake must be engaged until ignition releases it, within 5000ms
             ignition_on.metric_release(5000, brake_engaged)
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         formula: MetricReleaseFormula = {
             'operator': 'metricRelease',
-            'timebound': time_ms,
+            'timebound': time_ms * 1000,
             'left': self._data,
             'right': other.to_formula()
         }

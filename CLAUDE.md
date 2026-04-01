@@ -40,6 +40,10 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 ## Global Project Rules
 
+### AGENTS.md as Coding Standards
+
+[AGENTS.md](AGENTS.md) defines per-language categories, guidelines, and verification commands. **Follow these as coding standards when writing code, not only as review checklists.** Before writing or modifying code in any language, consult the relevant language section in AGENTS.md and produce code that already conforms to its categories and guidelines.
+
 ### Agda Module Requirements (MANDATORY)
 
 **Every Agda module MUST use**:
@@ -67,34 +71,16 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All Aletheia modules use `--safe --without-K` or documented exceptions†
-
-† **55 total modules**: 53 use `--safe`, 2 coinductive without `--safe`
+**Current Status**: ✅ All 67 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (55 total):
-- **52 modules**: `--safe --without-K` (standard safe modules, includes 9 proof-only)
+**By flag combination** (67 total):
+- **65 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
-- **2 modules without `--safe`** (both use `--sized-types` for coinduction):
-  - Main.agda: `--no-main --sized-types --without-K`
-  - Protocol/StreamState.agda: `--sized-types --without-K`
+- **1 module**: `--safe --without-K --no-main` (Main.agda)
 
-**Modules not using `--safe` flag (2 of 55)**:
-
-Two modules require `--sized-types` (incompatible with `--safe`) for coinductive stream processing:
-
-1. **Main.agda** - Uses `--sized-types` for coinductive LTL checking
-   - Required for: MAlonzo compilation with coinductive LTL evaluation
-   - Safety trade-off: Entry point marshals between Agda and Haskell I/O
-
-2. **Protocol/StreamState.agda** - Uses `--sized-types` for streaming LTL checking
-   - Required for: Coinductive stream processing of large trace files
-   - Safety trade-off: Sized types for productivity checking instead of --safe
-
-**Rationale**: Coinductive types (required for infinite traces and streaming) need `--sized-types` for productivity checking, which is incompatible with `--safe`. This is an intentional and documented trade-off for the LTL subsystem.
-
-**Verification Status**: Both modules use only standard library coinductive types and primitives. No postulates or unsafe operations are used.
+**All 67 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -123,6 +109,9 @@ cd python && pylint aletheia/
 
 # Build and test C++ binding
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+
+# Run cross-language benchmarks (requires all bindings built)
+bash benchmarks/run_all.sh --frames 1000 --runs 5 --bench throughput
 ```
 
 ## Architecture (Three-Layer Design)
@@ -219,20 +208,24 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 ### C++ Binding
 
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **10 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`
-- **6 source files** in `src/`: `client.cpp`, `enrich.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`
-- **3 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2)
+- **14 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `excel.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`, `yaml.hpp`
+- **8 source files** in `src/`: `client.cpp`, `enrich.cpp`, `excel.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`, `yaml.cpp`
+- **5 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2), `yaml_tests.cpp`, `excel_tests.cpp`
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
+- **Observability**: Custom `Logger` class (`log.hpp`, ~80 lines) — callback-based structured logging with 12 event types matching Go's slog; zero-cost when null (default)
+- **RTS cores**: `make_ffi_backend(path, rts_cores)` — default 1; once-per-process with mismatch warning
 - **Build**: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
 - **Style**: `.clang-format` + `.clang-tidy` enforce naming/formatting; C++23, targets g++>=14 and clang>=21
 
 ### Go Binding
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **12 source files** in `go/aletheia/`: `backend.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `json.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`
-- **1 test file**: `client_test.go` (56 tests, mock backend)
-- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[8]byte` payload, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
-- **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned (`LockOSThread`)
+- **17 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `excel.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
+- **12 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `excel_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (233 tests, mock backend)
+- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
+- **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
+- **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning
+- **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe, GHC RTS init thread-pinned (`LockOSThread`)
 - **Build/test**: `cd go && go test ./aletheia/ -v -count=1 -race`
 - **Style**: `gofmt` + `go vet` clean; godoc on all exports
 
@@ -299,7 +292,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions (DBC pretty-printer complete, merged). DBC validator formally verified (soundness + completeness, 1,267 lines). Gap D complete (adequacy, 1,061 lines). All 7 capstone preconditions decidable (items A+E). Items B+C complete (mixed-BO commutativity, extractAllSignals completeness). C++23 binding complete (81 test cases, 5-round review). Go binding complete (56 tests, 3-round review). Docker images complete (Dockerfile + Dockerfile.runtime + `shake docker`). 55 Agda modules total.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 11 rounds (532 tests), C++ 11 rounds (5 test suites, clang-format + clang-tidy gates), Go 23 rounds (233 tests). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. AGENTS.md rewritten with origin-blind finding rules + backward-compat prohibition. Pipeline adequacy proven. 67 Agda modules total. **Cross-language parity**: RTS cores, structured logging (12 events), YAML/Excel loaders — four-tier check interface complete across all three bindings. **Latest review round (R5-R11)**: [[nodiscard]] + static_assert on C++ client, lo>hi validation in Check API (all 3), Go parseRational truncation check, Python send_frame DLC validation.
 
 ---
 
@@ -404,6 +397,13 @@ docs(BUILDING): Add macOS-specific notes
 ---
 
 ## Current Session Progress
+
+Cross-language API review rounds 5-11 committed (7982caf). All prior work also committed:
+- **R5-R11**: 30+ fixes across Python, C++, Go (47 files, +1058/-345)
+- **5e2f86f**: YAML and Excel loaders for C++ and Go
+- **632b7e2**: Round 4 review — Rational types, hash-map indexes
+- Verification: Python 532 tests, C++ 5/5 suites, Go 233 tests — all pass
+- Working tree clean
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 

@@ -101,7 +101,7 @@ def main() -> None:
 
             response = client.send_frame(frame.timestamp_us, frame.can_id, data)
 
-            if response.get("status") == "violation":
+            if response.get("status") == "fails":
                 violations.append({"frame_index": i, "timestamp_ms": frame.timestamp_ms, "response": response})
                 ts = response.get("timestamp", {})
                 ts_ms = ts.get("numerator", 0) // 1000 if isinstance(ts, dict) else 0

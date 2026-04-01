@@ -32,15 +32,9 @@ open import Function using (case_of_)
 -- ============================================================================
 
 -- Note: Signal start bits, bit lengths, DLC, and CAN IDs are now ℕ.
--- Bounds are enforced at construction sites (% 64, % 65, % 9, % 2048)
--- rather than by Fin types. The proofs that relied on Fin bounds
--- (startBit-bounded, bitLength-bounded, dlc-bounded, messageId-valid)
--- have been removed as they are no longer type-level guarantees.
-
--- Extractors for CAN ID values (now just identity since fields are ℕ)
-messageId-value : CANId → ℕ
-messageId-value (Standard x) = x
-messageId-value (Extended x) = x
+-- Bounds are enforced at parse time: JSONParser uses % max-physical-bits (512)
+-- for startBit, % (1 + max-physical-bits) for bitLength; Routing uses
+-- % standard-can-id-max / % extended-can-id-max for CAN IDs, and ≤? 15 for DLC.
 
 -- ============================================================================
 -- DECIDABLE EQUALITY FOR DBC TYPES
@@ -137,18 +131,19 @@ signalsDisjoint? sig₁ sig₂ =
 -- Two signals are physically disjoint if no physical bit positions overlap.
 -- This is the correct disjointness notion for mixed byte orders:
 -- LE signals use identity mapping, BE signals use byte-reversed mapping.
-PhysicallyDisjoint : DBCSignal → DBCSignal → Set
-PhysicallyDisjoint sig₁ sig₂ =
+-- n is the frame byte count (e.g. 8 for CAN 2.0B, up to 64 for CAN-FD).
+PhysicallyDisjoint : ℕ → DBCSignal → DBCSignal → Set
+PhysicallyDisjoint n sig₁ sig₂ =
   ∀ k₁ → k₁ < SignalDef.bitLength (DBCSignal.signalDef sig₁)
   → ∀ k₂ → k₂ < SignalDef.bitLength (DBCSignal.signalDef sig₂)
-  → physicalBitPos (DBCSignal.byteOrder sig₁)
+  → physicalBitPos n (DBCSignal.byteOrder sig₁)
       (SignalDef.startBit (DBCSignal.signalDef sig₁) + k₁)
-    ≢ physicalBitPos (DBCSignal.byteOrder sig₂)
+    ≢ physicalBitPos n (DBCSignal.byteOrder sig₂)
       (SignalDef.startBit (DBCSignal.signalDef sig₂) + k₂)
 
 -- Symmetry of physical disjointness
-physicallyDisjoint-sym : ∀ {sig₁ sig₂}
-  → PhysicallyDisjoint sig₁ sig₂ → PhysicallyDisjoint sig₂ sig₁
+physicallyDisjoint-sym : ∀ {n sig₁ sig₂}
+  → PhysicallyDisjoint n sig₁ sig₂ → PhysicallyDisjoint n sig₂ sig₁
 physicallyDisjoint-sym pd k₂ k₂<l₂ k₁ k₁<l₁ eq = pd k₁ k₁<l₁ k₂ k₂<l₂ (sym eq)
 
 -- Decidable bounded universal quantifier
@@ -173,11 +168,11 @@ private
         where open import Data.Nat.Properties using (≤∧≢⇒<)
 
 -- Decidable check for physical disjointness
-physicallyDisjoint? : (sig₁ sig₂ : DBCSignal) → Dec (PhysicallyDisjoint sig₁ sig₂)
-physicallyDisjoint? sig₁ sig₂ =
+physicallyDisjoint? : (n : ℕ) → (sig₁ sig₂ : DBCSignal) → Dec (PhysicallyDisjoint n sig₁ sig₂)
+physicallyDisjoint? n sig₁ sig₂ =
   allBounded
     (λ k₁ → allBounded
-      (λ k₂ → case physicalBitPos bo₁ (s₁ + k₁) ≟ₙ physicalBitPos bo₂ (s₂ + k₂) of λ where
+      (λ k₂ → case physicalBitPos n bo₁ (s₁ + k₁) ≟ₙ physicalBitPos n bo₂ (s₂ + k₂) of λ where
         (yes eq) → no (λ neq → neq eq)
         (no neq) → yes neq)
       l₂)
@@ -227,20 +222,20 @@ canCoexist? (When m₁ v₁) (When m₂ v₂) = helper (m₁ ≟ₛ m₂) (v₁ 
 
 -- A pair of signals is valid if:
 -- Either they can't coexist (mutually exclusive), or they are physically disjoint
-data SignalPairValid (sig₁ sig₂ : DBCSignal) : Set where
+data SignalPairValid (n : ℕ) (sig₁ sig₂ : DBCSignal) : Set where
   mutually-exclusive :
     ¬ CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-    → SignalPairValid sig₁ sig₂
+    → SignalPairValid n sig₁ sig₂
   disjoint-when-coexist :
     CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-    → PhysicallyDisjoint sig₁ sig₂
-    → SignalPairValid sig₁ sig₂
+    → PhysicallyDisjoint n sig₁ sig₂
+    → SignalPairValid n sig₁ sig₂
 
 -- Decidable check for signal pair validity
-signalPairValid? : (sig₁ sig₂ : DBCSignal) → Dec (SignalPairValid sig₁ sig₂)
-signalPairValid? sig₁ sig₂ with canCoexist? (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
+signalPairValid? : (n : ℕ) → (sig₁ sig₂ : DBCSignal) → Dec (SignalPairValid n sig₁ sig₂)
+signalPairValid? n sig₁ sig₂ with canCoexist? (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
 ... | no ¬coexist = yes (mutually-exclusive ¬coexist)
-... | yes coexist with physicallyDisjoint? sig₁ sig₂
+... | yes coexist with physicallyDisjoint? n sig₁ sig₂
 ...   | yes disj = yes (disjoint-when-coexist coexist disj)
 ...   | no ¬disj = no λ where
         (mutually-exclusive ¬coexist) → ¬coexist coexist
@@ -251,41 +246,42 @@ signalPairValid? sig₁ sig₂ with canCoexist? (DBCSignal.presence sig₁) (DBC
 -- ============================================================================
 
 -- Check one signal against all others in a list
-data SignalValidAgainstAll (sig : DBCSignal) : List DBCSignal → Set where
-  valid-nil : SignalValidAgainstAll sig []
+data SignalValidAgainstAll (n : ℕ) (sig : DBCSignal) : List DBCSignal → Set where
+  valid-nil : SignalValidAgainstAll n sig []
   valid-cons : ∀ {other rest}
-    → SignalPairValid sig other
-    → SignalValidAgainstAll sig rest
-    → SignalValidAgainstAll sig (other ∷ rest)
+    → SignalPairValid n sig other
+    → SignalValidAgainstAll n sig rest
+    → SignalValidAgainstAll n sig (other ∷ rest)
 
-signalValidAgainstAll? : (sig : DBCSignal) → (others : List DBCSignal)
-                       → Dec (SignalValidAgainstAll sig others)
-signalValidAgainstAll? sig [] = yes valid-nil
-signalValidAgainstAll? sig (other ∷ rest) with signalPairValid? sig other
+signalValidAgainstAll? : (n : ℕ) → (sig : DBCSignal) → (others : List DBCSignal)
+                       → Dec (SignalValidAgainstAll n sig others)
+signalValidAgainstAll? n sig [] = yes valid-nil
+signalValidAgainstAll? n sig (other ∷ rest) with signalPairValid? n sig other
 ... | no ¬valid = no λ where (valid-cons v _) → ¬valid v
-... | yes valid with signalValidAgainstAll? sig rest
+... | yes valid with signalValidAgainstAll? n sig rest
 ...   | no ¬rest = no λ where (valid-cons _ r) → ¬rest r
 ...   | yes restValid = yes (valid-cons valid restValid)
 
 -- All pairs in a list are valid (triangular check: each signal against all following)
-data AllSignalPairsValid : List DBCSignal → Set where
-  pairs-nil : AllSignalPairsValid []
+data AllSignalPairsValid (n : ℕ) : List DBCSignal → Set where
+  pairs-nil : AllSignalPairsValid n []
   pairs-cons : ∀ {sig rest}
-    → SignalValidAgainstAll sig rest
-    → AllSignalPairsValid rest
-    → AllSignalPairsValid (sig ∷ rest)
+    → SignalValidAgainstAll n sig rest
+    → AllSignalPairsValid n rest
+    → AllSignalPairsValid n (sig ∷ rest)
 
-allSignalPairsValid? : (sigs : List DBCSignal) → Dec (AllSignalPairsValid sigs)
-allSignalPairsValid? [] = yes pairs-nil
-allSignalPairsValid? (sig ∷ rest) with signalValidAgainstAll? sig rest
+allSignalPairsValid? : (n : ℕ) → (sigs : List DBCSignal) → Dec (AllSignalPairsValid n sigs)
+allSignalPairsValid? n [] = yes pairs-nil
+allSignalPairsValid? n (sig ∷ rest) with signalValidAgainstAll? n sig rest
 ... | no ¬valid = no λ where (pairs-cons v _) → ¬valid v
-... | yes valid with allSignalPairsValid? rest
+... | yes valid with allSignalPairsValid? n rest
 ...   | no ¬rest = no λ where (pairs-cons _ r) → ¬rest r
 ...   | yes restValid = yes (pairs-cons valid restValid)
 
--- Message signals are valid if all pairs are valid
-messageSignalsValid? : (msg : DBCMessage) → Dec (AllSignalPairsValid (DBCMessage.signals msg))
-messageSignalsValid? msg = allSignalPairsValid? (DBCMessage.signals msg)
+-- Message signals are valid if all pairs are valid (using message's own DLC as byte count)
+messageSignalsValid? : (msg : DBCMessage)
+                     → Dec (AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg))
+messageSignalsValid? msg = allSignalPairsValid? (DBCMessage.dlc msg) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- SIGNAL RANGE CONSISTENCY
@@ -324,14 +320,15 @@ allSignalRangesConsistent? (sig ∷ rest) with signalRangeConsistent? sig
 -- ============================================================================
 
 -- A message is valid if all signal pairs are valid and all ranges are consistent
+-- Uses the message's own DLC for physical disjointness checking
 data MessageValid (msg : DBCMessage) : Set where
   message-valid :
-    AllSignalPairsValid (DBCMessage.signals msg)
+    AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg)
     → AllSignalRangesConsistent (DBCMessage.signals msg)
     → MessageValid msg
 
 messageValid? : (msg : DBCMessage) → Dec (MessageValid msg)
-messageValid? msg with allSignalPairsValid? (DBCMessage.signals msg)
+messageValid? msg with messageSignalsValid? msg
 ... | no ¬pairs = no λ where (message-valid p _) → ¬pairs p
 ... | yes pairs with allSignalRangesConsistent? (DBCMessage.signals msg)
 ...   | no ¬ranges = no λ where (message-valid _ r) → ¬ranges r
@@ -376,10 +373,10 @@ open import Data.List.Relation.Unary.Any using (Any; here; there)
 
 -- Extract SignalPairValid from SignalValidAgainstAll
 -- If sig₂ is in the list that sig₁ was validated against, we have the proof
-extractFromValidAgainstAll : ∀ {sig₁ sig₂ sigs}
-  → SignalValidAgainstAll sig₁ sigs
+extractFromValidAgainstAll : ∀ {n sig₁ sig₂ sigs}
+  → SignalValidAgainstAll n sig₁ sigs
   → sig₂ ∈ sigs
-  → SignalPairValid sig₁ sig₂
+  → SignalPairValid n sig₁ sig₂
 extractFromValidAgainstAll (valid-cons pv _) (here refl) = pv
 extractFromValidAgainstAll (valid-cons _ rest) (there sig₂∈) = extractFromValidAgainstAll rest sig₂∈
 
@@ -397,29 +394,29 @@ signalsDisjoint-sym (disjoint-left p) = disjoint-right p
 signalsDisjoint-sym (disjoint-right p) = disjoint-left p
 
 -- SignalPairValid is symmetric: if (sig₁, sig₂) is valid, so is (sig₂, sig₁)
-signalPairValid-sym : ∀ {sig₁ sig₂} → SignalPairValid sig₁ sig₂ → SignalPairValid sig₂ sig₁
+signalPairValid-sym : ∀ {n sig₁ sig₂} → SignalPairValid n sig₁ sig₂ → SignalPairValid n sig₂ sig₁
 signalPairValid-sym (mutually-exclusive ¬coexist) =
   mutually-exclusive (λ coexist → ¬coexist (canCoexist-sym coexist))
-signalPairValid-sym {sig₁} {sig₂} (disjoint-when-coexist coexist disj) =
-  disjoint-when-coexist (canCoexist-sym coexist) (physicallyDisjoint-sym {sig₁} {sig₂} disj)
+signalPairValid-sym {_} {sig₁} {sig₂} (disjoint-when-coexist coexist disj) =
+  disjoint-when-coexist (canCoexist-sym coexist) (physicallyDisjoint-sym {_} {sig₁} {sig₂} disj)
 
 -- Extract SignalPairValid from AllSignalPairsValid for any two distinct signals
 -- Uses direct pattern matching on membership proofs to determine ordering
-lookupSignalPairValid : ∀ {sig₁ sig₂ sigs}
-  → AllSignalPairsValid sigs
+lookupSignalPairValid : ∀ {n sig₁ sig₂ sigs}
+  → AllSignalPairsValid n sigs
   → sig₁ ∈ sigs
   → sig₂ ∈ sigs
   → sig₁ ≢ sig₂
-  → SignalPairValid sig₁ sig₂
-lookupSignalPairValid {sig₁} {sig₂} allValid sig₁∈ sig₂∈ sig₁≢sig₂ =
+  → SignalPairValid n sig₁ sig₂
+lookupSignalPairValid {_} {sig₁} {sig₂} allValid sig₁∈ sig₂∈ sig₁≢sig₂ =
   extractHelper allValid sig₁∈ sig₂∈
   where
     -- Walk through both membership proofs to determine ordering and extract
     extractHelper : ∀ {sigs}
-      → AllSignalPairsValid sigs
+      → AllSignalPairsValid _ sigs
       → sig₁ ∈ sigs
       → sig₂ ∈ sigs
-      → SignalPairValid sig₁ sig₂
+      → SignalPairValid _ sig₁ sig₂
     -- sig₁ is head, sig₂ is in tail → sig₁ before sig₂
     extractHelper (pairs-cons againstAll _) (here refl) (there sig₂∈) =
       extractFromValidAgainstAll againstAll sig₂∈
@@ -433,10 +430,10 @@ lookupSignalPairValid {sig₁} {sig₂} allValid sig₁∈ sig₂∈ sig₁≢si
     extractHelper _ (here refl) (here refl) = ⊥-elim (sig₁≢sig₂ refl)
 
 -- Extract PhysicallyDisjoint from SignalPairValid when signals can coexist
-extractDisjointness : ∀ {sig₁ sig₂}
-  → SignalPairValid sig₁ sig₂
+extractDisjointness : ∀ {n sig₁ sig₂}
+  → SignalPairValid n sig₁ sig₂
   → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-  → PhysicallyDisjoint sig₁ sig₂
+  → PhysicallyDisjoint n sig₁ sig₂
 extractDisjointness (mutually-exclusive ¬coexist) coexist = ⊥-elim (¬coexist coexist)
 extractDisjointness (disjoint-when-coexist _ disj) _ = disj
 
@@ -453,12 +450,13 @@ extractMessageValid (msgs-cons mv _) (here refl) = mv
 extractMessageValid (msgs-cons _ rest) (there msg∈) = extractMessageValid rest msg∈
 
 -- Extract AllSignalPairsValid from MessageValid
-extractSignalPairs : ∀ {msg} → MessageValid msg → AllSignalPairsValid (DBCMessage.signals msg)
+extractSignalPairs : ∀ {msg}
+  → MessageValid msg → AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg)
 extractSignalPairs (message-valid pairs _) = pairs
 
--- Full pipeline: from DBCValid to SignalsDisjoint
+-- Full pipeline: from DBCValid to PhysicallyDisjoint
 -- Given a valid DBC, a message in it, two distinct coexisting signals in that message,
--- extract the proof that they are disjoint
+-- extract the proof that they are physically disjoint (using the message's DLC)
 lookupDisjointFromDBC : ∀ {dbc msg sig₁ sig₂}
   → DBCValid dbc
   → msg ∈ DBC.messages dbc
@@ -466,7 +464,7 @@ lookupDisjointFromDBC : ∀ {dbc msg sig₁ sig₂}
   → sig₂ ∈ DBCMessage.signals msg
   → sig₁ ≢ sig₂
   → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-  → PhysicallyDisjoint sig₁ sig₂
+  → PhysicallyDisjoint (DBCMessage.dlc msg) sig₁ sig₂
 lookupDisjointFromDBC dbcValid msg∈ sig₁∈ sig₂∈ sig≢ coexist =
   let msgValid = extractMessageValid dbcValid msg∈
       pairsValid = extractSignalPairs msgValid

@@ -7,23 +7,37 @@
 module Aletheia.DBC.Validity.ErrorChecks where
 
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Validator using (checkBitLengthZero; checkAllBitLengthZero; checkFactorZeroSig; checkAllFactorZero; checkDLCOutOfRange; checkAllDLCOutOfRange; checkSignalExceedsDLC; checkAllSignalExceedsDLC; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular; checkAllDuplicateSignalNames; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular; checkAllSignalOverlaps; checkMuxFoundSig; checkAllMuxFound; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent; findSignalPresence; _≟-CANId_)
+open import Aletheia.DBC.Validator using
+  ( checkBitLengthZero; checkAllBitLengthZero
+  ; checkFactorZeroSig; checkAllFactorZero
+  ; checkDLCOutOfRange; checkAllDLCOutOfRange
+  ; checkSignalExceedsDLC; checkAllSignalExceedsDLC
+  ; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds
+  ; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular
+  ; checkAllDuplicateSignalNames
+  ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
+  ; checkAllSignalOverlaps
+  ; checkMuxFoundSig; checkAllMuxFound
+  ; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent
+  ; findSignalPresence; _≟-CANId_
+  )
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete)
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
 open import Data.List using (List; []; _∷_; concatMap)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.Nat using (ℕ; _+_; _*_; _∸_)
+open import Data.Nat using (ℕ; _+_; _*_)
 open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
 open import Data.String.Properties using (_≟_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Maybe using (Maybe; just; nothing; Is-just)
+import Data.Maybe.Relation.Unary.Any as MAny
+open import Aletheia.CAN.DLC using (bytesToDlc)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_)
@@ -112,15 +126,14 @@ checkAllFactorZero-complete (msg ∷ rest) (pm ∷ pms) =
 
 checkDLCOutOfRange-sound : ∀ msg →
   checkDLCOutOfRange msg ≡ [] → ValidDLC msg
-checkDLCOutOfRange-sound msg eq with DBCMessage.dlc msg ≤? 8
-... | yes p = p
-checkDLCOutOfRange-sound _ () | no _
+checkDLCOutOfRange-sound msg eq with bytesToDlc (DBCMessage.dlc msg)
+... | just _ = MAny.just tt
+checkDLCOutOfRange-sound _ () | nothing
 
 checkDLCOutOfRange-complete : ∀ msg →
   ValidDLC msg → checkDLCOutOfRange msg ≡ []
-checkDLCOutOfRange-complete msg p with DBCMessage.dlc msg ≤? 8
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkDLCOutOfRange-complete msg p with bytesToDlc (DBCMessage.dlc msg) | p
+... | just _ | _ = refl
 
 checkAllDLCOutOfRange-sound : ∀ msgs →
   checkAllDLCOutOfRange msgs ≡ [] → All ValidDLC msgs
@@ -140,29 +153,17 @@ checkSignalExceedsDLC-sound : ∀ msgName dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ [] →
   BitsInFrame dlc sig
 checkSignalExceedsDLC-sound msgName dlc sig eq
-  with DBCSignal.byteOrder sig
-... | LittleEndian
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-...   | yes p = p
-checkSignalExceedsDLC-sound _ _ _ () | LittleEndian | no _
-checkSignalExceedsDLC-sound msgName dlc sig eq | BigEndian
-  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes p = p
-checkSignalExceedsDLC-sound _ _ _ () | BigEndian | no _
+checkSignalExceedsDLC-sound _ _ _ () | no _
 
 checkSignalExceedsDLC-complete : ∀ msgName dlc sig →
   BitsInFrame dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ []
 checkSignalExceedsDLC-complete msgName dlc sig p
-  with DBCSignal.byteOrder sig
-... | LittleEndian
   with SignalDef.startBit (DBCSignal.signalDef sig)
      + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-...   | yes _ = refl
-...   | no ¬q = ⊥-elim (¬q p)
-checkSignalExceedsDLC-complete msgName dlc sig p | BigEndian
-  with (8 ∸ dlc) * 8 ≤? SignalDef.startBit (DBCSignal.signalDef sig)
 ... | yes _ = refl
 ... | no ¬q = ⊥-elim (¬q p)
 
@@ -312,68 +313,70 @@ checkAllDuplicateSignalNames-complete (msg ∷ rest) (pm ∷ pms) =
 -- CHECK 9: SIGNAL OVERLAP (nested triangular via signalPairValid?)
 -- ============================================================================
 
-checkOverlapPair-sound : ∀ msgName s1 s2 →
-  checkOverlapPair msgName s1 s2 ≡ [] → SignalPairValid s1 s2
-checkOverlapPair-sound msgName s1 s2 eq with signalPairValid? s1 s2
+checkOverlapPair-sound : ∀ msgName n s1 s2 →
+  checkOverlapPair msgName n s1 s2 ≡ [] → SignalPairValid n s1 s2
+checkOverlapPair-sound msgName n s1 s2 eq with signalPairValid? n s1 s2
 ... | yes p = p
-checkOverlapPair-sound _ _ _ () | no _
+checkOverlapPair-sound _ _ _ _ () | no _
 
-checkOverlapPair-complete : ∀ msgName s1 s2 →
-  SignalPairValid s1 s2 → checkOverlapPair msgName s1 s2 ≡ []
-checkOverlapPair-complete msgName s1 s2 p with signalPairValid? s1 s2
+checkOverlapPair-complete : ∀ msgName n s1 s2 →
+  SignalPairValid n s1 s2 → checkOverlapPair msgName n s1 s2 ≡ []
+checkOverlapPair-complete msgName n s1 s2 p with signalPairValid? n s1 s2
 ... | yes _ = refl
 ... | no ¬p = ⊥-elim (¬p p)
 
-checkOverlapAgainstList-sound : ∀ msgName sig rest →
-  checkOverlapAgainstList msgName sig rest ≡ [] →
-  All (SignalPairValid sig) rest
-checkOverlapAgainstList-sound _ _ [] _ = []
-checkOverlapAgainstList-sound msgName sig (other ∷ rest) eq =
+checkOverlapAgainstList-sound : ∀ msgName n sig rest →
+  checkOverlapAgainstList msgName n sig rest ≡ [] →
+  All (SignalPairValid n sig) rest
+checkOverlapAgainstList-sound _ _ _ [] _ = []
+checkOverlapAgainstList-sound msgName n sig (other ∷ rest) eq =
   let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapPair-sound msgName sig other eq₁ ∷
-     checkOverlapAgainstList-sound msgName sig rest eq₂
+  in checkOverlapPair-sound msgName n sig other eq₁ ∷
+     checkOverlapAgainstList-sound msgName n sig rest eq₂
 
-checkOverlapAgainstList-complete : ∀ msgName sig rest →
-  All (SignalPairValid sig) rest →
-  checkOverlapAgainstList msgName sig rest ≡ []
-checkOverlapAgainstList-complete _ _ [] [] = refl
-checkOverlapAgainstList-complete msgName sig (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkOverlapPair-complete msgName sig other p)
-                 (checkOverlapAgainstList-complete msgName sig rest ps)
+checkOverlapAgainstList-complete : ∀ msgName n sig rest →
+  All (SignalPairValid n sig) rest →
+  checkOverlapAgainstList msgName n sig rest ≡ []
+checkOverlapAgainstList-complete _ _ _ [] [] = refl
+checkOverlapAgainstList-complete msgName n sig (other ∷ rest) (p ∷ ps) =
+  ++-≡[]-combine (checkOverlapPair-complete msgName n sig other p)
+                 (checkOverlapAgainstList-complete msgName n sig rest ps)
 
-checkOverlapTriangular-sound : ∀ msgName sigs →
-  checkOverlapTriangular msgName sigs ≡ [] →
-  AllPairs SignalPairValid sigs
-checkOverlapTriangular-sound _ [] _ = []
-checkOverlapTriangular-sound msgName (sig ∷ rest) eq =
+checkOverlapTriangular-sound : ∀ msgName n sigs →
+  checkOverlapTriangular msgName n sigs ≡ [] →
+  AllPairs (SignalPairValid n) sigs
+checkOverlapTriangular-sound _ _ [] _ = []
+checkOverlapTriangular-sound msgName n (sig ∷ rest) eq =
   let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapAgainstList-sound msgName sig rest eq₁ ∷
-     checkOverlapTriangular-sound msgName rest eq₂
+  in checkOverlapAgainstList-sound msgName n sig rest eq₁ ∷
+     checkOverlapTriangular-sound msgName n rest eq₂
 
-checkOverlapTriangular-complete : ∀ msgName sigs →
-  AllPairs SignalPairValid sigs →
-  checkOverlapTriangular msgName sigs ≡ []
-checkOverlapTriangular-complete _ [] [] = refl
-checkOverlapTriangular-complete msgName (sig ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkOverlapAgainstList-complete msgName sig rest p)
-                 (checkOverlapTriangular-complete msgName rest ps)
+checkOverlapTriangular-complete : ∀ msgName n sigs →
+  AllPairs (SignalPairValid n) sigs →
+  checkOverlapTriangular msgName n sigs ≡ []
+checkOverlapTriangular-complete _ _ [] [] = refl
+checkOverlapTriangular-complete msgName n (sig ∷ rest) (p ∷ ps) =
+  ++-≡[]-combine (checkOverlapAgainstList-complete msgName n sig rest p)
+                 (checkOverlapTriangular-complete msgName n rest ps)
 
 checkAllSignalOverlaps-sound : ∀ msgs →
   checkAllSignalOverlaps msgs ≡ [] →
-  All (λ m → AllPairs SignalPairValid (DBCMessage.signals m)) msgs
+  All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs
 checkAllSignalOverlaps-sound [] _ = []
 checkAllSignalOverlaps-sound (msg ∷ rest) eq =
   let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapTriangular-sound (DBCMessage.name msg) (DBCMessage.signals msg) eq₁ ∷
+  in checkOverlapTriangular-sound (DBCMessage.name msg) (DBCMessage.dlc msg)
+       (DBCMessage.signals msg) eq₁ ∷
      checkAllSignalOverlaps-sound rest eq₂
 
 checkAllSignalOverlaps-complete : ∀ msgs →
-  All (λ m → AllPairs SignalPairValid (DBCMessage.signals m)) msgs →
+  All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs →
   checkAllSignalOverlaps msgs ≡ []
 checkAllSignalOverlaps-complete [] [] = refl
 checkAllSignalOverlaps-complete (msg ∷ rest) (pm ∷ pms) =
   ++-≡[]-combine
-    (checkOverlapTriangular-complete (DBCMessage.name msg) (DBCMessage.signals msg) pm)
+    (checkOverlapTriangular-complete (DBCMessage.name msg) (DBCMessage.dlc msg)
+       (DBCMessage.signals msg) pm)
     (checkAllSignalOverlaps-complete rest pms)
 
 -- ============================================================================

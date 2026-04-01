@@ -50,7 +50,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias, TypeGuard
+from typing import TypeAlias
 
 import openpyxl
 from openpyxl.styles import Font
@@ -63,6 +63,7 @@ from ._check_conditions import (
     SIMPLE_VALUE_CONDITIONS,
     SIMPLE_RANGE_CONDITIONS,
     SIMPLE_SETTLES_CONDITIONS,
+    SIMPLE_EQUALS_CONDITIONS,
     WHEN_CONDITIONS,
     ALL_THEN_CONDITIONS,
     dispatch_simple,
@@ -74,6 +75,13 @@ from .protocols import (
     DBCSignal,
     DBCSignalAlways,
     DBCSignalMultiplexed,
+)
+from ._loader_utils import (
+    is_str,
+    get_str,
+    get_number,
+    get_int,
+    get_bool,
 )
 
 # Excel cell values: str, numbers, booleans, or None (empty)
@@ -90,7 +98,6 @@ class _MessageKey:
     msg_id: int
     name: str
     dlc: int
-
 
 
 # ============================================================================
@@ -116,59 +123,13 @@ _WHEN_THEN_HEADERS = [
 
 
 # ============================================================================
-# Type guards and field accessors
-# ============================================================================
-
-def _is_str(val: object) -> TypeGuard[str]:
-    return isinstance(val, str)
-
-
-def _is_number(val: object) -> TypeGuard[int | float]:
-    return isinstance(val, (int, float)) and not isinstance(val, bool)
-
-
-def _get_str(d: dict[str, object], key: str, row_num: int) -> str:
-    """Extract a required string field, with row-number error context."""
-    val = d.get(key)
-    if not _is_str(val):
-        raise ValueError(f"Row {row_num}: missing or invalid '{key}' (expected string)")
-    return val
-
-
-def _get_number(d: dict[str, object], key: str, row_num: int) -> float:
-    """Extract a required numeric field, with row-number error context."""
-    val = d.get(key)
-    if _is_number(val):
-        return float(val)
-    raise ValueError(f"Row {row_num}: missing or invalid '{key}' (expected number)")
-
-
-def _get_int(d: dict[str, object], key: str, row_num: int) -> int:
-    """Extract a required integer field, with row-number error context."""
-    val = d.get(key)
-    if isinstance(val, int) and not isinstance(val, bool):
-        return val
-    raise ValueError(f"Row {row_num}: missing or invalid '{key}' (expected integer)")
-
-
-def _get_bool(d: dict[str, object], key: str, row_num: int) -> bool:
-    """Extract a required boolean field, with row-number error context."""
-    val = d.get(key)
-    if isinstance(val, bool):
-        return val
-    # Accept string "TRUE"/"FALSE" (Excel sometimes stores booleans as text)
-    if _is_str(val):
-        upper = val.upper()
-        if upper == "TRUE":
-            return True
-        if upper == "FALSE":
-            return False
-    raise ValueError(f"Row {row_num}: missing or invalid '{key}' (expected TRUE/FALSE)")
-
-
-# ============================================================================
 # Row helpers
 # ============================================================================
+
+def _row_ctx(row_num: int) -> str:
+    """Format a row number as an error context string."""
+    return f"Row {row_num}"
+
 
 def _row_to_dict(headers: list[str], row: ExcelRow) -> dict[str, object]:
     """Zip headers with cell values, skipping None values."""
@@ -180,11 +141,11 @@ def _headers_from_row(row: ExcelRow) -> list[str]:
     return [str(c) if c is not None else "" for c in row]
 
 
-def _parse_message_id(val: object, row_num: int) -> int:
+def _parse_message_id(val: object, ctx: str) -> int:
     """Parse a message ID from an int or hex-string cell value."""
     if isinstance(val, int) and not isinstance(val, bool):
         return val
-    if _is_str(val):
+    if is_str(val):
         stripped = val.strip()
         try:
             if stripped.lower().startswith("0x"):
@@ -193,7 +154,7 @@ def _parse_message_id(val: object, row_num: int) -> int:
         except ValueError:
             pass
     raise ValueError(
-        f"Row {row_num}: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)"
+        f"{ctx}: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)"
     )
 
 
@@ -380,32 +341,32 @@ def _load_when_then_checks(ws: Worksheet) -> list[CheckResult]:
 def _apply_metadata(result: CheckResult, d: dict[str, object]) -> CheckResult:
     """Apply optional name and severity from row data to a CheckResult."""
     name = d.get("Check Name")
-    if _is_str(name):
+    if is_str(name):
         result.named(name)
     sev = d.get("Severity")
-    if _is_str(sev):
+    if is_str(sev):
         result.severity(sev)
     return result
 
 
 def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
     """Parse a Checks-sheet row into a CheckResult."""
-    signal = _get_str(d, "Signal", row_num)
-    condition = _get_str(d, "Condition", row_num)
+    signal = get_str(d, "Signal", _row_ctx(row_num))
+    condition = get_str(d, "Condition", _row_ctx(row_num))
 
     if condition not in ALL_SIMPLE_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
 
     if condition in SIMPLE_VALUE_CONDITIONS:
-        result = dispatch_simple(signal, condition, _get_number(d, "Value", row_num))
+        result = dispatch_simple(signal, condition, get_number(d, "Value", _row_ctx(row_num)))
     elif condition in SIMPLE_RANGE_CONDITIONS:
         if "Min" not in d or "Max" not in d:
             raise ValueError(
                 f"Row {row_num}: condition '{condition}' requires 'Min' and 'Max'"
             )
         result = Check.signal(signal).stays_between(
-            _get_number(d, "Min", row_num),
-            _get_number(d, "Max", row_num),
+            get_number(d, "Min", _row_ctx(row_num)),
+            get_number(d, "Max", _row_ctx(row_num)),
         )
     elif condition in SIMPLE_SETTLES_CONDITIONS:
         if "Min" not in d or "Max" not in d:
@@ -417,13 +378,14 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
                 f"Row {row_num}: condition 'settles_between' requires 'Time (ms)'"
             )
         result = Check.signal(signal).settles_between(
-            _get_number(d, "Min", row_num),
-            _get_number(d, "Max", row_num),
-        ).within(_get_int(d, "Time (ms)", row_num))
-    else:
-        # equals → equals().always()
-        value = _get_number(d, "Value", row_num)
+            get_number(d, "Min", _row_ctx(row_num)),
+            get_number(d, "Max", _row_ctx(row_num)),
+        ).within(get_int(d, "Time (ms)", _row_ctx(row_num)))
+    elif condition in SIMPLE_EQUALS_CONDITIONS:
+        value = get_number(d, "Value", _row_ctx(row_num))
         result = Check.signal(signal).equals(value).always()
+    else:
+        raise ValueError(f"Row {row_num}: unknown condition '{condition}'")
 
     return _apply_metadata(result, d)
 
@@ -431,9 +393,9 @@ def _parse_simple_row(d: dict[str, object], row_num: int) -> CheckResult:
 def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     """Parse a When-Then-sheet row into a CheckResult."""
     # When clause
-    when_signal = _get_str(d, "When Signal", row_num)
-    when_cond = _get_str(d, "When Condition", row_num)
-    when_value = _get_number(d, "When Value", row_num)
+    when_signal = get_str(d, "When Signal", _row_ctx(row_num))
+    when_cond = get_str(d, "When Condition", _row_ctx(row_num))
+    when_value = get_number(d, "When Value", _row_ctx(row_num))
 
     if when_cond not in WHEN_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown when condition '{when_cond}'")
@@ -441,8 +403,8 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     when_result = dispatch_when(Check.when(when_signal), when_cond, when_value)
 
     # Then clause
-    then_signal = _get_str(d, "Then Signal", row_num)
-    then_cond = _get_str(d, "Then Condition", row_num)
+    then_signal = get_str(d, "Then Signal", _row_ctx(row_num))
+    then_cond = get_str(d, "Then Condition", _row_ctx(row_num))
 
     if then_cond not in ALL_THEN_CONDITIONS:
         raise ValueError(f"Row {row_num}: unknown then condition '{then_cond}'")
@@ -450,20 +412,20 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
     then_builder = when_result.then(then_signal)
 
     if then_cond == "equals":
-        then_result = then_builder.equals(_get_number(d, "Then Value", row_num))
+        then_result = then_builder.equals(get_number(d, "Then Value", _row_ctx(row_num)))
     elif then_cond == "exceeds":
-        then_result = then_builder.exceeds(_get_number(d, "Then Value", row_num))
+        then_result = then_builder.exceeds(get_number(d, "Then Value", _row_ctx(row_num)))
     else:  # stays_between
         if "Then Min" not in d or "Then Max" not in d:
             raise ValueError(
                 f"Row {row_num}: then condition 'stays_between' requires 'Then Min' and 'Then Max'"
             )
         then_result = then_builder.stays_between(
-            _get_number(d, "Then Min", row_num),
-            _get_number(d, "Then Max", row_num),
+            get_number(d, "Then Min", _row_ctx(row_num)),
+            get_number(d, "Then Max", _row_ctx(row_num)),
         )
 
-    result = then_result.within(_get_int(d, "Within (ms)", row_num))
+    result = then_result.within(get_int(d, "Within (ms)", _row_ctx(row_num)))
     return _apply_metadata(result, d)
 
 
@@ -473,47 +435,53 @@ def _parse_when_then_row(d: dict[str, object], row_num: int) -> CheckResult:
 
 def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
     """Parse a single DBC signal row into a DBCSignal dict."""
-    byte_order = _get_str(row, "Byte Order", row_num)
+    byte_order = get_str(row, "Byte Order", _row_ctx(row_num))
     if byte_order not in ("little_endian", "big_endian"):
         raise ValueError(
             f"Row {row_num}: 'Byte Order' must be 'little_endian' or 'big_endian'"
         )
 
     unit = row.get("Unit")
-    unit_str = unit if _is_str(unit) else ""
-
-    base_fields = {
-        "name": _get_str(row, "Signal", row_num),
-        "startBit": _get_int(row, "Start Bit", row_num),
-        "length": _get_int(row, "Length", row_num),
-        "byteOrder": byte_order,
-        "signed": _get_bool(row, "Signed", row_num),
-        "factor": _get_number(row, "Factor", row_num),
-        "offset": _get_number(row, "Offset", row_num),
-        "minimum": _get_number(row, "Min", row_num),
-        "maximum": _get_number(row, "Max", row_num),
-        "unit": unit_str,
-    }
+    unit_str = unit if is_str(unit) else ""
+    ctx = _row_ctx(row_num)
 
     has_muxor = "Multiplexor" in row
     has_mux_val = "Multiplex Value" in row
 
     if has_muxor != has_mux_val:
-        msg = "must both be provided or both be empty"
         raise ValueError(
-            f"Row {row_num}: 'Multiplexor' and 'Multiplex Value' {msg}"
+            f"Row {row_num}: 'Multiplexor' and 'Multiplex Value' "
+            + "must both be provided or both be empty"
         )
 
     if has_muxor:
         mux_signal: DBCSignalMultiplexed = {
-            **base_fields,  # type: ignore[typeddict-item]
-            "multiplexor": _get_str(row, "Multiplexor", row_num),
-            "multiplex_value": _get_int(row, "Multiplex Value", row_num),
+            "name": get_str(row, "Signal", ctx),
+            "startBit": get_int(row, "Start Bit", ctx),
+            "length": get_int(row, "Length", ctx),
+            "byteOrder": byte_order,
+            "signed": get_bool(row, "Signed", ctx),
+            "factor": get_number(row, "Factor", ctx),
+            "offset": get_number(row, "Offset", ctx),
+            "minimum": get_number(row, "Min", ctx),
+            "maximum": get_number(row, "Max", ctx),
+            "unit": unit_str,
+            "multiplexor": get_str(row, "Multiplexor", ctx),
+            "multiplex_value": get_int(row, "Multiplex Value", ctx),
         }
         return mux_signal
 
     always_signal: DBCSignalAlways = {
-        **base_fields,  # type: ignore[typeddict-item]
+        "name": get_str(row, "Signal", ctx),
+        "startBit": get_int(row, "Start Bit", ctx),
+        "length": get_int(row, "Length", ctx),
+        "byteOrder": byte_order,
+        "signed": get_bool(row, "Signed", ctx),
+        "factor": get_number(row, "Factor", ctx),
+        "offset": get_number(row, "Offset", ctx),
+        "minimum": get_number(row, "Min", ctx),
+        "maximum": get_number(row, "Max", ctx),
+        "unit": unit_str,
         "presence": "always",
     }
     return always_signal
@@ -527,9 +495,9 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
     for idx, row in enumerate(rows):
         row_num = idx + 2  # 1-indexed, skip header
         key = _MessageKey(
-            msg_id=_parse_message_id(row.get("Message ID"), row_num),
-            name=_get_str(row, "Message Name", row_num),
-            dlc=_get_int(row, "DLC", row_num),
+            msg_id=_parse_message_id(row.get("Message ID"), _row_ctx(row_num)),
+            name=get_str(row, "Message Name", _row_ctx(row_num)),
+            dlc=get_int(row, "DLC", _row_ctx(row_num)),
         )
         if key not in groups:
             insertion_order.append(key)

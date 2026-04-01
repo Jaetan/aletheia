@@ -7,8 +7,7 @@
 -- Interfaces: Functor, Applicative, Monad for parser composition.
 -- Role: Foundation for all parsing (JSON, DBC, LTL, protocol).
 --
--- Performance: Rewritten from fuel-based approach, type-checks in ~10s (was >120s).
--- The `many` combinator terminates structurally by tracking consumed input length.
+-- The `many` combinator terminates by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
 open import Data.List using (List; []; _∷_; _++_; length)
@@ -160,8 +159,7 @@ noneOf chars = satisfy (λ c → not (elem c chars))
 -- REPETITION COMBINATORS (structurally recursive on input length)
 -- ============================================================================
 
--- NEW APPROACH: Make recursion structurally terminating by measuring progress
--- If a parser doesn't consume input, we stop to ensure termination
+-- Structural recursion on input length: if a parser doesn't consume input, we stop
 
 -- Helper: Check if two lists have the same length
 sameLengthᵇ : ∀ {A : Set} → List A → List A → Bool

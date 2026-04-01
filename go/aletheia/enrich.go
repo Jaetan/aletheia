@@ -12,10 +12,14 @@ type PropertyDiagnostic struct {
 }
 
 // ViolationEnrichment carries human-readable context added to violations.
+// EnrichedReason is computed by the Go enrichment layer from signal values and
+// formula structure; it differs from Violation.Reason and PropertyResult.Reason,
+// which are raw strings from the Agda core.
 type ViolationEnrichment struct {
 	Signals        map[SignalName]PhysicalValue // actual values from frame (nil if extraction failed)
 	FormulaDesc    string
 	EnrichedReason string
+	CoreReason     string // raw reason from the Agda core (e.g., "MetricEventually: window expired"); may be empty
 }
 
 // BuildDiagnostic creates a PropertyDiagnostic from a formula. Always succeeds.
@@ -28,17 +32,31 @@ func BuildDiagnostic(f Formula) PropertyDiagnostic {
 
 // FormatFormula returns a human-readable representation of an LTL formula.
 func FormatFormula(f Formula) string {
+	return formatFormulaInner(f, false)
+}
+
+// formatFormulaInner formats a formula. When parenthesizeBinary is true, binary
+// operators (and, or, until, release) are wrapped in parentheses to avoid ambiguity.
+func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 	switch v := f.(type) {
 	case Atomic:
 		return formatPredicate(v.Predicate)
 	case Not:
-		return "not(" + FormatFormula(v.Inner) + ")"
+		return "not(" + formatFormulaInner(v.Inner, false) + ")"
 	case And:
-		return FormatFormula(v.Left) + " and " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " and " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	case Or:
-		return FormatFormula(v.Left) + " or " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " or " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	case Next:
-		return "next(" + FormatFormula(v.Inner) + ")"
+		return "next(" + formatFormulaInner(v.Inner, false) + ")"
 	case Always:
 		// Detect Never pattern: Always{Not{Atomic{p}}}
 		if n, ok := v.Inner.(Not); ok {
@@ -46,21 +64,37 @@ func FormatFormula(f Formula) string {
 				return "never " + formatPredicate(a.Predicate)
 			}
 		}
-		return "always(" + FormatFormula(v.Inner) + ")"
+		return "always(" + formatFormulaInner(v.Inner, false) + ")"
 	case Eventually:
-		return "eventually(" + FormatFormula(v.Inner) + ")"
+		return "eventually(" + formatFormulaInner(v.Inner, false) + ")"
 	case Until:
-		return FormatFormula(v.Left) + " until " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " until " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	case Release:
-		return FormatFormula(v.Left) + " release " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " release " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	case MetricAlways:
-		return "always within " + formatTimebound(v.Bound) + "(" + FormatFormula(v.Inner) + ")"
+		return "always within " + formatTimebound(v.Bound) + " (" + formatFormulaInner(v.Inner, false) + ")"
 	case MetricEventually:
-		return "eventually within " + formatTimebound(v.Bound) + "(" + FormatFormula(v.Inner) + ")"
+		return "eventually within " + formatTimebound(v.Bound) + " (" + formatFormulaInner(v.Inner, false) + ")"
 	case MetricUntil:
-		return FormatFormula(v.Left) + " until within " + formatTimebound(v.Bound) + " " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " until within " + formatTimebound(v.Bound) + " " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	case MetricRelease:
-		return FormatFormula(v.Left) + " release within " + formatTimebound(v.Bound) + " " + FormatFormula(v.Right)
+		s := formatFormulaInner(v.Left, true) + " release within " + formatTimebound(v.Bound) + " " + formatFormulaInner(v.Right, true)
+		if parenthesizeBinary {
+			return "(" + s + ")"
+		}
+		return s
 	default:
 		return "<unknown>"
 	}
@@ -82,28 +116,30 @@ func formatPredicate(p Predicate) string {
 	case Between:
 		return fmt.Sprintf("%s <= %s <= %s", formatValue(float64(v.Min)), v.Signal, formatValue(float64(v.Max)))
 	case ChangedBy:
-		return fmt.Sprintf("|Δ%s| > %s", v.Signal, formatValue(float64(v.Delta)))
+		return fmt.Sprintf("|Δ%s| >= %s", v.Signal, formatValue(float64(v.Delta)))
 	default:
 		return "<unknown predicate>"
 	}
 }
 
 // formatValue formats a float64 without trailing zeros.
-func formatValue(v float64) string {
-	s := fmt.Sprintf("%g", v)
-	return s
-}
+func formatValue(v float64) string { return fmt.Sprintf("%g", v) }
 
-// formatTimebound formats a Timestamp as a human-readable time bound.
-func formatTimebound(t Timestamp) string {
+const (
+	usPerSecond      = 1_000_000
+	usPerMillisecond = 1_000
+)
+
+// formatTimebound formats a TimeBound as a human-readable time bound.
+func formatTimebound(t TimeBound) string {
 	us := t.Microseconds
-	if us%1000000 == 0 {
-		return fmt.Sprintf("%ds ", us/1000000)
+	if us%usPerSecond == 0 {
+		return fmt.Sprintf("%ds", us/usPerSecond)
 	}
-	if us%1000 == 0 {
-		return fmt.Sprintf("%dms ", us/1000)
+	if us%usPerMillisecond == 0 {
+		return fmt.Sprintf("%dms", us/usPerMillisecond)
 	}
-	return fmt.Sprintf("%dμs ", us)
+	return fmt.Sprintf("%dμs", us)
 }
 
 // CollectSignals returns all signal names referenced in a formula, deduplicated, in order.
@@ -114,6 +150,7 @@ func CollectSignals(f Formula) []SignalName {
 	return signals
 }
 
+// collectSignalsInto appends signal names from f into *signals, skipping duplicates tracked in seen.
 func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bool) {
 	switch v := f.(type) {
 	case Atomic:
@@ -177,21 +214,29 @@ func predicateSignal(p Predicate) SignalName {
 	}
 }
 
-// formatEnrichedReason builds the enriched reason string from a diagnostic and signal values.
-func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]PhysicalValue) string {
+// formatEnrichedReason builds the enriched reason string from a diagnostic, signal values,
+// and the raw core reason. When coreReason is non-empty it is appended as context.
+func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]PhysicalValue, coreReason string) string {
+	var base string
 	if len(values) == 0 {
-		return "violated: " + diag.FormulaDesc
-	}
-	var parts []string
-	for _, sig := range diag.Signals {
-		if val, ok := values[sig]; ok {
-			parts = append(parts, fmt.Sprintf("%s = %s", sig, formatValue(float64(val))))
+		base = "violated: " + diag.FormulaDesc
+	} else {
+		var parts []string
+		for _, sig := range diag.Signals {
+			if val, ok := values[sig]; ok {
+				parts = append(parts, fmt.Sprintf("%s = %s", sig, formatValue(float64(val))))
+			}
+		}
+		if len(parts) == 0 {
+			base = "violated: " + diag.FormulaDesc
+		} else {
+			base = strings.Join(parts, ", ") + " (formula: " + diag.FormulaDesc + ")"
 		}
 	}
-	if len(parts) == 0 {
-		return "violated: " + diag.FormulaDesc
+	if coreReason != "" {
+		return base + " [core: " + coreReason + "]"
 	}
-	return strings.Join(parts, ", ") + " (formula: " + diag.FormulaDesc + ")"
+	return base
 }
 
 // --- Extraction cache ---
@@ -201,9 +246,13 @@ const maxExtractCache = 256
 type frameKey struct {
 	idValue    uint32
 	isExtended bool
-	data       FramePayload
+	dlc        uint8
+	data       string // string([]byte) for comparable map key
 }
 
+// extractCache is a bounded, frame-keyed cache of extraction results.
+// It is not thread-safe; all access must be synchronized by the caller
+// (protected by Client.mu).
 type extractCache struct {
 	entries map[frameKey]*ExtractionResult
 }
@@ -217,11 +266,14 @@ func (c *extractCache) get(key frameKey) (*ExtractionResult, bool) {
 	return r, ok
 }
 
-func (c *extractCache) put(key frameKey, result *ExtractionResult) {
+// put stores a result if the cache is not full. Returns false when the cache
+// is at capacity and the entry was not stored.
+func (c *extractCache) put(key frameKey, result *ExtractionResult) bool {
 	if len(c.entries) >= maxExtractCache {
-		return
+		return false
 	}
 	c.entries[key] = result
+	return true
 }
 
 func (c *extractCache) clear() {

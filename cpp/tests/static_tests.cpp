@@ -20,13 +20,16 @@ static_assert(!std::is_same_v<MessageName, NodeName>);
 static_assert(!std::is_same_v<MessageName, Unit>);
 static_assert(!std::is_same_v<NodeName, Unit>);
 
-// Numeric physical types (4 choose 2 = 6 pairs)
-static_assert(!std::is_same_v<PhysicalValue, ScaleFactor>);
-static_assert(!std::is_same_v<PhysicalValue, ScaleOffset>);
+// Numeric physical types
 static_assert(!std::is_same_v<PhysicalValue, Delta>);
-static_assert(!std::is_same_v<ScaleFactor, ScaleOffset>);
-static_assert(!std::is_same_v<ScaleFactor, Delta>);
-static_assert(!std::is_same_v<ScaleOffset, Delta>);
+
+// Rational strong types (all distinct from each other and from double types)
+static_assert(!std::is_same_v<RationalFactor, RationalOffset>);
+static_assert(!std::is_same_v<RationalFactor, RationalBound>);
+static_assert(!std::is_same_v<RationalOffset, RationalBound>);
+static_assert(!std::is_same_v<RationalFactor, PhysicalValue>);
+static_assert(!std::is_same_v<RationalOffset, PhysicalValue>);
+static_assert(!std::is_same_v<RationalBound, Delta>);
 
 // Integer domain types (4 choose 2 = 6 pairs)
 static_assert(!std::is_same_v<BitPosition, BitLength>);
@@ -72,10 +75,25 @@ static_assert(ExtendedId::create(1'000'000)->value() == 1'000'000);
 
 static_assert(Dlc::create(0).has_value());
 static_assert(Dlc::create(8).has_value());
-static_assert(!Dlc::create(9).has_value());
+static_assert(Dlc::create(15).has_value());
+static_assert(!Dlc::create(16).has_value());
 static_assert(!Dlc::create(255).has_value());
 
 static_assert(Dlc::create(4)->value() == 4);
+
+// ===========================================================================
+// dlc_to_bytes mapping (CAN-FD non-linear table)
+// ===========================================================================
+
+static_assert(dlc_to_bytes(Dlc::create(0).value()) == 0);
+static_assert(dlc_to_bytes(Dlc::create(8).value()) == 8);
+static_assert(dlc_to_bytes(Dlc::create(9).value()) == 12);
+static_assert(dlc_to_bytes(Dlc::create(10).value()) == 16);
+static_assert(dlc_to_bytes(Dlc::create(11).value()) == 20);
+static_assert(dlc_to_bytes(Dlc::create(12).value()) == 24);
+static_assert(dlc_to_bytes(Dlc::create(13).value()) == 32);
+static_assert(dlc_to_bytes(Dlc::create(14).value()) == 48);
+static_assert(dlc_to_bytes(Dlc::create(15).value()) == 64);
 
 // ===========================================================================
 // Strong type accessors (constexpr)
@@ -83,8 +101,9 @@ static_assert(Dlc::create(4)->value() == 4);
 
 static_assert(PhysicalValue{42.0}.get() == 42.0);
 static_assert(PhysicalValue{-1.5}.get() == -1.5);
-static_assert(ScaleFactor{0.25}.get() == 0.25);
-static_assert(ScaleOffset{-40.0}.get() == -40.0);
+static_assert(RationalFactor{Rational{1, 4}}.get() == Rational{1, 4});
+static_assert(RationalOffset{Rational{-40, 1}}.get() == Rational{-40, 1});
+static_assert(RationalBound{Rational{0, 1}}.get() == Rational{0, 1});
 static_assert(Delta{100.0}.get() == 100.0);
 
 static_assert(BitPosition{0}.get() == 0);
@@ -122,11 +141,10 @@ static_assert(static_cast<int>(ByteOrder::LittleEndian) == 0);
 static_assert(static_cast<int>(ByteOrder::BigEndian) == 1);
 
 // ===========================================================================
-// FramePayload layout
+// FramePayload is a vector of bytes (variable-length for CAN-FD)
 // ===========================================================================
 
-static_assert(sizeof(FramePayload) == 8);
-static_assert(std::is_same_v<FramePayload, std::array<std::byte, 8>>);
+static_assert(std::is_same_v<FramePayload, std::vector<std::byte>>);
 
 // ===========================================================================
 // Timestamp is chrono microseconds
@@ -183,6 +201,8 @@ static_assert(!std::is_copy_constructible_v<AletheiaClient>);
 static_assert(!std::is_copy_assignable_v<AletheiaClient>);
 static_assert(std::is_move_constructible_v<AletheiaClient>);
 static_assert(std::is_move_assignable_v<AletheiaClient>);
+static_assert(std::is_nothrow_move_constructible_v<AletheiaClient>);
+static_assert(std::is_nothrow_move_assignable_v<AletheiaClient>);
 
 // ===========================================================================
 // IBackend — abstract (has pure virtuals)
@@ -209,7 +229,7 @@ static_assert(!std::is_convertible_v<BitPosition, std::uint16_t>);
 // ===========================================================================
 
 static_assert(!std::is_convertible_v<SignalName, MessageName>);
-static_assert(!std::is_convertible_v<PhysicalValue, ScaleFactor>);
+static_assert(!std::is_convertible_v<PhysicalValue, RationalFactor>);
 static_assert(!std::is_convertible_v<BitPosition, BitLength>);
 
 // ===========================================================================
@@ -227,6 +247,15 @@ static_assert(std::is_same_v<std::variant_alternative_t<1, SignalPresence>, Mult
 static_assert(std::variant_size_v<FrameResponse> == 2);
 static_assert(std::is_same_v<std::variant_alternative_t<0, FrameResponse>, Ack>);
 static_assert(std::is_same_v<std::variant_alternative_t<1, FrameResponse>, Violation>);
+
+// ===========================================================================
+// CheckResult — move-only (holds formula)
+// ===========================================================================
+
+static_assert(std::is_move_constructible_v<CheckResult>);
+static_assert(!std::is_copy_constructible_v<CheckResult>);
+static_assert(std::is_move_assignable_v<CheckResult>);
+static_assert(!std::is_copy_assignable_v<CheckResult>);
 
 // If this file compiles, all 100+ static assertions pass.
 int main() {

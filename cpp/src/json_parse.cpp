@@ -71,6 +71,28 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
     return IssueCode::Unknown;
 }
 
+// Parse a JSON value as an exact Rational (for DBC signal parameters).
+// Accepts plain integers or {numerator, denominator} dicts.
+static auto parse_rational(const json& j) -> Rational {
+    if (j.is_number_integer())
+        return {.numerator = j.get<std::int64_t>(), .denominator = 1};
+    if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
+        auto num = j.at("numerator").get<std::int64_t>();
+        auto den = j.at("denominator").get<std::int64_t>();
+        if (den == 0)
+            throw std::runtime_error("Zero denominator in rational: " + j.dump());
+        // Normalize: denominator always positive
+        if (den < 0) {
+            if (num == std::numeric_limits<std::int64_t>::min())
+                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
+            num = -num;
+            den = -den;
+        }
+        return {.numerator = num, .denominator = den};
+    }
+    throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
+}
+
 static auto parse_rational_as_int(const json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
@@ -79,6 +101,10 @@ static auto parse_rational_as_int(const json& j) -> std::int64_t {
         auto den = j.at("denominator").get<std::int64_t>();
         if (den == 0)
             throw std::runtime_error("Zero denominator in rational: " + j.dump());
+        if (den == -1 && num == std::numeric_limits<std::int64_t>::min())
+            throw std::runtime_error("Integer overflow in rational: " + j.dump());
+        if (num % den != 0)
+            throw std::runtime_error("Non-exact rational in integer field: " + j.dump());
         return num / den;
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
@@ -105,10 +131,10 @@ static auto parse_signal_def(const json& j) -> DbcSignal {
         .bit_length = BitLength{j.at("length").get<std::uint8_t>()},
         .byte_order = bo,
         .is_signed = j.value("signed", false),
-        .factor = ScaleFactor{parse_number(j.at("factor"))},
-        .offset = ScaleOffset{parse_number(j.at("offset"))},
-        .minimum = PhysicalValue{parse_number(j.at("minimum"))},
-        .maximum = PhysicalValue{parse_number(j.at("maximum"))},
+        .factor = RationalFactor{parse_rational(j.at("factor"))},
+        .offset = RationalOffset{parse_rational(j.at("offset"))},
+        .minimum = RationalBound{parse_rational(j.at("minimum"))},
+        .maximum = RationalBound{parse_rational(j.at("maximum"))},
         .unit = Unit{j.value("unit", "")},
         .presence = std::move(presence),
     };
@@ -131,12 +157,12 @@ static auto parse_message_def(const json& j) -> DbcMessage {
                                      " exceeds uint16 range");
         auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
         if (!result)
-            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) +
-                                     ": " + result.error());
+            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
         return CanId{*result};
     }();
 
-    auto dlc_result = Dlc::create(j.at("dlc").get<std::uint8_t>());
+    auto dlc_result = bytes_to_dlc(j.at("dlc").get<std::size_t>());
     if (!dlc_result)
         throw std::runtime_error("Invalid DLC: " + dlc_result.error());
 
@@ -221,9 +247,9 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
-        if (status.empty())
+        if (status != "success")
             return std::unexpected(
-                make_error(ErrorKind::Protocol, "Missing 'status' field in response"));
+                make_error(ErrorKind::Protocol, "Unexpected extraction status: " + status));
 
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", json::array()))
@@ -255,14 +281,15 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
+        if (status != "success")
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Unexpected frame data status: " + status));
 
         const auto& data = j.at("data");
-        if (data.size() != 8)
-            return std::unexpected(make_error(ErrorKind::Protocol, "Expected 8-byte frame data"));
-
-        FramePayload payload{};
-        for (std::size_t i = 0; i < 8; ++i)
-            payload[i] = static_cast<std::byte>(data[i].get<std::uint8_t>());
+        FramePayload payload;
+        payload.reserve(data.size());
+        for (const auto& byte_val : data)
+            payload.push_back(static_cast<std::byte>(byte_val.get<std::uint8_t>()));
         return payload;
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
@@ -270,6 +297,13 @@ auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
 }
 
 auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
+    // Fast path: byte-level check for the common ack response.
+    // Avoids full JSON parsing for ~99% of streaming frames.
+    static constexpr std::string_view ack_compact = R"({"status":"ack"})";
+    static constexpr std::string_view ack_spaced = R"({"status": "ack"})";
+    if (input == ack_compact || input == ack_spaced)
+        return FrameResponse{Ack{}};
+
     try {
         auto j = json::parse(input);
         auto status = j.value("status", "");
@@ -277,11 +311,13 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         if (status == "ack")
             return FrameResponse{Ack{}};
 
-        if (status == "violation") {
+        if (status == "fails") {
             auto idx = parse_rational_as_int(j.at("property_index"));
             if (idx < 0)
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
             auto ts = parse_rational_as_int(j.at("timestamp"));
+            if (ts < 0)
+                throw std::runtime_error("Negative timestamp: " + std::to_string(ts));
             std::string reason;
             if (j.contains("reason") && j.at("reason").is_string())
                 reason = j.at("reason").get<std::string>();
@@ -318,9 +354,9 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
         for (const auto& r : j.at("results")) {
             auto entry_status = r.value("status", "");
             Verdict verdict{};
-            if (entry_status == "satisfaction")
+            if (entry_status == "holds")
                 verdict = Verdict::Holds;
-            else if (entry_status == "violation")
+            else if (entry_status == "fails")
                 verdict = Verdict::Fails;
             else
                 throw std::runtime_error("Unknown verdict status: " + entry_status);
@@ -329,8 +365,12 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));
 
             std::optional<Timestamp> ts;
-            if (r.contains("timestamp"))
-                ts = Timestamp{parse_rational_as_int(r.at("timestamp"))};
+            if (r.contains("timestamp")) {
+                auto ts_val = parse_rational_as_int(r.at("timestamp"));
+                if (ts_val < 0)
+                    throw std::runtime_error("Negative timestamp: " + std::to_string(ts_val));
+                ts = Timestamp{ts_val};
+            }
 
             std::string reason;
             if (r.contains("reason") && r.at("reason").is_string())
@@ -356,6 +396,9 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
         if (status == "error")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, j.value("message", "Unknown error")));
+        if (status != "success")
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Unexpected DBC response status: " + status));
         if (!j.contains("dbc"))
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Missing 'dbc' field in response"));

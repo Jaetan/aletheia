@@ -11,26 +11,26 @@ Example:
     responses = client.send_frames_batch(frames)
 
     # Lazy: iterate one frame at a time
-    for ts, can_id, data in iter_can_log("highway.asc"):
-        response = client.send_frame(ts, can_id, data)
+    for ts, can_id, dlc, data in iter_can_log("highway.asc"):
+        response = client.send_frame(ts, can_id, dlc, data)
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeAlias
 
 import can
 
-CANFrameTuple = tuple[int, int, bytearray]
-"""(timestamp_us, arbitration_id, data) — matches send_frame() signature."""
+from aletheia.client._types import bytes_to_dlc
+
+CANFrameTuple: TypeAlias = tuple[int, int, int, bytearray]
+"""(timestamp_us, arbitration_id, dlc, data) — matches send_frame() signature."""
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
 })
-
-_DLC_STANDARD: int = 8
 
 
 def load_can_log(
@@ -38,7 +38,6 @@ def load_can_log(
     *,
     skip_error_frames: bool = True,
     skip_remote_frames: bool = True,
-    strict_dlc: bool = False,
     on_error: Literal["skip", "raise"] = "skip",
 ) -> list[CANFrameTuple]:
     """Load all CAN frames from a log file into memory.
@@ -47,17 +46,15 @@ def load_can_log(
         path: Path to a CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)
         skip_error_frames: Skip CAN error frames (default True)
         skip_remote_frames: Skip remote transmission request frames (default True)
-        strict_dlc: Raise ValueError if DLC != 8 (default False; pads/truncates)
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Returns:
-        List of (timestamp_us, arbitration_id, data) tuples
+        List of (timestamp_us, arbitration_id, dlc, data) tuples
     """
     return list(iter_can_log(
         path,
         skip_error_frames=skip_error_frames,
         skip_remote_frames=skip_remote_frames,
-        strict_dlc=strict_dlc,
         on_error=on_error,
     ))
 
@@ -67,7 +64,6 @@ def iter_can_log(
     *,
     skip_error_frames: bool = True,
     skip_remote_frames: bool = True,
-    strict_dlc: bool = False,
     on_error: Literal["skip", "raise"] = "skip",
 ) -> Iterator[CANFrameTuple]:
     """Lazily iterate CAN frames from a log file.
@@ -76,11 +72,10 @@ def iter_can_log(
         path: Path to a CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)
         skip_error_frames: Skip CAN error frames (default True)
         skip_remote_frames: Skip remote transmission request frames (default True)
-        strict_dlc: Raise ValueError if DLC != 8 (default False; pads/truncates)
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Yields:
-        (timestamp_us, arbitration_id, data) tuples
+        (timestamp_us, arbitration_id, dlc, data) tuples
     """
     resolved = Path(path)
     _validate_path(resolved)
@@ -93,7 +88,6 @@ def iter_can_log(
                     msg,
                     skip_error_frames=skip_error_frames,
                     skip_remote_frames=skip_remote_frames,
-                    strict_dlc=strict_dlc,
                 )
             except (ValueError, TypeError, AttributeError):
                 if on_error == "raise":
@@ -132,7 +126,6 @@ def _convert_message(
     *,
     skip_error_frames: bool,
     skip_remote_frames: bool,
-    strict_dlc: bool,
 ) -> CANFrameTuple | None:
     """Convert a python-can Message to an Aletheia frame tuple.
 
@@ -144,9 +137,10 @@ def _convert_message(
         return None
 
     timestamp_us = _timestamp_to_us(msg.timestamp)
-    data = _normalize_data(msg.data, strict_dlc=strict_dlc)
+    dlc: int = bytes_to_dlc(msg.dlc)
+    data = _normalize_data(msg.data, msg.dlc)
 
-    return (timestamp_us, msg.arbitration_id, data)
+    return (timestamp_us, msg.arbitration_id, dlc, data)
 
 
 def _timestamp_to_us(timestamp: float) -> int:
@@ -154,29 +148,22 @@ def _timestamp_to_us(timestamp: float) -> int:
     return int(timestamp * 1_000_000)
 
 
-def _normalize_data(data: bytearray | None, *, strict_dlc: bool) -> bytearray:
-    """Normalize CAN frame data to exactly 8 bytes.
+def _normalize_data(data: bytearray | None, dlc: int) -> bytearray:
+    """Normalize CAN frame data to match the DLC byte count.
 
-    - If data is None (remote frames), return 8 zero bytes
-    - If strict_dlc is True, raise ValueError for non-8-byte data
-    - Otherwise, pad with zeros or truncate to 8 bytes
+    - If data is None (remote frames), return dlc zero bytes
+    - If data length matches dlc, return a copy
+    - Otherwise, pad with zeros or truncate to dlc bytes
     """
     if data is None:
-        if strict_dlc:
-            raise ValueError("Frame has no data (remote frame or error)")
-        return bytearray(_DLC_STANDARD)
+        return bytearray(dlc)
 
-    if len(data) == _DLC_STANDARD:
+    if len(data) == dlc:
         return bytearray(data)
 
-    if strict_dlc:
-        raise ValueError(
-            f"Frame has {len(data)} bytes, expected {_DLC_STANDARD}"
-        )
-
-    if len(data) < _DLC_STANDARD:
-        padded = bytearray(_DLC_STANDARD)
+    if len(data) < dlc:
+        padded = bytearray(dlc)
         padded[:len(data)] = data
         return padded
 
-    return bytearray(data[:_DLC_STANDARD])
+    return bytearray(data[:dlc])

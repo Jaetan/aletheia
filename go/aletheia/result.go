@@ -19,16 +19,22 @@ type ExtractionResult struct {
 	Values []SignalValue
 	Errors []SignalError
 	Absent []SignalName
+	index  map[SignalName]PhysicalValue // built at construction by buildIndex
+}
+
+// buildIndex populates the lookup index from Values. Called once at construction.
+func (r *ExtractionResult) buildIndex() {
+	r.index = make(map[SignalName]PhysicalValue, len(r.Values))
+	for _, sv := range r.Values {
+		r.index[sv.Name] = sv.Value
+	}
 }
 
 // Get looks up a signal by name, returning its value and true if found.
+// Returns (0, false) if the signal is not present or the index was not built.
 func (r *ExtractionResult) Get(name SignalName) (PhysicalValue, bool) {
-	for _, sv := range r.Values {
-		if sv.Name == name {
-			return sv.Value, true
-		}
-	}
-	return 0, false
+	v, ok := r.index[name]
+	return v, ok
 }
 
 // FrameResponse is the response to a single frame during streaming.
@@ -45,7 +51,7 @@ func (Ack) frameResponse() {}
 type Violation struct {
 	PropertyIndex PropertyIndex
 	Timestamp     Timestamp
-	Reason        string               // may be empty
+	Reason        string               // raw reason from the Agda core; may be empty
 	Enrichment    *ViolationEnrichment // nil when no diagnostic available
 }
 
@@ -61,6 +67,7 @@ const (
 	Fails
 )
 
+// String returns "holds", "fails", or "unknown".
 func (v Verdict) String() string {
 	switch v {
 	case Holds:
@@ -77,7 +84,7 @@ type PropertyResult struct {
 	PropertyIndex PropertyIndex
 	Verdict       Verdict
 	Timestamp     *Timestamp           // nil if not applicable
-	Reason        string               // may be empty
+	Reason        string               // raw reason from the Agda core; may be empty
 	Enrichment    *ViolationEnrichment // nil when verdict is Holds or no diagnostic
 }
 
@@ -96,27 +103,39 @@ const (
 	SeverityWarning
 )
 
+// String returns "error", "warning", or "unknown".
+func (s IssueSeverity) String() string {
+	switch s {
+	case SeverityError:
+		return "error"
+	case SeverityWarning:
+		return "warning"
+	default:
+		return "unknown"
+	}
+}
+
 // IssueCode identifies a specific type of DBC validation issue.
 type IssueCode string
 
 const (
-	IssueDuplicateMessageID          IssueCode = "duplicate_message_id"
-	IssueDuplicateMessageName        IssueCode = "duplicate_message_name"
-	IssueDuplicateSignalName         IssueCode = "duplicate_signal_name"
-	IssueFactorZero                  IssueCode = "factor_zero"
-	IssueMultiplexorNotFound         IssueCode = "multiplexor_not_found"
-	IssueMultiplexorNotAlwaysPresent IssueCode = "multiplexor_not_always_present"
-	IssueGlobalNameCollision         IssueCode = "global_name_collision"
-	IssueMinExceedsMax               IssueCode = "min_exceeds_max"
-	IssueSignalExceedsDLC            IssueCode = "signal_exceeds_dlc"
-	IssueSignalOverlap               IssueCode = "signal_overlap"
-	IssueBitLengthZero               IssueCode = "bit_length_zero"
-	IssueDLCOutOfRange               IssueCode = "dlc_out_of_range"
-	IssueOffsetScaleRange            IssueCode = "offset_scale_range"
-	IssueEmptyMessage                IssueCode = "empty_message"
-	IssueStartBitOutOfRange          IssueCode = "start_bit_out_of_range"
-	IssueBitLengthExcessive          IssueCode = "bit_length_excessive"
-	IssueUnknown                     IssueCode = "unknown"
+	IssueDuplicateMessageID          IssueCode = "duplicate_message_id"           // Two messages share the same CAN ID.
+	IssueDuplicateMessageName        IssueCode = "duplicate_message_name"         // Two messages share the same name.
+	IssueDuplicateSignalName         IssueCode = "duplicate_signal_name"          // Two signals in the same message share a name.
+	IssueFactorZero                  IssueCode = "factor_zero"                    // Signal scaling factor is zero (division by zero).
+	IssueMultiplexorNotFound         IssueCode = "multiplexor_not_found"          // Multiplexed signal references a missing multiplexor.
+	IssueMultiplexorNotAlwaysPresent IssueCode = "multiplexor_not_always_present" // Multiplexor signal is itself conditional.
+	IssueGlobalNameCollision         IssueCode = "global_name_collision"          // Signal name is not unique across all messages.
+	IssueMinExceedsMax               IssueCode = "min_exceeds_max"                // Signal physical min exceeds max.
+	IssueSignalExceedsDLC            IssueCode = "signal_exceeds_dlc"             // Signal bit range extends beyond the message DLC.
+	IssueSignalOverlap               IssueCode = "signal_overlap"                 // Two signals occupy overlapping bit positions.
+	IssueBitLengthZero               IssueCode = "bit_length_zero"                // Signal has zero bit length.
+	IssueDLCOutOfRange               IssueCode = "dlc_out_of_range"               // Message DLC is outside the valid CAN/CAN-FD range.
+	IssueOffsetScaleRange            IssueCode = "offset_scale_range"             // Offset/scale combination produces out-of-range values.
+	IssueEmptyMessage                IssueCode = "empty_message"                  // Message declares no signals.
+	IssueStartBitOutOfRange          IssueCode = "start_bit_out_of_range"         // Signal start bit exceeds frame capacity.
+	IssueBitLengthExcessive          IssueCode = "bit_length_excessive"           // Signal bit length exceeds 64 bits.
+	IssueUnknown                     IssueCode = "unknown"                        // Unrecognized issue code from the Agda core.
 )
 
 // ValidationIssue is a single issue found during DBC validation.

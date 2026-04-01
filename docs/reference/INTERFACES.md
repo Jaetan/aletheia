@@ -381,9 +381,9 @@ with AletheiaClient() as client:
 |--------|------|----------|-------|
 | Message ID | int or hex string | yes | `0x100` or `256` |
 | Message Name | string | yes | |
-| DLC | int | yes | 1-8 |
+| DLC | int | yes | 0-15 (CAN-FD: 9→12B, 10→16B, 11→20B, 12→24B, 13→32B, 14→48B, 15→64B) |
 | Signal | string | yes | Signal name |
-| Start Bit | int | yes | 0-63 |
+| Start Bit | int | yes | 0-511 (CAN-FD) or 0-63 (standard CAN) |
 | Length | int | yes | Bit length |
 | Byte Order | string | yes | `little_endian` or `big_endian` |
 | Signed | bool | yes | TRUE or FALSE |

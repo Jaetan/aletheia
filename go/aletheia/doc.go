@@ -14,6 +14,6 @@
 //	if err != nil { log.Fatal(err) }
 //	defer client.Close()
 //
-//	err = client.ParseDBC(dbc)
-//	result, err := client.ExtractSignals(canID, frameData)
+//	if err = client.ParseDBC(dbc); err != nil { log.Fatal(err) }
+//	result, err := client.ExtractSignals(canID, dlc, frameData)
 package aletheia

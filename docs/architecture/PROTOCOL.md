@@ -1,8 +1,8 @@
 # Aletheia JSON Streaming Protocol
 
 **Purpose**: Complete specification of the JSON protocol for CAN frame analysis with LTL checking.
-**Version**: 1.0 (Phase 2B.1)
-**Last Updated**: 2026-03-19
+**Version**: 1.1 (CAN-FD support)
+**Last Updated**: 2026-03-25
 
 ---
 
@@ -111,13 +111,13 @@ Load a DBC (Database CAN) structure from JSON format.
 - `dbc.messages`: Array of CAN message definitions
   - `id`: CAN message ID (0-2047 for standard, 0-536870911 for extended)
   - `name`: Message name (string)
-  - `dlc`: Data Length Code (0-8 bytes)
+  - `dlc`: Data Length Code (0-15; DLC 0-8 map directly to byte counts, 9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64 bytes for CAN-FD)
   - `extended`: Boolean, true for 29-bit IDs
   - `sender`: Node that sends this message
   - `signals`: Array of signal definitions
     - `name`: Signal name (must be unique within message)
-    - `startBit`: Bit position in frame (0-63)
-    - `length`: Signal length in bits (1-64)
+    - `startBit`: Bit position in frame (0-511 for CAN-FD; 0-63 for standard CAN)
+    - `length`: Signal length in bits (1-512 for CAN-FD; 1-64 for standard CAN)
     - `byteOrder`: "little_endian" or "big_endian"
     - `signed`: Boolean, true for signed integers
     - `factor`: Scaling factor (rational as decimal)
@@ -228,6 +228,7 @@ Extract all signal values from a CAN frame without streaming.
   "type": "command",
   "command": "extractAllSignals",
   "canId": 256,
+  "dlc": 8,
   "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
 }
 ```
@@ -246,7 +247,8 @@ Extract all signal values from a CAN frame without streaming.
 
 **Fields**:
 - `canId`: CAN message ID (integer, must match a message in the loaded DBC)
-- `data`: Array of 8 bytes (0-255)
+- `dlc`: Data Length Code (0-15)
+- `data`: Array of bytes (0-255), length must match `dlcToBytes(dlc)`
 - Response `values`: Successfully extracted signals with physical values
 - Response `errors`: Signals that failed extraction (with error message)
 - Response `absent`: Multiplexed signals not present in this frame
@@ -282,7 +284,7 @@ Encode signal values into a new CAN frame (starting from all zeros).
 **Fields**:
 - `canId`: CAN message ID (integer, must match a message in the loaded DBC)
 - `signals`: Array of {name, value} objects to encode
-- Response `data`: Encoded 8-byte frame
+- Response `data`: Encoded frame payload (variable length)
 
 **State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
 
@@ -298,6 +300,7 @@ Update specific signal values in an existing CAN frame.
   "type": "command",
   "command": "updateFrame",
   "canId": 256,
+  "dlc": 8,
   "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0],
   "signals": [
     {"name": "Speed", "value": 200.0}
@@ -315,9 +318,10 @@ Update specific signal values in an existing CAN frame.
 
 **Fields**:
 - `canId`: CAN message ID (integer, must match a message in the loaded DBC)
-- `data`: Existing 8-byte frame to modify (array of 8 bytes, 0-255)
+- `dlc`: Data Length Code (0-15)
+- `data`: Existing frame to modify (array of bytes, length must match `dlcToBytes(dlc)`)
 - `signals`: Array of {name, value} objects to update
-- Response `data`: Updated 8-byte frame
+- Response `data`: Updated frame payload (same length as input)
 
 **State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
 
@@ -482,6 +486,7 @@ Send a CAN frame for analysis.
   "type": "data",
   "timestamp": 1000,
   "id": 256,
+  "dlc": 8,
   "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
 }
 ```
@@ -516,7 +521,8 @@ Send a CAN frame for analysis.
 **Fields**:
 - `timestamp`: Frame timestamp in microseconds (integer or rational)
 - `id`: CAN message ID (must match a message in the loaded DBC)
-- `data`: Array of 8 bytes (0-255)
+- `dlc`: Data Length Code (0-15)
+- `data`: Array of bytes (0-255), length must match `dlcToBytes(dlc)`
 
 **State Requirements**: Must be in `Streaming` state
 **Processing**:
@@ -788,13 +794,13 @@ Used in responses for exact representation.
 
 ### 4. Send Data Frames
 ```json
->>> {"type": "data", "timestamp": 100, "id": 256, "data": [0xE8, 0x03, 0, 0, 0, 0, 0, 0]}
+>>> {"type": "data", "timestamp": 100, "id": 256, "dlc": 8, "data": [0xE8, 0x03, 0, 0, 0, 0, 0, 0]}
 <<< {"status": "ack"}
 
->>> {"type": "data", "timestamp": 200, "id": 256, "data": [0xD0, 0x07, 0, 0, 0, 0, 0, 0]}
+>>> {"type": "data", "timestamp": 200, "id": 256, "dlc": 8, "data": [0xD0, 0x07, 0, 0, 0, 0, 0, 0]}
 <<< {"status": "ack"}
 
->>> {"type": "data", "timestamp": 300, "id": 256, "data": [0x28, 0x0A, 0, 0, 0, 0, 0, 0]}
+>>> {"type": "data", "timestamp": 300, "id": 256, "dlc": 8, "data": [0x28, 0x0A, 0, 0, 0, 0, 0, 0]}
 <<< {"type": "property", "status": "violation", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
 ```
 

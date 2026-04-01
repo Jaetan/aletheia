@@ -178,7 +178,7 @@ data SignalPredicate : Set where
 -- ============================================================================
 
 -- Extract signal value using new extraction with multiplexing support
-extractTruthValue : String → DBC → CANFrame → Maybe ℚ
+extractTruthValue : ∀ {n} → String → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
 -- ============================================================================
@@ -237,21 +237,21 @@ private
 -- ============================================================================
 
 -- Get signal value: try frame first, then cache
-getTruthValue : String → DBC → SignalCache → CANFrame → Maybe ℚ
+getTruthValue : ∀ {n} → String → DBC → SignalCache → CANFrame n → Maybe ℚ
 getTruthValue sigName dbc cache frame =
   case extractTruthValue sigName dbc frame of λ where
     (just v) → just v
     nothing  → M.map CachedSignal.value (lookupCache sigName cache)
 
 -- Evaluate value predicate with cache fallback
-evalValuePredicateTV : DBC → SignalCache → ValuePredicate → CANFrame → TruthVal
+evalValuePredicateTV : ∀ {n} → DBC → SignalCache → ValuePredicate → CANFrame n → TruthVal
 evalValuePredicateTV dbc cache vp frame =
   case getTruthValue (valuePredicateSignal vp) dbc cache frame of λ where
     (just v) → fromBool (evalValuePredicate vp v)
     nothing  → Unknown
 
 -- Evaluate delta predicate with cache
-evalDeltaPredicateTV : DBC → SignalCache → DeltaPredicate → CANFrame → TruthVal
+evalDeltaPredicateTV : ∀ {n} → DBC → SignalCache → DeltaPredicate → CANFrame n → TruthVal
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
       currVal = getTruthValue sigName dbc cache frame
@@ -263,7 +263,7 @@ evalDeltaPredicateTV dbc cache dp frame =
       (just pv) → fromBool (evalDeltaPredicate dp pv cv)
 
 -- Evaluate any signal predicate with cache
-evalPredicateTV : DBC → SignalCache → SignalPredicate → CANFrame → TruthVal
+evalPredicateTV : ∀ {n} → DBC → SignalCache → SignalPredicate → CANFrame n → TruthVal
 evalPredicateTV dbc cache (ValueP vp) frame = evalValuePredicateTV dbc cache vp frame
 evalPredicateTV dbc cache (DeltaP dp) frame = evalDeltaPredicateTV dbc cache dp frame
 

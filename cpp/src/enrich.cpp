@@ -14,12 +14,15 @@ auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
 }
 
+constexpr std::int64_t us_per_second = 1'000'000;
+constexpr std::int64_t us_per_millisecond = 1'000;
+
 auto format_timebound(Timestamp t) -> std::string {
     auto us = t.count();
-    if (us % 1'000'000 == 0)
-        return std::format("{}s ", us / 1'000'000);
-    if (us % 1'000 == 0)
-        return std::format("{}ms ", us / 1'000);
+    if (us % us_per_second == 0)
+        return std::format("{}s ", us / us_per_second);
+    if (us % us_per_millisecond == 0)
+        return std::format("{}ms ", us / us_per_millisecond);
     return std::format("{}us ", us);
 }
 
@@ -28,39 +31,35 @@ auto format_predicate(const Predicate& p) -> std::string {
         [](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Equals>)
-                return std::format("{} = {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} = {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, LessThan>)
-                return std::format("{} < {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} < {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, GreaterThan>)
-                return std::format("{} > {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} > {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, LessThanOrEqual>)
-                return std::format("{} <= {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} <= {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
-                return std::format("{} >= {}", std::string_view{v.signal}, format_value(v.value.get()));
+                return std::format("{} >= {}", std::string_view{v.signal},
+                                   format_value(v.value.get()));
             else if constexpr (std::is_same_v<T, Between>)
                 return std::format("{} <= {} <= {}", format_value(v.min.get()),
                                    std::string_view{v.signal}, format_value(v.max.get()));
             else if constexpr (std::is_same_v<T, ChangedBy>)
+                // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
                 return std::format("|{}{}| > {}", "\xce\x94", std::string_view{v.signal},
                                    format_value(v.delta.get()));
             else
-                return "<unknown predicate>";
+                static_assert(sizeof(T) == 0, "Unhandled predicate type in format_predicate");
         },
         p);
 }
 
 auto predicate_signal(const Predicate& p) -> SignalName {
-    return std::visit(
-        [](const auto& v) -> SignalName {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, Between>)
-                return v.signal;
-            else if constexpr (std::is_same_v<T, ChangedBy>)
-                return v.signal;
-            else
-                return v.signal;
-        },
-        p);
+    return std::visit([](const auto& v) -> SignalName { return v.signal; }, p);
 }
 
 void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals) {
@@ -71,22 +70,19 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
                 auto name = predicate_signal(v.predicate);
                 if (std::ranges::find(signals, name) == signals.end())
                     signals.push_back(name);
-            } else if constexpr (std::is_same_v<T, Not>) {
-                collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
-                                 std::is_same_v<T, Until> || std::is_same_v<T, Release>) {
-                collect_signals_into(*v.left, signals);
-                collect_signals_into(*v.right, signals);
-            } else if constexpr (std::is_same_v<T, Next> || std::is_same_v<T, Always> ||
-                                 std::is_same_v<T, Eventually>) {
-                collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, MetricAlways> ||
+            } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
+                                 std::is_same_v<T, Always> || std::is_same_v<T, Eventually> ||
+                                 std::is_same_v<T, MetricAlways> ||
                                  std::is_same_v<T, MetricEventually>) {
                 collect_signals_into(*v.formula, signals);
-            } else if constexpr (std::is_same_v<T, MetricUntil> ||
+            } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
+                                 std::is_same_v<T, Until> || std::is_same_v<T, Release> ||
+                                 std::is_same_v<T, MetricUntil> ||
                                  std::is_same_v<T, MetricRelease>) {
                 collect_signals_into(*v.left, signals);
                 collect_signals_into(*v.right, signals);
+            } else {
+                static_assert(sizeof(T) == 0, "Unhandled formula type in collect_signals_into");
             }
         },
         f);
@@ -128,12 +124,12 @@ auto format_formula(const LtlFormula& f) -> std::string {
                        format_formula(*v.formula) + ")";
             else if constexpr (std::is_same_v<T, MetricUntil>)
                 return format_formula(*v.left) + " until within " + format_timebound(v.bound) +
-                       " " + format_formula(*v.right);
+                       format_formula(*v.right);
             else if constexpr (std::is_same_v<T, MetricRelease>)
                 return format_formula(*v.left) + " release within " + format_timebound(v.bound) +
-                       " " + format_formula(*v.right);
+                       format_formula(*v.right);
             else
-                return "<unknown>";
+                static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
         },
         f);
 }

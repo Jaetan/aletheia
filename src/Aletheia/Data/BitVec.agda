@@ -85,23 +85,3 @@ setBit-setBit-comm {suc n} (b ∷ bs) (Fin.suc k₁) Fin.zero v₁ v₂ k₁≢k
 setBit-setBit-comm {suc n} (b ∷ bs) (Fin.suc k₁) (Fin.suc k₂) v₁ v₂ k₁≢k₂ =
   cong (b ∷_) (setBit-setBit-comm bs k₁ k₂ v₁ v₂ (k₁≢k₂ ∘ cong Fin.suc))
 
--- ============================================================================
--- IMPLEMENTATION NOTES
--- ============================================================================
-{-
-The key insight: bit independence is a STRUCTURAL property, not arithmetic.
-
-At the BitVec level:
-- testBit-setBit-same: 1 line (stdlib lemma)
-- testBit-setBit-diff: 1 line (stdlib lemma)
-- Total proof effort: ~30 minutes
-
-At the ℕ level (what we were trying before):
-- Requires: carry analysis, power-of-2 independence, modular arithmetic
-- Total proof effort: 10-14 hours
-
-The architecture matters more than the tactics.
-
-When a trivial property costs hours, you're proving a representation invariant
-instead of using one. The fix: give structure a name.
--}

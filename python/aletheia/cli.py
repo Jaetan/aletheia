@@ -106,7 +106,10 @@ def parse_hex_data(s: str) -> bytearray:
 
 def rational_to_int(r: RationalNumber) -> int:
     """Convert a RationalNumber {numerator, denominator} to int."""
-    return r["numerator"] // r["denominator"]
+    denom = r["denominator"]
+    if denom == 0:
+        raise ValueError(f"Invalid rational: denominator is zero ({r!r})")
+    return r["numerator"] // denom
 
 
 def format_timestamp(us: int) -> str:
@@ -340,14 +343,21 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     can_id = parse_can_id(args.can_id)
     data = parse_hex_data(args.data)
 
-    if len(data) != 8:
-        _die(f"data must be exactly 8 bytes, got {len(data)}")
+    # Look up expected DLC from the DBC message definition
+    msg = _find_message(dbc, can_id)
+    if msg is None:
+        _die(f"CAN ID 0x{can_id:X} not found in DBC")
+    if len(data) != msg["dlc"]:
+        _die(
+            f"data length ({len(data)} bytes) does not match "
+            + f"DBC message DLC ({msg['dlc']} bytes)"
+        )
 
     with AletheiaClient() as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
-            _die(f"DBC parse failed: {resp['message']}")
-        result = client.extract_signals(can_id=can_id, data=data)
+            _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+        result = client.extract_signals(can_id=can_id, dlc=msg["dlc"], data=data)
 
     if getattr(args, "json", False):
         out = {
@@ -387,7 +397,7 @@ def _build_violation(
 
     reason = response.get("enriched_reason", response.get("reason", ""))
     signals = response.get("signals", {})
-    # For backward compat with CLI display, pick first signal
+    # Pick first signal for single-line violation display
     signal_name = ""
     actual_value: float | None = None
     if signals:
@@ -428,7 +438,7 @@ def _build_eos_violation(
     }
 
 
-def _run_checks(
+def _run_checks(  # pylint: disable=too-many-locals
     dbc: DBCDefinition,
     checks: list[CheckResult],
     logfile: str,
@@ -455,10 +465,10 @@ def _run_checks(
         violations: list[_Violation] = []
         total_frames = 0
 
-        for ts, can_id, data in iter_can_log(logfile):
+        for ts, can_id, dlc, data in iter_can_log(logfile):
             total_frames += 1
-            response = client.send_frame(ts, can_id, data)
-            if response["status"] == "violation":
+            response = client.send_frame(ts, can_id, dlc, data)
+            if response["status"] == "fails":
                 violations.append(_build_violation(response, all_checks))
 
         end_resp = client.end_stream()
@@ -466,7 +476,7 @@ def _run_checks(
             _die(f"end stream failed: {end_resp['message']}")
         # Collect end-of-stream violations from finalization
         for result in end_resp["results"]:
-            if result["status"] == "violation":
+            if result["status"] == "fails":
                 violations.append(_build_eos_violation(result, all_checks))
 
     return violations, total_frames

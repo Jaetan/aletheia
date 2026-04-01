@@ -98,6 +98,8 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
 
         Compiles to ``Signal(s).between(lo, hi).for_at_least(time_ms)``.
         """
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
         result = CheckResult(prop)
         result.signal_name = self._signal_name
@@ -131,6 +133,8 @@ class CheckSignal:
 
     def stays_between(self, lo: float, hi: float) -> CheckResult:
         """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)"""
+        if lo > hi:
+            raise ValueError("stays_between: lo must be <= hi")
         prop = Signal(self._name).between(lo, hi).always()
         result = CheckResult(prop)
         result.signal_name = self._name
@@ -154,6 +158,8 @@ class CheckSignal:
 
     def settles_between(self, lo: float, hi: float) -> SettlesBuilder:
         """Begin a ``settles_between(lo, hi).within(ms)`` chain."""
+        if lo > hi:
+            raise ValueError("settles_between: lo must be <= hi")
         return SettlesBuilder(self._name, lo, hi)
 
 
@@ -175,6 +181,8 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
 
     def within(self, time_ms: int) -> CheckResult:
         """``G(trigger → F≤t(then_predicate))``"""
+        if time_ms < 0:
+            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         prop = self._trigger.implies(
             self._then_pred.within(time_ms)
         ).always()
@@ -204,6 +212,8 @@ class ThenSignal:
 
     def stays_between(self, lo: float, hi: float) -> ThenCondition:
         """Then-signal stays between *lo* and *hi*."""
+        if lo > hi:
+            raise ValueError("stays_between: lo must be <= hi")
         pred = Signal(self._then_name).between(lo, hi)
         return ThenCondition(
             self._trigger, pred, self._then_name, f"between {lo} and {hi}",

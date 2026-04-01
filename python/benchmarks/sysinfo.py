@@ -77,11 +77,11 @@ def main() -> int:
 
     # Warmup (100 frames)
     for i in range(100):
-        client.send_frame(timestamp=i, can_id=0x100, data=frame)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=frame)
 
     start = time.perf_counter()
     for i in range(NUM_FRAMES):
-        client.send_frame(timestamp=100 + i, can_id=0x100, data=frame)
+        client.send_frame(timestamp=100 + i, can_id=0x100, dlc=8, data=frame)
     streaming_elapsed = time.perf_counter() - start
     streaming_fps = NUM_FRAMES / streaming_elapsed
 
@@ -91,11 +91,11 @@ def main() -> int:
     # --- Throughput: signal extraction ---
     # Warmup
     for _ in range(100):
-        client.extract_signals(can_id=0x100, data=frame)
+        client.extract_signals(can_id=0x100, dlc=8, data=frame)
 
     start = time.perf_counter()
     for _ in range(NUM_FRAMES):
-        client.extract_signals(can_id=0x100, data=frame)
+        client.extract_signals(can_id=0x100, dlc=8, data=frame)
     extraction_elapsed = time.perf_counter() - start
     extraction_fps = NUM_FRAMES / extraction_elapsed
 

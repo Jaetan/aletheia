@@ -70,5 +70,10 @@ c.log
 /tmp_*.yaml
 *.hp
 
+# Benchmarks
+benchmarks/results/
+go/benchmarks/benchmark
+cpp/build/
+
 # Generated install config
 python/aletheia/_install_config.py

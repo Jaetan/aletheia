@@ -19,7 +19,7 @@ open import Data.Bool using (Bool; true; false; if_then_else_; not)
 open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣)
-open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ; -_)
+open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ; -_) renaming (_*_ to _*ᵣ_)
 open import Data.Nat.Coprimality as Coprime using (sym; 1-coprimeTo)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Product using (_×_; _,_; proj₁)
@@ -244,8 +244,9 @@ parseBoolean =
   (JBool true <$ string "true") <|>
   (JBool false <$ string "false")
 
--- Parse a rational number (handles integers and decimals)
+-- Parse a rational number (handles integers, decimals, and scientific notation)
 -- Examples: "42" → 42/1, "3.14" → 314/100, "-1.5" → -3/2, "-0.1" → -1/10
+--           "1e-7" → 1/10000000, "2.5E+3" → 2500/1
 --
 -- Note: parseInt loses the sign for "-0" (returns +0). To handle negative
 -- fractions like "-0.1" correctly, we parse the sign separately and apply
@@ -255,8 +256,22 @@ parseRational = do
   neg ← optional (char '-')
   n ← parseNatural
   frac ← optional (char '.' *> some digit)
-  pure (applySign neg (buildNumber n frac))
+  exp ← optional parseExponent
+  pure (applySign neg (applyExp (buildNumber n frac) exp))
   where
+    -- Parse exponent part: e/E [+/-] digits
+    parseExponent : Parser ℤ
+    parseExponent = do
+      _ ← char 'e' <|> char 'E'
+      sign ← optional (char '+' <|> char '-')
+      digits ← parseNatural
+      expHelper sign digits
+      where
+        expHelper : Maybe Char → ℕ → Parser ℤ
+        expHelper (just '-') zero = pure (+ 0)
+        expHelper (just '-') (suc n') = pure -[1+ n' ]
+        expHelper _ n' = pure (+ n')
+
     -- Compute 10^n, returns suc n to prove NonZero
     power10 : ℕ → ℕ
     power10 zero = suc 0
@@ -264,8 +279,11 @@ parseRational = do
     ... | suc m = suc (9 + m * 10)
     ... | zero = suc 0  -- Unreachable but needed for coverage
 
+    ascii-zero : ℕ
+    ascii-zero = 48
+
     charToDigit : Char → ℕ
-    charToDigit c = toℕ c ∸ 48  -- 48 = ASCII '0'
+    charToDigit c = toℕ c ∸ ascii-zero
 
     parseDigitList : List Char → ℕ
     parseDigitList = foldl (λ acc d → acc * 10 + charToDigit d) 0
@@ -277,6 +295,16 @@ parseRational = do
       let fracValue = parseDigitList fracChars
       in (+ (n * suc scale + fracValue)) / suc scale
     ... | zero = (+ n) / 1  -- Unreachable but needed for coverage
+
+    -- Apply scientific notation exponent to a rational.
+    -- Positive exp: multiply by 10^e. Negative exp: divide by 10^|e|.
+    applyExp : ℚ → Maybe ℤ → ℚ
+    applyExp q nothing = q
+    applyExp q (just (+ zero)) = q
+    applyExp q (just (+ suc e)) = q *ᵣ ℕtoℚ (power10 (suc e))
+    applyExp q (just -[1+ e ]) with power10 (suc e)
+    ... | suc d = q *ᵣ ((+ 1) / suc d)
+    ... | zero = q  -- Unreachable: power10 always returns suc
 
     applySign : Maybe Char → ℚ → ℚ
     applySign nothing  q = q

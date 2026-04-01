@@ -116,33 +116,32 @@ def bench_client(
 
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
-        client.set_properties(properties)
-        client.set_check_diagnostics(checks)
+        client.add_checks(checks)
         client.start_stream()
 
         if frame_gen == "identical":
             data = _raw_data(10000)
             start = time.perf_counter()
             for i in range(num_frames):
-                client.send_frame(timestamp=i, can_id=0x100, data=data)
+                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
             elapsed = time.perf_counter() - start
         elif frame_gen == "unique":
             frames = [_raw_data(5100 + i) for i in range(num_frames)]
             start = time.perf_counter()
             for i, data in enumerate(frames):
-                client.send_frame(timestamp=i, can_id=0x100, data=data)
+                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
             elapsed = time.perf_counter() - start
         elif frame_gen == "mixed":
             start = time.perf_counter()
             for i in range(num_frames):
                 raw = 10000 if i % 10 == 0 else 2000
-                client.send_frame(timestamp=i, can_id=0x100, data=_raw_data(raw))
+                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=_raw_data(raw))
             elapsed = time.perf_counter() - start
         else:  # no_violations
             data = _raw_data(2000)
             start = time.perf_counter()
             for i in range(num_frames):
-                client.send_frame(timestamp=i, can_id=0x100, data=data)
+                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
             elapsed = time.perf_counter() - start
 
         client.end_stream()

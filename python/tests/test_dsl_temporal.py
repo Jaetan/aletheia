@@ -8,6 +8,7 @@ Tests cover:
 - Nested temporal operator compositions
 """
 
+import pytest
 from typing import cast
 from aletheia.dsl import (
     Signal, Property,
@@ -37,7 +38,7 @@ from aletheia.protocols import (
 class TestTemporalOperators:
     """Test Predicate temporal operators"""
 
-    def test_always(self):
+    def test_always(self) -> None:
         """Predicate.always() creates correct property"""
         prop = Signal("Speed").less_than(220).always()
         assert isinstance(prop, Property)
@@ -46,13 +47,13 @@ class TestTemporalOperators:
         formula = cast(AtomicFormula, data['formula'])
         assert formula['predicate']['predicate'] == 'lessThan'
 
-    def test_eventually(self):
+    def test_eventually(self) -> None:
         """Predicate.eventually() creates correct property"""
         prop = Signal("DoorClosed").equals(1).eventually()
         data = cast(EventuallyFormula, prop.to_dict())
         assert data['operator'] == 'eventually'
 
-    def test_never(self):
+    def test_never(self) -> None:
         """Predicate.never() desugars to always(not(...))"""
         prop = Signal("ErrorCode").equals(0xFF).never()
         data = cast(AlwaysFormula, prop.to_dict())
@@ -62,37 +63,61 @@ class TestTemporalOperators:
         inner = cast(AtomicFormula, not_formula['formula'])
         assert inner['operator'] == 'atomic'
 
-    def test_within(self):
+    def test_within(self) -> None:
         """Predicate.within() creates bounded temporal property"""
         prop = Signal("BrakePressed").equals(1).within(100)
         data = cast(MetricEventuallyFormula, prop.to_dict())
         assert data['operator'] == 'metricEventually'
-        assert data['timebound'] == 100
+        assert data['timebound'] == 100_000
 
-    def test_for_at_least(self):
+    def test_for_at_least(self) -> None:
         """Predicate.for_at_least() creates bounded temporal property"""
         prop = Signal("DoorClosed").equals(1).for_at_least(50)
         data = cast(MetricAlwaysFormula, prop.to_dict())
         assert data['operator'] == 'metricAlways'
-        assert data['timebound'] == 50
+        assert data['timebound'] == 50_000
 
-    def test_within_zero_ms(self):
+    def test_within_zero_ms(self) -> None:
         """within(0) is valid (immediate)"""
         prop = Signal("X").equals(1).within(0)
         data = cast(MetricEventuallyFormula, prop.to_dict())
         assert data['timebound'] == 0
 
-    def test_for_at_least_zero_ms(self):
+    def test_for_at_least_zero_ms(self) -> None:
         """for_at_least(0) is valid"""
         prop = Signal("X").equals(1).for_at_least(0)
         data = cast(MetricAlwaysFormula, prop.to_dict())
         assert data['timebound'] == 0
 
-    def test_large_time_bounds(self):
+    def test_large_time_bounds(self) -> None:
         """Large time bounds work (hours)"""
         prop = Signal("EngineOn").equals(1).for_at_least(3600000)  # 1 hour
         data = cast(MetricAlwaysFormula, prop.to_dict())
-        assert data['timebound'] == 3600000
+        assert data['timebound'] == 3_600_000_000
+
+    def test_negative_timebound_within(self) -> None:
+        """Negative time bound is rejected."""
+        with pytest.raises(ValueError, match="non-negative"):
+            Signal("S").less_than(100).within(-1)
+
+    def test_negative_timebound_for_at_least(self) -> None:
+        """Negative time bound is rejected."""
+        with pytest.raises(ValueError, match="non-negative"):
+            Signal("S").less_than(100).for_at_least(-1)
+
+    def test_negative_timebound_metric_until(self) -> None:
+        """Negative time bound is rejected."""
+        p = Signal("S").less_than(100).always()
+        q = Signal("T").equals(1).always()
+        with pytest.raises(ValueError, match="non-negative"):
+            p.metric_until(-1, q)
+
+    def test_negative_timebound_metric_release(self) -> None:
+        """Negative time bound is rejected."""
+        p = Signal("S").less_than(100).always()
+        q = Signal("T").equals(1).always()
+        with pytest.raises(ValueError, match="non-negative"):
+            p.metric_release(-1, q)
 
 
 # ============================================================================
@@ -102,7 +127,7 @@ class TestTemporalOperators:
 class TestNextOperator:
     """Test Next operator (with warnings about brittleness)"""
 
-    def test_predicate_next(self):
+    def test_predicate_next(self) -> None:
         """Predicate.next() creates NextFormula"""
         prop = Signal("Speed").less_than(100).next()
         assert isinstance(prop, Property)
@@ -113,7 +138,7 @@ class TestNextOperator:
         assert formula['predicate']['predicate'] == 'lessThan'
         assert formula['predicate']['value'] == 100
 
-    def test_property_next(self):
+    def test_property_next(self) -> None:
         """Property.next() creates nested Next formula"""
         prop = Signal("State").equals(1).always().next()
         data = cast(NextFormula, prop.to_dict())
@@ -121,7 +146,7 @@ class TestNextOperator:
         always_formula = cast(AlwaysFormula, data['formula'])
         assert always_formula['operator'] == 'always'
 
-    def test_next_chaining(self):
+    def test_next_chaining(self) -> None:
         """Multiple Next operators chain correctly"""
         prop = Signal("X").equals(1).next().next()
         data = cast(NextFormula, prop.to_dict())
@@ -139,7 +164,7 @@ class TestNextOperator:
 class TestReleaseOperator:
     """Test Release operator (dual of Until)"""
 
-    def test_release_basic(self):
+    def test_release_basic(self) -> None:
         """Property.release() creates ReleaseFormula"""
         left = Signal("Brake").equals(1).always()
         right = Signal("Ignition").equals(0).always()
@@ -150,7 +175,7 @@ class TestReleaseOperator:
         assert 'left' in data
         assert 'right' in data
 
-    def test_release_semantics(self):
+    def test_release_semantics(self) -> None:
         """Release operator: right holds until left releases it"""
         ignition_on = Signal("Ignition").equals(1).eventually()
         brake_engaged = Signal("Brake").equals(1).always()
@@ -171,7 +196,7 @@ class TestReleaseOperator:
 class TestMetricUntilOperator:
     """Test Metric Until operator (time-bounded until)"""
 
-    def test_metric_until_basic(self):
+    def test_metric_until_basic(self) -> None:
         """Property.metric_until() creates MetricUntilFormula"""
         speed_ok = Signal("Speed").greater_than(50).always()
         brake = Signal("Brake").equals(1).eventually()
@@ -179,11 +204,11 @@ class TestMetricUntilOperator:
 
         data = cast(MetricUntilFormula, prop.to_dict())
         assert data['operator'] == 'metricUntil'
-        assert data['timebound'] == 1000
+        assert data['timebound'] == 1_000_000
         assert 'left' in data
         assert 'right' in data
 
-    def test_metric_until_zero_time(self):
+    def test_metric_until_zero_time(self) -> None:
         """metric_until with 0ms is valid"""
         left = Signal("A").equals(1).always()
         right = Signal("B").equals(1).eventually()
@@ -192,14 +217,14 @@ class TestMetricUntilOperator:
         data = cast(MetricUntilFormula, prop.to_dict())
         assert data['timebound'] == 0
 
-    def test_metric_until_large_time(self):
+    def test_metric_until_large_time(self) -> None:
         """metric_until with large time bound (1 hour)"""
         left = Signal("X").equals(1).always()
         right = Signal("Y").equals(1).eventually()
         prop = left.metric_until(3600000, right)
 
         data = cast(MetricUntilFormula, prop.to_dict())
-        assert data['timebound'] == 3600000
+        assert data['timebound'] == 3_600_000_000
 
 
 # ============================================================================
@@ -209,7 +234,7 @@ class TestMetricUntilOperator:
 class TestMetricReleaseOperator:
     """Test Metric Release operator (time-bounded release)"""
 
-    def test_metric_release_basic(self):
+    def test_metric_release_basic(self) -> None:
         """Property.metric_release() creates MetricReleaseFormula"""
         ignition = Signal("Ignition").equals(1).eventually()
         brake = Signal("Brake").equals(1).always()
@@ -217,11 +242,11 @@ class TestMetricReleaseOperator:
 
         data = cast(MetricReleaseFormula, prop.to_dict())
         assert data['operator'] == 'metricRelease'
-        assert data['timebound'] == 5000
+        assert data['timebound'] == 5_000_000
         assert 'left' in data
         assert 'right' in data
 
-    def test_metric_release_edge_cases(self):
+    def test_metric_release_edge_cases(self) -> None:
         """Metric release with edge case time bounds"""
         left = Signal("A").equals(1).eventually()
         right = Signal("B").equals(1).always()
@@ -234,7 +259,7 @@ class TestMetricReleaseOperator:
         # Large time (24 hours)
         prop_large = left.metric_release(86400000, right)
         data_large = cast(MetricReleaseFormula, prop_large.to_dict())
-        assert data_large['timebound'] == 86400000
+        assert data_large['timebound'] == 86_400_000_000
 
 
 # ============================================================================
@@ -248,7 +273,7 @@ class TestNestedTemporalOperators:
     operators work correctly after the bind/zipWith fixes in Coinductive.agda.
     """
 
-    def test_always_not_always(self):
+    def test_always_not_always(self) -> None:
         """G(not G(p)) - Infinitely often not-p pattern
 
         This tests the critical nested temporal operator bug fix.
@@ -270,7 +295,7 @@ class TestNestedTemporalOperators:
         compare_formula = cast(AtomicFormula, always_formula['formula'])
         assert compare_formula['predicate']['predicate'] == 'greaterThan'
 
-    def test_and_always_eventually(self):
+    def test_and_always_eventually(self) -> None:
         """G(p) AND F(q) - Composition of different temporal operators
 
         Tests: Always temp < 80 AND Eventually speed > 60
@@ -288,7 +313,7 @@ class TestNestedTemporalOperators:
         assert left_data['operator'] == 'always'
         assert right_data['operator'] == 'eventually'
 
-    def test_not_eventually_equiv_always_not(self):
+    def test_not_eventually_equiv_always_not(self) -> None:
         """not F(p) structure (equivalent to G(not p) by De Morgan)
 
         Tests: Not(Eventually(error == 1))
@@ -318,7 +343,7 @@ class TestNestedTemporalOperators:
         not_formula = cast(NotFormula, always_data['formula'])
         assert not_formula['operator'] == 'not'
 
-    def test_or_eventually_eventually(self):
+    def test_or_eventually_eventually(self) -> None:
         """F(p) OR F(q) - Or of Eventually operators
 
         Tests: Eventually charging OR Eventually engine on
@@ -335,7 +360,7 @@ class TestNestedTemporalOperators:
         assert left_data['operator'] == 'eventually'
         assert right_data['operator'] == 'eventually'
 
-    def test_nested_until_with_temporal_subformulas(self):
+    def test_nested_until_with_temporal_subformulas(self) -> None:
         """(G(p)) U (F(q)) - Until with nested temporal operators
 
         Tests: Always(state == 0) Until Eventually(state == 1)
@@ -352,7 +377,7 @@ class TestNestedTemporalOperators:
         assert left_data['operator'] == 'always'
         assert right_data['operator'] == 'eventually'
 
-    def test_deeply_nested_composition(self):
+    def test_deeply_nested_composition(self) -> None:
         """G(F(p)) - Infinitely often pattern
 
         Tests: Always(Eventually(speed > 100))
@@ -369,7 +394,7 @@ class TestNestedTemporalOperators:
         compare_formula = cast(AtomicFormula, eventually_formula['formula'])
         assert compare_formula['predicate']['predicate'] == 'greaterThan'
 
-    def test_triple_nesting_always_not_eventually(self):
+    def test_triple_nesting_always_not_eventually(self) -> None:
         """G(not F(p)) - Always never pattern
 
         Tests: Always(Not(Eventually(fault == 1)))
@@ -386,7 +411,7 @@ class TestNestedTemporalOperators:
         eventually_formula = cast(EventuallyFormula, not_formula['formula'])
         assert eventually_formula['operator'] == 'eventually'
 
-    def test_infinitely_often_helper(self):
+    def test_infinitely_often_helper(self) -> None:
         """Test infinitely_often() helper function - G(F(p))"""
         # Using helper function
         prop1 = infinitely_often(Signal("Speed").greater_than(100))
@@ -401,7 +426,7 @@ class TestNestedTemporalOperators:
         formula = cast(EventuallyFormula, data['formula'])
         assert formula['operator'] == 'eventually'
 
-    def test_eventually_always_helper(self):
+    def test_eventually_always_helper(self) -> None:
         """Test eventually_always() helper function - F(G(p))"""
         # Using helper function
         prop1 = eventually_always(Signal("Temperature").less_than(70))
@@ -416,7 +441,7 @@ class TestNestedTemporalOperators:
         formula = cast(AlwaysFormula, data['formula'])
         assert formula['operator'] == 'always'
 
-    def test_never_helper(self):
+    def test_never_helper(self) -> None:
         """Test never() helper function - G(not phi)"""
         # Using helper function
         prop1 = never(Signal("CriticalFault").equals(1))
@@ -431,7 +456,7 @@ class TestNestedTemporalOperators:
         formula = cast(NotFormula, data['formula'])
         assert formula['operator'] == 'not'
 
-    def test_helper_with_property_input(self):
+    def test_helper_with_property_input(self) -> None:
         """Test helpers accept Property objects, not just Predicates"""
         # Start with a property (always)
         always_prop = Signal("State").equals(1).always()

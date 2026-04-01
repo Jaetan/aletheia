@@ -4,8 +4,8 @@
 --
 -- Purpose: Prove roundtrip, soundness, and completeness for LTL formula serialization.
 -- Properties:
---   Roundtrip: parseLTL (ltlDepth φ) (formatLTL φ) ≡ just (resetStart φ)
---   Soundness: parseLTL d json ≡ just φ → IsWellFormedLTLJSON json
+--   Roundtrip: parseLTL (formatLTL φ) ≡ just (resetStart φ)
+--   Soundness: parseLTL json ≡ just φ → json is a JObject
 --   Completeness: Corollary of roundtrip
 -- Role: Phase 3 verification of LTL DSL translation correctness.
 --
@@ -15,19 +15,15 @@
 module Aletheia.LTL.JSON.Properties where
 
 open import Data.Maybe using (just)
-open import Data.Nat using (ℕ; suc; zero; _⊔_; _≤_; z≤n; s≤s)
-open import Data.Nat.Properties using (m≤m⊔n; m≤n⊔m; ≤-trans; ≤-refl)
 open import Data.Product using (_,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
-open import Relation.Nullary using (yes; no)
-open import Data.Empty using (⊥-elim)
 
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat; ℕtoℚ)
 open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
-open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields; ltlDepth)
+open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields)
 
 -- ============================================================================
 -- RESET START TIME (normalize for roundtrip)
@@ -55,8 +51,6 @@ resetStart (LTL.MetricRelease n _ f g) = LTL.MetricRelease n 0 (resetStart f) (r
 -- SIGNAL PREDICATE ROUNDTRIP
 -- ============================================================================
 
--- Each case normalizes to refl since all field names and predicate
--- type strings are concrete (only signal name and value are variables).
 predicate-roundtrip : (p : SignalPredicate)
   → parseSignalPredicate (formatSignalPredicateFields p) ≡ just p
 predicate-roundtrip (ValueP (Equals s v)) = refl
@@ -68,82 +62,64 @@ predicate-roundtrip (ValueP (Between s min max)) = refl
 predicate-roundtrip (DeltaP (ChangedBy s d)) = refl
 
 -- ============================================================================
--- LTL ROUNDTRIP (combined with depth monotonicity)
+-- LTL ROUNDTRIP
 -- ============================================================================
 
--- The roundtrip is proven for any depth ≥ ltlDepth f, avoiding the need
--- for a separate general monotonicity proof. Binary operators use ≤-trans
--- with m≤m⊔n / m≤n⊔m to share the common depth budget.
---
--- Note: conclusion uses resetStart because formatLTL ignores startTime
--- and the parser always produces startTime=0.
-roundtrip : (f : LTL SignalPredicate) (d : ℕ)
-  → ltlDepth f ≤ d → parseLTL d (formatLTL f) ≡ just (resetStart f)
+-- No depth parameter needed: parseLTL is structurally recursive on JSON input.
+-- Each case reduces by computation (string comparisons on concrete operator names)
+-- plus the induction hypothesis on sub-formulas.
+roundtrip : (f : LTL SignalPredicate)
+  → parseLTL (formatLTL f) ≡ just (resetStart f)
 
--- Atomic: depth ≥ 2 suffices, parseAtomic ignores depth
-roundtrip (LTL.Atomic p) (suc (suc d')) (s≤s (s≤s z≤n))
+-- Atomic: predicate roundtrip
+roundtrip (LTL.Atomic p)
   rewrite predicate-roundtrip p = refl
 
--- Unary operators: depth ≥ 3 + ltlDepth sub
-roundtrip (LTL.Not f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' le = refl
+-- Unary operators
+roundtrip (LTL.Not f)
+  rewrite roundtrip f = refl
 
-roundtrip (LTL.Next f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' le = refl
+roundtrip (LTL.Next f)
+  rewrite roundtrip f = refl
 
-roundtrip (LTL.Always f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' le = refl
+roundtrip (LTL.Always f)
+  rewrite roundtrip f = refl
 
-roundtrip (LTL.Eventually f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' le = refl
+roundtrip (LTL.Eventually f)
+  rewrite roundtrip f = refl
 
--- Binary operators: depth ≥ 3 + max(ltlDepth f, ltlDepth g)
-roundtrip (LTL.And f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
+-- Binary operators
+roundtrip (LTL.And f g)
+  rewrite roundtrip f | roundtrip g = refl
 
-roundtrip (LTL.Or f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
+roundtrip (LTL.Or f g)
+  rewrite roundtrip f | roundtrip g = refl
 
-roundtrip (LTL.Until f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
+roundtrip (LTL.Until f g)
+  rewrite roundtrip f | roundtrip g = refl
 
-roundtrip (LTL.Release f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
+roundtrip (LTL.Release f g)
+  rewrite roundtrip f | roundtrip g = refl
 
--- Metric unary operators: depth ≥ 3 + ltlDepth sub
--- These use with-abstraction on getNat to handle the divisibility check
-roundtrip (LTL.MetricEventually n _ f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+-- Metric unary operators: getNat abstraction needed for ℕtoℚ roundtrip
+roundtrip (LTL.MetricEventually n _ f)
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl rewrite roundtrip f d' le = refl
+... | .(just n) | refl rewrite roundtrip f = refl
 
-roundtrip (LTL.MetricAlways n _ f) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricAlways n _ f)
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
-... | .(just n) | refl rewrite roundtrip f d' le = refl
+... | .(just n) | refl rewrite roundtrip f = refl
 
--- Metric binary operators: depth ≥ 3 + max(ltlDepth f, ltlDepth g)
-roundtrip (LTL.MetricUntil n _ f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+-- Metric binary operators
+roundtrip (LTL.MetricUntil n _ f g)
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
+  rewrite roundtrip f | roundtrip g = refl
 
-roundtrip (LTL.MetricRelease n _ f g) (suc (suc (suc d'))) (s≤s (s≤s (s≤s le)))
+roundtrip (LTL.MetricRelease n _ f g)
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl
-  rewrite roundtrip f d' (≤-trans (m≤m⊔n (ltlDepth f) (ltlDepth g)) le)
-        | roundtrip g d' (≤-trans (m≤n⊔m (ltlDepth f) (ltlDepth g)) le) = refl
-
--- ============================================================================
--- DERIVED: exact-depth roundtrip
--- ============================================================================
-
-roundtrip-exact : (f : LTL SignalPredicate)
-  → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
-roundtrip-exact f = roundtrip f (ltlDepth f) ≤-refl
+  rewrite roundtrip f | roundtrip g = refl
 
 -- ============================================================================
 -- COMPLETENESS (corollary of roundtrip)
@@ -151,29 +127,22 @@ roundtrip-exact f = roundtrip f (ltlDepth f) ≤-refl
 
 -- If a formula was successfully parsed, it can be re-serialized and re-parsed.
 -- Note: parsed formulas always have startTime=0, so resetStart f ≡ f for them.
-completeness : (d : ℕ) (json : JSON) (f : LTL SignalPredicate)
-  → parseLTL d json ≡ just f
-  → parseLTL (ltlDepth f) (formatLTL f) ≡ just (resetStart f)
-completeness d json f _ = roundtrip-exact f
+completeness : (json : JSON) (f : LTL SignalPredicate)
+  → parseLTL json ≡ just f
+  → parseLTL (formatLTL f) ≡ just (resetStart f)
+completeness json f _ = roundtrip f
 
 -- ============================================================================
 -- SOUNDNESS (structural property)
 -- ============================================================================
 
--- Soundness property: successful parsing implies the JSON is a well-formed object.
--- A full IsWellFormedLTLJSON predicate with all operator shapes is deferred to
--- avoid the ~14 operators × 6 JSON types case explosion in this initial proof.
--- The key insight is that parseLTL only succeeds on JObject values with valid
--- "operator" fields, which is enforced by the parser's structure.
-
--- Minimal soundness: successful parse implies JSON is an object
-parseLTL-isObject : ∀ d json f → parseLTL d json ≡ just f
+-- Minimal soundness: successful parse implies JSON is an object.
+-- parseLTL only succeeds on JObject values (all other constructors return nothing).
+parseLTL-isObject : ∀ json f → parseLTL json ≡ just f
   → ∃[ fields ] (json ≡ JObject fields)
-parseLTL-isObject zero json f ()
-parseLTL-isObject (suc d) JNull f ()
-parseLTL-isObject (suc d) (JBool _) f ()
-parseLTL-isObject (suc d) (JNumber _) f ()
-parseLTL-isObject (suc d) (JString _) f ()
-parseLTL-isObject (suc d) (JArray _) f ()
-parseLTL-isObject (suc d) (JObject fields) f _ = fields , refl
-
+parseLTL-isObject JNull f ()
+parseLTL-isObject (JBool _) f ()
+parseLTL-isObject (JNumber _) f ()
+parseLTL-isObject (JString _) f ()
+parseLTL-isObject (JArray _) f ()
+parseLTL-isObject (JObject fields) f _ = fields , refl

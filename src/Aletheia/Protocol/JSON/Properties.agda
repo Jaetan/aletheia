@@ -108,7 +108,7 @@ getNat-ℕtoℚ n with 1 ∣? n
 --   Now 'eq' has type: someFunction x ≡ result
 --
 -- Usage in this module:
---   parseDBC-sound and parseRequest-sound use inspect to capture
+--   parseDBC-sound uses inspect to capture
 --   lookupByKey equalities for the soundness proof witness.
 --
 -- This is the most advanced proof technique in the Aletheia codebase.
@@ -163,38 +163,6 @@ parseDBC-sound (JBool _) result ()
 parseDBC-sound (JNumber _) result ()
 parseDBC-sound (JString _) result ()
 parseDBC-sound (JArray _) result ()
-
--- Line Protocol Structure
--- Proves that line protocol messages are JSON objects with a "type" string field
-data LineProtocolStructure : JSON → Set where
-  line-structure : ∀ (obj : List (String × JSON)) (msgType : String) →
-    lookupByKey "type" obj ≡ just (JString msgType) →
-    LineProtocolStructure (JObject obj)
-
--- Soundness: parseRequest only succeeds on well-formed line protocol messages
-open import Aletheia.Protocol.Routing using (parseRequest)
-open import Aletheia.Protocol.Message using (Request)
-
-parseRequest-sound : ∀ (input : JSON) (result : Request)
-  → parseRequest input ≡ just result
-  → ∃[ obj ] ∃[ msgType ] (input ≡ JObject obj × lookupByKey "type" obj ≡ just (JString msgType))
-parseRequest-sound (JObject obj) result eq with lookupByKey "type" obj | inspect (lookupByKey "type") obj
-parseRequest-sound (JObject obj) result eq | just (JString msgType) | [ eq' ] = obj , msgType , refl , eq'
--- Absurdity cases: type field has wrong type (6 cases)
--- All are impossible because lookupString rejects non-string values
-parseRequest-sound (JObject obj) result () | just (JBool _) | _  -- getString (JBool _) = nothing
-parseRequest-sound (JObject obj) result () | just (JNumber _) | _  -- getString (JNumber _) = nothing
-parseRequest-sound (JObject obj) result () | just (JArray _) | _  -- getString (JArray _) = nothing
-parseRequest-sound (JObject obj) result () | just (JObject _) | _  -- getString (JObject _) = nothing
-parseRequest-sound (JObject obj) result () | just JNull | _  -- getString JNull = nothing
-parseRequest-sound (JObject obj) result () | nothing | _  -- lookupString nothing → parseRequest nothing
--- Absurdity cases: input is not an object (5 cases)
--- parseRequest requires JObject input; all other JSON types rejected at entry
-parseRequest-sound JNull result ()
-parseRequest-sound (JBool _) result ()
-parseRequest-sound (JNumber _) result ()
-parseRequest-sound (JString _) result ()
-parseRequest-sound (JArray _) result ()
 
 -- ============================================================================
 -- TYPED LOOKUP LEMMAS (for roundtrip proofs)

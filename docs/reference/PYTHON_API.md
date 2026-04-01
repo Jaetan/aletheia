@@ -567,7 +567,7 @@ Send a CAN frame for incremental checking.
 **Parameters**:
 - `timestamp`: Microseconds (integer)
 - `can_id`: 0-2047 (standard) or 0-536870911 (extended)
-- `data`: 8-byte payload as `bytearray` or `list[int]` (values 0-255)
+- `data`: Payload as `bytearray` or `list[int]` (values 0-255, length matches DLC)
 
 **Returns** (acknowledged):
 ```python
@@ -655,7 +655,7 @@ Build a CAN frame from signal values (starts with zero-filled frame).
 
 ```python
 frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
-# Returns 8-byte frame with VehicleSpeed encoded
+# Returns frame with VehicleSpeed encoded
 ```
 
 ---
@@ -706,9 +706,9 @@ except FileNotFoundError as e:
 
 ```python
 try:
-    response = client.send_frame(1000, 256, [0xFF, 0xFF])  # Only 2 bytes!
+    response = client.send_frame(1000, 256, dlc=8, data=[0xFF, 0xFF])  # Only 2 bytes, DLC expects 8!
 except ValueError as e:
-    print(f"Error: {e}")  # "Data must be exactly 8 bytes, got 2"
+    print(f"Error: {e}")  # "Data length 2 does not match DLC 8 (expected 8 bytes)"
 ```
 
 ### Signal Not Found
@@ -851,7 +851,7 @@ for ts, can_id, data in iter_can_log("highway.asc"):
 - `path`: Path to CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)
 - `skip_error_frames`: Skip CAN error frames (default `True`)
 - `skip_remote_frames`: Skip remote transmission requests (default `True`)
-- `strict_dlc`: Raise `ValueError` if DLC != 8 (default `False`; pads/truncates)
+- `strict_dlc`: Raise `ValueError` if data length doesn't match DLC (default `False`; pads/truncates)
 - `on_error`: `"skip"` (default) or `"raise"` for corrupt frames
 
 **Supported formats**: `.asc`, `.blf`, `.csv`, `.log`, `.mf4`, `.trc` (via python-can).

@@ -162,7 +162,7 @@ frames = load_can_log("drive.blf")
 # Include everything
 frames = load_can_log("drive.blf", skip_error_frames=False, skip_remote_frames=False)
 
-# Strict DLC: raise ValueError for non-8-byte frames
+# Strict DLC: raise ValueError if data length doesn't match DLC
 frames = load_can_log("drive.blf", strict_dlc=True)
 ```
 

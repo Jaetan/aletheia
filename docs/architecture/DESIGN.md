@@ -2,8 +2,8 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 1.0.0
-**Status**: Phase 4 - Production Hardening (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
-**Last Updated**: 2026-03-19
+**Status**: Phase 5 - Optional Extensions (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
+**Last Updated**: 2026-03-25
 
 ## Project Overview
 
@@ -19,10 +19,9 @@ CAN protocol decisions (extended IDs, multiplexing) were researched during Phase
 
 | Constraint | Decision | Phase |
 |------------|----------|-------|
-| **8-byte CAN frames** | ✅ Keep fixed | Phase 5 (if requested) |
+| **CAN-FD support** | ✅ Implemented | Phase 5 |
 | **Extended 29-bit CAN IDs** | ✅ Implemented | Phase 2A |
 | **Signal multiplexing** | ✅ Implemented | Phase 2A |
-| **CAN-FD support** | ❌ Deferred | Phase 5 (if requested) |
 
 ## Architecture
 

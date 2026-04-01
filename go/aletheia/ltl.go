@@ -1,6 +1,7 @@
 package aletheia
 
 // Predicate is a signal predicate for LTL atomic propositions.
+// Implementations outside this package are not supported.
 type Predicate interface {
 	predicate() // sealed
 }
@@ -57,6 +58,7 @@ func (Between) predicate()            {}
 func (ChangedBy) predicate()          {}
 
 // Formula is an LTL formula over signal predicates.
+// Implementations outside this package are not supported.
 type Formula interface {
 	formula() // sealed
 }
@@ -90,26 +92,26 @@ type Release struct{ Left, Right Formula }
 
 // MetricAlways holds if the inner formula holds for every step within Bound.
 type MetricAlways struct {
-	Bound Timestamp
+	Bound TimeBound
 	Inner Formula
 }
 
 // MetricEventually holds if the inner formula holds at some step within Bound.
 type MetricEventually struct {
-	Bound Timestamp
+	Bound TimeBound
 	Inner Formula
 }
 
 // MetricUntil is a time-bounded Until: Left holds until Right within Bound.
 type MetricUntil struct {
-	Bound Timestamp
+	Bound TimeBound
 	Left  Formula
 	Right Formula
 }
 
 // MetricRelease is a time-bounded Release: Right holds until Left within Bound.
 type MetricRelease struct {
-	Bound Timestamp
+	Bound TimeBound
 	Left  Formula
 	Right Formula
 }
@@ -136,11 +138,16 @@ func Never(p Predicate) Formula {
 }
 
 // AlwaysWithin returns MetricAlways with the given bound.
-func AlwaysWithin(bound Timestamp, f Formula) Formula {
+func AlwaysWithin(bound TimeBound, f Formula) Formula {
 	return MetricAlways{Bound: bound, Inner: f}
 }
 
 // EventuallyWithin returns MetricEventually with the given bound.
-func EventuallyWithin(bound Timestamp, f Formula) Formula {
+func EventuallyWithin(bound TimeBound, f Formula) Formula {
 	return MetricEventually{Bound: bound, Inner: f}
+}
+
+// Implies returns Or{Not{antecedent}, consequent}, the standard LTL encoding of implication.
+func Implies(antecedent, consequent Formula) Formula {
+	return Or{Left: Not{Inner: antecedent}, Right: consequent}
 }

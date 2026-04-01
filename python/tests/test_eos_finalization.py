@@ -43,12 +43,12 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
             assert len(results) == 1
-            assert results[0]["status"] == "satisfaction"
+            assert results[0]["status"] == "holds"
 
     def test_changed_by_never_one_frame(self) -> None:
         """1-frame changed_by(0).never() → violation (never resolved)."""
@@ -58,13 +58,13 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").changed_by(0).never().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
             assert len(results) == 1
             # Standard LTLf: Always is vacuously true when inner never resolved
-            assert results[0]["status"] == "satisfaction"
+            assert results[0]["status"] == "holds"
 
     def test_always_zero_frames(self) -> None:
         """0-frame Always → satisfaction (vacuously true per standard LTLf)."""
@@ -79,7 +79,7 @@ class TestEndOfStreamFinalization:
             results = resp["results"]
             assert len(results) == 1
             # Standard LTLf: G φ on empty trace is vacuously true
-            assert results[0]["status"] == "satisfaction"
+            assert results[0]["status"] == "holds"
 
     def test_eventually_never_satisfied(self) -> None:
         """Eventually never satisfied → violation at end-of-stream."""
@@ -90,12 +90,12 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
             assert len(results) == 1
-            assert results[0]["status"] == "violation"
+            assert results[0]["status"] == "fails"
             assert "Eventually" in results[0].get("reason", "")
 
     def test_multiple_properties_mixed(self) -> None:
@@ -110,15 +110,15 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
             assert len(results) == 2
             # Property 0: satisfaction
-            assert results[0]["status"] == "satisfaction"
+            assert results[0]["status"] == "holds"
             # Property 1: violation
-            assert results[1]["status"] == "violation"
+            assert results[1]["status"] == "fails"
 
     def test_results_field_present(self) -> None:
         """end_stream() response always has 'results' field."""
@@ -128,7 +128,7 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").less_than(100).always().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert "results" in resp
             assert resp["status"] == "complete"
@@ -139,7 +139,7 @@ class TestEndOfStreamFinalization:
             client.parse_dbc(SIMPLE_DBC)
             client.set_properties([])
             client.start_stream()
-            client.send_frame(0, 256, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]

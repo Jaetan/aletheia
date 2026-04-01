@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import logging
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -17,7 +18,6 @@ from ..protocols import (
     SetPropertiesCommand,
     StartStreamCommand,
     EndStreamCommand,
-    DataFrame,
     BuildFrameCommand,
     BuildFrameResponse,
     ExtractSignalsCommand,
@@ -38,156 +38,25 @@ from ..protocols import (
     is_str_dict,
     is_object_list,
 )
+from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import parse_json_object, RTSState, find_ffi_library
 from ._types import (
     AletheiaError,
+    BatchError,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
     PropertyDiagnostic,
     ExtractionCache,
     MAX_EXTRACT_CACHE,
+    dlc_to_bytes,
+    validate_can_id,
 )
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
 
-
-# ============================================================================
-# Formula enrichment (module-level, testable without client)
-# ============================================================================
-
-def _format_predicate(pred: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements
-    """Format a predicate dict as a human-readable string."""
-    kind = pred.get("predicate")
-    signal = str(pred.get("signal", ""))
-    if kind == "equals":
-        return f"{signal} = {pred['value']:g}"
-    if kind == "lessThan":
-        return f"{signal} < {pred['value']:g}"
-    if kind == "greaterThan":
-        return f"{signal} > {pred['value']:g}"
-    if kind == "lessThanOrEqual":
-        return f"{signal} <= {pred['value']:g}"
-    if kind == "greaterThanOrEqual":
-        return f"{signal} >= {pred['value']:g}"
-    if kind == "between":
-        return f"{pred['min']:g} <= {signal} <= {pred['max']:g}"
-    if kind == "changedBy":
-        return f"|\u0394{signal}| > {pred['delta']:g}"
-    return "<unknown predicate>"
-
-
-def _format_timebound(ms: int) -> str:
-    """Format milliseconds as a human-readable time bound."""
-    if ms % 1_000 == 0:
-        return f"{ms // 1_000}s "
-    return f"{ms}ms "
-
-
-def _format_formula(formula: dict[str, object]) -> str:  # pylint: disable=too-many-return-statements,too-many-branches
-    """Format an LTL formula dict as a human-readable string."""
-    op = formula.get("operator")
-    if op == "atomic":
-        return _format_predicate(cast(dict[str, object], formula["predicate"]))
-    if op == "not":
-        return "not(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "and":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " and "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "or":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " or "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "next":
-        return "next(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "always":
-        inner = cast(dict[str, object], formula["formula"])
-        # Detect Never pattern: always(not(atomic(p)))
-        if inner.get("operator") == "not":
-            inner_not = cast(dict[str, object], inner["formula"])
-            if inner_not.get("operator") == "atomic":
-                return "never " + _format_predicate(cast(dict[str, object], inner_not["predicate"]))
-        return "always(" + _format_formula(inner) + ")"
-    if op == "eventually":
-        return "eventually(" + _format_formula(cast(dict[str, object], formula["formula"])) + ")"
-    if op == "until":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " until "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "release":
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " release "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "metricAlways":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return ("always within " + tb + "("
-                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
-    if op == "metricEventually":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return ("eventually within " + tb + "("
-                + _format_formula(cast(dict[str, object], formula["formula"])) + ")")
-    if op == "metricUntil":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " until within " + tb + " "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    if op == "metricRelease":
-        tb = _format_timebound(int(formula["timebound"]))  # type: ignore[arg-type]
-        return (_format_formula(cast(dict[str, object], formula["left"]))
-                + " release within " + tb + " "
-                + _format_formula(cast(dict[str, object], formula["right"])))
-    return "<unknown>"
-
-
-def _collect_signals(formula: dict[str, object]) -> list[str]:
-    """Collect all signal names from a formula, deduplicated, in order."""
-    signals: list[str] = []
-    seen: set[str] = set()
-    _collect_signals_into(formula, signals, seen)
-    return signals
-
-
-def _collect_signals_into(
-    formula: dict[str, object], signals: list[str], seen: set[str],
-) -> None:
-    """Walk a formula collecting signal names."""
-    op = formula.get("operator")
-    if op == "atomic":
-        pred = cast(dict[str, object], formula["predicate"])
-        name = str(pred.get("signal", ""))
-        if name and name not in seen:
-            seen.add(name)
-            signals.append(name)
-    elif op in ("not", "next", "always", "eventually", "metricAlways", "metricEventually"):
-        _collect_signals_into(cast(dict[str, object], formula["formula"]), signals, seen)
-    elif op in ("and", "or", "until", "release", "metricUntil", "metricRelease"):
-        _collect_signals_into(cast(dict[str, object], formula["left"]), signals, seen)
-        _collect_signals_into(cast(dict[str, object], formula["right"]), signals, seen)
-
-
-def _build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
-    """Build a PropertyDiagnostic from a formula. Always succeeds."""
-    f = cast(dict[str, object], formula)
-    return PropertyDiagnostic(
-        signals=_collect_signals(f),
-        formula_desc=_format_formula(f),
-    )
-
-
-def _format_enriched_reason(
-    diag: PropertyDiagnostic, values: dict[str, float | None],
-) -> str:
-    """Build the enriched reason string."""
-    parts: list[str] = []
-    for sig in diag.signals:
-        val = values.get(sig)
-        if val is not None:
-            parts.append(f"{sig} = {val:g}")
-    if not parts:
-        return "violated: " + diag.formula_desc
-    return ", ".join(parts) + " (formula: " + diag.formula_desc + ")"
+_logger = logging.getLogger("aletheia")
 
 
 class AletheiaClient:
@@ -211,6 +80,9 @@ class AletheiaClient:
        - end_stream() - Exit streaming mode
 
     Signal operations work both inside and outside streaming mode.
+
+    Thread safety: not thread-safe. Create one client per thread. The
+    underlying GHC RTS is ref-counted and shared safely across instances.
     """
 
     def __init__(
@@ -240,23 +112,39 @@ class AletheiaClient:
         self._lib.aletheia_close.argtypes = [ctypes.c_void_p]
         self._lib.aletheia_close.restype = None
 
+        # Binary frame endpoint (hot path — bypasses JSON serialization on input)
+        self._lib.aletheia_send_frame.argtypes = [
+            ctypes.c_void_p,                 # state
+            ctypes.c_uint64,                 # timestamp
+            ctypes.c_uint32,                 # can_id
+            ctypes.c_uint8,                  # extended (0 or 1)
+            ctypes.c_uint8,                  # dlc
+            ctypes.POINTER(ctypes.c_uint8),  # data pointer
+            ctypes.c_uint8,                  # data_len
+        ]
+        self._lib.aletheia_send_frame.restype = ctypes.c_void_p
+
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
         RTSState.acquire(self._lib, self._rts_cores)
 
         # Create Aletheia state
-        self._state = ctypes.c_void_p(self._lib.aletheia_init())
+        raw = self._lib.aletheia_init()
+        if not raw:
+            raise ProcessError("aletheia_init() returned null — FFI initialization failed")
+        self._state = ctypes.c_void_p(raw)
 
         return self
 
     def close(self) -> None:
         """Free state and release RTS reference."""
-        if self._lib is not None and self._state is not None:
-            self._lib.aletheia_close(self._state)
+        try:
+            if self._lib is not None and self._state is not None:
+                self._lib.aletheia_close(self._state)
+        finally:
             self._state = None
-
-        if self._lib is not None:
-            RTSState.release()
-            self._lib = None
+            if self._lib is not None:
+                RTSState.release()
+                self._lib = None
 
     def __exit__(
         self,
@@ -285,6 +173,24 @@ class AletheiaClient:
         return cast(Response, parse_json_object(result_str))
 
     @staticmethod
+    def _extract_rational_from_dict(
+        d: dict[str, object], context: str,
+    ) -> tuple[int, int]:
+        """Extract (numerator, denominator) from a rational dict.
+
+        Raises ProtocolError if the dict is malformed or denominator is zero.
+        """
+        numerator = d.get("numerator")
+        denominator = d.get("denominator")
+        if not isinstance(numerator, int):
+            raise ProtocolError(f"Expected {context}.numerator to be int")
+        if not isinstance(denominator, int):
+            raise ProtocolError(f"Expected {context}.denominator to be int")
+        if denominator == 0:
+            raise ProtocolError(f"Expected {context}.denominator to be nonzero")
+        return numerator, denominator
+
+    @staticmethod
     def _validate_rational(field_name: str, raw_value: object) -> RationalNumber:
         """Validate and extract RationalNumber from response field."""
         if isinstance(raw_value, int):
@@ -293,16 +199,8 @@ class AletheiaClient:
             raise ProtocolError(
                 f"Expected {field_name} to be int or dict, got {type(raw_value).__name__}"
             )
-        value_dict = raw_value
-        numerator = value_dict.get("numerator")
-        denominator = value_dict.get("denominator")
-        if not isinstance(numerator, int):
-            raise ProtocolError(f"Expected {field_name}.numerator to be int")
-        if not isinstance(denominator, int):
-            raise ProtocolError(f"Expected {field_name}.denominator to be int")
-        if denominator == 0:
-            raise ProtocolError(f"Expected {field_name}.denominator to be nonzero")
-        return {"numerator": numerator, "denominator": denominator}
+        n, d = AletheiaClient._extract_rational_from_dict(raw_value, field_name)
+        return {"numerator": n, "denominator": d}
 
     @staticmethod
     def _parse_rational(value_raw: object) -> float:
@@ -310,14 +208,13 @@ class AletheiaClient:
         if isinstance(value_raw, (int, float)):
             return float(value_raw)
         if is_str_dict(value_raw):
-            numerator = value_raw.get("numerator")
-            denominator = value_raw.get("denominator")
-            if isinstance(numerator, int) and isinstance(denominator, int):
-                if denominator == 0:
-                    raise ProtocolError(
-                        f"Division by zero in rational: {value_raw!r}"
-                    )
-                return numerator / denominator
+            try:
+                n, d = AletheiaClient._extract_rational_from_dict(
+                    value_raw, "rational",
+                )
+                return n / d
+            except ProtocolError:
+                pass
         if isinstance(value_raw, str):
             if "/" in value_raw:
                 parts = value_raw.split("/")
@@ -342,21 +239,6 @@ class AletheiaClient:
             + f"or rational string, got {type(value_raw).__name__}"
         )
 
-    @staticmethod
-    def _check_signal_value(name: str, value: float) -> None:
-        """Guard against values that json.dumps encodes in scientific notation.
-
-        Agda's JSON parser handles integers and decimals (e.g., 42, 3.14)
-        but not exponent notation (e.g., 1.5e-10). Reject such values early
-        with a clear error rather than getting a cryptic parse failure.
-        """
-        s = json.dumps(value)
-        if "e" in s or "E" in s:
-            raise ValueError(
-                f"Signal value {value} for '{name}' would be JSON-encoded as {s}; "
-                + "Agda's parser does not support scientific notation"
-            )
-
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
         """Parse a response that should be success or error."""
         status = response.get("status")
@@ -374,7 +256,9 @@ class AletheiaClient:
                 err["message"] = message
             return err
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     # =========================================================================
     # DBC and Properties
@@ -429,7 +313,9 @@ class AletheiaClient:
             message = response.get("message", "Unknown error")
             raise ProtocolError(f"validateDBC failed: {message}")
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'validation' or 'error')"
+        )
 
     def format_dbc(self) -> DBCDefinition:
         """Export the currently-loaded DBC as a JSON dict.
@@ -461,7 +347,9 @@ class AletheiaClient:
             message = response.get("message", "Unknown error")
             raise ProtocolError(f"formatDBC failed: {message}")
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
 
     # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
     _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -474,21 +362,6 @@ class AletheiaClient:
             if field in sig:
                 sig[field] = AletheiaClient._parse_rational(sig[field])
         return cast(DBCSignal, sig)
-
-    @staticmethod
-    def _normalize_message(raw_msg: dict[str, object]) -> DBCMessage:
-        """Normalize a single Agda message dict into a DBCMessage."""
-        raw_signals = raw_msg.get("signals")
-        if not is_object_list(raw_signals):
-            raise ProtocolError("Expected 'signals' to be a list")
-        signals: list[DBCSignal] = []
-        for s in raw_signals:
-            if not is_str_dict(s):
-                raise ProtocolError("Expected each signal to be a dict")
-            signals.append(AletheiaClient._normalize_signal(s))
-        msg: dict[str, object] = dict(raw_msg)
-        msg["signals"] = signals
-        return cast(DBCMessage, msg)
 
     @staticmethod
     def _normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
@@ -506,7 +379,17 @@ class AletheiaClient:
         for m in raw_messages:
             if not is_str_dict(m):
                 raise ProtocolError("Expected each message to be a dict")
-            messages.append(AletheiaClient._normalize_message(m))
+            raw_signals = m.get("signals")
+            if not is_object_list(raw_signals):
+                raise ProtocolError("Expected 'signals' to be a list")
+            signals: list[DBCSignal] = []
+            for s in raw_signals:
+                if not is_str_dict(s):
+                    raise ProtocolError("Expected each signal to be a dict")
+                signals.append(AletheiaClient._normalize_signal(s))
+            msg: dict[str, object] = dict(m)
+            msg["signals"] = signals
+            messages.append(cast(DBCMessage, msg))
         return {
             "version": str(raw.get("version", "")),
             "messages": messages,
@@ -534,7 +417,8 @@ class AletheiaClient:
             self._diags.clear()
             self._signal_cache.clear()
             for i, formula in enumerate(properties):
-                self._diags[i] = _build_diagnostic(formula)
+                self._diags[i] = build_diagnostic(formula)
+            _logger.info("properties.set count=%d", len(properties))
         return response
 
     def add_checks(
@@ -570,12 +454,16 @@ class AletheiaClient:
             "type": "command",
             "command": "startStream"
         }
-        return self._success_or_error(self._send_command(cmd))
+        response = self._success_or_error(self._send_command(cmd))
+        if response["status"] == "success":
+            _logger.info("stream.started")
+        return response
 
     def _enrich_violation(
         self,
         result: PropertyViolationResponse,
         can_id: int,
+        dlc: int,
         data: bytearray,
     ) -> None:
         """Enrich a violation response with signal diagnostics (in-place)."""
@@ -585,18 +473,32 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
+            _logger.warning(
+                "enrichment.property_index_oob index=%d count=%d",
+                idx, len(self._diags),
+            )
             return
 
         # Extract signal values (cached, bounded).
         cache_key: tuple[int, bytes] = (can_id, bytes(data))
         extraction: SignalExtractionResult | None = self._signal_cache.get(cache_key)
         if extraction is None:
+            _logger.debug("cache.miss canId=%d dlc=%d", can_id, dlc)
             try:
-                extraction = self.extract_signals(can_id=can_id, data=data)
+                extraction = self.extract_signals(can_id=can_id, dlc=dlc, data=data)
                 if len(self._signal_cache) < MAX_EXTRACT_CACHE:
                     self._signal_cache[cache_key] = extraction
-            except (AletheiaError, ValueError):
-                pass
+                else:
+                    _logger.warning(
+                        "cache.full size=%d", len(self._signal_cache),
+                    )
+            except (AletheiaError, ValueError) as exc:
+                _logger.warning(
+                    "enrichment.extraction_failed canId=%d error=%s",
+                    can_id, exc,
+                )
+        else:
+            _logger.debug("cache.hit canId=%d dlc=%d", can_id, dlc)
 
         values: dict[str, float | None] = {}
         if extraction is not None:
@@ -607,13 +509,20 @@ class AletheiaClient:
 
         result["signals"] = values
         result["formula"] = diag.formula_desc
-        result["enriched_reason"] = _format_enriched_reason(diag, values)
+        result["enriched_reason"] = format_enriched_reason(diag, values)
 
-    def send_frame(
+    # Pre-encoded ack response bytes for fast-path comparison
+    _ACK_BYTES = b'{"status":"ack"}'
+    _ACK_BYTES_SPACED = b'{"status": "ack"}'
+
+    def send_frame(  # pylint: disable=too-many-arguments
         self,
         timestamp: int,
         can_id: int,
-        data: bytearray
+        dlc: int,
+        data: bytearray,
+        *,
+        extended: bool = False,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
         """Send a CAN frame for incremental LTL checking.
 
@@ -624,25 +533,63 @@ class AletheiaClient:
         Args:
             timestamp: Timestamp in microseconds
             can_id: CAN ID (11-bit standard or 29-bit extended)
-            data: 8-byte payload
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            data: Frame payload
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
             AckResponse, PropertyViolationResponse, or ErrorResponse
         """
-        if len(data) != 8:
-            raise ValueError(f"Data must be exactly 8 bytes, got {len(data)}")
+        if self._lib is None or self._state is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
+        validate_can_id(can_id, extended=extended)
+        dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
 
-        frame: DataFrame = {
-            "type": "data",
-            "timestamp": timestamp,
-            "id": can_id,
-            "data": list(data),
-        }
-        response = self._send_command(frame)
+        # Binary FFI: pass frame components directly (no JSON serialization)
+        data_array = (ctypes.c_uint8 * len(data))(*data)
+        result_ptr = self._lib.aletheia_send_frame(
+            self._state,
+            ctypes.c_uint64(timestamp),
+            ctypes.c_uint32(can_id),
+            ctypes.c_uint8(1 if extended else 0),
+            ctypes.c_uint8(dlc),
+            data_array,
+            ctypes.c_uint8(len(data)),
+        )
+        try:
+            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+            if result_bytes is None:
+                raise ProtocolError("FFI returned null pointer")
+
+            # Fast path: ack response (overwhelmingly common in streaming)
+            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+                _logger.debug(
+                    "frame.processed ts=%d canId=%d extended=%s response=ack",
+                    timestamp, can_id, extended,
+                )
+                return {"status": "ack"}
+
+            # Slow path: violations/errors — full JSON parse
+            result_str = result_bytes.decode("utf-8")
+        finally:
+            self._lib.aletheia_free_str(result_ptr)
+
+        response = cast(Response, parse_json_object(result_str))
         result = self._parse_frame_response(response)
 
-        if result["status"] == "violation":
-            self._enrich_violation(result, can_id, data)
+        if result["status"] == "fails":
+            self._enrich_violation(result, can_id, dlc, data)
+            _logger.debug(
+                "frame.processed ts=%d canId=%d extended=%s response=violation",
+                timestamp, can_id, extended,
+            )
+        else:
+            _logger.debug(
+                "frame.processed ts=%d canId=%d extended=%s response=%s",
+                timestamp, can_id, extended, result.get("status", "unknown"),
+            )
 
         return result
 
@@ -655,14 +602,14 @@ class AletheiaClient:
         if status == "ack":
             return {"status": "ack"}
 
-        if status == "violation":
+        if status == "fails":
             prop_type = response.get("type")
             if prop_type != "property":
                 raise ProtocolError(f"Expected type='property', got {prop_type}")
             prop_index = self._validate_rational("property_index", response.get("property_index"))
             ts_rational = self._validate_rational("timestamp", response.get("timestamp"))
             result_violation: PropertyViolationResponse = {
-                "status": "violation",
+                "status": "fails",
                 "type": "property",
                 "property_index": prop_index,
                 "timestamp": ts_rational,
@@ -679,39 +626,44 @@ class AletheiaClient:
                 result_error["message"] = message
             return result_error
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'ack', 'fails', or 'error')"
+        )
 
     def send_frames_batch(
         self,
-        frames: list[tuple[int, int, bytearray]]
+        frames: list[tuple[int, int, int, bytearray]],
+        *,
+        extended: bool = False,
     ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
         """Send multiple CAN frames in a batch.
 
+        A violation is a normal response and does not stop the batch.
+        Processing stops at the first transport or validation error. Partial
+        results from frames processed before the error are returned via
+        the ``partial_results`` attribute on the raised ``BatchError``.
+
         Args:
-            frames: List of (timestamp, can_id, data) tuples where:
+            frames: List of (timestamp, can_id, dlc, data) tuples where:
                 - timestamp: Timestamp in microseconds
                 - can_id: CAN ID (11-bit standard or 29-bit extended)
-                - data: 8-byte payload
+                - dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+                - data: Frame payload
+            extended: True for 29-bit extended CAN IDs, False for 11-bit standard
 
         Returns:
             List of responses in same order as input frames.
 
         Raises:
-            ValueError: If any frame data is not exactly 8 bytes
-            ProtocolError: If response status is unexpected
+            BatchError: Wraps the underlying exception and carries
+                ``partial_results`` with responses collected before the error.
         """
-        for i, (_, _, data) in enumerate(frames):
-            if len(data) != 8:
-                raise ValueError(f"Frame {i}: data must be exactly 8 bytes, got {len(data)}")
-
         results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
-        for ts, cid, d in frames:
-            cmd: DataFrame = {"type": "data", "timestamp": ts, "id": cid, "data": list(d)}
-            raw = self._send_command(cmd)
-            result = self._parse_frame_response(raw)
-            if result["status"] == "violation":
-                self._enrich_violation(result, cid, d)
-            results.append(result)
+        for ts, cid, dlc, d in frames:
+            try:
+                results.append(self.send_frame(ts, cid, dlc, d, extended=extended))
+            except Exception as exc:
+                raise BatchError(exc, results) from exc
         return results
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
@@ -722,8 +674,8 @@ class AletheiaClient:
             ErrorResponse if not currently streaming.
 
         The ``results`` list contains one entry per property:
-        - ``status="satisfaction"`` if the property held on the finite trace
-        - ``status="violation"`` if the property failed at end-of-stream
+        - ``status="holds"`` if the property held on the finite trace
+        - ``status="fails"`` if the property failed at end-of-stream
           (e.g., safety property never resolved, liveness never satisfied)
 
         Violations are enriched with ``signal_name``, ``actual_value``, and
@@ -739,6 +691,11 @@ class AletheiaClient:
 
         if status == "complete":
             results = self._parse_finalization_results(response)
+            num_fails = sum(1 for r in results if r["status"] == "fails")
+            _logger.info(
+                "stream.ended numResults=%d numFails=%d",
+                len(results), num_fails,
+            )
             return {"status": "complete", "results": results}
 
         if status == "error":
@@ -747,7 +704,9 @@ class AletheiaClient:
                 result_error["message"] = message
             return result_error
 
-        raise ProtocolError(f"Unexpected response status: {status}")
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
+        )
 
     def _parse_finalization_results(
         self, response: Response,
@@ -766,7 +725,7 @@ class AletheiaClient:
                 "status": entry_status,
                 "property_index": prop_index,
             }
-            if entry_status == "violation":
+            if entry_status == "fails":
                 ts = raw.get("timestamp")
                 if ts is not None:
                     result_entry["timestamp"] = self._validate_rational(
@@ -789,6 +748,10 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
+            _logger.warning(
+                "enrichment.property_index_oob index=%d count=%d",
+                idx, len(self._diags),
+            )
             return
         result["formula"] = diag.formula_desc
         result["enriched_reason"] = "violated: " + diag.formula_desc
@@ -797,36 +760,44 @@ class AletheiaClient:
     # Signal Operations (available anytime after DBC loaded)
     # =========================================================================
 
-    def extract_signals(self, can_id: int, data: bytearray) -> SignalExtractionResult:
+    def extract_signals(
+        self, can_id: int, dlc: int, data: bytearray,
+        *, extended: bool = False,
+    ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
 
         Works both inside and outside streaming mode.
 
         Args:
             can_id: CAN message ID
-            data: 8-byte frame data
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            data: Frame payload
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
             SignalExtractionResult with values/errors/absent partitioning
 
         Raises:
-            ValueError: If data is not exactly 8 bytes
             ProcessError: If extraction fails
+            ValueError: If dlc is outside 0-15
         """
-        if len(data) != 8:
-            raise ValueError(f"Frame data must be 8 bytes, got {len(data)}")
-
+        dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
+        validate_can_id(can_id, extended=extended)
         cmd: ExtractSignalsCommand = {
             "type": "command",
             "command": "extractAllSignals",
             "canId": can_id,
-            "data": list(data)
+            "dlc": dlc,
+            "data": list(data),
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Extract signals failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
         # Parse response
         values_raw = response.get("values", [])
@@ -846,11 +817,14 @@ class AletheiaClient:
 
         return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
-    def update_frame(
+    def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
+        dlc: int,
         frame: bytearray,
-        signals: dict[str, float]
+        signals: dict[str, float],
+        *,
+        extended: bool = False,
     ) -> bytearray:
         """Update specific signals in an existing frame.
 
@@ -859,21 +833,19 @@ class AletheiaClient:
 
         Args:
             can_id: CAN message ID
-            frame: Existing 8-byte frame data
+            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+            frame: Existing frame data
             signals: Signal updates (name -> value)
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
-            New 8-byte frame with updated signals
+            New frame with updated signals
 
         Raises:
-            ValueError: If frame is not exactly 8 bytes
             ProcessError: If update fails
+            ValueError: If dlc is outside 0-15
         """
-        if len(frame) != 8:
-            raise ValueError(f"Frame data must be 8 bytes, got {len(frame)}")
-
-        for name, value in signals.items():
-            self._check_signal_value(name, value)
+        validate_can_id(can_id, extended=extended)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()
@@ -883,18 +855,27 @@ class AletheiaClient:
             "type": "command",
             "command": "updateFrame",
             "canId": can_id,
+            "dlc": dlc,
             "data": list(frame),
-            "signals": signals_json
+            "signals": signals_json,
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Update frame failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
-        return self._parse_frame_data(cast(UpdateFrameResponse, response))
+        return self._parse_frame_data(
+            cast(UpdateFrameResponse, response), dlc_to_bytes(dlc),
+        )
 
-    def build_frame(self, can_id: int, signals: dict[str, float]) -> bytearray:
+    def build_frame(
+        self, can_id: int, signals: dict[str, float], *,
+        dlc: int = 8, extended: bool = False,
+    ) -> bytearray:
         """Build a CAN frame from signal values.
 
         Works both inside and outside streaming mode.
@@ -903,15 +884,17 @@ class AletheiaClient:
         Args:
             can_id: CAN message ID
             signals: Signal values to encode (name -> value)
+            dlc: Data Length Code (0-15). Defaults to 8 (classic CAN).
+            extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
-            8-byte CAN frame
+            CAN frame payload (length = dlc_to_bytes(dlc))
 
         Raises:
             ProcessError: If frame building fails
+            ValueError: If dlc is outside 0-15
         """
-        for name, value in signals.items():
-            self._check_signal_value(name, value)
+        validate_can_id(can_id, extended=extended)
         signals_json: list[SignalValue] = [
             {"name": name, "value": value}
             for name, value in signals.items()
@@ -921,27 +904,37 @@ class AletheiaClient:
             "type": "command",
             "command": "buildFrame",
             "canId": can_id,
-            "signals": signals_json
+            "dlc": dlc,
+            "signals": signals_json,
+            "extended": extended,
         }
         response = self._send_command(cmd)
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
             raise ProcessError(f"Build frame failed: {error_msg}")
+        if response.get("status") != "success":
+            raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
-        return self._parse_frame_data(cast(BuildFrameResponse, response))
+        return self._parse_frame_data(
+            cast(BuildFrameResponse, response), dlc_to_bytes(dlc),
+        )
 
     # =========================================================================
     # Helper methods for parsing responses
     # =========================================================================
 
     @staticmethod
-    def _parse_frame_data(response: BuildFrameResponse | UpdateFrameResponse) -> bytearray:
-        """Extract and validate 8-byte frame data from a response."""
+    def _parse_frame_data(
+        response: BuildFrameResponse | UpdateFrameResponse,
+        expected_bytes: int,
+    ) -> bytearray:
+        """Extract and validate frame data from a response."""
         frame_data = response["data"]
-        if len(frame_data) != 8:
+        if len(frame_data) != expected_bytes:
             raise ProtocolError(
-                f"Invalid frame data: expected 8 bytes, got {len(frame_data)}"
+                f"Invalid frame data: expected {expected_bytes} bytes, "
+                + f"got {len(frame_data)}"
             )
         return bytearray(frame_data)
 

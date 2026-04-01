@@ -9,7 +9,6 @@ Convert between .dbc files, JSON, and DBC text format.
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 from typing import cast
 
@@ -60,7 +59,8 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
 
     # Handle multiplexing: check if signal has multiplexer_ids
     if signal.multiplexer_ids:
-        # This is a multiplexed signal - use first multiplexer value
+        # Aletheia supports single-level multiplexing only — take first ID,
+        # additional multiplexer_ids (from extended mux) are not represented.
         multiplexor_name = signal.multiplexer_signal if signal.multiplexer_signal else "unknown"
         return cast(DBCSignal, {
             **base_fields,
@@ -104,7 +104,12 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         DBC definition in the format expected by Aletheia.DBC.JSONParser
     """
     # Load DBC file using cantools
-    db = cantools.database.load_file(str(dbc_path))
+    try:
+        db = cantools.database.load_file(str(dbc_path))
+    except OSError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"Failed to parse DBC file '{dbc_path}': {exc}") from exc
 
     # Convert to JSON structure
     dbc_def: DBCDefinition = {
@@ -116,7 +121,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
 
 def _format_number(value: float) -> str:
     """Format a float for DBC output, using integer form when possible."""
-    if math.isfinite(value) and value == int(value):
+    if value.is_integer():
         return str(int(value))
     return f"{value:.15g}"
 
@@ -241,21 +246,3 @@ def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None
         _ = Path(output_path).write_text(json_str, encoding='utf-8')
 
     return json_str
-
-
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python -m aletheia.dbc_converter <input.dbc> [output.json]")
-        sys.exit(1)
-
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
-
-    json_output = convert_dbc_file(input_file, output_file)
-
-    if output_file:
-        print(f"Converted {input_file} to {output_file}")
-    else:
-        print(json_output)

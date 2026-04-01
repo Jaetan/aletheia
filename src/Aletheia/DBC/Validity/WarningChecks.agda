@@ -1,26 +1,53 @@
 {-# OPTIONS --safe --without-K #-}
 
--- All 7 warning checks emit only IsWarning severity issues.
+-- Warning check severity proofs and soundness/completeness.
 --
--- Purpose: Prove that warning checks never produce IsError issues,
--- so errorIssues filters them all out.
+-- Purpose: (1) Prove all 7 warning checks emit only IsWarning severity.
+-- (2) Prove soundness (check ≡ [] → predicate) and completeness
+-- (predicate → check ≡ []) for each warning check, relating the
+-- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision)
-open import Aletheia.DBC.Validator using (checkGlobalNamePair; checkGlobalNameAgainstList; checkAllGlobalNameCollisions; messageSignalNames; checkMinMaxSig; checkAllMinMax; checkDupNamePair; checkDupNameAgainstList; checkDuplicateMessageNames; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ; checkOffsetScaleRange; checkAllOffsetScaleRange; checkEmptyMessage; checkAllEmptyMessage; checkStartBitOutOfRange; checkAllStartBitOutOfRange; checkBitLengthExcessive; checkAllBitLengthExcessive)
+open import Aletheia.DBC.Validator using
+  ( checkGlobalNamePair; checkGlobalNameAgainstList
+  ; checkAllGlobalNameCollisions; messageSignalNames
+  ; checkMinMaxSig; checkAllMinMax
+  ; checkDupNamePair; checkDupNameAgainstList
+  ; checkDuplicateMessageNames
+  ; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ
+  ; checkOffsetScaleRange; checkAllOffsetScaleRange
+  ; checkEmptyMessage; checkAllEmptyMessage
+  ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
+  ; checkBitLengthExcessive; checkAllBitLengthExcessive
+  )
+open import Aletheia.DBC.Validity using
+  ( MinLeqMax; DistinctMessageNames; NonEmptySignals
+  ; StartBitInRange; BitLengthInRange; DisjointSignalNames
+  ; RangeLowOK; RangeHighOK; RangeBoundsOK
+  )
+open import Aletheia.DBC.Validity.ListLemmas using
+  ( All-concatMap; ++-≡[]-split; ++-≡[]-combine
+  ; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete
+  )
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
-open import Aletheia.DBC.Validity.ListLemmas using (All-concatMap)
+open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
+open import Data.List.Relation.Unary.Any using (Any)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
+open import Data.Rational using (ℚ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
 open import Data.Bool using (Bool; true; false)
-open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Data.Empty using (⊥-elim)
+open import Data.Product using (_×_; _,_)
+open import Relation.Nullary using (yes; no; ¬_)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.Prelude using (max-physical-bits)
 
 private
   -- Severity predicate shorthand
@@ -28,7 +55,7 @@ private
   W i = ValidationIssue.severity i ≡ IsWarning
 
 -- ============================================================================
--- CHECK 6: GLOBAL NAME COLLISION
+-- CHECK 6: GLOBAL NAME COLLISION — Severity
 -- ============================================================================
 
 checkGlobalNamePair-allW : ∀ m1 m2 → All W (checkGlobalNamePair m1 m2)
@@ -54,7 +81,76 @@ checkAllGlobalNameCollisions-allW (m ∷ rest) =
     go m (other ∷ rest) = ++⁺ (checkGlobalNamePair-allW m other) (go m rest)
 
 -- ============================================================================
--- CHECK 7: MIN EXCEEDS MAX
+-- CHECK 6: GLOBAL NAME COLLISION — Soundness/Completeness
+-- ============================================================================
+
+checkGlobalNamePair-sound : ∀ m1 m2 →
+  checkGlobalNamePair m1 m2 ≡ [] →
+  DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)
+checkGlobalNamePair-sound m1 m2 eq = go (messageSignalNames m1) eq
+  where
+    names2 = messageSignalNames m2
+    go : ∀ ns → map (λ n → mkIssue IsWarning GlobalNameCollision
+            ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
+             ++ₛ DBCMessage.name m1 ++ₛ "' and '"
+             ++ₛ DBCMessage.name m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
+         → All (λ n → ¬ Any (n ≡_) names2) ns
+    go [] _ = []
+    go (n ∷ ns) eq with n ∈? names2
+    go (n ∷ ns) () | yes _
+    go (n ∷ ns) eq | no ¬n∈ = ¬n∈ ∷ go ns eq
+
+checkGlobalNamePair-complete : ∀ m1 m2 →
+  DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2) →
+  checkGlobalNamePair m1 m2 ≡ []
+checkGlobalNamePair-complete m1 m2 disj = go (messageSignalNames m1) disj
+  where
+    names2 = messageSignalNames m2
+    go : ∀ ns → All (λ n → ¬ Any (n ≡_) names2) ns
+         → map (λ n → mkIssue IsWarning GlobalNameCollision
+                  ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
+                   ++ₛ DBCMessage.name m1 ++ₛ "' and '"
+                   ++ₛ DBCMessage.name m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
+    go [] [] = refl
+    go (n ∷ ns) (¬n∈ ∷ rest) with n ∈? names2
+    ... | yes n∈ = ⊥-elim (¬n∈ n∈)
+    ... | no  _  = go ns rest
+
+checkGlobalNameAgainstList-sound : ∀ m rest →
+  checkGlobalNameAgainstList m rest ≡ [] →
+  All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest
+checkGlobalNameAgainstList-sound _ [] _ = []
+checkGlobalNameAgainstList-sound m (other ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkGlobalNamePair-sound m other eq₁ ∷ checkGlobalNameAgainstList-sound m rest eq₂
+
+checkGlobalNameAgainstList-complete : ∀ m rest →
+  All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest →
+  checkGlobalNameAgainstList m rest ≡ []
+checkGlobalNameAgainstList-complete _ [] [] = refl
+checkGlobalNameAgainstList-complete m (other ∷ rest) (p ∷ ps) =
+  ++-≡[]-combine (checkGlobalNamePair-complete m other p)
+                 (checkGlobalNameAgainstList-complete m rest ps)
+
+checkAllGlobalNameCollisions-sound : ∀ msgs →
+  checkAllGlobalNameCollisions msgs ≡ [] →
+  AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs
+checkAllGlobalNameCollisions-sound [] _ = []
+checkAllGlobalNameCollisions-sound (m ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkGlobalNameAgainstList-sound m rest eq₁ ∷
+     checkAllGlobalNameCollisions-sound rest eq₂
+
+checkAllGlobalNameCollisions-complete : ∀ msgs →
+  AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs →
+  checkAllGlobalNameCollisions msgs ≡ []
+checkAllGlobalNameCollisions-complete [] [] = refl
+checkAllGlobalNameCollisions-complete (m ∷ rest) (pm ∷ prest) =
+  ++-≡[]-combine (checkGlobalNameAgainstList-complete m rest pm)
+                 (checkAllGlobalNameCollisions-complete rest prest)
+
+-- ============================================================================
+-- CHECK 7: MIN EXCEEDS MAX — Severity
 -- ============================================================================
 
 checkMinMaxSig-allW : ∀ msgName sig → All W (checkMinMaxSig msgName sig)
@@ -75,7 +171,47 @@ checkAllMinMax-allW (msg ∷ rest) =
     go (sig ∷ sigs) = checkMinMaxSig-allW (DBCMessage.name msg) sig ∷ go sigs
 
 -- ============================================================================
--- CHECK 11: DUPLICATE MESSAGE NAME
+-- CHECK 7: MIN EXCEEDS MAX — Soundness/Completeness
+-- ============================================================================
+
+checkMinMaxSig-sound : ∀ msgName sig →
+  checkMinMaxSig msgName sig ≡ [] → MinLeqMax sig
+checkMinMaxSig-sound msgName sig eq
+  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+       SignalDef.maximum (DBCSignal.signalDef sig)
+... | yes p = p
+checkMinMaxSig-sound _ _ () | no _
+
+checkMinMaxSig-complete : ∀ msgName sig →
+  MinLeqMax sig → checkMinMaxSig msgName sig ≡ []
+checkMinMaxSig-complete msgName sig p
+  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+       SignalDef.maximum (DBCSignal.signalDef sig)
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
+
+checkAllMinMax-sound : ∀ msgs →
+  checkAllMinMax msgs ≡ [] →
+  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
+checkAllMinMax-sound [] _ = []
+checkAllMinMax-sound (msg ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in All-map (λ sig → checkMinMaxSig-sound (DBCMessage.name msg) sig)
+             (concatMap-≡[]-sound eq₁)
+     ∷ checkAllMinMax-sound rest eq₂
+
+checkAllMinMax-complete : ∀ msgs →
+  All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs →
+  checkAllMinMax msgs ≡ []
+checkAllMinMax-complete [] [] = refl
+checkAllMinMax-complete (msg ∷ rest) (pm ∷ pms) =
+  ++-≡[]-combine
+    (concatMap-≡[]-complete
+      (All-map (λ sig → checkMinMaxSig-complete (DBCMessage.name msg) sig) pm))
+    (checkAllMinMax-complete rest pms)
+
+-- ============================================================================
+-- CHECK 11: DUPLICATE MESSAGE NAME — Severity
 -- ============================================================================
 
 checkDupNamePair-allW : ∀ m1 m2 → All W (checkDupNamePair m1 m2)
@@ -93,7 +229,56 @@ checkDuplicateMessageNames-allW (m ∷ rest) =
     go m (other ∷ rest) = ++⁺ (checkDupNamePair-allW m other) (go m rest)
 
 -- ============================================================================
--- CHECK 13: OFFSET/SCALE RANGE (uses exposed checkRangeLow/checkRangeHigh)
+-- CHECK 11: DUPLICATE MESSAGE NAME — Soundness/Completeness
+-- ============================================================================
+
+checkDupNamePair-sound : ∀ m1 m2 →
+  checkDupNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
+checkDupNamePair-sound m1 m2 eq with DBCMessage.name m1 ≟ DBCMessage.name m2
+checkDupNamePair-sound _ _ () | yes _
+... | no ¬p = ¬p
+
+checkDupNamePair-complete : ∀ m1 m2 →
+  DistinctMessageNames m1 m2 → checkDupNamePair m1 m2 ≡ []
+checkDupNamePair-complete m1 m2 neq with DBCMessage.name m1 ≟ DBCMessage.name m2
+... | no  _ = refl
+... | yes p = ⊥-elim (neq p)
+
+checkDupNameAgainstList-sound : ∀ m rest →
+  checkDupNameAgainstList m rest ≡ [] →
+  All (DistinctMessageNames m) rest
+checkDupNameAgainstList-sound _ [] _ = []
+checkDupNameAgainstList-sound m (other ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkDupNamePair-sound m other eq₁ ∷ checkDupNameAgainstList-sound m rest eq₂
+
+checkDupNameAgainstList-complete : ∀ m rest →
+  All (DistinctMessageNames m) rest →
+  checkDupNameAgainstList m rest ≡ []
+checkDupNameAgainstList-complete _ [] [] = refl
+checkDupNameAgainstList-complete m (other ∷ rest) (p ∷ ps) =
+  ++-≡[]-combine (checkDupNamePair-complete m other p)
+                 (checkDupNameAgainstList-complete m rest ps)
+
+checkDuplicateMessageNames-sound : ∀ msgs →
+  checkDuplicateMessageNames msgs ≡ [] →
+  AllPairs DistinctMessageNames msgs
+checkDuplicateMessageNames-sound [] _ = []
+checkDuplicateMessageNames-sound (m ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkDupNameAgainstList-sound m rest eq₁ ∷
+     checkDuplicateMessageNames-sound rest eq₂
+
+checkDuplicateMessageNames-complete : ∀ msgs →
+  AllPairs DistinctMessageNames msgs →
+  checkDuplicateMessageNames msgs ≡ []
+checkDuplicateMessageNames-complete [] [] = refl
+checkDuplicateMessageNames-complete (m ∷ rest) (pm ∷ prest) =
+  ++-≡[]-combine (checkDupNameAgainstList-complete m rest pm)
+                 (checkDuplicateMessageNames-complete rest prest)
+
+-- ============================================================================
+-- CHECK 13: OFFSET/SCALE RANGE — Severity
 -- ============================================================================
 
 checkRangeLow-allW : ∀ msgName sigName physMin declMin →
@@ -108,7 +293,6 @@ checkRangeHigh-allW msgName sigName physMax declMax with physMax ≤?ᵣ declMax
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
--- checkRangeBounds is now top-level, so we can prove it directly.
 checkRangeBounds-allW : ∀ msgName sigName factor physA physB declMin declMax →
   All W (checkRangeBounds msgName sigName factor physA physB declMin declMax)
 checkRangeBounds-allW msgName sigName factor physA physB declMin declMax
@@ -118,7 +302,6 @@ checkRangeBounds-allW msgName sigName factor physA physB declMin declMax
 ... | true  = ++⁺ (checkRangeLow-allW msgName sigName physB declMin)
                      (checkRangeHigh-allW msgName sigName physA declMax)
 
--- Check 13: match on isSigned to reduce computeRange, then use checkRangeBounds-allW.
 checkOffsetScaleRange-allW : ∀ msgName sig → All W (checkOffsetScaleRange msgName sig)
 checkOffsetScaleRange-allW msgName sig
   with SignalDef.isSigned (DBCSignal.signalDef sig)
@@ -138,7 +321,63 @@ checkAllOffsetScaleRange-allW (msg ∷ rest) =
     go (sig ∷ sigs) = checkOffsetScaleRange-allW (DBCMessage.name msg) sig ∷ go sigs
 
 -- ============================================================================
--- CHECK 14: EMPTY MESSAGE
+-- CHECK 13: OFFSET/SCALE RANGE — Soundness/Completeness (component level)
+-- ============================================================================
+
+checkRangeLow-sound : ∀ msgName sigName physMin declMin →
+  checkRangeLow msgName sigName physMin declMin ≡ [] → RangeLowOK physMin declMin
+checkRangeLow-sound msgName sigName physMin declMin eq with declMin ≤?ᵣ physMin
+... | yes p = p
+checkRangeLow-sound _ _ _ _ () | no _
+
+checkRangeLow-complete : ∀ msgName sigName physMin declMin →
+  RangeLowOK physMin declMin → checkRangeLow msgName sigName physMin declMin ≡ []
+checkRangeLow-complete msgName sigName physMin declMin p with declMin ≤?ᵣ physMin
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
+
+checkRangeHigh-sound : ∀ msgName sigName physMax declMax →
+  checkRangeHigh msgName sigName physMax declMax ≡ [] → RangeHighOK physMax declMax
+checkRangeHigh-sound msgName sigName physMax declMax eq with physMax ≤?ᵣ declMax
+... | yes p = p
+checkRangeHigh-sound _ _ _ _ () | no _
+
+checkRangeHigh-complete : ∀ msgName sigName physMax declMax →
+  RangeHighOK physMax declMax → checkRangeHigh msgName sigName physMax declMax ≡ []
+checkRangeHigh-complete msgName sigName physMax declMax p with physMax ≤?ᵣ declMax
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
+
+checkRangeBounds-sound : ∀ msgName sigName factor physA physB declMin declMax →
+  checkRangeBounds msgName sigName factor physA physB declMin declMax ≡ [] →
+  RangeBoundsOK (isNegativeℚ factor) physA physB declMin declMax
+checkRangeBounds-sound msgName sigName factor physA physB declMin declMax eq
+  with isNegativeℚ factor
+... | false =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkRangeLow-sound msgName sigName physA declMin eq₁ ,
+     checkRangeHigh-sound msgName sigName physB declMax eq₂
+... | true  =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in checkRangeLow-sound msgName sigName physB declMin eq₁ ,
+     checkRangeHigh-sound msgName sigName physA declMax eq₂
+
+checkRangeBounds-complete : ∀ msgName sigName factor physA physB declMin declMax →
+  RangeBoundsOK (isNegativeℚ factor) physA physB declMin declMax →
+  checkRangeBounds msgName sigName factor physA physB declMin declMax ≡ []
+checkRangeBounds-complete msgName sigName factor physA physB declMin declMax p
+  with isNegativeℚ factor
+... | false =
+  let (lo , hi) = p
+  in ++-≡[]-combine (checkRangeLow-complete msgName sigName physA declMin lo)
+                    (checkRangeHigh-complete msgName sigName physB declMax hi)
+... | true  =
+  let (lo , hi) = p
+  in ++-≡[]-combine (checkRangeLow-complete msgName sigName physB declMin lo)
+                    (checkRangeHigh-complete msgName sigName physA declMax hi)
+
+-- ============================================================================
+-- CHECK 14: EMPTY MESSAGE — Severity
 -- ============================================================================
 
 checkEmptyMessage-allW : ∀ msg → All W (checkEmptyMessage msg)
@@ -154,12 +393,40 @@ checkAllEmptyMessage-allW msgs = All-concatMap (go msgs)
     go (m ∷ ms) = checkEmptyMessage-allW m ∷ go ms
 
 -- ============================================================================
--- CHECK 15: START BIT OUT OF RANGE
+-- CHECK 14: EMPTY MESSAGE — Soundness/Completeness
+-- ============================================================================
+
+checkEmptyMessage-sound : ∀ msg →
+  checkEmptyMessage msg ≡ [] → NonEmptySignals msg
+checkEmptyMessage-sound msg eq with DBCMessage.signals msg
+checkEmptyMessage-sound _ () | []
+... | _ ∷ _ = λ ()
+
+checkEmptyMessage-complete : ∀ msg →
+  NonEmptySignals msg → checkEmptyMessage msg ≡ []
+checkEmptyMessage-complete msg ne with DBCMessage.signals msg
+... | []    = ⊥-elim (ne refl)
+... | _ ∷ _ = refl
+
+checkAllEmptyMessage-sound : ∀ msgs →
+  checkAllEmptyMessage msgs ≡ [] →
+  All NonEmptySignals msgs
+checkAllEmptyMessage-sound msgs eq =
+  All-map (λ m → checkEmptyMessage-sound m) (concatMap-≡[]-sound eq)
+
+checkAllEmptyMessage-complete : ∀ msgs →
+  All NonEmptySignals msgs →
+  checkAllEmptyMessage msgs ≡ []
+checkAllEmptyMessage-complete msgs pf =
+  concatMap-≡[]-complete (All-map (λ m → checkEmptyMessage-complete m) pf)
+
+-- ============================================================================
+-- CHECK 15: START BIT OUT OF RANGE — Severity
 -- ============================================================================
 
 checkStartBitOutOfRange-allW : ∀ msgName sig → All W (checkStartBitOutOfRange msgName sig)
 checkStartBitOutOfRange-allW msgName sig
-  with SignalDef.startBit (DBCSignal.signalDef sig) <? 64
+  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -174,12 +441,50 @@ checkAllStartBitOutOfRange-allW (msg ∷ rest) =
     go (sig ∷ sigs) = checkStartBitOutOfRange-allW (DBCMessage.name msg) sig ∷ go sigs
 
 -- ============================================================================
--- CHECK 16: BIT LENGTH EXCESSIVE
+-- CHECK 15: START BIT OUT OF RANGE — Soundness/Completeness
+-- ============================================================================
+
+checkStartBitOutOfRange-sound : ∀ msgName sig →
+  checkStartBitOutOfRange msgName sig ≡ [] → StartBitInRange sig
+checkStartBitOutOfRange-sound msgName sig eq
+  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
+... | yes p = p
+checkStartBitOutOfRange-sound _ _ () | no _
+
+checkStartBitOutOfRange-complete : ∀ msgName sig →
+  StartBitInRange sig → checkStartBitOutOfRange msgName sig ≡ []
+checkStartBitOutOfRange-complete msgName sig p
+  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
+
+checkAllStartBitOutOfRange-sound : ∀ msgs →
+  checkAllStartBitOutOfRange msgs ≡ [] →
+  All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs
+checkAllStartBitOutOfRange-sound [] _ = []
+checkAllStartBitOutOfRange-sound (msg ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in All-map (λ sig → checkStartBitOutOfRange-sound (DBCMessage.name msg) sig)
+             (concatMap-≡[]-sound eq₁)
+     ∷ checkAllStartBitOutOfRange-sound rest eq₂
+
+checkAllStartBitOutOfRange-complete : ∀ msgs →
+  All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs →
+  checkAllStartBitOutOfRange msgs ≡ []
+checkAllStartBitOutOfRange-complete [] [] = refl
+checkAllStartBitOutOfRange-complete (msg ∷ rest) (pm ∷ pms) =
+  ++-≡[]-combine
+    (concatMap-≡[]-complete
+      (All-map (λ sig → checkStartBitOutOfRange-complete (DBCMessage.name msg) sig) pm))
+    (checkAllStartBitOutOfRange-complete rest pms)
+
+-- ============================================================================
+-- CHECK 16: BIT LENGTH EXCESSIVE — Severity
 -- ============================================================================
 
 checkBitLengthExcessive-allW : ∀ msgName sig → All W (checkBitLengthExcessive msgName sig)
 checkBitLengthExcessive-allW msgName sig
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? 64
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -192,3 +497,41 @@ checkAllBitLengthExcessive-allW (msg ∷ rest) =
     go : ∀ sigs → All (λ sig → All W (checkBitLengthExcessive (DBCMessage.name msg) sig)) sigs
     go [] = []
     go (sig ∷ sigs) = checkBitLengthExcessive-allW (DBCMessage.name msg) sig ∷ go sigs
+
+-- ============================================================================
+-- CHECK 16: BIT LENGTH EXCESSIVE — Soundness/Completeness
+-- ============================================================================
+
+checkBitLengthExcessive-sound : ∀ msgName sig →
+  checkBitLengthExcessive msgName sig ≡ [] → BitLengthInRange sig
+checkBitLengthExcessive-sound msgName sig eq
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
+... | yes p = p
+checkBitLengthExcessive-sound _ _ () | no _
+
+checkBitLengthExcessive-complete : ∀ msgName sig →
+  BitLengthInRange sig → checkBitLengthExcessive msgName sig ≡ []
+checkBitLengthExcessive-complete msgName sig p
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p p)
+
+checkAllBitLengthExcessive-sound : ∀ msgs →
+  checkAllBitLengthExcessive msgs ≡ [] →
+  All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs
+checkAllBitLengthExcessive-sound [] _ = []
+checkAllBitLengthExcessive-sound (msg ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in All-map (λ sig → checkBitLengthExcessive-sound (DBCMessage.name msg) sig)
+             (concatMap-≡[]-sound eq₁)
+     ∷ checkAllBitLengthExcessive-sound rest eq₂
+
+checkAllBitLengthExcessive-complete : ∀ msgs →
+  All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs →
+  checkAllBitLengthExcessive msgs ≡ []
+checkAllBitLengthExcessive-complete [] [] = refl
+checkAllBitLengthExcessive-complete (msg ∷ rest) (pm ∷ pms) =
+  ++-≡[]-combine
+    (concatMap-≡[]-complete
+      (All-map (λ sig → checkBitLengthExcessive-complete (DBCMessage.name msg) sig) pm))
+    (checkAllBitLengthExcessive-complete rest pms)

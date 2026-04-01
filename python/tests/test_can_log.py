@@ -2,7 +2,7 @@
 
 Tests cover:
 - Timestamp conversion: seconds (float) to microseconds (int)
-- Data normalization: pad/truncate to 8 bytes, strict_dlc mode
+- Data normalization: pad/truncate to DLC bytes
 - Frame filtering: error/remote frames skipped or kept
 - File validation: missing files, unsupported extensions
 - Extension detection: .asc.gz stripped to .asc
@@ -54,53 +54,56 @@ class TestTimestampConversion:
 # ============================================================================
 
 class TestNormalizeData:
-    """Test _normalize_data: pad/truncate to 8 bytes."""
+    """Test _normalize_data: pad/truncate to DLC bytes."""
 
-    def test_eight_bytes_passthrough(self) -> None:
+    def test_exact_length_passthrough(self) -> None:
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8])
-        result = _normalize_data(data, strict_dlc=False)
+        result = _normalize_data(data, 8)
         assert result == bytearray([1, 2, 3, 4, 5, 6, 7, 8])
         assert isinstance(result, bytearray)
 
     def test_returns_copy(self) -> None:
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8])
-        result = _normalize_data(data, strict_dlc=False)
+        result = _normalize_data(data, 8)
         assert result is not data
 
     def test_short_padded_with_zeros(self) -> None:
         data = bytearray([0xAA, 0xBB, 0xCC])
-        result = _normalize_data(data, strict_dlc=False)
+        result = _normalize_data(data, 8)
         assert result == bytearray([0xAA, 0xBB, 0xCC, 0, 0, 0, 0, 0])
 
     def test_long_truncated(self) -> None:
         data = bytearray([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        result = _normalize_data(data, strict_dlc=False)
+        result = _normalize_data(data, 8)
         assert result == bytearray([1, 2, 3, 4, 5, 6, 7, 8])
 
     def test_none_returns_zeros(self) -> None:
-        result = _normalize_data(None, strict_dlc=False)
+        result = _normalize_data(None, 8)
         assert result == bytearray(8)
 
     def test_empty_padded(self) -> None:
-        result = _normalize_data(bytearray(), strict_dlc=False)
+        result = _normalize_data(bytearray(), 8)
         assert result == bytearray(8)
 
-    def test_strict_dlc_rejects_short(self) -> None:
-        with pytest.raises(ValueError, match="3 bytes"):
-            _normalize_data(bytearray([1, 2, 3]), strict_dlc=True)
+    def test_canfd_12_bytes(self) -> None:
+        data = bytearray(range(12))
+        result = _normalize_data(data, 12)
+        assert result == data
+        assert len(result) == 12
 
-    def test_strict_dlc_rejects_long(self) -> None:
-        with pytest.raises(ValueError, match="10 bytes"):
-            _normalize_data(bytearray(10), strict_dlc=True)
+    def test_canfd_64_bytes(self) -> None:
+        data = bytearray(range(64))
+        result = _normalize_data(data, 64)
+        assert result == data
+        assert len(result) == 64
 
-    def test_strict_dlc_accepts_eight(self) -> None:
-        data = bytearray(8)
-        result = _normalize_data(data, strict_dlc=True)
-        assert len(result) == 8
+    def test_dlc_zero(self) -> None:
+        result = _normalize_data(bytearray(), 0)
+        assert result == bytearray()
 
-    def test_strict_dlc_rejects_none(self) -> None:
-        with pytest.raises(ValueError, match="no data"):
-            _normalize_data(None, strict_dlc=True)
+    def test_none_with_dlc_zero(self) -> None:
+        result = _normalize_data(None, 0)
+        assert result == bytearray()
 
 
 # ============================================================================
@@ -116,6 +119,7 @@ class TestFrameFiltering:
         timestamp: float = 1.0,
         arb_id: int = 0x100,
         data: bytearray | None = None,
+        dlc: int | None = None,
         is_error: bool = False,
         is_remote: bool = False,
         is_extended: bool = False,
@@ -124,7 +128,7 @@ class TestFrameFiltering:
         msg.timestamp = timestamp
         msg.arbitration_id = arb_id
         msg.data = data if data is not None else bytearray(8)
-        msg.dlc = len(msg.data) if msg.data is not None else 0
+        msg.dlc = dlc if dlc is not None else len(msg.data)
         msg.is_error_frame = is_error
         msg.is_remote_frame = is_remote
         msg.is_extended_id = is_extended
@@ -133,49 +137,59 @@ class TestFrameFiltering:
     def test_normal_frame_converted(self) -> None:
         msg = self._make_msg(data=bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0]))
         result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True, strict_dlc=False
+            msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is not None
-        ts, can_id, data = result
+        ts, can_id, dlc, data = result
         assert ts == 1_000_000
         assert can_id == 0x100
+        assert dlc == 8
         assert data == bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0])
 
     def test_error_frame_skipped(self) -> None:
         msg = self._make_msg(is_error=True)
         result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True, strict_dlc=False
+            msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is None
 
     def test_error_frame_kept(self) -> None:
         msg = self._make_msg(is_error=True)
         result = _convert_message(
-            msg, skip_error_frames=False, skip_remote_frames=True, strict_dlc=False
+            msg, skip_error_frames=False, skip_remote_frames=True
         )
         assert result is not None
 
     def test_remote_frame_skipped(self) -> None:
         msg = self._make_msg(is_remote=True)
         result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True, strict_dlc=False
+            msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is None
 
     def test_remote_frame_kept(self) -> None:
         msg = self._make_msg(is_remote=True)
         result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=False, strict_dlc=False
+            msg, skip_error_frames=True, skip_remote_frames=False
         )
         assert result is not None
 
     def test_extended_id_preserved(self) -> None:
         msg = self._make_msg(arb_id=0x18FEF100, is_extended=True)
         result = _convert_message(
-            msg, skip_error_frames=True, skip_remote_frames=True, strict_dlc=False
+            msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is not None
         assert result[1] == 0x18FEF100
+
+    def test_dlc_preserved(self) -> None:
+        msg = self._make_msg(data=bytearray(12), dlc=12)
+        result = _convert_message(
+            msg, skip_error_frames=True, skip_remote_frames=True
+        )
+        assert result is not None
+        assert result[2] == 9  # DLC code for 12-byte CAN-FD payload
+        assert len(result[3]) == 12
 
 
 # ============================================================================
@@ -254,10 +268,11 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 1
-        _, can_id, data = frames[0]
+        _, can_id, dlc, data = frames[0]
         # ASC uses relative timestamps (first message is t=0), so we only
-        # verify CAN ID and data survive the round-trip.
+        # verify CAN ID, DLC, and data survive the round-trip.
         assert can_id == 0x100
+        assert dlc == 8
         assert data == bytearray([0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0])
         assert isinstance(data, bytearray)
 
@@ -292,7 +307,7 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 5
-        for i, (ts, can_id, data) in enumerate(frames):
+        for i, (ts, can_id, dlc, data) in enumerate(frames):
             assert can_id == 0x100 + i
             assert data[0] == i
 
@@ -336,7 +351,8 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 1
-        assert frames[0][2] == bytearray([0xAA, 0xBB, 0, 0, 0, 0, 0, 0])
+        # python-can sets dlc = len(data) = 2, so data stays 2 bytes
+        assert len(frames[0][3]) == frames[0][2]
 
 
 # ============================================================================

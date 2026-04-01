@@ -4,7 +4,7 @@
 --
 -- Purpose: Define ValidDBC as a precise predicate capturing when a DBC's
 -- signal layout defines a well-defined partial function from frames to values.
--- Scope: CAN 2.0B (8-byte frames). CAN FD deferred to Phase 5.
+-- Supports CAN 2.0B (DLC 0–8) and CAN-FD (DLC 0–15).
 --
 -- A DBC is valid when all 9 error-severity conditions hold.
 -- Warning-severity checks are advisory and NOT part of ValidDBC.
@@ -14,18 +14,22 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Validator using (findSignalPresence)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian)
+open import Aletheia.CAN.DLC using (bytesToDlc)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
-open import Data.Nat using (ℕ; _+_; _*_; _≤_; _∸_)
-open import Data.Integer using (ℤ; +_)
-open import Data.Rational using (ℚ; 0ℚ)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
+open import Data.Integer using (+_)
+open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
+open import Data.Maybe using (Maybe; just; nothing; Is-just)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
+open import Data.String using (String)
+open import Data.Bool using (Bool; true; false)
+open import Data.Product using (_×_)
+open import Aletheia.Prelude using (max-physical-bits)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -57,24 +61,26 @@ MuxIsAlways : List DBCSignal → SignalPresence → Set
 MuxIsAlways _    Always           = ⊤
 MuxIsAlways sigs (When muxName _) = MuxAPLookup (findSignalPresence muxName sigs)
 
--- Condition 6 (check 8): Signal bits fit in frame (byte-order aware)
---   LE: startBit + bitLength ≤ dlc × 8
---   BE: (8 ∸ dlc) × 8 ≤ startBit  (internal, converted startBit)
+-- Condition 6 (check 8): Signal bits fit in frame
+-- After convertStartBit at parse time, the internal startBit is in a
+-- canonical representation where startBit + bitLength ≤ payloadBytes * 8
+-- holds for both LE and BE byte orders.
 BitsInFrame : ℕ → DBCSignal → Set
-BitsInFrame dlc sig with DBCSignal.byteOrder sig
-... | LittleEndian =
+BitsInFrame payloadBytes sig =
   SignalDef.startBit (DBCSignal.signalDef sig)
-  + SignalDef.bitLength (DBCSignal.signalDef sig) ≤ dlc * 8
-... | BigEndian =
-  (8 ∸ dlc) * 8 ≤ SignalDef.startBit (DBCSignal.signalDef sig)
+  + SignalDef.bitLength (DBCSignal.signalDef sig) ≤ payloadBytes * 8
 
 -- Condition 8 (check 10): Non-zero bit length
 NonZeroBitLength : DBCSignal → Set
 NonZeroBitLength sig = SignalDef.bitLength (DBCSignal.signalDef sig) ≢ 0
 
--- Condition 9 (check 12): Valid DLC (≤ 8)
+-- Condition 9 (check 12): Valid DLC
+-- DBCMessage.dlc stores the byte count. Valid byte counts are exactly
+-- {0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64} — the values for which
+-- bytesToDlc succeeds. This rejects invalid intermediate values like
+-- 9, 10, 11, 13, etc.
 ValidDLC : DBCMessage → Set
-ValidDLC m = DBCMessage.dlc m ≤ 8
+ValidDLC m = Is-just (bytesToDlc (DBCMessage.dlc m))
 
 -- ============================================================================
 -- ValidDBC: conjunction of all 9 error-severity conditions
@@ -99,12 +105,57 @@ record ValidDBC (dbc : DBC) : Set where
     muxAlwaysPresent  : All (λ m → All (λ sig → MuxIsAlways (DBCMessage.signals m)
                                                              (DBCSignal.presence sig))
                                        (DBCMessage.signals m)) msgs
-    -- 6. Signal bits fit in frame
+    -- 6. Signal bits fit in frame (dlc is byte count)
     bitsInFrame       : All (λ m → All (BitsInFrame (DBCMessage.dlc m))
                                        (DBCMessage.signals m)) msgs
-    -- 7. Coexisting signal pairs are valid
-    sigPairsValid     : All (λ m → AllPairs SignalPairValid (DBCMessage.signals m)) msgs
+    -- 7. Coexisting signal pairs are valid (using each message's own DLC)
+    sigPairsValid     : All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m))
+                                            (DBCMessage.signals m)) msgs
     -- 8. Non-zero bit lengths
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
     -- 9. Valid DLCs
     validDLCs         : All ValidDLC msgs
+
+-- ============================================================================
+-- WARNING PREDICATES (advisory, not part of ValidDBC)
+-- ============================================================================
+
+-- Check 7: Signal minimum ≤ maximum
+MinLeqMax : DBCSignal → Set
+MinLeqMax sig =
+  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵣ
+  SignalDef.maximum (DBCSignal.signalDef sig)
+
+-- Check 11: Message names pairwise distinct
+DistinctMessageNames : DBCMessage → DBCMessage → Set
+DistinctMessageNames m1 m2 = DBCMessage.name m1 ≢ DBCMessage.name m2
+
+-- Check 14: Message has at least one signal
+NonEmptySignals : DBCMessage → Set
+NonEmptySignals msg = DBCMessage.signals msg ≢ []
+
+-- Check 15: startBit < max-physical-bits
+StartBitInRange : DBCSignal → Set
+StartBitInRange sig =
+  SignalDef.startBit (DBCSignal.signalDef sig) < max-physical-bits
+
+-- Check 16: bitLength ≤ max-physical-bits
+BitLengthInRange : DBCSignal → Set
+BitLengthInRange sig =
+  SignalDef.bitLength (DBCSignal.signalDef sig) ≤ max-physical-bits
+
+-- Check 6: No shared signal names between messages
+DisjointSignalNames : List String → List String → Set
+DisjointSignalNames names1 names2 = All (λ n → Any (n ≡_) names2 → ⊥) names1
+
+-- Check 13: Component predicates for offset/scale range checking
+RangeLowOK : ℚ → ℚ → Set
+RangeLowOK physMin declMin = declMin ≤ᵣ physMin
+
+RangeHighOK : ℚ → ℚ → Set
+RangeHighOK physMax declMax = physMax ≤ᵣ declMax
+
+-- Composed range check, parameterized by factor sign
+RangeBoundsOK : Bool → ℚ → ℚ → ℚ → ℚ → Set
+RangeBoundsOK false physA physB declMin declMax = RangeLowOK physA declMin × RangeHighOK physB declMax
+RangeBoundsOK true  physA physB declMin declMax = RangeLowOK physB declMin × RangeHighOK physA declMax

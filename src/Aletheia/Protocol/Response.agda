@@ -4,7 +4,7 @@
 --
 -- Purpose: Define PropertyResult and CounterexampleData for LTL checking.
 -- Types: CounterexampleData (violation evidence), PropertyResult (Violation/Satisfaction/StreamComplete).
--- Role: Used by Protocol.Routing, Protocol.StreamState, and Data.Message.
+-- Role: Used by Protocol.StreamState, Protocol.Message, and Protocol.ResponseFormat.
 module Aletheia.Protocol.Response where
 
 open import Data.String using (String)

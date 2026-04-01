@@ -1,6 +1,5 @@
 // Layer 2: Unit tests with mock backend.
 // Tests JSON serialization, parsing, and client round-trips.
-#define CATCH_CONFIG_MAIN
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -30,10 +29,10 @@ static auto make_test_dbc() -> DbcDefinition {
         .bit_length = BitLength{16},
         .byte_order = ByteOrder::LittleEndian,
         .is_signed = false,
-        .factor = ScaleFactor{0.1},
-        .offset = ScaleOffset{0.0},
-        .minimum = PhysicalValue{0.0},
-        .maximum = PhysicalValue{300.0},
+        .factor = RationalFactor{Rational{1, 10}},
+        .offset = RationalOffset{Rational{0, 1}},
+        .minimum = RationalBound{Rational{0, 1}},
+        .maximum = RationalBound{Rational{300, 1}},
         .unit = Unit{"km/h"},
         .presence = AlwaysPresent{},
     };
@@ -76,23 +75,26 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(sig["length"] == 16);
     CHECK(sig["byteOrder"] == "little_endian");
     CHECK(sig["signed"] == false);
-    CHECK(sig["factor"] == Catch::Approx(0.1));
-    CHECK(sig["offset"] == Catch::Approx(0.0));
-    CHECK(sig["minimum"] == Catch::Approx(0.0));
-    CHECK(sig["maximum"] == Catch::Approx(300.0));
+    CHECK(sig["factor"]["numerator"] == 1);
+    CHECK(sig["factor"]["denominator"] == 10);
+    CHECK(sig["offset"] == 0);
+    CHECK(sig["minimum"] == 0);
+    CHECK(sig["maximum"] == 300);
     CHECK(sig["unit"] == "km/h");
     CHECK(sig["presence"] == "always");
 }
 
 TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]") {
     auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto str = detail::serialize_extract_signals(id, data);
+    auto str = detail::serialize_extract_signals(id, dlc, data);
     auto j = json::parse(str);
 
     CHECK(j["command"] == "extractAllSignals");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["data"].size() == 8);
     CHECK(j["data"][0] == 0xE8);
     CHECK(j["data"][1] == 0x03);
@@ -104,11 +106,12 @@ TEST_CASE("serialize_build_frame produces correct JSON", "[json][serialize]") {
         {SignalName{"Speed"}, PhysicalValue{120.0}},
         {SignalName{"RPM"}, PhysicalValue{3000.0}},
     };
-    auto str = detail::serialize_build_frame(id, signals);
+    auto str = detail::serialize_build_frame(id, Dlc::create(8).value(), signals);
     auto j = json::parse(str);
 
     CHECK(j["command"] == "buildFrame");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["signals"].size() == 2);
     CHECK(j["signals"][0]["name"] == "Speed");
     CHECK(j["signals"][0]["value"] == Catch::Approx(120.0));
@@ -134,13 +137,15 @@ TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]")
 
 TEST_CASE("serialize_send_frame produces correct JSON", "[json][serialize]") {
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto str = detail::serialize_send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto str = detail::serialize_send_frame(Timestamp{1'000'000}, id, dlc, data);
     auto j = json::parse(str);
 
     CHECK(j["type"] == "data");
     CHECK(j["timestamp"] == 1'000'000);
     CHECK(j["id"] == 0x100);
+    CHECK(j["dlc"] == 8);
     CHECK(j["data"].size() == 8);
 }
 
@@ -154,10 +159,10 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         .bit_length = BitLength{8},
         .byte_order = ByteOrder::BigEndian,
         .is_signed = true,
-        .factor = ScaleFactor{1.0},
-        .offset = ScaleOffset{-40.0},
-        .minimum = PhysicalValue{-40.0},
-        .maximum = PhysicalValue{215.0},
+        .factor = RationalFactor{Rational{1, 1}},
+        .offset = RationalOffset{Rational{-40, 1}},
+        .minimum = RationalBound{Rational{-40, 1}},
+        .maximum = RationalBound{Rational{215, 1}},
         .unit = Unit{"C"},
         .presence = Multiplexed{SignalName{"MuxSelector"}, MultiplexValue{3}},
     };
@@ -314,6 +319,7 @@ TEST_CASE("parse_frame_data response", "[json][parse]") {
         "data": [232, 3, 0, 0, 0, 0, 0, 0]
     })");
     REQUIRE(result.has_value());
+    CHECK(result->size() == 8);
     CHECK((*result)[0] == std::byte{232});
     CHECK((*result)[1] == std::byte{3});
     CHECK((*result)[7] == std::byte{0});
@@ -327,7 +333,7 @@ TEST_CASE("parse_frame_response ack", "[json][parse]") {
 
 TEST_CASE("parse_frame_response violation", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": 0,
         "timestamp": 5000000,
@@ -343,7 +349,7 @@ TEST_CASE("parse_frame_response violation", "[json][parse]") {
 
 TEST_CASE("parse_frame_response violation with rational index", "[json][parse]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": {"numerator": 2, "denominator": 1},
         "timestamp": {"numerator": 3000000, "denominator": 1}
@@ -358,8 +364,8 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "satisfaction", "property_index": 0},
-            {"type": "property", "status": "violation", "property_index": 1,
+            {"type": "property", "status": "holds", "property_index": 0},
+            {"type": "property", "status": "fails", "property_index": 1,
              "timestamp": 5000000, "reason": "Never satisfied"}
         ]
     })");
@@ -403,7 +409,7 @@ TEST_CASE("parse_dbc_response", "[json][parse]") {
     CHECK(result->messages.size() == 1);
     CHECK(result->messages[0].name == MessageName{"TestMsg"});
     CHECK(result->messages[0].signals[0].name == SignalName{"Sig1"});
-    CHECK(result->messages[0].signals[0].factor == ScaleFactor{1.0});
+    CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 1}});
 }
 
 // ===========================================================================
@@ -449,8 +455,10 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xE8}, std::byte{0x03}};
-    auto result = client.extract_signals(id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    auto result = client.extract_signals(id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1);
@@ -460,6 +468,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     auto j = json::parse(mock_ptr->last_captured());
     CHECK(j["command"] == "extractAllSignals");
     CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
 }
 
 TEST_CASE("client build_frame round-trip", "[client][mock]") {
@@ -471,7 +480,7 @@ TEST_CASE("client build_frame round-trip", "[client][mock]") {
     std::vector<SignalValue> signals{
         {SignalName{"Speed"}, PhysicalValue{100.0}},
     };
-    auto result = client.build_frame(id, signals);
+    auto result = client.build_frame(id, Dlc::create(8).value(), signals);
 
     REQUIRE(result.has_value());
     CHECK((*result)[0] == std::byte{232});
@@ -489,7 +498,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     mock_ptr->queue_response(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "satisfaction", "property_index": 0}
+            {"type": "property", "status": "holds", "property_index": 0}
         ]
     })");
 
@@ -504,8 +513,9 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     CHECK(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
     CHECK(std::holds_alternative<Ack>(*frame_result));
 
@@ -565,13 +575,13 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
 
     REQUIRE(result.has_value());
     CHECK(result->version == "1.0");
-    CHECK(result->messages[0].signals[0].factor == ScaleFactor{0.1});
+    CHECK(result->messages[0].signals[0].factor == RationalFactor{Rational{1, 10}});
 }
 
 TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "violation",
+        "status": "fails",
         "type": "property",
         "property_index": {"numerator": 0, "denominator": 1},
         "timestamp": {"numerator": 2000000, "denominator": 1},
@@ -580,8 +590,9 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
@@ -635,10 +646,28 @@ TEST_CASE("parse_extraction handles missing optional arrays", "[json][parse]") {
     CHECK(result->absent.empty());
 }
 
-TEST_CASE("parse_frame_data rejects wrong array size", "[json][parse][error]") {
+TEST_CASE("parse_frame_data accepts variable-length data", "[json][parse]") {
     auto result = detail::parse_frame_data(R"({"status": "success", "data": [1, 2, 3]})");
-    CHECK_FALSE(result.has_value());
-    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("8-byte"));
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 3);
+    CHECK((*result)[0] == std::byte{1});
+    CHECK((*result)[2] == std::byte{3});
+}
+
+TEST_CASE("parse_frame_data accepts CAN-FD 64-byte data", "[json][parse]") {
+    // DLC 15 → 64 bytes
+    std::string json_str = R"({"status": "success", "data": [)";
+    for (int i = 0; i < 64; ++i) {
+        if (i > 0)
+            json_str += ", ";
+        json_str += std::to_string(i);
+    }
+    json_str += "]}";
+    auto result = detail::parse_frame_data(json_str);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 64);
+    CHECK((*result)[0] == std::byte{0});
+    CHECK((*result)[63] == std::byte{63});
 }
 
 TEST_CASE("parse_frame_response rejects empty status", "[json][parse][error]") {
@@ -758,7 +787,7 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
 
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "property_index": 0,
         "timestamp": {"numerator": 1000, "denominator": 0}
     })");
@@ -780,7 +809,7 @@ TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][er
 
 TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
-        "status": "violation",
+        "status": "fails",
         "property_index": -1,
         "timestamp": 100
     })");
@@ -792,11 +821,72 @@ TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse]
 TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_stream_result(R"({
         "status": "complete",
-        "results": [{"status": "satisfaction", "property_index": -5}]
+        "results": [{"status": "holds", "property_index": -5}]
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Negative property_index"));
+}
+
+TEST_CASE("parse_frame_response rejects fails with missing timestamp", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "property_index": 0
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_frame_response rejects fails with missing property_index",
+          "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+}
+
+TEST_CASE("parse_stream_result rejects entry with missing status", "[json][parse][error]") {
+    auto result = detail::parse_stream_result(R"({
+        "status": "complete",
+        "results": [{"property_index": 0}]
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Unknown verdict status"));
+}
+
+TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][error]") {
+    // {"numerator": 3, "denominator": 2} → 1.5, not an integer
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "property_index": {"numerator": 3, "denominator": 2},
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Non-exact rational"));
+}
+
+TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {
+    // A floating-point 1.5 should be rejected (not integer, not {num, den} dict)
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "", "messages": [{
+                "id": 1, "name": "M", "dlc": 8, "extended": false,
+                "signals": [{
+                    "name": "S", "startBit": 0, "length": 8,
+                    "byteOrder": "little_endian", "signed": false,
+                    "factor": 1.5, "offset": 0, "minimum": 0,
+                    "maximum": 255, "unit": ""
+                }]
+            }]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
 }
 
 TEST_CASE("parse_dbc_response accepts standard CAN ID at boundary (2047)", "[json][parse]") {
@@ -880,8 +970,9 @@ TEST_CASE("format_formula eventually", "[enrich]") {
 }
 
 TEST_CASE("format_formula metric always", "[enrich]") {
-    auto f = ltl::always_within(Timestamp{5'000'000},
-                                ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto f =
+        ltl::always_within(Timestamp{5'000'000},
+                           ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     CHECK(format_formula(f) == "always within 5s (Speed < 220)");
 }
 
@@ -898,25 +989,25 @@ TEST_CASE("format_formula next", "[enrich]") {
 
 TEST_CASE("format_formula and", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     CHECK(format_formula(f) == "Speed < 220 and RPM > 500");
 }
 
 TEST_CASE("format_formula or", "[enrich]") {
     auto f = ltl::either(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                          ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     CHECK(format_formula(f) == "Speed < 220 or RPM > 500");
 }
 
 TEST_CASE("format_formula until", "[enrich]") {
     auto f = ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{50.0})),
-                         ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
+                        ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
     CHECK(format_formula(f) == "Speed < 50 until Brake = 1");
 }
 
 TEST_CASE("format_formula release", "[enrich]") {
     auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1.0})),
-                           ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
+                          ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
     CHECK(format_formula(f) == "A = 1 release B = 0");
 }
 
@@ -951,7 +1042,7 @@ TEST_CASE("format_formula all predicate types", "[enrich]") {
 
 TEST_CASE("collect_signals multi-signal", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
     auto signals = collect_signals(f);
     REQUIRE(signals.size() == 2);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -960,16 +1051,16 @@ TEST_CASE("collect_signals multi-signal", "[enrich]") {
 
 TEST_CASE("collect_signals dedup", "[enrich]") {
     auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
+                       ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
     auto signals = collect_signals(f);
     CHECK(signals.size() == 1);
     CHECK(signals[0] == SignalName{"Speed"});
 }
 
 TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
-    auto f = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    auto f = ltl::always(
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
     auto diag = build_diagnostic(f);
     CHECK(diag.signals.size() == 2);
     CHECK_FALSE(diag.formula_desc.empty());
@@ -989,7 +1080,8 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -997,7 +1089,7 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     // Verify by triggering enrichment: start_stream, send_frame (violation), extraction
     mock_ptr->queue_response(R"({"status": "success"})");
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000,
         "reason": "Atomic: predicate failed"
     })");
@@ -1009,8 +1101,10 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
 
     REQUIRE(client.start_stream().has_value());
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}, std::byte{0x00}};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0x00}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
 
@@ -1021,6 +1115,9 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("formula:"));
     CHECK(v.enrichment->signals.size() == 1);
     CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK(v.enrichment->core_reason == "Atomic: predicate failed");
+    CHECK_THAT(v.enrichment->enriched_reason,
+               ContainsSubstring("[core: Atomic: predicate failed]"));
 }
 
 TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
@@ -1030,7 +1127,7 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000
     })");
     mock_ptr->queue_response(R"({
@@ -1040,9 +1137,9 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::both(
-        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-        ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+    auto formula = ltl::always(
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1050,8 +1147,9 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
     REQUIRE(v.enrichment.has_value());
@@ -1068,7 +1166,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     // Two violations, same frame — only one extraction
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1077,13 +1175,14 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
         "errors": [], "absent": []
     })");
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000
     })");
     // No second extraction response needed — cached
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1091,12 +1190,14 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     CHECK(std::get<Violation>(*r1).enrichment.has_value());
 
-    auto r2 = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto r2 = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -1120,13 +1221,20 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     mock_ptr->queue_response(R"({
         "status": "complete",
         "results": [
-            {"type": "property", "status": "violation", "property_index": 0,
+            {"type": "property", "status": "fails", "property_index": 0,
              "timestamp": 5000000, "reason": "Never satisfied"}
         ]
     })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Mode", "value": 0}],
+        "errors": [], "absent": []
+    })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1134,8 +1242,9 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, data).has_value());
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
 
     auto end_result = client.end_stream();
     REQUIRE(end_result.has_value());
@@ -1143,7 +1252,10 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     CHECK(end_result->results[0].verdict == Verdict::Fails);
     REQUIRE(end_result->results[0].enrichment.has_value());
     CHECK_THAT(end_result->results[0].enrichment->formula_desc, ContainsSubstring("Mode = 1"));
-    CHECK_THAT(end_result->results[0].enrichment->enriched_reason, ContainsSubstring("violated:"));
+    CHECK_THAT(end_result->results[0].enrichment->enriched_reason, ContainsSubstring("Mode = 0"));
+    CHECK(end_result->results[0].enrichment->core_reason == "Never satisfied");
+    CHECK_THAT(end_result->results[0].enrichment->enriched_reason,
+               ContainsSubstring("[core: Never satisfied]"));
 }
 
 TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
@@ -1153,7 +1265,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1164,12 +1276,12 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     // end first stream
     mock_ptr->queue_response(R"({
         "status": "complete",
-        "results": [{"type": "property", "status": "satisfaction", "property_index": 0}]
+        "results": [{"type": "property", "status": "holds", "property_index": 0}]
     })");
     // second stream
     mock_ptr->queue_response(R"({"status": "success"})"); // start_stream (clears cache)
     mock_ptr->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 1000000
     })");
     mock_ptr->queue_response(R"({
@@ -1179,7 +1291,8 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -1187,14 +1300,16 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     REQUIRE(client.start_stream().has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{std::byte{0xF5}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     REQUIRE(client.end_stream().has_value());
 
     // Second stream: same frame data but cache cleared
     REQUIRE(client.start_stream().has_value());
-    auto r2 = client.send_frame(Timestamp{1'000'000}, id, data);
+    auto r2 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -1211,17 +1326,1208 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
 TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     auto mock = std::make_unique<MockBackend>();
     mock->queue_response(R"({
-        "status": "violation", "type": "property",
+        "status": "fails", "type": "property",
         "property_index": 0, "timestamp": 2000000,
         "reason": "Speed limit exceeded"
     })");
 
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
-    FramePayload data{};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, data);
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
     CHECK_FALSE(v.enrichment.has_value());
+}
+
+// ===========================================================================
+// CoreReason enrichment tests
+// ===========================================================================
+
+TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})"); // set_properties
+    mock->queue_response(R"({"status": "success"})"); // start_stream
+    mock->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 0, "timestamp": 2000000
+    })");
+    mock->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    auto& v = std::get<Violation>(*result);
+    REQUIRE(v.enrichment.has_value());
+    CHECK(v.enrichment->core_reason.empty());
+    // enriched_reason should NOT contain "[core:" when reason is empty
+    CHECK_THAT(v.enrichment->enriched_reason, !ContainsSubstring("[core:"));
+}
+
+// ===========================================================================
+// End-of-stream last-known signal values test
+// ===========================================================================
+
+TEST_CASE("end_stream enrichment includes last-known signal values", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    // First frame: violation triggers extraction → populates cache
+    mock_ptr->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 0, "timestamp": 1000000,
+        "reason": "Atomic: predicate failed"
+    })");
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+    // Second frame: ack (no violation)
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    // End stream: violation at EOS
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "MetricEventually: window expired"}
+        ]
+    })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 245}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.send_frame(Timestamp{2'000'000}, id, dlc, data).has_value());
+
+    auto end_result = client.end_stream();
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto& enrichment = *end_result->results[0].enrichment;
+
+    // Last-known values from last-frame tracking (populated by send_frame)
+    CHECK_FALSE(enrichment.signals.empty());
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 245"));
+    CHECK(enrichment.core_reason == "MetricEventually: window expired");
+    CHECK_THAT(enrichment.enriched_reason,
+               ContainsSubstring("[core: MetricEventually: window expired]"));
+}
+
+// ===========================================================================
+// update_frame tests
+// ===========================================================================
+
+TEST_CASE("serialize_update_frame produces correct JSON", "[json][serialize]") {
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    std::vector<SignalValue> signals{
+        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+    };
+    auto str = detail::serialize_update_frame(id, dlc, data, signals);
+    auto j = json::parse(str);
+
+    CHECK(j["command"] == "updateFrame");
+    CHECK(j["canId"] == 0x100);
+    CHECK(j["dlc"] == 8);
+    CHECK(j["data"].size() == 8);
+    CHECK(j["data"][0] == 0xE8);
+    CHECK(j["data"][1] == 0x03);
+    CHECK(j["signals"].size() == 1);
+    CHECK(j["signals"][0]["name"] == "RPM");
+    CHECK(j["signals"][0]["value"] == Catch::Approx(3000.0));
+}
+
+TEST_CASE("client update_frame round-trip", "[client][mock]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success", "data": [232, 3, 184, 11, 0, 0, 0, 0]})");
+
+    AletheiaClient client(std::move(mock));
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
+                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
+    std::vector<SignalValue> signals{
+        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+    };
+
+    auto result = client.update_frame(id, dlc, data, signals);
+    REQUIRE(result.has_value());
+    CHECK(result->size() == 8);
+    CHECK((*result)[0] == std::byte{232});
+    CHECK((*result)[2] == std::byte{184});
+    CHECK((*result)[3] == std::byte{11});
+}
+
+// ===========================================================================
+// Payload validation tests
+// ===========================================================================
+
+TEST_CASE("send_frame rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value(); // expects 8 bytes
+    FramePayload short_data(3, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, short_data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("payload length 3"));
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("expected 8 bytes"));
+}
+
+TEST_CASE("extract_signals rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload long_data(16, std::byte{0}); // 16 bytes but DLC 8 expects 8
+    auto result = client.extract_signals(id, dlc, long_data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload bad_data(5, std::byte{0});
+    std::vector<SignalValue> signals{{SignalName{"S"}, PhysicalValue{1.0}}};
+    auto result = client.update_frame(id, dlc, bad_data, signals);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+}
+
+TEST_CASE("send_frame accepts correct payload length", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})");
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0}); // exactly 8 bytes for DLC 8
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
+TEST_CASE("send_frame accepts CAN-FD payload", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "ack"})");
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(15).value(); // DLC 15 = 64 bytes
+    FramePayload data(64, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    CHECK(std::holds_alternative<Ack>(*result));
+}
+
+// ===========================================================================
+// Negative timestamp validation test
+// ===========================================================================
+
+TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{-1000}, id, dlc, data);
+
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
+}
+
+// ===========================================================================
+// EOS enrichment from ack-only frames (last-frame tracking)
+// ===========================================================================
+
+TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    mock_ptr->queue_response(R"({"status": "success"})"); // set_properties
+    mock_ptr->queue_response(R"({"status": "success"})"); // start_stream
+    // Frame gets ack (no violation) — NOT in extraction cache, but tracked in last_frames_
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    // End stream: property fails at EOS
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "fails", "property_index": 0,
+             "timestamp": 5000000, "reason": "MetricEventually: window expired"}
+        ]
+    })");
+    // EOS enrichment: extract_last_known_values re-extracts from last frame
+    mock_ptr->queue_response(R"({
+        "status": "success",
+        "values": [{"name": "Speed", "value": 150}],
+        "errors": [], "absent": []
+    })");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    // Send a frame that gets ack (no violation, so no extraction cache entry)
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    REQUIRE(frame_result.has_value());
+    CHECK(std::holds_alternative<Ack>(*frame_result));
+
+    auto end_result = client.end_stream();
+    REQUIRE(end_result.has_value());
+    REQUIRE(end_result->results.size() == 1);
+    REQUIRE(end_result->results[0].enrichment.has_value());
+    auto& enrichment = *end_result->results[0].enrichment;
+
+    // Signal values came from last-frame tracking, not the extraction cache
+    CHECK_FALSE(enrichment.signals.empty());
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{150.0});
+    CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 150"));
+}
+
+// ===========================================================================
+// Logger
+// ===========================================================================
+
+TEST_CASE("logger captures streaming events", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    // Queue: set_properties, start_stream, send_frame (ack), end_stream (holds)
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "ack"})");
+    mock_ptr->queue_response(R"({
+        "status": "complete",
+        "results": [
+            {"type": "property", "status": "holds", "property_index": 0}
+        ]
+    })");
+
+    // Collect log events
+    std::vector<std::pair<LogLevel, std::string>> events;
+    Logger logger([&](const LogRecord& r) { events.emplace_back(r.level, std::string{r.event}); });
+
+    AletheiaClient client(std::move(mock), logger);
+
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.end_stream().has_value());
+
+    // Verify event sequence
+    REQUIRE(events.size() >= 4);
+
+    // First four are the lifecycle events
+    CHECK(events[0].first == LogLevel::Info);
+    CHECK(events[0].second == "properties.set");
+    CHECK(events[1].first == LogLevel::Info);
+    CHECK(events[1].second == "stream.started");
+    // frame.processed may be preceded by cache.miss
+    bool found_frame = false;
+    bool found_ended = false;
+    for (const auto& [level, event] : events) {
+        if (event == "frame.processed") {
+            CHECK(level == LogLevel::Debug);
+            found_frame = true;
+        }
+        if (event == "stream.ended") {
+            CHECK(level == LogLevel::Info);
+            found_ended = true;
+        }
+    }
+    CHECK(found_frame);
+    CHECK(found_ended);
+}
+
+TEST_CASE("null logger has zero overhead", "[client][log]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})");
+
+    // Default-constructed logger — no callback
+    AletheiaClient client(std::move(mock));
+
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    // Should not crash or produce output
+    REQUIRE(client.set_properties(props).has_value());
+}
+
+// ===========================================================================
+// Check API — one-shot methods
+// ===========================================================================
+
+TEST_CASE("Check::signal never_exceeds", "[check]") {
+    auto result = Check::signal("Speed").never_exceeds(PhysicalValue{220});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(Speed < 220)");
+}
+
+TEST_CASE("Check::signal never_below", "[check]") {
+    auto result = Check::signal("Voltage").never_below(PhysicalValue{11.5});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(Voltage >= 11.5)");
+}
+
+TEST_CASE("Check::signal stays_between", "[check]") {
+    auto result = Check::signal("Voltage").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(11.5 <= Voltage <= 14.5)");
+}
+
+TEST_CASE("Check::signal never_equals", "[check]") {
+    auto result = Check::signal("ErrorCode").never_equals(PhysicalValue{255});
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "never ErrorCode = 255");
+}
+
+// ===========================================================================
+// Check API — two-step methods
+// ===========================================================================
+
+TEST_CASE("Check::signal equals always", "[check]") {
+    auto result = Check::signal("Gear").equals(PhysicalValue{0}).always();
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always(Gear = 0)");
+}
+
+TEST_CASE("Check::signal settles_between within", "[check]") {
+    using namespace std::chrono_literals;
+    auto result =
+        Check::signal("Temp").settles_between(PhysicalValue{60}, PhysicalValue{80}).within(500ms);
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) == "always within 500ms (60 <= Temp <= 80)");
+}
+
+// ===========================================================================
+// Check API — causal chains (when/then)
+// ===========================================================================
+
+TEST_CASE("Check::when then equals within", "[check]") {
+    using namespace std::chrono_literals;
+    auto result = Check::when("Brake")
+                      .exceeds(PhysicalValue{50})
+                      .then("BrakeLight")
+                      .equals(PhysicalValue{1})
+                      .within(100ms);
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) ==
+          "always(not(Brake > 50) or eventually within 100ms (BrakeLight = 1))");
+}
+
+TEST_CASE("Check::when drops_below then within", "[check]") {
+    using namespace std::chrono_literals;
+    auto result = Check::when("Voltage")
+                      .drops_below(PhysicalValue{11})
+                      .then("Warning")
+                      .equals(PhysicalValue{1})
+                      .within(50ms);
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) ==
+          "always(not(Voltage < 11) or eventually within 50ms (Warning = 1))");
+}
+
+TEST_CASE("Check::when then stays_between within", "[check]") {
+    using namespace std::chrono_literals;
+    auto result = Check::when("Brake")
+                      .exceeds(PhysicalValue{50})
+                      .then("Speed")
+                      .stays_between(PhysicalValue{0}, PhysicalValue{10})
+                      .within(200ms);
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) ==
+          "always(not(Brake > 50) or eventually within 200ms (0 <= Speed <= 10))");
+}
+
+TEST_CASE("Check::when equals then exceeds within", "[check]") {
+    using namespace std::chrono_literals;
+    auto result = Check::when("Ignition")
+                      .equals(PhysicalValue{1})
+                      .then("FuelPump")
+                      .exceeds(PhysicalValue{0})
+                      .within(50ms);
+    auto f = result.to_formula();
+    REQUIRE(f);
+    CHECK(format_formula(*f) ==
+          "always(not(Ignition = 1) or eventually within 50ms (FuelPump > 0))");
+}
+
+// ===========================================================================
+// Check API — metadata
+// ===========================================================================
+
+TEST_CASE("Check metadata named and severity", "[check]") {
+    auto result = Check::signal("Speed").never_exceeds(PhysicalValue{220});
+    result.named("SpeedLimit").severity("critical");
+    CHECK(result.name() == "SpeedLimit");
+    CHECK(result.check_severity() == "critical");
+    CHECK(result.signal_name() == "Speed");
+    CHECK(result.condition_desc() == "< 220");
+}
+
+TEST_CASE("Check signal_name and condition_desc populated", "[check]") {
+    auto r1 = Check::signal("V").never_below(PhysicalValue{11.5});
+    CHECK(r1.signal_name() == "V");
+    CHECK(r1.condition_desc() == ">= 11.5");
+
+    auto r2 = Check::signal("E").never_equals(PhysicalValue{0});
+    CHECK(r2.signal_name() == "E");
+    CHECK(r2.condition_desc() == "!= 0");
+}
+
+TEST_CASE("Check when/then metadata", "[check]") {
+    using namespace std::chrono_literals;
+    auto result = Check::when("Brake")
+                      .exceeds(PhysicalValue{50})
+                      .then("Light")
+                      .equals(PhysicalValue{1})
+                      .within(100ms);
+    CHECK(result.signal_name() == "Light");
+    CHECK(result.condition_desc() == "= 1 within 100ms");
+}
+
+// ===========================================================================
+// Check API — to_formula consumed on second call
+// ===========================================================================
+
+TEST_CASE("Check to_formula consumed", "[check]") {
+    auto result = Check::signal("Speed").never_exceeds(PhysicalValue{220});
+    auto f1 = result.to_formula();
+    REQUIRE(f1.has_value());
+    auto f2 = result.to_formula();
+    CHECK_FALSE(f2.has_value());
+}
+
+// ===========================================================================
+// Check API — error cases
+// ===========================================================================
+
+TEST_CASE("Check settles_between negative time throws", "[check]") {
+    using namespace std::chrono_literals;
+    auto builder = Check::signal("T").settles_between(PhysicalValue{0}, PhysicalValue{100});
+    CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
+}
+
+TEST_CASE("Check when/then negative time throws", "[check]") {
+    using namespace std::chrono_literals;
+    auto cond = Check::when("A").exceeds(PhysicalValue{0}).then("B").equals(PhysicalValue{1});
+    CHECK_THROWS_AS(cond.within(-1ms), std::invalid_argument);
+}
+
+// ===========================================================================
+// Check API — equivalence with manual ltl:: construction
+// ===========================================================================
+
+TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
+    auto check_f = Check::signal("Speed").never_exceeds(PhysicalValue{220}).to_formula();
+    auto manual_f =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220})));
+    REQUIRE(check_f);
+    CHECK(format_formula(*check_f) == format_formula(manual_f));
+}
+
+TEST_CASE("Check stays_between matches manual ltl", "[check]") {
+    auto check_f =
+        Check::signal("V").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5}).to_formula();
+    auto manual_f = ltl::always(
+        ltl::atomic(ltl::between(SignalName{"V"}, PhysicalValue{11.5}, PhysicalValue{14.5})));
+    REQUIRE(check_f);
+    CHECK(format_formula(*check_f) == format_formula(manual_f));
+}
+
+TEST_CASE("Check never_equals matches manual ltl", "[check]") {
+    auto check_f = Check::signal("Err").never_equals(PhysicalValue{255}).to_formula();
+    auto manual_f = ltl::never(ltl::equals(SignalName{"Err"}, PhysicalValue{255}));
+    REQUIRE(check_f);
+    CHECK(format_formula(*check_f) == format_formula(manual_f));
+}
+
+TEST_CASE("Check settles matches manual ltl", "[check]") {
+    using namespace std::chrono_literals;
+    auto check_f = Check::signal("T")
+                       .settles_between(PhysicalValue{60}, PhysicalValue{80})
+                       .within(500ms)
+                       .to_formula();
+    auto manual_f = ltl::always_within(
+        Timestamp{500'000},
+        ltl::atomic(ltl::between(SignalName{"T"}, PhysicalValue{60}, PhysicalValue{80})));
+    REQUIRE(check_f);
+    CHECK(format_formula(*check_f) == format_formula(manual_f));
+}
+
+// ===========================================================================
+// Check API — add_checks client integration
+// ===========================================================================
+
+TEST_CASE("add_checks sends properties to backend", "[check][client]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})");
+    AletheiaClient client(std::move(mock));
+
+    std::vector<CheckResult> checks;
+    checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{220}));
+    checks.push_back(
+        Check::signal("Voltage").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5}));
+    auto result = client.add_checks(std::move(checks));
+    REQUIRE(result.has_value());
+}
+
+TEST_CASE("add_checks rejects consumed check", "[check][client]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+
+    auto check = Check::signal("Speed").never_exceeds(PhysicalValue{220});
+    auto _ = check.to_formula(); // consume
+    (void)_;
+
+    std::vector<CheckResult> checks;
+    checks.push_back(std::move(check));
+    auto result = client.add_checks(std::move(checks));
+    REQUIRE_FALSE(result.has_value());
+    CHECK(std::string(result.error().message()).find("already consumed") != std::string::npos);
+}
+
+// ===========================================================================
+// Multiplexing query helpers
+// ===========================================================================
+
+static auto make_mux_dbc() -> DbcDefinition {
+    auto id = StandardId::create(0x200).value();
+    auto dlc = Dlc::create(8).value();
+
+    std::vector<DbcSignal> sigs;
+    sigs.push_back(DbcSignal{.name = SignalName{"MuxSelector"},
+                             .start_bit = BitPosition{0},
+                             .bit_length = BitLength{8},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 1}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{255, 1}},
+                             .unit = Unit{""},
+                             .presence = AlwaysPresent{}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Temperature"},
+                             .start_bit = BitPosition{8},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = true,
+                             .factor = RationalFactor{Rational{1, 10}},
+                             .offset = RationalOffset{Rational{-40, 1}},
+                             .minimum = RationalBound{Rational{-40, 1}},
+                             .maximum = RationalBound{Rational{215, 1}},
+                             .unit = Unit{"degC"},
+                             .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                                     .mux_value = MultiplexValue{0}}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Pressure"},
+                             .start_bit = BitPosition{8},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 100}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{655, 1}},
+                             .unit = Unit{"bar"},
+                             .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
+                                                     .mux_value = MultiplexValue{1}}});
+    sigs.push_back(DbcSignal{.name = SignalName{"Voltage"},
+                             .start_bit = BitPosition{40},
+                             .bit_length = BitLength{16},
+                             .byte_order = ByteOrder::LittleEndian,
+                             .is_signed = false,
+                             .factor = RationalFactor{Rational{1, 100}},
+                             .offset = RationalOffset{Rational{0, 1}},
+                             .minimum = RationalBound{Rational{0, 1}},
+                             .maximum = RationalBound{Rational{65, 1}},
+                             .unit = Unit{"V"},
+                             .presence = AlwaysPresent{}});
+
+    DbcMessage msg{.id = CanId{id},
+                   .name = MessageName{"MuxMessage"},
+                   .dlc = dlc,
+                   .sender = NodeName{"ECU"},
+                   .signals = std::move(sigs)};
+    return DbcDefinition{.version = "1.0", .messages = {std::move(msg)}};
+}
+
+TEST_CASE("DbcMessage::is_multiplexed", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    CHECK(dbc.messages[0].is_multiplexed());
+
+    auto plain = make_test_dbc();
+    CHECK_FALSE(plain.messages[0].is_multiplexed());
+}
+
+TEST_CASE("DbcMessage::always_present_signals", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto ap = dbc.messages[0].always_present_signals();
+    REQUIRE(ap.size() == 2);
+    CHECK(ap[0].name == SignalName{"MuxSelector"});
+    CHECK(ap[1].name == SignalName{"Voltage"});
+}
+
+TEST_CASE("DbcMessage::multiplexed_signals", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto ms = dbc.messages[0].multiplexed_signals();
+    REQUIRE(ms.size() == 2);
+    CHECK(ms[0].name == SignalName{"Temperature"});
+    CHECK(ms[1].name == SignalName{"Pressure"});
+}
+
+TEST_CASE("DbcMessage::multiplexor_names", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto mn = dbc.messages[0].multiplexor_names();
+    REQUIRE(mn.size() == 1);
+    CHECK(mn[0] == SignalName{"MuxSelector"});
+}
+
+TEST_CASE("DbcMessage::mux_values", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+    auto mv = dbc.messages[0].mux_values(SignalName{"MuxSelector"});
+    REQUIRE(mv.size() == 2);
+    CHECK(mv[0] == MultiplexValue{0});
+    CHECK(mv[1] == MultiplexValue{1});
+
+    auto empty = dbc.messages[0].mux_values(SignalName{"NonExistent"});
+    CHECK(empty.empty());
+}
+
+TEST_CASE("DbcMessage::signals_for_mux_value", "[dbc][mux]") {
+    auto dbc = make_mux_dbc();
+
+    auto s0 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{0});
+    REQUIRE(s0.size() == 3); // MuxSelector + Temperature + Voltage
+    CHECK(s0[0].name == SignalName{"MuxSelector"});
+    CHECK(s0[1].name == SignalName{"Temperature"});
+    CHECK(s0[2].name == SignalName{"Voltage"});
+
+    auto s1 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{1});
+    REQUIRE(s1.size() == 3); // MuxSelector + Pressure + Voltage
+    CHECK(s1[1].name == SignalName{"Pressure"});
+
+    auto s99 = dbc.messages[0].signals_for_mux_value(SignalName{"MuxSelector"}, MultiplexValue{99});
+    CHECK(s99.size() == 2); // only always-present
+
+    // Unknown multiplexor name — only always-present signals returned.
+    auto su = dbc.messages[0].signals_for_mux_value(SignalName{"NonExistent"}, MultiplexValue{0});
+    CHECK(su.size() == 2);
+    CHECK(su[0].name == SignalName{"MuxSelector"});
+    CHECK(su[1].name == SignalName{"Voltage"});
+}
+
+TEST_CASE("DbcMessage::multiplexor_names non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    CHECK(plain.messages[0].multiplexor_names().empty());
+}
+
+TEST_CASE("DbcMessage::always_present_signals non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    auto ap = plain.messages[0].always_present_signals();
+    CHECK(ap.size() == plain.messages[0].signals.size());
+}
+
+TEST_CASE("DbcMessage::signal_by_name", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto* sig = dbc.messages[0].signal_by_name(SignalName{"Temperature"});
+    REQUIRE(sig != nullptr);
+    CHECK(sig->is_signed == true);
+
+    // Always-present signal.
+    auto* mux_sel = dbc.messages[0].signal_by_name(SignalName{"MuxSelector"});
+    REQUIRE(mux_sel != nullptr);
+    CHECK(std::holds_alternative<AlwaysPresent>(mux_sel->presence));
+
+    CHECK(dbc.messages[0].signal_by_name(SignalName{"NoSuch"}) == nullptr);
+}
+
+TEST_CASE("DbcMessage::mux_values non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    CHECK(plain.messages[0].mux_values(SignalName{"Anything"}).empty());
+}
+
+TEST_CASE("DbcMessage::signals_for_mux_value non-mux message", "[dbc][mux]") {
+    auto plain = make_test_dbc();
+    // Unknown multiplexor on a non-mux message returns all signals (all always-present).
+    auto sigs = plain.messages[0].signals_for_mux_value(SignalName{"Anything"}, MultiplexValue{0});
+    CHECK(sigs.size() == plain.messages[0].signals.size());
+}
+
+TEST_CASE("DbcDefinition::message_by_id", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto id = StandardId::create(0x200).value();
+    auto* msg = dbc.message_by_id(CanId{id});
+    REQUIRE(msg != nullptr);
+    CHECK(msg->name == MessageName{"MuxMessage"});
+
+    auto missing = StandardId::create(0x7FF).value(); // valid 11-bit, not in DBC
+    CHECK(dbc.message_by_id(CanId{missing}) == nullptr);
+
+    // Extended ID 0x200 should not match standard ID 0x200.
+    auto ext = ExtendedId::create(0x200).value();
+    CHECK(dbc.message_by_id(CanId{ext}) == nullptr);
+}
+
+TEST_CASE("DbcDefinition::message_by_id with extended ID", "[dbc]") {
+    auto std_id = StandardId::create(0x200).value();
+    auto ext_id = ExtendedId::create(0x200).value();
+    DbcMessage std_msg{.id = CanId{std_id},
+                       .name = MessageName{"StdMsg"},
+                       .dlc = Dlc::create(8).value(),
+                       .sender = NodeName{"ECU"},
+                       .signals = {}};
+    DbcMessage ext_msg{.id = CanId{ext_id},
+                       .name = MessageName{"ExtMsg"},
+                       .dlc = Dlc::create(8).value(),
+                       .sender = NodeName{"ECU"},
+                       .signals = {}};
+    DbcDefinition dbc{.version = "1.0", .messages = {std_msg, ext_msg}};
+
+    auto* found_std = dbc.message_by_id(CanId{std_id});
+    REQUIRE(found_std != nullptr);
+    CHECK(found_std->name == MessageName{"StdMsg"});
+
+    auto* found_ext = dbc.message_by_id(CanId{ext_id});
+    REQUIRE(found_ext != nullptr);
+    CHECK(found_ext->name == MessageName{"ExtMsg"});
+}
+
+TEST_CASE("DbcDefinition::message_by_name", "[dbc]") {
+    auto dbc = make_mux_dbc();
+    auto* msg = dbc.message_by_name(MessageName{"MuxMessage"});
+    REQUIRE(msg != nullptr);
+    CHECK(msg->signals.size() == 4);
+
+    CHECK(dbc.message_by_name(MessageName{"NoSuch"}) == nullptr);
+
+    // Empty DBC returns nullptr.
+    DbcDefinition empty{.version = "1.0", .messages = {}};
+    CHECK(empty.message_by_name(MessageName{"Anything"}) == nullptr);
+}
+
+// ===========================================================================
+// send_frames batch
+// ===========================================================================
+
+TEST_CASE("send_frames all ack", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    backend->queue_response(R"({"status":"ack"})");     // frame 2
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{2000}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE_FALSE(result.has_error());
+    REQUIRE(result.responses.size() == 2);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+    CHECK(std::holds_alternative<Ack>(result.responses[1]));
+}
+
+TEST_CASE("send_frames stops on error with partial results", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1 — ok
+    // frame 2 has mismatched DLC/payload — validation error before backend call
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload good(8, std::byte{0});
+    FramePayload bad(3, std::byte{0}); // 3 bytes vs DLC 8
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, good},
+        {Timestamp{2000}, CanId{sid}, dlc, bad},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE(result.has_error());
+    CHECK(result.error->message().find("payload") != std::string::npos);
+    // Partial results: frame 1 succeeded before frame 2 failed.
+    REQUIRE(result.responses.size() == 1);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+}
+
+TEST_CASE("send_frames with violation continues", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    backend->queue_response(
+        R"({"status":"fails","property_index":0,"timestamp":2000,"reason":"test"})"); // frame 2
+    // Enrichment triggers extract_signals for the violating frame:
+    backend->queue_response(
+        R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})");
+    backend->queue_response(R"({"status":"ack"})"); // frame 3
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{2000}, CanId{sid}, dlc, data},
+        {Timestamp{3000}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE_FALSE(result.has_error());
+    REQUIRE(result.responses.size() == 3);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+    CHECK(std::holds_alternative<Violation>(result.responses[1]));
+    CHECK(std::holds_alternative<Ack>(result.responses[2]));
+}
+
+TEST_CASE("send_frames negative timestamp", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 1
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto dlc = Dlc::create(8).value();
+    auto sid = StandardId::create(0x100).value();
+    FramePayload data(8, std::byte{0});
+    std::vector<Frame> frames{
+        {Timestamp{1000}, CanId{sid}, dlc, data},
+        {Timestamp{-1}, CanId{sid}, dlc, data},
+    };
+
+    auto result = client.send_frames(frames);
+    REQUIRE(result.has_error());
+    CHECK(result.error->message().find("non-negative") != std::string::npos);
+    REQUIRE(result.responses.size() == 1);
+    CHECK(std::holds_alternative<Ack>(result.responses[0]));
+}
+
+TEST_CASE("send_frames empty", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto result = client.send_frames({});
+    REQUIRE_FALSE(result.has_error());
+    CHECK(result.responses.empty());
+}
+
+// ===========================================================================
+// Move-assignment runtime test
+// ===========================================================================
+
+TEST_CASE("move-assignment transfers client state", "[client]") {
+    // Source client: configured for streaming.
+    auto backend_a = std::make_unique<MockBackend>();
+    backend_a->queue_response(R"({"status":"success"})"); // set_properties
+    backend_a->queue_response(R"({"status":"success"})"); // start_stream
+    backend_a->queue_response(R"({"status":"ack"})");     // send_frame
+    AletheiaClient a(std::move(backend_a));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)a.set_properties(std::span{&prop, 1});
+    (void)a.start_stream();
+
+    // Target client: separate backend (will be destroyed on assignment).
+    auto backend_b = std::make_unique<MockBackend>();
+    AletheiaClient b(std::move(backend_b));
+
+    // Move-assign: b takes over a's state.
+    b = std::move(a);
+
+    auto id = StandardId::create(0x100).value();
+    auto dlc = Dlc::create(8).value();
+    std::array<std::byte, 8> data{};
+    auto resp = b.send_frame(Timestamp{1000}, CanId{id}, dlc, data);
+    REQUIRE(resp.has_value());
+    CHECK(std::holds_alternative<Ack>(resp.value()));
+}
+
+// ===========================================================================
+// Cache-full test (C2): extraction cache eviction beyond 256 entries
+// ===========================================================================
+
+TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][cache]") {
+    auto mock = std::make_unique<MockBackend>();
+    auto* mock_ptr = mock.get();
+
+    // Queue: set_properties, start_stream
+    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(R"({"status": "success"})");
+
+    // Queue 257 ack responses for send_frame
+    for (int i = 0; i < 257; ++i)
+        mock_ptr->queue_response(R"({"status": "ack"})");
+
+    AletheiaClient client(std::move(mock));
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+
+    // Send 257 frames with distinct data payloads to fill and overflow the cache
+    for (int i = 0; i < 257; ++i) {
+        FramePayload data(8, std::byte{0});
+        // Vary first two bytes to make each frame key unique
+        data[0] = static_cast<std::byte>(i & 0xFF);
+        data[1] = static_cast<std::byte>((i >> 8) & 0xFF);
+        auto result =
+            client.send_frame(Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
+        REQUIRE(result.has_value());
+        CHECK(std::holds_alternative<Ack>(*result));
+    }
+}
+
+// ===========================================================================
+// Property index OOB test (C3): violation with out-of-bounds property_index
+// ===========================================================================
+
+TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich]") {
+    auto mock = std::make_unique<MockBackend>();
+
+    // Queue: set_properties, start_stream, send_frame (violation with index 999)
+    mock->queue_response(R"({"status": "success"})"); // set_properties
+    mock->queue_response(R"({"status": "success"})"); // start_stream
+    mock->queue_response(R"({
+        "status": "fails", "type": "property",
+        "property_index": 999, "timestamp": 1000000,
+        "reason": "some reason"
+    })");
+
+    AletheiaClient client(std::move(mock));
+    // Set only 1 property — index 999 is out of bounds
+    auto formula =
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(formula));
+
+    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto dlc = Dlc::create(8).value();
+    FramePayload data(8, std::byte{0});
+    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+
+    REQUIRE(result.has_value());
+    REQUIRE(std::holds_alternative<Violation>(*result));
+    auto& v = std::get<Violation>(*result);
+    CHECK(v.property_index == PropertyIndex{999});
+    CHECK(v.reason == "some reason");
+    // Enrichment skipped due to OOB property index
+    CHECK_FALSE(v.enrichment.has_value());
+}
+
+// ===========================================================================
+// bytes_to_dlc error paths
+// ===========================================================================
+
+TEST_CASE("bytes_to_dlc valid CAN 2.0B sizes", "[types]") {
+    auto r7 = bytes_to_dlc(7);
+    REQUIRE(r7.has_value());
+    CHECK(r7->value() == 7);
+
+    auto r8 = bytes_to_dlc(8);
+    REQUIRE(r8.has_value());
+    CHECK(r8->value() == 8);
+}
+
+TEST_CASE("bytes_to_dlc valid CAN-FD sizes", "[types]") {
+    auto r12 = bytes_to_dlc(12);
+    REQUIRE(r12.has_value());
+    CHECK(r12->value() == 9);
+
+    auto r64 = bytes_to_dlc(64);
+    REQUIRE(r64.has_value());
+    CHECK(r64->value() == 15);
+}
+
+TEST_CASE("bytes_to_dlc invalid sizes return error", "[types]") {
+    auto r9 = bytes_to_dlc(9);
+    REQUIRE_FALSE(r9.has_value());
+    CHECK_THAT(r9.error(), ContainsSubstring("invalid DLC"));
+
+    auto r65 = bytes_to_dlc(65);
+    REQUIRE_FALSE(r65.has_value());
+    CHECK_THAT(r65.error(), ContainsSubstring("invalid DLC"));
+}
+
+// ===========================================================================
+// format_formula MetricUntil and MetricRelease
+// ===========================================================================
+
+TEST_CASE("format_formula metric until", "[enrich]") {
+    using namespace std::chrono_literals;
+    auto f = LtlFormula{MetricUntil{.bound = Timestamp{3'000'000},
+                                    .left = std::make_unique<LtlFormula>(ltl::atomic(
+                                        ltl::less_than(SignalName{"Speed"}, PhysicalValue{50}))),
+                                    .right = std::make_unique<LtlFormula>(ltl::atomic(
+                                        ltl::equals(SignalName{"Brake"}, PhysicalValue{1})))}};
+    CHECK(format_formula(f) == "Speed < 50 until within 3s Brake = 1");
+}
+
+TEST_CASE("format_formula metric release", "[enrich]") {
+    using namespace std::chrono_literals;
+    auto f =
+        LtlFormula{MetricRelease{.bound = Timestamp{500'000},
+                                 .left = std::make_unique<LtlFormula>(
+                                     ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1}))),
+                                 .right = std::make_unique<LtlFormula>(
+                                     ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0})))}};
+    CHECK(format_formula(f) == "A = 1 release within 500ms B = 0");
+}
+
+// ===========================================================================
+// Rational comparison
+// ===========================================================================
+
+TEST_CASE("Rational operator<=> and operator==", "[types]") {
+    Rational a{1, 2};  // 0.5
+    Rational b{2, 4};  // 0.5
+    Rational c{3, 4};  // 0.75
+    Rational d{-1, 2}; // -0.5
+
+    SECTION("equality") {
+        CHECK(a == b);
+        CHECK_FALSE(a == c);
+    }
+
+    SECTION("less than") {
+        CHECK(a < c);
+        CHECK(d < a);
+        CHECK_FALSE(c < a);
+    }
+
+    SECTION("greater than") {
+        CHECK(c > a);
+        CHECK_FALSE(a > c);
+    }
+
+    SECTION("less than or equal") {
+        CHECK(a <= b);
+        CHECK(a <= c);
+        CHECK_FALSE(c <= a);
+    }
+
+    SECTION("negative values") {
+        Rational neg{-3, 4};
+        CHECK(neg < a);
+        CHECK(d == Rational{-1, 2});
+    }
 }
