@@ -49,7 +49,9 @@ public:
         return *this;
     }
 
-    auto to_formula() -> std::optional<LtlFormula> { return std::exchange(formula_, std::nullopt); }
+    [[nodiscard]] auto to_formula() -> std::optional<LtlFormula> {
+        return std::exchange(formula_, std::nullopt);
+    }
 
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }

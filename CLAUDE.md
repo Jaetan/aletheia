@@ -292,7 +292,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go (C++ 11,022 fps, Go 9,689 fps, Python 9,679 fps streaming LTL). DLC serialization bug fixed in Go/C++ bindings. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). Signal extraction performance optimization: P1 done (`extractSignalDirect` +12% CAN-FD), byte-at-a-time `extractRaw` started but not wired. **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 4 rounds (32 fixes, 481 tests), C++ 4 rounds (25 fixes + Rational redesign, 135+8 tests), Go 12 rounds (146 tests + Rational redesign). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. C++ tooling gates: clang-format + clang-tidy zero warnings. AGENTS.md rewritten with origin-blind finding rules. Pipeline adequacy proven: absorb-runL, simplify-runL, pipeline-adequate (Adequacy/Pipeline.agda). 67 Agda modules total. **Cross-language parity**: RTS cores (`-N`) for all 3 bindings. Opt-in structured logging (12 events) for all 3 bindings: C++ `Logger` class, Go `slog`, Python `logging`. **YAML and Excel loaders** implemented for C++ and Go — four-tier check interface (Excel/YAML/Check API/DSL) now complete across all three bindings.
+**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 11 rounds (532 tests), C++ 11 rounds (5 test suites, clang-format + clang-tidy gates), Go 23 rounds (233 tests). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. AGENTS.md rewritten with origin-blind finding rules + backward-compat prohibition. Pipeline adequacy proven. 67 Agda modules total. **Cross-language parity**: RTS cores, structured logging (12 events), YAML/Excel loaders — four-tier check interface complete across all three bindings. **Latest review round (R5-R11)**: [[nodiscard]] + static_assert on C++ client, lo>hi validation in Check API (all 3), Go parseRational truncation check, Python send_frame DLC validation.
 
 ---
 
@@ -398,12 +398,12 @@ docs(BUILDING): Add macOS-specific notes
 
 ## Current Session Progress
 
-Code review round 4 committed (632b7e2). YAML and Excel loaders implemented for C++ and Go (uncommitted):
-- **C++**: `yaml.hpp`/`yaml.cpp` + `excel.hpp`/`excel.cpp` (yaml-cpp + OpenXLSX via FetchContent), 76 YAML + 120 Excel test assertions
-- **Go**: `yaml.go` + `excel.go` + `loader.go`, 88 new tests (30 YAML + 58 Excel), 233 total
-- Four-tier check interface (Excel/YAML/Check API/DSL) now complete across all three bindings
-- AGENTS.md updated with systemic attribution rule
-- All verification suites green
+Cross-language API review rounds 5-11 committed (7982caf). All prior work also committed:
+- **R5-R11**: 30+ fixes across Python, C++, Go (47 files, +1058/-345)
+- **5e2f86f**: YAML and Excel loaders for C++ and Go
+- **632b7e2**: Round 4 review — Rational types, hash-map indexes
+- Verification: Python 532 tests, C++ 5/5 suites, Go 233 tests — all pass
+- Working tree clean
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
