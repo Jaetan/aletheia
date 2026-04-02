@@ -10,9 +10,9 @@ This document explains what Aletheia is, why it exists, and what it means for yo
 
 ## What is Aletheia?
 
-Aletheia is a Python library for analyzing automotive CAN bus data with **mathematical guarantees of correctness**. You write temporal properties in Python (e.g., "Speed never exceeds 220 km/h"), and Aletheia verifies them against CAN traces with proofs that the checker itself is bug-free.
+Aletheia is a library for analyzing automotive CAN bus data with **mathematical guarantees of correctness**, with bindings for Python, C++, and Go. You write temporal properties (e.g., "Speed never exceeds 220 km/h"), and Aletheia verifies them against CAN traces with proofs that the checker itself is bug-free.
 
-**Elevator pitch**: Testing shows the presence of bugs. Formal verification proves their absence. Aletheia brings proof-backed CAN analysis to Python engineers without requiring a PhD in formal methods.
+**Elevator pitch**: Testing shows the presence of bugs. Formal verification proves their absence. Aletheia brings proof-backed CAN analysis to engineers (Python, C++, Go) without requiring a PhD in formal methods.
 
 ---
 
@@ -72,8 +72,8 @@ Aletheia provides:
 Aletheia uses a three-layer architecture:
 
 ```
-Python (user-facing API, ctypes)
-   ↓ FFI (shared library)
+Python / C++ / Go (user-facing APIs, FFI)
+   ↓ FFI (shared library via ctypes / dlopen)
 Haskell (FFI wrapper → libaletheia-ffi.so)
    ↓
 Agda (all logic + proofs, compiled via MAlonzo)
@@ -82,8 +82,8 @@ Agda (all logic + proofs, compiled via MAlonzo)
 **Why these technologies?**
 
 - **Agda**: A proof assistant where code that type-checks is mathematically proven correct — similar to how Rust's compiler guarantees memory safety, but for logical correctness. Used in aerospace, cryptography, and compilers.
-- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Meta, Standard Chartered, IOHK). Compiled to a shared library loaded directly by Python.
-- **Python**: Familiar interface for automotive engineers. All complexity hidden behind ctypes FFI (Foreign Function Interface — Python's standard mechanism for calling compiled code directly, with no subprocess overhead).
+- **Haskell**: Mature compiler (GHC) for Agda-generated code. Industry-proven (Meta, Standard Chartered, IOHK). Compiled to a shared library loaded by all bindings.
+- **Python / C++ / Go**: Familiar interfaces for automotive engineers. All complexity hidden behind FFI (Foreign Function Interface — each language's standard mechanism for calling compiled code directly, with no subprocess overhead).
 
 **Proven track record**:
 - Agda: Used in verified compilers (Agda-to-Haskell compiler itself), verified data structures, and verified network protocols
@@ -100,7 +100,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 |------|--------|------------|------------|
 | **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented in BUILDING.md. Works on Linux (tested Ubuntu/Debian). |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | Current: ~9,700 frames/sec (103 us/frame) via FFI. Sufficient for 1 Mbps CAN bus real-time analysis. |
+| **Performance** | Formal verification adds overhead | Low | Current: 42,000–48,000 fps CAN 2.0B (21–24 us/frame) via binary FFI across Python/C++/Go. Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Python API is stable. Core changes rare. Can contract experts if needed. |
 
 **Mitigation**:
@@ -119,7 +119,7 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 **Mitigation**:
 - Clear separation: Python users don't need Agda knowledge
-- Extensive documentation for future maintainers (BUILDING.md is 200+ lines)
+- Extensive documentation for future maintainers (BUILDING.md is 600+ lines)
 - AI assistant support (CLAUDE.md provides guidance to Claude Code for maintenance)
 - Open source (BSD 2-Clause) enables external contributions
 
@@ -175,12 +175,12 @@ checks = [Check.signal("Speed").never_exceeds(220)]
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([c.to_dict() for c in checks])
+    client.add_checks(checks)
     client.start_stream()
 
     for frame in can_trace:
         response = client.send_frame(...)
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Violation at {ts}us")
 ```
@@ -198,15 +198,15 @@ with AletheiaClient() as client:
 **Integration questions**:
 
 **Q: How does this fit into our CI/CD pipeline?**
-A: Aletheia is a Python library. Integrate like any Python test suite. Run `pytest tests/` in CI. Checks can also be defined in YAML for version-controlled CI configurations.
+A: Aletheia provides Python, C++, and Go bindings. Integrate like any test suite in your language. Run `pytest tests/` in CI for Python. Checks can also be defined in YAML for version-controlled CI configurations.
 
 **Q: What's the maintenance burden?**
-A: Python API: Standard Python maintenance. Agda core: Rarely changes (feature-complete since Phase 3). Build system: Shake + Cabal, documented in BUILDING.md.
+A: Binding layers: Standard maintenance per language. Agda core: Rarely changes (core logic stable since Phase 3, extensions added in Phases 4-5). Build system: Shake + Cabal, documented in BUILDING.md.
 
 **Q: What if the original developer leaves?**
 A: Documentation includes:
 - BUILDING.md: Complete build instructions
-- CLAUDE.md: AI-assisted development guide (430+ lines)
+- CLAUDE.md: AI-assisted development guide (400+ lines)
 - CONTRIBUTING.md: Contribution guidelines
 - Examples: 10+ scripts covering all four interface tiers
 
@@ -220,7 +220,7 @@ A: Yes. Extension points:
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Current: ~9,700 frames/sec (103 us/frame) with streaming LTL checking. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
+A: Current: 42,000–48,000 frames/sec CAN 2.0B (21–24 us/frame) across Python/C++/Go via binary FFI. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
 
 **Q: Dependencies?**
 A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
@@ -262,7 +262,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 **Yellow light if**:
 - Only non-critical applications (testing may suffice)
-- Extremely tight performance requirements beyond ~9,700 fps
+- Extremely tight performance requirements beyond ~48,000 fps (C++, CAN 2.0B, binary FFI)
 - Team strongly resistant to new technologies
 
 **Red light if**:
@@ -276,7 +276,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 ## Current Status
 
-**Phase 4 Complete** ✅
+**Phase 5 in progress** (Phase 4 complete ✅)
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
@@ -284,16 +284,13 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 - DBC validator with formal proof (soundness + completeness, 1,267 lines)
 - Python API with signal operations (FFI, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
-- CLI tool (`python -m aletheia check/extract/signals`)
-- CAN log reader (BLF, ASC, CSV, MF4, TRC via python-can)
+- CLI tool (`python -m aletheia check/validate/extract/signals`)
+- CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- Comprehensive test suite (372 tests)
-- ~9,700 frames/sec throughput (103 us/frame)
+- 990+ tests across Python (532), C++ (230), Go (233)
+- 42,000–48,000 frames/sec CAN 2.0B throughput via binary FFI across Python/C++/Go
 
-**Next steps**:
-- Phase 5 (optional): Value tables, format converters (CAN-FD support delivered)
-
-See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
+**Phase 5** (in progress): CAN-FD, binary FFI, C++/Go bindings, cross-language benchmarks — all delivered. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
 
 ---
 
@@ -302,14 +299,14 @@ See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed roadmap.
 **Strengths**:
 - Mathematical guarantees of correctness (unique in CAN tooling)
 - Proven technology stack (Agda/Haskell used in high-assurance systems)
-- Python interface hides complexity
+- Python, C++, and Go bindings hide complexity
+- CAN-FD support (variable-length payloads up to 64 bytes, DLC 0-15)
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
 **Limitations**:
-- Performance: ~9,700 frames/sec (sufficient for 1 Mbps CAN bus real-time analysis, but not multi-bus)
-- CAN-FD supported (variable-length payloads up to 64 bytes, DLC 0-15)
-- Learning curve for Agda core maintenance (Python API and Check API are easy)
-- Small ecosystem (fewer community resources than pure Python tools)
+- Performance: 42,000–48,000 frames/sec CAN 2.0B via binary FFI across bindings (sufficient for 1 Mbps CAN bus real-time analysis and multi-bus)
+- Learning curve for Agda core maintenance (binding APIs and Check API are easy)
+- Small ecosystem (fewer community resources than mainstream-only tools)
 
 **Best fit for**:
 - Safety-critical CAN verification (ASIL-C/D)

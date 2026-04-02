@@ -1,7 +1,7 @@
 # Aletheia Interface Guide
 
 **Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
-**Version**: 1.0.0
+**Version**: 1.1.1
 **Last Updated**: 2026-03-19
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,
@@ -127,15 +127,13 @@ dbc = dbc_to_json("vehicle.dbc")
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([c.to_dict() for c in checks])
+    client.add_checks(checks)
     client.start_stream()
 
-    for timestamp, can_id, data in can_trace:
-        response = client.send_frame(timestamp, can_id, data)
-        if response.get("status") == "violation":
-            idx = response["property_index"]["numerator"]
-            ts = response["timestamp"]["numerator"]
-            print(f"Check {idx} violated at {ts}us")
+    for timestamp, can_id, dlc, data in can_trace:
+        response = client.send_frame(timestamp, can_id, dlc, data)
+        if response.get("status") == "fails":
+            print(f"Violation: {response.get('enriched_reason')}")
 
     client.end_stream()
 ```
@@ -149,13 +147,43 @@ class Check:
     @staticmethod
     def when(signal_name: str) -> WhenSignal
 
+class CheckSignal:
+    def never_exceeds(self, value: float) -> CheckResult
+    def never_below(self, value: float) -> CheckResult
+    def never_equals(self, value: float) -> CheckResult
+    def stays_between(self, lo: float, hi: float) -> CheckResult
+    def equals(self, value: float) -> CheckSignalPredicate
+    def settles_between(self, lo: float, hi: float) -> SettlesBuilder
+
+class CheckSignalPredicate:
+    def always(self) -> CheckResult
+
+class SettlesBuilder:
+    def within(self, time_ms: int) -> CheckResult
+
+class WhenSignal:
+    def exceeds(self, value: float) -> WhenCondition
+    def equals(self, value: float) -> WhenCondition
+    def drops_below(self, value: float) -> WhenCondition
+
+class WhenCondition:
+    def then(self, signal_name: str) -> ThenSignal
+
+class ThenSignal:
+    def equals(self, value: float) -> ThenCondition
+    def exceeds(self, value: float) -> ThenCondition
+    def stays_between(self, lo: float, hi: float) -> ThenCondition
+
+class ThenCondition:
+    def within(self, time_ms: int) -> CheckResult
+
 class CheckResult:
     def named(self, name: str) -> CheckResult
     def severity(self, level: str) -> CheckResult
     def to_dict(self) -> LTLFormula
     def to_property(self) -> Property
-    name: str | None
-    check_severity: str | None
+    name: str
+    check_severity: str
 ```
 
 ---
@@ -184,10 +212,10 @@ checks:
 """)
 
 # Use with AletheiaClient
-client.set_properties([c.to_dict() for c in checks])
+client.add_checks(checks)
 ```
 
-**String auto-detection**: `load_checks()` accepts either a file path or an inline YAML string. It detects inline YAML when the input contains a newline (`\n`) or starts with `checks:`. Otherwise, the input is treated as a file path.
+**String auto-detection**: `load_checks()` accepts either a file path or an inline YAML string. If the string is an existing file path, the file is loaded (file takes priority). Otherwise, it detects inline YAML when the input contains a newline (`\n`) or starts with `checks:`, `-`, `{`, or `[`. Strings that match neither are treated as a missing file path (`FileNotFoundError`).
 
 ### YAML Schema
 
@@ -363,14 +391,13 @@ checks = load_checks_from_excel("vehicle_checks.xlsx")
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([c.to_dict() for c in checks])
+    client.add_checks(checks)
     client.start_stream()
 
-    for timestamp, can_id, data in can_trace:
-        response = client.send_frame(timestamp, can_id, data)
-        if response.get("status") == "violation":
-            idx = response["property_index"]["numerator"]
-            print(f"Check '{checks[idx].name}' violated")
+    for timestamp, can_id, dlc, data in can_trace:
+        response = client.send_frame(timestamp, can_id, dlc, data)
+        if response.get("status") == "fails":
+            print(f"Violation: {response.get('enriched_reason')}")
 
     client.end_stream()
 ```
@@ -473,32 +500,7 @@ All three interfaces (Check API, YAML, Excel) support the same conditions.
 
 > **Note**: The LTL column shows the underlying formula for developers. If you're using the Check API, YAML, or Excel interface, you can ignore it — the condition name and Check API columns are all you need.
 
-### Simple Conditions
-
-| Condition | Check API | LTL |
-|-----------|-----------|-----|
-| `never_exceeds` | `.never_exceeds(v)` | G(s < v) |
-| `never_below` | `.never_below(v)` | G(s >= v) |
-| `never_equals` | `.never_equals(v)` | G(not(s == v)) |
-| `equals` | `.equals(v).always()` | G(s == v) |
-| `stays_between` | `.stays_between(lo, hi)` | G(lo <= s <= hi) |
-| `settles_between` | `.settles_between(lo, hi).within(t)` | G_{<=t}(lo <= s <= hi) |
-
-### When Conditions
-
-| Condition | Check API | Meaning |
-|-----------|-----------|---------|
-| `exceeds` | `.exceeds(v)` | s > v |
-| `equals` | `.equals(v)` | s == v |
-| `drops_below` | `.drops_below(v)` | s < v |
-
-### Then Conditions
-
-| Condition | Check API | Meaning |
-|-----------|-----------|---------|
-| `equals` | `.equals(v)` | s == v |
-| `exceeds` | `.exceeds(v)` | s > v |
-| `stays_between` | `.stays_between(lo, hi)` | lo <= s <= hi |
+All conditions are documented in the [YAML Schema](#yaml-schema) section above. The Check API method names match the YAML condition names (e.g., YAML `never_exceeds` → Check API `.never_exceeds(v)`).
 
 ---
 

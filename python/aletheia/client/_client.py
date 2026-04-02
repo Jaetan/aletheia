@@ -678,8 +678,8 @@ class AletheiaClient:
         - ``status="fails"`` if the property failed at end-of-stream
           (e.g., safety property never resolved, liveness never satisfied)
 
-        Violations are enriched with ``signal_name``, ``actual_value``, and
-        ``condition`` when check diagnostics have been registered.
+        Violations are enriched with ``signals``, ``formula``, and
+        ``enriched_reason`` when checks have been registered.
         """
         cmd: EndStreamCommand = {
             "type": "command",

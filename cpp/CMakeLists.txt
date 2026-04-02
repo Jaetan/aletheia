@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(aletheia-cpp VERSION 1.0.0 LANGUAGES CXX)
+project(aletheia-cpp VERSION 1.1.1 LANGUAGES CXX)
 
 # Default to Release when no build type is specified (avoids -O0 benchmarks)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

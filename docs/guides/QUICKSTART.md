@@ -71,14 +71,13 @@ checks = [
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([c.to_dict() for c in checks])
-    client.set_check_diagnostics(checks)
+    client.add_checks(checks)
     client.start_stream()
 
-    for ts, can_id, data in iter_can_log("drive.blf"):
-        response = client.send_frame(ts, can_id, data)
-        if response.get("status") == "violation":
-            print(f"Violation: {response.get('signal_name')} = {response.get('actual_value')}")
+    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+        response = client.send_frame(ts, can_id, dlc, data)
+        if response.get("status") == "fails":
+            print(f"Violation: {response.get('enriched_reason')}")
 
     client.end_stream()
 ```

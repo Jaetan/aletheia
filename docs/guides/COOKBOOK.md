@@ -141,7 +141,7 @@ python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 from aletheia.can_log import load_can_log
 
 frames = load_can_log("drive.blf")
-# frames is list[(timestamp_us, arbitration_id, bytearray)]
+# frames is list[(timestamp_us, arbitration_id, dlc, data)]
 ```
 
 ### Process a large log lazily (streaming)
@@ -149,8 +149,8 @@ frames = load_can_log("drive.blf")
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, data in iter_can_log("highway.asc"):
-    response = client.send_frame(ts, can_id, data)
+for ts, can_id, dlc, data in iter_can_log("highway.asc"):
+    response = client.send_frame(ts, can_id, dlc, data)
 ```
 
 ### Skip error/remote frames (default) or include them
@@ -162,13 +162,13 @@ frames = load_can_log("drive.blf")
 # Include everything
 frames = load_can_log("drive.blf", skip_error_frames=False, skip_remote_frames=False)
 
-# Strict DLC: raise ValueError if data length doesn't match DLC
-frames = load_can_log("drive.blf", strict_dlc=True)
+# Strict mode: raise on corrupt frames instead of skipping
+frames = load_can_log("drive.blf", on_error="raise")
 ```
 
 ### Supported CAN log formats
 
-`.asc`, `.blf`, `.csv`, `.log`, `.mf4`, `.trc` (via python-can).
+`.asc`, `.blf`, `.csv`, `.db`, `.log`, `.mf4`, `.trc` (via python-can).
 
 ---
 
@@ -211,7 +211,7 @@ python -m aletheia signals --dbc vehicle.dbc --json
 ### Extract all signals from a frame
 
 ```python
-result = client.extract_signals(can_id=0x100, data=frame_bytes)
+result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
 speed = result.get("VehicleSpeed", default=0.0)
 
 # Check for errors and absent (multiplexed) signals
@@ -237,12 +237,12 @@ frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
 
 ```python
 client.start_stream()
-for ts, can_id, data in iter_can_log("drive.blf"):
+for ts, can_id, dlc, data in iter_can_log("drive.blf"):
     # Modify speed to test property with altered values
     modified = client.update_frame(
-        can_id=can_id, frame=data, signals={"VehicleSpeed": 130.0}
+        can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130.0}
     )
-    response = client.send_frame(ts, can_id, modified)
+    response = client.send_frame(ts, can_id, dlc, modified)
 client.end_stream()
 ```
 
@@ -288,38 +288,41 @@ python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 
 ### Enable enriched diagnostics
 
+Enrichment is automatic when checks are registered via `add_checks()`:
+
 ```python
-client.set_properties([c.to_dict() for c in checks])
-client.set_check_diagnostics(checks)  # call AFTER set_properties()
+client.add_checks(checks)
 ```
 
-### Get signal name, value, and condition from violations
+### Get signal values and formula from violations
 
 ```python
-response = client.send_frame(ts, can_id, data)
-if response.get("status") == "violation":
-    signal = response.get("signal_name", "unknown")
-    value = response.get("actual_value")
-    condition = response.get("condition", "")
-    print(f"{signal} = {value} violated {condition}")
+response = client.send_frame(ts, can_id, dlc, data)
+if response.get("status") == "fails":
+    signals = response.get("signals", {})
+    formula = response.get("formula", "")
+    reason = response.get("enriched_reason", "")
+    print(f"{reason}  signals={signals}")
 ```
 
 ### Custom violation formatting
 
 ```python
+# Assumes: client in streaming mode with checks registered (see recipes above)
+from aletheia import iter_can_log
+
 violations = []
-for ts, can_id, data in iter_can_log("drive.blf"):
-    response = client.send_frame(ts, can_id, data)
-    if response.get("status") == "violation":
+for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+    response = client.send_frame(ts, can_id, dlc, data)
+    if response.get("status") == "fails":
         violations.append(response)
 
 for v in violations:
-    ts_ms = v["timestamp"]["numerator"] / 1000
+    ts_ms = v["timestamp"]["numerator"] / 1000  # µs → ms
     idx = v["property_index"]["numerator"]
     name = checks[idx].name or f"Check #{idx}"
-    signal = v.get("signal_name", "?")
-    value = v.get("actual_value")
-    print(f"[{ts_ms:.1f}ms] {name}: {signal}={value}")
+    reason = v.get("enriched_reason", "?")
+    print(f"[{ts_ms:.1f}ms] {name}: {reason}")
 ```
 
 ---
@@ -336,7 +339,7 @@ checks.extend(load_checks("base_checks.yaml"))           # YAML
 checks.extend(load_checks_from_excel("extra_checks.xlsx")) # Excel
 checks.append(Check.signal("Speed").never_exceeds(220))   # Check API
 
-client.set_properties([c.to_dict() for c in checks])
+client.add_checks(checks)
 ```
 
 ### Create an Excel template
@@ -344,7 +347,7 @@ client.set_properties([c.to_dict() for c in checks])
 ```python
 from aletheia import create_template
 create_template("vehicle_checks.xlsx")
-# Opens with three sheets: DBC, Checks, When-Then
+# Creates a file with three sheets: DBC, Checks, When-Then
 ```
 
 ---

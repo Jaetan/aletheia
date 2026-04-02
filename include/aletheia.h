@@ -54,10 +54,38 @@ void *aletheia_init(void);
 char *aletheia_process(void *state, const char *input);
 
 /*
- * Free a string returned by aletheia_process().
+ * Send a binary CAN frame for LTL analysis (streaming hot path).
  *
- * @param ptr   String pointer returned by aletheia_process().
- *              Passing NULL is safe (no-op).
+ * This is the high-performance entry point for data frames. Unlike
+ * aletheia_process(), no JSON parsing occurs on the input side —
+ * frame components are passed directly as C values.
+ *
+ * @param state     Handle from aletheia_init(). Must not be NULL.
+ * @param timestamp Frame timestamp in microseconds.
+ * @param can_id    CAN ID value (11-bit standard or 29-bit extended).
+ * @param extended  0 for standard 11-bit ID, 1 for extended 29-bit ID.
+ * @param dlc       Data Length Code (0-15). DLC 0-8 map directly to byte
+ *                  counts; 9-15 map to CAN-FD sizes (12,16,20,24,32,48,64).
+ * @param data      Pointer to payload bytes. Must not be NULL if data_len > 0.
+ * @param data_len  Number of payload bytes. Must equal dlcToBytes(dlc).
+ * @return          UTF-8 encoded, null-terminated JSON response.
+ *                  The caller MUST free the returned string with
+ *                  aletheia_free_str(). Returns NULL only on allocation failure.
+ *
+ * Thread safety: Same as aletheia_process() — one thread per state handle.
+ *
+ * Requires streaming mode (startStream command via aletheia_process() first).
+ */
+char *aletheia_send_frame(void *state, unsigned long long timestamp,
+                          unsigned int can_id, unsigned char extended,
+                          unsigned char dlc, const unsigned char *data,
+                          unsigned char data_len);
+
+/*
+ * Free a string returned by aletheia_process() or aletheia_send_frame().
+ *
+ * @param ptr   String pointer returned by aletheia_process() or
+ *              aletheia_send_frame(). Passing NULL is safe (no-op).
  */
 void aletheia_free_str(char *ptr);
 

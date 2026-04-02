@@ -1,8 +1,8 @@
-# Aletheia JSON Streaming Protocol
+# Aletheia Streaming Protocol
 
-**Purpose**: Complete specification of the JSON protocol for CAN frame analysis with LTL checking.
-**Version**: 1.1 (CAN-FD support)
-**Last Updated**: 2026-03-25
+**Purpose**: Complete specification of the FFI protocol for CAN frame analysis with LTL checking.
+**Version**: 1.1.1
+**Last Updated**: 2026-04-02
 
 ---
 
@@ -24,17 +24,18 @@ This document is for:
 Aletheia uses a JSON protocol for communication between Python and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
-- Python sends JSON commands via `aletheia_process()` (ctypes FFI call)
-- Haskell returns JSON responses as C strings
-- One JSON object per call (request-response)
+- Two FFI entry points, both returning JSON response strings:
+  - `aletheia_process()`: JSON string in — handles all commands (parseDBC, setProperties, startStream, etc.)
+  - `aletheia_send_frame()`: Binary data in — streaming hot path for CAN data frames (no JSON parsing on input)
+- One call per response (request-response)
 - Sequential processing (no threading or queuing)
 - No subprocess or IPC — everything runs in-process via `libaletheia-ffi.so`
 
 **State Machine**:
 ```
 WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
-                                          → StartStream → Streaming
-                                          → DataFrame* → EndStream
+                                          → StartStream → Streaming → SendFrame* → Streaming
+                                                                     → EndStream → ReadyToStream
 ```
 
 ---
@@ -44,8 +45,9 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: Control commands (parseDBC, extractAllSignals, buildFrame, updateFrame, validateDBC, setProperties, startStream, endStream)
-- `"data"`: CAN data frames to be analyzed
+- `"command"`: Control commands (parseDBC, extractAllSignals, buildFrame, updateFrame, validateDBC, formatDBC, setProperties, startStream, endStream)
+
+> **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Frame Entry Point](#binary-frame-entry-point) below.
 
 ---
 
@@ -124,7 +126,7 @@ Load a DBC (Database CAN) structure from JSON format.
     - `offset`: Offset applied after scaling
     - `minimum`: Minimum physical value
     - `maximum`: Maximum physical value
-    - `presence`: "always" or multiplexed object (see Multiplexing Support below)
+    - `presence`: "always" for always-present signals (default if omitted); multiplexed signals use `multiplexor` and `multiplex_value` fields instead (see Multiplexing Support below)
 
 **State Transition**: `WaitingForDBC` → `ReadyToStream`
 
@@ -143,18 +145,17 @@ Aletheia supports multiplexed signals (signals that are conditionally present ba
 Signal is always present in the frame.
 
 #### Conditional Presence (Multiplexed)
+
+Multiplexed signals use flat `multiplexor` and `multiplex_value` fields instead of `presence`:
+
 ```json
 {
-  "presence": {
-    "when": {
-      "multiplexor": "MuxSignal",
-      "value": 1
-    }
-  }
+  "multiplexor": "MuxSignal",
+  "multiplex_value": 1
 }
 ```
 
-Signal is only present when the multiplexor signal equals the specified value.
+Signal is only present when the multiplexor signal equals the specified value. The `presence` field is omitted for multiplexed signals.
 
 **Example** (Multiplexed Message):
 ```json
@@ -189,7 +190,8 @@ Signal is only present when the multiplexor signal equals the specified value.
       "minimum": 0.0,
       "maximum": 1000.0,
       "unit": "rpm",
-      "presence": {"when": {"multiplexor": "MuxSignal", "value": 0}}
+      "multiplexor": "MuxSignal",
+      "multiplex_value": 0
     },
     {
       "name": "Signal_Mux1",
@@ -202,7 +204,8 @@ Signal is only present when the multiplexor signal equals the specified value.
       "minimum": -50.0,
       "maximum": 150.0,
       "unit": "°C",
-      "presence": {"when": {"multiplexor": "MuxSignal", "value": 1}}
+      "multiplexor": "MuxSignal",
+      "multiplex_value": 1
     }
   ]
 }
@@ -214,7 +217,7 @@ Signal is only present when the multiplexor signal equals the specified value.
 - Attempting to extract a signal that's not present returns an error
 - Multiplexor signal must be defined in the same message and have `"presence": "always"`
 
-**Implementation**: See `src/Aletheia/CAN/SignalExtraction.agda` (checkMultiplexor, checkSignalPresence) and `src/Aletheia/DBC/Types.agda` (SignalPresence type).
+**Implementation**: See [DESIGN.md](DESIGN.md) for the Agda module structure. The multiplexor logic is in the CAN signal extraction module; signal presence types are in the DBC types module.
 
 ---
 
@@ -229,7 +232,8 @@ Extract all signal values from a CAN frame without streaming.
   "command": "extractAllSignals",
   "canId": 256,
   "dlc": 8,
-  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
+  "extended": false,
+  "data": [16, 39, 0, 0, 0, 0, 0, 0]
 }
 ```
 
@@ -267,6 +271,8 @@ Encode signal values into a new CAN frame (starting from all zeros).
   "type": "command",
   "command": "buildFrame",
   "canId": 256,
+  "dlc": 8,
+  "extended": false,
   "signals": [
     {"name": "Speed", "value": 100.0}
   ]
@@ -277,14 +283,16 @@ Encode signal values into a new CAN frame (starting from all zeros).
 ```json
 {
   "status": "success",
-  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
+  "data": [16, 39, 0, 0, 0, 0, 0, 0]
 }
 ```
 
 **Fields**:
 - `canId`: CAN message ID (integer, must match a message in the loaded DBC)
+- `dlc`: Data Length Code (0-15)
+- `extended`: Whether to use 29-bit extended CAN ID (boolean)
 - `signals`: Array of {name, value} objects to encode
-- Response `data`: Encoded frame payload (variable length)
+- Response `data`: Encoded frame payload (length matches `dlcToBytes(dlc)`)
 
 **State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
 
@@ -301,7 +309,8 @@ Update specific signal values in an existing CAN frame.
   "command": "updateFrame",
   "canId": 256,
   "dlc": 8,
-  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0],
+  "extended": false,
+  "data": [16, 39, 0, 0, 0, 0, 0, 0],
   "signals": [
     {"name": "Speed", "value": 200.0}
   ]
@@ -312,7 +321,7 @@ Update specific signal values in an existing CAN frame.
 ```json
 {
   "status": "success",
-  "data": [0x20, 0x4E, 0, 0, 0, 0, 0, 0]
+  "data": [32, 78, 0, 0, 0, 0, 0, 0]
 }
 ```
 
@@ -365,7 +374,46 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 
 ---
 
-### 6. SetProperties
+### 6. FormatDBC
+
+Export the currently-loaded DBC as JSON.
+
+**Request**:
+```json
+{
+  "type": "command",
+  "command": "formatDBC"
+}
+```
+
+**Response** (Success):
+```json
+{
+  "status": "success",
+  "dbc": {
+    "version": "1.0",
+    "messages": [...]
+  }
+}
+```
+
+**Response** (Error):
+```json
+{
+  "status": "error",
+  "message": "FormatDBC: No DBC loaded"
+}
+```
+
+**Fields**:
+- No input fields — uses the currently-loaded DBC
+- Response `dbc`: Complete DBC definition in JSON format (same schema as the `parseDBC` input)
+
+**State Requirements**: Must have called `parseDBC`. Does NOT modify client state (read-only).
+
+---
+
+### 7. SetProperties
 
 Define LTL properties to check against the frame stream.
 
@@ -413,7 +461,7 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 
 ---
 
-### 7. StartStream
+### 8. StartStream
 
 Begin streaming mode for processing data frames.
 
@@ -446,7 +494,7 @@ Begin streaming mode for processing data frames.
 
 ---
 
-### 8. EndStream
+### 9. EndStream
 
 End streaming mode and return final results.
 
@@ -463,8 +511,8 @@ End streaming mode and return final results.
 {
   "status": "complete",
   "results": [
-    {"type": "property", "status": "satisfaction", "property_index": {"numerator": 0, "denominator": 1}},
-    {"type": "property", "status": "violation", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
   ]
 }
 ```
@@ -474,22 +522,27 @@ End streaming mode and return final results.
 
 ---
 
-## Data Frames
+## Binary Frame Entry Point
 
-### DataFrame
+### aletheia_send_frame
 
-Send a CAN frame for analysis.
+Send a CAN data frame for LTL analysis. This is the high-performance streaming entry point — frame components are passed as binary C values, bypassing JSON parsing on input.
 
-**Request**:
-```json
-{
-  "type": "data",
-  "timestamp": 1000,
-  "id": 256,
-  "dlc": 8,
-  "data": [0x10, 0x27, 0, 0, 0, 0, 0, 0]
-}
+**C signature** (see `aletheia.h`):
+```c
+char *aletheia_send_frame(void *state, unsigned long long timestamp,
+                          unsigned int can_id, unsigned char extended,
+                          unsigned char dlc, const unsigned char *data,
+                          unsigned char data_len);
 ```
+
+**Parameters**:
+- `timestamp`: Frame timestamp in microseconds
+- `can_id`: CAN message ID (must match a message in the loaded DBC)
+- `extended`: 0 for standard 11-bit ID, 1 for extended 29-bit ID
+- `dlc`: Data Length Code (0-15)
+- `data`: Pointer to payload bytes
+- `data_len`: Number of payload bytes (must equal `dlcToBytes(dlc)`)
 
 **Response** (Acknowledged):
 ```json
@@ -502,7 +555,7 @@ Send a CAN frame for analysis.
 ```json
 {
   "type": "property",
-  "status": "violation",
+  "status": "fails",
   "property_index": {"numerator": 0, "denominator": 1},
   "timestamp": {"numerator": 1000, "denominator": 1},
   "reason": "Always violated"
@@ -513,23 +566,21 @@ Send a CAN frame for analysis.
 ```json
 {
   "type": "property",
-  "status": "satisfaction",
+  "status": "holds",
   "property_index": {"numerator": 0, "denominator": 1}
 }
 ```
 
-**Fields**:
-- `timestamp`: Frame timestamp in microseconds (integer or rational)
-- `id`: CAN message ID (must match a message in the loaded DBC)
-- `dlc`: Data Length Code (0-15)
-- `data`: Array of bytes (0-255), length must match `dlcToBytes(dlc)`
+**State Requirements**: Must be in `Streaming` state (after `startStream` command via `aletheia_process()`)
 
-**State Requirements**: Must be in `Streaming` state
 **Processing**:
-1. Extract all signals from frame using DBC
-2. Evaluate all LTL properties
-3. If violation or satisfaction detected, return property response immediately
-4. Otherwise, return acknowledgment
+1. Construct MAlonzo types directly from raw C values (no JSON parsing)
+2. Extract all signals from frame using DBC
+3. Evaluate all LTL properties
+4. If violation or satisfaction detected, return property response immediately
+5. Otherwise, return acknowledgment
+
+**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path. All language bindings (Python, C++, Go) use this entry point for `send_frame()`.
 
 ---
 
@@ -563,7 +614,7 @@ Used for data frames when no violation is detected.
 ```json
 {
   "type": "property",
-  "status": "violation",
+  "status": "fails",
   "property_index": {"numerator": 0, "denominator": 1},
   "timestamp": {"numerator": 300, "denominator": 1},
   "reason": "Always violated"
@@ -571,7 +622,7 @@ Used for data frames when no violation is detected.
 ```
 
 **Fields**:
-- `status`: "violation" or "satisfaction"
+- `status`: `"fails"` or `"holds"`
 - `property_index`: Index of the property that failed (rational)
 - `timestamp`: Timestamp of the frame that caused the violation (rational)
 - `reason`: Human-readable explanation
@@ -581,8 +632,8 @@ Used for data frames when no violation is detected.
 {
   "status": "complete",
   "results": [
-    {"type": "property", "status": "satisfaction", "property_index": {"numerator": 0, "denominator": 1}},
-    {"type": "property", "status": "violation", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
+    {"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}},
+    {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 4523, "denominator": 1}, "reason": "Always violated"}
   ]
 }
 ```
@@ -628,6 +679,24 @@ Returned when streaming ends. The `results` array contains per-property finaliza
   "signal": "Temperature",
   "min": 60,
   "max": 90
+}
+```
+
+#### LessThanOrEqual
+```json
+{
+  "predicate": "lessThanOrEqual",
+  "signal": "Speed",
+  "value": 250
+}
+```
+
+#### GreaterThanOrEqual
+```json
+{
+  "predicate": "greaterThanOrEqual",
+  "signal": "RPM",
+  "value": 800
 }
 ```
 
@@ -720,6 +789,58 @@ Property must hold at some point in the trace.
 ```
 `left` must hold until `right` becomes true.
 
+#### Release
+```json
+{
+  "operator": "release",
+  "left": {...},
+  "right": {...}
+}
+```
+Dual of Until: `right` must hold until `left` releases it (or `right` holds forever).
+
+#### MetricEventually (Bounded Eventually)
+```json
+{
+  "operator": "metricEventually",
+  "timebound": 1000,
+  "formula": {...}
+}
+```
+Property must hold within `timebound` microseconds.
+
+#### MetricAlways (Bounded Always)
+```json
+{
+  "operator": "metricAlways",
+  "timebound": 5000,
+  "formula": {...}
+}
+```
+Property must hold for the next `timebound` microseconds.
+
+#### MetricUntil (Bounded Until)
+```json
+{
+  "operator": "metricUntil",
+  "timebound": 2000,
+  "left": {...},
+  "right": {...}
+}
+```
+`left` must hold until `right` becomes true, within `timebound` microseconds.
+
+#### MetricRelease (Bounded Release)
+```json
+{
+  "operator": "metricRelease",
+  "timebound": 2000,
+  "left": {...},
+  "right": {...}
+}
+```
+Bounded dual of Until: `right` must hold until `left` releases it, within `timebound` microseconds.
+
 ---
 
 ### Complete Example
@@ -768,7 +889,7 @@ Used in responses for exact representation.
 - `1.5` → `{"numerator": 3, "denominator": 2}`
 - `100` → `{"numerator": 100, "denominator": 1}`
 
-**Implementation Note**: Agda's `ℚ` type uses unnormalized rationals internally, storing `denominator - 1`. The JSON format exposes the actual denominator for clarity.
+**Note**: The JSON format exposes the actual denominator for clarity, even though the internal representation may differ.
 
 ---
 
@@ -792,22 +913,22 @@ Used in responses for exact representation.
 <<< {"status": "success", "message": "Streaming started"}
 ```
 
-### 4. Send Data Frames
-```json
->>> {"type": "data", "timestamp": 100, "id": 256, "dlc": 8, "data": [0xE8, 0x03, 0, 0, 0, 0, 0, 0]}
+### 4. Send Data Frames (via `aletheia_send_frame`)
+```
+>>> aletheia_send_frame(state, 100, 256, 0, 8, [0xE8,0x03,0,0,0,0,0,0], 8)
 <<< {"status": "ack"}
 
->>> {"type": "data", "timestamp": 200, "id": 256, "dlc": 8, "data": [0xD0, 0x07, 0, 0, 0, 0, 0, 0]}
+>>> aletheia_send_frame(state, 200, 256, 0, 8, [0xD0,0x07,0,0,0,0,0,0], 8)
 <<< {"status": "ack"}
 
->>> {"type": "data", "timestamp": 300, "id": 256, "dlc": 8, "data": [0x28, 0x0A, 0, 0, 0, 0, 0, 0]}
-<<< {"type": "property", "status": "violation", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
+>>> aletheia_send_frame(state, 300, 256, 0, 8, [0x28,0x0A,0,0,0,0,0,0], 8)
+<<< {"type": "property", "status": "fails", "property_index": {"numerator": 0, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}
 ```
 
 ### 5. End Streaming
 ```json
 >>> {"type": "command", "command": "endStream"}
-<<< {"status": "complete"}
+<<< {"status": "complete", "results": [{"type": "property", "status": "holds", "property_index": {"numerator": 0, "denominator": 1}}, {"type": "property", "status": "fails", "property_index": {"numerator": 1, "denominator": 1}, "timestamp": {"numerator": 300, "denominator": 1}, "reason": "Always violated"}]}
 ```
 
 ---
@@ -845,9 +966,10 @@ Used in responses for exact representation.
 
 ## Implementation Notes
 
-### JSON over FFI
-- Each message is a JSON string passed via `aletheia_process(state, json_bytes)`
-- Response is a JSON string returned as a C string (freed with `aletheia_free_str`)
+### FFI Entry Points
+- **Commands**: JSON string via `aletheia_process(state, json_string)` — all non-data-frame operations
+- **Data frames**: Binary via `aletheia_send_frame(state, timestamp, can_id, ...)` — streaming hot path
+- Both return a JSON response string (freed with `aletheia_free_str`)
 - No newline delimiters needed — each FFI call is one complete message
 - State is managed via `StablePtr (IORef StreamState)` on the Haskell side
 

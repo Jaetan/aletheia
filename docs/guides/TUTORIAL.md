@@ -251,34 +251,32 @@ dbc = dbc_to_json("vehicle.dbc")
 
 with AletheiaClient() as client:
     client.parse_dbc(dbc)
-    client.set_properties([c.to_dict() for c in checks])
-    client.set_check_diagnostics(checks)   # enables enriched violations
+    client.add_checks(checks)
     client.start_stream()
 
-    for ts, can_id, data in iter_can_log("drive.blf"):
-        response = client.send_frame(ts, can_id, data)
-        if response.get("status") == "violation":
-            name = response.get("signal_name", "?")
-            value = response.get("actual_value")
-            cond = response.get("condition", "")
-            print(f"VIOLATION: {name} = {value} ({cond})")
+    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+        response = client.send_frame(ts, can_id, dlc, data)
+        if response.get("status") == "fails":
+            print(f"VIOLATION: {response.get('enriched_reason')}")
+            print(f"  Signals: {response.get('signals')}")
 
     client.end_stream()
 ```
 
 ### Step 5: Handle Enriched Violations
 
-When `set_check_diagnostics()` is called, violation responses include extra fields:
+When checks are registered via `add_checks()`, violation responses are automatically enriched:
 
 ```python
 {
-    "status": "violation",
+    "type": "property",
+    "status": "fails",
     "property_index": {"numerator": 0, "denominator": 1},
     "timestamp": {"numerator": 4523000, "denominator": 1},
     "reason": "Always violated",
-    "signal_name": "VehicleSpeed",      # enriched
-    "actual_value": 225.5,              # enriched
-    "condition": "never_exceeds(220)"   # enriched
+    "signals": {"VehicleSpeed": 225.5},    # enriched
+    "formula": "always(VehicleSpeed < 220)",  # enriched
+    "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))"  # enriched
 }
 ```
 
@@ -378,7 +376,7 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc)
 
     # Extract signals from a frame
-    result = client.extract_signals(can_id=0x100, data=frame_bytes)
+    result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
     speed = result.get("VehicleSpeed", default=0.0)
 
     # Build a frame from signal values
@@ -386,7 +384,7 @@ with AletheiaClient() as client:
 
     # Update specific signals in an existing frame
     modified = client.update_frame(
-        can_id=0x100, frame=frame, signals={"VehicleSpeed": 130.0}
+        can_id=0x100, dlc=8, frame=frame, signals={"VehicleSpeed": 130.0}
     )
 ```
 
@@ -404,12 +402,12 @@ checks = load_checks("checks.yaml")
 checks.append(Check.signal("Speed").never_exceeds(220))
 
 # Add a raw DSL property (wrap in CheckResult for metadata)
-from aletheia.checks import CheckResult
+from aletheia import CheckResult
 prop = Signal("Temp").between(-40, 215).always()
-checks.append(CheckResult(prop, name="Temp range"))
+checks.append(CheckResult(prop).named("Temp range"))
 
 # All used the same way
-client.set_properties([c.to_dict() for c in checks])
+client.add_checks(checks)
 ```
 
 ---

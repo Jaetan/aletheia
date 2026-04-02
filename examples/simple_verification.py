@@ -53,13 +53,13 @@ def main() -> int:
 
             # Frame 1: Normal engine status (Speed=2000rpm, Temp=90C)
             frame1 = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-            response1 = client.send_frame(timestamp=100, can_id=0x100, data=frame1)
-            print(f"  t=100ms, ID=0x100: {response1}")
+            response1 = client.send_frame(timestamp=100, can_id=0x100, dlc=8, data=frame1)
+            print(f"  t=100µs, ID=0x100: {response1}")
 
             # Frame 2: Normal brake status (Pressure=50bar, Pressed=1)
             frame2 = bytearray([0xF4, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00])
-            response2 = client.send_frame(timestamp=200, can_id=0x200, data=frame2)
-            print(f"  t=200ms, ID=0x200: {response2}")
+            response2 = client.send_frame(timestamp=200, can_id=0x200, dlc=8, data=frame2)
+            print(f"  t=200µs, ID=0x200: {response2}")
 
             client.end_stream()
             print("\nVerification complete")

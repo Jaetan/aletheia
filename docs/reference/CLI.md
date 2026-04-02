@@ -32,7 +32,7 @@ python -m aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LO
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `LOGFILE` | yes | CAN log file (.asc, .blf, .csv, .log, .mf4, .trc; .gz compressed supported) |
+| `LOGFILE` | yes | CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc; .gz compressed supported) |
 | `--dbc FILE` | \* | .dbc file (or .xlsx with DBC sheet) for signal definitions |
 | `--checks FILE` | \* | .yaml or .xlsx file with check definitions |
 | `--excel FILE` | \* | .xlsx workbook containing both DBC and Checks sheets |
@@ -54,10 +54,10 @@ Streaming 12450 frames...
 RESULT: 2 violations found
 
   1. [t=4523.000ms] Speed limit (safety)
-     Always violated
+     VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))
 
   2. [t=8100.500ms] Brake response (safety)
-     Always violated
+     BrakePressure = 0 (formula: always(BrakePressure > 0))
 
 Summary: 2 violations in 3 checks, 12450 frames processed
 ```
@@ -77,7 +77,7 @@ Summary: 2 violations in 3 checks, 12450 frames processed
       "reason": "Always violated",
       "signal_name": "VehicleSpeed",
       "actual_value": 225.5,
-      "condition": "never_exceeds(220)"
+      "condition": "always(VehicleSpeed < 220)"
     }
   ]
 }
@@ -109,9 +109,9 @@ python -m aletheia validate [--dbc FILE] [--excel FILE] [--json]
 ```
 Validation FAILED: 2 errors, 1 warnings
 
-  1. [ERROR] OVERLAP: Signals 'Speed' and 'RPM' overlap in message 'EngineData'
-  2. [ERROR] ZERO_LENGTH: Signal 'Unused' has zero bit length in message 'Status'
-  3. [WARNING] NO_SIGNALS: Message 'Empty' has no signals defined
+  1. [ERROR] signal_overlap: Signals 'Speed' and 'RPM' overlap in message 'EngineData'
+  2. [ERROR] bit_length_zero: Signal 'Unused' has zero bit length in message 'Status'
+  3. [WARNING] empty_message: Message 'Empty' has no signals defined
 
 ```
 
@@ -125,13 +125,11 @@ Validation passed: no issues found
 {
   "status": "fail",
   "has_errors": true,
-  "total_issues": 2,
+  "total_issues": 3,
   "issues": [
-    {
-      "severity": "error",
-      "code": "OVERLAP",
-      "detail": "Signals 'Speed' and 'RPM' overlap in message 'EngineData'"
-    }
+    {"severity": "error", "code": "signal_overlap", "detail": "Signals 'Speed' and 'RPM' overlap in message 'EngineData'"},
+    {"severity": "error", "code": "bit_length_zero", "detail": "Signal 'Unused' has zero bit length in message 'Status'"},
+    {"severity": "warning", "code": "empty_message", "detail": "Message 'Empty' has no signals defined"}
   ]
 }
 ```
@@ -233,6 +231,7 @@ Supported via [python-can](https://python-can.readthedocs.io/):
 | `.asc` | Vector ASCII |
 | `.blf` | Vector Binary Logging Format |
 | `.csv` | Comma-separated values |
+| `.db` | SQLite database |
 | `.log` | candump log |
 | `.mf4` | ASAM MDF4 |
 | `.trc` | PEAK TRC |

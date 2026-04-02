@@ -85,7 +85,7 @@ The Go binding (`go/`) wraps `libaletheia-ffi.so` via cgo + `dlopen`. It has no 
 | cgo (`CGO_ENABLED=1`) | C interop for `dlopen`/`dlsym` calls |
 | libdl (`-ldl`) | Dynamic loader (part of glibc, always present) |
 
-Requires Go 1.23+.
+Requires Go 1.24+.
 
 ---
 

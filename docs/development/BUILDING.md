@@ -1,7 +1,7 @@
 # Building Aletheia
 
 ---
-**Version**: 1.0.0
+**Version**: 1.1.1
 **Last Updated**: 2026-03-23
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
@@ -110,7 +110,7 @@ agda test.agda
 #### 5. Python
 
 **Minimum version: 3.12** (required by package dependencies)
-**Recommended: 3.13.7** (latest stable)
+**Recommended: 3.13** (latest stable)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
@@ -119,13 +119,13 @@ The project uses modern Python type hints with `from __future__ import annotatio
 python3 --version
 # Should output: Python 3.12.0 or higher
 
-# If you need to install Python 3.13.7:
+# If you need to install Python 3.13:
 # - On Ubuntu/Debian: Use deadsnakes PPA
 # - On macOS: Use Homebrew or pyenv
 # - On other systems: Download from python.org
 ```
 
-**Installing Python 3.13.7 on Ubuntu/Debian**:
+**Installing Python 3.13 on Ubuntu/Debian**:
 ```bash
 sudo apt-get update
 sudo apt-get install software-properties-common
@@ -134,15 +134,15 @@ sudo apt-get update
 sudo apt-get install python3.13 python3.13-venv python3.13-dev
 ```
 
-**Installing Python 3.13.7 on macOS**:
+**Installing Python 3.13 on macOS**:
 ```bash
 # Using Homebrew
 brew install python@3.13
 
 # Or using pyenv (recommended for multiple versions)
 brew install pyenv
-pyenv install 3.13.7
-pyenv global 3.13.7
+pyenv install 3.13
+pyenv global 3.13
 ```
 
 #### 6. CMake (for C++ binding only)
@@ -155,6 +155,17 @@ cmake --version
 ```
 
 Only needed if building the C++ binding (`cpp/`). Not required for Agda/Python development.
+
+#### 7. Go (for Go binding only)
+
+**Version**: 1.24+ required
+
+```bash
+go version
+# Should output: go version go1.24 or higher
+```
+
+Only needed if building/testing the Go binding (`go/`). Not required for Agda/Python/C++ development.
 
 ## Building Aletheia
 
@@ -239,7 +250,7 @@ cd ..
 
 # Verify installation
 python3 -c "import aletheia; print(aletheia.__version__)"
-# Should output: 1.0.0
+# Should output: 1.1.1
 ```
 
 ### 6. Run Tests

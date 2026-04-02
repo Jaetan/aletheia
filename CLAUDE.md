@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through a Python API.
+Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through Python, C++, and Go APIs.
 
 **Current Phase**: See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status
 
@@ -126,7 +126,7 @@ Core packages:
 - **Parser/**: Parser combinators and string utilities
 - **CAN/**: CAN frame encoding/decoding
 - **DBC/**: DBC file parser
-- **LTL/**: Linear Temporal Logic (Syntax, Evaluation, Incremental, Semantics, Adequacy, Coalgebra)
+- **LTL/**: Linear Temporal Logic (Syntax, Incremental, Semantics, Adequacy, Coalgebra, SignalPredicate, SimplifySound, Reachable, JSON)
 - **Trace/**: Trace types and streaming
 - **Protocol/**: JSON protocol and streaming state machine
 
@@ -136,8 +136,8 @@ Core packages:
 
 1. **Design in Agda**: Define types and properties in appropriate module
 2. **Implement with proofs**: Write code and prove correctness
-3. **Build and test**: `cabal run shake -- build` then test binary
-4. **Update Python API** (if needed): Add convenience functions
+3. **Build and test**: `cabal run shake -- build` then test shared library
+4. **Update language bindings** (if needed): Add convenience functions
 5. **Add examples**: Create test cases in `examples/`
 
 ### Typical Iteration Cycle
@@ -158,14 +158,14 @@ cd python && python3 -m pytest tests/ -v
 
 ### Incremental Builds
 
-Shake tracks dependencies automatically. After modifying an Agda file, only affected modules are recompiled. First build compiles the entire standard library (~60s), but subsequent builds are much faster (~5-15s for changes).
+Shake tracks dependencies automatically. After modifying an Agda file, only affected modules are recompiled. First full build takes ~60s (stdlib ~20s + project modules), but subsequent builds are much faster (~5-15s for changes).
 
 ## Key Files
 
 - **aletheia.agda-lib**: Agda library configuration (depends on standard-library-2.3)
 - **Shakefile.hs**: Custom build system orchestrating Agda → Haskell → shared library
 - **haskell-shim/aletheia.cabal**: Haskell package definition (includes `foreign-library aletheia-ffi`)
-- **haskell-shim/src/AletheiaFFI.hs**: FFI exports for Python ctypes integration
+- **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++ and Go dlopen)
 - **python/pyproject.toml**: Python package configuration
 - **cpp/CMakeLists.txt**: C++23 binding build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
 
@@ -232,12 +232,12 @@ The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
 ### Haskell FFI Layer
 
 The Haskell FFI layer is a single file:
-- **AletheiaFFI.hs** (67 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
+- **AletheiaFFI.hs** (~130 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
 
 **Design**:
-- AletheiaFFI.hs wraps `processJSONLine` with C-callable exports
+- AletheiaFFI.hs wraps `processJSONLine` (JSON commands) and `processFrameDirect` (binary data frames via `aletheia_send_frame`) with C-callable exports
 - State managed via `StablePtr (IORef StreamState)`
-- Python loads the `.so` via ctypes — no subprocess overhead
+- All bindings load the `.so` via ctypes/dlopen — no subprocess overhead
 - Never add business logic here
 
 ### Module Organization
@@ -292,7 +292,7 @@ combined = list1 ++ₗ list2
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 - Optional Extensions. CAN-FD support complete. Cross-language benchmark suite complete (Python, C++, Go — throughput, latency, scaling with JSON output + comparison script). Hot-path optimized: ack fast path + direct string serialization in C++ and Go. Binary frame API complete (4.3x CAN 2.0B, 9.1x CAN-FD gain). **Code review rounds**: Agda 7 batches (23 fixes + pipeline soundness proof), Python 11 rounds (532 tests), C++ 11 rounds (5 test suites, clang-format + clang-tidy gates), Go 23 rounds (233 tests). C++/Go DBC signal types redesigned from `double` to `Rational`; hash map indexes for O(1) DBC lookups. Formula depth limits in all 3 bindings. AGENTS.md rewritten with origin-blind finding rules + backward-compat prohibition. Pipeline adequacy proven. 67 Agda modules total. **Cross-language parity**: RTS cores, structured logging (12 events), YAML/Excel loaders — four-tier check interface complete across all three bindings. **Latest review round (R5-R11)**: [[nodiscard]] + static_assert on C++ client, lo>hi validation in Check API (all 3), Go parseRational truncation check, Python send_frame DLC validation.
+**Current**: Phase 5 — Optional Extensions. Binary frame API (4.3x CAN 2.0B, 9.1x CAN-FD), CAN-FD, C++/Go bindings, cross-language benchmarks all complete. Four-tier check interface with full cross-language parity. See PROJECT_STATUS.md for detailed metrics and review history.
 
 ---
 
@@ -316,8 +316,8 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in 53 of 55 Aletheia modules
-- `--without-K` ensures proofs are constructive (no axiom of choice)
+  - Used in all 67 Aletheia modules
+- `--without-K` disables Streicher's K axiom (uniqueness of identity proofs)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification
 
@@ -361,7 +361,7 @@ Types can depend on values:
 
 **Haskell:**
 - Style: Follow standard Haskell style
-- Keep it minimal: Haskell shim should stay <100 lines
+- Keep it minimal: Haskell shim should stay minimal (~130 lines)
 
 **C++:**
 - Standard: C++23, targets g++>=14 and clang>=21
@@ -392,18 +392,14 @@ docs(BUILDING): Add macOS-specific notes
 **Before Committing:**
 1. Ensure code type-checks: `agda +RTS -N32 -RTS src/Aletheia/Main.agda`
 2. Build succeeds: `cabal run shake -- build`
-3. Tests pass: `cd python && python3 -m pytest tests/ -v`
+3. Tests pass:
+   - Python: `cd python && python3 -m pytest tests/ -v`
+   - C++: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
+   - Go: `cd go && go test ./aletheia/ -v -count=1 -race`
 
 ---
 
 ## Current Session Progress
-
-Cross-language API review rounds 5-11 committed (7982caf). All prior work also committed:
-- **R5-R11**: 30+ fixes across Python, C++, Go (47 files, +1058/-345)
-- **5e2f86f**: YAML and Excel loaders for C++ and Go
-- **632b7e2**: Round 4 review — Rational types, hash-map indexes
-- Verification: Python 532 tests, C++ 5/5 suites, Go 233 tests — all pass
-- Working tree clean
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 

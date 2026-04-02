@@ -25,6 +25,8 @@ This file defines the review protocol for the Aletheia project. Every review rou
 3. Enter plan mode to collate findings into a single actionable plan. Present suspected false positives with justification; the user decides what to dismiss.
 4. Implement all approved fixes, then run the verification suite.
 
+**Cross-document pass (mandatory).** Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — they require comparing what multiple files say about the same topic. After the per-file review agents finish, launch a dedicated cross-document agent that: (a) identifies every fact stated in more than one file, (b) checks whether all copies agree, and (c) flags duplicated content that should be a cross-reference instead. This pass is separate from and in addition to the per-file rounds.
+
 ---
 
 ## Agda (16 categories)
@@ -242,7 +244,7 @@ cd python && pylint aletheia/
 
 ---
 
-## Documentation (14 categories)
+## Documentation (19 categories)
 
 Scope: ALL docs -- CLAUDE.md, PROJECT_STATUS.md, BUILDING.md, DESIGN.md, PITCH.md, README.md, and any other .md files.
 
@@ -263,10 +265,15 @@ Also applies to infrastructure changes (Shakefile, dist targets, packaging) sinc
 
 9. **Precision & terseness** -- documentation must be precise, concise, non-ambiguous, and terse. Flag verbose/vague/ambiguous language.
 
-### Deep (5)
+### Deep (9)
 
 10. **Structure & navigation** -- is there a clear reading path from "I just cloned this" to "I'm productive"?
 11. **Worked examples & error guidance** -- do guides cover real use cases, not just the happy path? When something goes wrong, do docs explain why and how to fix?
 12. **Decision rationale** -- are key design decisions explained where someone would naturally ask "why"?
 13. **Onboarding friction** -- walk through as a newcomer. What assumptions are unstated?
 14. **Hardcoded values & durability** -- counts, versions, performance numbers that will rot. Are they concentrated or scattered?
+15. **Code example testability** -- can every code snippet be copy-pasted and run? Check for wrong signatures, missing imports, undefined variables, wrong argument counts. Cross-check every call site against the actual API.
+16. **Qualifier accuracy** -- are numbers qualified with their conditions? Every benchmark needs language, protocol, and entry-point context. "~48,000 fps" without "C++, CAN 2.0B, binary FFI" is a finding.
+17. **Internal consistency** -- does a single file contradict itself? Different from category 3 (cross-document): this catches a file that states one thing in one section and the opposite in another.
+18. **Scope labels on aggregates** -- when a number aggregates sub-items, is the scope stated? "532 tests" without "Python-only" is a finding when the total is 900+.
+19. **Missing content & improvements** -- documentation that should exist but does not: missing troubleshooting sections, missing error guidance, missing design rationale, missing onboarding steps, missing recipes for common failure modes. These are findings, not suggestions — absent documentation is a defect when users would reasonably expect it.

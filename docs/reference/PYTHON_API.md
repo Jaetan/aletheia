@@ -1,7 +1,7 @@
 # Aletheia Python DSL Guide
 
 **Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
-**Version**: 1.0.0
+**Version**: 1.1.1
 **Last Updated**: 2026-03-19
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
@@ -29,9 +29,9 @@ with AletheiaClient() as client:
     client.start_stream()
 
     for frame in can_trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Violation at {ts}us")
             break
@@ -334,10 +334,10 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, data in frames:
-        response = client.send_frame(timestamp, can_id, data)
+    for timestamp, can_id, dlc, data in frames:
+        response = client.send_frame(timestamp, can_id, dlc, data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Speed limit exceeded at {ts}us")
             break
@@ -370,9 +370,9 @@ with AletheiaClient() as client:
     client.start_stream()
 
     for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             prop_idx = response["property_index"]["numerator"]
             ts = response["timestamp"]["numerator"]
             print(f"Property {prop_idx} violated at {ts}us")
@@ -399,9 +399,9 @@ with AletheiaClient() as client:
 
     violations = []
     for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             violations.append(response["timestamp"]["numerator"])
 
     client.end_stream()
@@ -435,9 +435,9 @@ with AletheiaClient() as client:
     client.start_stream()
 
     for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Invalid power mode transition at {ts}us")
             break
@@ -469,13 +469,13 @@ with AletheiaClient(default_checks=safety_checks) as client:
     client.parse_dbc(dbc_json)
 
     # Signal operations work anytime after DBC loaded
-    result = client.extract_signals(can_id=0x100, data=frame_bytes)
+    result = client.extract_signals(can_id=0x100, dlc=8, data=frame_bytes)
 
     # Streaming LTL checking
     client.add_checks(session_checks)  # merges defaults + session
     client.start_stream()
     for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
     client.end_stream()
 # State freed, RTS reference released
 ```
@@ -484,18 +484,17 @@ with AletheiaClient(default_checks=safety_checks) as client:
 
 #### `close() -> None`
 
-Explicitly free state and release RTS reference. Called automatically when using the context manager (`with` block). Call manually if not using a context manager.
+Explicitly free state and release RTS reference. Called automatically when using the context manager (`with` block).
 
 ```python
-client = AletheiaClient()
-try:
+# Preferred: context manager handles close() automatically
+with AletheiaClient() as client:
     client.parse_dbc(dbc)
     # ... work ...
-finally:
-    client.close()
+# close() called automatically on exit
 ```
 
-#### `parse_dbc(dbc_json: Dict) -> Dict`
+#### `parse_dbc(dbc: DBCDefinition) -> SuccessResponse | ErrorResponse`
 
 Load DBC structure from JSON dictionary. Must be called first.
 
@@ -509,7 +508,7 @@ assert response["status"] == "success"
 
 #### `validate_dbc(dbc: DBCDefinition) -> ValidationResponse`
 
-Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.). Can be called anytime after `parse_dbc()`.
+Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.). Can be called anytime — does not require `parse_dbc()` and does not modify client state.
 
 ```python
 result = client.validate_dbc(dbc)
@@ -518,14 +517,23 @@ if result["has_errors"]:
         print(f"[{issue['severity']}] {issue['code']}: {issue['detail']}")
 ```
 
-**Returns**: `{"has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+**Returns**: `{"status": "validation", "has_errors": bool, "issues": [{"severity": str, "code": str, "detail": str}, ...]}`
+
+#### `format_dbc() -> DBCDefinition`
+
+Export the currently-loaded DBC as a JSON dict. Requires a prior `parse_dbc()` call.
+
+```python
+dbc_out = client.format_dbc()
+# dbc_out matches the DBCDefinition schema
+```
 
 #### `add_checks(checks: list[CheckResult]) -> SuccessResponse | ErrorResponse`
 
-Set LTL checks, merging with default checks from the constructor. Calls `set_properties()` + `set_check_diagnostics()` atomically.
+Set LTL checks, merging with default checks from the constructor. Calls `set_properties()` which auto-derives enrichment diagnostics.
 
 ```python
-from aletheia.checks import Check
+from aletheia import Check
 
 checks = [
     Check.signal("Speed").never_exceeds(220),
@@ -537,7 +545,7 @@ assert response["status"] == "success"
 
 This is the preferred way to set checks when using the Check API or YAML/Excel loaders.
 
-#### `set_properties(properties: List[Dict]) -> Dict`
+#### `set_properties(properties: list[LTLFormula]) -> SuccessResponse | ErrorResponse`
 
 Set LTL properties to check (use `.to_dict()` on DSL properties).
 
@@ -551,7 +559,7 @@ response = client.set_properties([p.to_dict() for p in properties])
 assert response["status"] == "success"
 ```
 
-#### `start_stream() -> Dict`
+#### `start_stream() -> SuccessResponse | ErrorResponse`
 
 Begin streaming mode for LTL checking.
 
@@ -560,14 +568,16 @@ response = client.start_stream()
 assert response["status"] == "success"
 ```
 
-#### `send_frame(timestamp: int, can_id: int, data: bytearray | List[int]) -> Dict`
+#### `send_frame(timestamp: int, can_id: int, dlc: int, data: bytearray, *, extended: bool = False) -> AckResponse | PropertyViolationResponse | ErrorResponse`
 
 Send a CAN frame for incremental checking.
 
 **Parameters**:
 - `timestamp`: Microseconds (integer)
 - `can_id`: 0-2047 (standard) or 0-536870911 (extended)
-- `data`: Payload as `bytearray` or `list[int]` (values 0-255, length matches DLC)
+- `dlc`: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
+- `data`: Payload as `bytearray` (should match `dlc_to_bytes(dlc)`; mismatch is caught by the FFI)
+- `extended`: `True` for 29-bit extended CAN IDs (default `False`)
 
 **Returns** (acknowledged):
 ```python
@@ -578,7 +588,7 @@ Send a CAN frame for incremental checking.
 ```python
 {
     "type": "property",
-    "status": "violation",
+    "status": "fails",
     "property_index": {"numerator": 0, "denominator": 1},
     "timestamp": {"numerator": 1000, "denominator": 1},
     "reason": "Always violated"   # optional, may be absent
@@ -587,23 +597,23 @@ Send a CAN frame for incremental checking.
 
 **Note**: `property_index` and `timestamp` are rational numbers (`{"numerator": N, "denominator": 1}`). Access the integer value via `["numerator"]` — the denominator is always 1.
 
-#### `send_frames_batch(frames: list[tuple[int, int, bytearray]]) -> list[Dict]`
+#### `send_frames_batch(frames: list[tuple[int, int, int, bytearray]], *, extended: bool = False) -> list[FrameResponse]`
 
 Send multiple CAN frames in a batch. Convenience wrapper around `send_frame()`.
 
 ```python
 frames = [
-    (1000, 0x100, bytearray(b'\x20\x1C\x00\x00\x00\x00\x00\x00')),
-    (2000, 0x100, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00')),
+    (1000, 0x100, 8, bytearray(b'\x20\x1C\x00\x00\x00\x00\x00\x00')),
+    (2000, 0x100, 8, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00')),
 ]
 responses = client.send_frames_batch(frames)
-violations = [r for r in responses if r["status"] == "violation"]
+violations = [r for r in responses if r["status"] == "fails"]
 ```
 
-**Parameters**: List of `(timestamp_us, can_id, data)` tuples.
+**Parameters**: List of `(timestamp_us, can_id, dlc, data)` tuples.
 **Returns**: List of responses in same order as input frames.
 
-#### `end_stream() -> Dict`
+#### `end_stream() -> CompleteResponse | ErrorResponse`
 
 End streaming and get final results.
 
@@ -618,12 +628,12 @@ assert response["status"] == "complete"
 
 Signal operations work anytime after DBC is loaded - both inside and outside streaming mode.
 
-#### `extract_signals(can_id: int, data: bytearray) -> SignalExtractionResult`
+#### `extract_signals(can_id: int, dlc: int, data: bytearray, *, extended: bool = False) -> SignalExtractionResult`
 
 Extract all signals from a CAN frame.
 
 ```python
-result = client.extract_signals(can_id=0x100, data=bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0]))
+result = client.extract_signals(can_id=0x100, dlc=8, data=bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0]))
 speed = result.get("VehicleSpeed", default=0.0)
 print(f"Speed: {speed} kph")
 
@@ -635,7 +645,7 @@ if result.has_errors():
 print(f"Absent: {result.absent}")
 ```
 
-#### `update_frame(can_id: int, frame: bytearray, signals: dict[str, float]) -> bytearray`
+#### `update_frame(can_id: int, dlc: int, frame: bytearray, signals: dict[str, float], *, extended: bool = False) -> bytearray`
 
 Update specific signals in an existing frame. Returns a new frame (immutable).
 
@@ -643,13 +653,14 @@ Update specific signals in an existing frame. Returns a new frame (immutable).
 original = bytearray([0x20, 0x1C, 0, 0, 0, 0, 0, 0])
 modified = client.update_frame(
     can_id=0x100,
+    dlc=8,
     frame=original,
     signals={"VehicleSpeed": 130.0}
 )
 # original unchanged, modified has new speed value
 ```
 
-#### `build_frame(can_id: int, signals: dict[str, float]) -> bytearray`
+#### `build_frame(can_id: int, signals: dict[str, float], *, dlc: int = 8, extended: bool = False) -> bytearray`
 
 Build a CAN frame from signal values (starts with zero-filled frame).
 
@@ -705,10 +716,10 @@ except FileNotFoundError as e:
 ### Invalid Frame Data
 
 ```python
-try:
-    response = client.send_frame(1000, 256, dlc=8, data=[0xFF, 0xFF])  # Only 2 bytes, DLC expects 8!
-except ValueError as e:
-    print(f"Error: {e}")  # "Data length 2 does not match DLC 8 (expected 8 bytes)"
+# Data length vs DLC mismatch is caught by the FFI, not client-side
+response = client.send_frame(1000, 256, dlc=8, data=bytearray([0xFF, 0xFF]))  # Only 2 bytes, DLC expects 8
+if response.get("status") == "error":
+    print(f"Error: {response['message']}")
 ```
 
 ### Signal Not Found
@@ -741,9 +752,9 @@ with AletheiaClient() as client:
     client.start_stream()
 
     for frame in read_trace_incrementally("huge_trace.log"):
-        response = client.send_frame(frame.timestamp, frame.id, frame.data)
+        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
 
-        if response.get("status") == "violation":
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"First violation at {ts}us")
             break  # Early termination
@@ -833,7 +844,7 @@ Load all CAN frames from a log file into memory.
 from aletheia.can_log import load_can_log
 
 frames = load_can_log("drive.blf")
-# frames is list[(timestamp_us, arbitration_id, bytearray)]
+# frames is list[(timestamp_us, arbitration_id, dlc, data)]
 ```
 
 ### `iter_can_log(path, **kwargs) -> Iterator[CANFrameTuple]`
@@ -843,18 +854,17 @@ Lazily iterate CAN frames from a log file (O(1) memory).
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, data in iter_can_log("highway.asc"):
-    response = client.send_frame(ts, can_id, data)
+for ts, can_id, dlc, data in iter_can_log("highway.asc"):
+    response = client.send_frame(ts, can_id, dlc, data)
 ```
 
 **Parameters** (both functions):
-- `path`: Path to CAN log file (.asc, .blf, .csv, .log, .mf4, .trc)
+- `path`: Path to CAN log file (.asc, .blf, .csv, .db, .log, .mf4, .trc)
 - `skip_error_frames`: Skip CAN error frames (default `True`)
 - `skip_remote_frames`: Skip remote transmission requests (default `True`)
-- `strict_dlc`: Raise `ValueError` if data length doesn't match DLC (default `False`; pads/truncates)
 - `on_error`: `"skip"` (default) or `"raise"` for corrupt frames
 
-**Supported formats**: `.asc`, `.blf`, `.csv`, `.log`, `.mf4`, `.trc` (via python-can).
+**Supported formats**: `.asc`, `.blf`, `.csv`, `.db`, `.log`, `.mf4`, `.trc` (via python-can).
 
 **Compressed files**: Gz-compressed log files (e.g., `.asc.gz`, `.blf.gz`) are supported transparently — the format is detected from the inner extension.
 
@@ -862,32 +872,22 @@ for ts, can_id, data in iter_can_log("highway.asc"):
 
 ## Enriched Violations
 
-Register check metadata for automatic violation enrichment.
-
-### `set_check_diagnostics(checks: list[CheckResult]) -> None`
-
-Call after `set_properties()` with the same check list:
-
-```python
-client.set_properties([c.to_dict() for c in checks])
-client.set_check_diagnostics(checks)
-```
-
-When enabled, `send_frame()` violation responses include extra fields:
+When checks are registered via `set_properties()` (or `add_checks()`), violation responses from `send_frame()` are automatically enriched with signal data:
 
 ```python
 {
-    "status": "violation",
+    "type": "property",
+    "status": "fails",
     "property_index": {"numerator": 0, "denominator": 1},
     "timestamp": {"numerator": 4523000, "denominator": 1},
     "reason": "Always violated",
-    "signal_name": "VehicleSpeed",       # enriched
-    "actual_value": 225.5,               # enriched
-    "condition": "never_exceeds(220)"    # enriched
+    "signals": {"VehicleSpeed": 225.5},    # enriched: extracted signal values
+    "formula": "always(VehicleSpeed < 220)",  # enriched: formula description
+    "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))"  # enriched
 }
 ```
 
-Without diagnostics, only `property_index`, `timestamp`, and `reason` are present.
+Without registered checks, only `property_index`, `timestamp`, and `reason` are present.
 
 ---
 
@@ -898,14 +898,15 @@ All Aletheia exceptions inherit from a common base class:
 ```
 AletheiaError (base)
 ├── ProcessError     # FFI or shared library errors (library not found, init failure)
-└── ProtocolError    # Protocol errors (invalid JSON, missing response, bad state)
+├── ProtocolError    # Protocol errors (invalid JSON, missing response, bad state)
+└── BatchError       # send_frames_batch stopped mid-batch; carries .partial_results
 ```
 
 ```python
-from aletheia.client import AletheiaError, ProcessError, ProtocolError
+from aletheia.client import AletheiaError, ProcessError, ProtocolError, BatchError
 
 try:
-    client.parse_dbc(dbc_json)
+    client.parse_dbc(dbc)
 except ProcessError:
     # Shared library failed to load or initialize
     ...
@@ -916,6 +917,48 @@ except AletheiaError:
     # Catch-all for any Aletheia error
     ...
 ```
+
+---
+
+## Utility Functions
+
+These are importable from the top-level `aletheia` package.
+
+#### `dlc_to_bytes(dlc: int) -> int`
+
+Convert a DLC code (0-15) to payload byte count. CAN 2.0B: DLC 0-8 maps directly. CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
+
+#### `bytes_to_dlc(byte_count: int) -> int`
+
+Convert a byte count to the corresponding DLC code. Inverse of `dlc_to_bytes()`.
+
+#### `dbc_to_text(dbc: DBCDefinition) -> str`
+
+Convert a `DBCDefinition` dict to DBC file text format.
+
+#### DBC Query Helpers
+
+Operate on `DBCMessage` / `DBCDefinition` TypedDicts from `aletheia.protocols`:
+
+```python
+from aletheia import message_by_id, is_multiplexed, always_present_signals
+
+msg = message_by_id(dbc, 0x100)
+if msg and is_multiplexed(msg):
+    print(always_present_signals(msg))
+```
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `is_multiplexed` | `(msg) -> bool` | True if message has multiplexed signals |
+| `always_present_signals` | `(msg) -> list[DBCSignal]` | Signals present in every frame |
+| `multiplexed_signals` | `(msg) -> list[DBCSignal]` | Conditionally-present signals |
+| `multiplexor_names` | `(msg) -> list[str]` | Distinct multiplexor signal names |
+| `mux_values` | `(msg, multiplexor) -> list[int]` | Multiplex values for a multiplexor |
+| `signals_for_mux_value` | `(msg, multiplexor, value) -> list[DBCSignal]` | Signals present for a given mux value |
+| `message_by_id` | `(dbc, can_id, *, extended=False) -> DBCMessage \| None` | Look up message by CAN ID |
+| `message_by_name` | `(dbc, name) -> DBCMessage \| None` | Look up message by name |
+| `signal_by_name` | `(msg, name) -> DBCSignal \| None` | Look up signal by name |
 
 ---
 

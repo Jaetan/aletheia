@@ -1,7 +1,7 @@
 # Distributing Aletheia
 
 ---
-**Version**: 1.0.0
+**Version**: 1.1.1
 **Last Updated**: 2026-03-23
 **Platform**: Linux x86-64 only
 ---
@@ -144,7 +144,7 @@ int main(void) {
 
     void *session = aletheia_init();
     char *response = aletheia_process(session,
-        "{\"command\":\"parseDBC\",\"args\":{\"dbc\":{\"messages\":[]}}}");
+        "{\"type\":\"command\",\"command\":\"parseDBC\",\"dbc\":{\"messages\":[]}}");
     printf("%s\n", response);
 
     aletheia_free_str(response);
@@ -153,6 +153,8 @@ int main(void) {
     return 0;
 }
 ```
+
+`aletheia_process()` handles JSON commands (parseDBC, setProperties, startStream, etc.). To send CAN data frames during streaming, use `aletheia_send_frame()` — a separate binary entry point that passes frame components as C values. See `aletheia.h` for the full signature and [PROTOCOL.md](../architecture/PROTOCOL.md) for details.
 
 ### C++ (with the aletheia-cpp binding)
 
@@ -189,7 +191,7 @@ The GHC runtime `.so` files are found automatically via `RPATH=$ORIGIN` on `liba
 
 ### Go
 
-The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via cgo. Requires Go 1.23+ and `CGO_ENABLED=1`.
+The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via cgo. Requires Go 1.24+ and `CGO_ENABLED=1`.
 
 #### Usage
 

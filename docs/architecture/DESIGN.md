@@ -1,9 +1,9 @@
 # Aletheia (Ἀλήθεια) Design Document
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
-**Version**: 1.0.0
+**Version**: 1.1.1
 **Status**: Phase 5 - Optional Extensions (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
-**Last Updated**: 2026-03-25
+**Last Updated**: 2026-04-02
 
 ## Project Overview
 
@@ -29,14 +29,14 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 ```
 ┌─────────────────────────────────────────┐
-│ Python Layer (python/)                  │
-│ - User-facing API (AletheiaClient)      │
-│ - Four interface tiers:                 │
+│ Language Bindings                       │
+│ - Python (python/): ctypes, JSON + binary│
+│ - C++ (cpp/): dlopen, JSON + binary     │
+│ - Go (go/): cgo + dlopen, JSON + binary │
+│ - Four interface tiers per binding:     │
 │   Check API / YAML / Excel / DSL        │
-│ - Loads shared library via ctypes       │
-│ - JSON protocol over FFI calls          │
 └──────────────┬──────────────────────────┘
-               │ ctypes FFI (JSON strings)
+               │ FFI (JSON commands + binary frames)
 ┌──────────────▼──────────────────────────┐
 │ Haskell FFI (haskell-shim/)             │
 │ - AletheiaFFI.hs: foreign export ccall  │
@@ -53,21 +53,20 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - DBC parser                            │
 │ - LTL model checker                     │
 │ - All correctness proofs                │
-│ - 42/44 modules use --safe flag         │
-│ - 2 coinductive modules use --sized-types│
+│ - All 67 modules use --safe --without-K │
 └─────────────────────────────────────────┘
 ```
 
-**Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell or Python layers.
+**Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell, Python, C++, or Go layers. Client-side enrichment (formula descriptions, violation formatting) is convenience logic in the binding layers.
 
 ## Streaming Protocol
 
 **Phase 2B** implements a JSON-based streaming protocol for processing large CAN traces with O(1) memory.
 
 **Key Design**:
-- JSON protocol over direct FFI calls (ctypes → shared library)
+- JSON protocol over direct FFI calls (ctypes/dlopen → shared library)
 - No subprocess or IPC overhead — function calls within the same process
-- Sequential message processing (no threading)
+- Sequential processing per session (multiple independent sessions supported)
 - Incremental LTL checking with immediate violation reporting
 
 See [PROTOCOL.md](PROTOCOL.md) for complete protocol specification, message types, and state machine details.

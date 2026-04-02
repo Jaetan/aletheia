@@ -8,7 +8,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
 - **CAN Frame Processing**: Proven correct encoding/decoding catches endianness, bit-shift, and sign-extension bugs at compile time
-- **LTL Verification**: Streaming model checker with constant memory (~9,700 fps) — scales to gigabyte-size traces without slowdown
+- **LTL Verification**: Streaming model checker with constant memory (42,000–48,000 fps CAN 2.0B via binary FFI across Python/C++/Go) — scales to gigabyte-size traces without slowdown
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
 - **Python Interface**: Runs in-process via shared library (ctypes FFI) — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
@@ -43,9 +43,9 @@ with AletheiaClient() as client:
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, data in can_trace:
-        response = client.send_frame(timestamp, can_id, data)
-        if response.get("status") == "violation":
+    for timestamp, can_id, dlc, data in can_trace:
+        response = client.send_frame(timestamp, can_id, dlc, data)
+        if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Violation at {ts}us")
 
@@ -87,11 +87,11 @@ with AletheiaClient() as client:
     frame = client.build_frame(can_id=0x100, signals={"Speed": 72.0})
 
     # Extract signals from a frame
-    result = client.extract_signals(can_id=0x100, data=frame)
-    speed = result.get("Speed")  # 72.0
+    result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
+    speed = result.get("Speed", default=0.0)  # 72.0
 
     # Update specific signals in a frame
-    modified = client.update_frame(can_id=0x100, frame=frame, signals={"Speed": 130.0})
+    modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130.0})
 ```
 
 ## Project Structure
@@ -100,7 +100,11 @@ with AletheiaClient() as client:
 aletheia/
 ├── src/Aletheia/        # Agda core (formal verification)
 ├── haskell-shim/        # Minimal I/O layer
-├── python/              # User-facing Python API
+├── include/             # C header (aletheia.h)
+├── python/              # Python API
+├── cpp/                 # C++23 binding
+├── go/                  # Go binding
+├── benchmarks/          # Cross-language benchmarks
 ├── docs/                # Documentation
 └── examples/            # Sample DBC files and demos
 ```

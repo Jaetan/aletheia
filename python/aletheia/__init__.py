@@ -78,7 +78,7 @@ from .dbc_queries import (
 )
 from .yaml_loader import load_checks
 
-__version__ = "1.0.0"
+__version__ = "1.1.1"
 __all__ = [
     # Client
     "AletheiaClient",
