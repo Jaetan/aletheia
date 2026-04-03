@@ -140,10 +140,12 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 		}
 		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": float64(p.Min), "max": float64(p.Max)}, nil
 	case ChangedBy:
-		if p.Delta < 0 {
-			return nil, validationError(fmt.Sprintf("negative delta: %g", float64(p.Delta)))
-		}
 		return map[string]any{"predicate": "changedBy", "signal": string(p.Signal), "delta": float64(p.Delta)}, nil
+	case StableWithin:
+		if p.Tolerance < 0 {
+			return nil, validationError(fmt.Sprintf("negative tolerance: %g", float64(p.Tolerance)))
+		}
+		return map[string]any{"predicate": "stableWithin", "signal": string(p.Signal), "tolerance": float64(p.Tolerance)}, nil
 	default:
 		return nil, validationError(fmt.Sprintf("unsupported predicate type %T", p))
 	}

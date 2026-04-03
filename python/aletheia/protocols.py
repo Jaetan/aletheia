@@ -62,6 +62,7 @@ class PredicateType(str, Enum):
     GREATER_THAN_OR_EQUAL = "greaterThanOrEqual"
     BETWEEN = "between"
     CHANGED_BY = "changedBy"
+    STABLE_WITHIN = "stableWithin"
 
 
 # ============================================================================
@@ -173,10 +174,21 @@ class BetweenPredicate(TypedDict):
 
 
 class ChangedByPredicate(TypedDict):
-    """ChangedBy predicate: |signal_now - signal_prev| > delta"""
+    """ChangedBy predicate: directional change detection.
+
+    Positive delta: curr - prev >= delta (increased by at least delta)
+    Negative delta: curr - prev <= delta (decreased by at least |delta|)
+    """
     predicate: Literal["changedBy"]
     signal: str
     delta: float
+
+
+class StableWithinPredicate(TypedDict):
+    """StableWithin predicate: |signal_now - signal_prev| <= tolerance"""
+    predicate: Literal["stableWithin"]
+    signal: str
+    tolerance: float
 
 
 SignalPredicate = (
@@ -186,7 +198,8 @@ SignalPredicate = (
     LessThanOrEqualPredicate |
     GreaterThanOrEqualPredicate |
     BetweenPredicate |
-    ChangedByPredicate
+    ChangedByPredicate |
+    StableWithinPredicate
 )
 
 

@@ -1,6 +1,7 @@
 # Aletheia: Project Pitch
 
 **Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
+**Last Updated**: 2026-04-03
 
 LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 
@@ -34,9 +35,15 @@ Testing CAN frame processing is error-prone:
 
 Aletheia provides:
 
-1. **Python API**: Familiar interface for automotive engineers
+1. **Multi-language APIs**: Familiar interfaces for automotive engineers
    ```python
-   speed_limit = Signal("Speed").less_than(220).always()
+   Check.signal("Speed").never_exceeds(220)                          # Python
+   ```
+   ```cpp
+   Check::signal("Speed").never_exceeds(PhysicalValue{220});         // C++
+   ```
+   ```go
+   CheckSignal("Speed").NeverExceeds(220)                            // Go
    ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
@@ -45,7 +52,7 @@ Aletheia provides:
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
-**Key insight**: You write Python. The proof burden lives in Agda. If the code type-checks, it's correct by construction.
+**Key insight**: You write Python, C++, or Go. The proof burden lives in Agda. If the code type-checks, it's correct by construction.
 
 ---
 
@@ -98,16 +105,10 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 | Risk | Impact | Likelihood | Mitigation |
 |------|--------|------------|------------|
-| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented in BUILDING.md. Works on Linux (tested Ubuntu/Debian). |
+| **Build complexity** | Requires Agda + GHC + Cabal | Low | Documented build process, tested on Ubuntu/Debian/WSL2. |
 | **Toolchain maturity** | Agda ecosystem smaller than Python | Low | Agda 2.8.0 is stable. GHC is industry-proven. Only standard library dependencies. |
-| **Performance** | Formal verification adds overhead | Low | Current: 42,000–48,000 fps CAN 2.0B (21–24 us/frame) via binary FFI across Python/C++/Go. Sufficient for 1 Mbps CAN bus real-time analysis. |
+| **Performance** | Formal verification adds overhead | Low | High-throughput streaming via binary FFI across all three bindings (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks). Sufficient for 1 Mbps CAN bus real-time analysis. |
 | **Agda learning curve** | Modifying core requires expertise | Medium | Python API is stable. Core changes rare. Can contract experts if needed. |
-
-**Mitigation**:
-- Python API provides stable interface (no Agda knowledge required for users)
-- Core logic is feature-complete for Phase 4 (changes infrequent)
-- Comprehensive documentation (BUILDING.md, CLAUDE.md, examples/)
-- Standard library dependencies only (no exotic packages)
 
 ### People Risks
 
@@ -117,12 +118,6 @@ Agda (all logic + proofs, compiled via MAlonzo)
 | **Hiring difficulty** | Agda experts are rare | Medium | Not needed for Python API users. For core development: remote contractors available, or train interested engineers. |
 | **Team resistance** | "Not invented here" / unfamiliar tech | Medium | Start with non-critical use cases. Demonstrate value before mandating adoption. |
 
-**Mitigation**:
-- Clear separation: Python users don't need Agda knowledge
-- Extensive documentation for future maintainers (BUILDING.md is 600+ lines)
-- AI assistant support (CLAUDE.md provides guidance to Claude Code for maintenance)
-- Open source (BSD 2-Clause) enables external contributions
-
 ### Legal/Compliance Risks
 
 | Risk | Impact | Likelihood | Mitigation |
@@ -131,44 +126,46 @@ Agda (all logic + proofs, compiled via MAlonzo)
 | **Patent issues** | Agda/GHC patents | Very Low | Agda is open source (MIT). GHC is open source (BSD 3-Clause). No known patent issues. |
 | **Regulatory acceptance** | Formal methods not in compliance checklist | Medium | Formal verification **strengthens** compliance story. ISO 26262 (the automotive functional safety standard) encourages formal methods for ASIL-D (the highest safety integrity level). |
 
-**Mitigation**:
-- BSD 2-Clause is widely accepted in industry
-- Formal verification is recognized by automotive standards (ISO 26262, DO-178C)
-- Can provide evidence of correctness for safety-critical applications
-
 ---
 
-## For Python Engineers
+## For Engineers
 
-**What you need to know**: How to use the Python API. That's it.
+**What you need to know**: How to use the API in your language. That's it.
 
 **What you don't need to know**: Agda, Haskell, formal verification theory.
 
 **Four ways to define checks** (all compile to the same verified core):
 
+Python:
 ```python
-# Check API — recommended for most users
-from aletheia import Check
-speed_limit = Check.signal("Speed").never_exceeds(220)
-
-# YAML — declarative, version-controllable
-from aletheia import load_checks
-checks = load_checks("checks.yaml")
-
-# Excel — for technicians who prefer spreadsheets
-from aletheia import load_checks_from_excel
-checks = load_checks_from_excel("tests.xlsx")
-
-# DSL — full LTL control for developers
-from aletheia import Signal
-speed_limit = Signal("Speed").less_than(220).always()
+Check.signal("Speed").never_exceeds(220)            # Check API
+load_checks("checks.yaml")                          # YAML
+load_checks_from_excel("tests.xlsx")                # Excel
+Signal("Speed").less_than(220).always()              # Full DSL
 ```
 
-**Streaming workflow**:
+C++:
+```cpp
+Check::signal("Speed").never_exceeds(PhysicalValue{220});
+load_checks_from_yaml("checks.yaml");
+load_checks_from_excel("tests.xlsx");
+Signal("Speed").less_than(PhysicalValue{220}).always();
+```
+
+Go:
+```go
+CheckSignal("Speed").NeverExceeds(220)
+LoadChecksFromYAML("checks.yaml")
+LoadChecksFromExcel("tests.xlsx")
+Signal("Speed").LessThan(220).Always()
+```
+
+**Streaming workflow** (Python shown; C++ and Go follow the same pattern):
 
 ```python
 from aletheia import AletheiaClient, Check
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.can_log import iter_can_log
 
 dbc = dbc_to_json("vehicle.dbc")
 checks = [Check.signal("Speed").never_exceeds(220)]
@@ -178,18 +175,19 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for frame in can_trace:
-        response = client.send_frame(...)
+    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+        response = client.send_frame(ts, can_id, dlc, data)
         if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Violation at {ts}us")
+            print(f"Violation at {response['timestamp']['numerator']}us")
+
+    client.end_stream()
 ```
 
-**Learning curve**: If you can use `requests` or `pandas`, you can use Aletheia.
+**Learning curve**: If you can use a standard library in your language, you can use Aletheia. The API is the same across all three bindings — same methods, same workflow, same results.
 
-**Debugging**: Violations include counterexamples (frame number, signal values). Standard Python debugging applies.
+**Debugging**: Violations include counterexamples (frame number, signal values). Standard debugging in your language applies.
 
-**Testing**: Write unit tests for your properties, just like any Python code. The difference: Aletheia's checker is proven correct, so if your property is right, it will catch bugs.
+**Testing**: Write unit tests for your properties, just like any other code. The difference: Aletheia's checker is proven correct, so if your property is right, it will catch bugs.
 
 ---
 
@@ -208,19 +206,19 @@ A: Documentation includes:
 - BUILDING.md: Complete build instructions
 - CLAUDE.md: AI-assisted development guide (400+ lines)
 - CONTRIBUTING.md: Contribution guidelines
-- Examples: 10+ scripts covering all four interface tiers
+- Examples: 11 demo scripts covering all four interface tiers
 
-The core is stable. Most changes will be Python-side (adding checks, integrating with tools).
+The core is stable. Most changes will be binding-side (adding checks, integrating with tools).
 
 **Q: Can we extend it?**
 A: Yes. Extension points:
-- Python: Add new DSL methods, integrations, visualizations
+- Bindings (Python/C++/Go): Add new DSL methods, integrations, visualizations
 - Agda (advanced): Add new LTL operators, signal predicates, DBC features
 
 See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 
 **Q: What's the performance profile?**
-A: Current: 42,000–48,000 frames/sec CAN 2.0B (21–24 us/frame) across Python/C++/Go via binary FFI. Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps).
+A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
 
 **Q: Dependencies?**
 A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
@@ -262,7 +260,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 **Yellow light if**:
 - Only non-critical applications (testing may suffice)
-- Extremely tight performance requirements beyond ~48,000 fps (C++, CAN 2.0B, binary FFI)
+- Extremely tight performance requirements beyond current throughput (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics))
 - Team strongly resistant to new technologies
 
 **Red light if**:
@@ -281,16 +279,16 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
-- DBC validator with formal proof (soundness + completeness, 1,267 lines)
+- DBC validator with formal proof (soundness + completeness; see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
 - Python API with signal operations (FFI, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
-- CLI tool (`python -m aletheia check/validate/extract/signals`)
+- CLI tool (`python3 -m aletheia check/validate/extract/signals`)
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- 990+ tests across Python (532), C++ (230), Go (233)
-- 42,000–48,000 frames/sec CAN 2.0B throughput via binary FFI across Python/C++/Go
+- 1000+ tests across Python, C++, and Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current counts)
+- High-throughput streaming via binary FFI across Python/C++/Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
 
-**Phase 5** (in progress): CAN-FD, binary FFI, C++/Go bindings, cross-language benchmarks — all delivered. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
+**Phase 5**: CAN-FD, binary FFI, C++/Go bindings, cross-language benchmarks — all delivered. Remaining: SOME/IP exploration, binary FFI for signal extraction. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
 
 ---
 
@@ -304,7 +302,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 - Real-world tested (OpenDBC corpus, multiplexed signals, 29-bit IDs)
 
 **Limitations**:
-- Performance: 42,000–48,000 frames/sec CAN 2.0B via binary FFI across bindings (sufficient for 1 Mbps CAN bus real-time analysis and multi-bus)
+- Performance: Sufficient for 1 Mbps CAN bus real-time analysis and multi-bus (see Technical Risks table for current throughput numbers)
 - Learning curve for Agda core maintenance (binding APIs and Check API are easy)
 - Small ecosystem (fewer community resources than mainstream-only tools)
 
@@ -316,7 +314,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 **Not ideal for**:
 - Rapid prototyping (use Python/pandas initially)
-- Teams requiring 100% Python stack
+- Teams requiring a single-language stack with no compiled dependencies
 - Projects with no formal verification requirements
 
 ---
@@ -347,7 +345,7 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 
 ## Bottom Line
 
-**For Python engineers**: Use a proven-correct library instead of hoping your tests caught everything.
+**For engineers**: Use a proven-correct library — in Python, C++, or Go — instead of hoping your tests caught everything.
 
 **For team leads**: Formal verification reduces long-term maintenance cost by eliminating a class of bugs.
 

@@ -450,6 +450,25 @@ func TestSetProperties_NegativeTimeBound(t *testing.T) {
 }
 
 func TestSetProperties_NegativeDelta(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	// Negative delta is valid — directional semantics (curr - prev <= delta)
+	err = c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: -5}}},
+	})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSetProperties_NegativeTolerance(t *testing.T) {
 	mock := aletheia.NewMockBackend()
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -458,12 +477,12 @@ func TestSetProperties_NegativeDelta(t *testing.T) {
 	defer c.Close()
 
 	err = c.SetProperties([]aletheia.Formula{
-		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: -5}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: -2}}},
 	})
 	if err == nil {
-		t.Fatal("expected error for negative delta")
+		t.Fatal("expected error for negative tolerance")
 	}
-	if !strings.Contains(err.Error(), "negative delta") {
+	if !strings.Contains(err.Error(), "negative tolerance") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

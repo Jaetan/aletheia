@@ -2,11 +2,13 @@
 
 ---
 **Version**: 1.1.1
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-04-03
 **Platform**: Linux x86-64 only
 ---
 
-How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, and Go projects. The Python binding handles library discovery automatically — this guide is for native-language consumers.
+> **Python users**: The library is loaded automatically via ctypes. This guide is for C, C++, and Go consumers integrating `libaletheia-ffi.so` directly.
+
+How to package, distribute, and integrate `libaletheia-ffi.so` into C, C++, and Go projects.
 
 **Prerequisites**: Build Aletheia first following [BUILDING.md](BUILDING.md). The `dist` target requires `patchelf` (see below).
 
@@ -273,6 +275,7 @@ See `aletheia.h` for the authoritative specification. In summary:
 - **hs_init**: Once per process, before any `aletheia_*` call. Never call `hs_exit()`.
 - **aletheia_init/close**: Can be called from any thread.
 - **aletheia_process**: One thread per session handle. Different sessions may run concurrently.
+- **aletheia_send_frame**: Same constraint — one thread per session handle.
 
 ## Troubleshooting
 

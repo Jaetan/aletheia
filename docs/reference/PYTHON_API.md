@@ -2,7 +2,7 @@
 
 **Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
 **Version**: 1.1.1
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-04-02
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
 > [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.
@@ -28,8 +28,8 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for frame in can_trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in can_trace:
+        response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
@@ -68,12 +68,21 @@ Signal("BatteryVoltage").between(11.5, 14.5)  # 11.5 <= voltage <= 14.5
 #### Change Detection
 
 ```python
-# Signal changed by at least delta (absolute value)
+# Directional change — sign of delta determines direction
 Signal("Speed").changed_by(-10)  # Speed decreased by 10+ km/h
-Signal("RPM").changed_by(500)    # RPM increased or decreased by 500+
+Signal("RPM").changed_by(500)    # RPM increased by 500+
 ```
 
-**Note**: `changed_by` checks `|value_now - value_prev| >= |delta|`
+**Note**: `changed_by` is directional: positive delta checks `curr - prev >= delta`, negative delta checks `curr - prev <= delta`.
+
+#### Stability
+
+```python
+# Signal stayed within tolerance of previous value
+Signal("Temperature").stable_within(2.0)  # Temperature stable within +/-2
+```
+
+**Note**: `stable_within` checks `|value_now - value_prev| <= tolerance`
 
 ---
 
@@ -369,8 +378,8 @@ with AletheiaClient() as client:
     client.set_properties([p.to_dict() for p in properties])
     client.start_stream()
 
-    for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in trace:
+        response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
             prop_idx = response["property_index"]["numerator"]
@@ -398,8 +407,8 @@ with AletheiaClient() as client:
     client.start_stream()
 
     violations = []
-    for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in trace:
+        response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
             violations.append(response["timestamp"]["numerator"])
@@ -434,12 +443,12 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in trace:
+        response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
-            ts = response['timestamp']['numerator']
-            print(f"Invalid power mode transition at {ts}us")
+            vts = response['timestamp']['numerator']
+            print(f"Invalid power mode transition at {vts}us")
             break
 
     client.end_stream()
@@ -474,8 +483,8 @@ with AletheiaClient(default_checks=safety_checks) as client:
     # Streaming LTL checking
     client.add_checks(session_checks)  # merges defaults + session
     client.start_stream()
-    for frame in trace:
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in trace:
+        response = client.send_frame(ts, can_id, dlc, data)
     client.end_stream()
 # State freed, RTS reference released
 ```
@@ -584,18 +593,7 @@ Send a CAN frame for incremental checking.
 {"status": "ack"}
 ```
 
-**Returns** (violation):
-```python
-{
-    "type": "property",
-    "status": "fails",
-    "property_index": {"numerator": 0, "denominator": 1},
-    "timestamp": {"numerator": 1000, "denominator": 1},
-    "reason": "Always violated"   # optional, may be absent
-}
-```
-
-**Note**: `property_index` and `timestamp` are rational numbers (`{"numerator": N, "denominator": 1}`). Access the integer value via `["numerator"]` — the denominator is always 1.
+**Returns** (violation): A property response with `status`, `property_index`, `timestamp`, and `reason`. When checks are registered via `add_checks()`, violations are automatically enriched with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
 
 #### `send_frames_batch(frames: list[tuple[int, int, int, bytearray]], *, extended: bool = False) -> list[FrameResponse]`
 
@@ -751,8 +749,8 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for frame in read_trace_incrementally("huge_trace.log"):
-        response = client.send_frame(frame.timestamp, frame.id, frame.dlc, frame.data)
+    for ts, can_id, dlc, data in iter_can_log("huge_trace.log"):
+        response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
@@ -784,8 +782,11 @@ class Signal:
     def greater_than_or_equal(self, value: float) -> Predicate
     def between(self, min_val: float, max_val: float) -> Predicate
 
-    # Change detection
+    # Change detection (directional)
     def changed_by(self, delta: float) -> Predicate
+
+    # Stability (magnitude tolerance)
+    def stable_within(self, tolerance: float) -> Predicate
 ```
 
 ### Predicate
@@ -926,7 +927,7 @@ These are importable from the top-level `aletheia` package.
 
 #### `dlc_to_bytes(dlc: int) -> int`
 
-Convert a DLC code (0-15) to payload byte count. CAN 2.0B: DLC 0-8 maps directly. CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
+Convert a DLC code (0-15) to payload byte count. CAN 2.0B: DLC 0-8 maps directly. See [PROTOCOL.md](../architecture/PROTOCOL.md#1-parsedbc) for the CAN-FD DLC-to-bytes mapping.
 
 #### `bytes_to_dlc(byte_count: int) -> int`
 

@@ -41,9 +41,13 @@ struct ChangedBy {
     SignalName signal;
     Delta delta;
 };
+struct StableWithin {
+    SignalName signal;
+    Tolerance tolerance;
+};
 
 using Predicate = std::variant<Equals, LessThan, GreaterThan, LessThanOrEqual, GreaterThanOrEqual,
-                               Between, ChangedBy>;
+                               Between, ChangedBy, StableWithin>;
 
 // ---------------------------------------------------------------------------
 // LTL formula: recursive variant via inheritance
@@ -188,6 +192,10 @@ inline auto between(SignalName name, PhysicalValue min, PhysicalValue max) -> Pr
 
 inline auto changed_by(SignalName name, Delta delta) -> Predicate {
     return ChangedBy{.signal = std::move(name), .delta = delta};
+}
+
+inline auto stable_within(SignalName name, Tolerance tol) -> Predicate {
+    return StableWithin{.signal = std::move(name), .tolerance = tol};
 }
 
 } // namespace ltl

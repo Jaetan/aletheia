@@ -74,7 +74,7 @@ For non-trivial changes—especially refactors or API changes—please follow th
 3. Discuss alternative approaches if relevant
 4. Wait for maintainer feedback before investing heavily in implementation
 
-This helps avoid duplicated effort and ensures that changes align with the project’s direction.
+This helps avoid duplicated effort and ensures that changes align with the project's direction.
 
 ---
 
@@ -97,6 +97,8 @@ Please follow the existing style and structure of the codebase:
 - Avoid mixing refactors with functional changes
 - Write clear commit messages explaining intent
 - Add tests where appropriate
+- See [AGENTS.md](AGENTS.md) for per-language coding standards and review categories
+- See [CLAUDE.md](CLAUDE.md#contributing) for the pre-commit checklist (type-check, build, tests)
 
 Consistency matters more than personal preference.
 
@@ -110,7 +112,7 @@ The maintainer reserves the right to:
 - Defer or reject features that increase core complexity
 - Prioritize long-term maintainability over short-term convenience
 
-These decisions are made to protect the project’s coherence and sustainability.
+These decisions are made to protect the project's coherence and sustainability.
 
 ---
 

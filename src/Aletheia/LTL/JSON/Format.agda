@@ -13,7 +13,7 @@ open import Data.Nat using (ℕ; suc; _⊔_)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JNumber; JString; JObject; ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; ValuePredicate; DeltaPredicate; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 
 -- ============================================================================
 -- VALUE PREDICATE FORMATTER
@@ -42,6 +42,8 @@ formatValuePredicateFields (Between s min max) =
 formatDeltaPredicateFields : DeltaPredicate → List (String × JSON)
 formatDeltaPredicateFields (ChangedBy s d) =
   ("predicate" , JString "changedBy") ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
+formatDeltaPredicateFields (StableWithin s t) =
+  ("predicate" , JString "stableWithin") ∷ ("signal" , JString s) ∷ ("tolerance" , JNumber t) ∷ []
 
 -- ============================================================================
 -- SIGNAL PREDICATE FORMATTER

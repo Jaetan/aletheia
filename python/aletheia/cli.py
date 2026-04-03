@@ -8,7 +8,7 @@ Subcommands:
 
 Usage:
     python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
-    python -m aletheia extract --dbc vehicle.dbc 0x100 401F820000000000
+    python -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
     python -m aletheia signals --dbc vehicle.dbc
 """
 
@@ -86,9 +86,9 @@ def parse_hex_data(s: str) -> bytearray:
     """Parse hex data string into a bytearray.
 
     Accepts:
-        "401F820000000000"
-        "40 1F 82 00 00 00 00 00"
-        "40:1F:82:00:00:00:00:00"
+        "401F7D0000000000"
+        "40 1F 7D 00 00 00 00 00"
+        "40:1F:7D:00:00:00:00:00"
 
     Raises:
         ValueError: If *s* contains non-hex characters or has odd length.

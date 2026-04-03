@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-01
+**Last Updated**: 2026-04-03
 
 ---
 
@@ -39,7 +39,7 @@ Phases 1-4 complete. Phase 5 adds optional extensions driven by user feedback: C
 **Delivered**:
 - LTL syntax (Always, Eventually, Until, Next, And, Or, Not, Atomic)
 - Coinductive and bounded trace semantics
-- Signal predicates (Equals, LessThan, GreaterThan, Between, ChangedBy)
+- Signal predicates (Equals, LessThan, GreaterThan, LessThanOrEqual, GreaterThanOrEqual, Between, ChangedBy, StableWithin)
 - Model checker with decidable comparisons
 - Extended 29-bit CAN ID support
 - Signal multiplexing (Always | When conditions)
@@ -245,7 +245,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc., `Rational` for exact signal values), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. Hash-map `DbcIndex` for O(1) signal lookups. Formula depth limit (100). 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total) + static_asserts across 5 test suites. 11 rounds of code review — all categories pass, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
 
-- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC, `Rational` for exact signal values). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (12 event types, `ClientOption`/`WithLogger`). Hash-map indexes in `Dbc` for O(1) signal lookups. Formula depth limit (100). 17 source files, 12 test files, 233 tests (all pass with `-race`). 23 rounds of code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC, `Rational` for exact signal values). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (12 event types, `ClientOption`/`WithLogger`). Hash-map indexes in `Dbc` for O(1) signal lookups. Formula depth limit (100). 17 source files, 12 test files, 243 tests (all pass with `-race`). 23 rounds of code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
 
 - ✅ C header (`include/aletheia.h`): Documents the 5 C-callable FFI functions + GHC RTS initialization contract. The contract all language bindings implement against. Shakefile packaging target (`cabal run shake -- dist`) bundles .so + header.
 
@@ -261,7 +261,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Dead code removal + proof completion (2026-03-27): Removed vestigial JSON data frame path (`parseDataFrame`, `Request` type, `DataFrame`, `processStream`, `parseRequest-sound` proof) — all bindings use binary FFI exclusively. Main.agda upgraded from `--sized-types` to `--safe`. New proofs: `initProc-correct` (initial LTL state correctness, `LTL/Coalgebra/Properties.agda`), response formatting correctness (8 refl proofs, `Protocol/ResponseFormat/Properties.agda`). All provable items in the proof assessment are now proven; only the MAlonzo FFI trust boundary remains (outside Agda's type system, mitigated by build-time checks and smoke tests).
 
-- ✅ CAN-FD support (started 2026-03-23, completed 2026-03-25): Variable-length payloads up to 64 bytes, DLC 0-15 with non-linear mapping (9→12, 10→16, 11→20, 12→24, 13→32, 14→48, 15→64). 13-step plan + 7 review fixes fully executed:
+- ✅ CAN-FD support (started 2026-03-23, completed 2026-03-25): Variable-length payloads up to 64 bytes, DLC 0-15 with non-linear mapping (see [PROTOCOL.md](docs/architecture/PROTOCOL.md#1-parsedbc) for details). 13-step plan + 7 review fixes fully executed:
   - Steps 1-4: Agda core types (`CANFrame n`, `TimedFrame` dependent record, protocol messages generic, `physicalBitPos` parameterized, validation layer updated)
   - Steps 5-8: Proof generalization (all `CANFrame 8` → `∀ {n}` in Endianness, Encoding/Properties, Batch/Properties, Validity proofs)
   - Step 9: Full Agda build + MAlonzo compilation pass
@@ -274,7 +274,9 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Pipeline soundness fix (2026-03-28): Discovered 8 unsound absorption rules in `simplify/absorb` (Coalgebra.agda). Fixed: removed Until/Release rules, added `finalizesHolds` guards to Always/Eventually, added structural idempotency (And-And, Or-Or). Proofs complete: `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` in `Adequacy/Pipeline.agda`.
 
-- ✅ AGENTS.md (2026-03-29, rewritten 2026-03-31): Review protocol document for all languages (Agda 16 categories, Go 22, C++ 22, Python, Documentation 14). Origin-blind finding rules: findings have no origin, age, or owner -- they are things that are wrong and get fixed. C++ section adds clang-format and clang-tidy as hard gates (zero violations/warnings required).
+- ✅ DeltaPredicate split (2026-04-02): `DeltaPredicate` now has two constructors: `ChangedBy` (directional — sign of delta determines direction: positive `curr - prev ≥ delta`, negative `curr - prev ≤ delta`) and `StableWithin` (magnitude tolerance — `|curr - prev| ≤ tolerance`). Previous `ChangedBy` semantics (`|curr - prev| ≤ delta`) were a confused mix. JSON protocol: `"changedBy"` predicate with `"delta"` field, new `"stableWithin"` predicate with `"tolerance"` field. Roundtrip proof updated (`refl`). All three bindings updated with `StableWithin` type + enrichment display. Python: `Signal.stable_within(tol)` method. C++: `StableWithin` struct + `Tolerance` newtype. Go: `StableWithin` struct + `Tolerance` type, negative delta now allowed in `ChangedBy`.
+
+- ✅ AGENTS.md (2026-03-29, rewritten 2026-03-31): Review protocol document for all languages (Agda 16 categories, Go 22, C++ 22, Python, Documentation 19). Origin-blind finding rules: findings have no origin, age, or owner -- they are things that are wrong and get fixed. C++ section adds clang-format and clang-tidy as hard gates (zero violations/warnings required).
 
 - ✅ RTS cores for all bindings (2026-03-31): GHC RTS `-N` flag configurable in all three language bindings. Python: `AletheiaClient(rts_cores=N)`. C++: `make_ffi_backend(path, rts_cores)` with `int rts_cores = 1` default. Go: `NewFFIBackend(path, WithRTSCores(n))` functional option. All: once-per-process, warn on mismatch, never reinitializable. Enables multi-bus monitoring with parallel GHC capabilities.
 
@@ -284,7 +286,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ YAML and Excel loaders for C++ and Go (2026-04-01): Four-tier check interface (Excel → YAML → Check API → DSL) now complete across all three bindings. C++ uses yaml-cpp + OpenXLSX (FetchContent), Go uses gopkg.in/yaml.v3 + excelize/v2. Both match Python's API: `load_checks_from_yaml`, `load_checks_from_excel`, `load_dbc_from_excel`, `create_excel_template`. Condition dispatch through existing Check DSL builders. Error messages match Python format for cross-language parity. C++: 76 YAML + 120 Excel test assertions. Go: 88 new tests (30 YAML + 58 Excel).
 
-- ✅ Cross-language API review rounds 5-11 (2026-04-01): 30+ fixes across all three bindings (47 files, +1058/-345 lines). Semantic correctness: CAN ID range constants from bit widths, type-derived limits (std::numeric_limits, math.MaxInt64), INT64_MIN overflow guard, Go parseRational truncation check. Safety: [[nodiscard]] on all C++ AletheiaClient methods, static_assert non-copyable, lo>hi validation in Check API (all 3 bindings), .value()→* for known-valid std::expected. Protocol: AGENTS.md origin-blind rules + backward-compat prohibition, OpenXLSX pinned commit, clang-tidy clean. Total review rounds to date: Agda 7 batches, Python 11 rounds (532 tests), C++ 11 rounds (5 test suites), Go 23 rounds (233 tests).
+- ✅ Cross-language API review rounds 5-11 (2026-04-01): 30+ fixes across all three bindings (47 files, +1058/-345 lines). Semantic correctness: CAN ID range constants from bit widths, type-derived limits (std::numeric_limits, math.MaxInt64), INT64_MIN overflow guard, Go parseRational truncation check. Safety: [[nodiscard]] on all C++ AletheiaClient methods, static_assert non-copyable, lo>hi validation in Check API (all 3 bindings), .value()→* for known-valid std::expected. Protocol: AGENTS.md origin-blind rules + backward-compat prohibition, OpenXLSX pinned commit, clang-tidy clean. Total review rounds to date: Agda 7 batches, Python 11 rounds (534 tests), C++ 11 rounds (5 test suites), Go 23 rounds (243 tests).
 
 **Planned / Research**:
 - Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
@@ -304,10 +306,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 532 passing (via FFI)
-- C++ tests: 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total, mock backend + Catch2)
-- Go tests: 233 passing (mock backend, `-race` clean)
-- Total: 990+ tests
+- Python tests: 534 passing (via FFI)
+- C++ tests: 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
+- Go tests: 243 passing (mock backend, `-race` clean)
+- Total: 1000+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
@@ -330,7 +332,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 67 Agda modules use `--safe --without-K` (2 also use `--no-main`)
+- All Agda modules use `--safe --without-K` (2 also use `--no-main`; see Codebase metrics above for count)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`

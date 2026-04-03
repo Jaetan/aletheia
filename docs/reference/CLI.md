@@ -1,14 +1,15 @@
 # CLI Reference
 
 **Purpose**: Command-line interface for Aletheia CAN signal verification.
-**Last Updated**: 2026-03-19
+**Version**: 1.1.1
+**Last Updated**: 2026-04-03
 
 ---
 
 ## Overview
 
 ```
-python -m aletheia <subcommand> [options]
+python3 -m aletheia <subcommand> [options]
 ```
 
 Four subcommands: `check`, `validate`, `extract`, `signals`.
@@ -25,7 +26,7 @@ Four subcommands: `check`, `validate`, `extract`, `signals`.
 Run LTL checks against a CAN log file.
 
 ```
-python -m aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
+python3 -m aletheia check [--dbc FILE] [--checks FILE] [--excel FILE] [--json] LOGFILE
 ```
 
 **Arguments**:
@@ -92,7 +93,7 @@ Enriched fields (`signal_name`, `actual_value`, `condition`) are populated when 
 Validate a DBC definition for structural issues (overlapping signals, zero-length signals, etc.).
 
 ```
-python -m aletheia validate [--dbc FILE] [--excel FILE] [--json]
+python3 -m aletheia validate [--dbc FILE] [--excel FILE] [--json]
 ```
 
 **Arguments**:
@@ -145,7 +146,7 @@ Validation passed: no issues found
 Decode signals from a single CAN frame.
 
 ```
-python -m aletheia extract --dbc FILE CAN_ID DATA
+python3 -m aletheia extract --dbc FILE CAN_ID DATA
 ```
 
 **Arguments**:
@@ -159,10 +160,10 @@ python -m aletheia extract --dbc FILE CAN_ID DATA
 
 **Hex data formats** (all equivalent):
 ```
-401F820000000000
-40 1F 82 00 00 00 00 00
-40:1F:82:00:00:00:00:00
-0x401F820000000000
+401F7D0000000000
+40 1F 7D 00 00 00 00 00
+40:1F:7D:00:00:00:00:00
+0x401F7D0000000000
 ```
 
 **Text output**:
@@ -193,7 +194,7 @@ Absent: none
 List all signals defined in a DBC file.
 
 ```
-python -m aletheia signals [--dbc FILE] [--excel FILE] [--json]
+python3 -m aletheia signals [--dbc FILE] [--excel FILE] [--json]
 ```
 
 **Arguments**:
@@ -210,7 +211,7 @@ python -m aletheia signals [--dbc FILE] [--excel FILE] [--json]
 ```
 Message 0x100 EngineData (DLC 8, sender ECU)
   EngineSpeed          bits[0:16]   LE  unsigned    x0.25 +0     rpm  [0, 8000]
-  EngineTemp           bits[16:8]   LE  signed      x1 -40         C  [-40, 215]
+  EngineTemp           bits[16:8]   LE  unsigned    x1 -40         C  [-40, 215]
 
 Message 0x200 BrakeStatus (DLC 8, sender ECU)
   BrakePressure        bits[0:16]   LE  unsigned    x0.1 +0      bar  [0, 6553.5]

@@ -25,7 +25,7 @@ This file defines the review protocol for the Aletheia project. Every review rou
 3. Enter plan mode to collate findings into a single actionable plan. Present suspected false positives with justification; the user decides what to dismiss.
 4. Implement all approved fixes, then run the verification suite.
 
-**Cross-document pass (mandatory).** Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — they require comparing what multiple files say about the same topic. After the per-file review agents finish, launch a dedicated cross-document agent that: (a) identifies every fact stated in more than one file, (b) checks whether all copies agree, and (c) flags duplicated content that should be a cross-reference instead. This pass is separate from and in addition to the per-file rounds.
+**Cross-document pass (mandatory).** Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — they require comparing what multiple files say about the same topic. After the per-file review agents finish, launch a dedicated cross-document agent that: (a) identifies every fact stated in more than one file, (b) flags each duplicate as a category 5 finding — agreement between copies does not make duplication acceptable, and (c) for each duplicate, identifies which file is the canonical source and which copies should become cross-references. A fact that appears in N files produces N-1 findings. This pass is separate from and in addition to the per-file rounds.
 
 ---
 
@@ -244,7 +244,7 @@ cd python && pylint aletheia/
 
 ---
 
-## Documentation (19 categories)
+## Documentation (21 categories)
 
 Scope: ALL docs -- CLAUDE.md, PROJECT_STATUS.md, BUILDING.md, DESIGN.md, PITCH.md, README.md, and any other .md files.
 
@@ -256,7 +256,7 @@ Also applies to infrastructure changes (Shakefile, dist targets, packaging) sinc
 2. **Staleness** -- references to removed files, old workflows, or completed phases described as in-progress
 3. **Consistency** -- do different docs agree on the same facts?
 4. **Completeness** -- are important features/workflows undocumented?
-5. **Redundancy / single source of truth** -- each piece of information must appear in exactly one place; other docs must cross-reference, not duplicate. Duplicated facts are always a finding.
+5. **Redundancy / single source of truth** -- each piece of information must appear in exactly one place; other docs must cross-reference, not duplicate. Duplicated facts are always a finding. Consistency between copies is not a defense — if the same fact appears in two files and both are correct, that is still a category 5 finding because one copy should be a cross-reference. Check within each file too: the same fact stated twice in one document is also a finding.
 6. **Command correctness** -- do shell commands actually work as written?
 7. **Link integrity** -- do internal cross-references resolve?
 8. **Audience fit** -- is the right level of detail in the right doc?
@@ -265,7 +265,7 @@ Also applies to infrastructure changes (Shakefile, dist targets, packaging) sinc
 
 9. **Precision & terseness** -- documentation must be precise, concise, non-ambiguous, and terse. Flag verbose/vague/ambiguous language.
 
-### Deep (9)
+### Deep (12)
 
 10. **Structure & navigation** -- is there a clear reading path from "I just cloned this" to "I'm productive"?
 11. **Worked examples & error guidance** -- do guides cover real use cases, not just the happy path? When something goes wrong, do docs explain why and how to fix?
@@ -277,3 +277,5 @@ Also applies to infrastructure changes (Shakefile, dist targets, packaging) sinc
 17. **Internal consistency** -- does a single file contradict itself? Different from category 3 (cross-document): this catches a file that states one thing in one section and the opposite in another.
 18. **Scope labels on aggregates** -- when a number aggregates sub-items, is the scope stated? "532 tests" without "Python-only" is a finding when the total is 900+.
 19. **Missing content & improvements** -- documentation that should exist but does not: missing troubleshooting sections, missing error guidance, missing design rationale, missing onboarding steps, missing recipes for common failure modes. These are findings, not suggestions — absent documentation is a defect when users would reasonably expect it.
+20. **Numerical correctness** -- verify all arithmetic in examples: byte encodings, bit positions, scaling computations (factor × raw + offset), DLC-to-bytes mappings, unit conversions, and signal range calculations. A code example can have the right API call with wrong numbers. Cross-check every worked example against the DBC definition it references (start bit, length, byte order, factor, offset, signedness). This is distinct from category 15 (which checks that code *runs*) — this checks that the numbers are *mathematically correct*.
+21. **Cross-language parity** -- when docs claim a feature exists in multiple bindings (Python, C++, Go), verify the claim against the actual code in each binding. Check that feature tables, API descriptions, and "all bindings support X" statements are accurate per-language. A feature documented as available in Go but missing from `go/aletheia/` is a finding. Compare: type names, method signatures, constructor options, error handling patterns, and enrichment fields across all three bindings.

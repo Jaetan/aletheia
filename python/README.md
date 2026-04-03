@@ -32,9 +32,9 @@ with AletheiaClient() as client:
     client.set_properties([speed_limit.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, data in can_trace:
-        response = client.send_frame(timestamp, can_id, data)
-        if response.get("status") == "violation":
+    for timestamp, can_id, dlc, data in can_trace:
+        response = client.send_frame(timestamp, can_id, dlc, data)
+        if response.get("status") == "fails":
             print(f"Violation: {response['reason']}")
 
     client.end_stream()
@@ -49,5 +49,5 @@ For more details, see:
 
 ```bash
 cd python
-python -m pytest tests/ -v
+python3 -m pytest tests/ -v
 ```

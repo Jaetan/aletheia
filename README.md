@@ -7,10 +7,10 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 ## Features
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
-- **CAN Frame Processing**: Proven correct encoding/decoding catches endianness, bit-shift, and sign-extension bugs at compile time
-- **LTL Verification**: Streaming model checker with constant memory (42,000–48,000 fps CAN 2.0B via binary FFI across Python/C++/Go) — scales to gigabyte-size traces without slowdown
+- **CAN Frame Processing**: Proven correct encoding/decoding guarantees roundtrip correctness for valid DBC specifications
+- **LTL Verification**: Streaming model checker with constant memory — scales to gigabyte-size traces without slowdown (see [PROJECT_STATUS.md](PROJECT_STATUS.md) for throughput benchmarks)
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
-- **Python Interface**: Runs in-process via shared library (ctypes FFI) — no subprocess, no IPC overhead
+- **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
 
 ## Quick Start
@@ -124,7 +124,7 @@ aletheia/
 ### Reference
 - [Interface Guide](docs/reference/INTERFACES.md) - Check API, YAML, Excel loaders
 - [Python API Guide](docs/reference/PYTHON_API.md) - Raw DSL and AletheiaClient reference
-- [CLI Reference](docs/reference/CLI.md) - `python -m aletheia` subcommands
+- [CLI Reference](docs/reference/CLI.md) - `python3 -m aletheia` subcommands
 
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture

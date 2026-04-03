@@ -9,7 +9,7 @@
 
 Aletheia provides mathematically proven tools to verify automotive software by applying Linear Temporal Logic (LTL) over traces of CAN frames.
 
-**Core Value Proposition**: Write temporal properties in Python, verify them against CAN traces, with mathematical guarantees of correctness.
+**Core Value Proposition**: Write temporal properties in Python, C++, or Go, verify them against CAN traces, with mathematical guarantees of correctness.
 
 ## Architectural Constraints
 
@@ -57,11 +57,13 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 └─────────────────────────────────────────┘
 ```
 
+**Why Haskell as the middle layer?** MAlonzo (Agda's compiler backend) generates Haskell. GHC provides mature shared library output (`foreign-library`), and its FFI supports all major languages via `foreign export ccall`.
+
 **Critical Design Principle**: ALL critical logic must be implemented in Agda with proofs. The Haskell shim only performs I/O. Never add logic to the Haskell, Python, C++, or Go layers. Client-side enrichment (formula descriptions, violation formatting) is convenience logic in the binding layers.
 
 ## Streaming Protocol
 
-**Phase 2B** implements a JSON-based streaming protocol for processing large CAN traces with O(1) memory.
+The JSON-based streaming protocol (completed in Phase 2B) processes large CAN traces with O(1) memory.
 
 **Key Design**:
 - JSON protocol over direct FFI calls (ctypes/dlopen → shared library)

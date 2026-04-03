@@ -177,7 +177,7 @@ static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 
 // LtlFormula inherits from variant — check the base
 static_assert(std::variant_size_v<LtlFormula::variant> == 13);
-static_assert(std::variant_size_v<Predicate> == 7);
+static_assert(std::variant_size_v<Predicate> == 8);
 
 // ===========================================================================
 // Verdict enum

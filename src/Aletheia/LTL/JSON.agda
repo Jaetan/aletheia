@@ -76,6 +76,12 @@ private
     delta ← lookupRational "delta" obj
     just (DeltaP (SP.ChangedBy signal delta))
 
+  parseStableWithin : List (String × JSON) → Maybe SignalPredicate
+  parseStableWithin obj = do
+    signal ← lookupString "signal" obj
+    tolerance ← lookupRational "tolerance" obj
+    just (DeltaP (SP.StableWithin signal tolerance))
+
   predicateDispatchTable : List (String × (List (String × JSON) → Maybe SignalPredicate))
   predicateDispatchTable =
     ("equals" , parseEquals) ∷
@@ -85,6 +91,7 @@ private
     ("greaterThanOrEqual" , parseGreaterThanOrEqual) ∷
     ("between" , parseBetween) ∷
     ("changedBy" , parseChangedBy) ∷
+    ("stableWithin" , parseStableWithin) ∷
     []
 
   dispatchPredicate : String → List (String × JSON) → Maybe SignalPredicate

@@ -9,7 +9,7 @@
 ## Audience
 
 This document is for:
-- Python developers integrating `AletheiaClient` with custom tooling
+- Python, C++, and Go developers integrating the Aletheia client with custom tooling
 - Maintainers modifying the JSON protocol or FFI boundary
 - System architects understanding the communication layer
 
@@ -21,7 +21,7 @@ This document is for:
 
 ## Overview
 
-Aletheia uses a JSON protocol for communication between Python and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
+Aletheia uses a JSON protocol for communication between language bindings (Python, C++, Go) and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
 - Two FFI entry points, both returning JSON response strings:
@@ -233,7 +233,7 @@ Extract all signal values from a CAN frame without streaming.
   "canId": 256,
   "dlc": 8,
   "extended": false,
-  "data": [16, 39, 0, 0, 0, 0, 0, 0]
+  "data": [232, 3, 0, 0, 0, 0, 0, 0]
 }
 ```
 
@@ -283,7 +283,7 @@ Encode signal values into a new CAN frame (starting from all zeros).
 ```json
 {
   "status": "success",
-  "data": [16, 39, 0, 0, 0, 0, 0, 0]
+  "data": [232, 3, 0, 0, 0, 0, 0, 0]
 }
 ```
 
@@ -310,7 +310,7 @@ Update specific signal values in an existing CAN frame.
   "canId": 256,
   "dlc": 8,
   "extended": false,
-  "data": [16, 39, 0, 0, 0, 0, 0, 0],
+  "data": [232, 3, 0, 0, 0, 0, 0, 0],
   "signals": [
     {"name": "Speed", "value": 200.0}
   ]
@@ -321,7 +321,7 @@ Update specific signal values in an existing CAN frame.
 ```json
 {
   "status": "success",
-  "data": [32, 78, 0, 0, 0, 0, 0, 0]
+  "data": [208, 7, 0, 0, 0, 0, 0, 0]
 }
 ```
 
@@ -580,7 +580,7 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 4. If violation or satisfaction detected, return property response immediately
 5. Otherwise, return acknowledgment
 
-**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path. All language bindings (Python, C++, Go) use this entry point for `send_frame()`.
+**Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md#key-metrics) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go) use this entry point for `send_frame()`.
 
 ---
 
@@ -623,9 +623,9 @@ Used for data frames when no violation is detected.
 
 **Fields**:
 - `status`: `"fails"` or `"holds"`
-- `property_index`: Index of the property that failed (rational)
-- `timestamp`: Timestamp of the frame that caused the violation (rational)
-- `reason`: Human-readable explanation
+- `property_index`: Index of the property (rational)
+- `timestamp`: Timestamp of the violation (rational, only present when `status` is `"fails"`)
+- `reason`: Human-readable explanation (only present when `status` is `"fails"`)
 
 ### Complete Response
 ```json
@@ -705,10 +705,20 @@ Returned when streaming ends. The `results` array contains per-property finaliza
 {
   "predicate": "changedBy",
   "signal": "Speed",
-  "delta": 10
+  "delta": -10
 }
 ```
-Checks if signal changed by more than `delta` from previous frame.
+Directional change detection. Positive delta: `curr - prev >= delta` (increased by at least delta). Negative delta: `curr - prev <= delta` (decreased by at least |delta|).
+
+#### StableWithin
+```json
+{
+  "predicate": "stableWithin",
+  "signal": "Temperature",
+  "tolerance": 2.0
+}
+```
+Magnitude tolerance: `|curr - prev| <= tolerance`. Tests that a signal's value stayed within tolerance of its previous value.
 
 ---
 

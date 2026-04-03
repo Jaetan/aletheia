@@ -131,6 +131,10 @@ static auto predicate_to_json(const Predicate& p) -> json {
                 return {{"predicate", "changedBy"},
                         {"signal", v.signal.get()},
                         {"delta", v.delta.get()}};
+            else if constexpr (std::is_same_v<T, StableWithin>)
+                return {{"predicate", "stableWithin"},
+                        {"signal", v.signal.get()},
+                        {"tolerance", v.tolerance.get()}};
             else
                 static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_to_json");
         },

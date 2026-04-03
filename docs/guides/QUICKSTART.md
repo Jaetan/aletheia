@@ -30,7 +30,7 @@ checks:
 ## 2. Run Against a CAN Log
 
 ```bash
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ## 3. Interpret Results
@@ -52,7 +52,7 @@ RESULT: 1 violations found
 Summary: 1 violations in 2 checks, 8200 frames processed
 ```
 
-Exit code `1` means violations were found. Exit code `0` means all checks passed.
+Exit codes: `0` = all passed, `1` = violations found, `2` = error.
 
 Add `--json` for machine-readable output (CI/CD integration).
 

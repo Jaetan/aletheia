@@ -1031,9 +1031,13 @@ TEST_CASE("format_formula all predicate types", "[enrich]") {
     CHECK(format_formula(bw) == "10 <= S <= 14.5");
 
     auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{5.0}));
-    auto cb_str = format_formula(cb);
-    CHECK_THAT(cb_str, ContainsSubstring("S"));
-    CHECK_THAT(cb_str, ContainsSubstring("> 5"));
+    CHECK(format_formula(cb) == "\xce\x94S >= 5");
+
+    auto cb_neg = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{-3.0}));
+    CHECK(format_formula(cb_neg) == "\xce\x94S <= -3");
+
+    auto sw = ltl::atomic(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}));
+    CHECK(format_formula(sw) == "|\xce\x94S| <= 2");
 }
 
 // ===========================================================================

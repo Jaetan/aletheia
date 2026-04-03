@@ -110,8 +110,17 @@ class TestFormatFormula:
     def test_changed_by_predicate(self) -> None:
         f = Signal("S").changed_by(5).always().to_dict()
         result = format_formula(f)
-        assert "S" in result
-        assert "> 5" in result
+        assert "\u0394S >= 5" in result
+
+    def test_changed_by_negative_predicate(self) -> None:
+        f = Signal("S").changed_by(-5).always().to_dict()
+        result = format_formula(f)
+        assert "\u0394S <= -5" in result
+
+    def test_stable_within_predicate(self) -> None:
+        f = Signal("S").stable_within(2.0).always().to_dict()
+        result = format_formula(f)
+        assert "|\u0394S| <= 2" in result
 
     def test_metric_until(self) -> None:
         speed = Signal("Speed").less_than(50).always()

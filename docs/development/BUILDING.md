@@ -2,7 +2,7 @@
 
 ---
 **Version**: 1.1.1
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-04-02
 **Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
 ---
 
@@ -20,11 +20,11 @@ This document provides step-by-step instructions for building Aletheia from sour
 
 #### 1. GHC (Glasgow Haskell Compiler)
 
-**Version**: 9.4.x or 9.6.x recommended
+**Version**: 9.4.x or 9.6.x recommended (9.6.7 known-good)
 
 **Installation**:
 ```bash
-# Using ghcup (recommended)
+# Using ghcup (recommended) — 9.6.7 is the tested version; other 9.4.x/9.6.x should work
 curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
 ghcup install ghc 9.6.7
 ghcup set ghc 9.6.7
@@ -51,7 +51,7 @@ cabal --version
 
 #### 3. Agda
 
-**Version**: 2.8.0 (exact version required)
+**Version**: 2.8.0 (exact version required — MAlonzo code generation changed between versions; the standard library 2.3 targets this release)
 ```bash
 # Install via cabal
 cabal install Agda-2.8.0
@@ -107,10 +107,14 @@ agda test.agda
 # Should succeed with no errors
 ```
 
+**Troubleshooting Agda stdlib**:
+- **`Cannot find module Data.Nat`**: Check that `~/.agda/libraries` contains the full path to `standard-library.agda-lib` and that `~/.agda/defaults` contains `standard-library`.
+- **Version mismatch errors**: Ensure you checked out `v2.3` (not `main`). Run `cd ~/.agda/agda-stdlib && git checkout v2.3`.
+
 #### 5. Python
 
 **Minimum version: 3.12** (required by package dependencies)
-**Recommended: 3.13** (latest stable)
+**Recommended: 3.14** (latest stable)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
@@ -119,30 +123,37 @@ The project uses modern Python type hints with `from __future__ import annotatio
 python3 --version
 # Should output: Python 3.12.0 or higher
 
-# If you need to install Python 3.13:
-# - On Ubuntu/Debian: Use deadsnakes PPA
+# If you need to install a newer Python:
+# - On Ubuntu 26.04+: python3.14 is available via apt (no PPA needed)
+# - On Ubuntu 24.04/22.04: Use deadsnakes PPA
 # - On macOS: Use Homebrew or pyenv
 # - On other systems: Download from python.org
 ```
 
-**Installing Python 3.13 on Ubuntu/Debian**:
+**Installing Python 3.14 on Ubuntu 26.04+**:
+```bash
+sudo apt-get update
+sudo apt-get install python3.14 python3.14-venv python3.14-dev
+```
+
+**Installing Python 3.14 on Ubuntu 24.04/22.04** (deadsnakes PPA required):
 ```bash
 sudo apt-get update
 sudo apt-get install software-properties-common
 sudo add-apt-repository ppa:deadsnakes/ppa
 sudo apt-get update
-sudo apt-get install python3.13 python3.13-venv python3.13-dev
+sudo apt-get install python3.14 python3.14-venv python3.14-dev
 ```
 
-**Installing Python 3.13 on macOS**:
+**Installing Python 3.14 on macOS**:
 ```bash
 # Using Homebrew
-brew install python@3.13
+brew install python@3.14
 
 # Or using pyenv (recommended for multiple versions)
 brew install pyenv
-pyenv install 3.13
-pyenv global 3.13
+pyenv install 3.14
+pyenv global 3.14
 ```
 
 #### 6. CMake (for C++ binding only)
@@ -198,6 +209,8 @@ pip install --upgrade pip setuptools wheel
 cd /path/to/aletheia
 source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 ```
+
+**If you see `ModuleNotFoundError: No module named 'aletheia'`** when running tests or `python3 -m aletheia`, you likely forgot to activate the venv. Run `source .venv/bin/activate` (or `source .venv/bin/activate.fish` for fish) and try again.
 
 To deactivate when done:
 ```bash
@@ -281,7 +294,7 @@ runtime — only Python 3.12+.
 #### Prerequisites
 
 ```bash
-# patchelf is required to patch shared library RUNPATH
+# patchelf is required to patch shared library RPATH
 sudo apt install patchelf      # Ubuntu/Debian
 # brew install patchelf        # macOS
 # sudo dnf install patchelf    # Fedora
@@ -305,7 +318,7 @@ CONFIGURE_SHELL=1 cabal run shake -- install
 ```
 $PREFIX/
 ├── lib/aletheia/
-│   ├── libaletheia-ffi.so              # patched RUNPATH=$ORIGIN
+│   ├── libaletheia-ffi.so              # patched RPATH=$ORIGIN
 │   ├── libHSbase-*.so, libHSrts-*.so   # bundled GHC runtime (~31 MB)
 │   ├── venv/                           # Python 3.12+ venv with aletheia
 │   └── manifest.txt                    # for uninstall
@@ -341,28 +354,7 @@ PREFIX=/opt/aletheia cabal run shake -- uninstall     # custom prefix
 
 #### Docker
 
-Two Dockerfiles are provided in the repository root:
-
-- **`Dockerfile`** — Multi-stage build from source (builds GHC + Agda in stage 1, produces a slim runtime image in stage 2). Use for CI/CD and reproducible builds.
-- **`Dockerfile.runtime`** — Runtime-only image from a pre-built `dist/` directory. Use when you've already run `cabal run shake -- dist` on the host.
-
-```bash
-# Option 1: Build from source (slow — compiles GHC + Agda, ~30 min)
-docker build -t aletheia .
-
-# Option 2: Build runtime image from pre-built dist (fast, ~30 sec)
-cabal run shake -- dist
-docker build -t aletheia:runtime -f Dockerfile.runtime .
-
-# Option 3: Use the Shake target (runs dist + docker build)
-cabal run shake -- docker
-
-# Run
-docker run --rm aletheia:latest python3 -c \
-  "from aletheia import AletheiaClient; print('OK')"
-```
-
-The runtime image is ~200 MB (Python 3.13 slim + Aletheia .so bundle + pip dependencies). No GHC or Agda is included — only the compiled shared libraries and the Python package.
+For Docker deployment (Dockerfiles, build commands, runtime image), see [DISTRIBUTION.md](DISTRIBUTION.md#docker).
 
 ## Common Build Commands
 ```bash
@@ -541,21 +533,21 @@ agda +RTS -N32 -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 
 - Install command-line tools: `xcode-select --install`
 - If using Homebrew GHC: ensure ghcup takes precedence in PATH
-- Python 3.13 via Homebrew: `brew install python@3.13`
+- Python 3.14 via Homebrew: `brew install python@3.14`
 
 ### Windows (WSL2)
 
 - Use Ubuntu 22.04 LTS or later
 - Ensure WSL2 has sufficient memory allocated (8GB recommended)
 - Line endings: the repository uses Unix (LF) line endings
-- Install Python 3.13 from deadsnakes PPA (see Ubuntu instructions above)
+- Ubuntu 26.04+: `sudo apt install python3.14`; older releases: use deadsnakes PPA (see above)
 
 ### Linux
 
 - Install GMP development libraries: `sudo apt-get install libgmp-dev`
 - Install ncurses: `sudo apt-get install libncurses-dev`
 - On some distributions, you may need: `sudo apt-get install libtinfo-dev`
-- For Python 3.13: use deadsnakes PPA on Ubuntu/Debian (see above)
+- Ubuntu 26.04+: `sudo apt install python3.14`; older releases: use deadsnakes PPA (see above)
 
 ## Build Performance
 

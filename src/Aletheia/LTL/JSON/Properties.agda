@@ -21,7 +21,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat; ℕtoℚ)
 open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
-open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy)
+open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
 open import Aletheia.LTL.JSON.Format using (formatLTL; formatSignalPredicateFields)
 
@@ -60,6 +60,7 @@ predicate-roundtrip (ValueP (LessThanOrEqual s v)) = refl
 predicate-roundtrip (ValueP (GreaterThanOrEqual s v)) = refl
 predicate-roundtrip (ValueP (Between s min max)) = refl
 predicate-roundtrip (DeltaP (ChangedBy s d)) = refl
+predicate-roundtrip (DeltaP (StableWithin s t)) = refl
 
 -- ============================================================================
 -- LTL ROUNDTRIP

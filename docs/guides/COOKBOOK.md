@@ -9,6 +9,7 @@ Problem-driven recipes. Each recipe is self-contained: title, code, done.
 | I want to... | Recipe |
 |--------------|--------|
 | Check a signal stays within limits | [Signal Bound Checks](#signal-bound-checks) |
+| Detect signal changes or check stability | [Change Detection & Stability](#change-detection--stability) |
 | Verify "when A then B within T ms" | [Causal / Response-Time Checks](#causal--response-time-checks) |
 | Read a CAN log file (.blf, .asc, etc.) | [Working with CAN Logs](#working-with-can-logs) |
 | Load a DBC from .dbc or Excel | [Working with DBC](#working-with-dbc) |
@@ -86,6 +87,42 @@ Check.signal("CoolantTemp").settles_between(80, 100).within(5000)
 
 ---
 
+## Change Detection & Stability
+
+These predicates use frame-to-frame delta tracking and are available via the DSL only (not YAML/Excel).
+
+### Flag when a signal drops by at least N
+
+```python
+# Speed must never drop by 10+ in a single frame (violations = detections)
+Signal("VehicleSpeed").changed_by(-10).never()
+```
+
+Positive delta means "increased by at least delta"; negative means "decreased by at least |delta|".
+
+### Require that a signal increases by at least N
+
+```python
+# RPM must jump up by 500+ at some point (e.g., engine must start)
+Signal("EngineRPM").changed_by(500).eventually()
+```
+
+### Check signal stays stable within tolerance
+
+```python
+# Temperature stable within ±2 degrees frame-to-frame
+Signal("CoolantTemp").stable_within(2.0).always()
+```
+
+### Combine stability with a time window
+
+```python
+# After warmup, temperature must stabilize within ±1 degree
+Signal("CoolantTemp").stable_within(1.0).within(30000)
+```
+
+---
+
 ## Causal / Response-Time Checks
 
 ### When A happens, B must follow within T ms
@@ -132,7 +169,7 @@ Check.when("FuelLevel").drops_below(10) \
 ### Read a BLF file and check it (CLI)
 
 ```bash
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ### Read a CAN log in Python (eager)
@@ -168,7 +205,7 @@ frames = load_can_log("drive.blf", on_error="raise")
 
 ### Supported CAN log formats
 
-`.asc`, `.blf`, `.csv`, `.db`, `.log`, `.mf4`, `.trc` (via python-can).
+See [CLI Reference](../reference/CLI.md#input-formats) for the full list of supported CAN log formats (via python-can).
 
 ---
 
@@ -195,13 +232,13 @@ client.parse_dbc(dbc)
 ### List all signals in a DBC (CLI)
 
 ```bash
-python -m aletheia signals --dbc vehicle.dbc
+python3 -m aletheia signals --dbc vehicle.dbc
 ```
 
 ### List signals as JSON
 
 ```bash
-python -m aletheia signals --dbc vehicle.dbc --json
+python3 -m aletheia signals --dbc vehicle.dbc --json
 ```
 
 ---
@@ -223,7 +260,7 @@ print(f"Absent: {result.absent}")
 ### Extract signals from CLI
 
 ```bash
-python -m aletheia extract --dbc vehicle.dbc 0x100 401F820000000000
+python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ```
 
 ### Build a frame from signal values
@@ -253,7 +290,7 @@ client.end_stream()
 ### Run checks in CI/CD (exit codes + JSON)
 
 ```bash
-python -m aletheia check \
+python3 -m aletheia check \
     --dbc vehicle.dbc \
     --checks checks.yaml \
     --json \
@@ -266,20 +303,20 @@ echo "Exit code: $?"
 ### Decode a single frame
 
 ```bash
-python -m aletheia extract --dbc vehicle.dbc 0x100 "40 1F 82 00 00 00 00 00"
+python3 -m aletheia extract --dbc vehicle.dbc 0x100 "40 1F 7D 00 00 00 00 00"
 ```
 
 ### Use Excel workbook for everything
 
 ```bash
 # DBC + checks from the same .xlsx
-python -m aletheia check --excel vehicle_checks.xlsx drive.blf
+python3 -m aletheia check --excel vehicle_checks.xlsx drive.blf
 ```
 
 ### Mix DBC from .dbc with checks from .yaml
 
 ```bash
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ---

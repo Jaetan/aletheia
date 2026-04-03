@@ -61,8 +61,10 @@ using Unit = StrongString<struct UnitTag>;
 
 // Physical measurement domain (signal readouts, thresholds)
 using PhysicalValue = Strong<struct PhysicalValueTag, double>;
-// Absolute change magnitude for ChangedBy predicates
+// Signed change threshold for ChangedBy predicates (sign determines direction)
 using Delta = Strong<struct DeltaTag, double>;
+// Absolute tolerance for StableWithin predicates
+using Tolerance = Strong<struct ToleranceTag, double>;
 
 // ---------------------------------------------------------------------------
 // Rational: exact numerator/denominator (for DBC signal parameters)

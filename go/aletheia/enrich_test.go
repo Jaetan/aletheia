@@ -118,7 +118,9 @@ func TestFormatFormula_AllPredicates(t *testing.T) {
 		{aletheia.LessThanOrEqual{Signal: "S", Value: 10}, "S <= 10"},
 		{aletheia.GreaterThanOrEqual{Signal: "S", Value: 10}, "S >= 10"},
 		{aletheia.Between{Signal: "S", Min: 5, Max: 15}, "5 <= S <= 15"},
-		{aletheia.ChangedBy{Signal: "S", Delta: 2.5}, "|ΔS| >= 2.5"},
+		{aletheia.ChangedBy{Signal: "S", Delta: 2.5}, "ΔS >= 2.5"},
+		{aletheia.ChangedBy{Signal: "S", Delta: -3}, "ΔS <= -3"},
+		{aletheia.StableWithin{Signal: "S", Tolerance: 2.5}, "|ΔS| <= 2.5"},
 	}
 	for _, tt := range tests {
 		f := aletheia.Atomic{Predicate: tt.pred}

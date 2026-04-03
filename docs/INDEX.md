@@ -8,7 +8,7 @@
 
 Start here:
 
-1. **[Quick Start](guides/QUICKSTART.md)** - 5 minutes from zero to a working verification
+1. **[Quick Start](guides/QUICKSTART.md)** - 5-minute verification walkthrough (assumes built library)
 2. **[README](../README.md)** - Project overview
 3. **[PITCH](PITCH.md)** - Why use Aletheia? Elevator pitch for stakeholders
 
@@ -19,8 +19,8 @@ Start here:
 Learn Aletheia step by step:
 
 - **[Quick Start](guides/QUICKSTART.md)** - 5-minute path: define checks, run, interpret results
-- **[Tutorials](guides/TUTORIAL.md)** - End-to-end walkthroughs for four audience paths (Technician, Test Engineer, Python Scripter, Developer)
-- **[Cookbook](guides/COOKBOOK.md)** - Problem-driven recipes: signal bounds, causal checks, CAN logs, signal operations, CLI patterns
+- **[Tutorials](guides/TUTORIAL.md)** - End-to-end walkthroughs by role (start here if new to Aletheia)
+- **[Cookbook](guides/COOKBOOK.md)** - Copy-paste solutions to specific problems: signal bounds, causal checks, CAN logs, signal operations, CLI patterns
 
 ---
 
@@ -30,7 +30,7 @@ Complete API documentation:
 
 - **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
-- **[CLI Reference](reference/CLI.md)** - `python -m aletheia` subcommands: check, validate, extract, signals
+- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
 ---
@@ -116,12 +116,13 @@ aletheia/
 │       └── DISTRIBUTION.md            # Packaging & native integration
 │
 └── examples/
-    ├── example.dbc                    # Sample DBC file
+    ├── example.dbc                    # Sample CAN 2.0B DBC file
+    ├── example_canfd.dbc              # Sample CAN-FD DBC file
     ├── simple_verification.py         # Standalone verification example
     └── demo/                          # Demo scripts + support files
 ```
 
 ---
 
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-04-02
 **Maintained By**: Aletheia Team

@@ -1,6 +1,6 @@
 # Dependencies and Licenses
 
-**Last Updated**: 2026-03-23
+**Last Updated**: 2026-04-03
 
 This document lists all third-party software Aletheia depends on, their licenses,
 and the resulting obligations when distributing Aletheia.
@@ -128,7 +128,7 @@ No restrictions on use, modification, or proprietary distribution.
 
 ### LGPL-3.0 (libgmp, python-can)
 
-Two runtime dependencies use LGPL-3.0. The key obligations are:
+Two runtime dependencies use LGPL-3.0 (libgmp uses LGPL-3.0-or-later; python-can uses LGPL-3.0-only). The key obligations are:
 
 1. **Dynamic linking**: Users must be able to replace the LGPL component with a
    modified version. This is satisfied automatically — libgmp is dynamically linked

@@ -116,7 +116,12 @@ func formatPredicate(p Predicate) string {
 	case Between:
 		return fmt.Sprintf("%s <= %s <= %s", formatValue(float64(v.Min)), v.Signal, formatValue(float64(v.Max)))
 	case ChangedBy:
-		return fmt.Sprintf("|Δ%s| >= %s", v.Signal, formatValue(float64(v.Delta)))
+		if v.Delta >= 0 {
+			return fmt.Sprintf("Δ%s >= %s", v.Signal, formatValue(float64(v.Delta)))
+		}
+		return fmt.Sprintf("Δ%s <= %s", v.Signal, formatValue(float64(v.Delta)))
+	case StableWithin:
+		return fmt.Sprintf("|Δ%s| <= %s", v.Signal, formatValue(float64(v.Tolerance)))
 	default:
 		return "<unknown predicate>"
 	}
@@ -208,6 +213,8 @@ func predicateSignal(p Predicate) SignalName {
 	case Between:
 		return v.Signal
 	case ChangedBy:
+		return v.Signal
+	case StableWithin:
 		return v.Signal
 	default:
 		return ""

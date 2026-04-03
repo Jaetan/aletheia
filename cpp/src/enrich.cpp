@@ -50,8 +50,14 @@ auto format_predicate(const Predicate& p) -> std::string {
                                    std::string_view{v.signal}, format_value(v.max.get()));
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
-                return std::format("|{}{}| > {}", "\xce\x94", std::string_view{v.signal},
-                                   format_value(v.delta.get()));
+                return v.delta.get() >= 0
+                    ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},
+                                  format_value(v.delta.get()))
+                    : std::format("{}{} <= {}", "\xce\x94", std::string_view{v.signal},
+                                  format_value(v.delta.get()));
+            else if constexpr (std::is_same_v<T, StableWithin>)
+                return std::format("|{}{}| <= {}", "\xce\x94", std::string_view{v.signal},
+                                   format_value(v.tolerance.get()));
             else
                 static_assert(sizeof(T) == 0, "Unhandled predicate type in format_predicate");
         },

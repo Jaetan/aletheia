@@ -1,9 +1,10 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Signal predicates for LTL properties (equals, lessThan, greaterThan, between, changedBy).
+-- Signal predicates for LTL properties.
 --
 -- Purpose: Define atomic predicates over signal values extracted from CAN frames.
--- Predicates: Equals, LessThan, GreaterThan, Between (range), ChangedBy (delta from previous).
+-- Predicates: Equals, LessThan, GreaterThan, Between (range),
+--             ChangedBy (directional delta), StableWithin (magnitude tolerance).
 -- Role: Instantiate LTL.Syntax with signal-specific predicates for CAN verification.
 --
 -- Design: Operates on physical values (ℚ) after signal extraction and scaling.
@@ -20,7 +21,7 @@
 module Aletheia.LTL.SignalPredicate where
 
 open import Aletheia.Prelude
-open import Data.Rational as Rat using (_-_; ∣_∣; _≤?_; _<?_)
+open import Data.Rational as Rat using (_-_; ∣_∣; _≤?_; _<?_; 0ℚ)
 open import Data.Maybe as M using (map)
 open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Function using (case_of_)
@@ -161,12 +162,16 @@ valuePredicateSignal (GreaterThanOrEqual n _) = n
 valuePredicateSignal (Between n _ _)          = n
 
 -- Delta predicates: require two values (previous and current).
+--   ChangedBy    — directional: sign of delta determines direction
+--   StableWithin — magnitude: |curr - prev| ≤ tolerance
 data DeltaPredicate : Set where
-  ChangedBy : (signalName : String) → (delta : ℚ) → DeltaPredicate
+  ChangedBy    : (signalName : String) → (delta : ℚ) → DeltaPredicate
+  StableWithin : (signalName : String) → (tolerance : ℚ) → DeltaPredicate
 
 -- Extract signal name from a delta predicate
 deltaPredicateSignal : DeltaPredicate → String
-deltaPredicateSignal (ChangedBy n _) = n
+deltaPredicateSignal (ChangedBy n _)    = n
+deltaPredicateSignal (StableWithin n _) = n
 
 -- Combined signal predicate type (for use in LTL formulas)
 data SignalPredicate : Set where
@@ -230,7 +235,14 @@ private
 
   -- Evaluate a delta predicate given previous and current values
   evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
-  evalDeltaPredicate (ChangedBy _ delta) prev curr = ⌊ ∣ curr Rat.- prev ∣ Rat.≤? delta ⌋
+  -- ChangedBy: directional — sign of delta determines direction
+  --   positive delta: curr - prev ≥ delta  (increased by at least delta)
+  --   negative delta: curr - prev ≤ delta  (decreased by at least |delta|)
+  evalDeltaPredicate (ChangedBy _ delta) prev curr =
+    let diff = curr Rat.- prev
+    in  if 0ℚ ≤ℚ delta then delta ≤ℚ diff else diff ≤ℚ delta
+  -- StableWithin: magnitude tolerance — |curr - prev| ≤ tolerance
+  evalDeltaPredicate (StableWithin _ tol) prev curr = ⌊ ∣ curr Rat.- prev ∣ Rat.≤? tol ⌋
 
 -- ============================================================================
 -- THREE-VALUED PREDICATE EVALUATION

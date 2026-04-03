@@ -22,7 +22,7 @@ No Python coding required.
 ### Step 1: Create a Template
 
 ```bash
-python -c "from aletheia import create_template; create_template('checks.xlsx')"
+python3 -c "from aletheia import create_template; create_template('checks.xlsx')"
 ```
 
 This creates an Excel workbook with three sheets: **DBC**, **Checks**, **When-Then**.
@@ -34,7 +34,7 @@ Add one row per signal. Example:
 | Message ID | Message Name | DLC | Signal | Start Bit | Length | Byte Order | Signed | Factor | Offset | Min | Max | Unit |
 |-----------|-------------|-----|--------|-----------|--------|-----------|--------|--------|--------|-----|-----|------|
 | 0x100 | EngineData | 8 | EngineSpeed | 0 | 16 | little_endian | FALSE | 0.25 | 0 | 0 | 8000 | rpm |
-| 0x100 | EngineData | 8 | EngineTemp | 16 | 8 | little_endian | TRUE | 1 | -40 | -40 | 215 | C |
+| 0x100 | EngineData | 8 | EngineTemp | 16 | 8 | little_endian | FALSE | 1 | -40 | -40 | 215 | C |
 | 0x200 | BrakeStatus | 8 | BrakePressure | 0 | 16 | little_endian | FALSE | 0.1 | 0 | 0 | 6553.5 | bar |
 
 Multiple rows with the same Message ID are grouped into one message.
@@ -47,10 +47,11 @@ If you have a `.dbc` file from your customer, use `--dbc` instead (skip this she
 | Speed limit | EngineSpeed | never_exceeds | 8000 | | | | safety |
 | Temp range | EngineTemp | stays_between | | -40 | 215 | | warning |
 
-Available conditions: `never_exceeds`, `never_below`, `never_equals`, `equals`,
-`stays_between`, `settles_between` (requires Time).
+See [Interface Guide — Condition Reference](../reference/INTERFACES.md#condition-reference) for the full list of available conditions.
 
 ### Step 4: Fill in the When-Then Sheet (Optional)
+
+The When-Then sheet is optional — leave it empty if you only need simple signal bounds.
 
 For causal checks like "when X happens, Y must follow within T ms":
 
@@ -61,7 +62,7 @@ For causal checks like "when X happens, Y must follow within T ms":
 ### Step 5: Run Checks
 
 ```bash
-python -m aletheia check --excel checks.xlsx drive.blf
+python3 -m aletheia check --excel checks.xlsx drive.blf
 ```
 
 The `--excel` flag loads DBC, Checks, and When-Then from the same workbook.
@@ -82,7 +83,7 @@ RESULT: all checks passed
 Summary: 0 violations in 3 checks, 5000 frames processed
 ```
 
-Exit code `0` = all passed, `1` = violations found.
+Exit codes: `0` = all passed, `1` = violations found, `2` = error.
 Add `--json` for machine-readable output.
 
 ---
@@ -149,13 +150,13 @@ in an Excel workbook (see Path 1).
 ### Step 3: Run Checks
 
 ```bash
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
 ```
 
 ### Step 4: JSON Output for CI/CD
 
 ```bash
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json
 ```
 
 ```json
@@ -171,7 +172,7 @@ Use exit codes in CI: `0` = pass, `1` = violations, `2` = error.
 
 ```bash
 # In CI script:
-python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json > results.json
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf --json > results.json
 if [ $? -ne 0 ]; then echo "Verification failed"; exit 1; fi
 ```
 
@@ -179,10 +180,10 @@ if [ $? -ne 0 ]; then echo "Verification failed"; exit 1; fi
 
 ```bash
 # See what signals are available in the DBC
-python -m aletheia signals --dbc vehicle.dbc
+python3 -m aletheia signals --dbc vehicle.dbc
 
 # Decode a single frame
-python -m aletheia extract --dbc vehicle.dbc 0x100 401F820000000000
+python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ```
 
 ---
@@ -265,20 +266,7 @@ with AletheiaClient() as client:
 
 ### Step 5: Handle Enriched Violations
 
-When checks are registered via `add_checks()`, violation responses are automatically enriched:
-
-```python
-{
-    "type": "property",
-    "status": "fails",
-    "property_index": {"numerator": 0, "denominator": 1},
-    "timestamp": {"numerator": 4523000, "denominator": 1},
-    "reason": "Always violated",
-    "signals": {"VehicleSpeed": 225.5},    # enriched
-    "formula": "always(VehicleSpeed < 220)",  # enriched
-    "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))"  # enriched
-}
-```
+When checks are registered via `add_checks()`, violation responses are automatically enriched with signal values, formula descriptions, and human-readable reasons. See [Python API Guide — Enriched Violations](../reference/PYTHON_API.md#enriched-violations) for the full response schema.
 
 ---
 
@@ -303,8 +291,11 @@ Signal("Speed").greater_than_or_equal(60)
 # Range
 Signal("Voltage").between(11.5, 14.5)
 
-# Change detection: |now - prev| >= |delta|
-Signal("Speed").changed_by(-10)    # decreased by 10+
+# Change detection: directional (sign of delta determines direction)
+Signal("Speed").changed_by(-10)    # Speed decreased by 10+
+
+# Stability: |now - prev| <= tolerance
+Signal("Temperature").stable_within(2.0)  # Temperature stable within +/-2
 ```
 
 ### Step 2: Temporal Operators
@@ -320,10 +311,10 @@ Signal("EngineTemp").greater_than(90).eventually() # F(temp > 90)
 Signal("Fault").equals(0xFF).never()               # G(not(fault == 0xFF))
 
 # Time-bounded: within T milliseconds
-Signal("DoorClosed").equals(1).within(100)         # F_{<=100}(door == 1)
+Signal("DoorClosed").equals(1).within(100)         # F_{<=100ms}(door == 1)
 
 # Duration: hold for at least T milliseconds
-Signal("DoorClosed").equals(1).for_at_least(50)    # G_{<=50}(door == 1)
+Signal("DoorClosed").equals(1).for_at_least(50)    # G_{<=50ms}(door == 1)
 ```
 
 ### Step 3: Logical Composition

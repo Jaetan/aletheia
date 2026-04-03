@@ -2,7 +2,7 @@
 
 **Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
 **Version**: 1.1.1
-**Last Updated**: 2026-03-19
+**Last Updated**: 2026-04-02
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,
 > see the [Python API Guide](PYTHON_API.md).
@@ -53,7 +53,7 @@ Check.signal("ParkingBrake").equals(1).always()        # G(brake == 1)
 
 # Settling (time-bounded range)
 Check.signal("CoolantTemp").settles_between(80, 100).within(5000)
-# G_{<=5000}(80 <= temp <= 100)
+# G_{<=5000ms}(80 <= temp <= 100)
 ```
 
 ### When/Then Causal Checks
@@ -76,6 +76,8 @@ Check.when("FuelLevel").drops_below(10) \
      .then("FuelWarning").stays_between(1, 1) \
      .within(50)
 ```
+
+**Semantics**: The timer starts when the 'when' condition transitions from false to true (rising edge). If 'then' becomes true within the deadline, the check passes for that window. If the 'when' condition triggers again later, a new independent window starts.
 
 ### When Conditions
 
@@ -358,7 +360,7 @@ with bold headers. Open it in Excel or LibreOffice.
 | Message ID | Message Name | DLC | Signal | Start Bit | Length | Byte Order | Signed | Factor | Offset | Min | Max | Unit |
 |-----------|-------------|-----|--------|-----------|--------|-----------|--------|--------|--------|-----|-----|------|
 | 0x100 | EngineData | 8 | EngineSpeed | 0 | 16 | little_endian | FALSE | 0.25 | 0 | 0 | 8000 | rpm |
-| 0x100 | EngineData | 8 | EngineTemp | 16 | 8 | little_endian | TRUE | 1 | -40 | -40 | 215 | C |
+| 0x100 | EngineData | 8 | EngineTemp | 16 | 8 | little_endian | FALSE | 1 | -40 | -40 | 215 | C |
 | 0x200 | BrakeStatus | 8 | BrakePressure | 0 | 16 | little_endian | FALSE | 0.1 | 0 | 0 | 6553.5 | bar |
 
 Multiple rows with the same Message ID are grouped into one message.
@@ -408,7 +410,7 @@ with AletheiaClient() as client:
 |--------|------|----------|-------|
 | Message ID | int or hex string | yes | `0x100` or `256` |
 | Message Name | string | yes | |
-| DLC | int | yes | 0-15 (CAN-FD: 9→12B, 10→16B, 11→20B, 12→24B, 13→32B, 14→48B, 15→64B) |
+| DLC | int | yes | 0-15 (see [PROTOCOL.md](../architecture/PROTOCOL.md#1-parsedbc) for CAN-FD DLC-to-bytes mapping) |
 | Signal | string | yes | Signal name |
 | Start Bit | int | yes | 0-511 (CAN-FD) or 0-63 (standard CAN) |
 | Length | int | yes | Bit length |
@@ -501,6 +503,8 @@ All three interfaces (Check API, YAML, Excel) support the same conditions.
 > **Note**: The LTL column shows the underlying formula for developers. If you're using the Check API, YAML, or Excel interface, you can ignore it — the condition name and Check API columns are all you need.
 
 All conditions are documented in the [YAML Schema](#yaml-schema) section above. The Check API method names match the YAML condition names (e.g., YAML `never_exceeds` → Check API `.never_exceeds(v)`).
+
+> **DSL-only predicates**: The full DSL provides additional predicates (`changed_by`, `stable_within`) not available as YAML/Excel conditions. These require frame-to-frame delta tracking and are accessed via `Signal("S").changed_by(delta)` and `Signal("S").stable_within(tolerance)`. See [Python API Guide — Change Detection](PYTHON_API.md#change-detection).
 
 ---
 

@@ -43,10 +43,17 @@ type Between struct {
 	Max    PhysicalValue
 }
 
-// ChangedBy tests whether a signal's value changed by at least Delta since the previous frame.
+// ChangedBy tests whether a signal's value changed in a specific direction.
+// Positive delta: curr - prev >= delta; negative delta: curr - prev <= delta.
 type ChangedBy struct {
 	Signal SignalName
 	Delta  Delta
+}
+
+// StableWithin tests whether a signal's value stayed within Tolerance of its previous value.
+type StableWithin struct {
+	Signal    SignalName
+	Tolerance Tolerance
 }
 
 func (Equals) predicate()             {}
@@ -56,6 +63,7 @@ func (LessThanOrEqual) predicate()    {}
 func (GreaterThanOrEqual) predicate() {}
 func (Between) predicate()            {}
 func (ChangedBy) predicate()          {}
+func (StableWithin) predicate()       {}
 
 // Formula is an LTL formula over signal predicates.
 // Implementations outside this package are not supported.

@@ -81,20 +81,20 @@ class TestParseHexData:
     """Test parse_hex_data: various hex formats -> bytearray."""
 
     def test_contiguous_hex(self) -> None:
-        result = parse_hex_data("401F820000000000")
-        assert result == bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
+        result = parse_hex_data("401F7D0000000000")
+        assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_space_separated(self) -> None:
-        result = parse_hex_data("40 1F 82 00 00 00 00 00")
-        assert result == bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
+        result = parse_hex_data("40 1F 7D 00 00 00 00 00")
+        assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_colon_separated(self) -> None:
-        result = parse_hex_data("40:1F:82:00:00:00:00:00")
-        assert result == bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
+        result = parse_hex_data("40:1F:7D:00:00:00:00:00")
+        assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_with_0x_prefix(self) -> None:
-        result = parse_hex_data("0x401F820000000000")
-        assert result == bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
+        result = parse_hex_data("0x401F7D0000000000")
+        assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_lowercase(self) -> None:
         result = parse_hex_data("deadbeef")

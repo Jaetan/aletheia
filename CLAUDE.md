@@ -64,7 +64,7 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - If postulate is truly needed (rare), create separate `*.Unsafe.agda` module
   - Remove `--safe` flag ONLY in that module
   - Document why postulate is needed
-  - Must be replaced with proof by Phase 3 completion
+  - Must be replaced with proof before production use
 
 **Enforcement**:
 - Build system checks all modules have --safe flag
@@ -178,7 +178,7 @@ See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed re
 ### Agda Compilation
 
 - Always use `--safe --without-K` flags (enforced in module headers)
-- Use `--no-main` flag (binary entry point is in Haskell)
+- Two modules use `--no-main` (Parser/Combinators.agda, Main.agda — binary entry point is in Haskell)
 - Generated MAlonzo code goes to `build/` directory
 - Don't edit generated Haskell code; modify Agda source instead
 - **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
@@ -221,7 +221,7 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
 - **17 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `excel.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
-- **12 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `excel_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (233 tests, mock backend)
+- **12 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `excel_test.go`, `helpers_test.go`, `mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (243 tests, mock backend)
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
 - **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning

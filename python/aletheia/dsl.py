@@ -171,12 +171,13 @@ class Signal:
         return Predicate(formula)
 
     def changed_by(self, delta: float) -> 'Predicate':
-        """Signal changed by at least delta (absolute value)
+        """Signal changed in a specific direction.
 
-        Checks |signal_now - signal_prev| >= |delta|
+        Positive delta: curr - prev >= delta (increased by at least delta)
+        Negative delta: curr - prev <= delta (decreased by at least |delta|)
 
         Args:
-            delta: Minimum change magnitude (can be negative for decrease)
+            delta: Signed change threshold
 
         Returns:
             Predicate that can be used in temporal operators
@@ -188,6 +189,27 @@ class Signal:
             'predicate': PredicateType.CHANGED_BY.value,
             'signal': self.name,
             'delta': delta
+        })
+        return Predicate(formula)
+
+    def stable_within(self, tolerance: float) -> 'Predicate':
+        """Signal value stayed within tolerance of previous value.
+
+        Checks |signal_now - signal_prev| <= tolerance
+
+        Args:
+            tolerance: Maximum allowed absolute change
+
+        Returns:
+            Predicate that can be used in temporal operators
+
+        Example:
+            Signal("Temp").stable_within(2.0)  # Temperature stable within +/-2
+        """
+        formula: AtomicFormula = _atomic({
+            'predicate': PredicateType.STABLE_WITHIN.value,
+            'signal': self.name,
+            'tolerance': tolerance
         })
         return Predicate(formula)
 
