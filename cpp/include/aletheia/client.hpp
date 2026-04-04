@@ -17,7 +17,9 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace aletheia {
@@ -119,6 +121,28 @@ private:
         FramePayload data;
     };
     std::map<LastFrameKey, LastFrame> last_frames_;
+
+    // Signal name → 0-based index within the DBC message's signal list.
+    // Keyed by (can_id_value, is_extended, signal_name).
+    // Populated by parse_dbc(); cleared by parse_dbc().
+    struct SignalKey {
+        std::uint32_t id_value;
+        bool is_extended;
+        std::string signal_name;
+        auto operator==(const SignalKey&) const -> bool = default;
+    };
+    struct SignalKeyHash {
+        auto operator()(const SignalKey& k) const -> std::size_t {
+            auto h1 = std::hash<std::uint32_t>{}(k.id_value);
+            auto h2 = std::hash<bool>{}(k.is_extended);
+            auto h3 = std::hash<std::string>{}(k.signal_name);
+            // Combine hashes (boost::hash_combine pattern).
+            h1 ^= h2 + 0x9e3779b9 + (h1 << 6U) + (h1 >> 2U);
+            h1 ^= h3 + 0x9e3779b9 + (h1 << 6U) + (h1 >> 2U);
+            return h1;
+        }
+    };
+    std::unordered_map<SignalKey, std::uint32_t, SignalKeyHash> signal_index_;
 };
 
 static_assert(!std::is_copy_constructible_v<AletheiaClient>,

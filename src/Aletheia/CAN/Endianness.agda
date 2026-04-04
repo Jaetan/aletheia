@@ -14,15 +14,17 @@ module Aletheia.CAN.Endianness where
 
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.Data.BitVec using (BitVec; testBit; setBit)
-open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ)
-open import Data.Vec using (Vec; []; _∷_; reverse)
-open import Data.Fin using (Fin; fromℕ<)
-open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_)
-open import Data.Nat.DivMod using (m%n<n)
-open import Data.Nat.Properties using (_≟_; _<?_; +-suc; +-identityʳ; ≤-antisym; ≮⇒≥)
+open import Aletheia.Data.BitVec.Conversion using (ℕToBitVec; bitVecToℕ; shiftR-conv; boolToℕ; ℕToBitVec-lookup; shiftR-mod-pow2; bitVec-roundtrip)
+open import Data.Vec using (Vec; []; _∷_; reverse; lookup)
+open import Data.Fin using (Fin; fromℕ<; toℕ)
+open import Data.Fin.Properties using (toℕ-fromℕ<)
+open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; z≤n; s≤s; _/_; _%_; _^_; NonZero)
+open import Data.Nat.DivMod using (m%n<n; m≡m%n+[m/n]*n; [m+kn]%n≡m%n; +-distrib-/-∣ʳ; m*n/n≡m)
+open import Data.Nat.Divisibility using (divides-refl)
+open import Data.Nat.Properties using (_≟_; _<?_; +-suc; +-identityʳ; ≤-antisym; ≮⇒≥; m^n≢0; +-comm; *-comm; *-assoc)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst; _≢_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 open import Relation.Nullary using (Dec; yes; no)
 open import Data.Empty using (⊥-elim)
 
@@ -106,10 +108,133 @@ private
         bitVal = shiftR byte (sb Nat.% 8) Nat.% 2
     in bitVal + 2 * extractCore n bytes (suc sb) bl
 
+  -- ====================================================================
+  -- PROOF: extractCore ≡ bitVecToℕ ∘ extractBits
+  -- ====================================================================
+
+  -- Bridge: shiftR (Endianness) ≡ shiftR-conv (Conversion)
+  -- Both defined as iterated /2, so proof is by induction on k.
+  shiftR-≡ : ∀ x k → shiftR x k ≡ shiftR-conv x k
+  shiftR-≡ x zero = refl
+  shiftR-≡ x (suc k) = shiftR-≡ (x Nat./ 2) k
+
+  -- Per-bit equivalence: extractCore's bit read ≡ extractBits' bit read.
+  -- shiftR byte (sb%8) % 2 ≡ boolToℕ (testBit (byteToBitVec byte) (fromℕ< (m%n<n sb 8)))
+  bit-equiv : ∀ (byte : Byte) (sb : ℕ)
+    → shiftR byte (sb Nat.% 8) Nat.% 2
+      ≡ boolToℕ (testBit (byteToBitVec byte) (fromℕ< (m%n<n sb 8)))
+  bit-equiv byte sb =
+    let sb%8 = sb Nat.% 8
+        -- Step 1: shiftR ≡ shiftR-conv
+        step1 : shiftR byte sb%8 Nat.% 2 ≡ shiftR-conv byte sb%8 Nat.% 2
+        step1 = cong (Nat._% 2) (shiftR-≡ byte sb%8)
+        -- Step 2: shiftR-conv byte k % 2 ≡ shiftR-conv (byte%256) k % 2  (k < 8)
+        step2 : shiftR-conv byte sb%8 Nat.% 2 ≡ shiftR-conv (byte Nat.% 256) sb%8 Nat.% 2
+        step2 = shiftR-mod-pow2 byte 8 sb%8 {{m^n≢0 2 8}} (m%n<n sb 8)
+        -- Step 3: ℕToBitVec-lookup relates lookup to shiftR-conv
+        step3 : boolToℕ (lookup (ℕToBitVec (byte Nat.% 256) (m%n<n byte 256)) (fromℕ< (m%n<n sb 8)))
+                ≡ shiftR-conv (byte Nat.% 256) (toℕ (fromℕ< (m%n<n sb 8))) Nat.% 2
+        step3 = ℕToBitVec-lookup 8 (byte Nat.% 256) (m%n<n byte 256) (fromℕ< (m%n<n sb 8))
+        -- Step 4: toℕ (fromℕ< (m%n<n sb 8)) ≡ sb%8
+        step4 : toℕ (fromℕ< (m%n<n sb 8)) ≡ sb%8
+        step4 = toℕ-fromℕ< (m%n<n sb 8)
+    in trans step1 (trans step2 (sym (trans step3 (cong (λ k → shiftR-conv (byte Nat.% 256) k Nat.% 2) step4))))
+
+  -- Main structural lemma: extractCore agrees with bitVecToℕ ∘ extractBits
+  -- for any Vec Byte n and start bit position.
+  extractCore-extractBits : ∀ (bl n : ℕ) (bytes : Vec Byte n) (sb : ℕ)
+    → extractCore n bytes sb bl ≡ bitVecToℕ (extractBits {bl} {n} bytes sb)
+  extractCore-extractBits zero n bytes sb = refl
+  extractCore-extractBits (suc bl) n bytes sb
+    with testBit (byteToBitVec byte) (fromℕ< (m%n<n sb 8))
+       | bit-equiv byte sb
+    where byte = lookupSafe n (sb Nat./ 8) bytes
+  ... | false | beq =
+    -- bitVal ≡ 0 (from beq), RHS reduces to 2 * bitVecToℕ (extractBits bytes (suc sb))
+    cong₂ Nat._+_ beq (cong (2 Nat.*_) (extractCore-extractBits bl n bytes (suc sb)))
+  ... | true | beq =
+    -- bitVal ≡ 1 (from beq), RHS = 1 + 2 * bitVecToℕ (extractBits bytes (suc sb))
+    cong₂ Nat._+_ beq (cong (2 Nat.*_) (extractCore-extractBits bl n bytes (suc sb)))
+
+  -- lookupSafe commutes with dropVec: looking up j in dropped vec ≡ looking up j+k in original
+  lookupSafe-dropVec : ∀ n k j (bytes : Vec Byte n)
+    → lookupSafe (n ∸ k) j (dropVec n k bytes) ≡ lookupSafe n (j Nat.+ k) bytes
+  lookupSafe-dropVec n zero j bytes = cong (λ x → lookupSafe n x bytes) (sym (+-identityʳ j))
+  lookupSafe-dropVec zero (suc k) j [] = refl
+  lookupSafe-dropVec (suc n) (suc k) j (b ∷ bs) =
+    trans (lookupSafe-dropVec n k j bs) (cong (λ x → lookupSafe (suc n) x (b ∷ bs)) (sym (+-suc j k)))
+
+  -- extractCore on a dropped vec agrees with extractCore on the original
+  -- with an adjusted start bit (sb + skip * 8).
+  -- Key insight: instead of proving extractBits-shift (which crosses byte
+  -- boundaries when sb%8=7), work at the extractCore level where byte
+  -- lookups are explicit and can be rewritten via lookupSafe-dropVec.
+  extractCore-dropVec : ∀ (bl m : ℕ) (bytes : Vec Byte m) (skip sb : ℕ)
+    → extractCore (m ∸ skip) (dropVec m skip bytes) sb bl
+      ≡ extractCore m bytes (sb Nat.+ skip Nat.* 8) bl
+  extractCore-dropVec zero m bytes skip sb = refl
+  extractCore-dropVec (suc bl) m bytes skip sb =
+    let n' = m ∸ skip
+        bytes' = dropVec m skip bytes
+        sb' = sb Nat.+ skip Nat.* 8
+        -- Byte lookup: lookupSafe n' (sb/8) bytes' ≡ lookupSafe m (sb'/8) bytes
+        byte-step₁ : lookupSafe n' (sb Nat./ 8) bytes' ≡ lookupSafe m (sb Nat./ 8 Nat.+ skip) bytes
+        byte-step₁ = lookupSafe-dropVec m skip (sb Nat./ 8) bytes
+        div-id : (sb Nat.+ skip Nat.* 8) Nat./ 8 ≡ sb Nat./ 8 Nat.+ (skip Nat.* 8) Nat./ 8
+        div-id = +-distrib-/-∣ʳ sb (divides-refl skip)
+        kn-simp : (skip Nat.* 8) Nat./ 8 ≡ skip
+        kn-simp = m*n/n≡m skip 8
+        byte-eq : lookupSafe n' (sb Nat./ 8) bytes' ≡ lookupSafe m (sb' Nat./ 8) bytes
+        byte-eq = trans byte-step₁ (cong (λ x → lookupSafe m x bytes)
+                    (sym (trans div-id (cong (sb Nat./ 8 Nat.+_) kn-simp))))
+        -- Bit position: sb%8 ≡ sb'%8
+        bit-eq : sb Nat.% 8 ≡ sb' Nat.% 8
+        bit-eq = sym ([m+kn]%n≡m%n sb skip 8)
+        -- Bit value equality
+        bitVal-eq : shiftR (lookupSafe n' (sb Nat./ 8) bytes') (sb Nat.% 8) Nat.% 2
+                    ≡ shiftR (lookupSafe m (sb' Nat./ 8) bytes) (sb' Nat.% 8) Nat.% 2
+        bitVal-eq = cong (Nat._% 2) (cong₂ shiftR byte-eq bit-eq)
+        -- Recursive call (suc sb + skip*8 = suc (sb + skip*8) definitionally)
+        rec-eq : extractCore n' bytes' (suc sb) bl
+                 ≡ extractCore m bytes (suc sb Nat.+ skip Nat.* 8) bl
+        rec-eq = extractCore-dropVec bl m bytes skip (suc sb)
+    in cong₂ Nat._+_ bitVal-eq (cong (2 Nat.*_) rec-eq)
+
 extractRaw : (n : ℕ) → Vec Byte n → ℕ → (bitLength : ℕ) → ℕ
 extractRaw n bytes startBit bitLength =
   let skip = startBit Nat./ 8
   in extractCore (n ∸ skip) (dropVec n skip bytes) (startBit Nat.% 8) bitLength
+
+-- ============================================================================
+-- PROOF: extractRaw ≡ bitVecToℕ ∘ extractBits
+-- ============================================================================
+
+-- extractRaw agrees with extractBits on identical inputs.
+-- Bridges the dropVec optimization with the direct per-bit lookup.
+--
+-- Proof strategy: compose three steps:
+--   1. extractCore-dropVec: extractCore on dropped vec ≡ extractCore on original (with sb%8 + skip*8)
+--   2. Arithmetic: sb%8 + (sb/8)*8 ≡ sb (division algorithm identity)
+--   3. extractCore-extractBits: extractCore ≡ bitVecToℕ ∘ extractBits
+extractRaw-extractBits : ∀ (m : ℕ) (bytes : Vec Byte m) (sb bl : ℕ)
+  → extractRaw m bytes sb bl ≡ bitVecToℕ (extractBits {bl} {m} bytes sb)
+extractRaw-extractBits m bytes sb bl =
+  let skip = sb Nat./ 8
+      rem = sb Nat.% 8
+      -- Step 1: extractCore on dropped vec ≡ extractCore on original with (rem + skip*8)
+      step₁ : extractCore (m ∸ skip) (dropVec m skip bytes) rem bl
+              ≡ extractCore m bytes (rem Nat.+ skip Nat.* 8) bl
+      step₁ = extractCore-dropVec bl m bytes skip rem
+      -- Step 2: rem + skip*8 ≡ sb (division algorithm: m ≡ m%n + m/n * n)
+      step₂ : extractCore m bytes (rem Nat.+ skip Nat.* 8) bl
+              ≡ extractCore m bytes sb bl
+      step₂ = cong (λ x → extractCore m bytes x bl)
+                    (sym (m≡m%n+[m/n]*n sb 8))
+      -- Step 3: extractCore ≡ bitVecToℕ ∘ extractBits
+      step₃ : extractCore m bytes sb bl
+              ≡ bitVecToℕ (extractBits {bl} {m} bytes sb)
+      step₃ = extractCore-extractBits bl m bytes sb
+  in trans step₁ (trans step₂ step₃)
 
 -- Inject bits into a byte vector at a given position
 -- Takes a BitVec (structural, not arithmetic)

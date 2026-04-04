@@ -8,7 +8,7 @@
 
 **Phase 5 - Optional Extensions** ⏳
 
-Phases 1-4 complete. Phase 5 adds optional extensions driven by user feedback: CAN-FD, multi-language bindings (C++, Go), binary FFI, formal verification completion, benchmarks. All provable correctness properties are proven.
+Phases 1-4 complete. Phase 5 adds optional extensions driven by user feedback: CAN-FD, multi-language bindings (C++, Go), binary FFI, formal verification completion, benchmarks. All provable correctness properties are proven. SOME/IP deferred to Phase 6.
 
 **Status**: Phase 5 in progress
 
@@ -288,9 +288,8 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Cross-language API review rounds 5-11 (2026-04-01): 30+ fixes across all three bindings (47 files, +1058/-345 lines). Semantic correctness: CAN ID range constants from bit widths, type-derived limits (std::numeric_limits, math.MaxInt64), INT64_MIN overflow guard, Go parseRational truncation check. Safety: [[nodiscard]] on all C++ AletheiaClient methods, static_assert non-copyable, lo>hi validation in Check API (all 3 bindings), .value()→* for known-valid std::expected. Protocol: AGENTS.md origin-blind rules + backward-compat prohibition, OpenXLSX pinned commit, clang-tidy clean. Total review rounds to date: Agda 7 batches, Python 11 rounds (534 tests), C++ 11 rounds (5 test suites), Go 23 rounds (243 tests).
 
-**Planned / Research**:
-- Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
-- **SOME/IP support**: SOME/IP (Scalable service-Oriented MiddlewarE over IP) for automotive Ethernet backbones. SOME/IP is service-oriented, not signal-based — 16-byte header + variable structured payload. Requires a different frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400). Sequence: ~~CAN-FD → binary FFI~~ (done) → SOME/IP frame model → SOME/IP properties.
+**Remaining**:
+- Binary FFI for signal extraction/frame building (currently still JSON; batch operations, not per-frame hot path)
 
 **Status**: In progress
 
@@ -340,10 +339,19 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 ---
 
-## Future
+### Phase 6: SOME/IP Support (Planned)
 
-- SOME/IP support (automotive Ethernet, service-oriented)
-- Binary FFI for signal extraction/frame building (currently still JSON; lower priority — batch operations, not per-frame hot path)
+**Scope**: Extend Aletheia to automotive Ethernet via SOME/IP (Scalable service-Oriented MiddlewarE over IP)
+
+SOME/IP is fundamentally different from CAN: service-oriented rather than signal-based, with a 16-byte header and variable structured payloads. This requires a new frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The existing LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400).
+
+**Research needed**:
+- Frame model design (service-oriented vs. signal-based)
+- Which SOME/IP interface to target (SOME/IP-SD, SOME/IP-TP, raw)
+- Atomic predicate design for service-level properties
+- Impact on Agda core types and proof obligations
+
+**Status**: Not started
 
 ---
 

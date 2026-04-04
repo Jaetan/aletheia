@@ -3,21 +3,31 @@
 
 -- | FFI exports for loading Aletheia as a shared library from Python/C++/Go.
 --
--- This module wraps the Agda-generated processJSONLine and processFrameDirect
--- functions with C-callable FFI exports. State is managed via StablePtr + IORef.
+-- This module wraps Agda-generated functions with C-callable FFI exports.
+-- State is managed via StablePtr + IORef.
 --
--- Two entry points for frame processing:
---   - aletheia_process()    : JSON string in, JSON string out (all commands)
---   - aletheia_send_frame() : Binary frame data in, JSON string out (hot path)
+-- Entry points:
+--   JSON input:
+--     - aletheia_process()          : JSON string in, JSON string out
+--   Binary input (no JSON parsing):
+--     - aletheia_send_frame()       : Binary CAN frame → JSON (streaming LTL)
+--     - aletheia_extract_signals()  : Binary CAN frame → JSON (signal extraction)
+--     - aletheia_build_frame()      : Signal index/value pairs → JSON (frame building)
+--     - aletheia_update_frame()     : Frame + signal pairs → JSON (frame update)
+--     - aletheia_start_stream()     : No args → JSON (state transition)
+--     - aletheia_end_stream()       : No args → JSON (finalize + results)
+--     - aletheia_format_dbc()       : No args → JSON (DBC export)
 --
 -- Lifecycle from language bindings:
---   1. hs_init()           -- Initialize GHC RTS (called once)
---   2. aletheia_init()     -- Create state handle
---   3. aletheia_process()  -- Process JSON lines (commands, non-hot-path)
---   3b. aletheia_send_frame() -- Send binary frame data (hot path)
---   4. aletheia_free_str() -- Free each returned string
---   5. aletheia_close()    -- Free state handle
---   6. hs_exit()           -- Shutdown GHC RTS (called once)
+--   1. hs_init()                -- Initialize GHC RTS (called once)
+--   2. aletheia_init()          -- Create state handle
+--   3. aletheia_process()       -- JSON commands (parseDBC, setProperties, validateDBC)
+--   4. aletheia_start_stream()  -- Begin streaming
+--   5. aletheia_send_frame()    -- Stream binary frames (hot path)
+--   6. aletheia_end_stream()    -- Finalize and get results
+--   7. aletheia_free_str()      -- Free each returned string
+--   8. aletheia_close()         -- Free state handle
+--   9. hs_exit()                -- Shutdown GHC RTS (called once)
 module AletheiaFFI where
 
 import Foreign.C.String (CString, newCString, peekCString)
@@ -26,6 +36,7 @@ import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr)
 import Foreign.Marshal.Array (peekArray)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Int (Int64)
 import Data.Word (Word8, Word32, Word64)
 import qualified Data.Text as T
 import Unsafe.Coerce (unsafeCoerce)
@@ -37,6 +48,7 @@ import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
 import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
+import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 
 -- | Opaque state handle exported to C/Python
 type StateHandle = StablePtr (IORef AgdaState.T_StreamState_34)
@@ -92,9 +104,7 @@ aletheia_send_frame statePtr timestamp canId extended dlc dataPtr dataLen = do
     -- Read raw bytes from C pointer
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     -- Construct MAlonzo types directly (no JSON, no Agda string parsing)
-    let agdaCanId = if extended /= 0
-            then AgdaFrame.C_Extended_12 (toInteger canId)
-            else AgdaFrame.C_Standard_10 (toInteger canId)
+    let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
     let agdaFrame = AgdaFrame.C_constructor_32 agdaCanId (toInteger dlc) agdaVec
     -- TimedFrame constructor: timestamp, payloadSize, frame
@@ -118,7 +128,155 @@ bytesToAgdaVec [] = AgdaVec.C_'91''93'_32
 bytesToAgdaVec (b:bs) = AgdaVec.C__'8759'__38
     (unsafeCoerce (toInteger b)) (bytesToAgdaVec bs)
 
--- | Free a string returned by aletheia_process or aletheia_send_frame.
+-- ============================================================================
+-- BINARY ENTRY POINTS (No JSON parsing on input)
+-- ============================================================================
+
+-- | Extract all signals from a binary CAN frame.
+-- Same as aletheia_send_frame but for signal extraction (no timestamp needed).
+foreign export ccall aletheia_extract_signals
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Ptr Word8 -> Word8 -> IO CString
+aletheia_extract_signals :: StateHandle -> Word32 -> Word8 -> Word8
+                        -> Ptr Word8 -> Word8 -> IO CString
+aletheia_extract_signals statePtr canId extended dlc dataPtr dataLen = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    bytes <- peekArray (fromIntegral dataLen) dataPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let agdaVec = bytesToAgdaVec bytes
+    let result = Agda.d_processExtractDirect_94 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- | Build a CAN frame from signal index-value pairs (no JSON/string parsing).
+--
+-- Signal values are passed as parallel arrays of (index, numerator, denominator).
+-- Index is the 0-based position in the DBC message's signal list.
+-- Value is the rational numerator/denominator (must have denominator > 0).
+foreign export ccall aletheia_build_frame
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+    -> IO CString
+aletheia_build_frame :: StateHandle -> Word32 -> Word8 -> Word8
+                    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+                    -> IO CString
+aletheia_build_frame statePtr canId extended dlc
+    numSignals indicesPtr numsPtr densPtr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    indices <- peekArray (fromIntegral numSignals) indicesPtr
+    nums <- peekArray (fromIntegral numSignals) numsPtr
+    dens <- peekArray (fromIntegral numSignals) densPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let signalPairs = mkSignalPairs indices nums dens
+    let result = Agda.d_processBuildFrameDirect_110 state agdaCanId (toInteger dlc) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- | Update specific signals in a CAN frame by index (no JSON/string parsing).
+foreign export ccall aletheia_update_frame
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Ptr Word8 -> Word8
+    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+    -> IO CString
+aletheia_update_frame :: StateHandle -> Word32 -> Word8 -> Word8
+                     -> Ptr Word8 -> Word8
+                     -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+                     -> IO CString
+aletheia_update_frame statePtr canId extended dlc
+    dataPtr dataLen numSignals indicesPtr numsPtr densPtr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    bytes <- peekArray (fromIntegral dataLen) dataPtr
+    indices <- peekArray (fromIntegral numSignals) indicesPtr
+    nums <- peekArray (fromIntegral numSignals) numsPtr
+    dens <- peekArray (fromIntegral numSignals) densPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let agdaVec = bytesToAgdaVec bytes
+    let signalPairs = mkSignalPairs indices nums dens
+    let result = Agda.d_processUpdateFrameDirect_126 state agdaCanId
+                     (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- | Start streaming mode (binary entry point, no JSON parsing).
+foreign export ccall aletheia_start_stream :: StateHandle -> IO CString
+aletheia_start_stream :: StateHandle -> IO CString
+aletheia_start_stream statePtr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    let result = Agda.d_processStartStreamDirect_68 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- | End streaming and finalize all properties (binary entry point).
+foreign export ccall aletheia_end_stream :: StateHandle -> IO CString
+aletheia_end_stream :: StateHandle -> IO CString
+aletheia_end_stream statePtr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    let result = Agda.d_processEndStreamDirect_76 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- | Format currently-loaded DBC as JSON (binary entry point).
+foreign export ccall aletheia_format_dbc :: StateHandle -> IO CString
+aletheia_format_dbc :: StateHandle -> IO CString
+aletheia_format_dbc statePtr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    let result = Agda.d_processFormatDBCDirect_84 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
+    writeIORef ref newState
+    newCString (T.unpack outputText)
+
+-- ============================================================================
+-- MARSHALING HELPERS
+-- ============================================================================
+
+-- | Construct MAlonzo CANId from raw C values.
+mkAgdaCanId :: Word32 -> Word8 -> AgdaFrame.T_CANId_8
+mkAgdaCanId canId extended
+    | extended /= 0 = AgdaFrame.C_Extended_12 (toInteger canId)
+    | otherwise     = AgdaFrame.C_Standard_10 (toInteger canId)
+
+-- | Construct MAlonzo ℚ from (numerator, denominator) integers.
+-- Normalizes to coprime form (required by Agda's ℚ invariant).
+mkAgdaRational :: Int64 -> Int64 -> AgdaRational.T_ℚ_6
+mkAgdaRational num den
+    | den <= 0  = AgdaRational.C_mkℚ_24 (fromIntegral num) 0  -- fallback: n/1
+    | otherwise =
+        let n = fromIntegral num :: Integer
+            d = fromIntegral den :: Integer
+            g = gcd (abs n) d
+        in AgdaRational.C_mkℚ_24 (n `div` g) (d `div` g - 1)
+
+-- | Build MAlonzo List (ℕ × ℚ) from parallel C arrays.
+mkSignalPairs :: [Word32] -> [Int64] -> [Int64] -> [AgdaSigma.T_Σ_14]
+mkSignalPairs (i:is) (n:ns) (d:ds) =
+    AgdaSigma.C__'44'__32
+        (unsafeCoerce (toInteger i))
+        (unsafeCoerce (mkAgdaRational n d))
+    : mkSignalPairs is ns ds
+mkSignalPairs _ _ _ = []
+
+-- ============================================================================
+-- MEMORY MANAGEMENT
+-- ============================================================================
+
+-- | Free a string returned by any aletheia_* function.
 foreign export ccall aletheia_free_str :: CString -> IO ()
 aletheia_free_str :: CString -> IO ()
 aletheia_free_str = free

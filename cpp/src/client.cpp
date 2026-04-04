@@ -4,9 +4,12 @@
 
 #include "detail/json.hpp"
 
+#include <cmath>
+#include <cstdint>
 #include <format>
 #include <set>
 #include <string>
+#include <variant>
 
 namespace aletheia {
 
@@ -20,6 +23,14 @@ auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> 
                           std::format("payload length {} does not match DLC {} (expected {} bytes)",
                                       data.size(), dlc.value(), expected)});
     return {};
+}
+
+// Convert a double signal value to an exact rational (numerator/denominator).
+// Uses 10^9 scaling: round(value * 1e9) as numerator, 1'000'000'000 as denominator.
+constexpr std::int64_t rational_denominator = 1'000'000'000;
+
+auto to_rational_numerator(double value) -> std::int64_t {
+    return static_cast<std::int64_t>(std::llround(value * static_cast<double>(rational_denominator)));
 }
 
 } // namespace
@@ -41,7 +52,8 @@ AletheiaClient::AletheiaClient(AletheiaClient&& other) noexcept
     , logger_(std::move(other.logger_))
     , diags_(std::move(other.diags_))
     , cache_(std::move(other.cache_))
-    , last_frames_(std::move(other.last_frames_)) {
+    , last_frames_(std::move(other.last_frames_))
+    , signal_index_(std::move(other.signal_index_)) {
 }
 
 AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
@@ -54,6 +66,7 @@ AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
         diags_ = std::move(other.diags_);
         cache_ = std::move(other.cache_);
         last_frames_ = std::move(other.last_frames_);
+        signal_index_ = std::move(other.signal_index_);
     }
     return *this;
 }
@@ -65,7 +78,21 @@ AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
 auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<void> {
     auto cmd = detail::serialize_parse_dbc(dbc);
     auto resp = backend_->process(state_, cmd);
-    return detail::parse_success(resp);
+    auto result = detail::parse_success(resp);
+    if (result.has_value()) {
+        // Populate signal name → index cache from the DBC definition.
+        signal_index_.clear();
+        for (const auto& msg : dbc.messages) {
+            auto id_value =
+                std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
+            auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
+            for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
+                signal_index_.emplace(
+                    SignalKey{id_value, is_extended, msg.signals[i].name.get()}, i);
+            }
+        }
+    }
+    return result;
 }
 
 auto AletheiaClient::validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult> {
@@ -75,8 +102,7 @@ auto AletheiaClient::validate_dbc(const DbcDefinition& dbc) -> Result<Validation
 }
 
 auto AletheiaClient::format_dbc() -> Result<DbcDefinition> {
-    auto cmd = detail::serialize_format_dbc();
-    auto resp = backend_->process(state_, cmd);
+    auto resp = backend_->format_dbc_binary(state_);
     return detail::parse_dbc_response(resp);
 }
 
@@ -88,13 +114,45 @@ auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byt
     -> Result<ExtractionResult> {
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
-    auto cmd = detail::serialize_extract_signals(id, dlc, data);
-    auto resp = backend_->process(state_, cmd);
+    auto resp = backend_->extract_signals_binary(state_, id, dlc, data);
     return detail::parse_extraction(resp);
 }
 
 auto AletheiaClient::build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
     -> Result<FramePayload> {
+    // Use binary FFI path when signal index cache is populated.
+    if (!signal_index_.empty()) {
+        auto id_value =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        auto is_extended = std::holds_alternative<ExtendedId>(id);
+
+        std::vector<std::uint32_t> indices;
+        std::vector<std::int64_t> numerators;
+        std::vector<std::int64_t> denominators;
+        indices.reserve(signals.size());
+        numerators.reserve(signals.size());
+        denominators.reserve(signals.size());
+
+        for (const auto& sv : signals) {
+            auto it = signal_index_.find(
+                SignalKey{id_value, is_extended, sv.name.get()});
+            if (it == signal_index_.end()) {
+                return std::unexpected(
+                    AletheiaError{ErrorKind::Validation,
+                                  std::format("signal '{}' not found in DBC for CAN ID {}",
+                                              std::string_view{sv.name}, id_value)});
+            }
+            indices.push_back(it->second);
+            numerators.push_back(to_rational_numerator(sv.value.get()));
+            denominators.push_back(rational_denominator);
+        }
+
+        auto resp = backend_->build_frame_binary(
+            state_, id, dlc, static_cast<std::uint32_t>(signals.size()), indices.data(),
+            numerators.data(), denominators.data());
+        return detail::parse_frame_data(resp);
+    }
+    // Fallback: JSON serialization (MockBackend, or no DBC loaded).
     auto cmd = detail::serialize_build_frame(id, dlc, signals);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_frame_data(resp);
@@ -104,6 +162,39 @@ auto AletheiaClient::update_frame(CanId id, Dlc dlc, std::span<const std::byte> 
                                   std::span<const SignalValue> signals) -> Result<FramePayload> {
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
+    // Use binary FFI path when signal index cache is populated.
+    if (!signal_index_.empty()) {
+        auto id_value =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        auto is_extended = std::holds_alternative<ExtendedId>(id);
+
+        std::vector<std::uint32_t> indices;
+        std::vector<std::int64_t> numerators;
+        std::vector<std::int64_t> denominators;
+        indices.reserve(signals.size());
+        numerators.reserve(signals.size());
+        denominators.reserve(signals.size());
+
+        for (const auto& sv : signals) {
+            auto it = signal_index_.find(
+                SignalKey{id_value, is_extended, sv.name.get()});
+            if (it == signal_index_.end()) {
+                return std::unexpected(
+                    AletheiaError{ErrorKind::Validation,
+                                  std::format("signal '{}' not found in DBC for CAN ID {}",
+                                              std::string_view{sv.name}, id_value)});
+            }
+            indices.push_back(it->second);
+            numerators.push_back(to_rational_numerator(sv.value.get()));
+            denominators.push_back(rational_denominator);
+        }
+
+        auto resp = backend_->update_frame_binary(
+            state_, id, dlc, data, static_cast<std::uint32_t>(signals.size()), indices.data(),
+            numerators.data(), denominators.data());
+        return detail::parse_frame_data(resp);
+    }
+    // Fallback: JSON serialization (MockBackend, or no DBC loaded).
     auto cmd = detail::serialize_update_frame(id, dlc, data, signals);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_frame_data(resp);
@@ -143,8 +234,7 @@ auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void>
 }
 
 auto AletheiaClient::start_stream() -> Result<void> {
-    auto cmd = detail::serialize_start_stream();
-    auto resp = backend_->process(state_, cmd);
+    auto resp = backend_->start_stream_binary(state_);
     auto result = detail::parse_success(resp);
     if (result.has_value()) {
         cache_.clear();
@@ -204,8 +294,7 @@ auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
 }
 
 auto AletheiaClient::end_stream() -> Result<StreamResult> {
-    auto cmd = detail::serialize_end_stream();
-    auto resp = backend_->process(state_, cmd);
+    auto resp = backend_->end_stream_binary(state_);
     auto result = detail::parse_stream_result(resp);
     if (result.has_value()) {
         if (!diags_.empty()) {
@@ -382,19 +471,9 @@ auto AletheiaClient::extract_last_known_values(const PropertyDiagnostic& diag)
 auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data)
     -> std::optional<ExtractionResult> {
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-    std::string cmd;
-    try {
-        cmd = detail::serialize_extract_signals(id, dlc, data);
-    } catch (const std::exception& e) {
-        if (logger_)
-            logger_.warn("extraction.serialize_failed",
-                         {{"canId", static_cast<std::uint64_t>(id_value)},
-                          {"error", std::string{e.what()}}});
-        return std::nullopt;
-    }
     std::string resp;
     try {
-        resp = backend_->process(state_, cmd);
+        resp = backend_->extract_signals_binary(state_, id, dlc, data);
     } catch (const std::exception& e) {
         if (logger_)
             logger_.warn("extraction.process_failed",

@@ -24,6 +24,13 @@
 --  (11) lookupCache-updateCache-miss: updating one name doesn't affect other lookups
 --  (12) updateSignals-step-hit/miss: updateSignals decomposes into updateCache steps
 --  (13) updateCacheFromFrame-no-match/match: decomposition into updateSignals
+--  (16) processFrameDirect-state: state = handleDataFrame state (FFI link)
+--  (17) processFrameDirect-response: response = formatJSON ∘ formatResponse (FFI link)
+--  (18) processFrameDirect-ack-sound-json: Ack JSON ��� no violation (end-to-end)
+--  (19) handleExtractAllSignals-preserves-state: extract doesn't change state
+--  (20) handleBuildFrameByIndex-preserves-state: build doesn't change state
+--  (21) handleUpdateFrameByIndex-preserves-state: update doesn't change state
+--  (22) handleFormatDBC-preserves-state: formatDBC doesn't change state
 module Aletheia.Protocol.FrameProcessor.Properties where
 
 open import Aletheia.Protocol.StreamState
@@ -32,8 +39,15 @@ open import Aletheia.Protocol.StreamState
            classifyStepResult; stepProperty; dispatchIterResult;
            mkPredTable; updateCacheFromFrame; updateSignals;
            collectAtomsAcc; collectAtoms; indexHelper; indexFormula; lookupAtom)
-open import Aletheia.Protocol.Message using (Response)
+open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
+open import Aletheia.Protocol.ResponseFormat using (formatResponse)
+open import Aletheia.Protocol.ResponseFormat.Properties using (formatResponse-ack-unique)
+open import Aletheia.Protocol.JSON using (JSON; formatJSON)
+open import Aletheia.Main using (processFrameDirect)
+open import Aletheia.Protocol.Handlers
+    using (handleExtractAllSignals; handleBuildFrameByIndex;
+           handleUpdateFrameByIndex; handleFormatDBC)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
@@ -44,8 +58,12 @@ open import Aletheia.LTL.SignalPredicate
     using (SignalCache; SignalPredicate; evalPredicateTV;
            CachedSignal; mkCachedSignal; lookupCache; updateCache; extractTruthValue)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage)
-open import Aletheia.CAN.Frame using (CANFrame)
+open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
+open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
+open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
+open import Data.Vec using (Vec)
+open import Data.Sum using (inj₁; inj₂)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Rational using (ℚ)
@@ -581,3 +599,76 @@ handleDataFrame-violation-complete state tf dbc idx ce phase-eq dbc-eq spec-eq
                           (StreamState.properties state)
   rewrite spec-eq
   = refl
+
+-- ============================================================================
+-- PROPERTY 16-17: processFrameDirect decomposition
+-- ============================================================================
+
+-- processFrameDirect = handleDataFrame + formatJSON ∘ formatResponse.
+-- State component passes through unchanged.
+processFrameDirect-state : ∀ state tf
+  → proj₁ (processFrameDirect state tf) ≡ proj₁ (handleDataFrame state tf)
+processFrameDirect-state state tf with handleDataFrame state tf
+... | (_ , _) = refl
+
+-- Response component is formatJSON ∘ formatResponse of handleDataFrame's response.
+processFrameDirect-response : ∀ state tf
+  → proj₂ (processFrameDirect state tf)
+    ≡ formatJSON (formatResponse (proj₂ (handleDataFrame state tf)))
+processFrameDirect-response state tf with handleDataFrame state tf
+... | (_ , _) = refl
+
+-- ============================================================================
+-- PROPERTY 18: End-to-end Ack soundness at JSON level
+-- ============================================================================
+
+-- If formatResponse maps the handler response to the Ack JSON tree,
+-- no property was violated. Composes formatResponse-ack-unique (injectivity)
+-- with handleDataFrame-ack-sound.
+processFrameDirect-ack-sound-json : ∀ state tf dbc
+  → StreamState.phase state ≡ Streaming
+  → StreamState.dbc state ≡ just dbc
+  → formatResponse (proj₂ (handleDataFrame state tf)) ≡ formatResponse Ack
+  → proj₂ (iterate (stepProperty dbc (StreamState.signalCache state) tf)
+                    (StreamState.properties state)) ≡ nothing
+processFrameDirect-ack-sound-json state tf dbc phase-eq dbc-eq fmt-eq =
+  handleDataFrame-ack-sound state tf dbc phase-eq dbc-eq
+    (formatResponse-ack-unique (proj₂ (handleDataFrame state tf)) fmt-eq)
+
+-- ============================================================================
+-- PROPERTIES 19-22: Read-only handler state preservation
+-- ============================================================================
+
+-- Extract, build, update, formatDBC handlers never modify StreamState.
+-- Each proof case-splits on StreamState.dbc (withDBC pattern) and, for
+-- build/update, on the Either result.
+
+handleExtractAllSignals-preserves-state : ∀ canId dlc bytes state
+  → proj₁ (handleExtractAllSignals canId dlc bytes state) ≡ state
+handleExtractAllSignals-preserves-state canId dlc bytes state
+  with StreamState.dbc state
+... | nothing = refl
+... | just _  = refl
+
+handleBuildFrameByIndex-preserves-state : ∀ canId dlc signalPairs state
+  → proj₁ (handleBuildFrameByIndex canId dlc signalPairs state) ≡ state
+handleBuildFrameByIndex-preserves-state canId dlc signalPairs state
+  with StreamState.dbc state
+... | nothing = refl
+... | just dbc with buildFrameByIndex dbc canId dlc signalPairs
+...   | inj₁ _ = refl
+...   | inj₂ _ = refl
+
+handleUpdateFrameByIndex-preserves-state : ∀ canId dlc bytes signalPairs state
+  → proj₁ (handleUpdateFrameByIndex canId dlc bytes signalPairs state) ≡ state
+handleUpdateFrameByIndex-preserves-state canId dlc bytes signalPairs state
+  with StreamState.dbc state
+... | nothing = refl
+... | just _  = refl
+
+handleFormatDBC-preserves-state : ∀ state
+  → proj₁ (handleFormatDBC state) ≡ state
+handleFormatDBC-preserves-state state
+  with StreamState.dbc state
+... | nothing = refl
+... | just _  = refl

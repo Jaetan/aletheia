@@ -37,7 +37,7 @@ open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; Proper
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
-open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame)
+open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame; buildFrameByIndex; updateFrameByIndex)
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
 open import Aletheia.Protocol.StreamState using
@@ -193,6 +193,31 @@ handleValidateDBC dbcJSON state =
 handleFormatDBC : StreamState → StreamState × Response
 handleFormatDBC state =
   withDBC "FormatDBC" state λ dbc → (state , Response.DBCResponse (formatDBC dbc))
+
+-- ============================================================================
+-- INDEX-BASED HANDLERS (Binary FFI — no JSON signal parsing)
+-- ============================================================================
+
+-- Build CAN frame from signal index-value pairs (no string allocation)
+handleBuildFrameByIndex : CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState → StreamState × Response
+handleBuildFrameByIndex canId dlc signalPairs state =
+  withDBC "BuildFrame" state λ dbc →
+    buildHelper (buildFrameByIndex dbc canId dlc signalPairs)
+  where
+    buildHelper : String ⊎ Vec Byte (dlcToBytes dlc) → StreamState × Response
+    buildHelper (inj₁ err) = (state , Response.Error ("BuildFrame: " ++ₛ err))
+    buildHelper (inj₂ frameBytes) = (state , Response.ByteArray frameBytes)
+
+-- Update CAN frame signals by index (no string allocation)
+handleUpdateFrameByIndex : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState → StreamState × Response
+handleUpdateFrameByIndex canId dlc bytes signalPairs state =
+  withDBC "UpdateFrame" state λ dbc →
+    let frame = makeFrame canId dlc bytes
+    in (state , formatResult (updateFrameByIndex dbc canId frame signalPairs))
+  where
+    formatResult : String ⊎ CANFrame (dlcToBytes dlc) → Response
+    formatResult (inj₁ err) = Response.Error ("UpdateFrame: " ++ₛ err)
+    formatResult (inj₂ updatedFrame) = Response.ByteArray (CANFrame.payload updatedFrame)
 
 -- ============================================================================
 -- COMMAND DISPATCH

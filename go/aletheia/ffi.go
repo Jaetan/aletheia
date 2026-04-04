@@ -39,6 +39,36 @@ package aletheia
 //     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
 //                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
 // }
+// static char* call_start_stream(void *fn, void *state) {
+//     return ((char* (*)(void*))fn)(state);
+// }
+// static char* call_end_stream(void *fn, void *state) {
+//     return ((char* (*)(void*))fn)(state);
+// }
+// static char* call_format_dbc(void *fn, void *state) {
+//     return ((char* (*)(void*))fn)(state);
+// }
+// static char* call_extract_signals(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc, uint8_t *data, uint8_t len) {
+//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
+//                         uint8_t*, uint8_t))fn)(state, id, ext, dlc, data, len);
+// }
+// static char* call_build_frame(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc,
+//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens) {
+//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
+//                         uint32_t, uint32_t*, int64_t*, int64_t*))fn)(
+//         state, id, ext, dlc, numSignals, indices, nums, dens);
+// }
+// static char* call_update_frame(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc,
+//     uint8_t *data, uint8_t dataLen,
+//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens) {
+//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
+//                         uint8_t*, uint8_t,
+//                         uint32_t, uint32_t*, int64_t*, int64_t*))fn)(
+//         state, id, ext, dlc, data, dataLen, numSignals, indices, nums, dens);
+// }
 //
 // // call_hs_init_rts builds argv and calls hs_init with +RTS -N<cores> -RTS.
 // // Keeps argv in C heap — hs_init may retain pointers.
@@ -82,12 +112,18 @@ var (
 // never finalized. All FFI calls are pinned to OS threads via
 // [runtime.LockOSThread] because the GHC RTS has per-capability state.
 type FFIBackend struct {
-	handle      unsafe.Pointer // dlopen handle
-	initFn      unsafe.Pointer
-	processFn   unsafe.Pointer
-	sendFrameFn unsafe.Pointer
-	freeStrFn   unsafe.Pointer
-	closeFn     unsafe.Pointer
+	handle           unsafe.Pointer // dlopen handle
+	initFn           unsafe.Pointer
+	processFn        unsafe.Pointer
+	sendFrameFn      unsafe.Pointer
+	startStreamFn    unsafe.Pointer
+	endStreamFn      unsafe.Pointer
+	formatDbcFn      unsafe.Pointer
+	extractSignalsFn unsafe.Pointer
+	buildFrameFn     unsafe.Pointer
+	updateFrameFn    unsafe.Pointer
+	freeStrFn        unsafe.Pointer
+	closeFn          unsafe.Pointer
 }
 
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
@@ -129,12 +165,18 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}()
 
 	// Required symbols from libaletheia-ffi.so:
-	//   hs_init           — GHC RTS initialization (called once per process)
-	//   aletheia_init     — create a new session (returns StablePtr)
-	//   aletheia_process  — send JSON command, receive JSON response
-	//   aletheia_send_frame — binary frame entry point (bypasses JSON input)
-	//   aletheia_free_str — free Haskell-allocated response strings
-	//   aletheia_close    — finalize and free session state
+	//   hs_init                   — GHC RTS initialization (called once per process)
+	//   aletheia_init             — create a new session (returns StablePtr)
+	//   aletheia_process          — send JSON command, receive JSON response
+	//   aletheia_send_frame       — binary CAN frame (streaming LTL hot path)
+	//   aletheia_start_stream     — begin streaming (no JSON input)
+	//   aletheia_end_stream       — finalize streaming (no JSON input)
+	//   aletheia_format_dbc       — export loaded DBC (no JSON input)
+	//   aletheia_extract_signals  — signal extraction (no JSON input)
+	//   aletheia_build_frame      — frame building from signal indices (no JSON input)
+	//   aletheia_update_frame     — frame update from signal indices (no JSON input)
+	//   aletheia_free_str         — free Haskell-allocated response strings
+	//   aletheia_close            — finalize and free session state
 	hsInit, err := loadSym(handle, "hs_init")
 	if err != nil {
 		return nil, err
@@ -148,6 +190,30 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		return nil, err
 	}
 	sendFrameFn, err := loadSym(handle, "aletheia_send_frame")
+	if err != nil {
+		return nil, err
+	}
+	startStreamFn, err := loadSym(handle, "aletheia_start_stream")
+	if err != nil {
+		return nil, err
+	}
+	endStreamFn, err := loadSym(handle, "aletheia_end_stream")
+	if err != nil {
+		return nil, err
+	}
+	formatDbcFn, err := loadSym(handle, "aletheia_format_dbc")
+	if err != nil {
+		return nil, err
+	}
+	extractSignalsFn, err := loadSym(handle, "aletheia_extract_signals")
+	if err != nil {
+		return nil, err
+	}
+	buildFrameFn, err := loadSym(handle, "aletheia_build_frame")
+	if err != nil {
+		return nil, err
+	}
+	updateFrameFn, err := loadSym(handle, "aletheia_update_frame")
 	if err != nil {
 		return nil, err
 	}
@@ -185,12 +251,18 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 
 	closeOnErr = false
 	return &FFIBackend{
-		handle:      handle,
-		initFn:      initFn,
-		processFn:   processFn,
-		sendFrameFn: sendFrameFn,
-		freeStrFn:   freeStrFn,
-		closeFn:     closeFn,
+		handle:           handle,
+		initFn:           initFn,
+		processFn:        processFn,
+		sendFrameFn:      sendFrameFn,
+		startStreamFn:    startStreamFn,
+		endStreamFn:      endStreamFn,
+		formatDbcFn:      formatDbcFn,
+		extractSignalsFn: extractSignalsFn,
+		buildFrameFn:     buildFrameFn,
+		updateFrameFn:    updateFrameFn,
+		freeStrFn:        freeStrFn,
+		closeFn:          closeFn,
 	}, nil
 }
 
@@ -259,6 +331,162 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 	)
 	if result == nil {
 		return "", ffiError("aletheia_send_frame returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// StartStreamBinary begins streaming mode via the binary FFI entry point.
+func (b *FFIBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	result := C.call_start_stream(b.startStreamFn, state)
+	if result == nil {
+		return "", ffiError("aletheia_start_stream returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// EndStreamBinary finalizes streaming and returns verdicts via the binary FFI entry point.
+func (b *FFIBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	result := C.call_end_stream(b.endStreamFn, state)
+	if result == nil {
+		return "", ffiError("aletheia_end_stream returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// FormatDbcBinary returns the loaded DBC as JSON via the binary FFI entry point.
+func (b *FFIBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	result := C.call_format_dbc(b.formatDbcFn, state)
+	if result == nil {
+		return "", ffiError("aletheia_format_dbc returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// ExtractSignalsBinary extracts signals from a binary CAN frame via the binary FFI entry point.
+func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	if len(data) > 64 {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	}
+
+	var dataPtr *C.uint8_t
+	if len(data) > 0 {
+		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	result := C.call_extract_signals(
+		b.extractSignalsFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		dataPtr,
+		C.uint8_t(len(data)),
+	)
+	if result == nil {
+		return "", ffiError("aletheia_extract_signals returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// BuildFrameBinary builds a CAN frame from signal index-value pairs via the binary FFI entry point.
+func (b *FFIBackend) BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	var indicesPtr *C.uint32_t
+	var numsPtr *C.int64_t
+	var densPtr *C.int64_t
+	if numSignals > 0 {
+		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
+		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
+		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
+	}
+
+	result := C.call_build_frame(
+		b.buildFrameFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		C.uint32_t(numSignals),
+		indicesPtr,
+		numsPtr,
+		densPtr,
+	)
+	if result == nil {
+		return "", ffiError("aletheia_build_frame returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// UpdateFrameBinary updates signals in a CAN frame by index via the binary FFI entry point.
+func (b *FFIBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	if len(data) > 64 {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	}
+
+	var dataPtr *C.uint8_t
+	if len(data) > 0 {
+		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	var indicesPtr *C.uint32_t
+	var numsPtr *C.int64_t
+	var densPtr *C.int64_t
+	if numSignals > 0 {
+		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
+		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
+		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
+	}
+
+	result := C.call_update_frame(
+		b.updateFrameFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		dataPtr,
+		C.uint8_t(len(data)),
+		C.uint32_t(numSignals),
+		indicesPtr,
+		numsPtr,
+		densPtr,
+	)
+	if result == nil {
+		return "", ffiError("aletheia_update_frame returned null")
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil

@@ -15,7 +15,7 @@ module Aletheia.CAN.Encoding where
 
 open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
-open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; injectBits; payloadIso; physicalBitPos; not-in-interval; _≟-ByteOrder_)
+open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; extractRaw-extractBits; injectBits; payloadIso; physicalBitPos; not-in-interval; _≟-ByteOrder_)
 open import Aletheia.CAN.Endianness.Properties using (payloadIso-involutive; injectBits-preserves-disjoint; injectBits-preserves-outside; physicalBitPos-BE-involutive; physicalBitPos-BE-bounded; extractBits-swap-inject-preserves)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.Data.BitVec using (BitVec)
@@ -56,6 +56,13 @@ extractSignalCoreFast : ∀ {m} → Vec Byte m → SignalDef → ℤ
 extractSignalCoreFast {m} bytes sig =
   let open SignalDef sig in
   toSigned (extractRaw m bytes startBit bitLength) bitLength isSigned
+
+-- Correctness: extractSignalCoreFast computes the same value as extractSignalCore
+extractSignalCoreFast-equiv : ∀ {m} (bytes : Vec Byte m) (sig : SignalDef)
+  → extractSignalCoreFast bytes sig ≡ extractSignalCore bytes sig
+extractSignalCoreFast-equiv {m} bytes sig =
+  let open SignalDef sig in
+  cong (λ v → toSigned v bitLength isSigned) (extractRaw-extractBits m bytes startBit bitLength)
 
 -- Apply scaling to raw extracted value
 scaleExtracted : ℤ → SignalDef → ℚ

@@ -12,15 +12,15 @@ module Aletheia.Data.BitVec.Conversion where
 
 open import Aletheia.Data.BitVec using (BitVec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _<_; _≤_; _^_; _%_; s≤s; z≤n; pred; NonZero; _≡ᵇ_)
-open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n)
-open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ; ≤⇒≯; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; m+1+n≢m; suc-injective)
+open import Data.Nat.DivMod using (_mod_; _/_; m≡m%n+[m/n]*n; m%n<n; m*n%n≡0; m*n/n≡m; [m+kn]%n≡m%n; m<n*o⇒m/o<n; m%[n*o]/o≡m/o%n)
+open import Data.Nat.Properties using (+-comm; *-comm; +-identityˡ; ≤⇒≯; *-cancelʳ-≡; *-identityˡ; n≤1+n; ≤-<-trans; ≡ᵇ⇒≡; n<1⇒n≡0; *-monoʳ-<; +-mono-≤; +-suc; *-cancelˡ-≡; m+1+n≢m; suc-injective; m^n≢0; m*n≢0; *-assoc)
 open import Data.Fin using (Fin; toℕ; fromℕ<)
 open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Bool using (Bool; true; false; if_then_else_; T)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Nullary using (¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; inspect; [_])
-open import Data.Vec using (Vec; []; _∷_)
+open import Data.Vec using (Vec; []; _∷_; lookup)
 
 -- ============================================================================
 -- BITVEC → ℕ (always total)
@@ -91,49 +91,46 @@ parity-decomp m with m % 2 | inspect (_% 2) m
 
 -- These four lemmas relate % and / to the canonical even/odd forms
 -- They are the ONLY arithmetic facts needed for the reverse roundtrip
-private
-  -- Proof that 2 ≠ 0 (needed for cancellation)
-  2≢0 : ¬ (2 ≡ 0)
-  2≢0 ()
+-- Exported for use by Endianness equivalence proofs.
 
-  even-mod-2 : ∀ k → (2 * k) % 2 ≡ 0
-  even-mod-2 k = trans (cong (_% 2) (*-comm 2 k)) (m*n%n≡0 k 2)
+even-mod-2 : ∀ k → (2 * k) % 2 ≡ 0
+even-mod-2 k = trans (cong (_% 2) (*-comm 2 k)) (m*n%n≡0 k 2)
 
-  odd-mod-2 : ∀ k → (1 + 2 * k) % 2 ≡ 1
-  odd-mod-2 k =
-    begin
-      (1 + 2 * k) % 2   ≡⟨ cong (_% 2) (cong (1 +_) (*-comm 2 k)) ⟩
-      (1 + k * 2) % 2   ≡⟨ [m+kn]%n≡m%n 1 k 2 ⟩
-      1 % 2             ≡⟨⟩
-      1
-    ∎
-    where open Relation.Binary.PropositionalEquality.≡-Reasoning
+odd-mod-2 : ∀ k → (1 + 2 * k) % 2 ≡ 1
+odd-mod-2 k =
+  begin
+    (1 + 2 * k) % 2   ≡⟨ cong (_% 2) (cong (1 +_) (*-comm 2 k)) ⟩
+    (1 + k * 2) % 2   ≡⟨ [m+kn]%n≡m%n 1 k 2 ⟩
+    1 % 2             ≡⟨⟩
+    1
+  ∎
+  where open Relation.Binary.PropositionalEquality.≡-Reasoning
 
-  even-div-2 : ∀ k → (2 * k) / 2 ≡ k
-  even-div-2 k = trans (cong (_/ 2) (*-comm 2 k)) (m*n/n≡m k 2)
+even-div-2 : ∀ k → (2 * k) / 2 ≡ k
+even-div-2 k = trans (cong (_/ 2) (*-comm 2 k)) (m*n/n≡m k 2)
 
-  odd-div-2 : ∀ k → (1 + 2 * k) / 2 ≡ k
-  odd-div-2 k =
-    let value = 1 + 2 * k
-        -- Division algorithm: value ≡ value % 2 + (value / 2) * 2
-        alg : value ≡ value % 2 + (value / 2) * 2
-        alg = m≡m%n+[m/n]*n value 2
-        -- We know value % 2 ≡ 1
-        r≡1 : value % 2 ≡ 1
-        r≡1 = odd-mod-2 k
-        -- Substitute: value ≡ 1 + (value / 2) * 2
-        step1 : value ≡ 1 + (value / 2) * 2
-        step1 = trans alg (cong (λ x → x + (value / 2) * 2) r≡1)
-        -- Cancel 1 using pred (suc is injective)
-        step2 : 2 * k ≡ ((value / 2) * 2)
-        step2 = cong pred step1
-        -- Rewrite LHS to k * 2 form
-        step3 : k * 2 ≡ ((value / 2) * 2)
-        step3 = trans (sym (*-comm 2 k)) step2
-        -- Cancel * 2 using nonzero proof (k * 2 ≡ (value/2) * 2  ⇒  k ≡ value/2)
-        step4 : k ≡ value / 2
-        step4 = *-cancelʳ-≡ k (value / 2) 2 step3
-    in sym step4
+odd-div-2 : ∀ k → (1 + 2 * k) / 2 ≡ k
+odd-div-2 k =
+  let value = 1 + 2 * k
+      -- Division algorithm: value ≡ value % 2 + (value / 2) * 2
+      alg : value ≡ value % 2 + (value / 2) * 2
+      alg = m≡m%n+[m/n]*n value 2
+      -- We know value % 2 ≡ 1
+      r≡1 : value % 2 ≡ 1
+      r≡1 = odd-mod-2 k
+      -- Substitute: value ≡ 1 + (value / 2) * 2
+      step1 : value ≡ 1 + (value / 2) * 2
+      step1 = trans alg (cong (λ x → x + (value / 2) * 2) r≡1)
+      -- Cancel 1 using pred (suc is injective)
+      step2 : 2 * k ≡ ((value / 2) * 2)
+      step2 = cong pred step1
+      -- Rewrite LHS to k * 2 form
+      step3 : k * 2 ≡ ((value / 2) * 2)
+      step3 = trans (sym (*-comm 2 k)) step2
+      -- Cancel * 2 using nonzero proof (k * 2 ≡ (value/2) * 2  ⇒  k ≡ value/2)
+      step4 : k ≡ value / 2
+      step4 = *-cancelʳ-≡ k (value / 2) 2 step3
+  in sym step4
 
 -- ============================================================================
 -- ℕ → BITVEC (using parity decomposition)
@@ -450,24 +447,112 @@ bitVec-roundtrip-reverse n bits proof =
     (bitVec-roundtrip n (bitVecToℕ bits) proof)
 
 -- ============================================================================
--- IMPLEMENTATION NOTES
+-- SHIFT-RIGHT AND BIT-EXTRACTION LEMMAS
 -- ============================================================================
-{-
-This module contains the ONLY arithmetic reasoning about bits in the entire
-CAN encoding system.
+-- These support the extractSignalCoreFast ≡ extractSignalCore proof
+-- in Aletheia.CAN.Endianness.
 
-Once we prove bitVec-roundtrip, all other modules work at the BitVec level:
-- CAN.Endianness: extractBits/injectBits return/take BitVec
-- CAN.Encoding: Convert to ℕ only at the toSigned boundary
-- CAN.Encoding.Properties: Pure structural proofs, no arithmetic
+-- Right-shift: x / 2^k via iterated division by 2.
+-- Mirrors the private shiftR in CAN.Endianness.
+shiftR-conv : ℕ → ℕ → ℕ
+shiftR-conv x zero = x
+shiftR-conv x (suc k) = shiftR-conv (x / 2) k
 
-The architecture:
+-- Bool to ℕ conversion
+boolToℕ : Bool → ℕ
+boolToℕ false = 0
+boolToℕ true = 1
 
-  BitVec ←→ ℕ ←→ ℤ ←→ ℚ
-  (struct) (arith) (signed) (physical)
-     ↑
-     └─ Prove roundtrip ONCE (this module)
-     └─ All other reasoning stays in BitVec domain
+-- Core lemma: bit k of ℕToBitVec v equals shiftR v k % 2.
+-- By induction on parity of v (even/odd decomposition) and position k.
+ℕToBitVec-lookup : ∀ n (v : ℕ) (bound : v < 2 ^ n) (k : Fin n)
+  → boolToℕ (lookup (ℕToBitVec v bound) k) ≡ shiftR-conv v (toℕ k) % 2
+ℕToBitVec-lookup (suc n) v bound Fin.zero = go (parity-decomp v) refl
+  where
+    open Relation.Binary.PropositionalEquality.≡-Reasoning
+    go : (pd : ParityDecomp v) → ℕToBitVec {suc n} v bound ≡ ℕToBitVec′ {suc n} v pd bound
+       → boolToℕ (lookup (ℕToBitVec v bound) Fin.zero) ≡ v % 2
+    go (even q eq) expand = begin
+        boolToℕ (lookup (ℕToBitVec v bound) Fin.zero)
+      ≡⟨ cong (λ x → boolToℕ (lookup x Fin.zero)) expand ⟩  0
+      ≡⟨ sym (even-mod-2 q) ⟩  (2 * q) % 2
+      ≡⟨ cong (_% 2) (sym eq) ⟩  v % 2  ∎
+    go (odd q eq) expand = begin
+        boolToℕ (lookup (ℕToBitVec v bound) Fin.zero)
+      ≡⟨ cong (λ x → boolToℕ (lookup x Fin.zero)) expand ⟩  1
+      ≡⟨ sym (odd-mod-2 q) ⟩  (1 + 2 * q) % 2
+      ≡⟨ cong (_% 2) (sym eq) ⟩  v % 2  ∎
+ℕToBitVec-lookup (suc n) v bound (Fin.suc k) = go (parity-decomp v) refl
+  where
+    open Relation.Binary.PropositionalEquality.≡-Reasoning
+    go : (pd : ParityDecomp v) → ℕToBitVec {suc n} v bound ≡ ℕToBitVec′ {suc n} v pd bound
+       → boolToℕ (lookup (ℕToBitVec v bound) (Fin.suc k)) ≡ shiftR-conv (v / 2) (toℕ k) % 2
+    go (even q eq) expand = begin
+        boolToℕ (lookup (ℕToBitVec v bound) (Fin.suc k))
+      ≡⟨ cong (λ x → boolToℕ (lookup x (Fin.suc k))) expand ⟩
+        boolToℕ (lookup (ℕToBitVec q (half-bound-even {v} {q} {n} eq bound)) k)
+      ≡⟨ ℕToBitVec-lookup n q (half-bound-even {v} {q} {n} eq bound) k ⟩
+        shiftR-conv q (toℕ k) % 2
+      ≡⟨ cong (λ x → shiftR-conv x (toℕ k) % 2) (sym (even-div-2 q)) ⟩
+        shiftR-conv ((2 * q) / 2) (toℕ k) % 2
+      ≡⟨ cong (λ x → shiftR-conv (x / 2) (toℕ k) % 2) (sym eq) ⟩
+        shiftR-conv (v / 2) (toℕ k) % 2  ∎
+    go (odd q eq) expand = begin
+        boolToℕ (lookup (ℕToBitVec v bound) (Fin.suc k))
+      ≡⟨ cong (λ x → boolToℕ (lookup x (Fin.suc k))) expand ⟩
+        boolToℕ (lookup (ℕToBitVec q (half-bound-odd {v} {q} {n} eq bound)) k)
+      ≡⟨ ℕToBitVec-lookup n q (half-bound-odd {v} {q} {n} eq bound) k ⟩
+        shiftR-conv q (toℕ k) % 2
+      ≡⟨ cong (λ x → shiftR-conv x (toℕ k) % 2) (sym (odd-div-2 q)) ⟩
+        shiftR-conv ((1 + 2 * q) / 2) (toℕ k) % 2
+      ≡⟨ cong (λ x → shiftR-conv (x / 2) (toℕ k) % 2) (sym eq) ⟩
+        shiftR-conv (v / 2) (toℕ k) % 2  ∎
 
-This is the escape hatch from arithmetic hell.
--}
+-- Shifting by k < n bits and taking %2 depends only on the low 2^n bits.
+-- Bridges extractCore (uses shiftR b k % 2, no mod) with byteToBitVec (applies % 256 = % 2^8).
+private
+  -- q * 2^(suc n) ≡ (q * 2^n) * 2  (factor out trailing *2)
+  mul-2^suc-as-*2 : ∀ q n → q * (2 ^ suc n) ≡ (q * 2 ^ n) * 2
+  mul-2^suc-as-*2 q n = trans (cong (q *_) (*-comm 2 (2 ^ n))) (sym (*-assoc q (2 ^ n) 2))
+
+  -- (b % 2^(suc n)) % 2 ≡ b % 2
+  -- b ≡ b%M + (b/M)*M, and (b/M)*M = ((b/M)*2^n)*2. Apply [m+kn]%n≡m%n.
+  mod-pow2-mod2 : ∀ b n → .{{_ : NonZero (2 ^ suc n)}}
+    → (b % (2 ^ suc n)) % 2 ≡ b % 2
+  mod-pow2-mod2 b n = sym (begin
+      b % 2
+    ≡⟨ cong (_% 2) (m≡m%n+[m/n]*n b (2 ^ suc n)) ⟩
+      (b % (2 ^ suc n) + b / (2 ^ suc n) * (2 ^ suc n)) % 2
+    ≡⟨ cong (λ x → (b % (2 ^ suc n) + x) % 2) (mul-2^suc-as-*2 (b / (2 ^ suc n)) n) ⟩
+      (b % (2 ^ suc n) + (b / (2 ^ suc n) * 2 ^ n) * 2) % 2
+    ≡⟨ [m+kn]%n≡m%n (b % (2 ^ suc n)) (b / (2 ^ suc n) * 2 ^ n) 2 ⟩
+      (b % (2 ^ suc n)) % 2
+    ∎)
+    where open Relation.Binary.PropositionalEquality.≡-Reasoning
+
+  -- Congruence for _%_ that carries NonZero instances (avoids lambda-over-NonZero issue)
+  %-cong : ∀ b {m n : ℕ} → .{{_ : NonZero m}} → .{{_ : NonZero n}} → m ≡ n → b % m ≡ b % n
+  %-cong b refl = refl
+
+  -- (b % 2^(suc n)) / 2 ≡ (b / 2) % 2^n
+  -- From m%[n*o]/o≡m/o%n: b % (2^n * 2) / 2 ≡ b / 2 % 2^n.
+  mod-pow2-div2 : ∀ b n → .{{_ : NonZero (2 ^ n)}} → .{{_ : NonZero (2 ^ suc n)}}
+    → (b % (2 ^ suc n)) / 2 ≡ (b / 2) % (2 ^ n)
+  mod-pow2-div2 b n =
+    trans (cong (_/ 2) (%-cong b {{m^n≢0 2 (suc n)}} {{m*n≢0 (2 ^ n) 2}} (*-comm 2 (2 ^ n))))
+          (m%[n*o]/o≡m/o%n b (2 ^ n) 2 {{m^n≢0 2 n}} {{_}} {{m*n≢0 (2 ^ n) 2}})
+
+shiftR-mod-pow2 : ∀ b n k → .{{_ : NonZero (2 ^ n)}} → k < n
+  → shiftR-conv b k % 2 ≡ shiftR-conv (b % (2 ^ n)) k % 2
+shiftR-mod-pow2 b (suc n) zero _ =
+  sym (mod-pow2-mod2 b n {{m^n≢0 2 (suc n)}})
+shiftR-mod-pow2 b (suc n) (suc k) (s≤s k<n) = begin
+    shiftR-conv (b / 2) k % 2
+  ≡⟨ shiftR-mod-pow2 (b / 2) n k {{nzn}} k<n ⟩
+    shiftR-conv ((b / 2) % (2 ^ n)) k % 2
+  ≡⟨ cong (λ x → shiftR-conv x k % 2) (sym (mod-pow2-div2 b n {{nzn}} {{nzsn}})) ⟩
+    shiftR-conv ((b % (2 ^ suc n)) / 2) k % 2
+  ∎
+  where open Relation.Binary.PropositionalEquality.≡-Reasoning
+        instance nzn = m^n≢0 2 n
+        instance nzsn = m^n≢0 2 (suc n)

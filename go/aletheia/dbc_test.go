@@ -214,6 +214,7 @@ func TestExtractSignals_RationalValue(t *testing.T) {
 
 func TestBuildFrame(t *testing.T) {
 	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
 			"data":[222,173,190,239,0,0,0,0]
@@ -225,6 +226,9 @@ func TestBuildFrame(t *testing.T) {
 	}
 	defer c.Close()
 
+	if err := c.ParseDBC(testDBC()); err != nil {
+		t.Fatal(err)
+	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
 	payload, err := c.BuildFrame(sid, []aletheia.SignalValue{
@@ -241,6 +245,7 @@ func TestBuildFrame(t *testing.T) {
 
 func TestUpdateFrame(t *testing.T) {
 	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
 			"data":[0,100,0,0,0,0,0,0]
@@ -252,6 +257,9 @@ func TestUpdateFrame(t *testing.T) {
 	}
 	defer c.Close()
 
+	if err := c.ParseDBC(testDBC()); err != nil {
+		t.Fatal(err)
+	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	payload, err := c.UpdateFrame(sid, dlc8(), data, []aletheia.SignalValue{

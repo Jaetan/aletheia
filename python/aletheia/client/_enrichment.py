@@ -69,7 +69,8 @@ def _format_predicate(pred: dict[str, object]) -> str:
     if kind == "between":
         return f"{pred['min']:g} <= {signal} <= {pred['max']:g}"
     if kind == "changedBy":
-        d = pred['delta']
+        raw_delta = pred.get('delta', 0)
+        d = float(raw_delta) if isinstance(raw_delta, (int, float)) else 0.0
         if d >= 0:
             return f"\u0394{signal} >= {d:g}"
         return f"\u0394{signal} <= {d:g}"

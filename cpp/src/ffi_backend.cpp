@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <print>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -24,6 +25,18 @@ using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::
                                       std::uint8_t, const std::uint8_t*, std::uint8_t);
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
+
+// Binary FFI endpoints (no JSON input serialization).
+using AletheiaNoArgFn = char* (*)(void*);
+using AletheiaExtractFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                    const std::uint8_t*, std::uint8_t);
+using AletheiaBuildFrameFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                       std::uint32_t, const std::uint32_t*, const std::int64_t*,
+                                       const std::int64_t*);
+using AletheiaUpdateFrameFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                        const std::uint8_t*, std::uint8_t, std::uint32_t,
+                                        const std::uint32_t*, const std::int64_t*,
+                                        const std::int64_t*);
 
 struct RTSState {
     std::mutex mu;
@@ -43,6 +56,12 @@ class FfiBackend : public IBackend {
     AletheiaSendFrameFn send_frame_fn_ = nullptr;
     AletheiaFreeStrFn free_str_fn_ = nullptr;
     AletheiaCloseFn close_fn_ = nullptr;
+    AletheiaNoArgFn start_stream_fn_ = nullptr;
+    AletheiaNoArgFn end_stream_fn_ = nullptr;
+    AletheiaNoArgFn format_dbc_fn_ = nullptr;
+    AletheiaExtractFn extract_signals_fn_ = nullptr;
+    AletheiaBuildFrameFn build_frame_fn_ = nullptr;
+    AletheiaUpdateFrameFn update_frame_fn_ = nullptr;
 
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
@@ -67,6 +86,14 @@ public:
             send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle_, "aletheia_send_frame");
             free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
             close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
+            start_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_start_stream");
+            end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_end_stream");
+            format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_format_dbc");
+            extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle_, "aletheia_extract_signals");
+            build_frame_fn_ =
+                load_sym<AletheiaBuildFrameFn>(handle_, "aletheia_build_frame");
+            update_frame_fn_ =
+                load_sym<AletheiaUpdateFrameFn>(handle_, "aletheia_update_frame");
 
             // Initialize GHC RTS (once per process, never finalized).
             auto& rts = rts_state();
@@ -146,6 +173,100 @@ public:
     }
 
     void close(void* state) override { close_fn_(state); }
+
+    auto start_stream_binary(void* state) -> std::string override {
+        char* result = start_stream_fn_(state);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_start_stream returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto end_stream_binary(void* state) -> std::string override {
+        char* result = end_stream_fn_(state);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_end_stream returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto format_dbc_binary(void* state) -> std::string override {
+        char* result = format_dbc_fn_(state);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_format_dbc returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
+                                std::span<const std::byte> data) -> std::string override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto dlc_val = dlc.value();
+        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+            throw std::runtime_error("data length exceeds " +
+                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
+                                     " bytes");
+        const auto data_len = static_cast<std::uint8_t>(data.size());
+
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        char* result = extract_signals_fn_(state, can_id, extended, dlc_val,
+                                           reinterpret_cast<const std::uint8_t*>(data.data()),
+                                           data_len);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_extract_signals returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto build_frame_binary(void* state, const CanId& id, Dlc dlc, std::uint32_t num_signals,
+                            const std::uint32_t* indices, const std::int64_t* numerators,
+                            const std::int64_t* denominators) -> std::string override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+
+        char* result = build_frame_fn_(state, can_id, extended, dlc.value(), num_signals, indices,
+                                       numerators, denominators);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_build_frame returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto update_frame_binary(void* state, const CanId& id, Dlc dlc,
+                             std::span<const std::byte> data, std::uint32_t num_signals,
+                             const std::uint32_t* indices, const std::int64_t* numerators,
+                             const std::int64_t* denominators) -> std::string override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+            throw std::runtime_error("data length exceeds " +
+                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
+                                     " bytes");
+        const auto data_len = static_cast<std::uint8_t>(data.size());
+
+        char* result = update_frame_fn_(
+            state, can_id, extended, dlc.value(),
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            reinterpret_cast<const std::uint8_t*>(data.data()), data_len, num_signals, indices,
+            numerators, denominators);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_update_frame returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
 };
 
 } // anonymous namespace

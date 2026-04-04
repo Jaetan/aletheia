@@ -4,6 +4,7 @@
 #include <aletheia/types.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <span>
@@ -34,6 +35,38 @@ public:
     [[nodiscard]] virtual auto send_frame_binary(void* state, Timestamp ts, const CanId& id,
                                                  Dlc dlc, std::span<const std::byte> data)
         -> std::string = 0;
+
+    // --- Binary FFI endpoints (bypass JSON input serialization) ---
+    // Default implementations fall back to JSON via process() for backward
+    // compatibility with MockBackend and other test doubles.
+
+    // State transitions (no args → JSON response).
+    [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string;
+    [[nodiscard]] virtual auto end_stream_binary(void* state) -> std::string;
+    [[nodiscard]] virtual auto format_dbc_binary(void* state) -> std::string;
+
+    // Binary CAN frame → JSON response (signal extraction without streaming).
+    [[nodiscard]] virtual auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
+                                                      std::span<const std::byte> data)
+        -> std::string;
+
+    // Signal index-value pairs → JSON response (frame building).
+    // indices/numerators/denominators are parallel arrays of length num_signals.
+    [[nodiscard]] virtual auto build_frame_binary(void* state, const CanId& id, Dlc dlc,
+                                                  std::uint32_t num_signals,
+                                                  const std::uint32_t* indices,
+                                                  const std::int64_t* numerators,
+                                                  const std::int64_t* denominators)
+        -> std::string;
+
+    // Frame + signal pairs → JSON response (frame update).
+    [[nodiscard]] virtual auto update_frame_binary(void* state, const CanId& id, Dlc dlc,
+                                                   std::span<const std::byte> data,
+                                                   std::uint32_t num_signals,
+                                                   const std::uint32_t* indices,
+                                                   const std::int64_t* numerators,
+                                                   const std::int64_t* denominators)
+        -> std::string;
 
 protected:
     IBackend() = default;

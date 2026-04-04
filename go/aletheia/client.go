@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"sync"
 	"unsafe"
 )
@@ -35,11 +36,12 @@ type Client struct {
 	mu            sync.Mutex
 	closeOnce     sync.Once
 	closed        bool
-	logger        *slog.Logger                   // nil = no logging
-	defaultChecks []CheckResult                  // prepended by AddChecks
-	diags         []PropertyDiagnostic           // one per property, auto-derived
-	cache         *extractCache                  // extraction cache for enrichment
-	lastFrames    map[lastFrameKey]lastFrameData // last frame seen per CAN ID, for EOS enrichment
+	logger        *slog.Logger                      // nil = no logging
+	defaultChecks []CheckResult                     // prepended by AddChecks
+	diags         []PropertyDiagnostic              // one per property, auto-derived
+	cache         *extractCache                     // extraction cache for enrichment
+	lastFrames    map[lastFrameKey]lastFrameData    // last frame seen per CAN ID, for EOS enrichment
+	signalIndex   map[signalIndexKey]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -108,10 +110,52 @@ func validatePayload(dlc DLC, data FramePayload) error {
 	return nil
 }
 
+// signalIndexKey identifies a DBC message by its CAN ID and type for signal index lookup.
+type signalIndexKey struct {
+	value    uint32
+	extended bool
+}
+
+const rationalDenominator int64 = 1_000_000_000
+
+// floatToRational converts a float64 to (numerator, denominator) using 10^9 scaling.
+// The Haskell side normalizes to coprime form via GCD.
+func floatToRational(value float64) (int64, int64) {
+	return int64(math.Round(value * float64(rationalDenominator))), rationalDenominator
+}
+
+// resolveSignalIndices looks up signal names in the cached index and converts values to rationals.
+// Returns parallel arrays of (indices, numerators, denominators).
+func (c *Client) resolveSignalIndices(signals []SignalValue, id CanID, cmdName string) ([]uint32, []int64, []int64, error) {
+	if c.signalIndex == nil {
+		return nil, nil, nil, stateError(cmdName + ": no DBC loaded (call ParseDBC first)")
+	}
+	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	indexMap, ok := c.signalIndex[key]
+	if !ok {
+		return nil, nil, nil, validationError(fmt.Sprintf("%s: no DBC message for CAN ID %d (extended=%v)", cmdName, id.Value(), id.IsExtended()))
+	}
+	indices := make([]uint32, 0, len(signals))
+	nums := make([]int64, 0, len(signals))
+	dens := make([]int64, 0, len(signals))
+	for _, sv := range signals {
+		idx, found := indexMap[string(sv.Name)]
+		if !found {
+			return nil, nil, nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
+		}
+		n, d := floatToRational(float64(sv.Value))
+		indices = append(indices, uint32(idx))
+		nums = append(nums, n)
+		dens = append(dens, d)
+	}
+	return indices, nums, dens, nil
+}
+
 // --- DBC operations ---
 
 // ParseDBC sends a DBC definition to the Agda core for parsing and loading.
 // Subsequent signal extraction and frame building use this parsed definition.
+// Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
 func (c *Client) ParseDBC(dbc DbcDefinition) error {
 	dbcMap, err := serializeDBC(dbc)
 	if err != nil {
@@ -123,11 +167,29 @@ func (c *Client) ParseDBC(dbc DbcDefinition) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.process(cmd)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return err
 	}
-	return parseSuccessResponse(resp)
+	if err := parseSuccessResponse(resp); err != nil {
+		return err
+	}
+	// Build signal name -> index cache from the DBC definition.
+	c.signalIndex = make(map[signalIndexKey]map[string]int, len(dbc.Messages))
+	for _, msg := range dbc.Messages {
+		key := signalIndexKey{value: msg.ID.Value(), extended: msg.ID.IsExtended()}
+		sigMap := make(map[string]int, len(msg.Signals))
+		for i, sig := range msg.Signals {
+			sigMap[string(sig.Name)] = i
+		}
+		c.signalIndex[key] = sigMap
+	}
+	if c.logger != nil {
+		c.logger.Info("dbc.parsed", "messages", len(dbc.Messages))
+	}
+	return nil
 }
 
 // ValidateDBC checks a DBC definition for structural issues (overlapping signals,
@@ -153,11 +215,12 @@ func (c *Client) ValidateDBC(dbc DbcDefinition) (*ValidationResult, error) {
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
 func (c *Client) FormatDBC() (*DbcDefinition, error) {
-	cmd, err := serializeCommand("formatDBC", nil)
-	if err != nil {
-		return nil, err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, stateError("client is closed")
 	}
-	resp, err := c.process(cmd)
+	resp, err := c.backend.FormatDbcBinary(c.state)
 	if err != nil {
 		return nil, err
 	}
@@ -171,16 +234,12 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	cmd, err := serializeCommand("extractAllSignals", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"data":     bytesToIntSlice(data),
-	})
-	if err != nil {
-		return nil, err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, stateError("client is closed")
 	}
-	resp, err := c.process(cmd)
+	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		return nil, err
 	}
@@ -188,17 +247,18 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 }
 
 // BuildFrame encodes signal values into a CAN frame payload.
+// Requires a prior ParseDBC call to populate the signal index.
 func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayload, error) {
-	cmd, err := serializeCommand("buildFrame", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"signals":  serializeSignalValues(signals),
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, stateError("client is closed")
+	}
+	indices, nums, dens, err := c.resolveSignalIndices(signals, id, "BuildFrame")
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.process(cmd)
+	resp, err := c.backend.BuildFrameBinary(c.state, id, dlc, uint32(len(signals)), indices, nums, dens)
 	if err != nil {
 		return nil, err
 	}
@@ -206,21 +266,21 @@ func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayl
 }
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
+// Requires a prior ParseDBC call to populate the signal index.
 func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []SignalValue) (FramePayload, error) {
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	cmd, err := serializeCommand("updateFrame", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"data":     bytesToIntSlice(data),
-		"signals":  serializeSignalValues(signals),
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return nil, stateError("client is closed")
+	}
+	indices, nums, dens, err := c.resolveSignalIndices(signals, id, "UpdateFrame")
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.process(cmd)
+	resp, err := c.backend.UpdateFrameBinary(c.state, id, dlc, []byte(data), uint32(len(signals)), indices, nums, dens)
 	if err != nil {
 		return nil, err
 	}
@@ -289,15 +349,14 @@ func (c *Client) AddChecks(checks []CheckResult) error {
 // StartStream begins a new LTL monitoring stream.
 // SetProperties must be called before StartStream.
 func (c *Client) StartStream() error {
-	cmd, err := serializeCommand("startStream", nil)
-	if err != nil {
-		return err
-	}
 	// Hold lock for both the backend call and the cache clear
 	// to prevent SendFrame from using a stale cache.
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.processLocked(cmd)
+	if c.closed {
+		return stateError("client is closed")
+	}
+	resp, err := c.backend.StartStreamBinary(c.state)
 	if err != nil {
 		return err
 	}
@@ -388,13 +447,12 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 // recent signal values per CAN ID when available. Earlier frames in the stream are
 // not retained.
 func (c *Client) EndStream() (*StreamResult, error) {
-	cmd, err := serializeCommand("endStream", nil)
-	if err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resp, err := c.processLocked(cmd)
+	if c.closed {
+		return nil, stateError("client is closed")
+	}
+	resp, err := c.backend.EndStreamBinary(c.state)
 	if err != nil {
 		return nil, err
 	}
@@ -536,21 +594,9 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 	return values
 }
 
-// extractSignalsLocked performs signal extraction via processLocked. Caller must hold c.mu.
+// extractSignalsLocked performs signal extraction via binary FFI. Caller must hold c.mu.
 func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
-	cmd, err := serializeCommand("extractAllSignals", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"data":     bytesToIntSlice(data),
-	})
-	if err != nil {
-		if c.logger != nil {
-			c.logger.Warn("extraction.serialize_failed", "canId", id.Value(), "error", err)
-		}
-		return nil
-	}
-	resp, err := c.processLocked(cmd)
+	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		if c.logger != nil {
 			c.logger.Warn("extraction.process_failed", "canId", id.Value(), "error", err)

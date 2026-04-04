@@ -21,7 +21,8 @@ open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Vec as Vec using (Vec; replicate)
-open import Data.Nat using (ℕ; _+_; _∸_; _≤ᵇ_)
+open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _≤ᵇ_)
+open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
@@ -67,6 +68,12 @@ hasOverlaps (sig ∷ rest) = anyOverlap sig rest ∨ hasOverlaps rest
 -- Import shared DBC lookup utilities
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 
+-- List indexing: O(n) lookup by position
+listIndex : ∀ {a : Set} → ℕ → List a → Maybe a
+listIndex _ [] = nothing
+listIndex zero (x ∷ _) = just x
+listIndex (suc n) (_ ∷ xs) = listIndex n xs
+
 -- Lookup signal definitions for a list of (name, value) pairs
 -- Returns error message if any signal name is not found
 lookupSignals : List (String × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
@@ -100,22 +107,23 @@ injectAll frame (sig ∷ rest) with injectOne frame sig
 -- - Any signal name not found in message
 -- - Signals overlap
 -- - Signal value out of bounds or injection fails
+-- Shared build pipeline: check overlaps, inject into empty frame, extract payload
+validateAndBuild : CANId → (dlc : ℕ) → List (DBCSignal × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+validateAndBuild canId dlc defs with hasOverlaps (map Data.Product.proj₁ defs)
+... | true = inj₁ "Signals overlap"
+... | false with injectAll emptyFrame defs
+  where
+    emptyFrame : CANFrame (dlcToBytes dlc)
+    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcToBytes dlc) 0 }
+...   | inj₁ err = inj₁ err
+...   | inj₂ finalFrame = inj₂ (CANFrame.payload finalFrame)
+
 buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
 buildFrame dbc canId dlc signals with findMessageById canId dbc
 ... | nothing = inj₁ "CAN ID not found in DBC"
 ... | just msg with lookupSignals signals msg
 ...   | inj₁ err = inj₁ err
-...   | inj₂ signalDefs = validateAndBuild signalDefs
-  where
-    emptyFrame : CANFrame (dlcToBytes dlc)
-    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcToBytes dlc) 0 }
-
-    validateAndBuild : List (DBCSignal × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
-    validateAndBuild defs with hasOverlaps (map Data.Product.proj₁ defs)
-    ... | true = inj₁ "Signals overlap"
-    ... | false with injectAll emptyFrame defs
-    ...   | inj₁ err = inj₁ err
-    ...   | inj₂ finalFrame = inj₂ (CANFrame.payload finalFrame)
+...   | inj₂ signalDefs = validateAndBuild canId dlc signalDefs
 
 -- ============================================================================
 -- FRAME UPDATING
@@ -137,5 +145,42 @@ updateFrame dbc canId frame signals =
     findAndInject with findMessageById canId dbc
     ... | nothing = inj₁ "CAN ID not found in DBC"
     ... | just msg with lookupSignals signals msg
+    ...   | inj₁ err = inj₁ err
+    ...   | inj₂ signalDefs = injectAll frame signalDefs
+
+-- ============================================================================
+-- INDEX-BASED FRAME BUILDING (Binary FFI — no string allocation)
+-- ============================================================================
+
+-- Lookup signal definitions by index into a message's signal list.
+-- Each pair is (position in signals list, physical value).
+-- Used by the binary FFI to avoid string allocation/comparison.
+lookupSignalsByIndex : List (ℕ × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
+lookupSignalsByIndex [] _ = inj₂ []
+lookupSignalsByIndex ((idx , value) ∷ rest) msg with listIndex idx (DBCMessage.signals msg)
+... | nothing = inj₁ ("Signal index " ++ₛ showℕ idx ++ₛ " out of range")
+... | just sig with lookupSignalsByIndex rest msg
+...   | inj₁ err = inj₁ err
+...   | inj₂ restSigs = inj₂ ((sig , value) ∷ restSigs)
+
+-- Build a CAN frame from signal index-value pairs (no string parsing)
+buildFrameByIndex : DBC → CANId → (dlc : ℕ) → List (ℕ × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+buildFrameByIndex dbc canId dlc signals with findMessageById canId dbc
+... | nothing = inj₁ "CAN ID not found in DBC"
+... | just msg with lookupSignalsByIndex signals msg
+...   | inj₁ err = inj₁ err
+...   | inj₂ signalDefs = validateAndBuild canId dlc signalDefs
+
+-- Update specific signals in a CAN frame by index (no string parsing)
+updateFrameByIndex : ∀ {n} → DBC → CANId → CANFrame n → List (ℕ × ℚ) → String ⊎ CANFrame n
+updateFrameByIndex dbc canId frame signals =
+  if canIdEquals canId (CANFrame.id frame)
+  then findAndInject
+  else inj₁ "CAN ID does not match frame"
+  where
+    findAndInject : String ⊎ CANFrame _
+    findAndInject with findMessageById canId dbc
+    ... | nothing = inj₁ "CAN ID not found in DBC"
+    ... | just msg with lookupSignalsByIndex signals msg
     ...   | inj₁ err = inj₁ err
     ...   | inj₂ signalDefs = injectAll frame signalDefs

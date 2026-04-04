@@ -41,6 +41,7 @@ FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 # ---------------------------------------------------------------------------
 
 add_library(aletheia-cpp
+    src/backend.cpp
     src/client.cpp
     src/enrich.cpp
     src/excel.cpp

@@ -70,5 +70,95 @@ func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CanID, 
 	return m.Process(nil, input)
 }
 
+// StartStreamBinary delegates to Process with a JSON startStream command.
+func (m *MockBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
+	cmd, err := serializeCommand("startStream", nil)
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
+// EndStreamBinary delegates to Process with a JSON endStream command.
+func (m *MockBackend) EndStreamBinary(state unsafe.Pointer) (string, error) {
+	cmd, err := serializeCommand("endStream", nil)
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
+// FormatDbcBinary delegates to Process with a JSON formatDBC command.
+func (m *MockBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
+	cmd, err := serializeCommand("formatDBC", nil)
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
+// ExtractSignalsBinary delegates to Process with a JSON extractAllSignals command.
+func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error) {
+	cmd, err := serializeCommand("extractAllSignals", map[string]any{
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"data":     bytesToIntSlice(data),
+	})
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
+// BuildFrameBinary delegates to Process with a JSON buildFrame command.
+// Signal indices and rationals are serialized back into named signal values
+// for compatibility with the JSON protocol.
+func (m *MockBackend) BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
+	signals := make([]map[string]any, 0, numSignals)
+	for i := uint32(0); i < numSignals; i++ {
+		signals = append(signals, map[string]any{
+			"index":       indices[i],
+			"numerator":   nums[i],
+			"denominator": dens[i],
+		})
+	}
+	cmd, err := serializeCommand("buildFrame", map[string]any{
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"signals":  signals,
+	})
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
+// UpdateFrameBinary delegates to Process with a JSON updateFrame command.
+// Signal indices and rationals are serialized back into named signal values
+// for compatibility with the JSON protocol.
+func (m *MockBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
+	signals := make([]map[string]any, 0, numSignals)
+	for i := uint32(0); i < numSignals; i++ {
+		signals = append(signals, map[string]any{
+			"index":       indices[i],
+			"numerator":   nums[i],
+			"denominator": dens[i],
+		})
+	}
+	cmd, err := serializeCommand("updateFrame", map[string]any{
+		"canId":    id.Value(),
+		"extended": id.IsExtended(),
+		"dlc":      dlc.Value(),
+		"data":     bytesToIntSlice(data),
+		"signals":  signals,
+	})
+	if err != nil {
+		return "", err
+	}
+	return m.Process(state, cmd)
+}
+
 // Close is a no-op for the mock backend.
 func (m *MockBackend) Close(_ unsafe.Pointer) {}

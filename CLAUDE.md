@@ -404,3 +404,5 @@ docs(BUILDING): Add macOS-specific notes
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
+
+**Latest (2026-04-04):** extractSignalCoreFast equivalence proof complete. Binary API proofs (properties 16-22) complete. AGENTS.md updated with where-block provability guideline. Next: index-based signal lookup proof.

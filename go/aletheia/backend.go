@@ -28,6 +28,22 @@ type Backend interface {
 	// serialization on the input side. Returns the JSON response string.
 	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendFrame]).
 	SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error)
+	// StartStreamBinary begins streaming mode without JSON parsing on input.
+	StartStreamBinary(state unsafe.Pointer) (string, error)
+	// EndStreamBinary finalizes streaming and returns verdicts without JSON parsing on input.
+	EndStreamBinary(state unsafe.Pointer) (string, error)
+	// FormatDbcBinary returns the loaded DBC as JSON without JSON parsing on input.
+	FormatDbcBinary(state unsafe.Pointer) (string, error)
+	// ExtractSignalsBinary extracts signals from a binary CAN frame without JSON parsing on input.
+	ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error)
+	// BuildFrameBinary builds a CAN frame from signal index-value pairs without JSON parsing on input.
+	// indices are 0-based positions in the DBC message's signal list.
+	// nums and dens are parallel arrays of rational numerator/denominator pairs.
+	BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error)
+	// UpdateFrameBinary updates signals in a CAN frame by index without JSON parsing on input.
+	// indices are 0-based positions in the DBC message's signal list.
+	// nums and dens are parallel arrays of rational numerator/denominator pairs.
+	UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error)
 	// Close finalizes and frees the session state.
 	Close(state unsafe.Pointer)
 }

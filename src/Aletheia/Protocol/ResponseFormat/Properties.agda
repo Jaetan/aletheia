@@ -80,3 +80,25 @@ formatPropertyResult-complete : formatPropertyResult PropertyResult.StreamComple
       ("status" , JString "stream_ended") ∷
       [])
 formatPropertyResult-complete = refl
+
+-- ============================================================================
+-- FORMAT-RESPONSE INJECTIVITY (Ack uniqueness)
+-- ============================================================================
+
+-- Ack is the only Response constructor mapping to the Ack JSON.
+-- Each non-Ack case produces a JObject with ≥ 2 fields, while Ack has exactly 1.
+-- Agda refutes the equality by list-length mismatch (x ∷ y ∷ ... ≢ z ∷ []).
+-- This is the key lemma enabling end-to-end Ack soundness at the JSON level:
+-- if the formatted response equals the Ack JSON, the response IS Ack.
+formatResponse-ack-unique : ∀ r → formatResponse r ≡ formatResponse Ack → r ≡ Ack
+formatResponse-ack-unique (Success _) ()
+formatResponse-ack-unique (Error _) ()
+formatResponse-ack-unique (ByteArray _) ()
+formatResponse-ack-unique (ExtractionResultsResponse _ _ _) ()
+formatResponse-ack-unique (PropertyResponse (PropertyResult.Violation _ _)) ()
+formatResponse-ack-unique (PropertyResponse (PropertyResult.Satisfaction _)) ()
+formatResponse-ack-unique (PropertyResponse PropertyResult.StreamComplete) ()
+formatResponse-ack-unique Ack _ = refl
+formatResponse-ack-unique (Complete _) ()
+formatResponse-ack-unique (DBCResponse _) ()
+formatResponse-ack-unique (ValidationResponse _) ()
