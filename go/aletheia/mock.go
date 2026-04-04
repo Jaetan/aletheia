@@ -160,5 +160,29 @@ func (m *MockBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC,
 	return m.Process(state, cmd)
 }
 
+// BuildFrameBin delegates to BuildFrameBinary and parses the JSON response.
+func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+	resp, err := m.BuildFrameBinary(state, id, dlc, numSignals, indices, nums, dens)
+	if err != nil {
+		return nil, err
+	}
+	return parseFrameDataResponse(resp)
+}
+
+// UpdateFrameBin delegates to UpdateFrameBinary and parses the JSON response.
+func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+	resp, err := m.UpdateFrameBinary(state, id, dlc, data, numSignals, indices, nums, dens)
+	if err != nil {
+		return nil, err
+	}
+	return parseFrameDataResponse(resp)
+}
+
+// ExtractSignalsBin is not supported by MockBackend — returns an error.
+// The Client falls back to the JSON path when the signal name cache is not populated.
+func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+	return nil, protocolError("extract_signals_bin requires FFI backend")
+}
+
 // Close is a no-op for the mock backend.
 func (m *MockBackend) Close(_ unsafe.Pointer) {}

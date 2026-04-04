@@ -50,4 +50,42 @@ auto IBackend::update_frame_binary(void* state, const CanId& id, Dlc dlc,
     return R"({"status":"error","error":"update_frame_binary requires FFI backend"})";
 }
 
+auto IBackend::build_frame_bin(void* state, const CanId& id, Dlc dlc,
+                               std::uint32_t num_signals,
+                               const std::uint32_t* indices,
+                               const std::int64_t* numerators,
+                               const std::int64_t* denominators,
+                               std::size_t expected_bytes)
+    -> std::expected<std::vector<std::byte>, AletheiaError> {
+    // Default: fall back to JSON path and parse the response.
+    auto resp = build_frame_binary(state, id, dlc, num_signals, indices, numerators, denominators);
+    auto parsed = detail::parse_frame_data(resp);
+    if (!parsed)
+        return std::unexpected(parsed.error());
+    return std::vector<std::byte>(parsed->begin(), parsed->end());
+}
+
+auto IBackend::update_frame_bin(void* state, const CanId& id, Dlc dlc,
+                                std::span<const std::byte> data,
+                                std::uint32_t num_signals,
+                                const std::uint32_t* indices,
+                                const std::int64_t* numerators,
+                                const std::int64_t* denominators,
+                                std::size_t expected_bytes)
+    -> std::expected<std::vector<std::byte>, AletheiaError> {
+    auto resp = update_frame_binary(state, id, dlc, data, num_signals, indices, numerators,
+                                    denominators);
+    auto parsed = detail::parse_frame_data(resp);
+    if (!parsed)
+        return std::unexpected(parsed.error());
+    return std::vector<std::byte>(parsed->begin(), parsed->end());
+}
+
+auto IBackend::extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                                   std::span<const std::byte> /*data*/)
+    -> std::expected<std::vector<std::byte>, AletheiaError> {
+    return std::unexpected(
+        AletheiaError{ErrorKind::Protocol, "extract_signals_bin requires FFI backend"});
+}
+
 } // namespace aletheia

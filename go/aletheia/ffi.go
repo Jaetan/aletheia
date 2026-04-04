@@ -69,6 +69,39 @@ package aletheia
 //                         uint32_t, uint32_t*, int64_t*, int64_t*))fn)(
 //         state, id, ext, dlc, data, dataLen, numSignals, indices, nums, dens);
 // }
+// static int8_t call_build_frame_bin(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc,
+//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens,
+//     uint8_t *outBuf, char **outErr) {
+//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
+//                          uint32_t, uint32_t*, int64_t*, int64_t*,
+//                          uint8_t*, char**))fn)(
+//         state, id, ext, dlc, numSignals, indices, nums, dens, outBuf, outErr);
+// }
+// static int8_t call_update_frame_bin(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc,
+//     uint8_t *data, uint8_t dataLen,
+//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens,
+//     uint8_t *outBuf, char **outErr) {
+//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
+//                          uint8_t*, uint8_t,
+//                          uint32_t, uint32_t*, int64_t*, int64_t*,
+//                          uint8_t*, char**))fn)(
+//         state, id, ext, dlc, data, dataLen, numSignals, indices, nums, dens, outBuf, outErr);
+// }
+//
+// static int8_t call_extract_signals_bin(void *fn, void *state,
+//     uint32_t id, uint8_t ext, uint8_t dlc,
+//     uint8_t *data, uint8_t dataLen,
+//     uint8_t **outBuf, uint32_t *outSize, char **outErr) {
+//     return ((int8_t (*)(void*, uint32_t, uint8_t, uint8_t,
+//                          uint8_t*, uint8_t,
+//                          uint8_t**, uint32_t*, char**))fn)(
+//         state, id, ext, dlc, data, dataLen, outBuf, outSize, outErr);
+// }
+// static void call_free_buf(void *fn, uint8_t *ptr) {
+//     ((void (*)(uint8_t*))fn)(ptr);
+// }
 //
 // // call_hs_init_rts builds argv and calls hs_init with +RTS -N<cores> -RTS.
 // // Keeps argv in C heap — hs_init may retain pointers.
@@ -122,7 +155,11 @@ type FFIBackend struct {
 	extractSignalsFn unsafe.Pointer
 	buildFrameFn     unsafe.Pointer
 	updateFrameFn    unsafe.Pointer
-	freeStrFn        unsafe.Pointer
+	buildFrameBinFn      unsafe.Pointer
+	updateFrameBinFn     unsafe.Pointer
+	extractSignalsBinFn  unsafe.Pointer
+	freeBufFn            unsafe.Pointer
+	freeStrFn            unsafe.Pointer
 	closeFn          unsafe.Pointer
 }
 
@@ -217,6 +254,22 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
+	buildFrameBinFn, err := loadSym(handle, "aletheia_build_frame_bin")
+	if err != nil {
+		return nil, err
+	}
+	updateFrameBinFn, err := loadSym(handle, "aletheia_update_frame_bin")
+	if err != nil {
+		return nil, err
+	}
+	extractSignalsBinFn, err := loadSym(handle, "aletheia_extract_signals_bin")
+	if err != nil {
+		return nil, err
+	}
+	freeBufFn, err := loadSym(handle, "aletheia_free_buf")
+	if err != nil {
+		return nil, err
+	}
 	freeStrFn, err := loadSym(handle, "aletheia_free_str")
 	if err != nil {
 		return nil, err
@@ -261,7 +314,11 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		extractSignalsFn: extractSignalsFn,
 		buildFrameFn:     buildFrameFn,
 		updateFrameFn:    updateFrameFn,
-		freeStrFn:        freeStrFn,
+		buildFrameBinFn:      buildFrameBinFn,
+		updateFrameBinFn:     updateFrameBinFn,
+		extractSignalsBinFn:  extractSignalsBinFn,
+		freeBufFn:            freeBufFn,
+		freeStrFn:            freeStrFn,
 		closeFn:          closeFn,
 	}, nil
 }
@@ -490,6 +547,147 @@ func (b *FFIBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, 
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil
+}
+
+// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON entirely.
+func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	var indicesPtr *C.uint32_t
+	var numsPtr *C.int64_t
+	var densPtr *C.int64_t
+	if numSignals > 0 {
+		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
+		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
+		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
+	}
+
+	expectedBytes := dlc.ToBytes()
+	outBuf := make([]byte, expectedBytes)
+	var outBufPtr *C.uint8_t
+	if expectedBytes > 0 {
+		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
+	}
+	var outErr *C.char
+
+	status := C.call_build_frame_bin(
+		b.buildFrameBinFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		C.uint32_t(numSignals),
+		indicesPtr,
+		numsPtr,
+		densPtr,
+		outBufPtr,
+		&outErr,
+	)
+	if status != 0 {
+		msg := C.GoString(outErr)
+		C.call_free_str(b.freeStrFn, outErr)
+		return nil, protocolError(msg)
+	}
+	return outBuf, nil
+}
+
+// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON entirely.
+func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	var dataPtr *C.uint8_t
+	if len(data) > 0 {
+		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	var indicesPtr *C.uint32_t
+	var numsPtr *C.int64_t
+	var densPtr *C.int64_t
+	if numSignals > 0 {
+		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
+		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
+		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
+	}
+
+	expectedBytes := dlc.ToBytes()
+	outBuf := make([]byte, expectedBytes)
+	var outBufPtr *C.uint8_t
+	if expectedBytes > 0 {
+		outBufPtr = (*C.uint8_t)(unsafe.Pointer(&outBuf[0]))
+	}
+	var outErr *C.char
+
+	status := C.call_update_frame_bin(
+		b.updateFrameBinFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		dataPtr,
+		C.uint8_t(len(data)),
+		C.uint32_t(numSignals),
+		indicesPtr,
+		numsPtr,
+		densPtr,
+		outBufPtr,
+		&outErr,
+	)
+	if status != 0 {
+		msg := C.GoString(outErr)
+		C.call_free_str(b.freeStrFn, outErr)
+		return nil, protocolError(msg)
+	}
+	return outBuf, nil
+}
+
+// ExtractSignalsBin extracts signals returning packed binary, bypassing JSON entirely.
+func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte) ([]byte, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	var dataPtr *C.uint8_t
+	if len(data) > 0 {
+		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
+	}
+
+	var outBuf *C.uint8_t
+	var outSize C.uint32_t
+	var outErr *C.char
+
+	status := C.call_extract_signals_bin(
+		b.extractSignalsBinFn, state,
+		C.uint32_t(id.Value()),
+		ext,
+		C.uint8_t(dlc.Value()),
+		dataPtr,
+		C.uint8_t(len(data)),
+		&outBuf,
+		&outSize,
+		&outErr,
+	)
+	if status != 0 {
+		msg := C.GoString(outErr)
+		C.call_free_str(b.freeStrFn, outErr)
+		return nil, protocolError(msg)
+	}
+	result := C.GoBytes(unsafe.Pointer(outBuf), C.int(outSize))
+	C.call_free_buf(b.freeBufFn, outBuf)
+	return result, nil
 }
 
 // Close finalizes and frees the session state.

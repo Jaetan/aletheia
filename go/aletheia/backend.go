@@ -44,6 +44,13 @@ type Backend interface {
 	// indices are 0-based positions in the DBC message's signal list.
 	// nums and dens are parallel arrays of rational numerator/denominator pairs.
 	UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error)
+	// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
+	BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
+	// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
+	UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
+	// ExtractSignalsBin extracts signals returning packed binary (no JSON on output).
+	// Returns the raw binary buffer that the caller must parse.
+	ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte) ([]byte, error)
 	// Close finalizes and frees the session state.
 	Close(state unsafe.Pointer)
 }

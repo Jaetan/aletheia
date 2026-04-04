@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <set>
 #include <string>
@@ -82,14 +83,19 @@ auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<void> {
     if (result.has_value()) {
         // Populate signal name → index cache from the DBC definition.
         signal_index_.clear();
+        signal_names_.clear();
         for (const auto& msg : dbc.messages) {
             auto id_value =
                 std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
             auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
+            std::vector<std::string> names;
+            names.reserve(msg.signals.size());
             for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
                 signal_index_.emplace(
                     SignalKey{id_value, is_extended, msg.signals[i].name.get()}, i);
+                names.emplace_back(msg.signals[i].name.get());
             }
+            signal_names_.emplace(MessageKey{id_value, is_extended}, std::move(names));
         }
     }
     return result;
@@ -110,10 +116,81 @@ auto AletheiaClient::format_dbc() -> Result<DbcDefinition> {
 // Signals
 // ---------------------------------------------------------------------------
 
+// Error code → message mapping for binary extraction (must match Agda categorizeIndexed).
+constexpr std::array extraction_error_messages = {
+    std::string_view{"Signal not found in DBC"},  // 0
+    std::string_view{"Value out of bounds"},       // 1
+    std::string_view{"Extraction failed"},         // 2
+};
+
+auto parse_extraction_bin(std::span<const std::byte> buf,
+                          const std::vector<std::string>& names) -> ExtractionResult {
+    auto read_u16 = [&](std::size_t off) -> std::uint16_t {
+        std::uint16_t v;
+        std::memcpy(&v, buf.data() + off, sizeof(v));
+        return v;
+    };
+    auto read_i64 = [&](std::size_t off) -> std::int64_t {
+        std::int64_t v;
+        std::memcpy(&v, buf.data() + off, sizeof(v));
+        return v;
+    };
+
+    const auto nvals = read_u16(0);
+    const auto nerrs = read_u16(2);
+    const auto nabss = read_u16(4);
+    std::size_t off = 6;
+
+    ExtractionResult result;
+    result.values.reserve(nvals);
+    for (std::uint16_t i = 0; i < nvals; ++i) {
+        auto idx = read_u16(off);
+        auto num = read_i64(off + 2);
+        auto den = read_i64(off + 10);
+        off += 18;
+        auto name = idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+        auto value = den != 0 ? PhysicalValue{static_cast<double>(num) / static_cast<double>(den)}
+                              : PhysicalValue{0.0};
+        result.values.push_back(SignalValue{std::move(name), value});
+    }
+    result.errors.reserve(nerrs);
+    for (std::uint16_t i = 0; i < nerrs; ++i) {
+        auto idx = read_u16(off);
+        auto code = static_cast<std::uint8_t>(buf[off + 2]);
+        off += 3;
+        auto name = idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+        auto msg = code < extraction_error_messages.size()
+                       ? std::string{extraction_error_messages[code]}
+                       : std::format("Unknown error code {}", code);
+        result.errors.emplace_back(std::move(name), std::move(msg));
+    }
+    result.absent.reserve(nabss);
+    for (std::uint16_t i = 0; i < nabss; ++i) {
+        auto idx = read_u16(off);
+        off += 2;
+        auto name = idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
+        result.absent.push_back(std::move(name));
+    }
+    return result;
+}
+
 auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
     -> Result<ExtractionResult> {
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
+
+    // Use binary path when signal name cache is populated.
+    auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+    auto is_extended = std::holds_alternative<ExtendedId>(id);
+    auto names_it = signal_names_.find(MessageKey{id_value, is_extended});
+    if (names_it != signal_names_.end()) {
+        auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
+        if (!buf)
+            return std::unexpected(buf.error());
+        return parse_extraction_bin(*buf, names_it->second);
+    }
+
+    // Fallback: JSON path.
     auto resp = backend_->extract_signals_binary(state_, id, dlc, data);
     return detail::parse_extraction(resp);
 }
@@ -147,10 +224,9 @@ auto AletheiaClient::build_frame(CanId id, Dlc dlc, std::span<const SignalValue>
             denominators.push_back(rational_denominator);
         }
 
-        auto resp = backend_->build_frame_binary(
+        return backend_->build_frame_bin(
             state_, id, dlc, static_cast<std::uint32_t>(signals.size()), indices.data(),
-            numerators.data(), denominators.data());
-        return detail::parse_frame_data(resp);
+            numerators.data(), denominators.data(), dlc_to_bytes(dlc));
     }
     // Fallback: JSON serialization (MockBackend, or no DBC loaded).
     auto cmd = detail::serialize_build_frame(id, dlc, signals);
@@ -189,10 +265,9 @@ auto AletheiaClient::update_frame(CanId id, Dlc dlc, std::span<const std::byte> 
             denominators.push_back(rational_denominator);
         }
 
-        auto resp = backend_->update_frame_binary(
+        return backend_->update_frame_bin(
             state_, id, dlc, data, static_cast<std::uint32_t>(signals.size()), indices.data(),
-            numerators.data(), denominators.data());
-        return detail::parse_frame_data(resp);
+            numerators.data(), denominators.data(), dlc_to_bytes(dlc));
     }
     // Fallback: JSON serialization (MockBackend, or no DBC loaded).
     auto cmd = detail::serialize_update_frame(id, dlc, data, signals);
@@ -471,6 +546,23 @@ auto AletheiaClient::extract_last_known_values(const PropertyDiagnostic& diag)
 auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data)
     -> std::optional<ExtractionResult> {
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+    auto is_extended = std::holds_alternative<ExtendedId>(id);
+
+    // Use binary path when signal name cache is populated.
+    auto names_it = signal_names_.find(MessageKey{id_value, is_extended});
+    if (names_it != signal_names_.end()) {
+        auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
+        if (!buf) {
+            if (logger_)
+                logger_.warn("extraction.process_failed",
+                             {{"canId", static_cast<std::uint64_t>(id_value)},
+                              {"error", buf.error().message()}});
+            return std::nullopt;
+        }
+        return parse_extraction_bin(*buf, names_it->second);
+    }
+
+    // Fallback: JSON path.
     std::string resp;
     try {
         resp = backend_->extract_signals_binary(state_, id, dlc, data);

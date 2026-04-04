@@ -143,6 +143,18 @@ private:
         }
     };
     std::unordered_map<SignalKey, std::uint32_t, SignalKeyHash> signal_index_;
+
+    // Index → signal name reverse lookup, keyed by (can_id_value, is_extended).
+    // Populated alongside signal_index_ in parse_dbc().
+    using MessageKey = std::pair<std::uint32_t, bool>;
+    struct MessageKeyHash {
+        auto operator()(const MessageKey& k) const -> std::size_t {
+            auto h = std::hash<std::uint32_t>{}(k.first);
+            h ^= std::hash<bool>{}(k.second) + 0x9e3779b9 + (h << 6U) + (h >> 2U);
+            return h;
+        }
+    };
+    std::unordered_map<MessageKey, std::vector<std::string>, MessageKeyHash> signal_names_;
 };
 
 static_assert(!std::is_copy_constructible_v<AletheiaClient>,

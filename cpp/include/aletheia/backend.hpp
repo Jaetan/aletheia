@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
+#include <aletheia/error.hpp>
 #include <aletheia/types.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace aletheia {
 
@@ -67,6 +70,34 @@ public:
                                                    const std::int64_t* numerators,
                                                    const std::int64_t* denominators)
         -> std::string;
+
+    // --- Binary output endpoints (no JSON on output either) ---
+    // Returns raw payload bytes on success, error string on failure.
+    // Default implementations fall back to JSON path for MockBackend compatibility.
+
+    [[nodiscard]] virtual auto build_frame_bin(void* state, const CanId& id, Dlc dlc,
+                                               std::uint32_t num_signals,
+                                               const std::uint32_t* indices,
+                                               const std::int64_t* numerators,
+                                               const std::int64_t* denominators,
+                                               std::size_t expected_bytes)
+        -> std::expected<std::vector<std::byte>, AletheiaError>;
+
+    [[nodiscard]] virtual auto update_frame_bin(void* state, const CanId& id, Dlc dlc,
+                                                std::span<const std::byte> data,
+                                                std::uint32_t num_signals,
+                                                const std::uint32_t* indices,
+                                                const std::int64_t* numerators,
+                                                const std::int64_t* denominators,
+                                                std::size_t expected_bytes)
+        -> std::expected<std::vector<std::byte>, AletheiaError>;
+
+    // --- Binary extraction (no JSON on input or output) ---
+    // Returns packed binary buffer on success, error string on failure.
+    // Default implementation falls back to JSON path for MockBackend compatibility.
+    [[nodiscard]] virtual auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
+                                                    std::span<const std::byte> data)
+        -> std::expected<std::vector<std::byte>, AletheiaError>;
 
 protected:
     IBackend() = default;

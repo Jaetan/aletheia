@@ -32,12 +32,13 @@ module AletheiaFFI where
 
 import Foreign.C.String (CString, newCString, peekCString)
 import Foreign.StablePtr (StablePtr, newStablePtr, deRefStablePtr, freeStablePtr)
-import Foreign.Marshal.Alloc (free)
-import Foreign.Ptr (Ptr)
+import Foreign.Marshal.Alloc (free, mallocBytes)
+import Foreign.Ptr (Ptr, plusPtr, castPtr)
+import Foreign.Storable (poke)
 import Foreign.Marshal.Array (peekArray)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import Data.Int (Int64)
-import Data.Word (Word8, Word32, Word64)
+import Data.Int (Int8, Int64)
+import Data.Word (Word8, Word16, Word32, Word64)
 import qualified Data.Text as T
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -45,10 +46,12 @@ import Unsafe.Coerce (unsafeCoerce)
 import qualified MAlonzo.Code.Aletheia.Main as Agda
 import qualified MAlonzo.Code.Aletheia.Protocol.StreamState as AgdaState
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
+import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
 import qualified MAlonzo.Code.Aletheia.CAN.Frame as AgdaFrame
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
+import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 
 -- | Opaque state handle exported to C/Python
 type StateHandle = StablePtr (IORef AgdaState.T_StreamState_34)
@@ -273,6 +276,169 @@ mkSignalPairs (i:is) (n:ns) (d:ds) =
 mkSignalPairs _ _ _ = []
 
 -- ============================================================================
+-- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
+-- ============================================================================
+
+-- | Walk MAlonzo Vec Byte, writing each byte to a buffer.
+agdaVecToBuffer :: AgdaVec.T_Vec_28 -> Ptr Word8 -> IO ()
+agdaVecToBuffer AgdaVec.C_'91''93'_32 _ = return ()
+agdaVecToBuffer (AgdaVec.C__'8759'__38 x xs) ptr = do
+    poke ptr (fromIntegral (unsafeCoerce x :: Integer) :: Word8)
+    agdaVecToBuffer xs (ptr `plusPtr` 1)
+
+-- | Dispatch on MAlonzo String ⊎ Vec Byte: write bytes to buffer (success)
+-- or error string to out_err pointer (failure).
+dispatchSumResult :: AgdaSum.T__'8846'__30 -> Ptr Word8 -> Ptr CString -> IO Int8
+dispatchSumResult (AgdaSum.C_inj'8321'_38 errAny) _ outErr = do
+    let errText = unsafeCoerce errAny :: T.Text
+    errStr <- newCString (T.unpack errText)
+    poke outErr errStr
+    return 1
+dispatchSumResult (AgdaSum.C_inj'8322'_42 vecAny) outBuf _ = do
+    let vec = unsafeCoerce vecAny :: AgdaVec.T_Vec_28
+    agdaVecToBuffer vec outBuf
+    return 0
+
+-- | Build a CAN frame, returning raw payload bytes (no JSON serialization).
+-- Returns 0 on success (bytes written to out_buf), 1 on error (CString in out_err).
+foreign export ccall aletheia_build_frame_bin
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+    -> Ptr Word8 -> Ptr CString -> IO Int8
+aletheia_build_frame_bin :: StateHandle -> Word32 -> Word8 -> Word8
+                        -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+                        -> Ptr Word8 -> Ptr CString -> IO Int8
+aletheia_build_frame_bin statePtr canId extended dlc
+    numSignals indicesPtr numsPtr densPtr outBuf outErr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    indices <- peekArray (fromIntegral numSignals) indicesPtr
+    nums <- peekArray (fromIntegral numSignals) numsPtr
+    dens <- peekArray (fromIntegral numSignals) densPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let signalPairs = mkSignalPairs indices nums dens
+    let result = Agda.d_processBuildFrameBin_144 state agdaCanId (toInteger dlc) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
+    writeIORef ref newState
+    dispatchSumResult sumResult outBuf outErr
+
+-- | Update a CAN frame, returning raw payload bytes (no JSON serialization).
+-- Returns 0 on success (bytes written to out_buf), 1 on error (CString in out_err).
+foreign export ccall aletheia_update_frame_bin
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Ptr Word8 -> Word8
+    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+    -> Ptr Word8 -> Ptr CString -> IO Int8
+aletheia_update_frame_bin :: StateHandle -> Word32 -> Word8 -> Word8
+                         -> Ptr Word8 -> Word8
+                         -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64
+                         -> Ptr Word8 -> Ptr CString -> IO Int8
+aletheia_update_frame_bin statePtr canId extended dlc
+    dataPtr dataLen numSignals indicesPtr numsPtr densPtr outBuf outErr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    bytes <- peekArray (fromIntegral dataLen) dataPtr
+    indices <- peekArray (fromIntegral numSignals) indicesPtr
+    nums <- peekArray (fromIntegral numSignals) numsPtr
+    dens <- peekArray (fromIntegral numSignals) densPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let agdaVec = bytesToAgdaVec bytes
+    let signalPairs = mkSignalPairs indices nums dens
+    let result = Agda.d_processUpdateFrameBin_178 state agdaCanId
+                     (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
+    writeIORef ref newState
+    dispatchSumResult sumResult outBuf outErr
+
+-- | Extract all signals returning packed binary (no JSON on output).
+-- Returns 0 on success (buffer via out_buf/out_size), 1 on error (CString via out_err).
+--
+-- Success buffer layout (little-endian, native byte order on x86_64):
+--   [num_values: u16] [num_errors: u16] [num_absent: u16]
+--   values:  num_values × (signal_index: u16, numerator: i64, denominator: i64) — 18 bytes
+--   errors:  num_errors × (signal_index: u16, error_code: u8)                   — 3 bytes
+--   absent:  num_absent × (signal_index: u16)                                   — 2 bytes
+foreign export ccall aletheia_extract_signals_bin
+    :: StateHandle -> Word32 -> Word8 -> Word8
+    -> Ptr Word8 -> Word8
+    -> Ptr (Ptr Word8) -> Ptr Word32 -> Ptr CString -> IO Int8
+aletheia_extract_signals_bin :: StateHandle -> Word32 -> Word8 -> Word8
+                            -> Ptr Word8 -> Word8
+                            -> Ptr (Ptr Word8) -> Ptr Word32 -> Ptr CString -> IO Int8
+aletheia_extract_signals_bin statePtr canId extended dlc
+    dataPtr dataLen outBufPtr outSizePtr outErr = do
+    ref <- deRefStablePtr statePtr
+    state <- readIORef ref
+    bytes <- peekArray (fromIntegral dataLen) dataPtr
+    let agdaCanId = mkAgdaCanId canId extended
+    let agdaVec = bytesToAgdaVec bytes
+    let result = Agda.d_processExtractBin_250 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
+    writeIORef ref newState
+    case sumResult of
+        AgdaSum.C_inj'8321'_38 errAny -> do
+            let errText = unsafeCoerce errAny :: T.Text
+            errStr <- newCString (T.unpack errText)
+            poke outErr errStr
+            return 1
+        AgdaSum.C_inj'8322'_42 ierAny -> do
+            let ier = unsafeCoerce ierAny :: AgdaBatch.T_IndexedExtractionResults_116
+            let vals = unsafeCoerce (AgdaBatch.d_values_124 ier) :: [AgdaSigma.T_Σ_14]
+            let errs = unsafeCoerce (AgdaBatch.d_errors_126 ier) :: [AgdaSigma.T_Σ_14]
+            let abss = AgdaBatch.d_absent_128 ier
+            let nvals = length vals
+            let nerrs = length errs
+            let nabss = length abss
+            let bufSize = 6 + nvals * 18 + nerrs * 3 + nabss * 2
+            buf <- mallocBytes bufSize
+            -- Header: 3 × u16
+            poke (castPtr buf :: Ptr Word16) (fromIntegral nvals)
+            poke (castPtr (buf `plusPtr` 2) :: Ptr Word16) (fromIntegral nerrs)
+            poke (castPtr (buf `plusPtr` 4) :: Ptr Word16) (fromIntegral nabss)
+            -- Values
+            p1 <- writeExtrValues (buf `plusPtr` 6) vals
+            -- Errors
+            p2 <- writeExtrErrors p1 errs
+            -- Absent
+            _ <- writeExtrAbsent p2 abss
+            poke outBufPtr buf
+            poke outSizePtr (fromIntegral bufSize)
+            return 0
+
+-- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64)
+writeExtrValues :: Ptr Word8 -> [AgdaSigma.T_Σ_14] -> IO (Ptr Word8)
+writeExtrValues ptr [] = return ptr
+writeExtrValues ptr (pair:rest) = do
+    let idx = unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
+    let rat = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: AgdaRational.T_ℚ_6
+    case rat of
+        AgdaRational.C_mkℚ_24 num denM1 -> do
+            poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
+            poke (castPtr (ptr `plusPtr` 2) :: Ptr Int64) (fromIntegral num)
+            poke (castPtr (ptr `plusPtr` 10) :: Ptr Int64) (fromIntegral (denM1 + 1))
+            writeExtrValues (ptr `plusPtr` 18) rest
+
+-- | Write error entries: signal_index(u16) + error_code(u8)
+writeExtrErrors :: Ptr Word8 -> [AgdaSigma.T_Σ_14] -> IO (Ptr Word8)
+writeExtrErrors ptr [] = return ptr
+writeExtrErrors ptr (pair:rest) = do
+    let idx = unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
+    let code = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: Integer
+    poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
+    poke (ptr `plusPtr` 2) (fromIntegral code :: Word8)
+    writeExtrErrors (ptr `plusPtr` 3) rest
+
+-- | Write absent entries: signal_index(u16)
+writeExtrAbsent :: Ptr Word8 -> [Integer] -> IO (Ptr Word8)
+writeExtrAbsent ptr [] = return ptr
+writeExtrAbsent ptr (idx:rest) = do
+    poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
+    writeExtrAbsent (ptr `plusPtr` 2) rest
+
+-- ============================================================================
 -- MEMORY MANAGEMENT
 -- ============================================================================
 
@@ -280,6 +446,11 @@ mkSignalPairs _ _ _ = []
 foreign export ccall aletheia_free_str :: CString -> IO ()
 aletheia_free_str :: CString -> IO ()
 aletheia_free_str = free
+
+-- | Free a binary buffer returned by aletheia_extract_signals_bin.
+foreign export ccall aletheia_free_buf :: Ptr Word8 -> IO ()
+aletheia_free_buf :: Ptr Word8 -> IO ()
+aletheia_free_buf ptr = free ptr
 
 -- | Close and free a state handle.
 foreign export ccall aletheia_close :: StateHandle -> IO ()

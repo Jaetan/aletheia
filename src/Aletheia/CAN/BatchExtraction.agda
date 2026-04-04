@@ -19,6 +19,8 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Show using (show)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
+open import Data.Nat using (ℕ; suc)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
 
@@ -91,3 +93,50 @@ extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | just msg =
     -- Extract all signals from this message
     extractAllSignalsFromMessage frame msg
+
+-- ============================================================================
+-- INDEXED EXTRACTION (binary output — no strings on success path)
+-- ============================================================================
+
+-- Results with signal indices instead of names.
+-- Error codes: 0 = not_in_dbc, 1 = out_of_bounds, 2 = extraction_failed
+record IndexedExtractionResults : Set where
+  constructor mkIndexedExtractionResults
+  field
+    values : List (ℕ × ℚ)       -- (signal_index, value)
+    errors : List (ℕ × ℕ)       -- (signal_index, error_code)
+    absent : List ℕ              -- signal_index
+
+emptyIndexedResults : IndexedExtractionResults
+emptyIndexedResults = mkIndexedExtractionResults [] [] []
+
+combineIndexedResults : IndexedExtractionResults → IndexedExtractionResults → IndexedExtractionResults
+combineIndexedResults (mkIndexedExtractionResults v1 e1 a1) (mkIndexedExtractionResults v2 e2 a2) =
+  mkIndexedExtractionResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
+
+categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
+categorizeIndexed idx (Success value) =
+  mkIndexedExtractionResults ((idx , value) ∷ []) [] []
+categorizeIndexed idx SignalNotInDBC =
+  mkIndexedExtractionResults [] ((idx , 0) ∷ []) []
+categorizeIndexed idx (SignalNotPresent _) =
+  mkIndexedExtractionResults [] [] (idx ∷ [])
+categorizeIndexed idx (ValueOutOfBounds _ _ _) =
+  mkIndexedExtractionResults [] ((idx , 1) ∷ []) []
+categorizeIndexed idx (ExtractionFailed _) =
+  mkIndexedExtractionResults [] ((idx , 2) ∷ []) []
+
+-- Extract all signals from a message, returning indexed results.
+extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
+extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
+  where
+    go : ℕ → List DBCSignal → IndexedExtractionResults
+    go _ [] = emptyIndexedResults
+    go idx (sig ∷ sigs) =
+      combineIndexedResults (categorizeIndexed idx (extractSignalDirect msg frame sig))
+                            (go (suc idx) sigs)
+
+extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → String ⊎ IndexedExtractionResults
+extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc
+... | nothing = inj₁ "CAN ID not found in DBC"
+... | just msg = inj₂ (extractAllSignalsIndexedFromMessage frame msg)

@@ -40,7 +40,9 @@ open import Aletheia.Protocol.Handlers using
   ; handleBuildFrameByIndex; handleUpdateFrameByIndex
   )
 open import Aletheia.Trace.CANTrace using (TimedFrame)
-open import Aletheia.CAN.Frame using (CANId; Byte)
+open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
+open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
+open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
 open import Aletheia.CAN.DLC using (dlcToBytes)
 import Aletheia.Protocol.Message as Msg
 
@@ -168,4 +170,35 @@ processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (d
 processUpdateFrameDirect state canId dlc payload signals =
   let (newState , response) = handleUpdateFrameByIndex canId dlc payload signals state
   in (newState , formatJSON (formatResponse response))
+
+-- ============================================================================
+-- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
+-- ============================================================================
+
+-- Build CAN frame, returning raw bytes instead of JSON-formatted Response.
+-- Called by aletheia_build_frame_bin via AletheiaFFI.hs.
+-- Bypasses formatResponse/formatJSON entirely — zero string allocation on success.
+processBuildFrameBin : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
+{-# NOINLINE processBuildFrameBin #-}
+processBuildFrameBin state canId dlc signals with StreamState.dbc state
+... | nothing  = (state , inj₁ "No DBC loaded")
+... | just dbc = (state , buildFrameByIndex dbc canId dlc signals)
+
+-- Update CAN frame, returning raw bytes instead of JSON-formatted Response.
+-- Called by aletheia_update_frame_bin via AletheiaFFI.hs.
+processUpdateFrameBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
+{-# NOINLINE processUpdateFrameBin #-}
+processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
+... | nothing  = (state , inj₁ "No DBC loaded")
+... | just dbc with updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals
+...   | inj₁ err   = (state , inj₁ err)
+...   | inj₂ frame = (state , inj₂ (CANFrame.payload frame))
+
+-- Extract signals returning indexed results (no strings on success path).
+-- Called by aletheia_extract_signals_bin via AletheiaFFI.hs.
+processExtractBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
+{-# NOINLINE processExtractBin #-}
+processExtractBin state canId dlc payload with StreamState.dbc state
+... | nothing  = (state , inj₁ "No DBC loaded")
+... | just dbc = (state , extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload }))
 

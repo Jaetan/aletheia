@@ -1,6 +1,7 @@
 package aletheia
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -582,6 +583,82 @@ func parseFrameDataResponse(raw string) (FramePayload, error) {
 		payload[i] = byte(f)
 	}
 	return payload, nil
+}
+
+// extractionErrorMessages maps error codes from binary extraction to messages.
+// Must match Agda categorizeIndexed: 0 = not_in_dbc, 1 = out_of_bounds, 2 = extraction_failed.
+var extractionErrorMessages = [...]string{
+	"Signal not found in DBC",
+	"Value out of bounds",
+	"Extraction failed",
+}
+
+// parseExtractionBin parses a packed binary extraction buffer into an ExtractionResult.
+// Buffer layout: [nvals:u16][nerrs:u16][nabss:u16] + values(18B) + errors(3B) + absent(2B).
+func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
+	if len(buf) < 6 {
+		return nil, protocolError("extraction binary buffer too short")
+	}
+	nvals := binary.LittleEndian.Uint16(buf[0:2])
+	nerrs := binary.LittleEndian.Uint16(buf[2:4])
+	nabss := binary.LittleEndian.Uint16(buf[4:6])
+	off := 6
+
+	result := &ExtractionResult{
+		Values: make([]SignalValue, 0, nvals),
+		Errors: make([]SignalError, 0, nerrs),
+		Absent: make([]SignalName, 0, nabss),
+	}
+
+	for range nvals {
+		if off+18 > len(buf) {
+			return nil, protocolError("extraction binary buffer truncated in values")
+		}
+		idx := binary.LittleEndian.Uint16(buf[off : off+2])
+		num := int64(binary.LittleEndian.Uint64(buf[off+2 : off+10]))
+		den := int64(binary.LittleEndian.Uint64(buf[off+10 : off+18]))
+		off += 18
+		name := signalNameByIndex(names, idx)
+		var value float64
+		if den != 0 {
+			value = float64(num) / float64(den)
+		}
+		result.Values = append(result.Values, SignalValue{Name: name, Value: PhysicalValue(value)})
+	}
+
+	for range nerrs {
+		if off+3 > len(buf) {
+			return nil, protocolError("extraction binary buffer truncated in errors")
+		}
+		idx := binary.LittleEndian.Uint16(buf[off : off+2])
+		code := buf[off+2]
+		off += 3
+		name := signalNameByIndex(names, idx)
+		msg := fmt.Sprintf("Unknown error code %d", code)
+		if int(code) < len(extractionErrorMessages) {
+			msg = extractionErrorMessages[code]
+		}
+		result.Errors = append(result.Errors, SignalError{Name: name, Error: msg})
+	}
+
+	for range nabss {
+		if off+2 > len(buf) {
+			return nil, protocolError("extraction binary buffer truncated in absent")
+		}
+		idx := binary.LittleEndian.Uint16(buf[off : off+2])
+		off += 2
+		result.Absent = append(result.Absent, signalNameByIndex(names, idx))
+	}
+
+	result.buildIndex()
+	return result, nil
+}
+
+func signalNameByIndex(names []string, idx uint16) SignalName {
+	if int(idx) < len(names) {
+		return SignalName(names[idx])
+	}
+	return SignalName(fmt.Sprintf("signal_%d", idx))
 }
 
 // Ack fast path constants — avoid json.Unmarshal for ~99% of streaming frames.

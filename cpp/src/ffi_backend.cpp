@@ -38,6 +38,20 @@ using AletheiaUpdateFrameFn = char* (*)(void*, std::uint32_t, std::uint8_t, std:
                                         const std::uint32_t*, const std::int64_t*,
                                         const std::int64_t*);
 
+// Binary output endpoints (return status code, write bytes to caller buffer).
+using AletheiaBuildFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                                std::uint32_t, const std::uint32_t*,
+                                                const std::int64_t*, const std::int64_t*,
+                                                std::uint8_t*, char**);
+using AletheiaUpdateFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                                  const std::uint8_t*, std::uint8_t, std::uint32_t,
+                                                  const std::uint32_t*, const std::int64_t*,
+                                                  const std::int64_t*, std::uint8_t*, char**);
+using AletheiaExtractBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
+                                              const std::uint8_t*, std::uint8_t,
+                                              std::uint8_t**, std::uint32_t*, char**);
+using AletheiaFreeBufFn = void (*)(std::uint8_t*);
+
 struct RTSState {
     std::mutex mu;
     bool initialized = false;
@@ -62,6 +76,10 @@ class FfiBackend : public IBackend {
     AletheiaExtractFn extract_signals_fn_ = nullptr;
     AletheiaBuildFrameFn build_frame_fn_ = nullptr;
     AletheiaUpdateFrameFn update_frame_fn_ = nullptr;
+    AletheiaBuildFrameBinFn build_frame_bin_fn_ = nullptr;
+    AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
+    AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
+    AletheiaFreeBufFn free_buf_fn_ = nullptr;
 
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
@@ -94,6 +112,14 @@ public:
                 load_sym<AletheiaBuildFrameFn>(handle_, "aletheia_build_frame");
             update_frame_fn_ =
                 load_sym<AletheiaUpdateFrameFn>(handle_, "aletheia_update_frame");
+            build_frame_bin_fn_ =
+                load_sym<AletheiaBuildFrameBinFn>(handle_, "aletheia_build_frame_bin");
+            update_frame_bin_fn_ =
+                load_sym<AletheiaUpdateFrameBinFn>(handle_, "aletheia_update_frame_bin");
+            extract_signals_bin_fn_ =
+                load_sym<AletheiaExtractBinFn>(handle_, "aletheia_extract_signals_bin");
+            free_buf_fn_ =
+                load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
 
             // Initialize GHC RTS (once per process, never finalized).
             auto& rts = rts_state();
@@ -266,6 +292,87 @@ public:
         auto deleter = [this](char* p) { free_str_fn_(p); };
         const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
         return std::string{result};
+    }
+
+    auto build_frame_bin(void* state, const CanId& id, Dlc dlc, std::uint32_t num_signals,
+                         const std::uint32_t* indices, const std::int64_t* numerators,
+                         const std::int64_t* denominators, std::size_t expected_bytes)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+
+        std::vector<std::byte> buf(expected_bytes);
+        char* err_str = nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        const auto status = build_frame_bin_fn_(
+            state, can_id, extended, dlc.value(), num_signals, indices, numerators, denominators,
+            reinterpret_cast<std::uint8_t*>(buf.data()), &err_str);
+        if (status != 0) {
+            std::string msg = err_str ? err_str : "Unknown error";
+            if (err_str)
+                free_str_fn_(err_str);
+            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
+        }
+        return buf;
+    }
+
+    auto update_frame_bin(void* state, const CanId& id, Dlc dlc,
+                          std::span<const std::byte> data, std::uint32_t num_signals,
+                          const std::uint32_t* indices, const std::int64_t* numerators,
+                          const std::int64_t* denominators, std::size_t expected_bytes)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto data_len = static_cast<std::uint8_t>(data.size());
+
+        std::vector<std::byte> buf(expected_bytes);
+        char* err_str = nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        const auto status = update_frame_bin_fn_(
+            state, can_id, extended, dlc.value(),
+            reinterpret_cast<const std::uint8_t*>(data.data()), data_len, num_signals, indices,
+            numerators, denominators, reinterpret_cast<std::uint8_t*>(buf.data()), &err_str);
+        if (status != 0) {
+            std::string msg = err_str ? err_str : "Unknown error";
+            if (err_str)
+                free_str_fn_(err_str);
+            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
+        }
+        return buf;
+    }
+
+    auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
+                             std::span<const std::byte> data)
+        -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        const auto data_len = static_cast<std::uint8_t>(data.size());
+
+        std::uint8_t* out_buf = nullptr;
+        std::uint32_t out_size = 0;
+        char* err_str = nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        const auto status = extract_signals_bin_fn_(
+            state, can_id, extended, dlc.value(),
+            reinterpret_cast<const std::uint8_t*>(data.data()), data_len,
+            &out_buf, &out_size, &err_str);
+        if (status != 0) {
+            std::string msg = err_str ? err_str : "Unknown error";
+            if (err_str)
+                free_str_fn_(err_str);
+            return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto result = std::vector<std::byte>(reinterpret_cast<std::byte*>(out_buf),
+                                              reinterpret_cast<std::byte*>(out_buf) + out_size);
+        free_buf_fn_(out_buf);
+        return result;
     }
 };
 

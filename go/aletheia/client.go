@@ -42,6 +42,7 @@ type Client struct {
 	cache         *extractCache                     // extraction cache for enrichment
 	lastFrames    map[lastFrameKey]lastFrameData    // last frame seen per CAN ID, for EOS enrichment
 	signalIndex   map[signalIndexKey]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
+	signalNames   map[signalIndexKey][]string        // index -> signal name, keyed by (canId, extended)
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -178,13 +179,17 @@ func (c *Client) ParseDBC(dbc DbcDefinition) error {
 	}
 	// Build signal name -> index cache from the DBC definition.
 	c.signalIndex = make(map[signalIndexKey]map[string]int, len(dbc.Messages))
+	c.signalNames = make(map[signalIndexKey][]string, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
 		key := signalIndexKey{value: msg.ID.Value(), extended: msg.ID.IsExtended()}
 		sigMap := make(map[string]int, len(msg.Signals))
+		names := make([]string, len(msg.Signals))
 		for i, sig := range msg.Signals {
 			sigMap[string(sig.Name)] = i
+			names[i] = string(sig.Name)
 		}
 		c.signalIndex[key] = sigMap
+		c.signalNames[key] = names
 	}
 	if c.logger != nil {
 		c.logger.Info("dbc.parsed", "messages", len(dbc.Messages))
@@ -239,6 +244,18 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
+
+	// Use binary path when signal name cache is populated.
+	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	if names, ok := c.signalNames[key]; ok {
+		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
+		if err == nil {
+			return parseExtractionBin(buf, names)
+		}
+		// Binary path unavailable (e.g. MockBackend); fall through to JSON.
+	}
+
+	// Fallback: JSON path.
 	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		return nil, err
@@ -258,11 +275,11 @@ func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayl
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.backend.BuildFrameBinary(c.state, id, dlc, uint32(len(signals)), indices, nums, dens)
+	payload, err := c.backend.BuildFrameBin(c.state, id, dlc, uint32(len(signals)), indices, nums, dens)
 	if err != nil {
 		return nil, err
 	}
-	return parseFrameDataResponse(resp)
+	return FramePayload(payload), nil
 }
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
@@ -280,11 +297,11 @@ func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []Sig
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.backend.UpdateFrameBinary(c.state, id, dlc, []byte(data), uint32(len(signals)), indices, nums, dens)
+	payload, err := c.backend.UpdateFrameBin(c.state, id, dlc, []byte(data), uint32(len(signals)), indices, nums, dens)
 	if err != nil {
 		return nil, err
 	}
-	return parseFrameDataResponse(resp)
+	return FramePayload(payload), nil
 }
 
 // --- Streaming LTL operations ---
@@ -596,6 +613,27 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 
 // extractSignalsLocked performs signal extraction via binary FFI. Caller must hold c.mu.
 func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
+	// Use binary path when signal name cache is populated.
+	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	if names, ok := c.signalNames[key]; ok {
+		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
+		if err != nil {
+			if c.logger != nil {
+				c.logger.Warn("extraction.process_failed", "canId", id.Value(), "error", err)
+			}
+			return nil
+		}
+		result, err := parseExtractionBin(buf, names)
+		if err != nil {
+			if c.logger != nil {
+				c.logger.Warn("extraction.parse_failed", "canId", id.Value(), "error", err)
+			}
+			return nil
+		}
+		return result
+	}
+
+	// Fallback: JSON path.
 	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		if c.logger != nil {

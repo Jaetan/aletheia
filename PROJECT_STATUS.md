@@ -288,8 +288,18 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Cross-language API review rounds 5-11 (2026-04-01): 30+ fixes across all three bindings (47 files, +1058/-345 lines). Semantic correctness: CAN ID range constants from bit widths, type-derived limits (std::numeric_limits, math.MaxInt64), INT64_MIN overflow guard, Go parseRational truncation check. Safety: [[nodiscard]] on all C++ AletheiaClient methods, static_assert non-copyable, lo>hi validation in Check API (all 3 bindings), .value()→* for known-valid std::expected. Protocol: AGENTS.md origin-blind rules + backward-compat prohibition, OpenXLSX pinned commit, clang-tidy clean. Total review rounds to date: Agda 7 batches, Python 11 rounds (534 tests), C++ 11 rounds (5 test suites), Go 23 rounds (243 tests).
 
+- ✅ extractSignalCoreFast equivalence proof (2026-04-04): Formally verified `extractSignalCoreFast ≡ extractSignalCore` — the byte-at-a-time extraction algorithm produces the same result as the per-bit BitVec algorithm. ~150 lines of proof across 3 files: `bitVecToℕ-bit` lemma (Conversion.agda), `extractCore-extractBits` + `extractRaw-extractBits` (Endianness.agda), final `extractSignalCoreFast-equiv` theorem (Encoding.agda). Key lemma chain: per-bit arithmetic identity → structural induction on bit length → dropVec bridge for byte-skipping optimization.
+
+- ✅ Index-based signal lookup equivalence proof (2026-04-04): Three equivalence proofs in `CAN/BatchFrameBuilding/Properties.agda`: `lookupSignalsByIndex ≡ lookupSignals` (core), `buildFrameByIndex ≡ buildFrame`, `updateFrameByIndex ≡ updateFrame`. Precondition expressed via `SignalMatch`/`AllMatch` pointwise relation. Supporting refactors: `validateAndBuild` extracted as shared top-level function, `listIndex` made public.
+
+- ✅ Binary API proofs properties 16-22 (2026-04-04): Seven new properties in `Protocol/FrameProcessor/Properties.agda`: `processFrameDirect` decomposition (state/response), end-to-end Ack soundness at JSON level, read-only handler state preservation (extract, build, update, formatDBC). Supporting: `formatResponse-ack-unique` injectivity proof, `handleUpdateFrameByIndex` refactored for provability (where-block pair pattern).
+
+- ✅ Benchmark runner hardening (2026-04-04): `run_all.sh` rewritten with `run_benchmark()` helper: temp file capture, JSON extraction (strips GHC RTS/cgo stdout pollution), Python-based validation, atomic `mv`. `compare.py` gracefully skips corrupt/unreadable files.
+
 **Remaining**:
 - Binary FFI for signal extraction/frame building (currently still JSON; batch operations, not per-frame hot path)
+- DBC file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
+- Go multiplexing query helpers and batch operations (noted during R8 review)
 
 **Status**: In progress
 

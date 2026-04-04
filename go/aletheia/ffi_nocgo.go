@@ -58,5 +58,20 @@ func (b *FFIBackend) UpdateFrameBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byt
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
 }
 
+// BuildFrameBin is unavailable without cgo.
+func (b *FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
+}
+
+// UpdateFrameBin is unavailable without cgo.
+func (b *FFIBackend) UpdateFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
+}
+
+// ExtractSignalsBin is unavailable without cgo.
+func (b *FFIBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
+}
+
 // Close is a no-op without cgo.
 func (b *FFIBackend) Close(_ unsafe.Pointer) {}

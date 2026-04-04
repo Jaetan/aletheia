@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
+import struct
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -96,6 +97,7 @@ class AletheiaClient:
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
         self._rts_cores: int = rts_cores
         self._signal_index_cache: dict[tuple[int, bool], dict[str, int]] = {}
+        self._signal_names_cache: dict[tuple[int, bool], list[str]] = {}
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
@@ -164,6 +166,50 @@ class AletheiaClient:
             ctypes.POINTER(ctypes.c_int64),   # denominators
         ]
         self._lib.aletheia_update_frame.restype = ctypes.c_void_p
+
+        # Binary output entry points (no JSON on output either)
+        self._lib.aletheia_build_frame_bin.argtypes = [
+            ctypes.c_void_p,                  # state
+            ctypes.c_uint32,                  # can_id
+            ctypes.c_uint8,                   # extended
+            ctypes.c_uint8,                   # dlc
+            ctypes.c_uint32,                  # numSignals
+            ctypes.POINTER(ctypes.c_uint32),  # indices
+            ctypes.POINTER(ctypes.c_int64),   # numerators
+            ctypes.POINTER(ctypes.c_int64),   # denominators
+            ctypes.POINTER(ctypes.c_uint8),   # out_buf
+            ctypes.POINTER(ctypes.c_char_p),  # out_err
+        ]
+        self._lib.aletheia_build_frame_bin.restype = ctypes.c_int8
+        self._lib.aletheia_update_frame_bin.argtypes = [
+            ctypes.c_void_p,                  # state
+            ctypes.c_uint32,                  # can_id
+            ctypes.c_uint8,                   # extended
+            ctypes.c_uint8,                   # dlc
+            ctypes.POINTER(ctypes.c_uint8),   # data pointer
+            ctypes.c_uint8,                   # data_len
+            ctypes.c_uint32,                  # numSignals
+            ctypes.POINTER(ctypes.c_uint32),  # indices
+            ctypes.POINTER(ctypes.c_int64),   # numerators
+            ctypes.POINTER(ctypes.c_int64),   # denominators
+            ctypes.POINTER(ctypes.c_uint8),   # out_buf
+            ctypes.POINTER(ctypes.c_char_p),  # out_err
+        ]
+        self._lib.aletheia_update_frame_bin.restype = ctypes.c_int8
+        self._lib.aletheia_extract_signals_bin.argtypes = [
+            ctypes.c_void_p,                          # state
+            ctypes.c_uint32,                           # can_id
+            ctypes.c_uint8,                            # extended
+            ctypes.c_uint8,                            # dlc
+            ctypes.POINTER(ctypes.c_uint8),            # data pointer
+            ctypes.c_uint8,                            # data_len
+            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),  # out_buf
+            ctypes.POINTER(ctypes.c_uint32),           # out_size
+            ctypes.POINTER(ctypes.c_char_p),           # out_err
+        ]
+        self._lib.aletheia_extract_signals_bin.restype = ctypes.c_int8
+        self._lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
+        self._lib.aletheia_free_buf.restype = None
 
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
         RTSState.acquire(self._lib, self._rts_cores)
@@ -292,12 +338,17 @@ class AletheiaClient:
         result = self._success_or_error(self._send_command(cmd))
         if result["status"] == "success":
             self._signal_index_cache.clear()
+            self._signal_names_cache.clear()
             for msg in dbc["messages"]:
                 msg_ext = bool(msg.get("extended", False))
                 sig_map: dict[str, int] = {}
+                names: list[str] = []
                 for i, sig in enumerate(msg["signals"]):
                     sig_map[sig["name"]] = i
-                self._signal_index_cache[(msg["id"], msg_ext)] = sig_map
+                    names.append(sig["name"])
+                key = (msg["id"], msg_ext)
+                self._signal_index_cache[key] = sig_map
+                self._signal_names_cache[key] = names
         return result
 
     def validate_dbc(self, dbc: DBCDefinition) -> ValidationResponse:
@@ -767,6 +818,15 @@ class AletheiaClient:
             )
         validate_can_id(can_id, extended=extended)
         data_array = (ctypes.c_uint8 * len(data))(*data)
+
+        # Use binary path when signal name cache is populated
+        names = self._signal_names_cache.get((can_id, extended))
+        if names is not None:
+            return self._extract_signals_bin(
+                can_id, extended, dlc, data_array, len(data), names,
+            )
+
+        # Fallback: JSON path
         result_ptr = self._lib.aletheia_extract_signals(
             self._state,
             ctypes.c_uint32(can_id),
@@ -792,6 +852,75 @@ class AletheiaClient:
             errors=parse_errors_list(response.get("errors", [])),
             absent=parse_absent_list(response.get("absent", [])),
         )
+
+    # Error code → message mapping for binary extraction
+    _EXTRACTION_ERROR_MESSAGES: tuple[str, ...] = (
+        "Signal not found in DBC",     # 0
+        "Value out of bounds",          # 1
+        "Extraction failed",            # 2
+    )
+
+    def _extract_signals_bin(
+        self,
+        can_id: int,
+        extended: bool,
+        dlc: int,
+        data_array: ctypes.Array[ctypes.c_uint8],
+        data_len: int,
+        names: list[str],
+    ) -> SignalExtractionResult:
+        """Binary extraction path — no JSON on input or output."""
+        out_buf = ctypes.POINTER(ctypes.c_uint8)()
+        out_size = ctypes.c_uint32()
+        out_err = ctypes.c_char_p()
+        status = self._lib.aletheia_extract_signals_bin(
+            self._state,
+            ctypes.c_uint32(can_id),
+            ctypes.c_uint8(1 if extended else 0),
+            ctypes.c_uint8(dlc),
+            data_array,
+            ctypes.c_uint8(data_len),
+            ctypes.byref(out_buf),
+            ctypes.byref(out_size),
+            ctypes.byref(out_err),
+        )
+        if status != 0:
+            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
+            if out_err.value:
+                self._lib.aletheia_free_str(out_err)
+            raise ProcessError(f"Extract signals failed: {err_msg}")
+
+        buf = bytes(ctypes.cast(out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value)).contents)
+        self._lib.aletheia_free_buf(out_buf)
+
+        # Parse packed binary: header(6) + values(18 each) + errors(3 each) + absent(2 each)
+        nvals, nerrs, nabss = struct.unpack_from("<HHH", buf, 0)
+        off = 6
+        values: dict[str, float] = {}
+        for _ in range(nvals):
+            idx, num, den = struct.unpack_from("<Hqq", buf, off)
+            off += 18
+            name = names[idx] if idx < len(names) else f"signal_{idx}"
+            values[name] = num / den if den != 0 else 0.0
+
+        errors: dict[str, str] = {}
+        for _ in range(nerrs):
+            idx, code = struct.unpack_from("<HB", buf, off)
+            off += 3
+            name = names[idx] if idx < len(names) else f"signal_{idx}"
+            if code < len(self._EXTRACTION_ERROR_MESSAGES):
+                errors[name] = self._EXTRACTION_ERROR_MESSAGES[code]
+            else:
+                errors[name] = f"Unknown error code {code}"
+
+        absent: list[str] = []
+        for _ in range(nabss):
+            (idx,) = struct.unpack_from("<H", buf, off)
+            off += 2
+            name = names[idx] if idx < len(names) else f"signal_{idx}"
+            absent.append(name)
+
+        return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
     def update_frame(  # pylint: disable=too-many-arguments
         self,
@@ -835,7 +964,9 @@ class AletheiaClient:
         )
         n_signals = len(indices)
         frame_array = (ctypes.c_uint8 * len(frame))(*frame)
-        result_ptr = self._lib.aletheia_update_frame(
+        out_buf = (ctypes.c_uint8 * expected_bytes)()
+        out_err = ctypes.c_char_p()
+        status = self._lib.aletheia_update_frame_bin(
             self._state,
             ctypes.c_uint32(can_id),
             ctypes.c_uint8(1 if extended else 0),
@@ -846,18 +977,15 @@ class AletheiaClient:
             (ctypes.c_uint32 * n_signals)(*indices),
             (ctypes.c_int64 * n_signals)(*nums),
             (ctypes.c_int64 * n_signals)(*dens),
+            out_buf,
+            ctypes.byref(out_err),
         )
-        response = self._parse_ffi_result(result_ptr)
-
-        if response.get("status") == "error":
-            error_msg = response.get("message", "Unknown error")
-            raise ProcessError(f"Update frame failed: {error_msg}")
-        if response.get("status") != "success":
-            raise ProtocolError(f"Unexpected status: {response.get('status')}")
-
-        return parse_frame_data(
-            cast(UpdateFrameResponse, response), dlc_to_bytes(dlc),
-        )
+        if status != 0:
+            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
+            if out_err.value:
+                self._lib.aletheia_free_str(out_err)
+            raise ProcessError(f"Update frame failed: {err_msg}")
+        return bytearray(out_buf)
 
     def build_frame(
         self, can_id: int, signals: dict[str, float], *,
@@ -887,8 +1015,11 @@ class AletheiaClient:
         indices, nums, dens = self._resolve_signal_indices(
             signals, can_id, extended, "BuildFrame",
         )
+        expected_bytes = dlc_to_bytes(dlc)
         n_signals = len(indices)
-        result_ptr = self._lib.aletheia_build_frame(
+        out_buf = (ctypes.c_uint8 * expected_bytes)()
+        out_err = ctypes.c_char_p()
+        status = self._lib.aletheia_build_frame_bin(
             self._state,
             ctypes.c_uint32(can_id),
             ctypes.c_uint8(1 if extended else 0),
@@ -897,18 +1028,15 @@ class AletheiaClient:
             (ctypes.c_uint32 * n_signals)(*indices),
             (ctypes.c_int64 * n_signals)(*nums),
             (ctypes.c_int64 * n_signals)(*dens),
+            out_buf,
+            ctypes.byref(out_err),
         )
-        response = self._parse_ffi_result(result_ptr)
-
-        if response.get("status") == "error":
-            error_msg = response.get("message", "Unknown error")
-            raise ProcessError(f"Build frame failed: {error_msg}")
-        if response.get("status") != "success":
-            raise ProtocolError(f"Unexpected status: {response.get('status')}")
-
-        return parse_frame_data(
-            cast(BuildFrameResponse, response), dlc_to_bytes(dlc),
-        )
+        if status != 0:
+            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
+            if out_err.value:
+                self._lib.aletheia_free_str(out_err)
+            raise ProcessError(f"Build frame failed: {err_msg}")
+        return bytearray(out_buf)
 
     @override
     def __repr__(self) -> str:
