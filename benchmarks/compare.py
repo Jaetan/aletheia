@@ -16,11 +16,15 @@ from pathlib import Path
 
 
 def load_results(paths: list[str]) -> dict[str, dict]:
-    """Load JSON results keyed by language."""
+    """Load JSON results keyed by language.  Skips corrupt/unreadable files."""
     by_language: dict[str, dict] = {}
     for path in paths:
-        with open(path) as f:
-            data = json.load(f)
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"WARNING: skipping {path}: {e}", file=sys.stderr)
+            continue
         lang = data.get("language", Path(path).stem)
         by_language[lang] = data
     return by_language
