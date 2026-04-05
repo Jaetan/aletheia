@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-05
+**Last Updated**: 2026-04-06
 
 ---
 
@@ -299,6 +299,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - ✅ CAN error/remote frames + CAN-FD BRS/ESI metadata (2026-04-05): Review plan D1+D2 — final items from the Agda code review plan. `TraceEvent` data type in `Trace/CANTrace.agda` with `Data`/`Error`/`Remote` constructors. `TimedFrame` gets `brs : Maybe Bool` and `esi : Maybe Bool` CAN-FD metadata fields. `handleTraceEvent` dispatcher in `StreamState.agda`, `processEventDirect` entry point in `Main.agda`. FFI: `aletheia_send_error` + `aletheia_send_remote` exports. All three bindings updated: Python `send_error()`/`send_remote()`, C++ `send_error()`/`send_remote()` on `AletheiaClient` + `IBackend`, Go `SendError()`/`SendRemote()` on `Client` + `Backend`. Key design: LTL core stays on `TimedFrame` only — protocol layer dispatches `TraceEvent`, zero cascade to 10+ proof/evaluation modules. Closes the entire review plan (phases A-E, D1-D2).
 
 - ✅ Review plan fix implementation — Tiers 1-5, 6 (#42-43), 8 (#55-63) (2026-04-05): ~50 fixes from the consolidated Agda code review plan. **Tier 1**: dead code removal (Prelude, Endianness/Properties), stale comment fixes (7 files), combinator replacements (map, any?, filter), multi-rewrite simplification (subst/cong). **Tier 2**: stdlib replacements (find, map⁺, universal), function deduplication (require, parseCANId, signal finders), shared helpers (TruthVal lemmas, cong₃/cong₄). **Tier 3**: error message consistency (operation prefixes, unified strings). **Tier 4**: where-block extraction + module splits — 9 new modules: `DBC/Validator/{Checks,Formatting}`, `DBC/Validity/Combinators`, `LTL/SignalPredicate/{Types,Cache,Evaluation}`, `LTL/TruthVal/Properties`, `Protocol/StreamState/{Types,Internals}`. **Tier 5**: monadic style (traverse, maybe combinator). **Tier 6**: `ErrorCode` ADT replacing ℕ constants in `BatchExtraction`. **Tier 8**: `listToVec` bounds check (was silent truncation), wire format byte order docs, MAlonzo fragility comments. Total: 80 Agda modules (was 67). Remaining: Tier 6 #44-48 (large type redesigns) and Tier 7 #49-50,54 (structural refactors) — require user scope decisions.
+
+- ✅ Bounded CANId (#44) — intrinsic bounds via T (n <ᵇ max) (2026-04-06): `CANId` constructors now carry proof: `Standard n (T (n <ᵇ 2048))`, `Extended n (T (n <ᵇ 536870912))`. `WellFormedCANId` eliminated (bounds intrinsic). `parseCANId` uses `ifᵀ_then_else_` to construct proof in true branch. Decidable equality via `T-irrelevant` + `cong`. Roundtrip proofs via `ifᵀ-witness` lemma (avoids with-abstraction failure from rigid type dependency). Haskell FFI validates bounds before `unsafeCoerce ()` for proof field. New Prelude utilities: `ifᵀ_then_else_`, `T-irrelevant`, `T→true`, `ifᵀ-witness`. MAlonzo constructor names updated.
+
+- ✅ liftCheck combinator (#50) — requireDec/rejectDec + liftTriangular (2026-04-06): Extracted reusable combinators eliminating repeated with-Dec boilerplate across DBC validity proofs. `requireDec`/`rejectDec` (decidable check building blocks) with 4 proof lemmas, `liftTriangular-sound`/`liftTriangular-complete` for pairwise AllPairs. 12 check functions in Checks.agda converted to one-liner combinator calls. 34 proof functions simplified across ErrorChecks/WarningChecks. `checkAgainst`/`triangularCheck` moved to Combinators.agda and made generic. Net: +242/-225 lines across 4 files. Review plan Tier 7 now fully closed; remaining: Tier 6 #45-48 (type-level redesigns).
 
 **Remaining**:
 - DBC file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)

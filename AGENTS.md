@@ -167,6 +167,15 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 **Where-block provability:**
 - Where-block helpers that return a pair `(state , f x)` where both branches share the same `state` prevent external proofs from seeing `proj₁ = state` without reducing through the case split. Refactor as `(state , g x)` where `g : A → B` returns only the varying component. This makes `proj₁` reduce immediately without needing to case-split on `x`.
 
+**Bounded types and proof-carrying constructors:**
+- When a constructor carries a `T (n <ᵇ max)` proof (like `Standard n pf`), do NOT use `with`-abstraction or `rewrite` on `n <ᵇ max` in roundtrip proofs. The constructor's rigid type dependency prevents generalization — abstracting `n <ᵇ max` to a fresh variable `w` makes `T w ≠ T (n <ᵇ max)`, producing an ill-typed with-abstraction.
+- Use `ifᵀ-witness` from `Prelude` instead: it proves `ifᵀ b then f else e ≡ f pf` by splitting on `b` internally. Apply as a regular function (`= ifᵀ-witness _ _ pf`), not via `with`. η for `⊤` closes the `true` case.
+- At the FFI boundary, supply `unsafeCoerce ()` for `T (n <ᵇ max)` proof fields ONLY after validating bounds in Haskell. MAlonzo compiles `⊤`/`tt` to a nullary constructor equivalent to `()`.
+
+**Decidable check combinators (DBC validity):**
+- For check functions that case-split on a single `Dec P`, use `requireDec`/`rejectDec` from `Validity.Combinators` instead of raw `with`-patterns. `requireDec dec issue` returns `[]` when `dec = yes _` (property holds); `rejectDec dec issue` returns `[]` when `dec = no _` (property fails). Sound/complete proofs become one-liners via `requireDec-sound`/`rejectDec-sound` etc.
+- For pairwise (triangular) AllPairs proofs, use `liftTriangular-sound`/`liftTriangular-complete` instead of manual induction with `++-≡[]-split`/`++-≡[]-combine`.
+
 **Generalization:**
 - When parameterizing types (e.g., `CANFrame n` for CAN-FD), generalize ALL layers (proofs, protocol, trace) with `∀ {n}` from the start. Do not pin at a fixed size as a shortcut.
 

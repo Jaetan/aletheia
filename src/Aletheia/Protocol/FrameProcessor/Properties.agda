@@ -58,8 +58,9 @@ open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
     Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate
-    using (SignalCache; SignalPredicate; evalPredicateTV;
-           CachedSignal; mkCachedSignal; lookupCache; updateCache; extractTruthValue)
+    using (SignalCache; mkSignalCache; CacheEntries; SignalPredicate; evalPredicateTV;
+           CachedSignal; mkCachedSignal; lookupCache; updateCache;
+           lookupEntries; updateEntries; extractTruthValue)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (dlcToBytes)
@@ -468,37 +469,55 @@ mkPredTable-lookup dbc cache atoms k pred frame eq rewrite eq = refl
 
 private
   -- Helper: looking up name in (name , v) ∷ rest returns just v.
-  -- Uses Dec-based `with` so ⌊ name ≟ₛ name ⌋ reduces inside lookupCache.
-  lookupCache-head : ∀ name v rest →
-    lookupCache name ((name , v) ∷ rest) ≡ just v
-  lookupCache-head name v rest with name ≟ₛ name
+  -- Uses Dec-based `with` so ⌊ name ≟ₛ name ⌋ reduces inside lookupEntries.
+  lookupEntries-head : ∀ name v rest →
+    lookupEntries name ((name , v) ∷ rest) ≡ just v
+  lookupEntries-head name v rest with name ≟ₛ name
   ... | yes _ = refl
   ... | no ¬p = ⊥-elim (¬p refl)
 
   -- Helper: looking up name' ≢ name skips the head entry.
-  lookupCache-skip : ∀ name' name v rest →
+  lookupEntries-skip : ∀ name' name v rest →
     name' ≢ name →
-    lookupCache name' ((name , v) ∷ rest) ≡ lookupCache name' rest
-  lookupCache-skip name' name v rest neq with name' ≟ₛ name
+    lookupEntries name' ((name , v) ∷ rest) ≡ lookupEntries name' rest
+  lookupEntries-skip name' name v rest neq with name' ≟ₛ name
   ... | yes p = ⊥-elim (neq p)
   ... | no  _ = refl
 
+  -- List-level: after updateEntries, looking up the updated name returns the new value.
+  lookupEntries-updateEntries-hit : ∀ name val ts (es : CacheEntries) →
+    lookupEntries name (updateEntries name val ts es) ≡ just (mkCachedSignal val ts)
+  lookupEntries-updateEntries-hit name val ts [] =
+    lookupEntries-head name (mkCachedSignal val ts) []
+  lookupEntries-updateEntries-hit name val ts ((n , cached) ∷ rest)
+    with name ≟ₛ n
+  ... | yes _ = lookupEntries-head name (mkCachedSignal val ts) rest
+  ... | no ¬a = trans (lookupEntries-skip name n cached (updateEntries name val ts rest) ¬a)
+                      (lookupEntries-updateEntries-hit name val ts rest)
+
+  -- List-level: after updateEntries, looking up a different name is unchanged.
+  lookupEntries-updateEntries-miss : ∀ name name' val ts (es : CacheEntries) →
+    name ≢ name' →
+    lookupEntries name' (updateEntries name val ts es) ≡ lookupEntries name' es
+  lookupEntries-updateEntries-miss name name' val ts [] name≢name' =
+    lookupEntries-skip name' name (mkCachedSignal val ts) [] (λ p → name≢name' (sym p))
+  lookupEntries-updateEntries-miss name name' val ts ((n , cached) ∷ rest) name≢name'
+    with name ≟ₛ n | name' ≟ₛ n
+  ... | yes p | yes q = ⊥-elim (name≢name' (trans p (sym q)))
+  ... | yes _ | no  _ =
+    lookupEntries-skip name' name (mkCachedSignal val ts) rest (λ p → name≢name' (sym p))
+  ... | no  _ | yes refl =
+    lookupEntries-head name' cached (updateEntries name val ts rest)
+  ... | no  _ | no ¬b =
+    trans (lookupEntries-skip name' n cached (updateEntries name val ts rest) ¬b)
+          (lookupEntries-updateEntries-miss name name' val ts rest name≢name')
+
 -- After updateCache, looking up the updated name returns the new value.
--- This proves the association-list update is correct for the target key.
---
--- Key insight: `with name ≟ₛ n` abstracts the Dec inside updateCache, making it
--- reduce. But lookupCache on the result creates a FRESH `name ≟ₛ n` not covered
--- by the `with`. We use `trans` with lookupCache-skip/lookupCache-head to handle
--- these fresh occurrences.
+-- Delegates to list-level proof via record decomposition.
 lookupCache-updateCache-hit : ∀ name val ts cache →
   lookupCache name (updateCache name val ts cache) ≡ just (mkCachedSignal val ts)
-lookupCache-updateCache-hit name val ts [] =
-  lookupCache-head name (mkCachedSignal val ts) []
-lookupCache-updateCache-hit name val ts ((n , cached) ∷ rest)
-  with name ≟ₛ n
-... | yes _ = lookupCache-head name (mkCachedSignal val ts) rest
-... | no ¬a = trans (lookupCache-skip name n cached (updateCache name val ts rest) ¬a)
-                    (lookupCache-updateCache-hit name val ts rest)
+lookupCache-updateCache-hit name val ts (mkSignalCache es _) =
+  lookupEntries-updateEntries-hit name val ts es
 
 -- ============================================================================
 -- PROPERTY 11: Signal cache update — different name lookup unchanged
@@ -509,18 +528,8 @@ lookupCache-updateCache-hit name val ts ((n , cached) ∷ rest)
 lookupCache-updateCache-miss : ∀ name name' val ts cache →
   name ≢ name' →
   lookupCache name' (updateCache name val ts cache) ≡ lookupCache name' cache
-lookupCache-updateCache-miss name name' val ts [] name≢name' =
-  lookupCache-skip name' name (mkCachedSignal val ts) [] (λ p → name≢name' (sym p))
-lookupCache-updateCache-miss name name' val ts ((n , cached) ∷ rest) name≢name'
-  with name ≟ₛ n | name' ≟ₛ n
-... | yes p | yes q = ⊥-elim (name≢name' (trans p (sym q)))
-... | yes _ | no  _ =
-  lookupCache-skip name' name (mkCachedSignal val ts) rest (λ p → name≢name' (sym p))
-... | no  _ | yes refl =
-  lookupCache-head name' cached (updateCache name val ts rest)
-... | no  _ | no ¬b =
-  trans (lookupCache-skip name' n cached (updateCache name val ts rest) ¬b)
-        (lookupCache-updateCache-miss name name' val ts rest name≢name')
+lookupCache-updateCache-miss name name' val ts (mkSignalCache es _) name≢name' =
+  lookupEntries-updateEntries-miss name name' val ts es name≢name'
 
 -- ============================================================================
 -- PROPERTY 12: updateSignals step decomposition

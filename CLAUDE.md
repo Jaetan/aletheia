@@ -405,4 +405,4 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-05):** Review plan implementation — ~50 fixes across Tiers 1-5 (all), Tier 6 (#42-43), Tier 8 (#55-63). 9 new modules from where-block extraction + module splits. 80 Agda modules total. Tiers 6 (#44-48) and 7 (#49-50,54) remain as user-scoped items. Changes uncommitted. All tests pass (545 Python, 5 C++ suites, all Go with -race).
+**Latest (2026-04-06):** liftCheck combinator (#50) committed (`f5f9fe6`). Tier 7 fully closed. Remaining review items: T6 #45-48. 80 Agda modules, all `--safe --without-K`.

@@ -1,3 +1,4 @@
 name: aletheia
 depend: standard-library-2.3
 include: src
+flags: --erasure
