@@ -423,6 +423,38 @@ func (c *Client) SendFrames(frames []Frame) ([]FrameResponse, error) {
 	return results, nil
 }
 
+// SendError sends a CAN error event (no ID, no payload). Error frames signal
+// a bus error detected by a CAN controller and are acknowledged without LTL
+// evaluation — they carry no payload for signal extraction.
+func (c *Client) SendError(ts Timestamp) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return stateError("client is closed")
+	}
+	if ts.Microseconds < 0 {
+		return validationError("negative timestamp")
+	}
+	_, err := c.backend.SendErrorBinary(c.state, ts)
+	return err
+}
+
+// SendRemote sends a CAN remote frame event (ID but no payload). Remote frames
+// request transmission of the data frame with a matching ID (CAN 2.0B only;
+// deprecated in CAN-FD). Acknowledged without LTL evaluation.
+func (c *Client) SendRemote(ts Timestamp, id CanID) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return stateError("client is closed")
+	}
+	if ts.Microseconds < 0 {
+		return validationError("negative timestamp")
+	}
+	_, err := c.backend.SendRemoteBinary(c.state, ts, id)
+	return err
+}
+
 // sendFrameLocked is the inner implementation of SendFrame. Caller must hold c.mu.
 func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
 	if c.closed {

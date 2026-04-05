@@ -70,6 +70,16 @@ func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CanID, 
 	return m.Process(nil, input)
 }
 
+// SendErrorBinary returns an ack response (error events are always acknowledged).
+func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+	return `{"status":"ack"}`, nil
+}
+
+// SendRemoteBinary returns an ack response (remote frame events are always acknowledged).
+func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+	return `{"status":"ack"}`, nil
+}
+
 // StartStreamBinary delegates to Process with a JSON startStream command.
 func (m *MockBackend) StartStreamBinary(state unsafe.Pointer) (string, error) {
 	cmd, err := serializeCommand("startStream", nil)

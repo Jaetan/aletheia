@@ -168,6 +168,20 @@ class AletheiaClient:
         ]
         self._lib.aletheia_update_frame.restype = ctypes.c_void_p
 
+        # CAN error/remote event endpoints (acknowledged without LTL evaluation)
+        self._lib.aletheia_send_error.argtypes = [
+            ctypes.c_void_p,   # state
+            ctypes.c_uint64,   # timestamp
+        ]
+        self._lib.aletheia_send_error.restype = ctypes.c_void_p
+        self._lib.aletheia_send_remote.argtypes = [
+            ctypes.c_void_p,   # state
+            ctypes.c_uint64,   # timestamp
+            ctypes.c_uint32,   # can_id
+            ctypes.c_uint8,    # extended (0 or 1)
+        ]
+        self._lib.aletheia_send_remote.restype = ctypes.c_void_p
+
         # Binary output entry points (no JSON on output either)
         self._lib.aletheia_build_frame_bin.argtypes = [
             ctypes.c_void_p,                  # state
@@ -699,6 +713,66 @@ class AletheiaClient:
             except Exception as exc:
                 raise BatchError(exc, results) from exc
         return results
+
+    def send_error(self, timestamp: int) -> AckResponse:
+        """Send a CAN error event (no ID, no payload).
+
+        Error frames signal a bus error detected by a CAN controller.
+        They are acknowledged without LTL evaluation — error frames carry
+        no payload for signal extraction.
+
+        Args:
+            timestamp: Timestamp in microseconds
+        """
+        if self._lib is None or self._state is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
+        result_ptr = self._lib.aletheia_send_error(
+            self._state, ctypes.c_uint64(timestamp),
+        )
+        try:
+            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+            if result_bytes is None:
+                raise ProtocolError("FFI returned null pointer")
+        finally:
+            self._lib.aletheia_free_str(result_ptr)
+        _logger.debug("error_event.sent ts=%d", timestamp)
+        return {"status": "ack"}
+
+    def send_remote(
+        self, timestamp: int, can_id: int, *, extended: bool = False,
+    ) -> AckResponse:
+        """Send a CAN remote frame event (ID but no payload).
+
+        Remote frames request transmission of the data frame with a matching
+        ID (CAN 2.0B only; deprecated in CAN-FD). They are acknowledged
+        without LTL evaluation.
+
+        Args:
+            timestamp: Timestamp in microseconds
+            can_id: CAN ID (11-bit standard or 29-bit extended)
+            extended: True for 29-bit extended CAN ID
+        """
+        if self._lib is None or self._state is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
+        validate_can_id(can_id, extended=extended)
+        result_ptr = self._lib.aletheia_send_remote(
+            self._state,
+            ctypes.c_uint64(timestamp),
+            ctypes.c_uint32(can_id),
+            ctypes.c_uint8(1 if extended else 0),
+        )
+        try:
+            result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
+            if result_bytes is None:
+                raise ProtocolError("FFI returned null pointer")
+        finally:
+            self._lib.aletheia_free_str(result_ptr)
+        _logger.debug("remote_event.sent ts=%d canId=%d extended=%s", timestamp, can_id, extended)
+        return {"status": "ack"}
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.

@@ -26,7 +26,7 @@ open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Sati
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; initProc)
 open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.Protocol.Message using (Response)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Data; Error; Remote)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate)
@@ -203,4 +203,12 @@ handleDataFrame state tf with StreamState.phase state
   let cache = StreamState.signalCache state
       updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
   in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) (StreamState.properties state)) tf updatedCache
+
+-- Dispatch a trace event: data frames go through handleDataFrame,
+-- error and remote frames are acknowledged without LTL evaluation
+-- (they carry no payload for signal extraction).
+handleTraceEvent : StreamState → TraceEvent → StreamState × Response
+handleTraceEvent state (Data tf)     = handleDataFrame state tf
+handleTraceEvent state (Error _)     = (state , Response.Ack)
+handleTraceEvent state (Remote _ _)  = (state , Response.Ack)
 

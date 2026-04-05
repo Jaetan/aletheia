@@ -26,6 +26,10 @@ using AletheiaSendFrameFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::
 using AletheiaFreeStrFn = void (*)(char*);
 using AletheiaCloseFn = void (*)(void*);
 
+// CAN error/remote event endpoints.
+using AletheiaSendErrorFn = char* (*)(void*, std::uint64_t);
+using AletheiaSendRemoteFn = char* (*)(void*, std::uint64_t, std::uint32_t, std::uint8_t);
+
 // Binary FFI endpoints (no JSON input serialization).
 using AletheiaNoArgFn = char* (*)(void*);
 using AletheiaExtractFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
@@ -70,6 +74,8 @@ class FfiBackend : public IBackend {
     AletheiaSendFrameFn send_frame_fn_ = nullptr;
     AletheiaFreeStrFn free_str_fn_ = nullptr;
     AletheiaCloseFn close_fn_ = nullptr;
+    AletheiaSendErrorFn send_error_fn_ = nullptr;
+    AletheiaSendRemoteFn send_remote_fn_ = nullptr;
     AletheiaNoArgFn start_stream_fn_ = nullptr;
     AletheiaNoArgFn end_stream_fn_ = nullptr;
     AletheiaNoArgFn format_dbc_fn_ = nullptr;
@@ -104,6 +110,8 @@ public:
             send_frame_fn_ = load_sym<AletheiaSendFrameFn>(handle_, "aletheia_send_frame");
             free_str_fn_ = load_sym<AletheiaFreeStrFn>(handle_, "aletheia_free_str");
             close_fn_ = load_sym<AletheiaCloseFn>(handle_, "aletheia_close");
+            send_error_fn_ = load_sym<AletheiaSendErrorFn>(handle_, "aletheia_send_error");
+            send_remote_fn_ = load_sym<AletheiaSendRemoteFn>(handle_, "aletheia_send_remote");
             start_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_start_stream");
             end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_end_stream");
             format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_format_dbc");
@@ -193,6 +201,30 @@ public:
                                       reinterpret_cast<const std::uint8_t*>(data.data()), data_len);
         if (result == nullptr)
             throw std::runtime_error("aletheia_send_frame returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
+        const auto timestamp = static_cast<std::uint64_t>(ts.count());
+        char* result = send_error_fn_(state, timestamp);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_send_error returned null");
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
+    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
+        const auto timestamp = static_cast<std::uint64_t>(ts.count());
+        const auto can_id =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
+        const auto extended =
+            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
+        char* result = send_remote_fn_(state, timestamp, can_id, extended);
+        if (result == nullptr)
+            throw std::runtime_error("aletheia_send_remote returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
         const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
         return std::string{result};

@@ -39,6 +39,11 @@ public:
                                                  Dlc dlc, std::span<const std::byte> data)
         -> std::string = 0;
 
+    // CAN error/remote event endpoints (acknowledged without LTL evaluation).
+    [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string;
+    [[nodiscard]] virtual auto send_remote_binary(void* state, Timestamp ts, const CanId& id)
+        -> std::string;
+
     // --- Binary FFI endpoints (bypass JSON input serialization) ---
     // Default implementations fall back to JSON via process() for backward
     // compatibility with MockBackend and other test doubles.

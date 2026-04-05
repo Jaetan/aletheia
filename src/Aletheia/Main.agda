@@ -32,14 +32,14 @@ open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
 open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
-open import Aletheia.Protocol.StreamState using (StreamState; initialState; handleDataFrame)
+open import Aletheia.Protocol.StreamState using (StreamState; initialState; handleDataFrame; handleTraceEvent)
 open import Aletheia.Protocol.Handlers using
   ( processStreamCommand
   ; handleStartStream; handleEndStream; handleFormatDBC
   ; handleExtractAllSignals
   ; handleBuildFrameByIndex; handleUpdateFrameByIndex
   )
-open import Aletheia.Trace.CANTrace using (TimedFrame)
+open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent)
 open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
@@ -121,6 +121,15 @@ processFrameDirect : StreamState → TimedFrame → StreamState × String
 {-# NOINLINE processFrameDirect #-}
 processFrameDirect state tf =
   let (newState , response) = handleDataFrame state tf
+  in (newState , formatJSON (formatResponse response))
+
+-- Binary entry point: process a trace event (data, error, or remote frame).
+-- Called by aletheia_send_event via AletheiaFFI.hs.
+-- Data events delegate to handleDataFrame; error/remote events are acknowledged.
+processEventDirect : StreamState → TraceEvent → StreamState × String
+{-# NOINLINE processEventDirect #-}
+processEventDirect state ev =
+  let (newState , response) = handleTraceEvent state ev
   in (newState , formatJSON (formatResponse response))
 
 -- ============================================================================

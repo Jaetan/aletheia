@@ -74,6 +74,10 @@ public:
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
+    // CAN error event (no ID, no payload). Acknowledged without LTL evaluation.
+    [[nodiscard]] auto send_error(Timestamp ts) -> Result<void>;
+    // CAN remote frame (ID but no payload, CAN 2.0B only). Acknowledged without LTL evaluation.
+    [[nodiscard]] auto send_remote(Timestamp ts, CanId id) -> Result<void>;
     // Send multiple frames in a single batch. A Violation is a normal response
     // and does not stop the batch. Processing stops at the first transport or
     // validation error; earlier successful responses are returned via

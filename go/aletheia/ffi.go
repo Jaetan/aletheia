@@ -39,6 +39,13 @@ package aletheia
 //     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t, uint8_t,
 //                         uint8_t*, uint8_t))fn)(state, ts, id, ext, dlc, data, len);
 // }
+// static char* call_send_error(void *fn, void *state, uint64_t ts) {
+//     return ((char* (*)(void*, uint64_t))fn)(state, ts);
+// }
+// static char* call_send_remote(void *fn, void *state, uint64_t ts,
+//     uint32_t id, uint8_t ext) {
+//     return ((char* (*)(void*, uint64_t, uint32_t, uint8_t))fn)(state, ts, id, ext);
+// }
 // static char* call_start_stream(void *fn, void *state) {
 //     return ((char* (*)(void*))fn)(state);
 // }
@@ -149,6 +156,8 @@ type FFIBackend struct {
 	initFn           unsafe.Pointer
 	processFn        unsafe.Pointer
 	sendFrameFn      unsafe.Pointer
+	sendErrorFn      unsafe.Pointer
+	sendRemoteFn     unsafe.Pointer
 	startStreamFn    unsafe.Pointer
 	endStreamFn      unsafe.Pointer
 	formatDbcFn      unsafe.Pointer
@@ -230,6 +239,14 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	if err != nil {
 		return nil, err
 	}
+	sendErrorFn, err := loadSym(handle, "aletheia_send_error")
+	if err != nil {
+		return nil, err
+	}
+	sendRemoteFn, err := loadSym(handle, "aletheia_send_remote")
+	if err != nil {
+		return nil, err
+	}
 	startStreamFn, err := loadSym(handle, "aletheia_start_stream")
 	if err != nil {
 		return nil, err
@@ -308,6 +325,8 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		initFn:           initFn,
 		processFn:        processFn,
 		sendFrameFn:      sendFrameFn,
+		sendErrorFn:      sendErrorFn,
+		sendRemoteFn:     sendRemoteFn,
 		startStreamFn:    startStreamFn,
 		endStreamFn:      endStreamFn,
 		formatDbcFn:      formatDbcFn,
@@ -388,6 +407,37 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 	)
 	if result == nil {
 		return "", ffiError("aletheia_send_frame returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// SendErrorBinary sends a CAN error event via the binary FFI entry point.
+func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	result := C.call_send_error(b.sendErrorFn, state, C.uint64_t(ts.Microseconds))
+	if result == nil {
+		return "", ffiError("aletheia_send_error returned null")
+	}
+	defer C.call_free_str(b.freeStrFn, result)
+	return C.GoString(result), nil
+}
+
+// SendRemoteBinary sends a CAN remote frame event via the binary FFI entry point.
+func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CanID) (string, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var ext C.uint8_t
+	if id.IsExtended() {
+		ext = 1
+	}
+
+	result := C.call_send_remote(b.sendRemoteFn, state, C.uint64_t(ts.Microseconds), C.uint32_t(id.Value()), ext)
+	if result == nil {
+		return "", ffiError("aletheia_send_remote returned null")
 	}
 	defer C.call_free_str(b.freeStrFn, result)
 	return C.GoString(result), nil

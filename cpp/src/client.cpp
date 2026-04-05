@@ -375,6 +375,22 @@ auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
     return batch;
 }
 
+auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
+    if (ts.count() < 0)
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    auto resp = backend_->send_error_binary(state_, ts);
+    return detail::parse_success(resp);
+}
+
+auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
+    if (ts.count() < 0)
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    auto resp = backend_->send_remote_binary(state_, ts, id);
+    return detail::parse_success(resp);
+}
+
 auto AletheiaClient::end_stream() -> Result<StreamResult> {
     auto resp = backend_->end_stream_binary(state_);
     auto result = detail::parse_stream_result(resp);

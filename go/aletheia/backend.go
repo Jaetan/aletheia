@@ -28,6 +28,12 @@ type Backend interface {
 	// serialization on the input side. Returns the JSON response string.
 	// Precondition: ts.Microseconds >= 0 (enforced by [Client.SendFrame]).
 	SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error)
+	// SendErrorBinary sends a CAN error event (no ID, no payload).
+	// Error frames are acknowledged without LTL evaluation.
+	SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string, error)
+	// SendRemoteBinary sends a CAN remote frame event (ID but no payload).
+	// Remote frames are acknowledged without LTL evaluation.
+	SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CanID) (string, error)
 	// StartStreamBinary begins streaming mode without JSON parsing on input.
 	StartStreamBinary(state unsafe.Pointer) (string, error)
 	// EndStreamBinary finalizes streaming and returns verdicts without JSON parsing on input.

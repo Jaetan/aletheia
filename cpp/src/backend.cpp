@@ -6,6 +6,15 @@
 
 namespace aletheia {
 
+auto IBackend::send_error_binary(void* /*state*/, Timestamp /*ts*/) -> std::string {
+    return R"({"status":"ack"})";
+}
+
+auto IBackend::send_remote_binary(void* /*state*/, Timestamp /*ts*/, const CanId& /*id*/)
+    -> std::string {
+    return R"({"status":"ack"})";
+}
+
 auto IBackend::start_stream_binary(void* state) -> std::string {
     return process(state, detail::serialize_start_stream());
 }

@@ -28,6 +28,16 @@ func (b *FFIBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CanID, _ D
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
 }
 
+// SendErrorBinary is unavailable without cgo.
+func (b *FFIBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
+	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
+}
+
+// SendRemoteBinary is unavailable without cgo.
+func (b *FFIBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
+}
+
 // StartStreamBinary is unavailable without cgo.
 func (b *FFIBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1 on linux")
