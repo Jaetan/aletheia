@@ -98,6 +98,7 @@ class AletheiaClient:
         self._rts_cores: int = rts_cores
         self._signal_index_cache: dict[tuple[int, bool], dict[str, int]] = {}
         self._signal_names_cache: dict[tuple[int, bool], list[str]] = {}
+        self._last_timestamp: int | None = None
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
@@ -571,6 +572,12 @@ class AletheiaClient:
             raise ProcessError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValueError("timestamp must be non-negative")
+        if self._last_timestamp is not None and timestamp < self._last_timestamp:
+            raise ValueError(
+                f"non-monotonic timestamp: {timestamp} µs < previous {self._last_timestamp} µs"
+                " (metric LTL operators require monotonic timestamps)"
+            )
+        self._last_timestamp = timestamp
         validate_can_id(can_id, extended=extended)
         dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
 

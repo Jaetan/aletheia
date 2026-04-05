@@ -17,6 +17,12 @@
 --
 -- All proofs hold for four-valued Kleene logic (True/False/Unknown/Pending).
 -- Zero postulates, zero holes, all 13 LTL operators covered.
+--
+-- Timestamp monotonicity: Adequacy holds unconditionally because both runL
+-- and ⟦_⟧ use the same _∸_ arithmetic. However, metric operators (MetricEventually,
+-- MetricAlways, MetricUntil, MetricRelease) only produce physically meaningful
+-- verdicts on monotonic traces (see Trace.CANTrace.Monotonic). Bindings enforce
+-- monotonicity at runtime.
 module Aletheia.LTL.Adequacy where
 
 open import Aletheia.Prelude

@@ -14,7 +14,8 @@ open import Data.Bool using (true)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
+  SignalGroup; EnvironmentVar; ValueTable)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
@@ -73,8 +74,38 @@ formatDBCMessage msg = JObject (
   ("signals" , JArray (map (formatDBCSignal (DBCMessage.dlc msg)) (DBCMessage.signals msg))) ∷
   [])
 
+formatValueEntry : ℕ × String → JSON
+formatValueEntry (n , s) = JObject (
+  ("value" , ℕtoJSON n) ∷
+  ("description" , JString s) ∷
+  [])
+
+formatSignalGroup : SignalGroup → JSON
+formatSignalGroup sg = JObject (
+  ("name"    , JString (SignalGroup.name sg)) ∷
+  ("signals" , JArray (map JString (SignalGroup.signals sg))) ∷
+  [])
+
+formatEnvironmentVar : EnvironmentVar → JSON
+formatEnvironmentVar ev = JObject (
+  ("name"    , JString (EnvironmentVar.name ev)) ∷
+  ("varType" , ℕtoJSON (EnvironmentVar.varType ev)) ∷
+  ("initial" , JNumber (EnvironmentVar.initial ev)) ∷
+  ("minimum" , JNumber (EnvironmentVar.minimum ev)) ∷
+  ("maximum" , JNumber (EnvironmentVar.maximum ev)) ∷
+  [])
+
+formatValueTable : ValueTable → JSON
+formatValueTable vt = JObject (
+  ("name"    , JString (ValueTable.name vt)) ∷
+  ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
+  [])
+
 formatDBC : DBC → JSON
 formatDBC dbc = JObject (
   ("version"  , JString (DBC.version dbc)) ∷
   ("messages" , JArray (map formatDBCMessage (DBC.messages dbc))) ∷
+  ("signalGroups"    , JArray (map formatSignalGroup (DBC.signalGroups dbc))) ∷
+  ("environmentVars" , JArray (map formatEnvironmentVar (DBC.environmentVars dbc))) ∷
+  ("valueTables"     , JArray (map formatValueTable (DBC.valueTables dbc))) ∷
   [])

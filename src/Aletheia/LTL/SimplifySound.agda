@@ -29,10 +29,10 @@ open import Data.Nat.Properties using (≡ᵇ⇒≡)
 open import Function.Bundles using (Equivalence)
 
 open import Aletheia.LTL.Coalgebra using (
-  LTLProc; PredTable; stepL; finalizeL; finalizesHolds; absorb; simplify;
+  LTLProc; PredTable; stepL; finalizeL;
   Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
-  MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc;
-  _≡ᵇ-proc_)
+  MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
+open import Aletheia.LTL.Simplify using (finalizesHolds; absorb; simplify; _≡ᵇ-proc_)
 open import Aletheia.LTL.Incremental using (
   StepResult; Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails)

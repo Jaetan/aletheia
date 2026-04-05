@@ -17,10 +17,11 @@
 module Aletheia.CAN.BatchFrameBuilding.Properties where
 
 open import Aletheia.CAN.BatchFrameBuilding
-    using (lookupSignals; lookupSignalsByIndex; listIndex;
+    using (lookupSignals; lookupSignalsByIndex;
            buildFrame; buildFrameByIndex;
            updateFrame; updateFrameByIndex;
            validateAndBuild; injectAll)
+open import Aletheia.Prelude using (listIndex)
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (dlcToBytes)

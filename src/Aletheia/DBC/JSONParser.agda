@@ -208,5 +208,8 @@ parseDBCWithErrors (JObject obj) =
   inj₂ (record
     { version = version
     ; messages = messages
+    ; signalGroups = []
+    ; environmentVars = []
+    ; valueTables = []
     })
-parseDBCWithErrors _ = inj₁ "DBC root must be a JSON object"
+parseDBCWithErrors _ = inj₁ "parseDBC: root must be a JSON object"

@@ -256,7 +256,9 @@ mkAgdaCanId canId extended
     | otherwise     = AgdaFrame.C_Standard_10 (toInteger canId)
 
 -- | Construct MAlonzo ℚ from (numerator, denominator) integers.
--- Normalizes to coprime form (required by Agda's ℚ invariant).
+-- GCD normalization is required: MAlonzo's C_mkℚ_24 is a raw data constructor
+-- that does NOT normalize. Agda's ℚ equality and comparison assume coprime
+-- numerator/denominator, so passing non-coprime values would cause silent bugs.
 mkAgdaRational :: Int64 -> Int64 -> AgdaRational.T_ℚ_6
 mkAgdaRational num den
     | den <= 0  = AgdaRational.C_mkℚ_24 (fromIntegral num) 0  -- fallback: n/1

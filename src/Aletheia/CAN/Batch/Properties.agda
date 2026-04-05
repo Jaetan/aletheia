@@ -21,7 +21,8 @@ module Aletheia.CAN.Batch.Properties where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; injectSignal; injectSignal-preserves-disjoint-bits-physical)
+open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCore; extractionBytes; scaleExtracted; injectSignal)
+open import Aletheia.CAN.Encoding.Properties using (injectSignal-preserves-disjoint-bits-physical)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds; toSigned; removeScaling)
 open import Aletheia.CAN.Endianness using (extractBits)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
@@ -36,6 +37,7 @@ open import Aletheia.DBC.Properties using (
 open import Data.List using (List; []; _∷_; length; map; foldr)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≟_ to _≟ᵣ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; subst; cong; trans)
@@ -261,7 +263,7 @@ injectAll-preserves-disjoint :
     (sig : DBCSignal)
   → AllSignalsFit n sigs
   → signalFits n (DBCSignal.signalDef sig)
-  → injectAll frame sigs ≡ just frame'
+  → injectAll frame sigs ≡ inj₂ frame'
   → DisjointFromAll n sig sigs
   → extractSignal frame' (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
     ≡ extractSignal frame (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
@@ -276,7 +278,7 @@ injectAll-preserves-disjoint ((s , v) ∷ rest) frame frame' sig
 ... | nothing = case eq of λ ()
 ... | just frame₁ = proof
   where
-    restEq : injectAll frame₁ rest ≡ just frame'
+    restEq : injectAll frame₁ rest ≡ inj₂ frame'
     restEq with injectSignal v (DBCSignal.signalDef s) (DBCSignal.byteOrder s) frame
     ... | just _ = eq
     ... | nothing = case injEq of λ ()
@@ -368,7 +370,7 @@ injectAll-roundtrip :
   → AllPairsDisjoint n sigs
   → AllSignalsFit n sigs
   → AllRoundtrip n sigs
-  → injectAll frame sigs ≡ just frame'
+  → injectAll frame sigs ≡ inj₂ frame'
   → ∀ {s v} → (s , v) ∈ sigs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
 
@@ -382,7 +384,7 @@ injectAll-roundtrip ((s₀ , v₀) ∷ rest) frame frame'
 ... | nothing = case eq of λ ()
 ... | just frame₁ = go mem
   where
-    restEq : injectAll frame₁ rest ≡ just frame'
+    restEq : injectAll frame₁ rest ≡ inj₂ frame'
     restEq with injectSignal v₀ (DBCSignal.signalDef s₀) (DBCSignal.byteOrder s₀) frame
     ... | just _  = eq
     ... | nothing = case injEq of λ ()
@@ -642,7 +644,7 @@ validDBC-roundtrip :
   → AllFromMessage pairs msg
   → PairsDistinct pairs
   → AllRoundtrip (DBCMessage.dlc msg) pairs
-  → injectAll frame pairs ≡ just frame'
+  → injectAll frame pairs ≡ inj₂ frame'
   → ∀ {s v} → (s , v) ∈ pairs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
 validDBC-roundtrip pairs frame frame' vdbc msg∈ aap afm pd ar eq mem =

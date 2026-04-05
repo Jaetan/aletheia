@@ -18,7 +18,7 @@ open import Data.List using (List; []; _∷_; length)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ)
 open import Data.Nat.Divisibility using (1∣_; _∣?_)
-open import Data.Empty as Empty using ()
+open import Data.Empty as Empty using (⊥-elim)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
 open import Relation.Nullary using (yes; no)
@@ -48,7 +48,6 @@ array-length-empty = refl
 
 -- Object field lookup properties (needed for schema parsing proofs)
 open import Aletheia.Prelude using (lookupByKey)
-open import Data.Empty using (⊥-elim)
 
 lookupByKey-empty : ∀ {A : Set} (key : String)
   → lookupByKey {A} key [] ≡ nothing

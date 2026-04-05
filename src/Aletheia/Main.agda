@@ -44,6 +44,7 @@ open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
 open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.Prelude using (errNoDBC)
 import Aletheia.Protocol.Message as Msg
 
 -- ============================================================================
@@ -174,6 +175,30 @@ processUpdateFrameDirect state canId dlc payload signals =
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
 -- ============================================================================
+--
+-- Wire format (canonical documentation — AletheiaFFI.hs references this):
+--
+-- processBuildFrameBin / processUpdateFrameBin:
+--   Success: raw frame bytes (Vec Byte n) written to caller-provided buffer.
+--   Error:   error string via outErr pointer; return code 1.
+--
+-- processExtractBin:
+--   Success: Haskell-allocated buffer (free with aletheia_free_buf).
+--   Layout:
+--     Header:  3 × u16 (nValues, nErrors, nAbsent)
+--     Values:  nValues × (signal_index:u16, numerator:i64, denominator:i64) = 18 bytes each
+--     Errors:  nErrors × (signal_index:u16, error_code:u8) = 3 bytes each
+--              Error codes: 0=not_in_dbc, 1=out_of_bounds, 2=extraction_failed
+--     Absent:  nAbsent × (signal_index:u16) = 2 bytes each
+--   Error:   error string via outErr pointer; return code 1.
+--
+-- CALLER CONTRACT — Timestamp monotonicity:
+--   processFrameDirect and processExtractDirect assume monotonically
+--   non-decreasing timestamps. Metric LTL operators (MetricEventually,
+--   MetricAlways) compute elapsed time via natural subtraction (∸), which
+--   clamps to 0 on backward timestamps — silently producing wrong verdicts.
+--   All three language bindings (Python, C++, Go) enforce monotonicity at
+--   the client level before calling these entry points.
 
 -- Build CAN frame, returning raw bytes instead of JSON-formatted Response.
 -- Called by aletheia_build_frame_bin via AletheiaFFI.hs.
@@ -181,7 +206,7 @@ processUpdateFrameDirect state canId dlc payload signals =
 processBuildFrameBin : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processBuildFrameBin #-}
 processBuildFrameBin state canId dlc signals with StreamState.dbc state
-... | nothing  = (state , inj₁ "No DBC loaded")
+... | nothing  = (state , inj₁ errNoDBC)
 ... | just dbc = (state , buildFrameByIndex dbc canId dlc signals)
 
 -- Update CAN frame, returning raw bytes instead of JSON-formatted Response.
@@ -189,7 +214,7 @@ processBuildFrameBin state canId dlc signals with StreamState.dbc state
 processUpdateFrameBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processUpdateFrameBin #-}
 processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
-... | nothing  = (state , inj₁ "No DBC loaded")
+... | nothing  = (state , inj₁ errNoDBC)
 ... | just dbc with updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals
 ...   | inj₁ err   = (state , inj₁ err)
 ...   | inj₂ frame = (state , inj₂ (CANFrame.payload frame))
@@ -199,6 +224,6 @@ processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
 processExtractBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
 {-# NOINLINE processExtractBin #-}
 processExtractBin state canId dlc payload with StreamState.dbc state
-... | nothing  = (state , inj₁ "No DBC loaded")
+... | nothing  = (state , inj₁ errNoDBC)
 ... | just dbc = (state , extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload }))
 

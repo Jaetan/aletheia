@@ -142,6 +142,8 @@ mutual
     else if ⌊ op ≟ "eventually" ⌋ then parseUnaryOp LTL.Eventually obj
     else if ⌊ op ≟ "until" ⌋ then parseBinaryOp LTL.Until obj
     else if ⌊ op ≟ "release" ⌋ then parseBinaryOp LTL.Release obj
+    -- Metric operators: startTime initialized to 0 (= uninitialized, suc-encoded).
+    -- timebound=0 is accepted: means "must hold immediately" (see Syntax.agda).
     else if ⌊ op ≟ "metricEventually" ⌋ then parseBoundedOp (λ n → LTL.MetricEventually n 0) obj
     else if ⌊ op ≟ "metricAlways" ⌋ then parseBoundedOp (λ n → LTL.MetricAlways n 0) obj
     else if ⌊ op ≟ "metricUntil" ⌋ then parseBoundedBinaryOp (λ n → LTL.MetricUntil n 0) obj

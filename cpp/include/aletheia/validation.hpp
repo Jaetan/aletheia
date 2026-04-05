@@ -25,6 +25,7 @@ enum class IssueCode {
     EmptyMessage,
     StartBitOutOfRange,
     BitLengthExcessive,
+    MultiplexorNonUnitScaling,
     Unknown
 };
 

@@ -155,6 +155,11 @@ private:
         }
     };
     std::unordered_map<MessageKey, std::vector<std::string>, MessageKeyHash> signal_names_;
+
+    // Timestamp monotonicity enforcement.
+    // Metric LTL operators use truncated subtraction on timestamps; non-monotonic
+    // timestamps produce silently wrong verdicts.
+    std::optional<std::int64_t> last_timestamp_;
 };
 
 static_assert(!std::is_copy_constructible_v<AletheiaClient>,

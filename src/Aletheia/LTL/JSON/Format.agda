@@ -9,7 +9,7 @@ module Aletheia.LTL.JSON.Format where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; suc; _⊔_)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JNumber; JString; JObject; ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
@@ -106,23 +106,3 @@ formatLTL (LTL.MetricRelease n _ f g) =
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 
--- ============================================================================
--- DEPTH FUNCTION
--- ============================================================================
-
--- Structural depth of an LTL formula (maximum nesting level).
--- Retained for use in complexity analysis; no longer needed by the parser.
-ltlDepth : LTL SignalPredicate → ℕ
-ltlDepth (LTL.Atomic _)              = 2
-ltlDepth (LTL.Not f)                 = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.And f g)               = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.Or f g)                = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.Next f)                = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.Always f)              = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.Eventually f)          = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.Until f g)             = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.Release f g)           = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.MetricEventually _ _ f)  = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.MetricAlways _ _ f)      = suc (suc (suc (ltlDepth f)))
-ltlDepth (LTL.MetricUntil _ _ f g)     = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))
-ltlDepth (LTL.MetricRelease _ _ f g)   = suc (suc (suc (ltlDepth f ⊔ ltlDepth g)))

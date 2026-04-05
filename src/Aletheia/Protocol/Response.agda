@@ -3,7 +3,7 @@
 -- LTL property result types for the streaming protocol.
 --
 -- Purpose: Define PropertyResult and CounterexampleData for LTL checking.
--- Types: CounterexampleData (violation evidence), PropertyResult (Violation/Satisfaction/StreamComplete).
+-- Types: CounterexampleData (violation evidence), PropertyResult (Violation/Satisfaction).
 -- Role: Used by Protocol.StreamState, Protocol.Message, and Protocol.ResponseFormat.
 module Aletheia.Protocol.Response where
 
@@ -24,5 +24,3 @@ data PropertyResult : Set where
   Violation    : ℕ → CounterexampleData → PropertyResult
   -- Property satisfied (succeeded early or at EndStream)
   Satisfaction : ℕ → PropertyResult
-  -- Stream complete marker (all properties decided)
-  StreamComplete : PropertyResult

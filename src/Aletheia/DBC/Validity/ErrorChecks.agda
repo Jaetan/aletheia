@@ -19,8 +19,9 @@ open import Aletheia.DBC.Validator using
   ; checkAllSignalOverlaps
   ; checkMuxFoundSig; checkAllMuxFound
   ; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent
-  ; findSignalPresence; _≟-CANId_
+  ; findSignalPresence
   )
+open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete)
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)

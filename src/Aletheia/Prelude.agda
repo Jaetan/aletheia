@@ -80,6 +80,12 @@ lookupByKey key [] = nothing
 lookupByKey key ((k , v) ∷ rest) =
   if ⌊ k ≟ key ⌋ then just v else lookupByKey key rest
 
+-- List indexing: O(n) lookup by position
+listIndex : ∀ {A : Set} → ℕ → List A → Maybe A
+listIndex _ [] = nothing
+listIndex zero (x ∷ _) = just x
+listIndex (suc n) (_ ∷ xs) = listIndex n xs
+
 -- Bind operator for Either (⊎) monad (used by parsers and command routing)
 _>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
 inj₁ err >>=ₑ _ = inj₁ err
@@ -99,6 +105,13 @@ bits-per-byte = 8
 -- Maximum physical bits in a CAN-FD frame (64 bytes × 8 bits)
 max-physical-bits : ℕ
 max-physical-bits = 512
+
+-- Shared error messages (deduplicated across Main, BatchExtraction, BatchFrameBuilding)
+errNoDBC : String
+errNoDBC = "No DBC loaded"
+
+errCanIdNotFound : String
+errCanIdNotFound = "CAN ID not found in DBC"
 
 -- 8 ≤ 512 (bits-per-byte fits in max-physical-bits)
 -- Defined once to avoid duplicating the 8-deep s≤s chain

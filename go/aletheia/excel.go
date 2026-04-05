@@ -794,6 +794,7 @@ func xlsxRational(d map[string]string, key string, rowNum int) (Rational, error)
 // doubleToRational converts a float64 to a Rational.
 // If the value is an exact integer, it uses denominator 1.
 // Otherwise, it uses fixed precision (multiply by 10^6, simplify by GCD).
+// Precision: 6 decimal digits (~1 ppm). Sufficient for DBC signal factors/offsets.
 func doubleToRational(v float64) (Rational, error) {
 	if v == math.Floor(v) && math.Abs(v) < 1e15 {
 		return Rational{Numerator: int64(v), Denominator: 1}, nil

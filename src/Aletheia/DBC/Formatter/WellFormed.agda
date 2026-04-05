@@ -10,14 +10,14 @@ module Aletheia.DBC.Formatter.WellFormed where
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; z≤n; s≤s; _<ᵇ_; _≤ᵇ_; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
 open import Data.Nat.Properties using (≤⇒≤ᵇ; ≤-trans; <-≤-trans; ≤-<-trans; *-monoˡ-≤; m∸n≤m; +-comm)
-open import Data.List using (List)
+open import Data.List using (List; [])
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Bool using (Bool; true; T)
 open import Data.Maybe using (just)
 open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst)
 
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalGroup; EnvironmentVar; ValueTable)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
@@ -75,9 +75,14 @@ record WellFormedDBC (d : DBC) : Set where
 
 -- Full well-formedness for DBC roundtrip: WellFormedMessage plus
 -- PhysicallyValid for each signal in each message.
+-- Metadata fields (signal groups, environment vars, value tables) must be empty
+-- because the JSON parser does not yet round-trip them — it always produces [].
 record WellFormedDBCRT (d : DBC) : Set where
   field
-    messages-wf : All WellFormedMessageRT (DBC.messages d)
+    messages-wf   : All WellFormedMessageRT (DBC.messages d)
+    groups-empty  : DBC.signalGroups d ≡ []
+    envvars-empty : DBC.environmentVars d ≡ []
+    vtables-empty : DBC.valueTables d ≡ []
 
 -- ============================================================================
 -- BRIDGE LEMMAS

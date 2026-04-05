@@ -16,9 +16,21 @@ open import Aletheia.CAN.Endianness using (ByteOrder)
 open import Data.String using (String)
 open import Data.List using (List)
 open import Data.Nat using (ℕ)
+open import Data.Rational using (ℚ)
+open import Data.Product using (_×_)
 
--- Signal presence model for multiplexing
--- A signal is either always present or conditionally present based on a multiplexor
+-- Signal presence model for multiplexing.
+-- A signal is either always present or conditionally present based on a multiplexor.
+--
+-- Design: Models single-level multiplexing as defined by the DBC file format.
+-- Each conditionally-present signal references exactly one multiplexor signal
+-- and one selector value.
+--
+-- Limitations (by design):
+--   - Nested multiplexing (mux of mux) is not representable.
+--   - Range-based multiplexing (signal present for mux values 1–5) is not representable.
+--   - These limitations match the standard DBC format; supporting them would require
+--     a recursive or range-based presence type, cascading through 34+ modules.
 data SignalPresence : Set where
   Always : SignalPresence
   When : (multiplexor : String) → (value : ℕ) → SignalPresence
@@ -39,10 +51,34 @@ record DBCMessage : Set where
     sender : String
     signals : List DBCSignal
 
+-- Signal group: named collection of signal references (DBC SG_ keyword).
+record SignalGroup : Set where
+  field
+    name : String
+    signals : List String
+
+-- Environment variable (DBC EV_ keyword).
+record EnvironmentVar : Set where
+  field
+    name : String
+    varType : ℕ        -- 0 = integer, 1 = float, 2 = string
+    initial : ℚ
+    minimum : ℚ
+    maximum : ℚ
+
+-- Value description table (DBC VAL_TABLE_ keyword).
+record ValueTable : Set where
+  field
+    name : String
+    entries : List (ℕ × String)  -- (numeric value, description)
+
 record DBC : Set where
   field
     version : String
     messages : List DBCMessage
+    signalGroups : List SignalGroup
+    environmentVars : List EnvironmentVar
+    valueTables : List ValueTable
 
 -- ============================================================================
 -- VALIDATION ISSUE TYPES
@@ -71,6 +107,7 @@ data IssueCode : Set where
   EmptyMessage                : IssueCode
   StartBitOutOfRange          : IssueCode
   BitLengthExcessive          : IssueCode
+  MultiplexorNonUnitScaling   : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

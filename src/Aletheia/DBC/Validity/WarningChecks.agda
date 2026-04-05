@@ -2,13 +2,13 @@
 
 -- Warning check severity proofs and soundness/completeness.
 --
--- Purpose: (1) Prove all 7 warning checks emit only IsWarning severity.
+-- Purpose: (1) Prove all 8 warning checks emit only IsWarning severity.
 -- (2) Prove soundness (check ≡ [] → predicate) and completeness
 -- (predicate → check ≡ []) for each warning check, relating the
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
 
-open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision)
+open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
@@ -20,11 +20,14 @@ open import Aletheia.DBC.Validator using
   ; checkEmptyMessage; checkAllEmptyMessage
   ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
   ; checkBitLengthExcessive; checkAllBitLengthExcessive
+  ; checkMuxScaling; checkMuxScalingSig; checkAllMuxScaling
   )
+open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
   ; StartBitInRange; BitLengthInRange; DisjointSignalNames
   ; RangeLowOK; RangeHighOK; RangeBoundsOK
+  ; MuxScalingOK; MuxUnitScaling
   )
 open import Aletheia.DBC.Validity.ListLemmas using
   ( All-concatMap; ++-≡[]-split; ++-≡[]-combine
@@ -39,7 +42,9 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using (_≟_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational using (ℚ)
-open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Unit using (⊤; tt)
 open import Data.Bool using (Bool; true; false)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_×_; _,_)
@@ -47,6 +52,7 @@ open import Relation.Nullary using (yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.Protocol.JSON using (ℕtoℚ)
 open import Aletheia.Prelude using (max-physical-bits)
 
 private
@@ -535,3 +541,103 @@ checkAllBitLengthExcessive-complete (msg ∷ rest) (pm ∷ pms) =
     (concatMap-≡[]-complete
       (All-map (λ sig → checkBitLengthExcessive-complete (DBCMessage.name msg) sig) pm))
     (checkAllBitLengthExcessive-complete rest pms)
+
+-- ============================================================================
+-- CHECK 17: MULTIPLEXOR NON-UNIT SCALING — Severity
+-- ============================================================================
+
+checkMuxScaling-allW : ∀ msgName muxName muxSig → All W (checkMuxScaling msgName muxName muxSig)
+checkMuxScaling-allW msgName muxName muxSig
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+... | yes _ | yes _ = []
+... | yes _ | no  _ = refl ∷ []
+... | no  _ | _     = refl ∷ []
+
+checkMuxScalingSig-allW : ∀ msgName allSigs sig → All W (checkMuxScalingSig msgName allSigs sig)
+checkMuxScalingSig-allW msgName allSigs sig with DBCSignal.presence sig
+... | Always = []
+... | When muxName _ with findSignalInList muxName allSigs
+...   | nothing     = []
+...   | just muxSig = checkMuxScaling-allW msgName muxName muxSig
+
+checkAllMuxScaling-allW : ∀ msgs → All W (checkAllMuxScaling msgs)
+checkAllMuxScaling-allW [] = []
+checkAllMuxScaling-allW (msg ∷ rest) =
+  ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
+         (checkAllMuxScaling-allW rest)
+  where
+    go : ∀ sigs → All (λ sig → All W (checkMuxScalingSig (DBCMessage.name msg)
+                                        (DBCMessage.signals msg) sig)) sigs
+    go [] = []
+    go (sig ∷ sigs) = checkMuxScalingSig-allW (DBCMessage.name msg)
+                        (DBCMessage.signals msg) sig ∷ go sigs
+
+-- ============================================================================
+-- CHECK 17: MULTIPLEXOR NON-UNIT SCALING — Soundness/Completeness
+-- ============================================================================
+
+-- Core: checkMuxScaling ≡ [] ↔ MuxScalingOK (just muxSig)
+checkMuxScaling-sound : ∀ msgName muxName muxSig →
+  checkMuxScaling msgName muxName muxSig ≡ [] → MuxScalingOK (just muxSig)
+checkMuxScaling-sound msgName muxName muxSig eq
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+... | yes p₁ | yes p₂ = p₁ , p₂
+checkMuxScaling-sound _ _ _ () | yes _ | no _
+checkMuxScaling-sound _ _ _ () | no _  | _
+
+checkMuxScaling-complete : ∀ msgName muxName muxSig →
+  MuxScalingOK (just muxSig) → checkMuxScaling msgName muxName muxSig ≡ []
+checkMuxScaling-complete msgName muxName muxSig (p₁ , p₂)
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+... | yes _  | yes _  = refl
+... | yes _  | no ¬p₂ = ⊥-elim (¬p₂ p₂)
+... | no ¬p₁ | _      = ⊥-elim (¬p₁ p₁)
+
+-- Per-signal: checkMuxScalingSig ≡ [] ↔ MuxUnitScaling
+checkMuxScalingSig-sound : ∀ msgName allSigs sig →
+  checkMuxScalingSig msgName allSigs sig ≡ [] →
+  MuxUnitScaling allSigs (DBCSignal.presence sig)
+checkMuxScalingSig-sound msgName allSigs sig eq with DBCSignal.presence sig
+... | Always = tt
+... | When muxName _ with findSignalInList muxName allSigs
+...   | nothing     = tt
+...   | just muxSig = checkMuxScaling-sound msgName muxName muxSig eq
+
+checkMuxScalingSig-complete : ∀ msgName allSigs sig →
+  MuxUnitScaling allSigs (DBCSignal.presence sig) →
+  checkMuxScalingSig msgName allSigs sig ≡ []
+checkMuxScalingSig-complete msgName allSigs sig p with DBCSignal.presence sig
+... | Always = refl
+... | When muxName _ with findSignalInList muxName allSigs
+...   | nothing     = refl
+...   | just muxSig = checkMuxScaling-complete msgName muxName muxSig p
+
+-- Lifted: checkAllMuxScaling ≡ [] ↔ All (All MuxUnitScaling) msgs
+checkAllMuxScaling-sound : ∀ msgs →
+  checkAllMuxScaling msgs ≡ [] →
+  All (λ m → All (λ sig → MuxUnitScaling (DBCMessage.signals m)
+                                          (DBCSignal.presence sig))
+                  (DBCMessage.signals m)) msgs
+checkAllMuxScaling-sound [] _ = []
+checkAllMuxScaling-sound (msg ∷ rest) eq =
+  let (eq₁ , eq₂) = ++-≡[]-split eq
+  in All-map (λ sig → checkMuxScalingSig-sound (DBCMessage.name msg)
+                        (DBCMessage.signals msg) sig)
+             (concatMap-≡[]-sound eq₁)
+     ∷ checkAllMuxScaling-sound rest eq₂
+
+checkAllMuxScaling-complete : ∀ msgs →
+  All (λ m → All (λ sig → MuxUnitScaling (DBCMessage.signals m)
+                                          (DBCSignal.presence sig))
+                  (DBCMessage.signals m)) msgs →
+  checkAllMuxScaling msgs ≡ []
+checkAllMuxScaling-complete [] [] = refl
+checkAllMuxScaling-complete (msg ∷ rest) (pm ∷ pms) =
+  ++-≡[]-combine
+    (concatMap-≡[]-complete
+      (All-map (λ sig → checkMuxScalingSig-complete (DBCMessage.name msg)
+                          (DBCMessage.signals msg) sig) pm))
+    (checkAllMuxScaling-complete rest pms)

@@ -74,13 +74,6 @@ formatPropertyResult-satisfaction : ∀ idx → formatPropertyResult (PropertyRe
       [])
 formatPropertyResult-satisfaction _ = refl
 
-formatPropertyResult-complete : formatPropertyResult PropertyResult.StreamComplete
-  ≡ JObject (
-      ("type" , JString "complete") ∷
-      ("status" , JString "stream_ended") ∷
-      [])
-formatPropertyResult-complete = refl
-
 -- ============================================================================
 -- FORMAT-RESPONSE INJECTIVITY (Ack uniqueness)
 -- ============================================================================
@@ -97,7 +90,6 @@ formatResponse-ack-unique (ByteArray _) ()
 formatResponse-ack-unique (ExtractionResultsResponse _ _ _) ()
 formatResponse-ack-unique (PropertyResponse (PropertyResult.Violation _ _)) ()
 formatResponse-ack-unique (PropertyResponse (PropertyResult.Satisfaction _)) ()
-formatResponse-ack-unique (PropertyResponse PropertyResult.StreamComplete) ()
 formatResponse-ack-unique Ack _ = refl
 formatResponse-ack-unique (Complete _) ()
 formatResponse-ack-unique (DBCResponse _) ()

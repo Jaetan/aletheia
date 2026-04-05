@@ -68,6 +68,8 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
         return IssueCode::StartBitOutOfRange;
     if (code == "bit_length_excessive")
         return IssueCode::BitLengthExcessive;
+    if (code == "multiplexor_non_unit_scaling")
+        return IssueCode::MultiplexorNonUnitScaling;
     return IssueCode::Unknown;
 }
 

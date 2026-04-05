@@ -20,40 +20,137 @@ This file defines the review protocol for the Aletheia project. Every review rou
 
 ## Review Procedure
 
-1. Launch parallel review agents (typically 3), each covering a subset of categories.
-2. Cross-verify all findings against the actual code before planning.
-3. Enter plan mode to collate findings into a single actionable plan. Present suspected false positives with justification; the user decides what to dismiss.
-4. Implement all approved fixes, then run the verification suite.
+Reviews run in two phases: per-file analysis (local concerns within each file) followed by system-level analysis (cross-file comparison and whole-program reasoning). Every category has exactly one owning agent. The agent prompt must list assigned categories and guidelines by number/name.
 
-**Cross-document pass (mandatory).** Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — they require comparing what multiple files say about the same topic. After the per-file review agents finish, launch a dedicated cross-document agent that: (a) identifies every fact stated in more than one file, (b) flags each duplicate as a category 5 finding — agreement between copies does not make duplication acceptable, and (c) for each duplicate, identifies which file is the canonical source and which copies should become cross-references. A fact that appears in N files produces N-1 findings. This pass is separate from and in addition to the per-file rounds.
+### Step 1: Per-file review (agents A, B, C in parallel)
+
+Each agent reads files individually and checks local concerns. These categories can be fully evaluated by examining one file at a time.
+
+**Agda per-file agents:**
+
+| Agent | Categories | Guidelines |
+|-------|-----------|------------|
+| A: Hygiene | 1 Dead code, 2 Magic numbers, 4 Comments, 16 Performance | Import hygiene (→1) |
+| B: Semantics | 7 Type tightness, 8 Proof simplification, 9 Proof soundness | Proof style (→8,9), Where-block provability (→9), Stdlib-first (→8) |
+| C: Cross-file comparison | 3 Naming, 5 Error messages, 6 Redundant patterns | Error strings (→5), Combinator-first (→6) |
+
+Agent C reads multiple files to compare the same attribute across modules (naming patterns, error string format, duplicated logic). It does not need A or B's results and runs in parallel with them.
+
+**Go/C++/Python per-file agents:**
+
+| Agent | Categories | Notes |
+|-------|-----------|-------|
+| A: Hygiene | 1-6 | Style, naming, dead code, docs, errors, formatting |
+| B: Correctness | 7-14 | Types, safety, serialization, parsing, FFI, tests |
+
+**Documentation per-file agents:**
+
+| Agent | Categories | Notes |
+|-------|-----------|-------|
+| A: Hygiene | 1-9 | Accuracy, staleness, consistency, completeness, redundancy, commands, links, audience, precision |
+| B: Deep | 10-21 | Structure, examples, rationale, onboarding, durability, testability, qualifiers, internal consistency, scope labels, missing content, numerical correctness, cross-language parity |
+
+### Step 2: System-level review (agent D, after step 1 completes)
+
+Agent D takes a whole-program view. These categories cannot be evaluated per-file — they require understanding the dependency graph, type flow across module boundaries, or the system's overall design. Agent D launches after step 1 so it can reference per-file findings for context.
+
+**Agda system-level agent:**
+
+| Scope | Categories | Guidelines |
+|-------|-----------|------------|
+| Specification | 10 Domain model, 11 Invariants, 12 Property completeness, 13 Assumption audit | Generalization (→10), Typed error handling (→11), State machine encoding (→11) |
+| Architecture | 14 API surface, 15 Module structure, 17 Cross-layer | Binary FFI wire format (→17), Module separation (→15) |
+
+Agent D must concretely:
+- **10 Domain model**: Read all domain type modules (CAN/, DBC/, LTL/, Trace/) and assess whether the type system faithfully models the real-world domain. Identify protocol features, edge cases, or real-world behaviors the model cannot represent.
+- **11 Invariants**: Trace type-level constraints across module boundaries. If module X assumes a property, does module Y guarantee it? Are there runtime checks that could be compile-time? Are types over- or under-constrained?
+- **12 Properties**: List all proven properties and assess whether they are the ones that matter for safety. Identify important unproven properties and gaps between what proofs guarantee and what users believe.
+- **13 Assumptions**: Identify implicit preconditions, unchecked coercions, and model simplifications that could silently produce wrong results. Check agreement with CAN 2.0B, ISO 11898, CAN-FD, DBC format. Verify MAlonzo compilation faithfulness.
+- **14 API surface**: Build the import graph and check for over-exported names (internal helpers visible to consumers), under-exported names (useful functions hidden), and unnecessary re-export chains.
+- **15 Module structure**: Analyze the dependency graph for direction violations, circular dependencies, modules mixing concerns, and modules that are too large. Check that Types/Operations/Properties are separated.
+- **17 Cross-layer**: Verify the Agda → Haskell → binding boundary: FFI type alignment, marshalling assumptions, and behavioral parity across Python/C++/Go bindings.
+
+**Go/C++/Python system-level agent:**
+
+| Scope | Categories | Notes |
+|-------|-----------|-------|
+| Architecture | 15-18 | Ergonomics, boundaries, extensibility, dependency discipline |
+| Specification | 19-22 | Domain model fidelity, design coherence, use-case coverage, cross-layer alignment |
+
+**Documentation:** The cross-document pass (below) serves as the system-level review.
+
+### Per-category reporting (mandatory, all agents in steps 1 and 2)
+
+Each agent must produce a section for every assigned category, even when no findings exist. Format:
+
+```
+## Category N: Name
+Finding N.1: [file:line] description
+Finding N.2: [file:line] description
+
+## Category M: Name
+No findings.
+```
+
+A missing section is a procedure violation. "No findings" after examination is a valid result; silence is not.
+
+Each agent must also report on its assigned guidelines using the same format:
+
+```
+## Guideline: Name (→ Category N)
+Finding G.1: [file:line] description
+```
+
+### Step 3: Coverage reconciliation and planning
+
+Enter plan mode. Before collating findings:
+
+1. **Coverage check**: verify that all categories received a report from exactly one agent. List any gaps. If a category was missed, the round is incomplete — reassign and re-run before proceeding.
+2. **Collate**: merge all findings into a single numbered plan. Present suspected false positives with justification; the user decides what to dismiss.
+3. **No deferrals**: findings are fixed in the current round. "Future work" and "out of scope" are not valid dispositions. The only exception is when the user explicitly defers a finding after reviewing it.
+
+### Step 4: Implement and verify
+
+Implement all approved fixes, then run the verification suite.
+
+### Cross-document pass (mandatory, documentation reviews only)
+
+Documentation categories 5, 15, 16, 17, and 18 cannot be checked per-file — they require comparing what multiple files say about the same topic. After the per-file review agents finish, launch a dedicated cross-document agent that: (a) identifies every fact stated in more than one file, (b) flags each duplicate as a category 5 finding — agreement between copies does not make duplication acceptable, and (c) for each duplicate, identifies which file is the canonical source and which copies should become cross-references. A fact that appears in N files produces N-1 findings. This pass is separate from and in addition to the per-file rounds.
 
 ---
 
-## Agda (16 categories)
+## Agda (17 categories)
 
 Scope: ALL Agda modules -- production code and proofs alike. Never skip a file because it is large or proof-heavy.
 
-### Hygiene/Style (12)
+### Hygiene/Style (6)
 
-1. **Import/dead-code cleanup** -- unused imports, dead exports, unreferenced definitions
+1. **Dead code** -- unused imports, unreferenced definitions, unused where-block variables, dead exports
 2. **Magic numbers** -- hardcoded numeric literals that should be named constants
-3. **Comment quality** -- stale comments that no longer match the code, or misleading descriptions
-4. **Naming consistency** -- inconsistent naming patterns across modules
-5. **Proof simplification** -- proofs that could be shorter using better stdlib lemmas, or unnecessary case splits
-6. **Redundant code patterns** -- repeated logic across modules that could share a helper
-7. **Type tightness** -- places where `N` could be `Fin n`, or `List` could be `Vec`, or `String` could be an enum
-8. **Error message consistency** -- inconsistent error/reason strings across modules
-9. **API surface** -- over-exported or under-exported names
-10. **Module size** -- modules that mix concerns or are large enough to split
-11. **Structural patterns** -- repeated case-analysis boilerplate that could use combinators
-12. **Unused where-block variables** -- computed but never referenced bindings
+3. **Naming consistency** -- inconsistent naming patterns across modules
+4. **Comment quality** -- stale comments that no longer match the code, misleading descriptions
+5. **Error message consistency** -- inconsistent error/reason strings across modules
+6. **Redundant patterns** -- repeated logic or case-analysis boilerplate that could share helpers or use combinators
 
-### Deep (4)
+### Types & Proofs (3)
 
-13. **Architectural** -- module boundaries, dependency direction, abstraction leaks, circular or unnecessary dependencies
-14. **Specification** -- do the types/proofs capture the intended properties? Gaps where a property is stated but not fully proven, or where the formalization diverges from the real-world requirement. Proof correctness, completeness, and strategy -- are the right things being proven? Are proofs about the code that runs?
-15. **Performance** -- MAlonzo compilation patterns that hurt runtime (Fin vs N, unnecessary normalization, large pattern matches that compile poorly)
-16. **Cross-layer** -- Agda <-> Haskell <-> Python/C++/Go boundary correctness: FFI assumptions, marshalling, type alignment. All bindings must have identical behavior -- any divergence is a finding.
+7. **Type tightness** -- List where Vec fits, String where an enum fits, raw ℕ where a validated newtype fits; exploit dependent types for invariant enforcement
+8. **Proof simplification** -- shorter proofs via stdlib lemmas, eliminating unnecessary case splits, combinator usage
+9. **Proof soundness** -- proofs about the code that actually runs (not stale paths), correct proof strategy (cong/subst/trans vs rewrite chains), memory-safe patterns
+
+### Specification (4)
+
+10. **Domain model fidelity** -- do the Agda types faithfully model the real-world CAN/DBC/LTL domain? Are there protocol features, edge cases, or real-world behaviors the model can't represent?
+11. **Invariant sufficiency** -- are type-level constraints the right ones? Runtime checks that could be compile-time guarantees? Over-constrained types rejecting valid inputs? Under-constrained types admitting invalid states?
+12. **Property completeness** -- are the proven properties the ones that matter for safety? Important unproven properties? Gap between what the proofs guarantee and what users believe the system guarantees?
+13. **Assumption audit** -- implicit preconditions, unchecked coercions, model simplifications that could silently produce wrong results? Agreement with relevant standards (CAN 2.0B, ISO 11898, CAN-FD, DBC format)? MAlonzo compilation faithfulness?
+
+### Architecture & Performance (4)
+
+14. **API surface** -- over-exported or under-exported names
+15. **Module structure** -- modules mixing concerns or too large, dependency direction, circular or unnecessary dependencies
+16. **Performance** -- MAlonzo compilation patterns: Fin compiles to O(n) suc chains (use ℕ on hot paths), normalization overhead, large pattern matches
+17. **Cross-layer** -- Agda ↔ Haskell ↔ binding boundaries: FFI assumptions, marshalling, type alignment, behavioral parity across all bindings
 
 ### Guidelines
 
@@ -72,6 +169,27 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 
 **Generalization:**
 - When parameterizing types (e.g., `CANFrame n` for CAN-FD), generalize ALL layers (proofs, protocol, trace) with `∀ {n}` from the start. Do not pin at a fixed size as a shortcut.
+
+**Error strings:**
+- Error strings in `inj₁` must use consistent format: sentence case, operation name as prefix when context isn't clear from the call site (e.g., `"BuildFrame: CAN ID not found in DBC"`). Duplicated error strings are a finding -- extract to named constants or a central module.
+
+**Combinator-first:**
+- Before writing pattern matching on `_⊎_` / `Maybe` / `_×_`, check if a combinator handles it (`Data.Sum.map`, `Data.Maybe.map`, `Data.Product.map₂`). Explicit case analysis should be the fallback, not the default.
+
+**Stdlib before rolling your own:**
+- Check the standard library before writing a new lemma. Commonly missed modules: `Data.Nat.DivMod`, `Data.Nat.Properties`, `Data.List.Properties`, `Data.Vec.Properties`. A hand-written lemma that duplicates a stdlib export is a finding.
+
+**Typed error handling:**
+- When a function returns `String ⊎ A`, ask whether the failure modes are exhaustive and whether a typed error ADT would be more appropriate. Untyped string errors are a specification gap -- the type system cannot enforce which failures are possible. Internal helpers may use string errors; module-boundary operations should prefer typed errors.
+
+**State machine encoding:**
+- When a protocol has phases or states, ask whether transitions are enforced by types or only checked at runtime. Runtime-only state machines are specification gaps -- invalid transitions should ideally be unrepresentable.
+
+**Binary FFI wire format:**
+- Every binary FFI endpoint must document its wire format (field types, sizes, endianness, field order) in exactly one canonical location. All binding implementations must reference this specification. An undocumented wire format is a finding.
+
+**Module separation:**
+- Separate domain Types, Operations, and Properties into distinct modules (e.g., `CAN/Frame.agda` for types, `CAN/Encoding.agda` for operations, `CAN/Encoding/Properties.agda` for proofs). Don't put proofs alongside the implementation they verify -- it conflates "what runs" with "what we know about what runs."
 
 ### Verification
 

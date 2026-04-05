@@ -51,6 +51,7 @@ class IssueCode(str, Enum):
     EMPTY_MESSAGE = "empty_message"
     START_BIT_OUT_OF_RANGE = "start_bit_out_of_range"
     BIT_LENGTH_EXCESSIVE = "bit_length_excessive"
+    MULTIPLEXOR_NON_UNIT_SCALING = "multiplexor_non_unit_scaling"
 
 
 class PredicateType(str, Enum):

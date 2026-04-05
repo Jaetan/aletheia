@@ -325,6 +325,13 @@ auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const
     if (ts.count() < 0)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
+    if (last_timestamp_.has_value() && ts.count() < *last_timestamp_)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Validation,
+            "non-monotonic timestamp: " + std::to_string(ts.count()) +
+                " µs < previous " + std::to_string(*last_timestamp_) +
+                " µs (metric LTL operators require monotonic timestamps)"});
+    last_timestamp_ = ts.count();
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
     auto resp = backend_->send_frame_binary(state_, ts, id, dlc, data);

@@ -10,7 +10,7 @@ module Aletheia.DBC.Validity.Composition where
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
-  ( errorIssues; _≟-CANId_; findSignalPresence
+  ( errorIssues; findSignalPresence
   ; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds
   ; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular
   ; checkAllDuplicateSignalNames
@@ -23,6 +23,7 @@ open import Aletheia.DBC.Validator using
   ; checkBitLengthZero; checkAllBitLengthZero
   ; checkDLCOutOfRange; checkAllDLCOutOfRange
   )
+open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)

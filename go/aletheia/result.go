@@ -135,6 +135,7 @@ const (
 	IssueEmptyMessage                IssueCode = "empty_message"                  // Message declares no signals.
 	IssueStartBitOutOfRange          IssueCode = "start_bit_out_of_range"         // Signal start bit exceeds frame capacity.
 	IssueBitLengthExcessive          IssueCode = "bit_length_excessive"           // Signal bit length exceeds 64 bits.
+	IssueMultiplexorNonUnitScaling   IssueCode = "multiplexor_non_unit_scaling"   // Multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
 	IssueUnknown                     IssueCode = "unknown"                        // Unrecognized issue code from the Agda core.
 )
 

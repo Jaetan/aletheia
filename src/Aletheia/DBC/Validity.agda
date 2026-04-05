@@ -12,6 +12,7 @@ module Aletheia.DBC.Validity where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (findSignalPresence)
+open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.DLC using (bytesToDlc)
@@ -22,6 +23,7 @@ open import Data.List.Relation.Unary.Any using (Any)
 open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
+open import Aletheia.Protocol.JSON using (ℕtoℚ)
 open import Data.Maybe using (Maybe; just; nothing; Is-just)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
@@ -159,3 +161,19 @@ RangeHighOK physMax declMax = physMax ≤ᵣ declMax
 RangeBoundsOK : Bool → ℚ → ℚ → ℚ → ℚ → Set
 RangeBoundsOK false physA physB declMin declMax = RangeLowOK physA declMin × RangeHighOK physB declMax
 RangeBoundsOK true  physA physB declMin declMax = RangeLowOK physB declMin × RangeHighOK physA declMax
+
+-- Check 17: Multiplexor non-unit scaling
+-- A mux signal with factor ≠ 1 or offset ≠ 0 produces non-integer physical
+-- values, which may silently fail to match the integer mux values in
+-- SignalPresence.When.
+MuxScalingOK : Maybe DBCSignal → Set
+MuxScalingOK nothing = ⊤
+MuxScalingOK (just muxSig) =
+  SignalDef.factor (DBCSignal.signalDef muxSig) ≡ ℕtoℚ 1
+  × SignalDef.offset (DBCSignal.signalDef muxSig) ≡ ℕtoℚ 0
+
+-- Takes SignalPresence directly (not DBCSignal) to allow pattern matching
+-- without where-blocks, which are opaque to external proofs.
+MuxUnitScaling : List DBCSignal → SignalPresence → Set
+MuxUnitScaling _       Always           = ⊤
+MuxUnitScaling allSigs (When muxName _) = MuxScalingOK (findSignalInList muxName allSigs)

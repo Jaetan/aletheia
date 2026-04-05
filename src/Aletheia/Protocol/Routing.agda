@@ -181,7 +181,7 @@ private
 -- Parse StreamCommand from JSON object (returns error message on failure)
 parseCommand : List (String × JSON) → String ⊎ StreamCommand
 parseCommand obj with lookupString "command" obj
-... | nothing = inj₁ "Missing 'command' field"
+... | nothing = inj₁ "parseCommand: missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
 
 

@@ -31,6 +31,9 @@
 --  (m) Message names are unique (advisory).
 --  (n) startBit < max-physical-bits and bitLength ≤ max-physical-bits
 --      (defense-in-depth, enforced by JSON parser via modular arithmetic).
+--  (o) Multiplexor signals have unit scaling (factor=1, offset=0).
+--      Non-unit scaling produces non-integer physical values that
+--      silently fail to match integer mux selector values.
 -- ═══════════════════════════════════════════════════════════════════════
 --
 -- Checks (IsError):
@@ -51,6 +54,7 @@
 --  14. empty_message                  - Violates (l)
 --  15. start_bit_out_of_range         - Violates (n), defense-in-depth
 --  16. bit_length_excessive           - Violates (n), defense-in-depth
+--  17. multiplexor_non_unit_scaling   - Violates (o)
 --
 -- Design: Uses decidable types (Dec) for all comparisons, following the
 -- convention in DBC/Properties.agda. No raw Bool via ⌊_⌋.
@@ -65,10 +69,12 @@ open import Aletheia.DBC.Types using
   ; SignalOverlap; BitLengthZero; DuplicateMessageName
   ; DLCOutOfRange; OffsetScaleRange; EmptyMessage
   ; StartBitOutOfRange; BitLengthExcessive
+  ; MultiplexorNonUnitScaling
   )
 open import Aletheia.Prelude using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (bytesToDlc)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
@@ -81,28 +87,16 @@ open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
 open import Aletheia.Protocol.JSON using (ℕtoℚ)
-open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
 
 -- ============================================================================
 -- DECIDABLE HELPERS
 -- ============================================================================
-
--- Decidable CANId equality
-_≟-CANId_ : (id₁ id₂ : CANId) → Relation.Nullary.Dec (id₁ ≡ id₂)
-CANId.Standard x ≟-CANId CANId.Standard y with x ≟ₙ y
-... | yes refl = yes refl
-... | no  x≢y  = no λ { refl → x≢y refl }
-CANId.Extended x ≟-CANId CANId.Extended y with x ≟ₙ y
-... | yes refl = yes refl
-... | no  x≢y  = no λ { refl → x≢y refl }
-CANId.Standard _ ≟-CANId CANId.Extended _ = no λ ()
-CANId.Extended _ ≟-CANId CANId.Standard _ = no λ ()
 
 -- Find presence of a named signal (Maybe-returning lookup via Dec)
 findSignalPresence : String → List DBCSignal → Maybe SignalPresence
@@ -222,6 +216,38 @@ checkMuxAlwaysPresentSig msgName allSigs sig with DBCSignal.presence sig
 checkAllMuxAlwaysPresent : List DBCMessage → List ValidationIssue
 checkAllMuxAlwaysPresent = concatMap λ msg →
   concatMap (checkMuxAlwaysPresentSig (DBCMessage.name msg) (DBCMessage.signals msg))
+            (DBCMessage.signals msg)
+
+-- ============================================================================
+-- CHECK 17: MULTIPLEXOR NON-UNIT SCALING
+-- ============================================================================
+
+-- A multiplexor signal with factor ≠ 1 or offset ≠ 0 produces non-integer
+-- physical values after extraction, which may silently fail to match the
+-- integer mux values specified in SignalPresence.When.
+
+-- Check if a mux signal has non-unit scaling
+checkMuxScaling : String → String → DBCSignal → List ValidationIssue
+checkMuxScaling msgName muxName muxSig
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+... | yes _ | yes _ = []
+... | _     | _     = mkIssue IsWarning MultiplexorNonUnitScaling
+                         ("Message '" ++ₛ msgName ++ₛ "': multiplexor '"
+                          ++ₛ muxName
+                          ++ₛ "' has non-unit scaling (factor≠1 or offset≠0); "
+                          ++ₛ "mux value matching may be unreliable") ∷ []
+
+checkMuxScalingSig : String → List DBCSignal → DBCSignal → List ValidationIssue
+checkMuxScalingSig msgName allSigs sig with DBCSignal.presence sig
+... | Always = []
+... | When muxName _ with findSignalInList muxName allSigs
+...   | nothing     = []  -- already caught by check 4
+...   | just muxSig = checkMuxScaling msgName muxName muxSig
+
+checkAllMuxScaling : List DBCMessage → List ValidationIssue
+checkAllMuxScaling = concatMap λ msg →
+  concatMap (checkMuxScalingSig (DBCMessage.name msg) (DBCMessage.signals msg))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -505,6 +531,7 @@ validateDBCFull dbc =
      ++ₗ checkAllFactorZero msgs
      ++ₗ checkAllMuxFound msgs
      ++ₗ checkAllMuxAlwaysPresent msgs
+     ++ₗ checkAllMuxScaling msgs
      ++ₗ checkAllGlobalNameCollisions msgs
      ++ₗ checkAllMinMax msgs
      ++ₗ checkAllSignalExceedsDLC msgs

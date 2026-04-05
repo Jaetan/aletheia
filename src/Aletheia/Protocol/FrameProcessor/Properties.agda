@@ -51,7 +51,8 @@ open import Aletheia.Protocol.Handlers
 open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
-open import Aletheia.LTL.Coalgebra using (LTLProc; stepL; simplify)
+open import Aletheia.LTL.Coalgebra using (LTLProc; stepL)
+open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
     Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate

@@ -43,6 +43,8 @@ type Client struct {
 	lastFrames    map[lastFrameKey]lastFrameData    // last frame seen per CAN ID, for EOS enrichment
 	signalIndex   map[signalIndexKey]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
 	signalNames   map[signalIndexKey][]string        // index -> signal name, keyed by (canId, extended)
+	lastTimestamp int64                               // last frame timestamp (µs), for monotonicity check
+	hasTimestamp  bool                                // true after first frame sent
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -120,6 +122,7 @@ type signalIndexKey struct {
 const rationalDenominator int64 = 1_000_000_000
 
 // floatToRational converts a float64 to (numerator, denominator) using 10^9 scaling.
+// Precision: 9 decimal digits (~1 ppb). Values beyond ±9.2e9 overflow int64.
 // The Haskell side normalizes to coprime form via GCD.
 func floatToRational(value float64) (int64, int64) {
 	return int64(math.Round(value * float64(rationalDenominator))), rationalDenominator
@@ -428,6 +431,13 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 	if ts.Microseconds < 0 {
 		return nil, validationError("negative timestamp")
 	}
+	if c.hasTimestamp && ts.Microseconds < c.lastTimestamp {
+		return nil, validationError(fmt.Sprintf(
+			"non-monotonic timestamp: %d µs < previous %d µs (metric LTL operators require monotonic timestamps)",
+			ts.Microseconds, c.lastTimestamp))
+	}
+	c.lastTimestamp = ts.Microseconds
+	c.hasTimestamp = true
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}

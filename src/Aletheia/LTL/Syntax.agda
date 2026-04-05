@@ -26,8 +26,22 @@ data LTL (Atom : Set) : Set where
   Until : LTL Atom → LTL Atom → LTL Atom
   Release : LTL Atom → LTL Atom → LTL Atom  -- Dual of Until: ψ holds until φ releases it
 
-  -- Bounded temporal operators (MTL) — window + startTime (suc-encoded)
-  -- Encoding: 0 = uninitialized, suc t = initialized with start time t.
+  -- Bounded temporal operators (MTL) — window (microseconds) + startTime
+  --
+  -- Parameters: window startTime subformula(s)
+  --   window    : deadline in microseconds (from first observation)
+  --   startTime : suc-encoded timestamp of first frame that evaluated this operator
+  --               0 = uninitialized, suc t = initialized with start time t
+  --
+  -- Suc encoding rationale: A plain ℕ sentinel (e.g., 0 = uninitialized) would
+  -- collide with a legitimate start time of 0 (first frame at timestamp 0).
+  -- The suc encoding avoids this: 0 is always "uninitialized", suc 0 means
+  -- "initialized at time 0", suc 42 means "initialized at time 42".
+  --
+  -- timebound=0 semantics: A window of 0 microseconds means "must hold now".
+  -- MetricEventually with window=0 is immediately violated if the subformula
+  -- doesn't hold on the first frame. This is mathematically correct (the deadline
+  -- expires before any time passes) and not rejected by the parser.
   MetricEventually : ℕ → ℕ → LTL Atom → LTL Atom
   MetricAlways : ℕ → ℕ → LTL Atom → LTL Atom
   MetricUntil : ℕ → ℕ → LTL Atom → LTL Atom → LTL Atom
@@ -36,7 +50,7 @@ data LTL (Atom : Set) : Set where
 -- Decode start time for metric operators.
 -- 0 = uninitialized (use current frame's timestamp),
 -- suc t = initialized with actual start time t.
--- Avoids sentinel collision when the first frame has timestamp 0.
+-- See encoding rationale on MetricEventually above.
 decodeStart : ℕ → ℕ → ℕ
 decodeStart zero    currTime = currTime
 decodeStart (suc s) _        = s

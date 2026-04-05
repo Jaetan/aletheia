@@ -14,7 +14,7 @@ open import Aletheia.DBC.Validator using
   ( errorIssues; validateDBCFull
   ; checkDuplicateMessageIds; checkAllDuplicateSignalNames
   ; checkAllFactorZero; checkAllMuxFound; checkAllMuxAlwaysPresent
-  ; checkAllGlobalNameCollisions; checkAllMinMax
+  ; checkAllMuxScaling; checkAllGlobalNameCollisions; checkAllMinMax
   ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
   ; checkAllBitLengthZero; checkDuplicateMessageNames
   ; checkAllDLCOutOfRange; checkAllOffsetScaleRange
@@ -45,10 +45,10 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   ; checkAllDLCOutOfRange-sound; checkAllDLCOutOfRange-complete
   )
 open import Aletheia.DBC.Validity.WarningChecks using
-  ( checkAllGlobalNameCollisions-allW; checkAllMinMax-allW
-  ; checkDuplicateMessageNames-allW; checkAllOffsetScaleRange-allW
-  ; checkAllEmptyMessage-allW; checkAllStartBitOutOfRange-allW
-  ; checkAllBitLengthExcessive-allW
+  ( checkAllMuxScaling-allW; checkAllGlobalNameCollisions-allW
+  ; checkAllMinMax-allW; checkDuplicateMessageNames-allW
+  ; checkAllOffsetScaleRange-allW; checkAllEmptyMessage-allW
+  ; checkAllStartBitOutOfRange-allW; checkAllBitLengthExcessive-allW
   )
 open import Data.List using (List; []) renaming (_++_ to _++ₗ_)
 open import Data.Product using (proj₁; proj₂)
@@ -86,7 +86,8 @@ soundness dbc eq₀ = record
     s₃  = ei-split (checkAllFactorZero msgs) _ (proj₂ s₂)
     s₄  = ei-split (checkAllMuxFound msgs) _ (proj₂ s₃)
     s₅  = ei-split (checkAllMuxAlwaysPresent msgs) _ (proj₂ s₄)
-    s₆  = ei-split (checkAllGlobalNameCollisions msgs) _ (proj₂ s₅)
+    s₅b = ei-split (checkAllMuxScaling msgs) _ (proj₂ s₅)
+    s₆  = ei-split (checkAllGlobalNameCollisions msgs) _ (proj₂ s₅b)
     s₇  = ei-split (checkAllMinMax msgs) _ (proj₂ s₆)
     s₈  = ei-split (checkAllSignalExceedsDLC msgs) _ (proj₂ s₇)
     s₉  = ei-split (checkAllSignalOverlaps msgs) _ (proj₂ s₈)
@@ -110,6 +111,8 @@ completeness dbc v =
     (ei-from-≡[] _ (checkAllMuxFound-complete msgs (ValidDBC.muxExist v)))
   (ei-combine (checkAllMuxAlwaysPresent msgs) _
     (ei-from-≡[] _ (checkAllMuxAlwaysPresent-complete msgs (ValidDBC.muxAlwaysPresent v)))
+  (ei-combine (checkAllMuxScaling msgs) _
+    (errorIssues-allW _ (checkAllMuxScaling-allW msgs))
   (ei-combine (checkAllGlobalNameCollisions msgs) _
     (errorIssues-allW _ (checkAllGlobalNameCollisions-allW msgs))
   (ei-combine (checkAllMinMax msgs) _
@@ -131,6 +134,6 @@ completeness dbc v =
   (ei-combine (checkAllStartBitOutOfRange msgs) _
     (errorIssues-allW _ (checkAllStartBitOutOfRange-allW msgs))
     (errorIssues-allW _ (checkAllBitLengthExcessive-allW msgs))
-  ))))))))))))))
+  )))))))))))))))
   where
     msgs = DBC.messages dbc

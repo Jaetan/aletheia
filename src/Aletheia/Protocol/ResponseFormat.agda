@@ -9,7 +9,6 @@ module Aletheia.Protocol.ResponseFormat where
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Bool using (Bool)
-open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ)
@@ -24,7 +23,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision;
   MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
   DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage;
-  StartBitOutOfRange; BitLengthExcessive; ValidationIssue)
+  StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
 -- Convert Vec Byte n to JSON array
@@ -46,11 +45,6 @@ formatPropertyResult (PropertyResult.Satisfaction idx) =
     ("type" , JString "property") ∷
     ("status" , JString "holds") ∷
     ("property_index" , JNumber (ℕtoℚ idx)) ∷
-    [])
-formatPropertyResult PropertyResult.StreamComplete =
-  JObject (
-    ("type" , JString "complete") ∷
-    ("status" , JString "stream_ended") ∷
     [])
 
 -- Format Response as JSON
@@ -135,6 +129,7 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode EmptyMessage                = "empty_message"
     formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"
     formatIssueCode BitLengthExcessive          = "bit_length_excessive"
+    formatIssueCode MultiplexorNonUnitScaling   = "multiplexor_non_unit_scaling"
 
     formatValidationIssue : ValidationIssue → JSON
     formatValidationIssue issue =

@@ -23,6 +23,7 @@ open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
+open import Aletheia.Prelude using (errCanIdNotFound)
 
 -- ============================================================================
 -- BATCH EXTRACTION RESULT TYPE
@@ -51,12 +52,12 @@ categorizeResult : String → ExtractionResult → ExtractionResults
 categorizeResult sigName (Success value) =
   mkExtractionResults ((sigName , value) ∷ []) [] []
 categorizeResult sigName SignalNotInDBC =
-  mkExtractionResults [] ((sigName , "Signal not found in DBC") ∷ []) []
+  mkExtractionResults [] ((sigName , "signal not found in DBC") ∷ []) []
 categorizeResult sigName (SignalNotPresent reason) =
   -- Multiplexed signal not present
   mkExtractionResults [] [] (sigName ∷ [])
 categorizeResult sigName (ValueOutOfBounds value min max) =
-  mkExtractionResults [] ((sigName , "Value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
+  mkExtractionResults [] ((sigName , "value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
   where
     formatBounds : ℚ → ℚ → ℚ → String
     formatBounds v mn mx = show v ++ₛ " not in [" ++ₛ show mn ++ₛ ", " ++ₛ show mx ++ₛ "]"
@@ -89,7 +90,7 @@ extractAllSignals : ∀ {n} → DBC → CANFrame n → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing =
     -- Message not found in DBC - return error
-    mkExtractionResults [] (("message" , "CAN ID not found in DBC") ∷ []) []
+    mkExtractionResults [] (("message" , errCanIdNotFound) ∷ []) []
 ... | just msg =
     -- Extract all signals from this message
     extractAllSignalsFromMessage frame msg
@@ -114,17 +115,27 @@ combineIndexedResults : IndexedExtractionResults → IndexedExtractionResults �
 combineIndexedResults (mkIndexedExtractionResults v1 e1 a1) (mkIndexedExtractionResults v2 e2 a2) =
   mkIndexedExtractionResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
 
+-- Wire-format error codes (must match Main.agda binary output documentation)
+errCodeNotInDBC : ℕ
+errCodeNotInDBC = 0
+
+errCodeOutOfBounds : ℕ
+errCodeOutOfBounds = 1
+
+errCodeExtractionFailed : ℕ
+errCodeExtractionFailed = 2
+
 categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed idx (Success value) =
   mkIndexedExtractionResults ((idx , value) ∷ []) [] []
 categorizeIndexed idx SignalNotInDBC =
-  mkIndexedExtractionResults [] ((idx , 0) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , errCodeNotInDBC) ∷ []) []
 categorizeIndexed idx (SignalNotPresent _) =
   mkIndexedExtractionResults [] [] (idx ∷ [])
 categorizeIndexed idx (ValueOutOfBounds _ _ _) =
-  mkIndexedExtractionResults [] ((idx , 1) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , errCodeOutOfBounds) ∷ []) []
 categorizeIndexed idx (ExtractionFailed _) =
-  mkIndexedExtractionResults [] ((idx , 2) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , errCodeExtractionFailed) ∷ []) []
 
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
@@ -138,5 +149,5 @@ extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
 
 extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → String ⊎ IndexedExtractionResults
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc
-... | nothing = inj₁ "CAN ID not found in DBC"
+... | nothing = inj₁ errCanIdNotFound
 ... | just msg = inj₂ (extractAllSignalsIndexedFromMessage frame msg)

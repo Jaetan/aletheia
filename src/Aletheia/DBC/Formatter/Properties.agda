@@ -18,7 +18,7 @@
 -- unconvertStartBit→convertStartBit roundtrip.
 module Aletheia.DBC.Formatter.Properties where
 
-open import Data.List using (map)
+open import Data.List using (List; []; map)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
@@ -40,6 +40,8 @@ open import Aletheia.DBC.Formatter.MessageRoundtrip using (message-list-roundtri
 -- because BigEndian signals need the unconvert→convert startBit roundtrip.
 format-parse-roundtrip : ∀ d → WellFormedDBCRT d
   → parseDBCWithErrors (formatDBC d) ≡ inj₂ d
-format-parse-roundtrip d wf
-  rewrite message-list-roundtrip (DBC.messages d) 0 (WellFormedDBCRT.messages-wf wf)
+format-parse-roundtrip
+  record { version = v ; messages = ms ; signalGroups = .[] ; environmentVars = .[] ; valueTables = .[] }
+  record { messages-wf = mwf ; groups-empty = refl ; envvars-empty = refl ; vtables-empty = refl }
+  rewrite message-list-roundtrip ms 0 mwf
   = refl
