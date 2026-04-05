@@ -9,7 +9,9 @@ module Aletheia.Prelude where
 
 -- Basic types
 open import Data.Bool public
-  using (Bool; true; false; if_then_else_; _∧_; _∨_; not)
+  using (Bool; true; false; if_then_else_; _∧_; _∨_; not; T)
+open import Data.Unit public
+  using (tt)
 
 open import Data.Nat public
   using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; _≡ᵇ_)
@@ -26,16 +28,6 @@ open import Data.String public
 
 -- Import string equality for utility functions
 open import Data.String.Properties using (_≟_)
-
-open import Data.Char public
-  using (Char)
-
-open import Data.Fin public
-  using (Fin; zero; suc)
-  -- Note: toℕ not exported to avoid clash with Data.Char.toℕ
-
-open import Data.Vec public
-  using (Vec; []; _∷_)
 
 open import Data.Product public
   using (_×_; _,_; proj₁; proj₂)
@@ -86,6 +78,10 @@ listIndex _ [] = nothing
 listIndex zero (x ∷ _) = just x
 listIndex (suc n) (_ ∷ xs) = listIndex n xs
 
+-- Lift Maybe to String ⊎ A with an error message on Nothing
+require : ∀ {A : Set} → String → Maybe A → String ⊎ A
+require msg = maybe inj₂ (inj₁ msg)
+
 -- Bind operator for Either (⊎) monad (used by parsers and command routing)
 _>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
 inj₁ err >>=ₑ _ = inj₁ err
@@ -98,22 +94,45 @@ standard-can-id-max = 2048  -- 2^11 (11-bit standard CAN IDs: 0x000-0x7FF)
 extended-can-id-max : ℕ
 extended-can-id-max = 536870912  -- 2^29 (29-bit extended CAN IDs: 0x00000000-0x1FFFFFFF)
 
--- Bits per byte (universal constant for CAN bit/byte arithmetic)
-bits-per-byte : ℕ
-bits-per-byte = 8
-
 -- Maximum physical bits in a CAN-FD frame (64 bytes × 8 bits)
 max-physical-bits : ℕ
 max-physical-bits = 512
 
+-- Boolean conditional that provides a T proof in the true branch.
+-- Unlike if_then_else_, this passes the T b witness to the true branch,
+-- enabling construction of types that embed T (n <ᵇ max).
+-- Defined as a regular function (no with), so rewrite works in proofs.
+ifᵀ_then_else_ : ∀ {A : Set} (b : Bool) → (T b → A) → A → A
+ifᵀ true  then f else _ = f tt
+ifᵀ false then _ else x = x
+
+-- T b has at most one inhabitant: T true = ⊤ (unique by η), T false = ⊥ (empty).
+-- Essential for decidable equality and roundtrip proofs on bounded types.
+T-irrelevant : ∀ {b : Bool} (p q : T b) → p ≡ q
+T-irrelevant {true}  _ _ = refl
+T-irrelevant {false} () _
+
+-- Convert T b witness to propositional equality b ≡ true.
+T→true : ∀ {b : Bool} → T b → b ≡ true
+T→true {true} _ = refl
+
+-- Given a T b witness, ifᵀ selects the true branch applied to pf.
+-- Splits on b internally; avoids with-abstraction at call sites where
+-- the type of `Standard rawId pf` creates a rigid dependency on b.
+-- Uses η for ⊤: when b = true, pf : T true = ⊤ is definitionally tt.
+ifᵀ-witness : ∀ {A : Set} {b : Bool} (f : T b → A) (e : A) (pf : T b)
+  → ifᵀ b then f else e ≡ f pf
+ifᵀ-witness {b = true}  f e pf = refl
+ifᵀ-witness {b = false} _ _ ()
+
 -- Shared error messages (deduplicated across Main, BatchExtraction, BatchFrameBuilding)
 errNoDBC : String
-errNoDBC = "No DBC loaded"
+errNoDBC = "DBC not loaded"
 
 errCanIdNotFound : String
 errCanIdNotFound = "CAN ID not found in DBC"
 
--- 8 ≤ 512 (bits-per-byte fits in max-physical-bits)
+-- 8 ≤ 512 (one byte fits in max-physical-bits)
 -- Defined once to avoid duplicating the 8-deep s≤s chain
 8≤max-physical-bits : 8 ≤ max-physical-bits
 8≤max-physical-bits = s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s (s≤s z≤n)))))))

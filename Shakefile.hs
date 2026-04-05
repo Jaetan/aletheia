@@ -151,8 +151,18 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
         -- LTL proofs
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
-        -- LTL adequacy (transitively checks Semantics and Coalgebra proof content)
+        -- LTL adequacy (transitively checks Semantics, SoundOps, TruthVal/Properties)
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
+        -- LTL coalgebra initProc-correct proof
+        agdaWithRTS "Aletheia/LTL/Coalgebra/Properties.agda"
+        -- LTL adequacy pipeline (transitively checks SimplifySound)
+        agdaWithRTS "Aletheia/LTL/Adequacy/Pipeline.agda"
+        -- LTL semantics MTL equivalence proof
+        agdaWithRTS "Aletheia/LTL/Semantics/MTL.agda"
+        -- CAN proofs
+        agdaWithRTS "Aletheia/CAN/DLC/Properties.agda"
+        agdaWithRTS "Aletheia/CAN/SignalExtraction/Properties.agda"
+        agdaWithRTS "Aletheia/CAN/BatchFrameBuilding/Properties.agda"
         -- Binary frame processing proofs (handleDataFrame guards, byte modulus identity)
         agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
         putInfo "All proof modules type-checked successfully!"

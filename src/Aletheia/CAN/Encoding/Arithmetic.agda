@@ -25,8 +25,8 @@ signBitMask bitLength = 2 ^ (bitLength ∸ 1)
 fullRange : ℕ → ℕ
 fullRange bitLength = 2 ^ bitLength
 
--- Convert a natural number to a signed integer based on bit length
--- Interprets as two's complement if isSigned is true
+-- Convert a natural number to a signed integer based on bit length.
+-- Two's complement per CAN 2.0B / ISO 11898-1 §8.4.2.2.
 toSigned : ℕ → ℕ → Bool → ℤ
 toSigned raw bitLength false = + raw
 toSigned raw bitLength true =

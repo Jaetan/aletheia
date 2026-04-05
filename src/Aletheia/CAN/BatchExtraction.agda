@@ -3,8 +3,8 @@
 -- Batch signal extraction operations.
 --
 -- Purpose: Extract all signals from a CAN frame at once with rich error reporting.
--- Operations: extractAllSignals (DBC + frame → ExtractionResults).
--- Role: Batch operations for Python API (Phase 2B.1).
+-- Operations: extractAllSignals, extractAllSignalsIndexed, categorizeIndexed.
+-- Role: Batch operations for language bindings (Python, C++, Go).
 --
 -- Design: Returns structured results partitioning signals into: successful extractions,
 --         errors (with reasons), and absent signals (multiplexing).
@@ -99,14 +99,27 @@ extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 -- INDEXED EXTRACTION (binary output — no strings on success path)
 -- ============================================================================
 
+-- Extraction error codes for the binary wire format.
+-- Constructors map 1:1 to u8 wire values via errorCodeToℕ.
+data ErrorCode : Set where
+  NotInDBC          : ErrorCode  -- 0: signal name not found in DBC message
+  OutOfBounds       : ErrorCode  -- 1: extracted value outside min/max range
+  ExtractionFailed  : ErrorCode  -- 2: bit extraction or scaling failed
+
+-- Encode ErrorCode as ℕ for binary wire format serialization.
+-- Must match Main.agda binary output documentation and AletheiaFFI.hs.
+errorCodeToℕ : ErrorCode → ℕ
+errorCodeToℕ NotInDBC         = 0
+errorCodeToℕ OutOfBounds      = 1
+errorCodeToℕ ExtractionFailed = 2
+
 -- Results with signal indices instead of names.
--- Error codes: 0 = not_in_dbc, 1 = out_of_bounds, 2 = extraction_failed
 record IndexedExtractionResults : Set where
   constructor mkIndexedExtractionResults
   field
-    values : List (ℕ × ℚ)       -- (signal_index, value)
-    errors : List (ℕ × ℕ)       -- (signal_index, error_code)
-    absent : List ℕ              -- signal_index
+    values : List (ℕ × ℚ)            -- (signal_index, value)
+    errors : List (ℕ × ErrorCode)    -- (signal_index, error_code)
+    absent : List ℕ                  -- signal_index
 
 emptyIndexedResults : IndexedExtractionResults
 emptyIndexedResults = mkIndexedExtractionResults [] [] []
@@ -115,27 +128,17 @@ combineIndexedResults : IndexedExtractionResults → IndexedExtractionResults �
 combineIndexedResults (mkIndexedExtractionResults v1 e1 a1) (mkIndexedExtractionResults v2 e2 a2) =
   mkIndexedExtractionResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
 
--- Wire-format error codes (must match Main.agda binary output documentation)
-errCodeNotInDBC : ℕ
-errCodeNotInDBC = 0
-
-errCodeOutOfBounds : ℕ
-errCodeOutOfBounds = 1
-
-errCodeExtractionFailed : ℕ
-errCodeExtractionFailed = 2
-
 categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed idx (Success value) =
   mkIndexedExtractionResults ((idx , value) ∷ []) [] []
 categorizeIndexed idx SignalNotInDBC =
-  mkIndexedExtractionResults [] ((idx , errCodeNotInDBC) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , NotInDBC) ∷ []) []
 categorizeIndexed idx (SignalNotPresent _) =
   mkIndexedExtractionResults [] [] (idx ∷ [])
 categorizeIndexed idx (ValueOutOfBounds _ _ _) =
-  mkIndexedExtractionResults [] ((idx , errCodeOutOfBounds) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , OutOfBounds) ∷ []) []
 categorizeIndexed idx (ExtractionFailed _) =
-  mkIndexedExtractionResults [] ((idx , errCodeExtractionFailed) ∷ []) []
+  mkIndexedExtractionResults [] ((idx , ExtractionFailed) ∷ []) []
 
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults

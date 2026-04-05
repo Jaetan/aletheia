@@ -4,7 +4,7 @@
 --
 -- Purpose: Build CAN frames from multiple signal values at once with validation.
 -- Operations: buildFrame (DBC + CAN ID + signals → String ⊎ frame).
--- Role: Batch encoding for Python API (Phase 2B.1).
+-- Role: Batch encoding for language bindings (Python, C++, Go).
 --
 -- Validation: Signal name existence, signal overlap detection, multiplexing consistency.
 -- Guarantees: Signals partition the frame properly (no corruption).
@@ -88,7 +88,7 @@ record LookupStrategy (K : Set) : Set where
 nameStrategy : LookupStrategy String
 nameStrategy = record
   { resolve     = λ name msg → findSignalByName name msg
-  ; notFoundMsg = λ name → "signal not found: " ++ₛ name
+  ; notFoundMsg = λ name → "signal not found in message: " ++ₛ name
   }
 
 -- Index-based strategy (binary FFI path — no string allocation)

@@ -16,7 +16,7 @@ open import Data.List using (List; []; _∷_; foldl; length)
 open import Data.Char using (Char; toℕ) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isDigit)
 open import Data.Bool using (Bool; true; false; if_then_else_; not)
-open import Data.Maybe using (Maybe; just; nothing; map)
+open import Data.Maybe using (Maybe; just; nothing; map) renaming (_>>=_ to _>>=ₘ_)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_]; ∣_∣)
 open import Data.Rational as Rat using (ℚ; mkℚ; _/_; toℚᵘ; -_) renaming (_*_ to _*ᵣ_)
@@ -97,19 +97,13 @@ getNat _ = nothing
 -- Accepts: JNumber (direct rational) or {"numerator": n, "denominator": d}
 getRational : JSON → Maybe ℚ
 getRational (JNumber r) = just r
-getRational (JObject fields) = parseRationalObject fields
-  where
-    parseRationalObject : List (String × JSON) → Maybe ℚ
-    parseRationalObject fields with lookupByKey "numerator" fields
-    ... | nothing = nothing
-    ... | just numJSON with getInt numJSON
-    ...   | nothing = nothing
-    ...   | just num with lookupByKey "denominator" fields
-    ...     | nothing = nothing
-    ...     | just denomJSON with getNat denomJSON
-    ...       | nothing = nothing
-    ...       | just zero = nothing  -- Denominator cannot be zero
-    ...       | just (suc d) = just (num / (suc d))  -- NonZero proved by suc
+getRational (JObject fields) =
+  lookupByKey "numerator" fields >>=ₘ λ numJSON →
+  getInt numJSON >>=ₘ λ num →
+  lookupByKey "denominator" fields >>=ₘ λ denomJSON →
+  getNat denomJSON >>=ₘ λ where
+    zero    → nothing
+    (suc d) → just (num / suc d)
 getRational _ = nothing
 
 -- Get array value from JSON

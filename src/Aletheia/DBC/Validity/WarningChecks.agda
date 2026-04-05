@@ -30,9 +30,8 @@ open import Aletheia.DBC.Validity using
   ; MuxScalingOK; MuxUnitScaling
   )
 open import Aletheia.DBC.Validity.ListLemmas using
-  ( All-concatMap; ++-≡[]-split; ++-≡[]-combine
-  ; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete
-  )
+  ( All-concatMap; ++-≡[]-split; ++-≡[]-combine )
+open import Aletheia.DBC.Validity.Combinators using (liftConcatMap-sound; liftConcatMap-complete)
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
@@ -125,18 +124,14 @@ checkGlobalNamePair-complete m1 m2 disj = go (messageSignalNames m1) disj
 checkGlobalNameAgainstList-sound : ∀ m rest →
   checkGlobalNameAgainstList m rest ≡ [] →
   All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest
-checkGlobalNameAgainstList-sound _ [] _ = []
-checkGlobalNameAgainstList-sound m (other ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkGlobalNamePair-sound m other eq₁ ∷ checkGlobalNameAgainstList-sound m rest eq₂
+checkGlobalNameAgainstList-sound m =
+  liftConcatMap-sound (checkGlobalNamePair m) (checkGlobalNamePair-sound m)
 
 checkGlobalNameAgainstList-complete : ∀ m rest →
   All (λ other → DisjointSignalNames (messageSignalNames m) (messageSignalNames other)) rest →
   checkGlobalNameAgainstList m rest ≡ []
-checkGlobalNameAgainstList-complete _ [] [] = refl
-checkGlobalNameAgainstList-complete m (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkGlobalNamePair-complete m other p)
-                 (checkGlobalNameAgainstList-complete m rest ps)
+checkGlobalNameAgainstList-complete m =
+  liftConcatMap-complete (checkGlobalNamePair m) (checkGlobalNamePair-complete m)
 
 checkAllGlobalNameCollisions-sound : ∀ msgs →
   checkAllGlobalNameCollisions msgs ≡ [] →
@@ -199,22 +194,14 @@ checkMinMaxSig-complete msgName sig p
 checkAllMinMax-sound : ∀ msgs →
   checkAllMinMax msgs ≡ [] →
   All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
-checkAllMinMax-sound [] _ = []
-checkAllMinMax-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkMinMaxSig-sound (DBCMessage.name msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllMinMax-sound rest eq₂
+checkAllMinMax-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkMinMaxSig-sound (DBCMessage.name msg)) _
 
 checkAllMinMax-complete : ∀ msgs →
   All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs →
   checkAllMinMax msgs ≡ []
-checkAllMinMax-complete [] [] = refl
-checkAllMinMax-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkMinMaxSig-complete (DBCMessage.name msg) sig) pm))
-    (checkAllMinMax-complete rest pms)
+checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkMinMaxSig-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME — Severity
@@ -253,18 +240,14 @@ checkDupNamePair-complete m1 m2 neq with DBCMessage.name m1 ≟ DBCMessage.name 
 checkDupNameAgainstList-sound : ∀ m rest →
   checkDupNameAgainstList m rest ≡ [] →
   All (DistinctMessageNames m) rest
-checkDupNameAgainstList-sound _ [] _ = []
-checkDupNameAgainstList-sound m (other ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupNamePair-sound m other eq₁ ∷ checkDupNameAgainstList-sound m rest eq₂
+checkDupNameAgainstList-sound m =
+  liftConcatMap-sound (checkDupNamePair m) (checkDupNamePair-sound m)
 
 checkDupNameAgainstList-complete : ∀ m rest →
   All (DistinctMessageNames m) rest →
   checkDupNameAgainstList m rest ≡ []
-checkDupNameAgainstList-complete _ [] [] = refl
-checkDupNameAgainstList-complete m (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkDupNamePair-complete m other p)
-                 (checkDupNameAgainstList-complete m rest ps)
+checkDupNameAgainstList-complete m =
+  liftConcatMap-complete (checkDupNamePair m) (checkDupNamePair-complete m)
 
 checkDuplicateMessageNames-sound : ∀ msgs →
   checkDuplicateMessageNames msgs ≡ [] →
@@ -417,14 +400,14 @@ checkEmptyMessage-complete msg ne with DBCMessage.signals msg
 checkAllEmptyMessage-sound : ∀ msgs →
   checkAllEmptyMessage msgs ≡ [] →
   All NonEmptySignals msgs
-checkAllEmptyMessage-sound msgs eq =
-  All-map (λ m → checkEmptyMessage-sound m) (concatMap-≡[]-sound eq)
+checkAllEmptyMessage-sound =
+  liftConcatMap-sound checkEmptyMessage checkEmptyMessage-sound
 
 checkAllEmptyMessage-complete : ∀ msgs →
   All NonEmptySignals msgs →
   checkAllEmptyMessage msgs ≡ []
-checkAllEmptyMessage-complete msgs pf =
-  concatMap-≡[]-complete (All-map (λ m → checkEmptyMessage-complete m) pf)
+checkAllEmptyMessage-complete =
+  liftConcatMap-complete checkEmptyMessage checkEmptyMessage-complete
 
 -- ============================================================================
 -- CHECK 15: START BIT OUT OF RANGE — Severity
@@ -467,22 +450,14 @@ checkStartBitOutOfRange-complete msgName sig p
 checkAllStartBitOutOfRange-sound : ∀ msgs →
   checkAllStartBitOutOfRange msgs ≡ [] →
   All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs
-checkAllStartBitOutOfRange-sound [] _ = []
-checkAllStartBitOutOfRange-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkStartBitOutOfRange-sound (DBCMessage.name msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllStartBitOutOfRange-sound rest eq₂
+checkAllStartBitOutOfRange-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkStartBitOutOfRange-sound (DBCMessage.name msg)) _
 
 checkAllStartBitOutOfRange-complete : ∀ msgs →
   All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs →
   checkAllStartBitOutOfRange msgs ≡ []
-checkAllStartBitOutOfRange-complete [] [] = refl
-checkAllStartBitOutOfRange-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkStartBitOutOfRange-complete (DBCMessage.name msg) sig) pm))
-    (checkAllStartBitOutOfRange-complete rest pms)
+checkAllStartBitOutOfRange-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkStartBitOutOfRange-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE — Severity
@@ -525,22 +500,14 @@ checkBitLengthExcessive-complete msgName sig p
 checkAllBitLengthExcessive-sound : ∀ msgs →
   checkAllBitLengthExcessive msgs ≡ [] →
   All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs
-checkAllBitLengthExcessive-sound [] _ = []
-checkAllBitLengthExcessive-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkBitLengthExcessive-sound (DBCMessage.name msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllBitLengthExcessive-sound rest eq₂
+checkAllBitLengthExcessive-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkBitLengthExcessive-sound (DBCMessage.name msg)) _
 
 checkAllBitLengthExcessive-complete : ∀ msgs →
   All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs →
   checkAllBitLengthExcessive msgs ≡ []
-checkAllBitLengthExcessive-complete [] [] = refl
-checkAllBitLengthExcessive-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkBitLengthExcessive-complete (DBCMessage.name msg) sig) pm))
-    (checkAllBitLengthExcessive-complete rest pms)
+checkAllBitLengthExcessive-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkBitLengthExcessive-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
 -- CHECK 17: MULTIPLEXOR NON-UNIT SCALING — Severity
@@ -621,23 +588,15 @@ checkAllMuxScaling-sound : ∀ msgs →
   All (λ m → All (λ sig → MuxUnitScaling (DBCMessage.signals m)
                                           (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs
-checkAllMuxScaling-sound [] _ = []
-checkAllMuxScaling-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkMuxScalingSig-sound (DBCMessage.name msg)
-                        (DBCMessage.signals msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllMuxScaling-sound rest eq₂
+checkAllMuxScaling-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _
+    (checkMuxScalingSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
 
 checkAllMuxScaling-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxUnitScaling (DBCMessage.signals m)
                                           (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs →
   checkAllMuxScaling msgs ≡ []
-checkAllMuxScaling-complete [] [] = refl
-checkAllMuxScaling-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkMuxScalingSig-complete (DBCMessage.name msg)
-                          (DBCMessage.signals msg) sig) pm))
-    (checkAllMuxScaling-complete rest pms)
+checkAllMuxScaling-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _
+    (checkMuxScalingSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _

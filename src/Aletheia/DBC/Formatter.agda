@@ -15,7 +15,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
-  SignalGroup; EnvironmentVar; ValueTable)
+  SignalGroup; EnvironmentVar; ValueTable; varTypeToℕ)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
@@ -36,8 +36,8 @@ formatByteOrder LittleEndian = "little_endian"
 formatByteOrder BigEndian    = "big_endian"
 
 formatCANId : CANId → List (String × JSON)
-formatCANId (CANId.Standard n) = ("id" , ℕtoJSON n) ∷ []
-formatCANId (CANId.Extended n) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
+formatCANId (CANId.Standard n _) = ("id" , ℕtoJSON n) ∷ []
+formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
 
 formatPresence : SignalPresence → List (String × JSON)
 formatPresence Always       = ("presence" , JString "always") ∷ []
@@ -89,7 +89,7 @@ formatSignalGroup sg = JObject (
 formatEnvironmentVar : EnvironmentVar → JSON
 formatEnvironmentVar ev = JObject (
   ("name"    , JString (EnvironmentVar.name ev)) ∷
-  ("varType" , ℕtoJSON (EnvironmentVar.varType ev)) ∷
+  ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
   ("initial" , JNumber (EnvironmentVar.initial ev)) ∷
   ("minimum" , JNumber (EnvironmentVar.minimum ev)) ∷
   ("maximum" , JNumber (EnvironmentVar.maximum ev)) ∷

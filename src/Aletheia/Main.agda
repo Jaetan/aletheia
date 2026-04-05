@@ -47,65 +47,40 @@ open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.Prelude using (errNoDBC)
 import Aletheia.Protocol.Message as Msg
 
+-- Apply formatJSON ∘ formatResponse to the second component of a state-response pair
+wrapJSON : StreamState × Msg.Response → StreamState × String
+wrapJSON (s , r) = (s , formatJSON (formatResponse r))
+
 -- ============================================================================
--- Phase 2B: JSON Streaming Protocol
+-- JSON Streaming Protocol (helpers extracted for proof access)
 -- ============================================================================
 
--- Process a single JSON line and update stream state
---
--- Algorithm:
---   1. Parse JSON string → Maybe JSON
---   2. Validate JSON is an object with "type" field
---   3. Route by type: "command" → command handler
---   4. Update state machine and generate response
---   5. Format response as JSON string
---
--- Error Handling:
---   - Graceful degradation: invalid input → error response, state unchanged
---   - Descriptive error messages at each parsing stage (JSON parse, type field, routing)
---   - parseCommand returns error messages for detailed context
---
--- State Threading:
---   - State flows through: handleParsedJSON → routing → handler → response
---   - On error: original state returned unchanged
---   - On success: new state from handler (DBC parse, properties set, stream update)
---
--- NOINLINE Pragma:
---   - Required for MAlonzo FFI: ensures symbol is exported to Haskell
---   - Without this, Agda might inline the function and break FFI linkage
---   - Haskell shim calls this by mangled name (detected at build time)
---
--- Returns: (new state, JSON response string)
+-- Try to parse and execute a command from JSON fields
+tryParseCommand : StreamState → List (String × JSON) → StreamState × String
+tryParseCommand state obj with parseCommand obj
+... | inj₁ errMsg = wrapJSON (state , Msg.Response.Error errMsg)
+... | inj₂ cmd = wrapJSON (processStreamCommand cmd state)
+
+-- Dispatch by message type field
+dispatchCommand : StreamState → List (String × JSON) → StreamState × String
+dispatchCommand state obj with lookupString "type" obj
+... | nothing = wrapJSON (state , Msg.Response.Error "Dispatch: missing 'type' field in request")
+... | just msgType =
+  if ⌊ msgType ≟ "command" ⌋
+  then tryParseCommand state obj
+  else wrapJSON (state , Msg.Response.Error ("Dispatch: unknown message type: " ++ₛ msgType))
+
+-- Handle parsed JSON result
+handleParsedJSON : StreamState → Maybe JSON → StreamState × String
+handleParsedJSON state nothing = wrapJSON (state , Msg.Response.Error "Dispatch: invalid JSON")
+handleParsedJSON state (just (JObject obj)) = dispatchCommand state obj
+handleParsedJSON state (just _) = wrapJSON (state , Msg.Response.Error "Dispatch: request must be a JSON object")
+
+-- Process a single JSON line and update stream state.
+-- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
-processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJSON (toList jsonLine)))
-  where
-    -- Try to parse command with detailed tracing
-    tryParseCommand : List (String × JSON) → StreamState × String
-    tryParseCommand obj with parseCommand obj
-    ... | inj₁ errMsg = (state , formatJSON (formatResponse (Msg.Response.Error errMsg)))
-    ... | inj₂ cmd =
-          let (newState , response) = processStreamCommand cmd state
-          in (newState , formatJSON (formatResponse response))
-
-    -- Dispatch by message type
-    dispatchMessage : JSON → StreamState × String
-    dispatchMessage (JObject obj) =
-      let typeField = lookupString "type" obj
-      in case_type typeField obj
-      where
-        case_type : Maybe String → List (String × JSON) → StreamState × String
-        case_type nothing obj = (state , formatJSON (formatResponse (Msg.Response.Error "Missing 'type' field in request")))
-        case_type (just msgType) obj =
-          if ⌊ msgType ≟ "command" ⌋
-          then tryParseCommand obj
-          else (state , formatJSON (formatResponse (Msg.Response.Error ("Unknown message type: " ++ₛ msgType))))
-    dispatchMessage json = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
-
-    handleParsedJSON : Maybe JSON → StreamState × String
-    handleParsedJSON nothing = (state , formatJSON (formatResponse (Msg.Response.Error "Invalid JSON")))
-    handleParsedJSON (just (JObject obj)) = dispatchMessage (JObject obj)
-    handleParsedJSON (just _) = (state , formatJSON (formatResponse (Msg.Response.Error "Request must be a JSON object")))
+processJSONLine state jsonLine = handleParsedJSON state (map proj₁ (runParser parseJSON (toList jsonLine)))
 
 -- ============================================================================
 -- BINARY FRAME ENTRY POINT (No JSON parsing)
@@ -119,18 +94,14 @@ processJSONLine state jsonLine = handleParsedJSON (map proj₁ (runParser parseJ
 -- The proof obligation (refl) is in Protocol/FrameProcessor/Properties.agda.
 processFrameDirect : StreamState → TimedFrame → StreamState × String
 {-# NOINLINE processFrameDirect #-}
-processFrameDirect state tf =
-  let (newState , response) = handleDataFrame state tf
-  in (newState , formatJSON (formatResponse response))
+processFrameDirect state tf = wrapJSON (handleDataFrame state tf)
 
 -- Binary entry point: process a trace event (data, error, or remote frame).
 -- Called by aletheia_send_event via AletheiaFFI.hs.
 -- Data events delegate to handleDataFrame; error/remote events are acknowledged.
 processEventDirect : StreamState → TraceEvent → StreamState × String
 {-# NOINLINE processEventDirect #-}
-processEventDirect state ev =
-  let (newState , response) = handleTraceEvent state ev
-  in (newState , formatJSON (formatResponse response))
+processEventDirect state ev = wrapJSON (handleTraceEvent state ev)
 
 -- ============================================================================
 -- DIRECT ENTRY POINTS (No JSON parsing on input)
@@ -142,44 +113,35 @@ processEventDirect state ev =
 -- Start streaming mode (no input data)
 processStartStreamDirect : StreamState → StreamState × String
 {-# NOINLINE processStartStreamDirect #-}
-processStartStreamDirect state =
-  let (newState , response) = handleStartStream state
-  in (newState , formatJSON (formatResponse response))
+processStartStreamDirect state = wrapJSON (handleStartStream state)
 
 -- End streaming mode and finalize properties (no input data)
 processEndStreamDirect : StreamState → StreamState × String
 {-# NOINLINE processEndStreamDirect #-}
-processEndStreamDirect state =
-  let (newState , response) = handleEndStream state
-  in (newState , formatJSON (formatResponse response))
+processEndStreamDirect state = wrapJSON (handleEndStream state)
 
 -- Format currently-loaded DBC as JSON (no input data)
 processFormatDBCDirect : StreamState → StreamState × String
 {-# NOINLINE processFormatDBCDirect #-}
-processFormatDBCDirect state =
-  let (newState , response) = handleFormatDBC state
-  in (newState , formatJSON (formatResponse response))
+processFormatDBCDirect state = wrapJSON (handleFormatDBC state)
 
 -- Extract all signals from a binary CAN frame (no JSON input parsing)
 processExtractDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × String
 {-# NOINLINE processExtractDirect #-}
 processExtractDirect state canId dlc payload =
-  let (newState , response) = handleExtractAllSignals canId dlc payload state
-  in (newState , formatJSON (formatResponse response))
+  wrapJSON (handleExtractAllSignals canId dlc payload state)
 
 -- Build CAN frame from signal index-value pairs (no JSON/string parsing)
 processBuildFrameDirect : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × String
 {-# NOINLINE processBuildFrameDirect #-}
 processBuildFrameDirect state canId dlc signals =
-  let (newState , response) = handleBuildFrameByIndex canId dlc signals state
-  in (newState , formatJSON (formatResponse response))
+  wrapJSON (handleBuildFrameByIndex canId dlc signals state)
 
 -- Update CAN frame signals by index (no JSON/string parsing)
 processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × String
 {-# NOINLINE processUpdateFrameDirect #-}
 processUpdateFrameDirect state canId dlc payload signals =
-  let (newState , response) = handleUpdateFrameByIndex canId dlc payload signals state
-  in (newState , formatJSON (formatResponse response))
+  wrapJSON (handleUpdateFrameByIndex canId dlc payload signals state)
 
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
@@ -200,6 +162,10 @@ processUpdateFrameDirect state canId dlc payload signals =
 --              Error codes: 0=not_in_dbc, 1=out_of_bounds, 2=extraction_failed
 --     Absent:  nAbsent × (signal_index:u16) = 2 bytes each
 --   Error:   error string via outErr pointer; return code 1.
+--
+-- Byte order: native (platform-dependent; little-endian on x86_64/aarch64).
+-- Multi-byte integers (u16, i64) use the host's native byte order via Haskell's
+-- Storable poke. All three language bindings run on the same host, so this is safe.
 --
 -- CALLER CONTRACT — Timestamp monotonicity:
 --   processFrameDirect and processExtractDirect assume monotonically

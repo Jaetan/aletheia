@@ -33,9 +33,11 @@ import Aletheia.LTL.Syntax as Syntax
 open Syntax using (LTL; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
+open import Aletheia.LTL.TruthVal.Properties using
+  (∧TV-false-r; ∨TV-true-r; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r; ∨TV-false-l)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot;
   Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
-  MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
+  MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
@@ -75,50 +77,6 @@ runL table proc (x ∷ rest) with stepL table proc x
 open import Aletheia.LTL.Adequacy.SoundOps public
 
 -- ============================================================================
--- FOUR-VALUED IDENTITY LEMMAS (local copies for decomposition proofs)
--- ============================================================================
-
--- These are also defined in SoundOps (private there, for the Sound combinators).
--- Needed here because the operational decomposition lemmas (runL-*-decomp) use
--- rewrite with these identities, and SoundOps does not export them.
-
-private
-  ∧TV-false-r : ∀ a → (a ∧TV False) ≡ False
-  ∧TV-false-r True    = refl
-  ∧TV-false-r False   = refl
-  ∧TV-false-r Unknown = refl
-  ∧TV-false-r Pending = refl
-
-  ∨TV-true-r : ∀ a → (a ∨TV True) ≡ True
-  ∨TV-true-r True    = refl
-  ∨TV-true-r False   = refl
-  ∨TV-true-r Unknown = refl
-  ∨TV-true-r Pending = refl
-
-  ∨TV-false-r : ∀ a → (a ∨TV False) ≡ a
-  ∨TV-false-r True    = refl
-  ∨TV-false-r False   = refl
-  ∨TV-false-r Unknown = refl
-  ∨TV-false-r Pending = refl
-
-  ∧TV-true-l : ∀ b → (True ∧TV b) ≡ b
-  ∧TV-true-l True    = refl
-  ∧TV-true-l False   = refl
-  ∧TV-true-l Unknown = refl
-  ∧TV-true-l Pending = refl
-
-  ∧TV-true-r : ∀ a → (a ∧TV True) ≡ a
-  ∧TV-true-r True    = refl
-  ∧TV-true-r False   = refl
-  ∧TV-true-r Unknown = refl
-  ∧TV-true-r Pending = refl
-
-  ∨TV-false-l : ∀ b → (False ∨TV b) ≡ b
-  ∨TV-false-l True    = refl
-  ∨TV-false-l False   = refl
-  ∨TV-false-l Unknown = refl
-  ∨TV-false-l Pending = refl
-
 -- ============================================================================
 -- OPERATIONAL DECOMPOSITION LEMMAS
 -- ============================================================================
@@ -331,34 +289,34 @@ runL-and-sound table φ ψ σ =
 -- MetricEventually: mirrors runL-eventually-decomp
 runL-metric-eventually-decomp : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
   → ((timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w) ≡ true
-  → runL table (MetricEventuallyProc w s φ) (x ∷ rest)
-    ≡ (runL table φ (x ∷ rest)) ∨TV (runL table (MetricEventuallyProc w (suc (decodeStart s (timestamp x))) φ) rest)
+  → runL table (MetricEventually w s φ) (x ∷ rest)
+    ≡ (runL table φ (x ∷ rest)) ∨TV (runL table (MetricEventually w (suc (decodeStart s (timestamp x))) φ) rest)
 runL-metric-eventually-decomp table w s φ x rest eq
   with (timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w
 runL-metric-eventually-decomp table w s φ x rest () | false
 runL-metric-eventually-decomp table w s φ x rest eq | true with stepL table φ x
 ... | Satisfied     = refl
-... | Violated _    rewrite ∨TV-false-l (runL table (MetricEventuallyProc w (suc (decodeStart s (timestamp x))) φ) rest) = refl
-... | Continue _ φ' = runL-or-decomp table φ' (MetricEventuallyProc w (suc (decodeStart s (timestamp x))) φ) rest
+... | Violated _    rewrite ∨TV-false-l (runL table (MetricEventually w (suc (decodeStart s (timestamp x))) φ) rest) = refl
+... | Continue _ φ' = runL-or-decomp table φ' (MetricEventually w (suc (decodeStart s (timestamp x))) φ) rest
 
 -- MetricAlways: mirrors runL-always-decomp
 runL-metric-always-decomp : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
   → ((timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w) ≡ true
-  → runL table (MetricAlwaysProc w s φ) (x ∷ rest)
-    ≡ (runL table φ (x ∷ rest)) ∧TV (runL table (MetricAlwaysProc w (suc (decodeStart s (timestamp x))) φ) rest)
+  → runL table (MetricAlways w s φ) (x ∷ rest)
+    ≡ (runL table φ (x ∷ rest)) ∧TV (runL table (MetricAlways w (suc (decodeStart s (timestamp x))) φ) rest)
 runL-metric-always-decomp table w s φ x rest eq
   with (timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w
 runL-metric-always-decomp table w s φ x rest () | false
 runL-metric-always-decomp table w s φ x rest eq | true with stepL table φ x
-... | Satisfied     rewrite ∧TV-true-l (runL table (MetricAlwaysProc w (suc (decodeStart s (timestamp x))) φ) rest) = refl
+... | Satisfied     rewrite ∧TV-true-l (runL table (MetricAlways w (suc (decodeStart s (timestamp x))) φ) rest) = refl
 ... | Violated _    = refl
-... | Continue _ φ' = runL-and-decomp table φ' (MetricAlwaysProc w (suc (decodeStart s (timestamp x))) φ) rest
+... | Continue _ φ' = runL-and-decomp table φ' (MetricAlways w (suc (decodeStart s (timestamp x))) φ) rest
 
 -- MetricUntil: mirrors runL-until-decomp
 runL-metric-until-decomp : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
   → ((timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w) ≡ true
-  → runL table (MetricUntilProc w s φ ψ) (x ∷ rest)
-    ≡ (runL table ψ (x ∷ rest)) ∨TV ((runL table φ (x ∷ rest)) ∧TV (runL table (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest))
+  → runL table (MetricUntil w s φ ψ) (x ∷ rest)
+    ≡ (runL table ψ (x ∷ rest)) ∨TV ((runL table φ (x ∷ rest)) ∧TV (runL table (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest))
 runL-metric-until-decomp table w s φ ψ x rest eq
   with (timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w
 runL-metric-until-decomp table w s φ ψ x rest () | false
@@ -366,25 +324,25 @@ runL-metric-until-decomp table w s φ ψ x rest eq | true with stepL table ψ x 
 ... | Satisfied     | _             = refl
 ... | Violated _    | Violated _    = refl
 ... | Violated _    | Satisfied
-    rewrite ∧TV-true-l (runL table (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-          | ∨TV-false-l (runL table (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest) = refl
+    rewrite ∧TV-true-l (runL table (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+          | ∨TV-false-l (runL table (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest) = refl
 ... | Violated _    | Continue _ φ'
-    rewrite ∨TV-false-l ((runL table φ' rest) ∧TV (runL table (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest))
-    = runL-and-decomp table φ' (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest
+    rewrite ∨TV-false-l ((runL table φ' rest) ∧TV (runL table (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest))
+    = runL-and-decomp table φ' (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest
 ... | Continue _ ψ' | Violated _
     rewrite ∨TV-false-r (runL table ψ' rest) = refl
 ... | Continue _ ψ' | Satisfied
-    rewrite ∧TV-true-l (runL table (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-    = runL-or-decomp table ψ' (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest
+    rewrite ∧TV-true-l (runL table (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+    = runL-or-decomp table ψ' (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest
 ... | Continue _ ψ' | Continue _ φ'
-    rewrite sym (runL-and-decomp table φ' (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-    = runL-or-decomp table ψ' (And φ' (MetricUntilProc w (suc (decodeStart s (timestamp x))) φ ψ)) rest
+    rewrite sym (runL-and-decomp table φ' (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+    = runL-or-decomp table ψ' (And φ' (MetricUntil w (suc (decodeStart s (timestamp x))) φ ψ)) rest
 
 -- MetricRelease: mirrors runL-release-decomp
 runL-metric-release-decomp : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (x : TimedFrame) (rest : List TimedFrame)
   → ((timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w) ≡ true
-  → runL table (MetricReleaseProc w s φ ψ) (x ∷ rest)
-    ≡ (runL table ψ (x ∷ rest)) ∧TV ((runL table φ (x ∷ rest)) ∨TV (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest))
+  → runL table (MetricRelease w s φ ψ) (x ∷ rest)
+    ≡ (runL table ψ (x ∷ rest)) ∧TV ((runL table φ (x ∷ rest)) ∨TV (runL table (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest))
 runL-metric-release-decomp table w s φ ψ x rest eq
   with (timestamp x ∸ decodeStart s (timestamp x)) ≤ᵇ w
 runL-metric-release-decomp table w s φ ψ x rest () | false
@@ -392,19 +350,19 @@ runL-metric-release-decomp table w s φ ψ x rest eq | true with stepL table ψ 
 ... | Violated _    | _             = refl
 ... | Satisfied     | Satisfied     = refl
 ... | Satisfied     | Violated _
-    rewrite ∨TV-false-l (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-          | ∧TV-true-l (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest) = refl
+    rewrite ∨TV-false-l (runL table (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+          | ∧TV-true-l (runL table (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest) = refl
 ... | Satisfied     | Continue _ φ'
-    rewrite ∧TV-true-l ((runL table φ' rest) ∨TV (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest))
-    = runL-or-decomp table φ' (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest
+    rewrite ∧TV-true-l ((runL table φ' rest) ∨TV (runL table (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest))
+    = runL-or-decomp table φ' (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest
 ... | Continue _ ψ' | Satisfied
     rewrite ∧TV-true-r (runL table ψ' rest) = refl
 ... | Continue _ ψ' | Violated _
-    rewrite ∨TV-false-l (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-    = runL-and-decomp table ψ' (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest
+    rewrite ∨TV-false-l (runL table (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+    = runL-and-decomp table ψ' (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest
 ... | Continue _ ψ' | Continue _ φ'
-    rewrite sym (runL-or-decomp table φ' (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ) rest)
-    = runL-and-decomp table ψ' (Or φ' (MetricReleaseProc w (suc (decodeStart s (timestamp x))) φ ψ)) rest
+    rewrite sym (runL-or-decomp table φ' (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ) rest)
+    = runL-and-decomp table ψ' (Or φ' (MetricRelease w (suc (decodeStart s (timestamp x))) φ ψ)) rest
 
 -- ============================================================================
 -- METRIC ADEQUACY HELPERS (non-recursive)
@@ -417,43 +375,43 @@ runL-metric-release-decomp table w s φ ψ x rest eq | true with stepL table ψ 
 -- MetricEventually: boolean guard + stepL case split. Non-recursive.
 adequacy-met-ev : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
-  → Sound (runL table (MetricEventuallyProc w (suc (decodeStart s (timestamp y))) φ) rest)
+  → Sound (runL table (MetricEventually w (suc (decodeStart s (timestamp y))) φ) rest)
           (met-ev-go w (denot table φ) (decodeStart s (timestamp y)) rest)
-  → Sound (runL table (MetricEventuallyProc w s φ) (y ∷ rest))
-          (⟦ denot table (MetricEventuallyProc w s φ) ⟧ (y ∷ rest))
+  → Sound (runL table (MetricEventually w s φ) (y ∷ rest))
+          (⟦ denot table (MetricEventually w s φ) ⟧ (y ∷ rest))
 adequacy-met-ev table w s φ y rest ih-φ ih-MEP
   with (timestamp y ∸ decodeStart s (timestamp y)) ≤ᵇ w
 ... | false = sound-ff
 ... | true with stepL table φ y
 ...   | Satisfied   = sound-or ih-φ ih-MEP
 ...   | Violated _  = sound-or-false-l ih-φ ih-MEP
-...   | Continue _ φ' = runL-or-sound table φ' (MetricEventuallyProc w (suc (decodeStart s (timestamp y))) φ) rest
+...   | Continue _ φ' = runL-or-sound table φ' (MetricEventually w (suc (decodeStart s (timestamp y))) φ) rest
                           (sound-or ih-φ ih-MEP)
 
 -- MetricAlways: dual of MetricEventually (∧ instead of ∨, sound-tt on window expiry).
 adequacy-met-al : ∀ (table : PredTable) (w s : ℕ) (φ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
-  → Sound (runL table (MetricAlwaysProc w (suc (decodeStart s (timestamp y))) φ) rest)
+  → Sound (runL table (MetricAlways w (suc (decodeStart s (timestamp y))) φ) rest)
           (met-al-go w (denot table φ) (decodeStart s (timestamp y)) rest)
-  → Sound (runL table (MetricAlwaysProc w s φ) (y ∷ rest))
-          (⟦ denot table (MetricAlwaysProc w s φ) ⟧ (y ∷ rest))
+  → Sound (runL table (MetricAlways w s φ) (y ∷ rest))
+          (⟦ denot table (MetricAlways w s φ) ⟧ (y ∷ rest))
 adequacy-met-al table w s φ y rest ih-φ ih-MAP
   with (timestamp y ∸ decodeStart s (timestamp y)) ≤ᵇ w
 ... | false = sound-tt
 ... | true with stepL table φ y
 ...   | Satisfied   = sound-and-true-l ih-φ ih-MAP
 ...   | Violated _  = sound-and ih-φ ih-MAP
-...   | Continue _ φ' = runL-and-sound table φ' (MetricAlwaysProc w (suc (decodeStart s (timestamp y))) φ) rest
+...   | Continue _ φ' = runL-and-sound table φ' (MetricAlways w (suc (decodeStart s (timestamp y))) φ) rest
                           (sound-and ih-φ ih-MAP)
 
 -- MetricUntil: simultaneous (stepL ψ × stepL φ) after boolean guard. Non-recursive.
 adequacy-met-un : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table ψ (y ∷ rest)) (⟦ denot table ψ ⟧ (y ∷ rest))
-  → Sound (runL table (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ) rest)
+  → Sound (runL table (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ) rest)
           (met-un-go w (denot table φ) (denot table ψ) (decodeStart s (timestamp y)) rest)
-  → Sound (runL table (MetricUntilProc w s φ ψ) (y ∷ rest))
-          (⟦ denot table (MetricUntilProc w s φ ψ) ⟧ (y ∷ rest))
+  → Sound (runL table (MetricUntil w s φ ψ) (y ∷ rest))
+          (⟦ denot table (MetricUntil w s φ ψ) ⟧ (y ∷ rest))
 adequacy-met-un table w s φ ψ y rest ih-φ ih-ψ ih-MUP
   with (timestamp y ∸ decodeStart s (timestamp y)) ≤ᵇ w
 ... | false = sound-ff
@@ -462,14 +420,14 @@ adequacy-met-un table w s φ ψ y rest ih-φ ih-ψ ih-MUP
 ...   | Violated _    | Satisfied     = sound-or-false-l ih-ψ (sound-and-true-l ih-φ ih-MUP)
 ...   | Violated _    | Violated _    = sound-or ih-ψ (sound-and ih-φ ih-MUP)
 ...   | Violated _    | Continue _ φ' = sound-or-false-l ih-ψ
-                                          (runL-and-sound table φ' (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+                                          (runL-and-sound table φ' (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                             (sound-and ih-φ ih-MUP))
-...   | Continue _ ψ' | Satisfied     = runL-or-sound table ψ' (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+...   | Continue _ ψ' | Satisfied     = runL-or-sound table ψ' (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                           (sound-or ih-ψ (sound-and-true-l ih-φ ih-MUP))
 ...   | Continue _ ψ' | Violated _    = sound-or-false-r ih-ψ (sound-and ih-φ ih-MUP)
-...   | Continue _ ψ' | Continue _ φ' = runL-or-sound table ψ' (And φ' (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ)) rest
+...   | Continue _ ψ' | Continue _ φ' = runL-or-sound table ψ' (And φ' (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ)) rest
                                           (sound-or ih-ψ
-                                            (runL-and-sound table φ' (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+                                            (runL-and-sound table φ' (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                               (sound-and ih-φ ih-MUP)))
 
 -- MetricRelease: dual of MetricUntil (∧/∨ swapped). Non-recursive.
@@ -477,10 +435,10 @@ adequacy-met-un table w s φ ψ y rest ih-φ ih-ψ ih-MUP
 adequacy-met-re : ∀ (table : PredTable) (w s : ℕ) (φ ψ : LTLProc) (y : TimedFrame) (rest : List TimedFrame)
   → Sound (runL table φ (y ∷ rest)) (⟦ denot table φ ⟧ (y ∷ rest))
   → Sound (runL table ψ (y ∷ rest)) (⟦ denot table ψ ⟧ (y ∷ rest))
-  → Sound (runL table (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ) rest)
+  → Sound (runL table (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ) rest)
           (met-re-go w (denot table φ) (denot table ψ) (decodeStart s (timestamp y)) rest)
-  → Sound (runL table (MetricReleaseProc w s φ ψ) (y ∷ rest))
-          (⟦ denot table (MetricReleaseProc w s φ ψ) ⟧ (y ∷ rest))
+  → Sound (runL table (MetricRelease w s φ ψ) (y ∷ rest))
+          (⟦ denot table (MetricRelease w s φ ψ) ⟧ (y ∷ rest))
 adequacy-met-re table w s φ ψ y rest ih-φ ih-ψ ih-MRP
   with (timestamp y ∸ decodeStart s (timestamp y)) ≤ᵇ w
 ... | false = sound-tt
@@ -489,14 +447,14 @@ adequacy-met-re table w s φ ψ y rest ih-φ ih-ψ ih-MRP
 ...   | Satisfied     | Satisfied     = sound-and ih-ψ (sound-or ih-φ ih-MRP)
 ...   | Satisfied     | Violated _    = sound-and-true-l ih-ψ (sound-or-false-l ih-φ ih-MRP)
 ...   | Satisfied     | Continue _ φ' = sound-and-true-l ih-ψ
-                                          (runL-or-sound table φ' (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+                                          (runL-or-sound table φ' (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                             (sound-or ih-φ ih-MRP))
 ...   | Continue _ ψ' | Satisfied     = sound-and-true-r ih-ψ (sound-or ih-φ ih-MRP)
-...   | Continue _ ψ' | Violated _    = runL-and-sound table ψ' (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+...   | Continue _ ψ' | Violated _    = runL-and-sound table ψ' (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                           (sound-and ih-ψ (sound-or-false-l ih-φ ih-MRP))
-...   | Continue _ ψ' | Continue _ φ' = runL-and-sound table ψ' (Or φ' (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ)) rest
+...   | Continue _ ψ' | Continue _ φ' = runL-and-sound table ψ' (Or φ' (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ)) rest
                                           (sound-and ih-ψ
-                                            (runL-or-sound table φ' (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ) rest
+                                            (runL-or-sound table φ' (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ) rest
                                               (sound-or ih-φ ih-MRP)))
 
 -- ============================================================================
@@ -568,38 +526,38 @@ adequacy table (Release φ ψ) (x ∷ rest) =
                              (adequacy table (Release φ ψ) rest)))
 
 -- MetricEventually: delegate to non-recursive helper (zero `with`s here)
-adequacy table (MetricEventuallyProc w s φ) [] = sound-ff
-adequacy table (MetricEventuallyProc w s φ) (y ∷ rest) =
+adequacy table (MetricEventually w s φ) [] = sound-ff
+adequacy table (MetricEventually w s φ) (y ∷ rest) =
   adequacy-met-ev table w s φ y rest
     (adequacy table φ (y ∷ rest))
     (met-ev-go-sound w (denot table φ) (decodeStart s (timestamp y)) rest
-      (adequacy table (MetricEventuallyProc w (suc (decodeStart s (timestamp y))) φ) rest))
+      (adequacy table (MetricEventually w (suc (decodeStart s (timestamp y))) φ) rest))
 
 -- MetricAlways: delegate to non-recursive helper (zero `with`s here)
-adequacy table (MetricAlwaysProc w s φ) [] = sound-tt
-adequacy table (MetricAlwaysProc w s φ) (y ∷ rest) =
+adequacy table (MetricAlways w s φ) [] = sound-tt
+adequacy table (MetricAlways w s φ) (y ∷ rest) =
   adequacy-met-al table w s φ y rest
     (adequacy table φ (y ∷ rest))
     (met-al-go-sound w (denot table φ) (decodeStart s (timestamp y)) rest
-      (adequacy table (MetricAlwaysProc w (suc (decodeStart s (timestamp y))) φ) rest))
+      (adequacy table (MetricAlways w (suc (decodeStart s (timestamp y))) φ) rest))
 
 -- MetricUntil: delegate to non-recursive helper (zero `with`s here)
-adequacy table (MetricUntilProc w s φ ψ) [] = sound-ff
-adequacy table (MetricUntilProc w s φ ψ) (y ∷ rest) =
+adequacy table (MetricUntil w s φ ψ) [] = sound-ff
+adequacy table (MetricUntil w s φ ψ) (y ∷ rest) =
   adequacy-met-un table w s φ ψ y rest
     (adequacy table φ (y ∷ rest))
     (adequacy table ψ (y ∷ rest))
     (met-un-go-sound w (denot table φ) (denot table ψ) (decodeStart s (timestamp y)) rest
-      (adequacy table (MetricUntilProc w (suc (decodeStart s (timestamp y))) φ ψ) rest))
+      (adequacy table (MetricUntil w (suc (decodeStart s (timestamp y))) φ ψ) rest))
 
 -- MetricRelease: delegate to non-recursive helper (zero `with`s here)
-adequacy table (MetricReleaseProc w s φ ψ) [] = sound-tt
-adequacy table (MetricReleaseProc w s φ ψ) (y ∷ rest) =
+adequacy table (MetricRelease w s φ ψ) [] = sound-tt
+adequacy table (MetricRelease w s φ ψ) (y ∷ rest) =
   adequacy-met-re table w s φ ψ y rest
     (adequacy table φ (y ∷ rest))
     (adequacy table ψ (y ∷ rest))
     (met-re-go-sound w (denot table φ) (denot table ψ) (decodeStart s (timestamp y)) rest
-      (adequacy table (MetricReleaseProc w (suc (decodeStart s (timestamp y))) φ ψ) rest))
+      (adequacy table (MetricRelease w (suc (decodeStart s (timestamp y))) φ ψ) rest))
 
 -- Not: decompose runL to notTV, then compose with sound-not + IH
 adequacy table (Not φ) σ rewrite runL-not-decomp table φ σ = sound-not (adequacy table φ σ)

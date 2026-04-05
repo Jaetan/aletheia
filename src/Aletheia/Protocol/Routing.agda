@@ -14,15 +14,16 @@ open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Vec using (Vec)
-open import Data.Nat using (ℕ; zero; suc; _%_; _<ᵇ_)
+open import Data.Nat using (ℕ; zero; suc)
 open import Data.Nat.Properties using (_≤?_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
-open import Aletheia.Prelude using (lookupByKey; standard-can-id-max; extended-can-id-max; _>>=ₑ_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupBool; lookupNat; lookupArray; getInt)
+open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_)
+open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
+open import Aletheia.DBC.JSONParser using (parseCANId)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
-open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId; Standard; Extended)
+open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.DLC using (dlcToBytes)
 
 -- ============================================================================
@@ -34,14 +35,9 @@ private
   max-dlc-code : ℕ
   max-dlc-code = 15
 
-  -- Byte modulus for truncating values to 0..255
-  byte-modulus : ℕ
-  byte-modulus = 256
-
-  -- Lift Maybe to String ⊎ A with an error message on Nothing
-  require : ∀ {A : Set} → String → Maybe A → String ⊎ A
-  require msg nothing  = inj₁ msg
-  require _   (just x) = inj₂ x
+  -- Byte upper bound (exclusive): values must be < 256
+  byte-bound : ℕ
+  byte-bound = 256
 
   -- Require a named field, producing a standardized "missing 'X'" error
   requireNat : String → String → List (String × JSON) → String ⊎ ℕ
@@ -60,19 +56,7 @@ private
   parseCANIdField : String → String → List (String × JSON) → String ⊎ CANId
   parseCANIdField ctx key obj =
     requireNat ctx key obj >>=ₑ λ rawId →
-    parseCANIdFromNat ctx rawId obj
-    where
-    parseCANIdFromNat : String → ℕ → List (String × JSON) → String ⊎ CANId
-    parseCANIdFromNat ctx' rawId obj' with lookupBool "extended" obj'
-    ... | just true  = if rawId <ᵇ extended-can-id-max
-                        then inj₂ (Extended (rawId % extended-can-id-max))
-                        else inj₁ (ctx' ++ₛ ": extended CAN ID out of range")
-    ... | just false = if rawId <ᵇ standard-can-id-max
-                        then inj₂ (Standard (rawId % standard-can-id-max))
-                        else inj₁ (ctx' ++ₛ ": standard CAN ID out of range")
-    ... | nothing    = if rawId <ᵇ standard-can-id-max
-                        then inj₂ (Standard (rawId % standard-can-id-max))
-                        else inj₁ (ctx' ++ₛ ": CAN ID out of range for standard ID")
+    parseCANId ctx rawId obj
 
   -- Parse a JSON array as a list of bytes
   parseByteArray : List JSON → Maybe (List ℕ)
@@ -87,14 +71,14 @@ private
         just (nℕ ∷ restParsed)
       extractNat -[1+ _ ] _ = nothing
 
-  -- Convert List ℕ to Vec Byte n (if length is exactly n)
+  -- Convert List ℕ to Vec Byte n (if length matches and all values < 256)
   listToVec : (n : ℕ) → List ℕ → Maybe (Vec Byte n)
   listToVec zero    []       = just Data.Vec.[]
   listToVec zero    (_ ∷ _)  = nothing
   listToVec (suc n) []       = nothing
-  listToVec (suc n) (x ∷ xs) =
-    listToVec n xs >>= λ rest →
-    just ((x % byte-modulus) Data.Vec.∷ rest)
+  listToVec (suc n) (x ∷ xs) with suc x ≤? byte-bound
+  ... | no  _ = nothing
+  ... | yes _ = listToVec n xs >>= λ rest → just (x Data.Vec.∷ rest)
 
   -- Parse ParseDBC command
   tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
@@ -181,7 +165,7 @@ private
 -- Parse StreamCommand from JSON object (returns error message on failure)
 parseCommand : List (String × JSON) → String ⊎ StreamCommand
 parseCommand obj with lookupString "command" obj
-... | nothing = inj₁ "parseCommand: missing 'command' field"
+... | nothing = inj₁ "ParseCommand: missing 'command' field"
 ... | just cmdType = dispatchCommand cmdType obj
 
 

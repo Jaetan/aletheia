@@ -57,11 +57,23 @@ record SignalGroup : Set where
     name : String
     signals : List String
 
+-- Environment variable type (DBC EV_ keyword varType field).
+data VarType : Set where
+  IntVar    : VarType  -- 0 in DBC specification
+  FloatVar  : VarType  -- 1 in DBC specification
+  StringVar : VarType  -- 2 in DBC specification
+
+-- Encode VarType as ℕ for JSON serialization
+varTypeToℕ : VarType → ℕ
+varTypeToℕ IntVar    = 0
+varTypeToℕ FloatVar  = 1
+varTypeToℕ StringVar = 2
+
 -- Environment variable (DBC EV_ keyword).
 record EnvironmentVar : Set where
   field
     name : String
-    varType : ℕ        -- 0 = integer, 1 = float, 2 = string
+    varType : VarType
     initial : ℚ
     minimum : ℚ
     maximum : ℚ

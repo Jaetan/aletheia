@@ -38,6 +38,7 @@ import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
 import Foreign.Storable (poke)
 import Foreign.Marshal.Array (peekArray)
+import Control.Monad (when)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Int (Int8, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
@@ -46,7 +47,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 -- MAlonzo-generated modules
 import qualified MAlonzo.Code.Aletheia.Main as Agda
-import qualified MAlonzo.Code.Aletheia.Protocol.StreamState as AgdaState
+import qualified MAlonzo.Code.Aletheia.Protocol.StreamState.Types as AgdaState
 import qualified MAlonzo.Code.Agda.Builtin.Sigma as AgdaSigma
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Aletheia.Trace.CANTrace as AgdaTrace
@@ -57,14 +58,14 @@ import qualified MAlonzo.Code.Aletheia.CAN.BatchExtraction as AgdaBatch
 import qualified MAlonzo.Code.Agda.Builtin.Maybe as AgdaMaybe
 
 -- | Opaque state handle exported to C/Python
-type StateHandle = StablePtr (IORef AgdaState.T_StreamState_34)
+type StateHandle = StablePtr (IORef AgdaState.T_StreamState_36)
 
 -- | Create a new Aletheia state handle with initial state.
 -- Returns: StablePtr that must be freed with aletheia_close.
-foreign export ccall aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_34))
-aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_34))
+foreign export ccall aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_36))
+aletheia_init :: IO (StablePtr (IORef AgdaState.T_StreamState_36))
 aletheia_init = do
-    ref <- newIORef AgdaState.d_initialState_58
+    ref <- newIORef AgdaState.d_initialState_60
     newStablePtr ref
 
 -- | Process a JSON line. Takes state handle and input CString.
@@ -78,9 +79,9 @@ aletheia_process statePtr inputCStr = do
     inputStr <- peekCString inputCStr
     let agdaInput = T.pack inputStr
     -- Call Agda processJSONLine: StreamState → String → Σ (StreamState × String)
-    let result = Agda.d_processJSONLine_4 state agdaInput
+    let result = Agda.d_processJSONLine_62 state agdaInput
     -- Extract pair components (MAlonzo Σ uses AgdaAny, need unsafeCoerce)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -107,22 +108,25 @@ aletheia_send_frame :: StateHandle -> Word64 -> Word32 -> Word8 -> Word8
 aletheia_send_frame statePtr timestamp canId extended dlc dataPtr dataLen = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
+    -- Validate DLC/dataLen consistency (erased proof in Agda; must enforce at boundary)
+    when (fromIntegral dataLen /= dlcToBytes dlc) $
+        error $ "aletheia_send_frame: dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     -- Read raw bytes from C pointer
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     -- Construct MAlonzo types directly (no JSON, no Agda string parsing)
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
-    let agdaFrame = AgdaFrame.C_constructor_32 agdaCanId (toInteger dlc) agdaVec
+    let agdaFrame = AgdaFrame.C_constructor_36 agdaCanId (toInteger dlc) agdaVec
     -- TimedFrame constructor: timestamp, payloadSize, frame, brs, esi
     -- (.dlcValid proof field is erased by MAlonzo — 5 runtime args)
-    -- BRS/ESI are Nothing for CAN 2.0B frames (see aletheia_send_frame_fd for CAN-FD)
+    -- BRS/ESI are Nothing for CAN 2.0B frames; CAN-FD uses aletheia_send_event
     let agdaTF = AgdaTrace.C_constructor_34
             (toInteger timestamp) (toInteger dataLen) agdaFrame
             AgdaMaybe.C_nothing_18 AgdaMaybe.C_nothing_18
     -- Call Agda processFrameDirect: StreamState → TimedFrame → Σ (StreamState × String)
-    let result = Agda.d_processFrameDirect_58 state (unsafeCoerce agdaTF)
+    let result = Agda.d_processFrameDirect_68 state (unsafeCoerce agdaTF)
     -- Extract pair components
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -136,8 +140,8 @@ aletheia_send_error statePtr timestamp = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
     let agdaEvent = AgdaTrace.C_Error_40 (toInteger timestamp)
-    let result = Agda.d_processEventDirect_68 state (unsafeCoerce agdaEvent)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processEventDirect_74 state (unsafeCoerce agdaEvent)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -153,8 +157,8 @@ aletheia_send_remote statePtr timestamp canId extended = do
     state <- readIORef ref
     let agdaCanId = mkAgdaCanId canId extended
     let agdaEvent = AgdaTrace.C_Remote_42 (toInteger timestamp) agdaCanId
-    let result = Agda.d_processEventDirect_68 state (unsafeCoerce agdaEvent)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processEventDirect_74 state (unsafeCoerce agdaEvent)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -182,11 +186,14 @@ aletheia_extract_signals :: StateHandle -> Word32 -> Word8 -> Word8
 aletheia_extract_signals statePtr canId extended dlc dataPtr dataLen = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
+    -- Validate DLC/dataLen consistency (erased proof in Agda; must enforce at boundary)
+    when (fromIntegral dataLen /= dlcToBytes dlc) $
+        error $ "aletheia_extract_signals: dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
-    let result = Agda.d_processExtractDirect_104 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processExtractDirect_94 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -212,8 +219,8 @@ aletheia_build_frame statePtr canId extended dlc
     dens <- peekArray (fromIntegral numSignals) densPtr
     let agdaCanId = mkAgdaCanId canId extended
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processBuildFrameDirect_120 state agdaCanId (toInteger dlc) signalPairs
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processBuildFrameDirect_106 state agdaCanId (toInteger dlc) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -232,6 +239,9 @@ aletheia_update_frame statePtr canId extended dlc
     dataPtr dataLen numSignals indicesPtr numsPtr densPtr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
+    -- Validate DLC/dataLen consistency (erased proof in Agda; must enforce at boundary)
+    when (fromIntegral dataLen /= dlcToBytes dlc) $
+        error $ "aletheia_update_frame: dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     indices <- peekArray (fromIntegral numSignals) indicesPtr
     nums <- peekArray (fromIntegral numSignals) numsPtr
@@ -239,9 +249,9 @@ aletheia_update_frame statePtr canId extended dlc
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processUpdateFrameDirect_136 state agdaCanId
+    let result = Agda.d_processUpdateFrameDirect_118 state agdaCanId
                      (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -252,8 +262,8 @@ aletheia_start_stream :: StateHandle -> IO CString
 aletheia_start_stream statePtr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
-    let result = Agda.d_processStartStreamDirect_78 state
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processStartStreamDirect_80 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -264,8 +274,8 @@ aletheia_end_stream :: StateHandle -> IO CString
 aletheia_end_stream statePtr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
-    let result = Agda.d_processEndStreamDirect_86 state
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processEndStreamDirect_84 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -276,8 +286,8 @@ aletheia_format_dbc :: StateHandle -> IO CString
 aletheia_format_dbc statePtr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
-    let result = Agda.d_processFormatDBCDirect_94 state
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processFormatDBCDirect_88 state
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
     newCString (T.unpack outputText)
@@ -286,11 +296,34 @@ aletheia_format_dbc statePtr = do
 -- MARSHALING HELPERS
 -- ============================================================================
 
+-- | DLC code to payload byte count (mirrors Aletheia.CAN.DLC.dlcToBytes).
+dlcToBytes :: Word8 -> Int
+dlcToBytes 9  = 12
+dlcToBytes 10 = 16
+dlcToBytes 11 = 20
+dlcToBytes 12 = 24
+dlcToBytes 13 = 32
+dlcToBytes 14 = 48
+dlcToBytes 15 = 64
+dlcToBytes n  = fromIntegral n
+
 -- | Construct MAlonzo CANId from raw C values.
+-- Validates bounds at runtime: standard < 2048, extended < 536870912.
+-- The proof argument (T (n <ᵇ max)) is supplied as unsafeCoerce () — valid
+-- because we've just confirmed the bound, and MAlonzo compiles tt to a
+-- nullary constructor equivalent to ().
 mkAgdaCanId :: Word32 -> Word8 -> AgdaFrame.T_CANId_8
 mkAgdaCanId canId extended
-    | extended /= 0 = AgdaFrame.C_Extended_12 (toInteger canId)
-    | otherwise     = AgdaFrame.C_Standard_10 (toInteger canId)
+    | extended /= 0 =
+        if canId < 536870912
+        then AgdaFrame.C_Extended_16 (toInteger canId) (unsafeCoerce ())
+        else error $ "mkAgdaCanId: extended CAN ID " ++ show canId
+                     ++ " out of range (max 536870911)"
+    | otherwise =
+        if canId < 2048
+        then AgdaFrame.C_Standard_12 (toInteger canId) (unsafeCoerce ())
+        else error $ "mkAgdaCanId: standard CAN ID " ++ show canId
+                     ++ " out of range (max 2047)"
 
 -- | Construct MAlonzo ℚ from (numerator, denominator) integers.
 -- GCD normalization is required: MAlonzo's C_mkℚ_24 is a raw data constructor
@@ -298,7 +331,7 @@ mkAgdaCanId canId extended
 -- numerator/denominator, so passing non-coprime values would cause silent bugs.
 mkAgdaRational :: Int64 -> Int64 -> AgdaRational.T_ℚ_6
 mkAgdaRational num den
-    | den <= 0  = AgdaRational.C_mkℚ_24 (fromIntegral num) 0  -- fallback: n/1
+    | den <= 0  = error ("mkAgdaRational: non-positive denominator " ++ show den)
     | otherwise =
         let n = fromIntegral num :: Integer
             d = fromIntegral den :: Integer
@@ -356,8 +389,8 @@ aletheia_build_frame_bin statePtr canId extended dlc
     dens <- peekArray (fromIntegral numSignals) densPtr
     let agdaCanId = mkAgdaCanId canId extended
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processBuildFrameBin_154 state agdaCanId (toInteger dlc) signalPairs
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processBuildFrameBin_132 state agdaCanId (toInteger dlc) signalPairs
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     writeIORef ref newState
     dispatchSumResult sumResult outBuf outErr
@@ -377,6 +410,9 @@ aletheia_update_frame_bin statePtr canId extended dlc
     dataPtr dataLen numSignals indicesPtr numsPtr densPtr outBuf outErr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
+    -- Validate DLC/dataLen consistency (erased proof in Agda; must enforce at boundary)
+    when (fromIntegral dataLen /= dlcToBytes dlc) $
+        error $ "aletheia_update_frame_bin: dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     indices <- peekArray (fromIntegral numSignals) indicesPtr
     nums <- peekArray (fromIntegral numSignals) numsPtr
@@ -384,21 +420,17 @@ aletheia_update_frame_bin statePtr canId extended dlc
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processUpdateFrameBin_188 state agdaCanId
+    let result = Agda.d_processUpdateFrameBin_166 state agdaCanId
                      (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     writeIORef ref newState
     dispatchSumResult sumResult outBuf outErr
 
 -- | Extract all signals returning packed binary (no JSON on output).
 -- Returns 0 on success (buffer via out_buf/out_size), 1 on error (CString via out_err).
---
--- Success buffer layout (little-endian, native byte order on x86_64):
---   [num_values: u16] [num_errors: u16] [num_absent: u16]
---   values:  num_values × (signal_index: u16, numerator: i64, denominator: i64) — 18 bytes
---   errors:  num_errors × (signal_index: u16, error_code: u8)                   — 3 bytes
---   absent:  num_absent × (signal_index: u16)                                   — 2 bytes
+-- Wire format: see Main.agda processExtractBin documentation (canonical source).
+-- Byte order: native (platform-dependent; little-endian on x86_64).
 foreign export ccall aletheia_extract_signals_bin
     :: StateHandle -> Word32 -> Word8 -> Word8
     -> Ptr Word8 -> Word8
@@ -410,11 +442,14 @@ aletheia_extract_signals_bin statePtr canId extended dlc
     dataPtr dataLen outBufPtr outSizePtr outErr = do
     ref <- deRefStablePtr statePtr
     state <- readIORef ref
+    -- Validate DLC/dataLen consistency (erased proof in Agda; must enforce at boundary)
+    when (fromIntegral dataLen /= dlcToBytes dlc) $
+        error $ "aletheia_extract_signals_bin: dataLen " ++ show dataLen ++ " != dlcToBytes " ++ show dlc
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
-    let result = Agda.d_processExtractBin_260 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
-    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_34
+    let result = Agda.d_processExtractBin_238 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
+    let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     writeIORef ref newState
     case sumResult of
@@ -424,10 +459,10 @@ aletheia_extract_signals_bin statePtr canId extended dlc
             poke outErr errStr
             return 1
         AgdaSum.C_inj'8322'_42 ierAny -> do
-            let ier = unsafeCoerce ierAny :: AgdaBatch.T_IndexedExtractionResults_116
-            let vals = unsafeCoerce (AgdaBatch.d_values_124 ier) :: [AgdaSigma.T_Σ_14]
-            let errs = unsafeCoerce (AgdaBatch.d_errors_126 ier) :: [AgdaSigma.T_Σ_14]
-            let abss = AgdaBatch.d_absent_128 ier
+            let ier = unsafeCoerce ierAny :: AgdaBatch.T_IndexedExtractionResults_126
+            let vals = unsafeCoerce (AgdaBatch.d_values_134 ier) :: [AgdaSigma.T_Σ_14]
+            let errs = unsafeCoerce (AgdaBatch.d_errors_136 ier) :: [AgdaSigma.T_Σ_14]
+            let abss = AgdaBatch.d_absent_138 ier
             let nvals = length vals
             let nerrs = length errs
             let nabss = length abss
@@ -447,7 +482,10 @@ aletheia_extract_signals_bin statePtr canId extended dlc
             poke outSizePtr (fromIntegral bufSize)
             return 0
 
--- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64)
+-- | Write value entries: signal_index(u16) + numerator(i64) + denominator(i64).
+-- Pattern-matches on MAlonzo constructor C_mkℚ_24 (stdlib 2.3 Data.Rational.Base).
+-- FRAGILE: constructor name is MAlonzo-generated and may change with stdlib updates.
+-- The denM1 field stores (denominator − 1); we add 1 back for the wire format.
 writeExtrValues :: Ptr Word8 -> [AgdaSigma.T_Σ_14] -> IO (Ptr Word8)
 writeExtrValues ptr [] = return ptr
 writeExtrValues ptr (pair:rest) = do
@@ -461,11 +499,13 @@ writeExtrValues ptr (pair:rest) = do
             writeExtrValues (ptr `plusPtr` 18) rest
 
 -- | Write error entries: signal_index(u16) + error_code(u8)
+-- The error code is an ErrorCode ADT; convert to ℕ via errorCodeToℕ.
 writeExtrErrors :: Ptr Word8 -> [AgdaSigma.T_Σ_14] -> IO (Ptr Word8)
 writeExtrErrors ptr [] = return ptr
 writeExtrErrors ptr (pair:rest) = do
     let idx = unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
-    let code = unsafeCoerce (AgdaSigma.d_snd_30 pair) :: Integer
+    let code = AgdaBatch.d_errorCodeToℕ_124
+                 (unsafeCoerce (AgdaSigma.d_snd_30 pair))
     poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
     poke (ptr `plusPtr` 2) (fromIntegral code :: Word8)
     writeExtrErrors (ptr `plusPtr` 3) rest

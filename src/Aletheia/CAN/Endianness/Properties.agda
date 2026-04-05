@@ -28,8 +28,6 @@ open import Data.Fin.Properties using (toℕ-fromℕ<; toℕ-injective)
 open import Data.Nat as Nat using (ℕ; zero; suc; _+_; _∸_; _*_; _<_; _≤_; _>_; _^_; z≤n; s≤s; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m; m≡m%n+[m/n]*n; m<n*o⇒m/o<n; [m+n]%n≡m%n)
 open import Data.Nat.Properties using (_≟_; _≤?_; _<?_; <⇒≤; <⇒≢; +-suc; +-comm; +-assoc; +-identityʳ; ≤-refl; ≤-trans; ≤-<-trans; ≤-antisym; ≮⇒≥; n≤1+n; m≤m+n; m<n+m; m<m+n; <-≤-trans; m+n≤o⇒n≤o; m≤n⇒m≤1+n; +-cancelʳ-≡; *-cancelʳ-≡; +-monoˡ-≤; +-monoʳ-<; *-monoˡ-≤; m∸n≤m; n∸n≡0)
--- Instance-only import: brings NonZero into scope for m<n*o⇒m/o<n
-import Data.Nat.Instances
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)

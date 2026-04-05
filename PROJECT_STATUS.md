@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-03
+**Last Updated**: 2026-04-05
 
 ---
 
@@ -296,10 +296,13 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Benchmark runner hardening (2026-04-04): `run_all.sh` rewritten with `run_benchmark()` helper: temp file capture, JSON extraction (strips GHC RTS/cgo stdout pollution), Python-based validation, atomic `mv`. `compare.py` gracefully skips corrupt/unreadable files.
 
+- ✅ CAN error/remote frames + CAN-FD BRS/ESI metadata (2026-04-05): Review plan D1+D2 — final items from the Agda code review plan. `TraceEvent` data type in `Trace/CANTrace.agda` with `Data`/`Error`/`Remote` constructors. `TimedFrame` gets `brs : Maybe Bool` and `esi : Maybe Bool` CAN-FD metadata fields. `handleTraceEvent` dispatcher in `StreamState.agda`, `processEventDirect` entry point in `Main.agda`. FFI: `aletheia_send_error` + `aletheia_send_remote` exports. All three bindings updated: Python `send_error()`/`send_remote()`, C++ `send_error()`/`send_remote()` on `AletheiaClient` + `IBackend`, Go `SendError()`/`SendRemote()` on `Client` + `Backend`. Key design: LTL core stays on `TimedFrame` only — protocol layer dispatches `TraceEvent`, zero cascade to 10+ proof/evaluation modules. Closes the entire review plan (phases A-E, D1-D2).
+
+- ✅ Review plan fix implementation — Tiers 1-5, 6 (#42-43), 8 (#55-63) (2026-04-05): ~50 fixes from the consolidated Agda code review plan. **Tier 1**: dead code removal (Prelude, Endianness/Properties), stale comment fixes (7 files), combinator replacements (map, any?, filter), multi-rewrite simplification (subst/cong). **Tier 2**: stdlib replacements (find, map⁺, universal), function deduplication (require, parseCANId, signal finders), shared helpers (TruthVal lemmas, cong₃/cong₄). **Tier 3**: error message consistency (operation prefixes, unified strings). **Tier 4**: where-block extraction + module splits — 9 new modules: `DBC/Validator/{Checks,Formatting}`, `DBC/Validity/Combinators`, `LTL/SignalPredicate/{Types,Cache,Evaluation}`, `LTL/TruthVal/Properties`, `Protocol/StreamState/{Types,Internals}`. **Tier 5**: monadic style (traverse, maybe combinator). **Tier 6**: `ErrorCode` ADT replacing ℕ constants in `BatchExtraction`. **Tier 8**: `listToVec` bounds check (was silent truncation), wire format byte order docs, MAlonzo fragility comments. Total: 80 Agda modules (was 67). Remaining: Tier 6 #44-48 (large type redesigns) and Tier 7 #49-50,54 (structural refactors) — require user scope decisions.
+
 **Remaining**:
-- Binary FFI for signal extraction/frame building (currently still JSON; batch operations, not per-frame hot path)
 - DBC file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
-- Go multiplexing query helpers and batch operations (noted during R8 review)
+- Go multiplexing query helpers (noted during R8 review)
 
 **Status**: In progress
 
@@ -308,14 +311,14 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 67 (all `--safe --without-K`)
+- Agda modules: 80 (all `--safe --without-K`)
 - Python modules: 18
 - C++ files: 30 (14 public headers + 8 source + 3 internal headers in src/detail/ + 5 test files)
 - Go files: 17 source + 12 test
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 534 passing (via FFI)
+- Python tests: 545 passing (via FFI)
 - C++ tests: 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
 - Go tests: 243 passing (mock backend, `-race` clean)
 - Total: 1000+ tests
@@ -341,7 +344,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All Agda modules use `--safe --without-K` (2 also use `--no-main`; see Codebase metrics above for count)
+- All 80 Agda modules use `--safe --without-K` (2 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`

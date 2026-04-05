@@ -13,8 +13,11 @@
 -- Payload size is parameterized: CAN 2.0B uses n=8, CAN-FD uses n=12..64.
 module Aletheia.CAN.Frame where
 
-open import Data.Nat using (ℕ)
+open import Data.Bool using (T)
+open import Data.Nat using (ℕ; _<ᵇ_)
 open import Data.Vec using (Vec)
+
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
 
 -- Byte is ℕ at runtime for O(1) allocation.
 -- MAlonzo compiles ℕ to Integer via BUILTIN NATURAL (machine word for <2^63).
@@ -24,10 +27,12 @@ Byte : Set
 Byte = ℕ
 
 -- CAN ID type supporting both standard (11-bit) and extended (29-bit) IDs.
--- Fields use ℕ for O(1) MAlonzo allocation; bounds enforced at construction.
+-- Bounds are embedded via T (n <ᵇ max): O(1) proof (just tt) at runtime,
+-- but statically enforced at every construction site inside Agda.
+-- At the FFI boundary (Haskell shim), bounds are checked at runtime.
 data CANId : Set where
-  Standard : ℕ → CANId          -- 11-bit standard IDs (0x000-0x7FF)
-  Extended : ℕ → CANId          -- 29-bit extended IDs (0x00000000-0x1FFFFFFF)
+  Standard : (n : ℕ) → T (n <ᵇ standard-can-id-max) → CANId
+  Extended : (n : ℕ) → T (n <ᵇ extended-can-id-max) → CANId
 
 -- CAN frame parameterized by payload size n.
 -- CAN 2.0B: n = 8 (fixed). CAN-FD: n ∈ {0..8, 12, 16, 20, 24, 32, 48, 64}.

@@ -23,7 +23,8 @@ open import Aletheia.DBC.Validator using
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
-open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine; All-map; concatMap-≡[]-sound; concatMap-≡[]-complete)
+open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine)
+open import Aletheia.DBC.Validity.Combinators using (liftConcatMap-sound; liftConcatMap-complete)
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_; concatMap)
@@ -66,22 +67,14 @@ checkBitLengthZero-complete msgName sig neq
 checkAllBitLengthZero-sound : ∀ msgs →
   checkAllBitLengthZero msgs ≡ [] →
   All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
-checkAllBitLengthZero-sound [] _ = []
-checkAllBitLengthZero-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkBitLengthZero-sound (DBCMessage.name msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllBitLengthZero-sound rest eq₂
+checkAllBitLengthZero-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkBitLengthZero-sound (DBCMessage.name msg)) _
 
 checkAllBitLengthZero-complete : ∀ msgs →
   All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs →
   checkAllBitLengthZero msgs ≡ []
-checkAllBitLengthZero-complete [] [] = refl
-checkAllBitLengthZero-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkBitLengthZero-complete (DBCMessage.name msg) sig) pm))
-    (checkAllBitLengthZero-complete rest pms)
+checkAllBitLengthZero-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkBitLengthZero-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
 -- CHECK 3: FACTOR ZERO
@@ -104,22 +97,14 @@ checkFactorZeroSig-complete msgName sig neq
 checkAllFactorZero-sound : ∀ msgs →
   checkAllFactorZero msgs ≡ [] →
   All (λ m → All NonZeroFactor (DBCMessage.signals m)) msgs
-checkAllFactorZero-sound [] _ = []
-checkAllFactorZero-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkFactorZeroSig-sound (DBCMessage.name msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllFactorZero-sound rest eq₂
+checkAllFactorZero-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkFactorZeroSig-sound (DBCMessage.name msg)) _
 
 checkAllFactorZero-complete : ∀ msgs →
   All (λ m → All NonZeroFactor (DBCMessage.signals m)) msgs →
   checkAllFactorZero msgs ≡ []
-checkAllFactorZero-complete [] [] = refl
-checkAllFactorZero-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkFactorZeroSig-complete (DBCMessage.name msg) sig) pm))
-    (checkAllFactorZero-complete rest pms)
+checkAllFactorZero-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkFactorZeroSig-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
 -- CHECK 12: DLC OUT OF RANGE
@@ -138,13 +123,13 @@ checkDLCOutOfRange-complete msg p with bytesToDlc (DBCMessage.dlc msg) | p
 
 checkAllDLCOutOfRange-sound : ∀ msgs →
   checkAllDLCOutOfRange msgs ≡ [] → All ValidDLC msgs
-checkAllDLCOutOfRange-sound msgs eq =
-  All-map (λ m → checkDLCOutOfRange-sound m) (concatMap-≡[]-sound eq)
+checkAllDLCOutOfRange-sound =
+  liftConcatMap-sound checkDLCOutOfRange checkDLCOutOfRange-sound
 
 checkAllDLCOutOfRange-complete : ∀ msgs →
   All ValidDLC msgs → checkAllDLCOutOfRange msgs ≡ []
-checkAllDLCOutOfRange-complete msgs pf =
-  concatMap-≡[]-complete (All-map (λ m → checkDLCOutOfRange-complete m) pf)
+checkAllDLCOutOfRange-complete =
+  liftConcatMap-complete checkDLCOutOfRange checkDLCOutOfRange-complete
 
 -- ============================================================================
 -- CHECK 8: SIGNAL EXCEEDS DLC
@@ -171,24 +156,14 @@ checkSignalExceedsDLC-complete msgName dlc sig p
 checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →
   All (λ m → All (BitsInFrame (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs
-checkAllSignalExceedsDLC-sound [] _ = []
-checkAllSignalExceedsDLC-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkSignalExceedsDLC-sound
-                         (DBCMessage.name msg) (DBCMessage.dlc msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllSignalExceedsDLC-sound rest eq₂
+checkAllSignalExceedsDLC-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _ (checkSignalExceedsDLC-sound (DBCMessage.name msg) (DBCMessage.dlc msg)) _
 
 checkAllSignalExceedsDLC-complete : ∀ msgs →
   All (λ m → All (BitsInFrame (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs →
   checkAllSignalExceedsDLC msgs ≡ []
-checkAllSignalExceedsDLC-complete [] [] = refl
-checkAllSignalExceedsDLC-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkSignalExceedsDLC-complete
-                           (DBCMessage.name msg) (DBCMessage.dlc msg) sig) pm))
-    (checkAllSignalExceedsDLC-complete rest pms)
+checkAllSignalExceedsDLC-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _ (checkSignalExceedsDLC-complete (DBCMessage.name msg) (DBCMessage.dlc msg)) _
 
 -- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs (triangular)
@@ -209,18 +184,14 @@ checkDupIdPair-complete m1 m2 neq with DBCMessage.id m1 ≟-CANId DBCMessage.id 
 checkDupIdAgainstList-sound : ∀ m rest →
   checkDupIdAgainstList m rest ≡ [] →
   All (λ other → DBCMessage.id m ≢ DBCMessage.id other) rest
-checkDupIdAgainstList-sound _ [] _ = []
-checkDupIdAgainstList-sound m (other ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupIdPair-sound m other eq₁ ∷ checkDupIdAgainstList-sound m rest eq₂
+checkDupIdAgainstList-sound m =
+  liftConcatMap-sound (checkDupIdPair m) (checkDupIdPair-sound m)
 
 checkDupIdAgainstList-complete : ∀ m rest →
   All (λ other → DBCMessage.id m ≢ DBCMessage.id other) rest →
   checkDupIdAgainstList m rest ≡ []
-checkDupIdAgainstList-complete _ [] [] = refl
-checkDupIdAgainstList-complete m (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkDupIdPair-complete m other p)
-                 (checkDupIdAgainstList-complete m rest ps)
+checkDupIdAgainstList-complete m =
+  liftConcatMap-complete (checkDupIdPair m) (checkDupIdPair-complete m)
 
 checkDuplicateMessageIds-sound : ∀ msgs →
   checkDuplicateMessageIds msgs ≡ [] →
@@ -258,19 +229,14 @@ checkDupSigPair-complete msgName s1 s2 neq with DBCSignal.name s1 ≟ DBCSignal.
 checkDupSigAgainstList-sound : ∀ msgName sig rest →
   checkDupSigAgainstList msgName sig rest ≡ [] →
   All (λ other → DBCSignal.name sig ≢ DBCSignal.name other) rest
-checkDupSigAgainstList-sound _ _ [] _ = []
-checkDupSigAgainstList-sound msgName sig (other ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupSigPair-sound msgName sig other eq₁ ∷
-     checkDupSigAgainstList-sound msgName sig rest eq₂
+checkDupSigAgainstList-sound msgName sig =
+  liftConcatMap-sound (checkDupSigPair msgName sig) (checkDupSigPair-sound msgName sig)
 
 checkDupSigAgainstList-complete : ∀ msgName sig rest →
   All (λ other → DBCSignal.name sig ≢ DBCSignal.name other) rest →
   checkDupSigAgainstList msgName sig rest ≡ []
-checkDupSigAgainstList-complete _ _ [] [] = refl
-checkDupSigAgainstList-complete msgName sig (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkDupSigPair-complete msgName sig other p)
-                 (checkDupSigAgainstList-complete msgName sig rest ps)
+checkDupSigAgainstList-complete msgName sig =
+  liftConcatMap-complete (checkDupSigPair msgName sig) (checkDupSigPair-complete msgName sig)
 
 -- Now using the exposed top-level checkDupSigTriangular
 checkDupSigTriangular-sound : ∀ msgName sigs →
@@ -294,21 +260,15 @@ checkAllDuplicateSignalNames-sound : ∀ msgs →
   checkAllDuplicateSignalNames msgs ≡ [] →
   All (λ m → AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂)
                        (DBCMessage.signals m)) msgs
-checkAllDuplicateSignalNames-sound [] _ = []
-checkAllDuplicateSignalNames-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupSigTriangular-sound (DBCMessage.name msg) (DBCMessage.signals msg) eq₁ ∷
-     checkAllDuplicateSignalNames-sound rest eq₂
+checkAllDuplicateSignalNames-sound = liftConcatMap-sound _ λ msg →
+  checkDupSigTriangular-sound (DBCMessage.name msg) (DBCMessage.signals msg)
 
 checkAllDuplicateSignalNames-complete : ∀ msgs →
   All (λ m → AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂)
                        (DBCMessage.signals m)) msgs →
   checkAllDuplicateSignalNames msgs ≡ []
-checkAllDuplicateSignalNames-complete [] [] = refl
-checkAllDuplicateSignalNames-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (checkDupSigTriangular-complete (DBCMessage.name msg) (DBCMessage.signals msg) pm)
-    (checkAllDuplicateSignalNames-complete rest pms)
+checkAllDuplicateSignalNames-complete = liftConcatMap-complete _ λ msg →
+  checkDupSigTriangular-complete (DBCMessage.name msg) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 9: SIGNAL OVERLAP (nested triangular via signalPairValid?)
@@ -329,19 +289,14 @@ checkOverlapPair-complete msgName n s1 s2 p with signalPairValid? n s1 s2
 checkOverlapAgainstList-sound : ∀ msgName n sig rest →
   checkOverlapAgainstList msgName n sig rest ≡ [] →
   All (SignalPairValid n sig) rest
-checkOverlapAgainstList-sound _ _ _ [] _ = []
-checkOverlapAgainstList-sound msgName n sig (other ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapPair-sound msgName n sig other eq₁ ∷
-     checkOverlapAgainstList-sound msgName n sig rest eq₂
+checkOverlapAgainstList-sound msgName n sig =
+  liftConcatMap-sound (checkOverlapPair msgName n sig) (checkOverlapPair-sound msgName n sig)
 
 checkOverlapAgainstList-complete : ∀ msgName n sig rest →
   All (SignalPairValid n sig) rest →
   checkOverlapAgainstList msgName n sig rest ≡ []
-checkOverlapAgainstList-complete _ _ _ [] [] = refl
-checkOverlapAgainstList-complete msgName n sig (other ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkOverlapPair-complete msgName n sig other p)
-                 (checkOverlapAgainstList-complete msgName n sig rest ps)
+checkOverlapAgainstList-complete msgName n sig =
+  liftConcatMap-complete (checkOverlapPair msgName n sig) (checkOverlapPair-complete msgName n sig)
 
 checkOverlapTriangular-sound : ∀ msgName n sigs →
   checkOverlapTriangular msgName n sigs ≡ [] →
@@ -363,22 +318,16 @@ checkOverlapTriangular-complete msgName n (sig ∷ rest) (p ∷ ps) =
 checkAllSignalOverlaps-sound : ∀ msgs →
   checkAllSignalOverlaps msgs ≡ [] →
   All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs
-checkAllSignalOverlaps-sound [] _ = []
-checkAllSignalOverlaps-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapTriangular-sound (DBCMessage.name msg) (DBCMessage.dlc msg)
-       (DBCMessage.signals msg) eq₁ ∷
-     checkAllSignalOverlaps-sound rest eq₂
+checkAllSignalOverlaps-sound = liftConcatMap-sound _ λ msg →
+  checkOverlapTriangular-sound (DBCMessage.name msg) (DBCMessage.dlc msg)
+    (DBCMessage.signals msg)
 
 checkAllSignalOverlaps-complete : ∀ msgs →
   All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs →
   checkAllSignalOverlaps msgs ≡ []
-checkAllSignalOverlaps-complete [] [] = refl
-checkAllSignalOverlaps-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (checkOverlapTriangular-complete (DBCMessage.name msg) (DBCMessage.dlc msg)
-       (DBCMessage.signals msg) pm)
-    (checkAllSignalOverlaps-complete rest pms)
+checkAllSignalOverlaps-complete = liftConcatMap-complete _ λ msg →
+  checkOverlapTriangular-complete (DBCMessage.name msg) (DBCMessage.dlc msg)
+    (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 4: MULTIPLEXOR NOT FOUND
@@ -407,26 +356,18 @@ checkAllMuxFound-sound : ∀ msgs →
   All (λ m → All (λ sig → MuxResolvable (DBCMessage.signals m)
                                           (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs
-checkAllMuxFound-sound [] _ = []
-checkAllMuxFound-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkMuxFoundSig-sound
-                         (DBCMessage.name msg) (DBCMessage.signals msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllMuxFound-sound rest eq₂
+checkAllMuxFound-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _
+    (checkMuxFoundSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
 
 checkAllMuxFound-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxResolvable (DBCMessage.signals m)
                                           (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs →
   checkAllMuxFound msgs ≡ []
-checkAllMuxFound-complete [] [] = refl
-checkAllMuxFound-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkMuxFoundSig-complete
-                           (DBCMessage.name msg) (DBCMessage.signals msg) sig) pm))
-    (checkAllMuxFound-complete rest pms)
+checkAllMuxFound-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _
+    (checkMuxFoundSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _
 
 -- ============================================================================
 -- CHECK 5: MULTIPLEXOR NOT ALWAYS PRESENT
@@ -457,23 +398,15 @@ checkAllMuxAlwaysPresent-sound : ∀ msgs →
   All (λ m → All (λ sig → MuxIsAlways (DBCMessage.signals m)
                                         (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs
-checkAllMuxAlwaysPresent-sound [] _ = []
-checkAllMuxAlwaysPresent-sound (msg ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in All-map (λ sig → checkMuxAlwaysPresentSig-sound
-                         (DBCMessage.name msg) (DBCMessage.signals msg) sig)
-             (concatMap-≡[]-sound eq₁)
-     ∷ checkAllMuxAlwaysPresent-sound rest eq₂
+checkAllMuxAlwaysPresent-sound = liftConcatMap-sound _ λ msg →
+  liftConcatMap-sound _
+    (checkMuxAlwaysPresentSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
 
 checkAllMuxAlwaysPresent-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxIsAlways (DBCMessage.signals m)
                                         (DBCSignal.presence sig))
                   (DBCMessage.signals m)) msgs →
   checkAllMuxAlwaysPresent msgs ≡ []
-checkAllMuxAlwaysPresent-complete [] [] = refl
-checkAllMuxAlwaysPresent-complete (msg ∷ rest) (pm ∷ pms) =
-  ++-≡[]-combine
-    (concatMap-≡[]-complete
-      (All-map (λ sig → checkMuxAlwaysPresentSig-complete
-                           (DBCMessage.name msg) (DBCMessage.signals msg) sig) pm))
-    (checkAllMuxAlwaysPresent-complete rest pms)
+checkAllMuxAlwaysPresent-complete = liftConcatMap-complete _ λ msg →
+  liftConcatMap-complete _
+    (checkMuxAlwaysPresentSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _

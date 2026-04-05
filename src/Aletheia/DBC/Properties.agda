@@ -10,7 +10,7 @@
 module Aletheia.DBC.Properties where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; physicalBitPos; _≟-ByteOrder_)
 open import Data.List using (List; []; _∷_)

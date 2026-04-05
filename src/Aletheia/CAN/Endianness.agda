@@ -3,12 +3,10 @@
 -- Byte order handling for CAN signal extraction (little/big endian).
 --
 -- Purpose: Convert between little-endian and big-endian byte representations.
--- Operations: byteSwap (reverse bytes), proven involutive (swap ∘ swap ≡ id).
+-- Operations: swapBytes (reverse bytes), proven involutive (swap ∘ swap ≡ id).
 -- Role: Used by CAN.Encoding to handle different signal byte orders in DBC.
 --
 -- Architecture: Uses BitVec for structural bit operations, not arithmetic.
--- Proof: byteSwap is its own inverse (Phase 1 proof, verified).
---
 -- Proofs live in Aletheia.CAN.Endianness.Properties (separate module).
 module Aletheia.CAN.Endianness where
 
@@ -47,7 +45,8 @@ bitVecToByte bits = bitVecToℕ bits
 -- BIT EXTRACTION AND INJECTION (STRUCTURAL)
 -- ============================================================================
 
--- Safe lookup (returns 0 if out of bounds)
+-- Safe lookup: returns 0 for out-of-bounds indices.
+-- Callers validated by DBC condition 6 (startBit + bitLength ≤ dlc × 8).
 lookupSafe : (n : ℕ) → ℕ → Vec Byte n → Byte
 lookupSafe zero _ _ = 0
 lookupSafe (suc n) zero (b ∷ _) = b

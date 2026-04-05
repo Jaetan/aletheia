@@ -71,16 +71,16 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 67 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 80 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (67 total):
-- **65 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (80 total):
+- **78 modules**: `--safe --without-K` (standard safe modules)
 - **1 module**: `--safe --without-K --no-main` (Parser/Combinators.agda)
 - **1 module**: `--safe --without-K --no-main` (Main.agda)
 
-**All 67 modules use `--safe`**. No modules require `--sized-types`.
+**All 80 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -405,4 +405,4 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-04):** extractSignalCoreFast equivalence proof complete. Binary API proofs (properties 16-22) complete. AGENTS.md updated with where-block provability guideline. Next: index-based signal lookup proof.
+**Latest (2026-04-05):** Review plan implementation — ~50 fixes across Tiers 1-5 (all), Tier 6 (#42-43), Tier 8 (#55-63). 9 new modules from where-block extraction + module splits. 80 Agda modules total. Tiers 6 (#44-48) and 7 (#49-50,54) remain as user-scoped items. Changes uncommitted. All tests pass (545 Python, 5 C++ suites, all Go with -race).

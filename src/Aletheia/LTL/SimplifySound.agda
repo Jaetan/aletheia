@@ -31,7 +31,7 @@ open import Function.Bundles using (Equivalence)
 open import Aletheia.LTL.Coalgebra using (
   LTLProc; PredTable; stepL; finalizeL;
   Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
-  MetricEventuallyProc; MetricAlwaysProc; MetricUntilProc; MetricReleaseProc)
+  MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Simplify using (finalizesHolds; absorb; simplify; _≡ᵇ-proc_)
 open import Aletheia.LTL.Incremental using (
   StepResult; Continue; Violated; Satisfied;
@@ -78,25 +78,25 @@ private
 ≡ᵇ-proc-correct (Release φ₁ ψ₁) (Release φ₂ ψ₂) p =
   let (p₁ , p₂) = Equivalence.to T-∧ p
   in cong₂ Release (≡ᵇ-proc-correct φ₁ φ₂ p₁) (≡ᵇ-proc-correct ψ₁ ψ₂ p₂)
-≡ᵇ-proc-correct (MetricEventuallyProc w₁ s₁ φ₁) (MetricEventuallyProc w₂ s₂ φ₂) p =
+≡ᵇ-proc-correct (MetricEventually w₁ s₁ φ₁) (MetricEventually w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricEventuallyProc (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
-≡ᵇ-proc-correct (MetricAlwaysProc w₁ s₁ φ₁) (MetricAlwaysProc w₂ s₂ φ₂) p =
+  in cong₃ MetricEventually (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+≡ᵇ-proc-correct (MetricAlways w₁ s₁ φ₁) (MetricAlways w₂ s₂ φ₂) p =
   let (pw , ps∧pφ) = Equivalence.to T-∧ p
       (ps , pφ)    = Equivalence.to T-∧ ps∧pφ
-  in cong₃ MetricAlwaysProc (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
-≡ᵇ-proc-correct (MetricUntilProc w₁ s₁ φ₁ ψ₁) (MetricUntilProc w₂ s₂ φ₂ ψ₂) p =
+  in cong₃ MetricAlways (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps) (≡ᵇ-proc-correct φ₁ φ₂ pφ)
+≡ᵇ-proc-correct (MetricUntil w₁ s₁ φ₁ ψ₁) (MetricUntil w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricUntilProc (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricUntil (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
-≡ᵇ-proc-correct (MetricReleaseProc w₁ s₁ φ₁ ψ₁) (MetricReleaseProc w₂ s₂ φ₂ ψ₂) p =
+≡ᵇ-proc-correct (MetricRelease w₁ s₁ φ₁ ψ₁) (MetricRelease w₂ s₂ φ₂ ψ₂) p =
   let (pw , ps∧rest)  = Equivalence.to T-∧ p
       (ps , pφ∧pψ)   = Equivalence.to T-∧ ps∧rest
       (pφ , pψ)      = Equivalence.to T-∧ pφ∧pψ
-  in cong₄ MetricReleaseProc (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
+  in cong₄ MetricRelease (≡ᵇ⇒≡ w₁ w₂ pw) (≡ᵇ⇒≡ s₁ s₂ ps)
            (≡ᵇ-proc-correct φ₁ φ₂ pφ) (≡ᵇ-proc-correct ψ₁ ψ₂ pψ)
 
 -- ============================================================================
@@ -423,10 +423,10 @@ absorb-runL table (And _ (Next _)) σ = refl
 absorb-runL table (And _ (Eventually _)) σ = refl
 absorb-runL table (And _ (Until _ _)) σ = refl
 absorb-runL table (And _ (Release _ _)) σ = refl
-absorb-runL table (And _ (MetricEventuallyProc _ _ _)) σ = refl
-absorb-runL table (And _ (MetricAlwaysProc _ _ _)) σ = refl
-absorb-runL table (And _ (MetricUntilProc _ _ _ _)) σ = refl
-absorb-runL table (And _ (MetricReleaseProc _ _ _ _)) σ = refl
+absorb-runL table (And _ (MetricEventually _ _ _)) σ = refl
+absorb-runL table (And _ (MetricAlways _ _ _)) σ = refl
+absorb-runL table (And _ (MetricUntil _ _ _ _)) σ = refl
+absorb-runL table (And _ (MetricRelease _ _ _ _)) σ = refl
 -- Catch-all: Or with second arg ∉ {Eventually, Or} — absorb returns input
 absorb-runL table (Or _ (Atomic _)) σ = refl
 absorb-runL table (Or _ (Not _)) σ = refl
@@ -435,10 +435,10 @@ absorb-runL table (Or _ (Next _)) σ = refl
 absorb-runL table (Or _ (Always _)) σ = refl
 absorb-runL table (Or _ (Until _ _)) σ = refl
 absorb-runL table (Or _ (Release _ _)) σ = refl
-absorb-runL table (Or _ (MetricEventuallyProc _ _ _)) σ = refl
-absorb-runL table (Or _ (MetricAlwaysProc _ _ _)) σ = refl
-absorb-runL table (Or _ (MetricUntilProc _ _ _ _)) σ = refl
-absorb-runL table (Or _ (MetricReleaseProc _ _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricEventually _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricAlways _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricUntil _ _ _ _)) σ = refl
+absorb-runL table (Or _ (MetricRelease _ _ _ _)) σ = refl
 -- All other constructors — absorb returns input
 absorb-runL table (Atomic _) σ = refl
 absorb-runL table (Not _) σ = refl
@@ -447,10 +447,10 @@ absorb-runL table (Always _) σ = refl
 absorb-runL table (Eventually _) σ = refl
 absorb-runL table (Until _ _) σ = refl
 absorb-runL table (Release _ _) σ = refl
-absorb-runL table (MetricEventuallyProc _ _ _) σ = refl
-absorb-runL table (MetricAlwaysProc _ _ _) σ = refl
-absorb-runL table (MetricUntilProc _ _ _ _) σ = refl
-absorb-runL table (MetricReleaseProc _ _ _ _) σ = refl
+absorb-runL table (MetricEventually _ _ _) σ = refl
+absorb-runL table (MetricAlways _ _ _) σ = refl
+absorb-runL table (MetricUntil _ _ _ _) σ = refl
+absorb-runL table (MetricRelease _ _ _ _) σ = refl
 
 -- ============================================================================
 -- SECTION 7: simplify preserves runL
@@ -470,7 +470,7 @@ simplify-runL table (Always _) σ = refl
 simplify-runL table (Eventually _) σ = refl
 simplify-runL table (Until _ _) σ = refl
 simplify-runL table (Release _ _) σ = refl
-simplify-runL table (MetricEventuallyProc _ _ _) σ = refl
-simplify-runL table (MetricAlwaysProc _ _ _) σ = refl
-simplify-runL table (MetricUntilProc _ _ _ _) σ = refl
-simplify-runL table (MetricReleaseProc _ _ _ _) σ = refl
+simplify-runL table (MetricEventually _ _ _) σ = refl
+simplify-runL table (MetricAlways _ _ _) σ = refl
+simplify-runL table (MetricUntil _ _ _ _) σ = refl
+simplify-runL table (MetricRelease _ _ _ _) σ = refl

@@ -3,8 +3,9 @@
 -- Message-level well-formedness proofs for the DBC JSON parser.
 --
 -- Purpose: Prove that if parseMessage/parseMessageList succeeds, the result
--- satisfies WellFormedMessage (dlc ≤ 8, WellFormedCANId, all signals WF).
--- Key insight: The parser enforces bounds via _%_ and _<ᵇ_/_≤ᵇ_ guards.
+-- satisfies WellFormedMessage (dlc ≤ 64, all signals WF).
+-- Key insight: The parser enforces bounds via _<ᵇ_/_≤ᵇ_ guards.
+-- CAN ID bounds are now intrinsic in the CANId type (T (n <ᵇ max)).
 -- Role: Used by Properties for the top-level parse-wellformed theorem.
 module Aletheia.DBC.JSONParser.MessageWF where
 
@@ -22,15 +23,14 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst
 open import Data.Nat.Properties using (≤ᵇ⇒≤)
 
 open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupBool; lookupNat; lookupArray)
-open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+  lookupString; lookupNat; lookupArray)
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.Types using (DBCMessage)
-open import Aletheia.DBC.JSONParser using (parseCANId; parseMessageId; parseMessageBody;
+open import Aletheia.DBC.JSONParser using (parseMessageId; parseMessageBody;
   parseMessageFields; parseMessage; parseMessageList; parseSignalList)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; WellFormedCANId;
-  WellFormedMessage; wf-standard; wf-extended)
+open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
+  WellFormedMessage)
 open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
 
 -- ============================================================================
 -- HELPERS
@@ -42,55 +42,15 @@ private
   <suc⇒≤ (s≤s p) = p
 
 -- ============================================================================
--- CAN ID WELL-FORMEDNESS
--- ============================================================================
-
--- If parseCANId succeeds, the result is well-formed.
--- Strategy: with on lookupBool "extended", then with on rawId <ᵇ max.
--- In each success case, the ID uses _%_ modulo and m%n<n provides the bound.
-parseCANId-wf : ∀ ctx rawId obj canId
-  → parseCANId ctx rawId obj ≡ inj₂ canId → WellFormedCANId canId
-parseCANId-wf ctx rawId obj canId eq
-  with lookupBool "extended" obj
-... | just true
-  with Data.Nat._<ᵇ_ rawId extended-can-id-max | eq
-...   | true  | refl = wf-extended (m%n<n rawId extended-can-id-max)
-...   | false | ()
--- Note: just false / nothing cases are identical but can't be merged with _
--- because Agda needs the concrete constructor to reduce parseCANId.
-parseCANId-wf ctx rawId obj canId eq
-  | just false
-  with Data.Nat._<ᵇ_ rawId standard-can-id-max | eq
-...   | true  | refl = wf-standard (m%n<n rawId standard-can-id-max)
-...   | false | ()
-parseCANId-wf ctx rawId obj canId eq
-  | nothing
-  with Data.Nat._<ᵇ_ rawId standard-can-id-max | eq
-...   | true  | refl = wf-standard (m%n<n rawId standard-can-id-max)
-...   | false | ()
-
--- ============================================================================
--- MESSAGE ID WELL-FORMEDNESS
--- ============================================================================
-
--- If parseMessageId succeeds, the result is well-formed.
-parseMessageId-wf : ∀ ctx obj canId
-  → parseMessageId ctx obj ≡ inj₂ canId → WellFormedCANId canId
-parseMessageId-wf ctx obj canId eq
-  with lookupNat "id" obj | eq
-... | nothing | ()
-... | just rawId | eq' = parseCANId-wf ctx rawId obj canId eq'
-
--- ============================================================================
 -- MESSAGE BODY WELL-FORMEDNESS
 -- ============================================================================
 
--- If parseMessageBody succeeds with a well-formed CAN ID, the result is well-formed.
+-- If parseMessageBody succeeds, the result is well-formed.
+-- CAN ID bounds are intrinsic in the CANId type, so no id-wf parameter needed.
 parseMessageBody-wf : ∀ ctx name canId obj msg
-  → WellFormedCANId canId
   → parseMessageBody ctx name canId obj ≡ inj₂ msg
   → WellFormedMessage msg
-parseMessageBody-wf ctx name canId obj msg id-wf eq
+parseMessageBody-wf ctx name canId obj msg eq
   with lookupNat "dlc" obj | eq
 ... | nothing | ()
 ... | just rawDlc | eq₁
@@ -106,7 +66,6 @@ parseMessageBody-wf ctx name canId obj msg id-wf eq
         with rawDlc ≤ᵇ 64 in leq-eq | eq₄
 ...         | true  | refl = record
               { dlc-bound  = <suc⇒≤ (m%n<n rawDlc 65)
-              ; id-wf      = id-wf
               ; signals-wf = parseSignalList-wf rawDlc ctx signalsJSON 0 signals
                                (≤ᵇ⇒≤ rawDlc 64 (subst T (sym leq-eq) tt)) sig-eq
               }
@@ -117,15 +76,14 @@ parseMessageBody-wf ctx name canId obj msg id-wf eq
 -- ============================================================================
 
 -- If parseMessageFields succeeds, the result is well-formed.
--- Intermediate lemma: composes parseMessageId-wf and parseMessageBody-wf.
+-- Intermediate lemma: composes parseMessageId and parseMessageBody-wf.
 parseMessageFields-wf : ∀ ctx name obj msg
   → parseMessageFields ctx name obj ≡ inj₂ msg → WellFormedMessage msg
 parseMessageFields-wf ctx name obj msg eq
   with parseMessageId ctx obj in id-eq | eq
 ... | inj₁ _ | ()
 ... | inj₂ canId | eq' =
-    parseMessageBody-wf ctx name canId obj msg
-      (parseMessageId-wf ctx obj canId id-eq) eq'
+    parseMessageBody-wf ctx name canId obj msg eq'
 
 -- ============================================================================
 -- MESSAGE WELL-FORMEDNESS

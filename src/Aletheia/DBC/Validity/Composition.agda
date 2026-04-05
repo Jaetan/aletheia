@@ -28,7 +28,7 @@ open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-s
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
+open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.String.Properties using (_≟_)
@@ -50,10 +50,6 @@ private
   W : ValidationIssue → Set
   W i = ValidationIssue.severity i ≡ IsWarning
 
-  -- Lift a universal proof (∀ x → P x) to All P xs (simpler than stdlib's tabulate which takes membership)
-  All-tab : ∀ {A : Set} {P : A → Set} → (∀ x → P x) → ∀ xs → All P xs
-  All-tab _ [] = []
-  All-tab f (x ∷ xs) = f x ∷ All-tab f xs
 
 -- ============================================================================
 -- CORE errorIssues LEMMAS
@@ -198,26 +194,26 @@ checkAllDuplicateSignalNames-allE (msg ∷ rest) =
 
 -- Check 3
 checkAllFactorZero-allE : ∀ msgs → All E (checkAllFactorZero msgs)
-checkAllFactorZero-allE msgs = All-concatMap (All-tab (λ msg →
-  All-concatMap (All-tab (checkFactorZeroSig-allE (DBCMessage.name msg))
+checkAllFactorZero-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkFactorZeroSig-allE (DBCMessage.name msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 4
 checkAllMuxFound-allE : ∀ msgs → All E (checkAllMuxFound msgs)
-checkAllMuxFound-allE msgs = All-concatMap (All-tab (λ msg →
-  All-concatMap (All-tab (checkMuxFoundSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+checkAllMuxFound-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkMuxFoundSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 5
 checkAllMuxAlwaysPresent-allE : ∀ msgs → All E (checkAllMuxAlwaysPresent msgs)
-checkAllMuxAlwaysPresent-allE msgs = All-concatMap (All-tab (λ msg →
-  All-concatMap (All-tab (checkMuxAlwaysPresentSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+checkAllMuxAlwaysPresent-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkMuxAlwaysPresentSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 8
 checkAllSignalExceedsDLC-allE : ∀ msgs → All E (checkAllSignalExceedsDLC msgs)
-checkAllSignalExceedsDLC-allE msgs = All-concatMap (All-tab (λ msg →
-  All-concatMap (All-tab (checkSignalExceedsDLC-allE (DBCMessage.name msg) (DBCMessage.dlc msg))
+checkAllSignalExceedsDLC-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkSignalExceedsDLC-allE (DBCMessage.name msg) (DBCMessage.dlc msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 9
@@ -236,17 +232,17 @@ checkOverlapTriangular-allE msgName n (sig ∷ rest) =
          (checkOverlapTriangular-allE msgName n rest)
 
 checkAllSignalOverlaps-allE : ∀ msgs → All E (checkAllSignalOverlaps msgs)
-checkAllSignalOverlaps-allE msgs = All-concatMap (All-tab (λ msg →
+checkAllSignalOverlaps-allE msgs = All-concatMap (universal (λ msg →
   checkOverlapTriangular-allE (DBCMessage.name msg) (DBCMessage.dlc msg)
                               (DBCMessage.signals msg)) msgs)
 
 -- Check 10
 checkAllBitLengthZero-allE : ∀ msgs → All E (checkAllBitLengthZero msgs)
-checkAllBitLengthZero-allE msgs = All-concatMap (All-tab (λ msg →
-  All-concatMap (All-tab (checkBitLengthZero-allE (DBCMessage.name msg))
+checkAllBitLengthZero-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkBitLengthZero-allE (DBCMessage.name msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 12
 checkAllDLCOutOfRange-allE : ∀ msgs → All E (checkAllDLCOutOfRange msgs)
 checkAllDLCOutOfRange-allE msgs =
-  All-concatMap (All-tab checkDLCOutOfRange-allE msgs)
+  All-concatMap (universal checkDLCOutOfRange-allE msgs)

@@ -13,7 +13,7 @@
 module Aletheia.Protocol.Handlers where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_; reverse)
+open import Data.List using (List; []; _∷_; map; reverse)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; zero; suc; _+_)
 open import Data.Nat.Show using () renaming (show to showℕ)
@@ -22,6 +22,7 @@ open import Data.Bool using (if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Rational using (ℚ)
+open import Aletheia.Prelude using (errNoDBC)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
@@ -72,7 +73,7 @@ private
   -- Common preamble: validate DBC loaded (prefixes error with command name)
   withDBC : String → StreamState → (DBC → StreamState × Response) → StreamState × Response
   withDBC cmd state cont with StreamState.dbc state
-  ... | nothing  = (state , Response.Error (cmd ++ₛ ": DBC not loaded"))
+  ... | nothing  = (state , Response.Error (cmd ++ₛ ": " ++ₛ errNoDBC))
   ... | just dbc = cont dbc
 
 -- ============================================================================
@@ -95,33 +96,44 @@ handleParseDBC dbcJSON state =
          else let newState = mkStreamState ReadyToStream (just dbc) [] nothing emptyCache
               in (newState , Response.Success "DBC parsed and validated successfully")
 
+-- Parse property list (extracted from where-block for proof access)
+parseAllProperties : StreamState → List JSON → ℕ → List PropertyState → StreamState × Response
+parseAllProperties state [] idx acc =
+  let newState = mkStreamState ReadyToStream (StreamState.dbc state) (reverse acc) nothing emptyCache
+  in (newState , Response.Success "Properties set successfully")
+parseAllProperties state (json ∷ rest) idx acc with parseProperty json
+... | nothing = (state , Response.Error ("SetProperties: failed to parse property " ++ₛ showℕ idx))
+... | just prop =
+    let atoms = collectAtoms prop
+        proc = initProc (indexFormula prop)
+        propState = mkPropertyState idx prop atoms proc
+    in parseAllProperties state rest (idx + 1) (propState ∷ acc)
+
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
 handleSetProperties propJSONs state with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error "SetProperties: DBC not loaded")
-... | ReadyToStream = parseAllProperties propJSONs 0 []
-  where
-    parseAllProperties : List JSON → ℕ → List PropertyState → StreamState × Response
-    parseAllProperties [] idx acc =
-      let newState = mkStreamState ReadyToStream (StreamState.dbc state) (reverse acc) nothing emptyCache
-      in (newState , Response.Success "Properties set successfully")
-    parseAllProperties (json ∷ rest) idx acc with parseProperty json
-    ... | nothing = (state , Response.Error ("SetProperties: failed to parse property " ++ₛ showℕ idx))
-    ... | just prop =
-        let atoms = collectAtoms prop
-            proc = initProc (indexFormula prop)
-            propState = mkPropertyState idx prop atoms proc
-        in parseAllProperties rest (idx + 1) (propState ∷ acc)
+... | WaitingForDBC = (state , Response.Error ("SetProperties: " ++ₛ errNoDBC))
+... | ReadyToStream = parseAllProperties state propJSONs 0 []
 ... | Streaming = (state , Response.Error "SetProperties: stream is active")
 
 -- Start stream command: transition to streaming mode
 handleStartStream : StreamState → StreamState × Response
 handleStartStream state with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error "StartStream: DBC not loaded")
+... | WaitingForDBC = (state , Response.Error ("StartStream: " ++ₛ errNoDBC))
 ... | ReadyToStream =
   let newState = mkStreamState Streaming (StreamState.dbc state) (StreamState.properties state) nothing (StreamState.signalCache state)
   in (newState , Response.Success "Streaming started")
 ... | Streaming = (state , Response.Error "StartStream: already streaming")
+
+-- Convert final verdict to property result (extracted for proof access)
+verdictToResult : ℕ → FinalVerdict → PR.PropertyResult
+verdictToResult idx Holds = PR.PropertyResult.Satisfaction idx
+verdictToResult idx (Fails reason) = PR.PropertyResult.Violation idx (mkCounterexampleData 0 reason)
+
+-- Finalize all properties with verdicts (extracted for proof access)
+finalizeProperties : List PropertyState → List PR.PropertyResult
+finalizeProperties = map λ ps →
+  verdictToResult (PropertyState.index ps) (finalizeL (PropertyState.proc ps))
 
 -- End stream command: finalize all properties and transition back to ready state
 handleEndStream : StreamState → StreamState × Response
@@ -130,15 +142,6 @@ handleEndStream state with StreamState.phase state
   let newState = mkStreamState ReadyToStream (StreamState.dbc state) (StreamState.properties state) (StreamState.prevFrame state) (StreamState.signalCache state)
       results = finalizeProperties (StreamState.properties state)
   in (newState , Response.Complete results)
-  where
-    verdictToResult : ℕ → FinalVerdict → PR.PropertyResult
-    verdictToResult idx Holds = PR.PropertyResult.Satisfaction idx
-    verdictToResult idx (Fails reason) = PR.PropertyResult.Violation idx (mkCounterexampleData 0 reason)
-    finalizeProperties : List PropertyState → List PR.PropertyResult
-    finalizeProperties [] = []
-    finalizeProperties (propState ∷ rest) =
-      verdictToResult (PropertyState.index propState) (finalizeL (PropertyState.proc propState))
-      ∷ finalizeProperties rest
 ... | _ = (state , Response.Error "EndStream: not currently streaming")
 
 -- Build CAN frame from signal values

@@ -36,9 +36,11 @@ module Aletheia.Protocol.FrameProcessor.Properties where
 open import Aletheia.Protocol.StreamState
     using (StreamState; StreamPhase; WaitingForDBC; ReadyToStream; Streaming;
            handleDataFrame; PropertyState; mkPropertyState;
-           classifyStepResult; stepProperty; dispatchIterResult;
+           collectAtoms; indexFormula)
+open import Aletheia.Protocol.StreamState.Internals
+    using (classifyStepResult; stepProperty; dispatchIterResult;
            mkPredTable; updateCacheFromFrame; updateSignals;
-           collectAtomsAcc; collectAtoms; indexHelper; indexFormula; lookupAtom)
+           collectAtomsAcc; indexHelper; lookupAtom)
 open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)

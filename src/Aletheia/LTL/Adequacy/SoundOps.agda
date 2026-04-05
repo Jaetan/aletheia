@@ -19,6 +19,8 @@ module Aletheia.LTL.Adequacy.SoundOps where
 open import Aletheia.Prelude
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending;
   notTV; _∧TV_; _∨TV_)
+open import Aletheia.LTL.TruthVal.Properties using
+  (∧TV-false-r; ∨TV-true-r; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r; ∨TV-false-l)
 
 -- ============================================================================
 -- MONITORING SOUNDNESS (Sound)
@@ -49,48 +51,6 @@ data Sound : TruthVal → TruthVal → Set where
 -- overlapping clause patterns for ∧TV/∨TV prevent automatic reduction
 -- when one argument is abstract (e.g., True ∧TV y doesn't reduce since
 -- clause 1 checks first-arg=False, blocking clause 2's match on y).
-
-private
-  -- Any a: a ∧TV False = False
-  ∧TV-false-r : ∀ a → (a ∧TV False) ≡ False
-  ∧TV-false-r True    = refl
-  ∧TV-false-r False   = refl
-  ∧TV-false-r Unknown = refl
-  ∧TV-false-r Pending = refl
-
-  -- Any a: a ∨TV True = True
-  ∨TV-true-r : ∀ a → (a ∨TV True) ≡ True
-  ∨TV-true-r True    = refl
-  ∨TV-true-r False   = refl
-  ∨TV-true-r Unknown = refl
-  ∨TV-true-r Pending = refl
-
-  ∨TV-false-r : ∀ a → (a ∨TV False) ≡ a
-  ∨TV-false-r True    = refl
-  ∨TV-false-r False   = refl
-  ∨TV-false-r Unknown = refl
-  ∨TV-false-r Pending = refl
-
-  -- True ∧TV b = b (left identity)
-  ∧TV-true-l : ∀ b → (True ∧TV b) ≡ b
-  ∧TV-true-l True    = refl
-  ∧TV-true-l False   = refl
-  ∧TV-true-l Unknown = refl
-  ∧TV-true-l Pending = refl
-
-  -- Any a: a ∧TV True = a (right identity for ∧)
-  ∧TV-true-r : ∀ a → (a ∧TV True) ≡ a
-  ∧TV-true-r True    = refl
-  ∧TV-true-r False   = refl
-  ∧TV-true-r Unknown = refl
-  ∧TV-true-r Pending = refl
-
-  -- False ∨TV b = b (left identity for ∨)
-  ∨TV-false-l : ∀ b → (False ∨TV b) ≡ b
-  ∨TV-false-l True    = refl
-  ∨TV-false-l False   = refl
-  ∨TV-false-l Unknown = refl
-  ∨TV-false-l Pending = refl
 
 -- ============================================================================
 -- SOUND COMPOSITIONALITY LEMMAS

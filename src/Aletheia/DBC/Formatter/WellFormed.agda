@@ -20,13 +20,13 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong;
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalGroup; EnvironmentVar; ValueTable)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
-open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (physicalBitPos-BE-bounded-any)
 open import Aletheia.Protocol.JSON using (getNat)
 open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits; 8≤max-physical-bits)
+open import Aletheia.Prelude using (max-physical-bits; 8≤max-physical-bits)
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATES
@@ -41,14 +41,9 @@ record WellFormedSignal (s : DBCSignal) : Set where
   field
     def-wf : WellFormedSignalDef (DBCSignal.signalDef s)
 
-data WellFormedCANId : CANId → Set where
-  wf-standard : ∀ {n} → n < standard-can-id-max → WellFormedCANId (Standard n)
-  wf-extended : ∀ {n} → n < extended-can-id-max → WellFormedCANId (Extended n)
-
 record WellFormedMessage (m : DBCMessage) : Set where
   field
     dlc-bound  : DBCMessage.dlc m ≤ 64
-    id-wf      : WellFormedCANId (DBCMessage.id m)
     signals-wf : All WellFormedSignal (DBCMessage.signals m)
 
 -- Additional constraints on a signal within a frame, needed for the BigEndian

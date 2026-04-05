@@ -24,16 +24,7 @@ open import Data.Nat using (ℕ; _%_; _≤ᵇ_; _+_; _<ᵇ_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits; _>>=ₑ_)
-
--- ============================================================================
--- ERROR-RETURNING PARSER COMBINATORS
--- ============================================================================
-
--- Require a Maybe field, with context for error message
-require : ∀ {A : Set} → String → Maybe A → String ⊎ A
-require fieldName nothing = inj₁ ("missing field '" ++ₛ fieldName ++ₛ "'")
-require _ (just x) = inj₂ x
+open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max; max-physical-bits; require; _>>=ₑ_; ifᵀ_then_else_)
 
 -- ============================================================================
 -- JSON → DBC PARSERS (with error messages)
@@ -72,7 +63,7 @@ parseSigned : List (String × JSON) → String ⊎ Bool
 parseSigned obj with lookupBool "signed" obj
 ... | just b = inj₂ b  -- Found boolean field
 ... | nothing with lookupString "signed" obj
-...   | nothing = inj₁ "missing field 'signed'"
+...   | nothing = inj₁ "missing 'signed' field"
 ...   | just signedStr =
     if ⌊ signedStr ≟ "signed" ⌋ then inj₂ true
     else if ⌊ signedStr ≟ "unsigned" ⌋ then inj₂ false
@@ -89,16 +80,16 @@ private
 parseSignalFields : ℕ → String → String → List (String × JSON) → String ⊎ DBCSignal
 parseSignalFields frameBytes ctx name obj =
   addSignalContext ctx (
-    require "startBit" (lookupNat "startBit" obj) >>=ₑ λ startBit →
-    require "length" (lookupNat "length" obj) >>=ₑ λ bitLength →
-    require "byteOrder" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
+    require "missing 'startBit' field" (lookupNat "startBit" obj) >>=ₑ λ startBit →
+    require "missing 'length' field" (lookupNat "length" obj) >>=ₑ λ bitLength →
+    require "missing 'byteOrder' field" (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
     parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
     parseSigned obj >>=ₑ λ isSigned →
-    require "factor" (lookupRational "factor" obj) >>=ₑ λ factor →
-    require "offset" (lookupRational "offset" obj) >>=ₑ λ offset →
-    require "minimum" (lookupRational "minimum" obj) >>=ₑ λ minimum →
-    require "maximum" (lookupRational "maximum" obj) >>=ₑ λ maximum →
-    require "unit" (lookupString "unit" obj) >>=ₑ λ unit →
+    require "missing 'factor' field" (lookupRational "factor" obj) >>=ₑ λ factor →
+    require "missing 'offset' field" (lookupRational "offset" obj) >>=ₑ λ offset →
+    require "missing 'minimum' field" (lookupRational "minimum" obj) >>=ₑ λ minimum →
+    require "missing 'maximum' field" (lookupRational "maximum" obj) >>=ₑ λ maximum →
+    require "missing 'unit' field" (lookupString "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
     let sb = startBit % max-physical-bits
         bl = bitLength % (1 + max-physical-bits)
@@ -122,7 +113,7 @@ parseSignalFields frameBytes ctx name obj =
 -- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
 parseSignal : ℕ → String → List (String × JSON) → String ⊎ DBCSignal
 parseSignal frameBytes context obj =
-  require "name" (lookupString "name" obj) >>=ₑ λ name →
+  require (context ++ₛ ": missing signal 'name' field") (lookupString "name" obj) >>=ₑ λ name →
   let ctx = context ++ₛ ", signal '" ++ₛ name ++ₛ "'"
   in parseSignalFields frameBytes ctx name obj
 
@@ -137,33 +128,35 @@ parseSignalList frameBytes context (JObject sigObj ∷ rest) idx =
 parseSignalList frameBytes context (_ ∷ _) idx =
   inj₁ (context ++ₛ ": signal at index " ++ₛ showℕ idx ++ₛ " is not a JSON object")
 
--- Parse CAN ID from natural and optional "extended" field
+-- Parse CAN ID from natural and optional "extended" field.
+-- Bounds are embedded in the CANId type via T (n <ᵇ max).
+-- Uses ifᵀ (regular function, not with) so that rewrite works in roundtrip proofs.
 parseCANId : String → ℕ → List (String × JSON) → String ⊎ CANId
 parseCANId context rawId obj with lookupBool "extended" obj
-... | just true = if rawId <ᵇ extended-can-id-max
-                   then inj₂ (Extended (rawId % extended-can-id-max))
-                   else inj₁ (context ++ₛ ": extended CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 536870911)")
-... | just false = if rawId <ᵇ standard-can-id-max
-                    then inj₂ (Standard (rawId % standard-can-id-max))
+... | just true  = ifᵀ rawId <ᵇ extended-can-id-max
+                    then (λ pf → inj₂ (Extended rawId pf))
+                    else inj₁ (context ++ₛ ": extended CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 536870911)")
+... | just false = ifᵀ rawId <ᵇ standard-can-id-max
+                    then (λ pf → inj₂ (Standard rawId pf))
                     else inj₁ (context ++ₛ ": standard CAN ID " ++ₛ showℕ rawId ++ₛ " out of range (max 2047)")
-... | nothing = if rawId <ᵇ standard-can-id-max
-                 then inj₂ (Standard (rawId % standard-can-id-max))
-                 else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
+... | nothing    = ifᵀ rawId <ᵇ standard-can-id-max
+                    then (λ pf → inj₂ (Standard rawId pf))
+                    else inj₁ (context ++ₛ ": CAN ID " ++ₛ showℕ rawId ++ₛ " out of range for standard ID (max 2047)")
 
 -- Stage 1: Parse id + CAN ID from message fields.
 -- Split out for compositional roundtrip proofs (keeps normalization bounded).
 parseMessageId : String → List (String × JSON) → String ⊎ CANId
 parseMessageId context obj =
-  require "id" (lookupNat "id" obj) >>=ₑ λ rawId →
+  require (context ++ₛ ": missing 'id' field") (lookupNat "id" obj) >>=ₑ λ rawId →
   parseCANId context rawId obj
 
 -- Stage 2: Parse remaining message fields given a resolved CAN ID.
 -- Split out for compositional roundtrip proofs (keeps normalization bounded).
 parseMessageBody : String → String → CANId → List (String × JSON) → String ⊎ DBCMessage
 parseMessageBody context name canId obj =
-  require "dlc" (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
-  require "sender" (lookupString "sender" obj) >>=ₑ λ sender →
-  require "signals" (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
+  require (context ++ₛ ": missing 'dlc' field") (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
+  require (context ++ₛ ": missing 'sender' field") (lookupString "sender" obj) >>=ₑ λ sender →
+  require (context ++ₛ ": missing 'signals' field") (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
   parseSignalList rawDlc context signalsJSON 0 >>=ₑ λ signals →
   if rawDlc ≤ᵇ 64
     then inj₂ (record
@@ -185,7 +178,7 @@ parseMessageFields context name obj =
 -- Parse a single message from JSON object
 parseMessage : List (String × JSON) → String ⊎ DBCMessage
 parseMessage obj =
-  require "name" (lookupString "name" obj) >>=ₑ λ name →
+  require "missing message 'name' field" (lookupString "name" obj) >>=ₑ λ name →
   let context = "message '" ++ₛ name ++ₛ "'"
   in parseMessageFields context name obj
 
@@ -202,8 +195,8 @@ parseMessageList (_ ∷ _) idx =
 -- Parse top-level DBC structure from JSON object (with error messages)
 parseDBCWithErrors : JSON → String ⊎ DBC
 parseDBCWithErrors (JObject obj) =
-  require "version" (lookupString "version" obj) >>=ₑ λ version →
-  require "messages" (lookupArray "messages" obj) >>=ₑ λ messagesJSON →
+  require "missing 'version' field" (lookupString "version" obj) >>=ₑ λ version →
+  require "missing 'messages' field" (lookupArray "messages" obj) >>=ₑ λ messagesJSON →
   parseMessageList messagesJSON 0 >>=ₑ λ messages →
   inj₂ (record
     { version = version
@@ -212,4 +205,4 @@ parseDBCWithErrors (JObject obj) =
     ; environmentVars = []
     ; valueTables = []
     })
-parseDBCWithErrors _ = inj₁ "parseDBC: root must be a JSON object"
+parseDBCWithErrors _ = inj₁ "ParseDBC: root must be a JSON object"
