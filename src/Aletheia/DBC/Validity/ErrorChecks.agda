@@ -23,8 +23,11 @@ open import Aletheia.DBC.Validator using
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
-open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-split; ++-≡[]-combine)
-open import Aletheia.DBC.Validity.Combinators using (liftConcatMap-sound; liftConcatMap-complete)
+open import Aletheia.DBC.Validity.Combinators using
+  ( liftConcatMap-sound; liftConcatMap-complete
+  ; requireDec-sound; requireDec-complete
+  ; rejectDec-sound; rejectDec-complete
+  ; liftTriangular-sound; liftTriangular-complete )
 open import Aletheia.DBC.Properties using (SignalPairValid; signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_; concatMap)
@@ -52,17 +55,13 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
 
 checkBitLengthZero-sound : ∀ msgName sig →
   checkBitLengthZero msgName sig ≡ [] → NonZeroBitLength sig
-checkBitLengthZero-sound msgName sig eq
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
-checkBitLengthZero-sound _ _ () | yes _
-... | no ¬p = ¬p
+checkBitLengthZero-sound _ sig =
+  rejectDec-sound (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0) _
 
 checkBitLengthZero-complete : ∀ msgName sig →
   NonZeroBitLength sig → checkBitLengthZero msgName sig ≡ []
-checkBitLengthZero-complete msgName sig neq
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
-... | no  _  = refl
-... | yes eq = ⊥-elim (neq eq)
+checkBitLengthZero-complete _ sig =
+  rejectDec-complete (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0) _
 
 checkAllBitLengthZero-sound : ∀ msgs →
   checkAllBitLengthZero msgs ≡ [] →
@@ -82,17 +81,13 @@ checkAllBitLengthZero-complete = liftConcatMap-complete _ λ msg →
 
 checkFactorZeroSig-sound : ∀ msgName sig →
   checkFactorZeroSig msgName sig ≡ [] → NonZeroFactor sig
-checkFactorZeroSig-sound msgName sig eq
-  with ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
-checkFactorZeroSig-sound _ _ () | yes _
-... | no ¬p = ¬p
+checkFactorZeroSig-sound _ sig =
+  rejectDec-sound (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
 
 checkFactorZeroSig-complete : ∀ msgName sig →
   NonZeroFactor sig → checkFactorZeroSig msgName sig ≡ []
-checkFactorZeroSig-complete msgName sig neq
-  with ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
-... | no  _  = refl
-... | yes eq = ⊥-elim (neq eq)
+checkFactorZeroSig-complete _ sig =
+  rejectDec-complete (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
 
 checkAllFactorZero-sound : ∀ msgs →
   checkAllFactorZero msgs ≡ [] →
@@ -138,20 +133,16 @@ checkAllDLCOutOfRange-complete =
 checkSignalExceedsDLC-sound : ∀ msgName dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ [] →
   BitsInFrame dlc sig
-checkSignalExceedsDLC-sound msgName dlc sig eq
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes p = p
-checkSignalExceedsDLC-sound _ _ _ () | no _
+checkSignalExceedsDLC-sound _ dlc sig =
+  requireDec-sound (SignalDef.startBit (DBCSignal.signalDef sig)
+                    + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8) _
 
 checkSignalExceedsDLC-complete : ∀ msgName dlc sig →
   BitsInFrame dlc sig →
   checkSignalExceedsDLC msgName dlc sig ≡ []
-checkSignalExceedsDLC-complete msgName dlc sig p
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-     + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes _ = refl
-... | no ¬q = ⊥-elim (¬q p)
+checkSignalExceedsDLC-complete _ dlc sig =
+  requireDec-complete (SignalDef.startBit (DBCSignal.signalDef sig)
+                       + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8) _
 
 checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →
@@ -171,15 +162,13 @@ checkAllSignalExceedsDLC-complete = liftConcatMap-complete _ λ msg →
 
 checkDupIdPair-sound : ∀ m1 m2 →
   checkDupIdPair m1 m2 ≡ [] → DBCMessage.id m1 ≢ DBCMessage.id m2
-checkDupIdPair-sound m1 m2 eq with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
-checkDupIdPair-sound _ _ () | yes _
-... | no ¬p = ¬p
+checkDupIdPair-sound m1 m2 =
+  rejectDec-sound (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _
 
 checkDupIdPair-complete : ∀ m1 m2 →
   DBCMessage.id m1 ≢ DBCMessage.id m2 → checkDupIdPair m1 m2 ≡ []
-checkDupIdPair-complete m1 m2 neq with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
-... | no  _  = refl
-... | yes eq = ⊥-elim (neq eq)
+checkDupIdPair-complete m1 m2 =
+  rejectDec-complete (DBCMessage.id m1 ≟-CANId DBCMessage.id m2) _
 
 checkDupIdAgainstList-sound : ∀ m rest →
   checkDupIdAgainstList m rest ≡ [] →
@@ -196,19 +185,14 @@ checkDupIdAgainstList-complete m =
 checkDuplicateMessageIds-sound : ∀ msgs →
   checkDuplicateMessageIds msgs ≡ [] →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs
-checkDuplicateMessageIds-sound [] _ = []
-checkDuplicateMessageIds-sound (m ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupIdAgainstList-sound m rest eq₁ ∷
-     checkDuplicateMessageIds-sound rest eq₂
+checkDuplicateMessageIds-sound =
+  liftTriangular-sound checkDupIdPair checkDupIdPair-sound
 
 checkDuplicateMessageIds-complete : ∀ msgs →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs →
   checkDuplicateMessageIds msgs ≡ []
-checkDuplicateMessageIds-complete [] [] = refl
-checkDuplicateMessageIds-complete (m ∷ rest) (pm ∷ prest) =
-  ++-≡[]-combine (checkDupIdAgainstList-complete m rest pm)
-                 (checkDuplicateMessageIds-complete rest prest)
+checkDuplicateMessageIds-complete =
+  liftTriangular-complete checkDupIdPair checkDupIdPair-complete
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (nested triangular)
@@ -216,15 +200,13 @@ checkDuplicateMessageIds-complete (m ∷ rest) (pm ∷ prest) =
 
 checkDupSigPair-sound : ∀ msgName s1 s2 →
   checkDupSigPair msgName s1 s2 ≡ [] → DBCSignal.name s1 ≢ DBCSignal.name s2
-checkDupSigPair-sound msgName s1 s2 eq with DBCSignal.name s1 ≟ DBCSignal.name s2
-checkDupSigPair-sound _ _ _ () | yes _
-... | no ¬p = ¬p
+checkDupSigPair-sound _ s1 s2 =
+  rejectDec-sound (DBCSignal.name s1 ≟ DBCSignal.name s2) _
 
 checkDupSigPair-complete : ∀ msgName s1 s2 →
   DBCSignal.name s1 ≢ DBCSignal.name s2 → checkDupSigPair msgName s1 s2 ≡ []
-checkDupSigPair-complete msgName s1 s2 neq with DBCSignal.name s1 ≟ DBCSignal.name s2
-... | no  _  = refl
-... | yes eq = ⊥-elim (neq eq)
+checkDupSigPair-complete _ s1 s2 =
+  rejectDec-complete (DBCSignal.name s1 ≟ DBCSignal.name s2) _
 
 checkDupSigAgainstList-sound : ∀ msgName sig rest →
   checkDupSigAgainstList msgName sig rest ≡ [] →
@@ -238,23 +220,17 @@ checkDupSigAgainstList-complete : ∀ msgName sig rest →
 checkDupSigAgainstList-complete msgName sig =
   liftConcatMap-complete (checkDupSigPair msgName sig) (checkDupSigPair-complete msgName sig)
 
--- Now using the exposed top-level checkDupSigTriangular
 checkDupSigTriangular-sound : ∀ msgName sigs →
   checkDupSigTriangular msgName sigs ≡ [] →
   AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂) sigs
-checkDupSigTriangular-sound _ [] _ = []
-checkDupSigTriangular-sound msgName (sig ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupSigAgainstList-sound msgName sig rest eq₁ ∷
-     checkDupSigTriangular-sound msgName rest eq₂
+checkDupSigTriangular-sound msgName =
+  liftTriangular-sound (checkDupSigPair msgName) (checkDupSigPair-sound msgName)
 
 checkDupSigTriangular-complete : ∀ msgName sigs →
   AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂) sigs →
   checkDupSigTriangular msgName sigs ≡ []
-checkDupSigTriangular-complete _ [] [] = refl
-checkDupSigTriangular-complete msgName (sig ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkDupSigAgainstList-complete msgName sig rest p)
-                 (checkDupSigTriangular-complete msgName rest ps)
+checkDupSigTriangular-complete msgName =
+  liftTriangular-complete (checkDupSigPair msgName) (checkDupSigPair-complete msgName)
 
 checkAllDuplicateSignalNames-sound : ∀ msgs →
   checkAllDuplicateSignalNames msgs ≡ [] →
@@ -276,15 +252,13 @@ checkAllDuplicateSignalNames-complete = liftConcatMap-complete _ λ msg →
 
 checkOverlapPair-sound : ∀ msgName n s1 s2 →
   checkOverlapPair msgName n s1 s2 ≡ [] → SignalPairValid n s1 s2
-checkOverlapPair-sound msgName n s1 s2 eq with signalPairValid? n s1 s2
-... | yes p = p
-checkOverlapPair-sound _ _ _ _ () | no _
+checkOverlapPair-sound _ n s1 s2 =
+  requireDec-sound (signalPairValid? n s1 s2) _
 
 checkOverlapPair-complete : ∀ msgName n s1 s2 →
   SignalPairValid n s1 s2 → checkOverlapPair msgName n s1 s2 ≡ []
-checkOverlapPair-complete msgName n s1 s2 p with signalPairValid? n s1 s2
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkOverlapPair-complete _ n s1 s2 =
+  requireDec-complete (signalPairValid? n s1 s2) _
 
 checkOverlapAgainstList-sound : ∀ msgName n sig rest →
   checkOverlapAgainstList msgName n sig rest ≡ [] →
@@ -301,19 +275,14 @@ checkOverlapAgainstList-complete msgName n sig =
 checkOverlapTriangular-sound : ∀ msgName n sigs →
   checkOverlapTriangular msgName n sigs ≡ [] →
   AllPairs (SignalPairValid n) sigs
-checkOverlapTriangular-sound _ _ [] _ = []
-checkOverlapTriangular-sound msgName n (sig ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkOverlapAgainstList-sound msgName n sig rest eq₁ ∷
-     checkOverlapTriangular-sound msgName n rest eq₂
+checkOverlapTriangular-sound msgName n =
+  liftTriangular-sound (checkOverlapPair msgName n) (checkOverlapPair-sound msgName n)
 
 checkOverlapTriangular-complete : ∀ msgName n sigs →
   AllPairs (SignalPairValid n) sigs →
   checkOverlapTriangular msgName n sigs ≡ []
-checkOverlapTriangular-complete _ _ [] [] = refl
-checkOverlapTriangular-complete msgName n (sig ∷ rest) (p ∷ ps) =
-  ++-≡[]-combine (checkOverlapAgainstList-complete msgName n sig rest p)
-                 (checkOverlapTriangular-complete msgName n rest ps)
+checkOverlapTriangular-complete msgName n =
+  liftTriangular-complete (checkOverlapPair msgName n) (checkOverlapPair-complete msgName n)
 
 checkAllSignalOverlaps-sound : ∀ msgs →
   checkAllSignalOverlaps msgs ≡ [] →

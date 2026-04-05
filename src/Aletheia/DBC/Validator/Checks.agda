@@ -41,6 +41,8 @@ open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Relation.Nullary using (yes; no)
 open import Data.List.Relation.Unary.Any using (any?)
 open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
+open import Aletheia.DBC.Validity.Combinators using
+  (requireDec; rejectDec; checkAgainst; triangularCheck)
 
 -- ============================================================================
 -- DECIDABLE HELPERS
@@ -53,26 +55,15 @@ findSignalPresence name (sig ∷ rest) with DBCSignal.name sig ≟ name
 ... | no  _ = findSignalPresence name rest
 
 -- ============================================================================
--- GENERIC TRIANGULAR CHECK COMBINATOR
--- ============================================================================
-
-checkAgainst : ∀ {A : Set} → (A → A → List ValidationIssue) → A → List A → List ValidationIssue
-checkAgainst check x = concatMap (check x)
-
-triangularCheck : ∀ {A : Set} → (A → A → List ValidationIssue) → List A → List ValidationIssue
-triangularCheck _ [] = []
-triangularCheck check (x ∷ xs) = checkAgainst check x xs ++ₗ triangularCheck check xs
-
--- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs
 -- ============================================================================
 
 checkDupIdPair : DBCMessage → DBCMessage → List ValidationIssue
-checkDupIdPair m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
-... | yes _ = mkIssue IsError DuplicateMessageId
-                ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-                 ++ₛ DBCMessage.name m2 ++ₛ "' share the same CAN ID") ∷ []
-... | no  _ = []
+checkDupIdPair m1 m2 =
+  rejectDec (DBCMessage.id m1 ≟-CANId DBCMessage.id m2)
+            (mkIssue IsError DuplicateMessageId
+              ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
+               ++ₛ DBCMessage.name m2 ++ₛ "' share the same CAN ID"))
 
 checkDupIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDupIdAgainstList = checkAgainst checkDupIdPair
@@ -85,11 +76,11 @@ checkDuplicateMessageIds = triangularCheck checkDupIdPair
 -- ============================================================================
 
 checkDupSigPair : String → DBCSignal → DBCSignal → List ValidationIssue
-checkDupSigPair msgName s1 s2 with DBCSignal.name s1 ≟ DBCSignal.name s2
-... | yes _ = mkIssue IsError DuplicateSignalName
-                ("Message '" ++ₛ msgName ++ₛ "': duplicate signal name '"
-                 ++ₛ DBCSignal.name s1 ++ₛ "'") ∷ []
-... | no  _ = []
+checkDupSigPair msgName s1 s2 =
+  rejectDec (DBCSignal.name s1 ≟ DBCSignal.name s2)
+            (mkIssue IsError DuplicateSignalName
+              ("Message '" ++ₛ msgName ++ₛ "': duplicate signal name '"
+               ++ₛ DBCSignal.name s1 ++ₛ "'"))
 
 checkDupSigAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
 checkDupSigAgainstList msgName = checkAgainst (checkDupSigPair msgName)
@@ -109,12 +100,11 @@ checkAllDuplicateSignalNames = concatMap checkDuplicateSignalNamesInMsg
 -- ============================================================================
 
 checkFactorZeroSig : String → DBCSignal → List ValidationIssue
-checkFactorZeroSig msgName sig
-  with ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
-... | yes _ = mkIssue IsError FactorZero
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': factor is zero (constant-zero signal)") ∷ []
-... | no  _ = []
+checkFactorZeroSig msgName sig =
+  rejectDec (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0))
+            (mkIssue IsError FactorZero
+              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+               ++ₛ "': factor is zero (constant-zero signal)"))
 
 checkAllFactorZero : List DBCMessage → List ValidationIssue
 checkAllFactorZero = concatMap λ msg →
@@ -215,14 +205,13 @@ checkAllGlobalNameCollisions = triangularCheck checkGlobalNamePair
 -- ============================================================================
 
 checkMinMaxSig : String → DBCSignal → List ValidationIssue
-checkMinMaxSig msgName sig
-  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
-       SignalDef.maximum (DBCSignal.signalDef sig)
-... | yes _ = []
-... | no  _ = mkIssue IsWarning MinExceedsMax
-                ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                 ++ₛ DBCSignal.name sig
-                 ++ₛ "': minimum exceeds maximum") ∷ []
+checkMinMaxSig msgName sig =
+  requireDec (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+              SignalDef.maximum (DBCSignal.signalDef sig))
+             (mkIssue IsWarning MinExceedsMax
+               ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                ++ₛ DBCSignal.name sig
+                ++ₛ "': minimum exceeds maximum"))
 
 checkAllMinMax : List DBCMessage → List ValidationIssue
 checkAllMinMax = concatMap λ msg →
@@ -233,13 +222,12 @@ checkAllMinMax = concatMap λ msg →
 -- ============================================================================
 
 checkSignalExceedsDLC : String → ℕ → DBCSignal → List ValidationIssue
-checkSignalExceedsDLC msgName dlc sig
-  with SignalDef.startBit (DBCSignal.signalDef sig)
-       + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8
-... | yes _ = []
-... | no  _ = mkIssue IsError SignalExceedsDLC
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit range exceeds DLC") ∷ []
+checkSignalExceedsDLC msgName dlc sig =
+  requireDec (SignalDef.startBit (DBCSignal.signalDef sig)
+              + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8)
+             (mkIssue IsError SignalExceedsDLC
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                ++ₛ "': bit range exceeds DLC"))
 
 checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
 checkAllSignalExceedsDLC = concatMap λ msg →
@@ -251,11 +239,11 @@ checkAllSignalExceedsDLC = concatMap λ msg →
 -- ============================================================================
 
 checkOverlapPair : String → ℕ → DBCSignal → DBCSignal → List ValidationIssue
-checkOverlapPair msgName n s1 s2 with signalPairValid? n s1 s2
-... | yes _ = []
-... | no  _ = mkIssue IsError SignalOverlap
-                ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ DBCSignal.name s1
-                 ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap") ∷ []
+checkOverlapPair msgName n s1 s2 =
+  requireDec (signalPairValid? n s1 s2)
+             (mkIssue IsError SignalOverlap
+               ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ DBCSignal.name s1
+                ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap"))
 
 checkOverlapAgainstList : String → ℕ → DBCSignal → List DBCSignal → List ValidationIssue
 checkOverlapAgainstList msgName n = checkAgainst (checkOverlapPair msgName n)
@@ -275,11 +263,11 @@ checkAllSignalOverlaps = concatMap checkOverlapsInMsg
 -- ============================================================================
 
 checkBitLengthZero : String → DBCSignal → List ValidationIssue
-checkBitLengthZero msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
-... | yes _ = mkIssue IsError BitLengthZero
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit length is zero") ∷ []
-... | no  _ = []
+checkBitLengthZero msgName sig =
+  rejectDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0)
+            (mkIssue IsError BitLengthZero
+              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+               ++ₛ "': bit length is zero"))
 
 checkAllBitLengthZero : List DBCMessage → List ValidationIssue
 checkAllBitLengthZero = concatMap λ msg →
@@ -290,11 +278,11 @@ checkAllBitLengthZero = concatMap λ msg →
 -- ============================================================================
 
 checkDupNamePair : DBCMessage → DBCMessage → List ValidationIssue
-checkDupNamePair m1 m2 with DBCMessage.name m1 ≟ DBCMessage.name m2
-... | yes _ = mkIssue IsWarning DuplicateMessageName
-                ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-                 ++ₛ DBCMessage.name m2 ++ₛ "' share the same name") ∷ []
-... | no  _ = []
+checkDupNamePair m1 m2 =
+  rejectDec (DBCMessage.name m1 ≟ DBCMessage.name m2)
+            (mkIssue IsWarning DuplicateMessageName
+              ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
+               ++ₛ DBCMessage.name m2 ++ₛ "' share the same name"))
 
 checkDupNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDupNameAgainstList = checkAgainst checkDupNamePair
@@ -329,20 +317,20 @@ isNegativeℚ q with ℚ.numerator q
 ... | (-[1+ _ ]) = true
 
 checkRangeLow : String → String → ℚ → ℚ → List ValidationIssue
-checkRangeLow msgName sigName physMin declaredMin with declaredMin ≤?ᵣ physMin
-... | yes _ = []
-... | no  _ = mkIssue IsWarning OffsetScaleRange
-                ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                 ++ₛ sigName
-                 ++ₛ "': declared minimum is below physical range") ∷ []
+checkRangeLow msgName sigName physMin declaredMin =
+  requireDec (declaredMin ≤?ᵣ physMin)
+             (mkIssue IsWarning OffsetScaleRange
+               ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                ++ₛ sigName
+                ++ₛ "': declared minimum is below physical range"))
 
 checkRangeHigh : String → String → ℚ → ℚ → List ValidationIssue
-checkRangeHigh msgName sigName physMax declaredMax with physMax ≤?ᵣ declaredMax
-... | yes _ = []
-... | no  _ = mkIssue IsWarning OffsetScaleRange
-                ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                 ++ₛ sigName
-                 ++ₛ "': declared maximum is above physical range") ∷ []
+checkRangeHigh msgName sigName physMax declaredMax =
+  requireDec (physMax ≤?ᵣ declaredMax)
+             (mkIssue IsWarning OffsetScaleRange
+               ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                ++ₛ sigName
+                ++ₛ "': declared maximum is above physical range"))
 
 checkRangeBounds : String → String → ℚ → ℚ → ℚ → ℚ → ℚ → List ValidationIssue
 checkRangeBounds msgName sigName factor physA physB declMin declMax
@@ -401,11 +389,11 @@ checkAllEmptyMessage = concatMap checkEmptyMessage
 -- ============================================================================
 
 checkStartBitOutOfRange : String → DBCSignal → List ValidationIssue
-checkStartBitOutOfRange msgName sig with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
-... | yes _ = []
-... | no  _ = mkIssue IsWarning StartBitOutOfRange
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': start bit ≥ max-physical-bits") ∷ []
+checkStartBitOutOfRange msgName sig =
+  requireDec (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits)
+             (mkIssue IsWarning StartBitOutOfRange
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                ++ₛ "': start bit ≥ max-physical-bits"))
 
 checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
 checkAllStartBitOutOfRange = concatMap λ msg →
@@ -416,11 +404,11 @@ checkAllStartBitOutOfRange = concatMap λ msg →
 -- ============================================================================
 
 checkBitLengthExcessive : String → DBCSignal → List ValidationIssue
-checkBitLengthExcessive msgName sig with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
-... | yes _ = []
-... | no  _ = mkIssue IsWarning BitLengthExcessive
-                ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                 ++ₛ "': bit length exceeds max-physical-bits") ∷ []
+checkBitLengthExcessive msgName sig =
+  requireDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits)
+             (mkIssue IsWarning BitLengthExcessive
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+                ++ₛ "': bit length exceeds max-physical-bits"))
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
 checkAllBitLengthExcessive = concatMap λ msg →

@@ -30,8 +30,12 @@ open import Aletheia.DBC.Validity using
   ; MuxScalingOK; MuxUnitScaling
   )
 open import Aletheia.DBC.Validity.ListLemmas using
-  ( All-concatMap; ++-≡[]-split; ++-≡[]-combine )
-open import Aletheia.DBC.Validity.Combinators using (liftConcatMap-sound; liftConcatMap-complete)
+  (All-concatMap; ++-≡[]-split; ++-≡[]-combine)
+open import Aletheia.DBC.Validity.Combinators using
+  ( liftConcatMap-sound; liftConcatMap-complete
+  ; requireDec-sound; requireDec-complete
+  ; rejectDec-sound; rejectDec-complete
+  ; liftTriangular-sound; liftTriangular-complete )
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
@@ -136,19 +140,14 @@ checkGlobalNameAgainstList-complete m =
 checkAllGlobalNameCollisions-sound : ∀ msgs →
   checkAllGlobalNameCollisions msgs ≡ [] →
   AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs
-checkAllGlobalNameCollisions-sound [] _ = []
-checkAllGlobalNameCollisions-sound (m ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkGlobalNameAgainstList-sound m rest eq₁ ∷
-     checkAllGlobalNameCollisions-sound rest eq₂
+checkAllGlobalNameCollisions-sound =
+  liftTriangular-sound checkGlobalNamePair checkGlobalNamePair-sound
 
 checkAllGlobalNameCollisions-complete : ∀ msgs →
   AllPairs (λ m1 m2 → DisjointSignalNames (messageSignalNames m1) (messageSignalNames m2)) msgs →
   checkAllGlobalNameCollisions msgs ≡ []
-checkAllGlobalNameCollisions-complete [] [] = refl
-checkAllGlobalNameCollisions-complete (m ∷ rest) (pm ∷ prest) =
-  ++-≡[]-combine (checkGlobalNameAgainstList-complete m rest pm)
-                 (checkAllGlobalNameCollisions-complete rest prest)
+checkAllGlobalNameCollisions-complete =
+  liftTriangular-complete checkGlobalNamePair checkGlobalNamePair-complete
 
 -- ============================================================================
 -- CHECK 7: MIN EXCEEDS MAX — Severity
@@ -160,6 +159,7 @@ checkMinMaxSig-allW msgName sig
        SignalDef.maximum (DBCSignal.signalDef sig)
 ... | yes _ = []
 ... | no  _ = refl ∷ []
+
 
 checkAllMinMax-allW : ∀ msgs → All W (checkAllMinMax msgs)
 checkAllMinMax-allW [] = []
@@ -177,19 +177,15 @@ checkAllMinMax-allW (msg ∷ rest) =
 
 checkMinMaxSig-sound : ∀ msgName sig →
   checkMinMaxSig msgName sig ≡ [] → MinLeqMax sig
-checkMinMaxSig-sound msgName sig eq
-  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
-       SignalDef.maximum (DBCSignal.signalDef sig)
-... | yes p = p
-checkMinMaxSig-sound _ _ () | no _
+checkMinMaxSig-sound _ sig =
+  requireDec-sound (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+                    SignalDef.maximum (DBCSignal.signalDef sig)) _
 
 checkMinMaxSig-complete : ∀ msgName sig →
   MinLeqMax sig → checkMinMaxSig msgName sig ≡ []
-checkMinMaxSig-complete msgName sig p
-  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
-       SignalDef.maximum (DBCSignal.signalDef sig)
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkMinMaxSig-complete _ sig =
+  requireDec-complete (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+                       SignalDef.maximum (DBCSignal.signalDef sig)) _
 
 checkAllMinMax-sound : ∀ msgs →
   checkAllMinMax msgs ≡ [] →
@@ -227,15 +223,13 @@ checkDuplicateMessageNames-allW (m ∷ rest) =
 
 checkDupNamePair-sound : ∀ m1 m2 →
   checkDupNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
-checkDupNamePair-sound m1 m2 eq with DBCMessage.name m1 ≟ DBCMessage.name m2
-checkDupNamePair-sound _ _ () | yes _
-... | no ¬p = ¬p
+checkDupNamePair-sound m1 m2 =
+  rejectDec-sound (DBCMessage.name m1 ≟ DBCMessage.name m2) _
 
 checkDupNamePair-complete : ∀ m1 m2 →
   DistinctMessageNames m1 m2 → checkDupNamePair m1 m2 ≡ []
-checkDupNamePair-complete m1 m2 neq with DBCMessage.name m1 ≟ DBCMessage.name m2
-... | no  _ = refl
-... | yes p = ⊥-elim (neq p)
+checkDupNamePair-complete m1 m2 =
+  rejectDec-complete (DBCMessage.name m1 ≟ DBCMessage.name m2) _
 
 checkDupNameAgainstList-sound : ∀ m rest →
   checkDupNameAgainstList m rest ≡ [] →
@@ -252,19 +246,14 @@ checkDupNameAgainstList-complete m =
 checkDuplicateMessageNames-sound : ∀ msgs →
   checkDuplicateMessageNames msgs ≡ [] →
   AllPairs DistinctMessageNames msgs
-checkDuplicateMessageNames-sound [] _ = []
-checkDuplicateMessageNames-sound (m ∷ rest) eq =
-  let (eq₁ , eq₂) = ++-≡[]-split eq
-  in checkDupNameAgainstList-sound m rest eq₁ ∷
-     checkDuplicateMessageNames-sound rest eq₂
+checkDuplicateMessageNames-sound =
+  liftTriangular-sound checkDupNamePair checkDupNamePair-sound
 
 checkDuplicateMessageNames-complete : ∀ msgs →
   AllPairs DistinctMessageNames msgs →
   checkDuplicateMessageNames msgs ≡ []
-checkDuplicateMessageNames-complete [] [] = refl
-checkDuplicateMessageNames-complete (m ∷ rest) (pm ∷ prest) =
-  ++-≡[]-combine (checkDupNameAgainstList-complete m rest pm)
-                 (checkDuplicateMessageNames-complete rest prest)
+checkDuplicateMessageNames-complete =
+  liftTriangular-complete checkDupNamePair checkDupNamePair-complete
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE — Severity
@@ -315,27 +304,23 @@ checkAllOffsetScaleRange-allW (msg ∷ rest) =
 
 checkRangeLow-sound : ∀ msgName sigName physMin declMin →
   checkRangeLow msgName sigName physMin declMin ≡ [] → RangeLowOK physMin declMin
-checkRangeLow-sound msgName sigName physMin declMin eq with declMin ≤?ᵣ physMin
-... | yes p = p
-checkRangeLow-sound _ _ _ _ () | no _
+checkRangeLow-sound _ _ physMin declMin =
+  requireDec-sound (declMin ≤?ᵣ physMin) _
 
 checkRangeLow-complete : ∀ msgName sigName physMin declMin →
   RangeLowOK physMin declMin → checkRangeLow msgName sigName physMin declMin ≡ []
-checkRangeLow-complete msgName sigName physMin declMin p with declMin ≤?ᵣ physMin
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkRangeLow-complete _ _ physMin declMin =
+  requireDec-complete (declMin ≤?ᵣ physMin) _
 
 checkRangeHigh-sound : ∀ msgName sigName physMax declMax →
   checkRangeHigh msgName sigName physMax declMax ≡ [] → RangeHighOK physMax declMax
-checkRangeHigh-sound msgName sigName physMax declMax eq with physMax ≤?ᵣ declMax
-... | yes p = p
-checkRangeHigh-sound _ _ _ _ () | no _
+checkRangeHigh-sound _ _ physMax declMax =
+  requireDec-sound (physMax ≤?ᵣ declMax) _
 
 checkRangeHigh-complete : ∀ msgName sigName physMax declMax →
   RangeHighOK physMax declMax → checkRangeHigh msgName sigName physMax declMax ≡ []
-checkRangeHigh-complete msgName sigName physMax declMax p with physMax ≤?ᵣ declMax
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkRangeHigh-complete _ _ physMax declMax =
+  requireDec-complete (physMax ≤?ᵣ declMax) _
 
 checkRangeBounds-sound : ∀ msgName sigName factor physA physB declMin declMax →
   checkRangeBounds msgName sigName factor physA physB declMin declMax ≡ [] →
@@ -435,17 +420,13 @@ checkAllStartBitOutOfRange-allW (msg ∷ rest) =
 
 checkStartBitOutOfRange-sound : ∀ msgName sig →
   checkStartBitOutOfRange msgName sig ≡ [] → StartBitInRange sig
-checkStartBitOutOfRange-sound msgName sig eq
-  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
-... | yes p = p
-checkStartBitOutOfRange-sound _ _ () | no _
+checkStartBitOutOfRange-sound _ sig =
+  requireDec-sound (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits) _
 
 checkStartBitOutOfRange-complete : ∀ msgName sig →
   StartBitInRange sig → checkStartBitOutOfRange msgName sig ≡ []
-checkStartBitOutOfRange-complete msgName sig p
-  with SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkStartBitOutOfRange-complete _ sig =
+  requireDec-complete (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits) _
 
 checkAllStartBitOutOfRange-sound : ∀ msgs →
   checkAllStartBitOutOfRange msgs ≡ [] →
@@ -485,17 +466,13 @@ checkAllBitLengthExcessive-allW (msg ∷ rest) =
 
 checkBitLengthExcessive-sound : ∀ msgName sig →
   checkBitLengthExcessive msgName sig ≡ [] → BitLengthInRange sig
-checkBitLengthExcessive-sound msgName sig eq
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
-... | yes p = p
-checkBitLengthExcessive-sound _ _ () | no _
+checkBitLengthExcessive-sound _ sig =
+  requireDec-sound (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits) _
 
 checkBitLengthExcessive-complete : ∀ msgName sig →
   BitLengthInRange sig → checkBitLengthExcessive msgName sig ≡ []
-checkBitLengthExcessive-complete msgName sig p
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits
-... | yes _ = refl
-... | no ¬p = ⊥-elim (¬p p)
+checkBitLengthExcessive-complete _ sig =
+  requireDec-complete (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits) _
 
 checkAllBitLengthExcessive-sound : ∀ msgs →
   checkAllBitLengthExcessive msgs ≡ [] →
