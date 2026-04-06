@@ -16,6 +16,7 @@ open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error; ByteArray;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
+import Aletheia.Error as Err
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
@@ -54,10 +55,11 @@ formatResponse (Success msg) =
     ("status" , JString "success") ∷
     ("message" , JString msg) ∷
     [])
-formatResponse (Error reason) =
+formatResponse (Error err) =
   JObject (
-    ("status" , JString "error") ∷
-    ("message" , JString reason) ∷
+    ("status"  , JString "error") ∷
+    ("code"    , JString (Err.errorCode err)) ∷
+    ("message" , JString (Err.formatError err)) ∷
     [])
 formatResponse (ByteArray bytes) =
   JObject (

@@ -405,4 +405,4 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-06):** liftCheck combinator (#50) committed (`f5f9fe6`). Tier 7 fully closed. Remaining review items: T6 #45-48. 80 Agda modules, all `--safe --without-K`.
+**Latest (2026-04-06):** Bounded DLC newtype (#45) committed (`faf22a8`). SignalCache uniqueness (#47) committed (`42cc09f`). Tier 6 has 2 remaining items: #46 (phase-indexed StreamState) and #48 (typed error ADT). 80 Agda modules, all `--safe --without-K`.

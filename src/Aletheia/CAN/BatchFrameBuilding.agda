@@ -3,7 +3,7 @@
 -- Batch frame building from signal name-value pairs.
 --
 -- Purpose: Build CAN frames from multiple signal values at once with validation.
--- Operations: buildFrame (DBC + CAN ID + signals → String ⊎ frame).
+-- Operations: buildFrame (DBC + CAN ID + signals → FrameError ⊎ frame).
 -- Role: Batch encoding for language bindings (Python, C++, Go).
 --
 -- Validation: Signal name existence, signal overlap detection, multiplexing consistency.
@@ -15,17 +15,20 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
 open import Aletheia.CAN.DLC using (dlcToBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Vec as Vec using (Vec; replicate)
 open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _≤ᵇ_)
-open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Aletheia.Prelude using (errCanIdNotFound; listIndex; _>>=ₑ_)
+open import Aletheia.Prelude using (listIndex; _>>=ₑ_)
+open import Aletheia.Error using
+  ( FrameError; SignalNotFound; SignalIndexOOB; InjectionFailed
+  ; SignalsOverlap; CANIdNotFound; CANIdMismatch
+  )
 
 -- ============================================================================
 -- OVERLAP DETECTION
@@ -77,40 +80,40 @@ hasOverlaps (sig ∷ rest) = anyOverlap sig rest ∨ hasOverlaps rest
 -- Import shared DBC lookup utilities
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 
--- Lookup strategy: how to resolve a key to a DBCSignal, and how to format errors.
+-- Lookup strategy: how to resolve a key to a DBCSignal, and how to produce errors.
 -- Two instances: name-based (String key, findSignalByName) and index-based (ℕ key, listIndex).
 record LookupStrategy (K : Set) : Set where
   field
     resolve : K → DBCMessage → Maybe DBCSignal
-    notFoundMsg : K → String
+    notFoundError : K → FrameError
 
 -- Name-based strategy (JSON API path)
 nameStrategy : LookupStrategy String
 nameStrategy = record
-  { resolve     = λ name msg → findSignalByName name msg
-  ; notFoundMsg = λ name → "signal not found in message: " ++ₛ name
+  { resolve       = λ name msg → findSignalByName name msg
+  ; notFoundError = SignalNotFound
   }
 
 -- Index-based strategy (binary FFI path — no string allocation)
 indexStrategy : LookupStrategy ℕ
 indexStrategy = record
-  { resolve     = λ idx msg → listIndex idx (DBCMessage.signals msg)
-  ; notFoundMsg = λ idx → "signal index " ++ₛ showℕ idx ++ₛ " out of range"
+  { resolve       = λ idx msg → listIndex idx (DBCMessage.signals msg)
+  ; notFoundError = SignalIndexOOB
   }
 
 -- Generic signal lookup: resolve each key to a DBCSignal using the strategy.
-lookupSignalsG : ∀ {K} → LookupStrategy K → List (K × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
+lookupSignalsG : ∀ {K} → LookupStrategy K → List (K × ℚ) → DBCMessage → FrameError ⊎ List (DBCSignal × ℚ)
 lookupSignalsG _     []                   _   = inj₂ []
 lookupSignalsG strat ((key , value) ∷ rest) msg with LookupStrategy.resolve strat key msg
-... | nothing = inj₁ (LookupStrategy.notFoundMsg strat key)
+... | nothing = inj₁ (LookupStrategy.notFoundError strat key)
 ... | just sig = lookupSignalsG strat rest msg >>=ₑ λ restSigs → inj₂ ((sig , value) ∷ restSigs)
 
 -- Name-based lookup (preserves original API)
-lookupSignals : List (String × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
+lookupSignals : List (String × ℚ) → DBCMessage → FrameError ⊎ List (DBCSignal × ℚ)
 lookupSignals = lookupSignalsG nameStrategy
 
 -- Index-based lookup (preserves original API)
-lookupSignalsByIndex : List (ℕ × ℚ) → DBCMessage → String ⊎ List (DBCSignal × ℚ)
+lookupSignalsByIndex : List (ℕ × ℚ) → DBCMessage → FrameError ⊎ List (DBCSignal × ℚ)
 lookupSignalsByIndex = lookupSignalsG indexStrategy
 
 -- ============================================================================
@@ -118,26 +121,26 @@ lookupSignalsByIndex = lookupSignalsG indexStrategy
 -- ============================================================================
 
 -- Inject a single signal into a frame
-injectOne : ∀ {n} → CANFrame n → (DBCSignal × ℚ) → String ⊎ CANFrame n
+injectOne : ∀ {n} → CANFrame n → (DBCSignal × ℚ) → FrameError ⊎ CANFrame n
 injectOne frame (sig , value) with injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame
-... | nothing = inj₁ ("injection failed for signal: " ++ₛ DBCSignal.name sig)
+... | nothing = inj₁ (InjectionFailed (DBCSignal.name sig))
 ... | just f  = inj₂ f
 
 -- Inject all signals into a frame (left-to-right fold)
-injectAll : ∀ {n} → CANFrame n → List (DBCSignal × ℚ) → String ⊎ CANFrame n
+injectAll : ∀ {n} → CANFrame n → List (DBCSignal × ℚ) → FrameError ⊎ CANFrame n
 injectAll frame [] = inj₂ frame
 injectAll frame (sig ∷ rest) = injectOne frame sig >>=ₑ λ frame' → injectAll frame' rest
 
 -- Build a CAN frame from signal name-value pairs
--- Returns error message if:
+-- Returns FrameError if:
 -- - CAN ID not found in DBC
 -- - Any signal name not found in message
 -- - Signals overlap
 -- - Signal value out of bounds or injection fails
 -- Shared build pipeline: check overlaps, inject into empty frame, extract payload
-validateAndBuild : CANId → (dlc : ℕ) → List (DBCSignal × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+validateAndBuild : CANId → (dlc : ℕ) → List (DBCSignal × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
 validateAndBuild canId dlc defs with hasOverlaps (map Data.Product.proj₁ defs)
-... | true = inj₁ "signals overlap"
+... | true = inj₁ SignalsOverlap
 ... | false = injectAll emptyFrame defs >>=ₑ λ finalFrame → inj₂ (CANFrame.payload finalFrame)
   where
     emptyFrame : CANFrame (dlcToBytes dlc)
@@ -148,33 +151,33 @@ validateAndBuild canId dlc defs with hasOverlaps (map Data.Product.proj₁ defs)
 -- ============================================================================
 
 -- Generic build: lookup signals via strategy, validate overlaps, inject into empty frame.
-buildFrameG : ∀ {K} → LookupStrategy K → DBC → CANId → (dlc : ℕ) → List (K × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+buildFrameG : ∀ {K} → LookupStrategy K → DBC → CANId → (dlc : ℕ) → List (K × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
 buildFrameG strat dbc canId dlc signals with findMessageById canId dbc
-... | nothing = inj₁ errCanIdNotFound
+... | nothing = inj₁ CANIdNotFound
 ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → validateAndBuild canId dlc signalDefs
 
 -- Generic update: verify CAN ID match, lookup signals, inject into existing frame.
-updateFrameG : ∀ {K} → LookupStrategy K → ∀ {n} → DBC → CANId → CANFrame n → List (K × ℚ) → String ⊎ CANFrame n
+updateFrameG : ∀ {K} → LookupStrategy K → ∀ {n} → DBC → CANId → CANFrame n → List (K × ℚ) → FrameError ⊎ CANFrame n
 updateFrameG strat dbc canId frame signals =
   if canIdEquals canId (CANFrame.id frame)
   then findAndInject
-  else inj₁ "CAN ID does not match frame"
+  else inj₁ CANIdMismatch
   where
-    findAndInject : String ⊎ CANFrame _
+    findAndInject : FrameError ⊎ CANFrame _
     findAndInject with findMessageById canId dbc
-    ... | nothing = inj₁ errCanIdNotFound
+    ... | nothing = inj₁ CANIdNotFound
     ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → injectAll frame signalDefs
 
 -- Name-based API (JSON path)
-buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
 buildFrame = buildFrameG nameStrategy
 
-updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → String ⊎ CANFrame n
+updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → FrameError ⊎ CANFrame n
 updateFrame = updateFrameG nameStrategy
 
 -- Index-based API (binary FFI path — no string allocation)
-buildFrameByIndex : DBC → CANId → (dlc : ℕ) → List (ℕ × ℚ) → String ⊎ Vec Byte (dlcToBytes dlc)
+buildFrameByIndex : DBC → CANId → (dlc : ℕ) → List (ℕ × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
 buildFrameByIndex = buildFrameG indexStrategy
 
-updateFrameByIndex : ∀ {n} → DBC → CANId → CANFrame n → List (ℕ × ℚ) → String ⊎ CANFrame n
+updateFrameByIndex : ∀ {n} → DBC → CANId → CANFrame n → List (ℕ × ℚ) → FrameError ⊎ CANFrame n
 updateFrameByIndex = updateFrameG indexStrategy

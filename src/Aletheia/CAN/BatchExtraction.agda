@@ -23,7 +23,7 @@ open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.Prelude using (errCanIdNotFound)
+open import Aletheia.Error using (FrameError; CANIdNotFound; formatFrameError)
 
 -- ============================================================================
 -- BATCH EXTRACTION RESULT TYPE
@@ -90,7 +90,7 @@ extractAllSignals : ∀ {n} → DBC → CANFrame n → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing =
     -- Message not found in DBC - return error
-    mkExtractionResults [] (("message" , errCanIdNotFound) ∷ []) []
+    mkExtractionResults [] (("message" , formatFrameError CANIdNotFound) ∷ []) []
 ... | just msg =
     -- Extract all signals from this message
     extractAllSignalsFromMessage frame msg
@@ -150,7 +150,7 @@ extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
       combineIndexedResults (categorizeIndexed idx (extractSignalDirect msg frame sig))
                             (go (suc idx) sigs)
 
-extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → String ⊎ IndexedExtractionResults
+extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ IndexedExtractionResults
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc
-... | nothing = inj₁ errCanIdNotFound
+... | nothing = inj₁ CANIdNotFound
 ... | just msg = inj₂ (extractAllSignalsIndexedFromMessage frame msg)

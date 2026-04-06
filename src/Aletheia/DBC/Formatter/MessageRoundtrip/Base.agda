@@ -35,6 +35,6 @@ messageFields msg =
 ctx : String → String
 ctx n = "message '" ++ₛ n ++ₛ "'"
 
->>=ₑ-congʳ : ∀ {A B : Set} {x : String ⊎ A} {a : A} (f : A → String ⊎ B)
+>>=ₑ-congʳ : ∀ {E A B : Set} {x : E ⊎ A} {a : A} (f : A → E ⊎ B)
   → x ≡ inj₂ a → (x >>=ₑ f) ≡ f a
 >>=ₑ-congʳ f refl = refl

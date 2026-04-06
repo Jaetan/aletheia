@@ -78,14 +78,19 @@ listIndex _ [] = nothing
 listIndex zero (x ∷ _) = just x
 listIndex (suc n) (_ ∷ xs) = listIndex n xs
 
--- Lift Maybe to String ⊎ A with an error message on Nothing
-require : ∀ {A : Set} → String → Maybe A → String ⊎ A
-require msg = maybe inj₂ (inj₁ msg)
+-- Lift Maybe to E ⊎ A with an error value on Nothing
+require : ∀ {E A : Set} → E → Maybe A → E ⊎ A
+require err = maybe inj₂ (inj₁ err)
 
 -- Bind operator for Either (⊎) monad (used by parsers and command routing)
-_>>=ₑ_ : ∀ {A B : Set} → String ⊎ A → (A → String ⊎ B) → String ⊎ B
+_>>=ₑ_ : ∀ {E A B : Set} → E ⊎ A → (A → E ⊎ B) → E ⊎ B
 inj₁ err >>=ₑ _ = inj₁ err
 inj₂ x >>=ₑ f = f x
+
+-- Map over the error (left) side of a coproduct
+mapₑ : ∀ {E₁ E₂ A : Set} → (E₁ → E₂) → E₁ ⊎ A → E₂ ⊎ A
+mapₑ f (inj₁ e) = inj₁ (f e)
+mapₑ _ (inj₂ a) = inj₂ a
 
 -- CAN ID bounds (used for validation and type constraints)
 standard-can-id-max : ℕ
@@ -124,13 +129,6 @@ ifᵀ-witness : ∀ {A : Set} {b : Bool} (f : T b → A) (e : A) (pf : T b)
   → ifᵀ b then f else e ≡ f pf
 ifᵀ-witness {b = true}  f e pf = refl
 ifᵀ-witness {b = false} _ _ ()
-
--- Shared error messages (deduplicated across Main, BatchExtraction, BatchFrameBuilding)
-errNoDBC : String
-errNoDBC = "DBC not loaded"
-
-errCanIdNotFound : String
-errCanIdNotFound = "CAN ID not found in DBC"
 
 -- 8 ≤ 512 (one byte fits in max-physical-bits)
 -- Defined once to avoid duplicating the 8-deep s≤s chain

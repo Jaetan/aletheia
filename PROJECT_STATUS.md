@@ -190,8 +190,8 @@ verified core:
 
 9. ✅ DBC Validator — COMPLETE
    - Agda: `DBC/Validator.agda` (new), `DBC/Types.agda`, `Protocol/Message.agda`, `Protocol/Routing.agda`, `Protocol/StreamState.agda`
-   - `validateDBCFull : DBC → List ValidationIssue` — 16 checks (9 error, 7 warning), all issues accumulated
-   - `IssueCode` enum: 16 codes covering structural, physical, and authoring issues
+   - `validateDBCFull : DBC → List ValidationIssue` — 16 checks (8 error, 8 warning), all issues accumulated
+   - `IssueCode` enum: 15 codes covering structural, physical, and authoring issues
    - Decidable types throughout (`_≟-CANId_`, `any?`, `_∈?_`, `signalPairValid?`)
    - Dual-layer validation: `parseDBC` runs both `validateDBC` + `validateDBCFull`
    - **Formally verified**: soundness + completeness proof (1,267 lines, 6 modules)
@@ -302,7 +302,11 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Bounded CANId (#44) — intrinsic bounds via T (n <ᵇ max) (2026-04-06): `CANId` constructors now carry proof: `Standard n (T (n <ᵇ 2048))`, `Extended n (T (n <ᵇ 536870912))`. `WellFormedCANId` eliminated (bounds intrinsic). `parseCANId` uses `ifᵀ_then_else_` to construct proof in true branch. Decidable equality via `T-irrelevant` + `cong`. Roundtrip proofs via `ifᵀ-witness` lemma (avoids with-abstraction failure from rigid type dependency). Haskell FFI validates bounds before `unsafeCoerce ()` for proof field. New Prelude utilities: `ifᵀ_then_else_`, `T-irrelevant`, `T→true`, `ifᵀ-witness`. MAlonzo constructor names updated.
 
-- ✅ liftCheck combinator (#50) — requireDec/rejectDec + liftTriangular (2026-04-06): Extracted reusable combinators eliminating repeated with-Dec boilerplate across DBC validity proofs. `requireDec`/`rejectDec` (decidable check building blocks) with 4 proof lemmas, `liftTriangular-sound`/`liftTriangular-complete` for pairwise AllPairs. 12 check functions in Checks.agda converted to one-liner combinator calls. 34 proof functions simplified across ErrorChecks/WarningChecks. `checkAgainst`/`triangularCheck` moved to Combinators.agda and made generic. Net: +242/-225 lines across 4 files. Review plan Tier 7 now fully closed; remaining: Tier 6 #45-48 (type-level redesigns).
+- ✅ liftCheck combinator (#50) — requireDec/rejectDec + liftTriangular (2026-04-06): Extracted reusable combinators eliminating repeated with-Dec boilerplate across DBC validity proofs. `requireDec`/`rejectDec` (decidable check building blocks) with 4 proof lemmas, `liftTriangular-sound`/`liftTriangular-complete` for pairwise AllPairs. 12 check functions in Checks.agda converted to one-liner combinator calls. 34 proof functions simplified across ErrorChecks/WarningChecks. `checkAgainst`/`triangularCheck` moved to Combinators.agda and made generic. Net: +242/-225 lines across 4 files. Review plan Tier 7 now fully closed.
+
+- ✅ SignalCache uniqueness guarantee (#47) — @0 erased proof (2026-04-06): `SignalCache` now carries `@0` erased uniqueness proof on its key set. Zero runtime cost via quantity-zero erasure.
+
+- ✅ Bounded DLC newtype (#45) — @0 erased proof + checkDLCOutOfRange removal (2026-04-06): Replaced `DBCMessage.dlc : ℕ` and `StreamCommand` DLC with validated `record DLC` carrying `@0 bounded : T (code <ᵇ 16)`. `bytesToValidDLC` rejects invalid byte counts at parse time. Removed dead `checkDLCOutOfRange` check, `ValidDLC` predicate, `DLCOutOfRange` issue code — all trivially true by construction. `ValidDBC` now has 8 error conditions (was 9), 16 checks (was 17). `StreamCommand` constructors also use `DLC` type; `Main.agda` FFI boundary uses `ifᵀ` for DLC construction. `bytesToValidDLC-roundtrip` proof enables formatter roundtrips. 30 files changed across Agda + all language bindings. Remaining Tier 6: #46 (phase-indexed StreamState) and #48 (typed error ADT) — both very large scope.
 
 **Remaining**:
 - DBC file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)

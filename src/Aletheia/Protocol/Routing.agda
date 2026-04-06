@@ -3,9 +3,9 @@
 -- Command parsing for the streaming protocol.
 --
 -- Purpose: Parse JSON commands and dispatch to appropriate handlers.
--- Operations: parseCommand (JSON → StreamCommand).
+-- Operations: parseCommand (JSON → RouteError ⊎ StreamCommand).
 -- Role: Parses the "command" field from JSON objects, used by Main.processJSONLine.
--- Validation: All required fields checked, descriptive error messages on failure.
+-- Validation: All required fields checked, typed RouteError on failure.
 module Aletheia.Protocol.Routing where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
@@ -19,12 +19,17 @@ open import Data.Nat.Properties using (_≤?_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
-open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; ifᵀ_then_else_)
+open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; mapₑ; ifᵀ_then_else_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes)
+open import Aletheia.Error using
+  ( RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
+  ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
+  ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParseError
+  )
 
 -- ============================================================================
 -- INTERNAL HELPERS
@@ -40,22 +45,22 @@ private
   byte-bound = 256
 
   -- Require a named field, producing a standardized "missing 'X'" error
-  requireNat : String → String → List (String × JSON) → String ⊎ ℕ
-  requireNat cmd name obj = require (cmd ++ₛ ": missing '" ++ₛ name ++ₛ "' field") (lookupNat name obj)
+  requireNat : String → String → List (String × JSON) → RouteError ⊎ ℕ
+  requireNat cmd name obj = require (RouteMissingField cmd name) (lookupNat name obj)
 
-  requireArray : String → String → List (String × JSON) → String ⊎ List JSON
-  requireArray cmd name obj = require (cmd ++ₛ ": missing '" ++ₛ name ++ₛ "' array") (lookupArray name obj)
+  requireArray : String → String → List (String × JSON) → RouteError ⊎ List JSON
+  requireArray cmd name obj = require (RouteMissingArray cmd name) (lookupArray name obj)
 
   -- Validate DLC code (0–15) and construct validated DLC record.
-  requireValidDLC : String → ℕ → String ⊎ DLC
+  requireValidDLC : String → ℕ → RouteError ⊎ DLC
   requireValidDLC ctx n =
-    ifᵀ (n <ᵇ 16) then (λ p → inj₂ (mkDLC n p)) else inj₁ (ctx ++ₛ ": DLC exceeds maximum value")
+    ifᵀ (n <ᵇ 16) then (λ p → inj₂ (mkDLC n p)) else inj₁ (DLCExceedsMax ctx)
 
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
-  parseCANIdField : String → String → List (String × JSON) → String ⊎ CANId
+  parseCANIdField : String → String → List (String × JSON) → RouteError ⊎ CANId
   parseCANIdField ctx key obj =
     requireNat ctx key obj >>=ₑ λ rawId →
-    parseCANId ctx rawId obj
+    mapₑ WrappedParseError (parseCANId ctx rawId obj)
 
   -- Parse a JSON array as a list of bytes
   parseByteArray : List JSON → Maybe (List ℕ)
@@ -80,23 +85,23 @@ private
   ... | yes _ = listToVec n xs >>= λ rest → just (x Data.Vec.∷ rest)
 
   -- Parse ParseDBC command
-  tryParseDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryParseDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryParseDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ "ParseDBC: missing 'dbc' field"
+  ... | nothing = inj₁ (MissingDBCField "ParseDBC")
   ... | just dbc = inj₂ (ParseDBC dbc)
 
   -- Parse SetProperties command
-  trySetProperties : List (String × JSON) → String ⊎ StreamCommand
+  trySetProperties : List (String × JSON) → RouteError ⊎ StreamCommand
   trySetProperties obj with lookupArray "properties" obj
-  ... | nothing = inj₁ "SetProperties: missing 'properties' field"
+  ... | nothing = inj₁ MissingPropsField
   ... | just props = inj₂ (SetProperties props)
 
   -- Parse StartStream command
-  tryStartStream : List (String × JSON) → String ⊎ StreamCommand
+  tryStartStream : List (String × JSON) → RouteError ⊎ StreamCommand
   tryStartStream _ = inj₂ StartStream
 
   -- Parse BuildFrame command
-  tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
+  tryBuildFrame : List (String × JSON) → RouteError ⊎ StreamCommand
   tryBuildFrame obj =
     parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
     requireNat "BuildFrame" "dlc" obj >>=ₑ λ rawDlc →
@@ -105,44 +110,44 @@ private
     inj₂ (BuildFrame canId dlc signals)
 
   -- Parse ExtractAllSignals command
-  tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
+  tryExtractAllSignals : List (String × JSON) → RouteError ⊎ StreamCommand
   tryExtractAllSignals obj =
     parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
     requireNat "ExtractAllSignals" "dlc" obj >>=ₑ λ rawDlc →
     requireValidDLC "ExtractAllSignals" rawDlc >>=ₑ λ dlc →
     requireArray "ExtractAllSignals" "data" obj >>=ₑ λ bytesJSON →
-    require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
+    require (ByteArrayParseFailed "ExtractAllSignals") (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require (ByteCountMismatch "ExtractAllSignals") (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
 
   -- Parse UpdateFrame command
-  tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
+  tryUpdateFrame : List (String × JSON) → RouteError ⊎ StreamCommand
   tryUpdateFrame obj =
     parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
     requireNat "UpdateFrame" "dlc" obj >>=ₑ λ rawDlc →
     requireValidDLC "UpdateFrame" rawDlc >>=ₑ λ dlc →
     requireArray "UpdateFrame" "data" obj >>=ₑ λ bytesJSON →
-    require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
+    require (ByteArrayParseFailed "UpdateFrame") (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require (ByteCountMismatch "UpdateFrame") (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
     requireArray "UpdateFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (UpdateFrame canId dlc bytes signals)
 
   -- Parse EndStream command
-  tryEndStream : List (String × JSON) → String ⊎ StreamCommand
+  tryEndStream : List (String × JSON) → RouteError ⊎ StreamCommand
   tryEndStream _ = inj₂ EndStream
 
   -- Parse ValidateDBC command
-  tryValidateDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryValidateDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryValidateDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ "ValidateDBC: missing 'dbc' field"
+  ... | nothing = inj₁ (MissingDBCField "ValidateDBC")
   ... | just dbc = inj₂ (ValidateDBC dbc)
 
   -- Parse FormatDBC command (no arguments needed)
-  tryFormatDBC : List (String × JSON) → String ⊎ StreamCommand
+  tryFormatDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryFormatDBC _ = inj₂ FormatDBC
 
   -- Dispatch table for command parsers
-  commandDispatchTable : List (String × (List (String × JSON) → String ⊎ StreamCommand))
+  commandDispatchTable : List (String × (List (String × JSON) → RouteError ⊎ StreamCommand))
   commandDispatchTable =
     ("parseDBC" , tryParseDBC) ∷
     ("setProperties" , trySetProperties) ∷
@@ -156,16 +161,13 @@ private
     []
 
   -- Dispatch using table lookup
-  dispatchCommand : String → List (String × JSON) → String ⊎ StreamCommand
+  dispatchCommand : String → List (String × JSON) → RouteError ⊎ StreamCommand
   dispatchCommand cmdType obj with lookupByKey cmdType commandDispatchTable
-  ... | nothing = inj₁ ("Unknown command: " ++ₛ cmdType)
+  ... | nothing = inj₁ (UnknownCommand cmdType)
   ... | just parser = parser obj
 
--- Parse StreamCommand from JSON object (returns error message on failure)
-parseCommand : List (String × JSON) → String ⊎ StreamCommand
+-- Parse StreamCommand from JSON object (returns RouteError on failure)
+parseCommand : List (String × JSON) → RouteError ⊎ StreamCommand
 parseCommand obj with lookupString "command" obj
-... | nothing = inj₁ "ParseCommand: missing 'command' field"
+... | nothing = inj₁ MissingCommandField
 ... | just cmdType = dispatchCommand cmdType obj
-
-
-

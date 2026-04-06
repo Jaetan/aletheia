@@ -323,7 +323,10 @@ class AletheiaClient:
             return result
 
         if status == "error":
-            err: ErrorResponse = {"status": "error", "message": ""}
+            code = response.get("code")
+            err: ErrorResponse = {"status": "error", "code": "", "message": ""}
+            if isinstance(code, str):
+                err["code"] = code
             if isinstance(message, str):
                 err["message"] = message
             return err
@@ -668,8 +671,11 @@ class AletheiaClient:
             return result_violation
 
         if status == "error":
-            result_error: ErrorResponse = {"status": "error", "message": ""}
+            result_error: ErrorResponse = {"status": "error", "code": "", "message": ""}
+            code = response.get("code")
             message = response.get("message")
+            if isinstance(code, str):
+                result_error["code"] = code
             if isinstance(message, str):
                 result_error["message"] = message
             return result_error
@@ -807,7 +813,10 @@ class AletheiaClient:
             return {"status": "complete", "results": results}
 
         if status == "error":
-            result_error: ErrorResponse = {"status": "error", "message": ""}
+            result_error: ErrorResponse = {"status": "error", "code": "", "message": ""}
+            code = response.get("code")
+            if isinstance(code, str):
+                result_error["code"] = code
             if isinstance(message, str):
                 result_error["message"] = message
             return result_error

@@ -439,7 +439,12 @@ func parseResponse(raw string) (map[string]any, error) {
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status == "error" {
-		return protocolError(getString(m, "message"))
+		code := getString(m, "code")
+		msg := getString(m, "message")
+		if code != "" {
+			return newCodedError(ErrProtocol, code, msg)
+		}
+		return protocolError(msg)
 	}
 	return nil
 }
@@ -704,7 +709,12 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 			Reason:        reason,
 		}, nil
 	case "error":
-		return nil, protocolError(getString(m, "message"))
+		code := getString(m, "code")
+		msg := getString(m, "message")
+		if code != "" {
+			return nil, newCodedError(ErrProtocol, code, msg)
+		}
+		return nil, protocolError(msg)
 	default:
 		return nil, protocolError(fmt.Sprintf("unexpected frame status: %q", status))
 	}

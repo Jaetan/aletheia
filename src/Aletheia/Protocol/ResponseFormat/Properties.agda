@@ -25,6 +25,7 @@ open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData
 open import Aletheia.Protocol.ResponseFormat using (formatResponse; formatPropertyResult; bytesToJSON)
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.DBC.Types using (ValidationIssue)
+import Aletheia.Error as Err
 
 -- ============================================================================
 -- RESPONSE CONSTRUCTOR CORRECTNESS
@@ -40,8 +41,8 @@ formatResponse-success : ∀ msg → formatResponse (Success msg)
   ≡ JObject (("status" , JString "success") ∷ ("message" , JString msg) ∷ [])
 formatResponse-success _ = refl
 
-formatResponse-error : ∀ reason → formatResponse (Error reason)
-  ≡ JObject (("status" , JString "error") ∷ ("message" , JString reason) ∷ [])
+formatResponse-error : ∀ (err : Err.Error) → formatResponse (Error err)
+  ≡ JObject (("status" , JString "error") ∷ ("code" , JString (Err.errorCode err)) ∷ ("message" , JString (Err.formatError err)) ∷ [])
 formatResponse-error _ = refl
 
 formatResponse-bytearray : ∀ {n} (bytes : Vec Byte n) → formatResponse (ByteArray bytes)

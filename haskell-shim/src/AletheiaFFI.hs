@@ -219,7 +219,7 @@ aletheia_build_frame statePtr canId extended dlc
     dens <- peekArray (fromIntegral numSignals) densPtr
     let agdaCanId = mkAgdaCanId canId extended
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processBuildFrameDirect_106 state agdaCanId (toInteger dlc) signalPairs
+    let result = Agda.d_processBuildFrameDirect_108 state agdaCanId (toInteger dlc) signalPairs
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
     writeIORef ref newState
@@ -249,7 +249,7 @@ aletheia_update_frame statePtr canId extended dlc
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processUpdateFrameDirect_118 state agdaCanId
+    let result = Agda.d_processUpdateFrameDirect_122 state agdaCanId
                      (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let outputText = unsafeCoerce (AgdaSigma.d_snd_30 result) :: T.Text
@@ -389,7 +389,7 @@ aletheia_build_frame_bin statePtr canId extended dlc
     dens <- peekArray (fromIntegral numSignals) densPtr
     let agdaCanId = mkAgdaCanId canId extended
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processBuildFrameBin_132 state agdaCanId (toInteger dlc) signalPairs
+    let result = Agda.d_processBuildFrameBin_138 state agdaCanId (toInteger dlc) signalPairs
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     writeIORef ref newState
@@ -420,7 +420,7 @@ aletheia_update_frame_bin statePtr canId extended dlc
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
     let signalPairs = mkSignalPairs indices nums dens
-    let result = Agda.d_processUpdateFrameBin_166 state agdaCanId
+    let result = Agda.d_processUpdateFrameBin_172 state agdaCanId
                      (toInteger dlc) (unsafeCoerce agdaVec) signalPairs
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
@@ -448,7 +448,7 @@ aletheia_extract_signals_bin statePtr canId extended dlc
     bytes <- peekArray (fromIntegral dataLen) dataPtr
     let agdaCanId = mkAgdaCanId canId extended
     let agdaVec = bytesToAgdaVec bytes
-    let result = Agda.d_processExtractBin_238 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
+    let result = Agda.d_processExtractBin_244 state agdaCanId (toInteger dlc) (unsafeCoerce agdaVec)
     let newState = unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_36
     let sumResult = unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30
     writeIORef ref newState

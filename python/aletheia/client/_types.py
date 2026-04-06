@@ -20,7 +20,16 @@ class ProcessError(AletheiaError):
 
 
 class ProtocolError(AletheiaError):
-    """Protocol-related errors (invalid JSON, missing response, etc.)"""
+    """Protocol-related errors (invalid JSON, missing response, etc.)
+
+    Attributes:
+        code: Machine-readable error code from Agda (None for client-side errors).
+    """
+    code: str | None
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class BatchError(AletheiaError):

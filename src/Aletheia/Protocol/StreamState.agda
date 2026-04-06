@@ -13,8 +13,6 @@
 -- Command handlers live in Protocol/Handlers.agda (concern separation).
 module Aletheia.Protocol.StreamState where
 
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Aletheia.Prelude using (errNoDBC)
 open import Data.Maybe using (just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.DBC.Types using (DBC)
@@ -22,6 +20,7 @@ open import Aletheia.LTL.SignalPredicate using (SignalCache)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Data; Error; Remote)
 open import Aletheia.Protocol.Iteration using (iterate)
+open import Aletheia.Error as Err using (Error; HandlerErr; WithContext; HandlerError; NoDBC; StreamNotStarted)
 
 -- ============================================================================
 -- RE-EXPORTS: Types (public)
@@ -56,10 +55,10 @@ open import Aletheia.Protocol.StreamState.Internals
 -- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
 handleDataFrame state tf with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error ("DataFrame: " ++ₛ errNoDBC))
-... | ReadyToStream = (state , Response.Error "DataFrame: stream not started")
+... | WaitingForDBC = (state , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
+... | ReadyToStream = (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
 ... | Streaming with StreamState.dbc state
-...   | nothing = (state , Response.Error ("DataFrame: " ++ₛ errNoDBC))
+...   | nothing = (state , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
 ...   | just dbc =
   let cache = StreamState.signalCache state
       updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)

@@ -17,7 +17,7 @@
 -- Haskell FFI shim (AletheiaFFI.hs) only handles C-callable exports and state management.
 module Aletheia.Main where
 
-open import Data.String using (String; toList; _≟_) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList; _≟_)
 open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Product using (proj₁; _×_; _,_)
 open import Data.List using (List; []; _∷_)
@@ -44,7 +44,13 @@ open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcToBytes)
-open import Aletheia.Prelude using (errNoDBC; ifᵀ_then_else_)
+open import Aletheia.Prelude using (ifᵀ_then_else_; mapₑ)
+open import Aletheia.Error as Err using
+  ( Error; RouteErr; DispatchErr; HandlerErr; WithContext
+  ; DispatchError; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
+  ; HandlerError; InvalidDLCCode
+  ; formatFrameError
+  )
 import Aletheia.Protocol.Message as Msg
 
 -- Apply formatJSON ∘ formatResponse to the second component of a state-response pair
@@ -58,23 +64,23 @@ wrapJSON (s , r) = (s , formatJSON (formatResponse r))
 -- Try to parse and execute a command from JSON fields
 tryParseCommand : StreamState → List (String × JSON) → StreamState × String
 tryParseCommand state obj with parseCommand obj
-... | inj₁ errMsg = wrapJSON (state , Msg.Response.Error errMsg)
+... | inj₁ routeErr = wrapJSON (state , Msg.Response.Error (RouteErr routeErr))
 ... | inj₂ cmd = wrapJSON (processStreamCommand cmd state)
 
 -- Dispatch by message type field
 dispatchCommand : StreamState → List (String × JSON) → StreamState × String
 dispatchCommand state obj with lookupString "type" obj
-... | nothing = wrapJSON (state , Msg.Response.Error "Dispatch: missing 'type' field in request")
+... | nothing = wrapJSON (state , Msg.Response.Error (DispatchErr MissingTypeField))
 ... | just msgType =
   if ⌊ msgType ≟ "command" ⌋
   then tryParseCommand state obj
-  else wrapJSON (state , Msg.Response.Error ("Dispatch: unknown message type: " ++ₛ msgType))
+  else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
 
 -- Handle parsed JSON result
 handleParsedJSON : StreamState → Maybe JSON → StreamState × String
-handleParsedJSON state nothing = wrapJSON (state , Msg.Response.Error "Dispatch: invalid JSON")
+handleParsedJSON state nothing = wrapJSON (state , Msg.Response.Error (DispatchErr InvalidJSON))
 handleParsedJSON state (just (JObject obj)) = dispatchCommand state obj
-handleParsedJSON state (just _) = wrapJSON (state , Msg.Response.Error "Dispatch: request must be a JSON object")
+handleParsedJSON state (just _) = wrapJSON (state , Msg.Response.Error (DispatchErr RequestNotObject))
 
 -- Process a single JSON line and update stream state.
 -- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
@@ -131,7 +137,7 @@ processExtractDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcTo
 processExtractDirect state canId dlc payload =
   ifᵀ (dlc <ᵇ 16) then
     (λ p → wrapJSON (handleExtractAllSignals canId (mkDLC dlc p) payload state))
-  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
+  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
 
 -- Build CAN frame from signal index-value pairs (no JSON/string parsing)
 processBuildFrameDirect : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × String
@@ -139,7 +145,7 @@ processBuildFrameDirect : StreamState → CANId → (dlc : ℕ) → List (ℕ ×
 processBuildFrameDirect state canId dlc signals =
   ifᵀ (dlc <ᵇ 16) then
     (λ p → wrapJSON (handleBuildFrameByIndex canId (mkDLC dlc p) signals state))
-  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
+  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
 
 -- Update CAN frame signals by index (no JSON/string parsing)
 processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × String
@@ -147,7 +153,7 @@ processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (d
 processUpdateFrameDirect state canId dlc payload signals =
   ifᵀ (dlc <ᵇ 16) then
     (λ p → wrapJSON (handleUpdateFrameByIndex canId (mkDLC dlc p) payload signals state))
-  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
+  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
 
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
@@ -187,17 +193,17 @@ processUpdateFrameDirect state canId dlc payload signals =
 processBuildFrameBin : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processBuildFrameBin #-}
 processBuildFrameBin state canId dlc signals with StreamState.dbc state
-... | nothing  = (state , inj₁ errNoDBC)
-... | just dbc = (state , buildFrameByIndex dbc canId dlc signals)
+... | nothing  = (state , inj₁ "DBC not loaded")
+... | just dbc = (state , mapₑ formatFrameError (buildFrameByIndex dbc canId dlc signals))
 
 -- Update CAN frame, returning raw bytes instead of JSON-formatted Response.
 -- Called by aletheia_update_frame_bin via AletheiaFFI.hs.
 processUpdateFrameBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processUpdateFrameBin #-}
 processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
-... | nothing  = (state , inj₁ errNoDBC)
+... | nothing  = (state , inj₁ "DBC not loaded")
 ... | just dbc with updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals
-...   | inj₁ err   = (state , inj₁ err)
+...   | inj₁ err   = (state , inj₁ (formatFrameError err))
 ...   | inj₂ frame = (state , inj₂ (CANFrame.payload frame))
 
 -- Extract signals returning indexed results (no strings on success path).
@@ -205,6 +211,6 @@ processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
 processExtractBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
 {-# NOINLINE processExtractBin #-}
 processExtractBin state canId dlc payload with StreamState.dbc state
-... | nothing  = (state , inj₁ errNoDBC)
-... | just dbc = (state , extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload }))
+... | nothing  = (state , inj₁ "DBC not loaded")
+... | just dbc = (state , mapₑ formatFrameError (extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload })))
 

@@ -191,7 +191,15 @@ static_assert(Verdict::Holds != Verdict::Fails);
 
 static_assert(IssueSeverity::Error != IssueSeverity::Warning);
 static_assert(static_cast<int>(IssueCode::DuplicateMessageId) == 0);
-static_assert(static_cast<int>(IssueCode::BitLengthExcessive) == 15);
+static_assert(static_cast<int>(IssueCode::MultiplexorNonUnitScaling) == 15);
+
+// ===========================================================================
+// ErrorCode enum — first and last codes
+// ===========================================================================
+
+static_assert(static_cast<int>(ErrorCode::Unknown) == 0);
+static_assert(ErrorCode::ParseMissingField != ErrorCode::Unknown);
+static_assert(ErrorCode::DispatchRequestNotObject != ErrorCode::Unknown);
 
 // ===========================================================================
 // AletheiaClient — non-copyable, movable

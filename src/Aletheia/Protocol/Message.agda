@@ -19,6 +19,7 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
+import Aletheia.Error as Err
 
 -- ============================================================================
 -- STREAMING PROTOCOL COMMANDS (Phase 2B)
@@ -73,8 +74,8 @@ data Response : Set where
   -- Generic success with message
   Success : String → Response
 
-  -- Error with reason
-  Error : String → Response
+  -- Error with typed error value
+  Error : Err.Error → Response
 
   -- Byte array response (for BuildFrame and UpdateFrame commands)
   ByteArray : ∀ {n} → Vec Byte n → Response
