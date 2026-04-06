@@ -351,7 +351,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Build time: 0.26s (no-op), ~11s (incremental)
 - Per-frame latency: ~21 us (CAN 2.0B streaming, C++)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
-- **Binary FFI gain** (2026-03-27): Streaming LTL uses `aletheia_send_frame` (binary path, no JSON parsing). Compared to JSON-only baseline: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps). Signal extraction and frame building still use JSON path.
+- **Binary FFI gain** (2026-03-27): All hot-path operations use binary FFI (no JSON parsing): `aletheia_send_frame` (streaming), `aletheia_extract_signals_bin`, `aletheia_build_frame_bin`, `aletheia_update_frame_bin`. Compared to JSON-only baseline: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps) for streaming. All three bindings call the binary endpoints directly.
 - **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — binary FFI delivers 17,077 fps (2x headroom).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
