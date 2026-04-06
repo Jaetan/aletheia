@@ -312,11 +312,27 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 - ✅ Phase-indexed StreamState (#46) — sum type eliminating StreamPhase enum (2026-04-06): Replaced `StreamPhase` enum + `StreamState` record with a sum type where phase is encoded in the constructor: `WaitingForDBC | ReadyToStream DBC props cache | Streaming DBC props prev cache`. Invalid state transitions are now unrepresentable. `Maybe DBC` eliminated (ReadyToStream and Streaming always carry a DBC). `prevFrame` field only exists in Streaming phase. `getDBC : StreamState → Maybe DBC` accessor for backward compatibility. All 22 proofs in `FrameProcessor/Properties.agda` simplified: guard proofs become trivial `refl`, preconditions (`phase ≡ Streaming`, `dbc ≡ just dbc`) eliminated entirely, streaming decomposition becomes `refl`. Tier 6 (#44-48) now fully complete.
 
-**Remaining**:
-- DBC file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
-- Go multiplexing query helpers (noted during R8 review)
+**Status**: Complete (2026-02-26 to 2026-04-06)
+**Completion**: 100% (core features complete; spec observations tracked in Phase 5.1)
 
-**Status**: In progress
+---
+
+### Phase 5.1: Proof Gaps & Spec Observations (Planned)
+
+**Scope**: Address proof gaps and specification limitations identified during code review
+
+- Metric operator bounds unproven (no proof MetricEventually/MetricAlways resolve within window)
+- Signal cache monotonicity/coherence unproven (enrichment only, not safety-critical)
+- rangesOverlap incorrect at len=0 + dual overlap algorithms (buildFrame uses unproven overlap; formal validator uses PhysicallyDisjoint)
+- Single-level multiplexing only (no nested/range-based mux)
+- MetricEventually suc-encoded time (deadline 0 not representable; undocumented)
+- BatchFrameBuilding name/index duplication (3 structurally identical pairs; proof-coupled)
+- DBC roundtrip requires empty metadata (groups/envvars/vtables)
+- No liveness completeness for Eventually/Until (inherent streaming limitation)
+- No bound proof for indexHelper indices (lookupAtom returns Maybe as defensive fallback)
+- Monotonic predicate defined but unused in Agda (only enforced at binding level)
+
+**Status**: Not started
 
 ---
 
@@ -330,29 +346,29 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 545 passing (via FFI)
+- Python tests: 540 passing (via FFI)
 - C++ tests: 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
 - Go tests: 243 passing (mock backend, `-race` clean)
 - Total: 1000+ tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
-*Benchmarks: 10,000 frames × 5 runs, AMD Ryzen 9 5950X, Linux 6.6 (WSL2). C++ g++-15 -O3, Go 1.26.1, Python 3.13.12. 2026-03-27.*
+*Benchmarks: 10,000 frames × 5 runs, AMD Ryzen 9 5950X, Linux 6.6 (WSL2). C++ g++-15 -O3, Go 1.26.1, Python 3.13.12. 2026-04-06.*
 
 | Benchmark | C++ (fps) | Go (fps) | Python (fps) |
 |---|---:|---:|---:|
-| CAN 2.0B: Stream LTL (2 props) | **47,847** | 45,807 | 42,086 |
-| CAN 2.0B: Signal Extraction | **8,646** | 6,766 | 6,370 |
-| CAN 2.0B: Frame Building | 5,205 | **5,337** | 4,429 |
-| CAN-FD: Stream LTL (3 props) | **17,077** | 16,270 | 14,545 |
-| CAN-FD: Signal Extraction | **900** | 802 | 716 |
-| CAN-FD: Frame Building | 2,611 | **2,662** | 2,250 |
+| CAN 2.0B: Stream LTL (2 props) | **109,345** | 97,082 | 70,917 |
+| CAN 2.0B: Signal Extraction | **212,857** | 166,527 | 87,424 |
+| CAN 2.0B: Frame Building | **76,469** | 71,692 | 55,093 |
+| CAN-FD: Stream LTL (3 props) | **48,248** | 47,516 | 34,737 |
+| CAN-FD: Signal Extraction | **14,930** | 14,493 | 12,143 |
+| CAN-FD: Frame Building | **20,567** | 20,052 | 17,830 |
 
 - Build time: 0.26s (no-op), ~11s (incremental)
-- Per-frame latency: ~21 us (CAN 2.0B streaming, C++)
+- Per-frame latency: ~9 us (CAN 2.0B streaming, C++)
 - Memory: O(1) verified (1.08x growth across 100x trace increase)
-- **Binary FFI gain** (2026-03-27): All hot-path operations use binary FFI (no JSON parsing): `aletheia_send_frame` (streaming), `aletheia_extract_signals_bin`, `aletheia_build_frame_bin`, `aletheia_update_frame_bin`. Compared to JSON-only baseline: **4.3x CAN 2.0B** (11k→48k fps), **9.1x CAN-FD** (1.9k→17k fps) for streaming. All three bindings call the binary endpoints directly.
-- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 8 Mbit/s requires ~8,400 fps — binary FFI delivers 17,077 fps (2x headroom).
+- **Binary FFI**: All hot-path operations use binary FFI (no JSON parsing): `aletheia_send_frame` (streaming), `aletheia_extract_signals_bin`, `aletheia_build_frame_bin`, `aletheia_update_frame_bin`. All three bindings call the binary endpoints directly.
+- **Single-threaded runtime**: Deployable to minimal containers (1 vCPU) with headroom over a 500 kbit/s CAN bus (~4,000 frames/sec). CAN-FD at 5 Mbit/s requires ~6,000 fps — all operations exceed this across all bindings (minimum: 12,143 fps Python CAN-FD extraction, 2x headroom).
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
@@ -364,17 +380,22 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 ---
 
-### Phase 6: SOME/IP Support (Planned)
+### Phase 6: Extensions & New Protocols (Planned)
 
-**Scope**: Extend Aletheia to automotive Ethernet via SOME/IP (Scalable service-Oriented MiddlewarE over IP)
+**Scope**: Binding feature gaps, dependency cleanup, and automotive Ethernet support
 
-SOME/IP is fundamentally different from CAN: service-oriented rather than signal-based, with a 16-byte header and variable structured payloads. This requires a new frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing). The existing LTL engine is reusable. Also covers CAN-over-Ethernet (DoIP/ISO 13400).
+**Binding feature gaps**:
+- DBC `.dbc` text file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
+- Go multiplexing query helpers (expose queryable mux relationships)
 
-**Research needed**:
-- Frame model design (service-oriented vs. signal-based)
-- Which SOME/IP interface to target (SOME/IP-SD, SOME/IP-TP, raw)
-- Atomic predicate design for service-level properties
-- Impact on Agda core types and proof obligations
+**LGPL contingency**:
+- ~500 lines to eliminate cantools/python-can/libgmp if needed
+
+**SOME/IP support**:
+- Extend Aletheia to automotive Ethernet via SOME/IP (Scalable service-Oriented MiddlewarE over IP)
+- SOME/IP is fundamentally different from CAN: service-oriented rather than signal-based, with a 16-byte header and variable structured payloads
+- Requires new frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing)
+- Existing LTL engine is reusable; also covers CAN-over-Ethernet (DoIP/ISO 13400)
 
 **Status**: Not started
 
