@@ -405,4 +405,4 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-06):** Bounded DLC newtype (#45) committed (`faf22a8`). SignalCache uniqueness (#47) committed (`42cc09f`). Tier 6 has 2 remaining items: #46 (phase-indexed StreamState) and #48 (typed error ADT). 80 Agda modules, all `--safe --without-K`.
+**Latest (2026-04-06):** Phase-indexed StreamState (#46) complete — sum type replacing StreamPhase enum + StreamState record. Tier 6 (#44-48) fully closed. 80 Agda modules, all `--safe --without-K`.

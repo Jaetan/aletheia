@@ -32,7 +32,7 @@ open import Aletheia.Parser.Combinators using (runParser)
 open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
 open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
-open import Aletheia.Protocol.StreamState using (StreamState; initialState; handleDataFrame; handleTraceEvent)
+open import Aletheia.Protocol.StreamState using (StreamState; initialState; getDBC; handleDataFrame; handleTraceEvent)
 open import Aletheia.Protocol.Handlers using
   ( processStreamCommand
   ; handleStartStream; handleEndStream; handleFormatDBC
@@ -192,7 +192,7 @@ processUpdateFrameDirect state canId dlc payload signals =
 -- Bypasses formatResponse/formatJSON entirely — zero string allocation on success.
 processBuildFrameBin : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processBuildFrameBin #-}
-processBuildFrameBin state canId dlc signals with StreamState.dbc state
+processBuildFrameBin state canId dlc signals with getDBC state
 ... | nothing  = (state , inj₁ "DBC not loaded")
 ... | just dbc = (state , mapₑ formatFrameError (buildFrameByIndex dbc canId dlc signals))
 
@@ -200,7 +200,7 @@ processBuildFrameBin state canId dlc signals with StreamState.dbc state
 -- Called by aletheia_update_frame_bin via AletheiaFFI.hs.
 processUpdateFrameBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
 {-# NOINLINE processUpdateFrameBin #-}
-processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
+processUpdateFrameBin state canId dlc payload signals with getDBC state
 ... | nothing  = (state , inj₁ "DBC not loaded")
 ... | just dbc with updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals
 ...   | inj₁ err   = (state , inj₁ (formatFrameError err))
@@ -210,7 +210,7 @@ processUpdateFrameBin state canId dlc payload signals with StreamState.dbc state
 -- Called by aletheia_extract_signals_bin via AletheiaFFI.hs.
 processExtractBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
 {-# NOINLINE processExtractBin #-}
-processExtractBin state canId dlc payload with StreamState.dbc state
+processExtractBin state canId dlc payload with getDBC state
 ... | nothing  = (state , inj₁ "DBC not loaded")
 ... | just dbc = (state , mapₑ formatFrameError (extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload })))
 

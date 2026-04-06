@@ -54,15 +54,13 @@ open import Aletheia.Protocol.StreamState.Internals
 -- O(1) Memory: Properties maintain fixed-size LTLProc state (no trace accumulation).
 -- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
-handleDataFrame state tf with StreamState.phase state
-... | WaitingForDBC = (state , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
-... | ReadyToStream = (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
-... | Streaming with StreamState.dbc state
-...   | nothing = (state , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
-...   | just dbc =
-  let cache = StreamState.signalCache state
-      updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
-  in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) (StreamState.properties state)) tf updatedCache
+handleDataFrame WaitingForDBC tf =
+  (WaitingForDBC , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
+handleDataFrame state@(ReadyToStream _ _ _) tf =
+  (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
+handleDataFrame (Streaming dbc props prev cache) tf =
+  let updatedCache = updateCacheFromFrame dbc cache (TimedFrame.timestamp tf) (TimedFrame.frame tf)
+  in dispatchIterResult dbc (iterate (stepProperty dbc cache tf) props) tf updatedCache
 
 -- Dispatch a trace event: data frames go through handleDataFrame,
 -- error and remote frames are acknowledged without LTL evaluation

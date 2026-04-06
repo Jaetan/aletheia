@@ -179,8 +179,8 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 **Generalization:**
 - When parameterizing types (e.g., `CANFrame n` for CAN-FD), generalize ALL layers (proofs, protocol, trace) with `∀ {n}` from the start. Do not pin at a fixed size as a shortcut.
 
-**Error strings:**
-- Error strings in `inj₁` must use consistent format: sentence case, operation name as prefix when context isn't clear from the call site (e.g., `"BuildFrame: CAN ID not found in DBC"`). Duplicated error strings are a finding -- extract to named constants or a central module.
+**Error types:**
+- All module-boundary error handling uses typed error ADTs from `Aletheia.Error` (not `String ⊎ A`). Each domain has its own error type (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`). Cross-domain lifting uses `mapₑ` + wrapper constructors (e.g., `WrappedParseError`). Handler-level context uses `WithContext`. Only binary FFI entry points in `Main.agda` use literal error strings (by design -- Haskell FFI returns `String ⊎ Vec Byte`). New error constructors that bypass the typed ADTs are a finding.
 
 **Combinator-first:**
 - Before writing pattern matching on `_⊎_` / `Maybe` / `_×_`, check if a combinator handles it (`Data.Sum.map`, `Data.Maybe.map`, `Data.Product.map₂`). Explicit case analysis should be the fallback, not the default.
@@ -189,7 +189,7 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 - Check the standard library before writing a new lemma. Commonly missed modules: `Data.Nat.DivMod`, `Data.Nat.Properties`, `Data.List.Properties`, `Data.Vec.Properties`. A hand-written lemma that duplicates a stdlib export is a finding.
 
 **Typed error handling:**
-- When a function returns `String ⊎ A`, ask whether the failure modes are exhaustive and whether a typed error ADT would be more appropriate. Untyped string errors are a specification gap -- the type system cannot enforce which failures are possible. Internal helpers may use string errors; module-boundary operations should prefer typed errors.
+- All module-boundary operations use typed error ADTs from `Aletheia.Error`. The five domain types (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`) cover all error-producing paths. New error paths must use the appropriate typed constructor, not `inj₁ "string"`. If a new domain emerges, add a new error type to `Error.agda` and a corresponding `errorCode`/`formatError` case. Binary FFI entry points are the sole exception (they return `String ⊎ Vec Byte` for Haskell marshalling).
 
 **State machine encoding:**
 - When a protocol has phases or states, ask whether transitions are enforced by types or only checked at runtime. Runtime-only state machines are specification gaps -- invalid transitions should ideally be unrepresentable.

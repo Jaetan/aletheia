@@ -24,7 +24,7 @@ open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Sati
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL)
 open import Aletheia.LTL.Simplify using (simplify)
 open import Aletheia.Protocol.Message using (Response)
-open import Aletheia.Protocol.StreamState.Types using (StreamState; mkStreamState; Streaming; PropertyState; mkPropertyState)
+open import Aletheia.Protocol.StreamState.Types using (StreamState; Streaming; PropertyState; mkPropertyState)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
@@ -128,9 +128,9 @@ stepProperty dbc cache tf prop =
 -- Dispatch iteration result to StreamState × Response.
 dispatchIterResult : DBC → List PropertyState × Maybe (ℕ × Counterexample) → TimedFrame → SignalCache → StreamState × Response
 dispatchIterResult dbc (updatedProps , nothing) tf cache =
-  (mkStreamState Streaming (just dbc) updatedProps (just tf) cache , Response.Ack)
+  (Streaming dbc updatedProps (just tf) cache , Response.Ack)
 dispatchIterResult dbc (allProps , just (idx , ce)) tf cache =
   let open Counterexample ce
       ceData = mkCounterexampleData (TimedFrame.timestamp violatingFrame) reason
       violation = PR.PropertyResult.Violation idx ceData
-  in (mkStreamState Streaming (just dbc) allProps (just tf) cache , Response.PropertyResponse violation)
+  in (Streaming dbc allProps (just tf) cache , Response.PropertyResponse violation)

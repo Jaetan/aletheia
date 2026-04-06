@@ -26,7 +26,7 @@
 --  (13) updateCacheFromFrame-no-match/match: decomposition into updateSignals
 --  (16) processFrameDirect-state: state = handleDataFrame state (FFI link)
 --  (17) processFrameDirect-response: response = formatJSON ∘ formatResponse (FFI link)
---  (18) processFrameDirect-ack-sound-json: Ack JSON ��� no violation (end-to-end)
+--  (18) processFrameDirect-ack-sound-json: Ack JSON ⇒ no violation (end-to-end)
 --  (19) handleExtractAllSignals-preserves-state: extract doesn't change state
 --  (20) handleBuildFrameByIndex-preserves-state: build doesn't change state
 --  (21) handleUpdateFrameByIndex-preserves-state: update doesn't change state
@@ -34,8 +34,8 @@
 module Aletheia.Protocol.FrameProcessor.Properties where
 
 open import Aletheia.Protocol.StreamState
-    using (StreamState; StreamPhase; WaitingForDBC; ReadyToStream; Streaming;
-           handleDataFrame; PropertyState; mkPropertyState;
+    using (StreamState; WaitingForDBC; ReadyToStream; Streaming;
+           getDBC; handleDataFrame; PropertyState; mkPropertyState;
            collectAtoms; indexFormula)
 open import Aletheia.Protocol.StreamState.Internals
     using (classifyStepResult; stepProperty; dispatchIterResult;
@@ -66,8 +66,10 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.DLC using (DLC; dlcToBytes)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
+open import Aletheia.Prelude using (require)
+open import Aletheia.Error using (HandlerError; NoDBC)
 open import Data.Vec using (Vec)
-open import Data.Sum using (inj₁; inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Rational using (ℚ)
@@ -89,17 +91,15 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym
 -- ============================================================================
 
 -- When not in Streaming phase, handleDataFrame returns the state unchanged.
--- This is a direct case split — handleDataFrame pattern-matches on phase first.
+-- With the sum type, these are trivially refl — no precondition needed.
 
-handleDataFrame-guard-waitingForDBC : ∀ (state : StreamState) (tf : TimedFrame)
-    → StreamState.phase state ≡ WaitingForDBC
-    → proj₁ (handleDataFrame state tf) ≡ state
-handleDataFrame-guard-waitingForDBC state tf refl = refl
+handleDataFrame-guard-waitingForDBC : ∀ (tf : TimedFrame)
+    → proj₁ (handleDataFrame WaitingForDBC tf) ≡ WaitingForDBC
+handleDataFrame-guard-waitingForDBC tf = refl
 
-handleDataFrame-guard-readyToStream : ∀ (state : StreamState) (tf : TimedFrame)
-    → StreamState.phase state ≡ ReadyToStream
-    → proj₁ (handleDataFrame state tf) ≡ state
-handleDataFrame-guard-readyToStream state tf refl = refl
+handleDataFrame-guard-readyToStream : ∀ dbc props cache (tf : TimedFrame)
+    → proj₁ (handleDataFrame (ReadyToStream dbc props cache) tf) ≡ ReadyToStream dbc props cache
+handleDataFrame-guard-readyToStream dbc props cache tf = refl
 
 -- ============================================================================
 -- PROPERTY 2: Byte modulus identity (boundary justification)
@@ -180,43 +180,28 @@ dispatchIterResult-violation dbc ps idx ce tf cache = refl
 -- PROPERTY 6: handleDataFrame Streaming decomposition
 -- ============================================================================
 
--- In Streaming phase with loaded DBC, handleDataFrame decomposes into:
+-- In Streaming phase, handleDataFrame decomposes into:
 --   dispatchIterResult ∘ iterate ∘ stepProperty
--- This is the bridge between handleDataFrame and the factored helpers.
-handleDataFrame-streaming : ∀ state tf dbc
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → handleDataFrame state tf
-    ≡ let cache = StreamState.signalCache state
-          updatedCache = updateCacheFromFrame dbc cache
+-- With the sum type, DBC is carried directly — no preconditions needed.
+handleDataFrame-streaming : ∀ dbc props prev cache tf
+  → handleDataFrame (Streaming dbc props prev cache) tf
+    ≡ let updatedCache = updateCacheFromFrame dbc cache
                            (TimedFrame.timestamp tf) (TimedFrame.frame tf)
       in dispatchIterResult dbc
-           (iterate (stepProperty dbc cache tf) (StreamState.properties state))
+           (iterate (stepProperty dbc cache tf) props)
            tf updatedCache
-handleDataFrame-streaming state tf dbc phase-eq dbc-eq
-  with StreamState.phase state | phase-eq
-... | .Streaming | refl with StreamState.dbc state | dbc-eq
-... | .(just dbc) | refl = refl
+handleDataFrame-streaming dbc props prev cache tf = refl
 
 -- ============================================================================
 -- PROPERTY 7: Ack soundness — Ack means no property violated
 -- ============================================================================
 
 -- If handleDataFrame returns Ack, then iterate found no halt evidence.
--- Combined with iterate-correct and specHalt, this means:
--- no property's stepL returned Violated.
-handleDataFrame-ack-sound : ∀ state tf dbc
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → proj₂ (handleDataFrame state tf) ≡ Response.Ack
-  → proj₂ (iterate (stepProperty dbc (StreamState.signalCache state) tf)
-                    (StreamState.properties state)) ≡ nothing
-handleDataFrame-ack-sound state tf dbc phase-eq dbc-eq resp-eq
-  with StreamState.phase state | phase-eq
-... | .Streaming | refl with StreamState.dbc state | dbc-eq
-... | .(just dbc) | refl
-  with iterate (stepProperty dbc (StreamState.signalCache state) tf)
-               (StreamState.properties state) | resp-eq
+handleDataFrame-ack-sound : ∀ dbc props prev cache tf
+  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.Ack
+  → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
+handleDataFrame-ack-sound dbc props prev cache tf resp-eq
+  with iterate (stepProperty dbc cache tf) props | resp-eq
 ... | (ps , nothing)         | _ = refl
 ... | (ps , just (idx , ce)) | ()
 
@@ -224,21 +209,12 @@ handleDataFrame-ack-sound state tf dbc phase-eq dbc-eq resp-eq
 -- PROPERTY 8: Violation soundness — PropertyResponse means some property violated
 -- ============================================================================
 
--- If handleDataFrame returns PropertyResponse, then iterate found halt evidence:
--- some property's stepProperty halted (which, by stepProperty-halt-implies-violated,
--- means some stepL returned Violated).
-handleDataFrame-violation-sound : ∀ state tf dbc pr
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → proj₂ (handleDataFrame state tf) ≡ Response.PropertyResponse pr
-  → ∃[ e ] proj₂ (iterate (stepProperty dbc (StreamState.signalCache state) tf)
-                           (StreamState.properties state)) ≡ just e
-handleDataFrame-violation-sound state tf dbc pr phase-eq dbc-eq resp-eq
-  with StreamState.phase state | phase-eq
-... | .Streaming | refl with StreamState.dbc state | dbc-eq
-... | .(just dbc) | refl
-  with iterate (stepProperty dbc (StreamState.signalCache state) tf)
-               (StreamState.properties state) | resp-eq
+-- If handleDataFrame returns PropertyResponse, then iterate found halt evidence.
+handleDataFrame-violation-sound : ∀ dbc props prev cache tf pr
+  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.PropertyResponse pr
+  → ∃[ e ] proj₂ (iterate (stepProperty dbc cache tf) props) ≡ just e
+handleDataFrame-violation-sound dbc props prev cache tf pr resp-eq
+  with iterate (stepProperty dbc cache tf) props | resp-eq
 ... | (ps , nothing)    | ()
 ... | (ps , just e)     | _ = e , refl
 
@@ -571,19 +547,11 @@ updateCacheFromFrame-match dbc cache ts frame msg eq rewrite eq = refl
 -- ============================================================================
 
 -- If no property's stepProperty halts, handleDataFrame returns Ack.
--- Combined with Property 7 (ack soundness), this gives: Ack iff no violation.
-handleDataFrame-ack-complete : ∀ state tf dbc
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → specHalt (stepProperty dbc (StreamState.signalCache state) tf)
-             (StreamState.properties state) ≡ nothing
-  → proj₂ (handleDataFrame state tf) ≡ Response.Ack
-handleDataFrame-ack-complete state tf dbc phase-eq dbc-eq spec-eq
-  with StreamState.phase state | phase-eq
-... | .Streaming | refl with StreamState.dbc state | dbc-eq
-... | .(just dbc) | refl
-  rewrite iterate-correct (stepProperty dbc (StreamState.signalCache state) tf)
-                          (StreamState.properties state)
+handleDataFrame-ack-complete : ∀ dbc props prev cache tf
+  → specHalt (stepProperty dbc cache tf) props ≡ nothing
+  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.Ack
+handleDataFrame-ack-complete dbc props prev cache tf spec-eq
+  rewrite iterate-correct (stepProperty dbc cache tf) props
   rewrite spec-eq
   = refl
 
@@ -592,23 +560,15 @@ handleDataFrame-ack-complete state tf dbc phase-eq dbc-eq spec-eq
 -- ============================================================================
 
 -- If some property's stepProperty halts, handleDataFrame returns PropertyResponse.
--- Combined with Property 8 (violation soundness), this gives: PropertyResponse iff some violation.
-handleDataFrame-violation-complete : ∀ state tf dbc idx ce
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → specHalt (stepProperty dbc (StreamState.signalCache state) tf)
-             (StreamState.properties state) ≡ just (idx , ce)
-  → proj₂ (handleDataFrame state tf)
+handleDataFrame-violation-complete : ∀ dbc props prev cache tf idx ce
+  → specHalt (stepProperty dbc cache tf) props ≡ just (idx , ce)
+  → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)
     ≡ Response.PropertyResponse
         (PR.PropertyResult.Violation idx
           (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                 (Counterexample.reason ce)))
-handleDataFrame-violation-complete state tf dbc idx ce phase-eq dbc-eq spec-eq
-  with StreamState.phase state | phase-eq
-... | .Streaming | refl with StreamState.dbc state | dbc-eq
-... | .(just dbc) | refl
-  rewrite iterate-correct (stepProperty dbc (StreamState.signalCache state) tf)
-                          (StreamState.properties state)
+handleDataFrame-violation-complete dbc props prev cache tf idx ce spec-eq
+  rewrite iterate-correct (stepProperty dbc cache tf) props
   rewrite spec-eq
   = refl
 
@@ -635,37 +595,33 @@ processFrameDirect-response state tf with handleDataFrame state tf
 -- ============================================================================
 
 -- If formatResponse maps the handler response to the Ack JSON tree,
--- no property was violated. Composes formatResponse-ack-unique (injectivity)
--- with handleDataFrame-ack-sound.
-processFrameDirect-ack-sound-json : ∀ state tf dbc
-  → StreamState.phase state ≡ Streaming
-  → StreamState.dbc state ≡ just dbc
-  → formatResponse (proj₂ (handleDataFrame state tf)) ≡ formatResponse Ack
-  → proj₂ (iterate (stepProperty dbc (StreamState.signalCache state) tf)
-                    (StreamState.properties state)) ≡ nothing
-processFrameDirect-ack-sound-json state tf dbc phase-eq dbc-eq fmt-eq =
-  handleDataFrame-ack-sound state tf dbc phase-eq dbc-eq
-    (formatResponse-ack-unique (proj₂ (handleDataFrame state tf)) fmt-eq)
+-- no property was violated.
+processFrameDirect-ack-sound-json : ∀ dbc props prev cache tf
+  → formatResponse (proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)) ≡ formatResponse Ack
+  → proj₂ (iterate (stepProperty dbc cache tf) props) ≡ nothing
+processFrameDirect-ack-sound-json dbc props prev cache tf fmt-eq =
+  handleDataFrame-ack-sound dbc props prev cache tf
+    (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)) fmt-eq)
 
 -- ============================================================================
 -- PROPERTIES 19-22: Read-only handler state preservation
 -- ============================================================================
 
 -- Extract, build, update, formatDBC handlers never modify StreamState.
--- Each proof case-splits on StreamState.dbc (withDBC pattern) and, for
+-- Each proof case-splits on getDBC (withDBC pattern) and, for
 -- build/update, on the Either result.
 
 handleExtractAllSignals-preserves-state : ∀ canId dlc bytes state
   → proj₁ (handleExtractAllSignals canId dlc bytes state) ≡ state
 handleExtractAllSignals-preserves-state canId dlc bytes state
-  with StreamState.dbc state
+  with getDBC state
 ... | nothing = refl
 ... | just _  = refl
 
 handleBuildFrameByIndex-preserves-state : ∀ canId dlc signalPairs state
   → proj₁ (handleBuildFrameByIndex canId dlc signalPairs state) ≡ state
 handleBuildFrameByIndex-preserves-state canId dlc signalPairs state
-  with StreamState.dbc state
+  with getDBC state
 ... | nothing = refl
 ... | just dbc with buildFrameByIndex dbc canId (DLC.code dlc) signalPairs
 ...   | inj₁ _ = refl
@@ -674,13 +630,13 @@ handleBuildFrameByIndex-preserves-state canId dlc signalPairs state
 handleUpdateFrameByIndex-preserves-state : ∀ canId dlc bytes signalPairs state
   → proj₁ (handleUpdateFrameByIndex canId dlc bytes signalPairs state) ≡ state
 handleUpdateFrameByIndex-preserves-state canId dlc bytes signalPairs state
-  with StreamState.dbc state
+  with getDBC state
 ... | nothing = refl
 ... | just _  = refl
 
 handleFormatDBC-preserves-state : ∀ state
   → proj₁ (handleFormatDBC state) ≡ state
 handleFormatDBC-preserves-state state
-  with StreamState.dbc state
+  with getDBC state
 ... | nothing = refl
 ... | just _  = refl
