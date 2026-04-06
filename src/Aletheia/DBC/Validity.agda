@@ -6,7 +6,7 @@
 -- signal layout defines a well-defined partial function from frames to values.
 -- Supports CAN 2.0B (DLC 0–8) and CAN-FD (DLC 0–15).
 --
--- A DBC is valid when all 9 error-severity conditions hold.
+-- A DBC is valid when all 8 error-severity conditions hold.
 -- Warning-severity checks are advisory and NOT part of ValidDBC.
 module Aletheia.DBC.Validity where
 
@@ -15,7 +15,7 @@ open import Aletheia.DBC.Validator using (findSignalPresence)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.CAN.DLC using (bytesToDlc)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
@@ -24,7 +24,7 @@ open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
 open import Aletheia.Protocol.JSON using (ℕtoℚ)
-open import Data.Maybe using (Maybe; just; nothing; Is-just)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
@@ -76,16 +76,8 @@ BitsInFrame payloadBytes sig =
 NonZeroBitLength : DBCSignal → Set
 NonZeroBitLength sig = SignalDef.bitLength (DBCSignal.signalDef sig) ≢ 0
 
--- Condition 9 (check 12): Valid DLC
--- DBCMessage.dlc stores the byte count. Valid byte counts are exactly
--- {0,1,2,3,4,5,6,7,8,12,16,20,24,32,48,64} — the values for which
--- bytesToDlc succeeds. This rejects invalid intermediate values like
--- 9, 10, 11, 13, etc.
-ValidDLC : DBCMessage → Set
-ValidDLC m = Is-just (bytesToDlc (DBCMessage.dlc m))
-
 -- ============================================================================
--- ValidDBC: conjunction of all 9 error-severity conditions
+-- ValidDBC: conjunction of all 8 error-severity conditions
 -- ============================================================================
 
 record ValidDBC (dbc : DBC) : Set where
@@ -107,16 +99,14 @@ record ValidDBC (dbc : DBC) : Set where
     muxAlwaysPresent  : All (λ m → All (λ sig → MuxIsAlways (DBCMessage.signals m)
                                                              (DBCSignal.presence sig))
                                        (DBCMessage.signals m)) msgs
-    -- 6. Signal bits fit in frame (dlc is byte count)
-    bitsInFrame       : All (λ m → All (BitsInFrame (DBCMessage.dlc m))
+    -- 6. Signal bits fit in frame (dlcBytes extracts byte count from DLC code)
+    bitsInFrame       : All (λ m → All (BitsInFrame (dlcBytes (DBCMessage.dlc m)))
                                        (DBCMessage.signals m)) msgs
-    -- 7. Coexisting signal pairs are valid (using each message's own DLC)
-    sigPairsValid     : All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m))
+    -- 7. Coexisting signal pairs are valid (using each message's own DLC byte count)
+    sigPairsValid     : All (λ m → AllPairs (SignalPairValid (dlcBytes (DBCMessage.dlc m)))
                                             (DBCMessage.signals m)) msgs
     -- 8. Non-zero bit lengths
     nonZeroBitLengths : All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
-    -- 9. Valid DLCs
-    validDLCs         : All ValidDLC msgs
 
 -- ============================================================================
 -- WARNING PREDICATES (advisory, not part of ValidDBC)

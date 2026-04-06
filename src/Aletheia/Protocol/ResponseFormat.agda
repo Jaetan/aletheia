@@ -22,7 +22,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero;
   MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision;
   MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
-  DuplicateMessageName; DLCOutOfRange; OffsetScaleRange; EmptyMessage;
+  DuplicateMessageName; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
@@ -124,7 +124,6 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode SignalOverlap               = "signal_overlap"
     formatIssueCode BitLengthZero               = "bit_length_zero"
     formatIssueCode DuplicateMessageName        = "duplicate_message_name"
-    formatIssueCode DLCOutOfRange               = "dlc_out_of_range"
     formatIssueCode OffsetScaleRange            = "offset_scale_range"
     formatIssueCode EmptyMessage                = "empty_message"
     formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"

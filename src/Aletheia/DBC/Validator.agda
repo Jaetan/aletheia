@@ -3,7 +3,7 @@
 -- DBC structural validator: public API.
 --
 -- Purpose: Re-export check functions and formatting utilities, and compose
--- all 17 checks into the full validateDBCFull entry point.
+-- all 16 checks into the full validateDBCFull entry point.
 -- Submodules:
 --   Checks     — individual check functions (per-element and lifted)
 --   Formatting — hasAnyError, formatIssuesText, errorIssues
@@ -40,7 +40,6 @@ validateDBCFull dbc =
      ++ₗ checkAllSignalOverlaps msgs
      ++ₗ checkAllBitLengthZero msgs
      ++ₗ checkDuplicateMessageNames msgs
-     ++ₗ checkAllDLCOutOfRange msgs
      ++ₗ checkAllOffsetScaleRange msgs
      ++ₗ checkAllEmptyMessage msgs
      ++ₗ checkAllStartBitOutOfRange msgs

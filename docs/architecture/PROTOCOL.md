@@ -366,9 +366,9 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 - Response `has_errors`: true if any issue has severity "error"
 - Response `issues`: Array of validation issues
 
-**Issue Codes** (16 total):
+**Issue Codes** (15 total):
 - **Error** (9): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_not_always_present`, `global_name_collision`, `min_exceeds_max`, `signal_exceeds_dlc`, `signal_overlap`
-- **Warning** (7): `bit_length_zero`, `duplicate_message_name`, `dlc_out_of_range`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`
+- **Warning** (6): `bit_length_zero`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).
 

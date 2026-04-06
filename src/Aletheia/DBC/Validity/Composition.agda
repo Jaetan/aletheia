@@ -21,7 +21,6 @@ open import Aletheia.DBC.Validator using
   ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
   ; checkAllSignalOverlaps
   ; checkBitLengthZero; checkAllBitLengthZero
-  ; checkDLCOutOfRange; checkAllDLCOutOfRange
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
@@ -38,7 +37,7 @@ open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.CAN.DLC using (bytesToDlc)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans; sym)
@@ -149,12 +148,6 @@ checkBitLengthZero-allE msgName sig
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
--- Check 12: DLCOutOfRange
-checkDLCOutOfRange-allE : ∀ msg → All E (checkDLCOutOfRange msg)
-checkDLCOutOfRange-allE msg with bytesToDlc (DBCMessage.dlc msg)
-... | just _  = []
-... | nothing = refl ∷ []
-
 -- ============================================================================
 -- LIFTED allE PROOFS
 -- ============================================================================
@@ -213,7 +206,7 @@ checkAllMuxAlwaysPresent-allE msgs = All-concatMap (universal (λ msg →
 -- Check 8
 checkAllSignalExceedsDLC-allE : ∀ msgs → All E (checkAllSignalExceedsDLC msgs)
 checkAllSignalExceedsDLC-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkSignalExceedsDLC-allE (DBCMessage.name msg) (DBCMessage.dlc msg))
+  All-concatMap (universal (checkSignalExceedsDLC-allE (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 9
@@ -233,7 +226,7 @@ checkOverlapTriangular-allE msgName n (sig ∷ rest) =
 
 checkAllSignalOverlaps-allE : ∀ msgs → All E (checkAllSignalOverlaps msgs)
 checkAllSignalOverlaps-allE msgs = All-concatMap (universal (λ msg →
-  checkOverlapTriangular-allE (DBCMessage.name msg) (DBCMessage.dlc msg)
+  checkOverlapTriangular-allE (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
                               (DBCMessage.signals msg)) msgs)
 
 -- Check 10
@@ -242,7 +235,3 @@ checkAllBitLengthZero-allE msgs = All-concatMap (universal (λ msg →
   All-concatMap (universal (checkBitLengthZero-allE (DBCMessage.name msg))
                          (DBCMessage.signals msg))) msgs)
 
--- Check 12
-checkAllDLCOutOfRange-allE : ∀ msgs → All E (checkAllDLCOutOfRange msgs)
-checkAllDLCOutOfRange-allE msgs =
-  All-concatMap (universal checkDLCOutOfRange-allE msgs)

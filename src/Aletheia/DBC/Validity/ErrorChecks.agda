@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Per-check soundness and completeness for all 9 error-severity checks.
+-- Per-check soundness and completeness for all 8 error-severity checks.
 --
 -- For each error check: checkE args ≡ [] ↔ condition(args)
 -- Proved by case analysis on the Dec used in each check function.
@@ -10,7 +10,6 @@ open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Alw
 open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero
-  ; checkDLCOutOfRange; checkAllDLCOutOfRange
   ; checkSignalExceedsDLC; checkAllSignalExceedsDLC
   ; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds
   ; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular
@@ -22,7 +21,7 @@ open import Aletheia.DBC.Validator using
   ; findSignalPresence
   )
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
-open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; ValidDLC; BitsInFrame; MuxResolvable; MuxIsAlways)
+open import Aletheia.DBC.Validity using (NonZeroBitLength; NonZeroFactor; BitsInFrame; MuxResolvable; MuxIsAlways)
 open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
   ; requireDec-sound; requireDec-complete
@@ -41,8 +40,7 @@ open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
 open import Data.String.Properties using (_≟_)
 open import Data.Maybe using (Maybe; just; nothing; Is-just)
-import Data.Maybe.Relation.Unary.Any as MAny
-open import Aletheia.CAN.DLC using (bytesToDlc)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_)
@@ -102,31 +100,6 @@ checkAllFactorZero-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _ (checkFactorZeroSig-complete (DBCMessage.name msg)) _
 
 -- ============================================================================
--- CHECK 12: DLC OUT OF RANGE
--- ============================================================================
-
-checkDLCOutOfRange-sound : ∀ msg →
-  checkDLCOutOfRange msg ≡ [] → ValidDLC msg
-checkDLCOutOfRange-sound msg eq with bytesToDlc (DBCMessage.dlc msg)
-... | just _ = MAny.just tt
-checkDLCOutOfRange-sound _ () | nothing
-
-checkDLCOutOfRange-complete : ∀ msg →
-  ValidDLC msg → checkDLCOutOfRange msg ≡ []
-checkDLCOutOfRange-complete msg p with bytesToDlc (DBCMessage.dlc msg) | p
-... | just _ | _ = refl
-
-checkAllDLCOutOfRange-sound : ∀ msgs →
-  checkAllDLCOutOfRange msgs ≡ [] → All ValidDLC msgs
-checkAllDLCOutOfRange-sound =
-  liftConcatMap-sound checkDLCOutOfRange checkDLCOutOfRange-sound
-
-checkAllDLCOutOfRange-complete : ∀ msgs →
-  All ValidDLC msgs → checkAllDLCOutOfRange msgs ≡ []
-checkAllDLCOutOfRange-complete =
-  liftConcatMap-complete checkDLCOutOfRange checkDLCOutOfRange-complete
-
--- ============================================================================
 -- CHECK 8: SIGNAL EXCEEDS DLC
 -- ============================================================================
 
@@ -146,15 +119,15 @@ checkSignalExceedsDLC-complete _ dlc sig =
 
 checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →
-  All (λ m → All (BitsInFrame (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs
+  All (λ m → All (BitsInFrame (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllSignalExceedsDLC-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkSignalExceedsDLC-sound (DBCMessage.name msg) (DBCMessage.dlc msg)) _
+  liftConcatMap-sound _ (checkSignalExceedsDLC-sound (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))) _
 
 checkAllSignalExceedsDLC-complete : ∀ msgs →
-  All (λ m → All (BitsInFrame (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs →
+  All (λ m → All (BitsInFrame (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllSignalExceedsDLC msgs ≡ []
 checkAllSignalExceedsDLC-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkSignalExceedsDLC-complete (DBCMessage.name msg) (DBCMessage.dlc msg)) _
+  liftConcatMap-complete _ (checkSignalExceedsDLC-complete (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))) _
 
 -- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs (triangular)
@@ -286,16 +259,16 @@ checkOverlapTriangular-complete msgName n =
 
 checkAllSignalOverlaps-sound : ∀ msgs →
   checkAllSignalOverlaps msgs ≡ [] →
-  All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs
+  All (λ m → AllPairs (SignalPairValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllSignalOverlaps-sound = liftConcatMap-sound _ λ msg →
-  checkOverlapTriangular-sound (DBCMessage.name msg) (DBCMessage.dlc msg)
+  checkOverlapTriangular-sound (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
     (DBCMessage.signals msg)
 
 checkAllSignalOverlaps-complete : ∀ msgs →
-  All (λ m → AllPairs (SignalPairValid (DBCMessage.dlc m)) (DBCMessage.signals m)) msgs →
+  All (λ m → AllPairs (SignalPairValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllSignalOverlaps msgs ≡ []
 checkAllSignalOverlaps-complete = liftConcatMap-complete _ λ msg →
-  checkOverlapTriangular-complete (DBCMessage.name msg) (DBCMessage.dlc msg)
+  checkOverlapTriangular-complete (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
     (DBCMessage.signals msg)
 
 -- ============================================================================

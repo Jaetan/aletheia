@@ -13,12 +13,13 @@ open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatCANId; formatDBCSignal)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.Protocol.JSON using (JSON; JString; JNumber; JArray)
 open import Aletheia.Prelude using (_>>=ₑ_)
 
-mkMessage : CANId → String → ℕ → String → List DBCSignal → DBCMessage
+mkMessage : CANId → String → DLC → String → List DBCSignal → DBCMessage
 mkMessage i n d s sigs = record
   { id = i ; name = n ; dlc = d ; sender = s ; signals = sigs }
 
@@ -26,9 +27,9 @@ messageFields : DBCMessage → List (String × JSON)
 messageFields msg =
   formatCANId (DBCMessage.id msg) ++ₗ
   ("name"    , JString (DBCMessage.name msg)) ∷
-  ("dlc"     , ℕtoJSON (DBCMessage.dlc msg)) ∷
+  ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("signals" , JArray (map (formatDBCSignal (DBCMessage.dlc msg)) (DBCMessage.signals msg))) ∷
+  ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   []
 
 ctx : String → String

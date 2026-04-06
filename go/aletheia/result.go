@@ -130,7 +130,6 @@ const (
 	IssueSignalExceedsDLC            IssueCode = "signal_exceeds_dlc"             // Signal bit range extends beyond the message DLC.
 	IssueSignalOverlap               IssueCode = "signal_overlap"                 // Two signals occupy overlapping bit positions.
 	IssueBitLengthZero               IssueCode = "bit_length_zero"                // Signal has zero bit length.
-	IssueDLCOutOfRange               IssueCode = "dlc_out_of_range"               // Message DLC is outside the valid CAN/CAN-FD range.
 	IssueOffsetScaleRange            IssueCode = "offset_scale_range"             // Offset/scale combination produces out-of-range values.
 	IssueEmptyMessage                IssueCode = "empty_message"                  // Message declares no signals.
 	IssueStartBitOutOfRange          IssueCode = "start_bit_out_of_range"         // Signal start bit exceeds frame capacity.

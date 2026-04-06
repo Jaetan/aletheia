@@ -15,7 +15,7 @@ open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_)
 open import Aletheia.CAN.Frame using (Byte; CANId)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.DBC.Types using (ValidationIssue)
@@ -40,22 +40,19 @@ data StreamCommand : Set where
   -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
 
   -- Build CAN frame from signal name-value pairs
-  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
-  --       list of {name: string, value: rational} objects
-  -- Returns: frame with all signals encoded (byte count = dlcToBytes DLC)
-  BuildFrame : CANId → (dlc : ℕ) → List JSON → StreamCommand
+  -- Args: CAN ID, validated DLC, list of {name: string, value: rational} objects
+  -- Returns: frame with all signals encoded (byte count = dlcBytes DLC)
+  BuildFrame : CANId → (dlc : DLC) → List JSON → StreamCommand
 
   -- Extract all signals from a CAN frame
-  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
-  --       frame data (length = dlcToBytes DLC)
+  -- Args: CAN ID, validated DLC, frame data (length = dlcBytes DLC)
   -- Returns: Extraction results (values/errors/absent)
-  ExtractAllSignals : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamCommand
+  ExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamCommand
 
   -- Update specific signals in an existing frame
-  -- Args: CAN ID, DLC (must be ≤ 15, validated by Routing.parseCommand),
-  --       existing frame bytes, list of {name: string, value: rational} updates
+  -- Args: CAN ID, validated DLC, existing frame bytes, list of signal updates
   -- Returns: Updated frame
-  UpdateFrame : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List JSON → StreamCommand
+  UpdateFrame : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List JSON → StreamCommand
 
   -- End stream and emit final property results
   EndStream : StreamCommand

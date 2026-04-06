@@ -58,8 +58,6 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
         return IssueCode::SignalOverlap;
     if (code == "bit_length_zero")
         return IssueCode::BitLengthZero;
-    if (code == "dlc_out_of_range")
-        return IssueCode::DlcOutOfRange;
     if (code == "offset_scale_range")
         return IssueCode::OffsetScaleRange;
     if (code == "empty_message")

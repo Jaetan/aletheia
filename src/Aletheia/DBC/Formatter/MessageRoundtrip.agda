@@ -15,6 +15,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Data.Bool using (T)
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (formatDBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessage; parseMessageList)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
@@ -26,9 +27,9 @@ open import Aletheia.DBC.Formatter.MessageRoundtrip.Standard using (message-roun
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Extended using (message-roundtrip-ext)
 
 private
-  message-roundtrip-go : ∀ canId n dlc sender signals
-    → dlc ≤ 64
-    → All WellFormedSignal signals → All (PhysicallyValid dlc) signals
+  message-roundtrip-go : ∀ canId n (dlc : DLC) sender signals
+    → dlcBytes dlc ≤ 64
+    → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
     → parseMessage (messageFields (mkMessage canId n dlc sender signals))
       ≡ inj₂ (mkMessage canId n dlc sender signals)
   message-roundtrip-go (Standard rawId pf) n dlc sender signals dlc-bound sigs-wf sigs-pv =

@@ -6,7 +6,7 @@
 -- completeness : ValidDBC dbc → errorIssues (validateDBCFull dbc) ≡ []
 --
 -- Together these establish: the validator reports no errors if and only if
--- the DBC satisfies all 9 formal validity conditions.
+-- the DBC satisfies all 8 formal validity conditions.
 module Aletheia.DBC.Validity.Theorem where
 
 open import Aletheia.DBC.Types using (DBC)
@@ -17,7 +17,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllMuxScaling; checkAllGlobalNameCollisions; checkAllMinMax
   ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
   ; checkAllBitLengthZero; checkDuplicateMessageNames
-  ; checkAllDLCOutOfRange; checkAllOffsetScaleRange
+  ; checkAllOffsetScaleRange
   ; checkAllEmptyMessage; checkAllStartBitOutOfRange
   ; checkAllBitLengthExcessive
   )
@@ -29,7 +29,6 @@ open import Aletheia.DBC.Validity.Composition using
   ; checkAllFactorZero-allE; checkAllMuxFound-allE
   ; checkAllMuxAlwaysPresent-allE; checkAllSignalExceedsDLC-allE
   ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE
-  ; checkAllDLCOutOfRange-allE
   )
 open import Aletheia.DBC.Validity.ErrorChecks using
   ( checkDuplicateMessageIds-sound; checkDuplicateMessageIds-complete
@@ -42,7 +41,6 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   ; checkAllSignalExceedsDLC-sound; checkAllSignalExceedsDLC-complete
   ; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete
   ; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete
-  ; checkAllDLCOutOfRange-sound; checkAllDLCOutOfRange-complete
   )
 open import Aletheia.DBC.Validity.WarningChecks using
   ( checkAllMuxScaling-allW; checkAllGlobalNameCollisions-allW
@@ -76,8 +74,6 @@ soundness dbc eq₀ = record
       (errorIssues-allE-nil _ (checkAllSignalOverlaps-allE msgs) (proj₁ s₉))
   ; nonZeroBitLengths = checkAllBitLengthZero-sound msgs
       (errorIssues-allE-nil _ (checkAllBitLengthZero-allE msgs) (proj₁ s₁₀))
-  ; validDLCs        = checkAllDLCOutOfRange-sound msgs
-      (errorIssues-allE-nil _ (checkAllDLCOutOfRange-allE msgs) (proj₁ s₁₂))
   }
   where
     msgs = DBC.messages dbc
@@ -92,8 +88,6 @@ soundness dbc eq₀ = record
     s₈  = ei-split (checkAllSignalExceedsDLC msgs) _ (proj₂ s₇)
     s₉  = ei-split (checkAllSignalOverlaps msgs) _ (proj₂ s₈)
     s₁₀ = ei-split (checkAllBitLengthZero msgs) _ (proj₂ s₉)
-    s₁₁ = ei-split (checkDuplicateMessageNames msgs) _ (proj₂ s₁₀)
-    s₁₂ = ei-split (checkAllDLCOutOfRange msgs) _ (proj₂ s₁₁)
 
 -- ============================================================================
 -- COMPLETENESS: DBC is valid ⟹ no errors reported
@@ -125,8 +119,6 @@ completeness dbc v =
     (ei-from-≡[] _ (checkAllBitLengthZero-complete msgs (ValidDBC.nonZeroBitLengths v)))
   (ei-combine (checkDuplicateMessageNames msgs) _
     (errorIssues-allW _ (checkDuplicateMessageNames-allW msgs))
-  (ei-combine (checkAllDLCOutOfRange msgs) _
-    (ei-from-≡[] _ (checkAllDLCOutOfRange-complete msgs (ValidDBC.validDLCs v)))
   (ei-combine (checkAllOffsetScaleRange msgs) _
     (errorIssues-allW _ (checkAllOffsetScaleRange-allW msgs))
   (ei-combine (checkAllEmptyMessage msgs) _
@@ -134,6 +126,6 @@ completeness dbc v =
   (ei-combine (checkAllStartBitOutOfRange msgs) _
     (errorIssues-allW _ (checkAllStartBitOutOfRange-allW msgs))
     (errorIssues-allW _ (checkAllBitLengthExcessive-allW msgs))
-  )))))))))))))))
+  ))))))))))))))
   where
     msgs = DBC.messages dbc

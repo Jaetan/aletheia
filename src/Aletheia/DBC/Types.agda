@@ -10,6 +10,7 @@
 -- All numeric fields use ℕ for O(1) MAlonzo allocation.
 module Aletheia.DBC.Types where
 
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder)
@@ -47,7 +48,7 @@ record DBCMessage : Set where
   field
     id : CANId
     name : String
-    dlc : ℕ
+    dlc : DLC
     sender : String
     signals : List DBCSignal
 
@@ -114,7 +115,6 @@ data IssueCode : Set where
   SignalOverlap               : IssueCode
   BitLengthZero               : IssueCode
   DuplicateMessageName        : IssueCode
-  DLCOutOfRange               : IssueCode
   OffsetScaleRange            : IssueCode
   EmptyMessage                : IssueCode
   StartBitOutOfRange          : IssueCode

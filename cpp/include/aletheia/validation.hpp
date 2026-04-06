@@ -20,7 +20,6 @@ enum class IssueCode {
     SignalExceedsDlc,
     SignalOverlap,
     BitLengthZero,
-    DlcOutOfRange,
     OffsetScaleRange,
     EmptyMessage,
     StartBitOutOfRange,

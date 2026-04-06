@@ -10,6 +10,7 @@
 module Aletheia.DBC.Properties where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; physicalBitPos; _≟-ByteOrder_)
@@ -280,8 +281,8 @@ allSignalPairsValid? n (sig ∷ rest) with signalValidAgainstAll? n sig rest
 
 -- Message signals are valid if all pairs are valid (using message's own DLC as byte count)
 messageSignalsValid? : (msg : DBCMessage)
-                     → Dec (AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg))
-messageSignalsValid? msg = allSignalPairsValid? (DBCMessage.dlc msg) (DBCMessage.signals msg)
+                     → Dec (AllSignalPairsValid (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg))
+messageSignalsValid? msg = allSignalPairsValid? (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- SIGNAL RANGE CONSISTENCY
@@ -323,7 +324,7 @@ allSignalRangesConsistent? (sig ∷ rest) with signalRangeConsistent? sig
 -- Uses the message's own DLC for physical disjointness checking
 data MessageValid (msg : DBCMessage) : Set where
   message-valid :
-    AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg)
+    AllSignalPairsValid (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
     → AllSignalRangesConsistent (DBCMessage.signals msg)
     → MessageValid msg
 
@@ -451,7 +452,7 @@ extractMessageValid (msgs-cons _ rest) (there msg∈) = extractMessageValid rest
 
 -- Extract AllSignalPairsValid from MessageValid
 extractSignalPairs : ∀ {msg}
-  → MessageValid msg → AllSignalPairsValid (DBCMessage.dlc msg) (DBCMessage.signals msg)
+  → MessageValid msg → AllSignalPairsValid (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
 extractSignalPairs (message-valid pairs _) = pairs
 
 -- Full pipeline: from DBCValid to PhysicallyDisjoint
@@ -464,7 +465,7 @@ lookupDisjointFromDBC : ∀ {dbc msg sig₁ sig₂}
   → sig₂ ∈ DBCMessage.signals msg
   → sig₁ ≢ sig₂
   → CanCoexist (DBCSignal.presence sig₁) (DBCSignal.presence sig₂)
-  → PhysicallyDisjoint (DBCMessage.dlc msg) sig₁ sig₂
+  → PhysicallyDisjoint (dlcBytes (DBCMessage.dlc msg)) sig₁ sig₂
 lookupDisjointFromDBC dbcValid msg∈ sig₁∈ sig₂∈ sig≢ coexist =
   let msgValid = extractMessageValid dbcValid msg∈
       pairsValid = extractSignalPairs msgValid

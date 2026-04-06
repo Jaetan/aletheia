@@ -46,7 +46,6 @@ class IssueCode(str, Enum):
     SIGNAL_OVERLAP = "signal_overlap"
     BIT_LENGTH_ZERO = "bit_length_zero"
     DUPLICATE_MESSAGE_NAME = "duplicate_message_name"
-    DLC_OUT_OF_RANGE = "dlc_out_of_range"
     OFFSET_SCALE_RANGE = "offset_scale_range"
     EMPTY_MESSAGE = "empty_message"
     START_BIT_OUT_OF_RANGE = "start_bit_out_of_range"

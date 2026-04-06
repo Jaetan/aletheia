@@ -11,20 +11,20 @@ module Aletheia.Protocol.Routing where
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Bool using (Bool; T; true; false; if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Vec using (Vec)
-open import Data.Nat using (ℕ; zero; suc)
+open import Data.Nat using (ℕ; zero; suc; _<ᵇ_)
 open import Data.Nat.Properties using (_≤?_)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary using (yes; no)
-open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_)
+open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; ifᵀ_then_else_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes)
 
 -- ============================================================================
 -- INTERNAL HELPERS
@@ -46,11 +46,10 @@ private
   requireArray : String → String → List (String × JSON) → String ⊎ List JSON
   requireArray cmd name obj = require (cmd ++ₛ ": missing '" ++ₛ name ++ₛ "' array") (lookupArray name obj)
 
-  -- Validate DLC ≤ 15 (max CAN-FD DLC code)
-  requireValidDLC : String → ℕ → String ⊎ ℕ
-  requireValidDLC ctx dlc with dlc ≤? max-dlc-code
-  ... | yes _ = inj₂ dlc
-  ... | no  _ = inj₁ (ctx ++ₛ ": DLC exceeds maximum value")
+  -- Validate DLC code (0–15) and construct validated DLC record.
+  requireValidDLC : String → ℕ → String ⊎ DLC
+  requireValidDLC ctx n =
+    ifᵀ (n <ᵇ 16) then (λ p → inj₂ (mkDLC n p)) else inj₁ (ctx ++ₛ ": DLC exceeds maximum value")
 
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
   parseCANIdField : String → String → List (String × JSON) → String ⊎ CANId
@@ -100,8 +99,8 @@ private
   tryBuildFrame : List (String × JSON) → String ⊎ StreamCommand
   tryBuildFrame obj =
     parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
-    requireNat "BuildFrame" "dlc" obj >>=ₑ λ dlc →
-    requireValidDLC "BuildFrame" dlc >>=ₑ λ _ →
+    requireNat "BuildFrame" "dlc" obj >>=ₑ λ rawDlc →
+    requireValidDLC "BuildFrame" rawDlc >>=ₑ λ dlc →
     requireArray "BuildFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (BuildFrame canId dlc signals)
 
@@ -109,22 +108,22 @@ private
   tryExtractAllSignals : List (String × JSON) → String ⊎ StreamCommand
   tryExtractAllSignals obj =
     parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
-    requireNat "ExtractAllSignals" "dlc" obj >>=ₑ λ dlc →
-    requireValidDLC "ExtractAllSignals" dlc >>=ₑ λ _ →
+    requireNat "ExtractAllSignals" "dlc" obj >>=ₑ λ rawDlc →
+    requireValidDLC "ExtractAllSignals" rawDlc >>=ₑ λ dlc →
     requireArray "ExtractAllSignals" "data" obj >>=ₑ λ bytesJSON →
     require "ExtractAllSignals: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
+    require "ExtractAllSignals: byte count doesn't match DLC" (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
 
   -- Parse UpdateFrame command
   tryUpdateFrame : List (String × JSON) → String ⊎ StreamCommand
   tryUpdateFrame obj =
     parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
-    requireNat "UpdateFrame" "dlc" obj >>=ₑ λ dlc →
-    requireValidDLC "UpdateFrame" dlc >>=ₑ λ _ →
+    requireNat "UpdateFrame" "dlc" obj >>=ₑ λ rawDlc →
+    requireValidDLC "UpdateFrame" rawDlc >>=ₑ λ dlc →
     requireArray "UpdateFrame" "data" obj >>=ₑ λ bytesJSON →
     require "UpdateFrame: failed to parse byte array" (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcToBytes dlc) byteList) >>=ₑ λ bytes →
+    require "UpdateFrame: byte count doesn't match DLC" (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
     requireArray "UpdateFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (UpdateFrame canId dlc bytes signals)
 

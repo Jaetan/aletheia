@@ -36,7 +36,7 @@ open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupR
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.BatchExtraction using (extractAllSignals; ExtractionResults)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrame; updateFrame; buildFrameByIndex; updateFrameByIndex)
 
@@ -63,10 +63,10 @@ private
     just ((name , value) ∷ restParsed)
 
   -- Create frame from bytes, DLC, and message ID
-  makeFrame : ∀ {n} → CANId → ℕ → Vec Byte n → CANFrame n
+  makeFrame : ∀ {n} → CANId → DLC → Vec Byte n → CANFrame n
   makeFrame msgId dlc bytes = record
     { id = msgId
-    ; dlc = dlc
+    ; dlc = DLC.code dlc
     ; payload = bytes
     }
 
@@ -145,19 +145,19 @@ handleEndStream state with StreamState.phase state
 ... | _ = (state , Response.Error "EndStream: not currently streaming")
 
 -- Build CAN frame from signal values
-handleBuildFrame : CANId → (dlc : ℕ) → List JSON → StreamState → StreamState × Response
+handleBuildFrame : CANId → (dlc : DLC) → List JSON → StreamState → StreamState × Response
 handleBuildFrame canId dlc signalsJSON state =
   withDBC "BuildFrame" state λ dbc → parseSignals dbc signalsJSON
   where
     parseSignals : DBC → List JSON → StreamState × Response
     parseSignals dbc signals with parseSignalList signals
     ... | nothing = (state , Response.Error "BuildFrame: failed to parse signal list")
-    ... | just signalPairs with buildFrame dbc canId dlc signalPairs
+    ... | just signalPairs with buildFrame dbc canId (DLC.code dlc) signalPairs
     ...   | inj₁ err = (state , Response.Error ("BuildFrame: " ++ₛ err))
     ...   | inj₂ frameBytes = (state , Response.ByteArray frameBytes)
 
 -- Extract all signals from a CAN frame
-handleExtractAllSignals : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState → StreamState × Response
+handleExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamState → StreamState × Response
 handleExtractAllSignals canId dlc bytes state =
   withDBC "ExtractAllSignals" state λ dbc →
     let frame = makeFrame canId dlc bytes
@@ -168,7 +168,7 @@ handleExtractAllSignals canId dlc bytes state =
                   (ExtractionResults.absent results))
 
 -- Update specific signals in a CAN frame
-handleUpdateFrame : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List JSON → StreamState → StreamState × Response
+handleUpdateFrame : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List JSON → StreamState → StreamState × Response
 handleUpdateFrame canId dlc bytes signalsJSON state =
   withDBC "UpdateFrame" state λ dbc →
     let frame = makeFrame canId dlc bytes
@@ -202,23 +202,23 @@ handleFormatDBC state =
 -- ============================================================================
 
 -- Build CAN frame from signal index-value pairs (no string allocation)
-handleBuildFrameByIndex : CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState → StreamState × Response
+handleBuildFrameByIndex : CANId → (dlc : DLC) → List (ℕ × ℚ) → StreamState → StreamState × Response
 handleBuildFrameByIndex canId dlc signalPairs state =
   withDBC "BuildFrame" state λ dbc →
-    buildHelper (buildFrameByIndex dbc canId dlc signalPairs)
+    buildHelper (buildFrameByIndex dbc canId (DLC.code dlc) signalPairs)
   where
-    buildHelper : String ⊎ Vec Byte (dlcToBytes dlc) → StreamState × Response
+    buildHelper : String ⊎ Vec Byte (dlcBytes dlc) → StreamState × Response
     buildHelper (inj₁ err) = (state , Response.Error ("BuildFrame: " ++ₛ err))
     buildHelper (inj₂ frameBytes) = (state , Response.ByteArray frameBytes)
 
 -- Update CAN frame signals by index (no string allocation)
-handleUpdateFrameByIndex : CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState → StreamState × Response
+handleUpdateFrameByIndex : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List (ℕ × ℚ) → StreamState → StreamState × Response
 handleUpdateFrameByIndex canId dlc bytes signalPairs state =
   withDBC "UpdateFrame" state λ dbc →
     let frame = makeFrame canId dlc bytes
     in (state , formatResult (updateFrameByIndex dbc canId frame signalPairs))
   where
-    formatResult : String ⊎ CANFrame (dlcToBytes dlc) → Response
+    formatResult : String ⊎ CANFrame (dlcBytes dlc) → Response
     formatResult (inj₁ err) = Response.Error ("UpdateFrame: " ++ₛ err)
     formatResult (inj₂ updatedFrame) = Response.ByteArray (CANFrame.payload updatedFrame)
 

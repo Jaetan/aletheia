@@ -16,6 +16,7 @@ open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
   SignalGroup; EnvironmentVar; ValueTable; varTypeToℕ)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
@@ -69,9 +70,9 @@ formatDBCMessage : DBCMessage → JSON
 formatDBCMessage msg = JObject (
   formatCANId (DBCMessage.id msg) ++ₗ
   ("name"    , JString (DBCMessage.name msg)) ∷
-  ("dlc"     , ℕtoJSON (DBCMessage.dlc msg)) ∷
+  ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("signals" , JArray (map (formatDBCSignal (DBCMessage.dlc msg)) (DBCMessage.signals msg))) ∷
+  ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   [])
 
 formatValueEntry : ℕ × String → JSON

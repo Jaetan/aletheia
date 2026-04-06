@@ -63,7 +63,7 @@ open import Aletheia.LTL.SignalPredicate
            lookupEntries; updateEntries; extractTruthValue)
 open import Aletheia.DBC.Types using (DBC; DBCSignal; DBCMessage)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; dlcToBytes)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Data.Vec using (Vec)
@@ -667,7 +667,7 @@ handleBuildFrameByIndex-preserves-state : ∀ canId dlc signalPairs state
 handleBuildFrameByIndex-preserves-state canId dlc signalPairs state
   with StreamState.dbc state
 ... | nothing = refl
-... | just dbc with buildFrameByIndex dbc canId dlc signalPairs
+... | just dbc with buildFrameByIndex dbc canId (DLC.code dlc) signalPairs
 ...   | inj₁ _ = refl
 ...   | inj₂ _ = refl
 

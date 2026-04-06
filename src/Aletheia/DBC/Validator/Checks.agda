@@ -16,14 +16,14 @@ open import Aletheia.DBC.Types using
   ; MultiplexorNotFound; MultiplexorNotAlwaysPresent
   ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
   ; SignalOverlap; BitLengthZero; DuplicateMessageName
-  ; DLCOutOfRange; OffsetScaleRange; EmptyMessage
+  ; OffsetScaleRange; EmptyMessage
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   )
 open import Aletheia.Prelude using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
-open import Aletheia.CAN.DLC using (bytesToDlc)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes; dlcToBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_; map; filter; concatMap)
   renaming (_++_ to _++ₗ_)
@@ -231,7 +231,7 @@ checkSignalExceedsDLC msgName dlc sig =
 
 checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
 checkAllSignalExceedsDLC = concatMap λ msg →
-  concatMap (checkSignalExceedsDLC (DBCMessage.name msg) (DBCMessage.dlc msg))
+  concatMap (checkSignalExceedsDLC (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -253,7 +253,7 @@ checkOverlapTriangular msgName n = triangularCheck (checkOverlapPair msgName n)
 
 checkOverlapsInMsg : DBCMessage → List ValidationIssue
 checkOverlapsInMsg msg =
-  checkOverlapTriangular (DBCMessage.name msg) (DBCMessage.dlc msg) (DBCMessage.signals msg)
+  checkOverlapTriangular (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
 
 checkAllSignalOverlaps : List DBCMessage → List ValidationIssue
 checkAllSignalOverlaps = concatMap checkOverlapsInMsg
@@ -289,20 +289,6 @@ checkDupNameAgainstList = checkAgainst checkDupNamePair
 
 checkDuplicateMessageNames : List DBCMessage → List ValidationIssue
 checkDuplicateMessageNames = triangularCheck checkDupNamePair
-
--- ============================================================================
--- CHECK 12: DLC OUT OF RANGE
--- ============================================================================
-
-checkDLCOutOfRange : DBCMessage → List ValidationIssue
-checkDLCOutOfRange msg with bytesToDlc (DBCMessage.dlc msg)
-... | just _  = []
-... | nothing = mkIssue IsError DLCOutOfRange
-                ("Message '" ++ₛ DBCMessage.name msg
-                 ++ₛ "': invalid DLC byte count") ∷ []
-
-checkAllDLCOutOfRange : List DBCMessage → List ValidationIssue
-checkAllDLCOutOfRange = concatMap checkDLCOutOfRange
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE

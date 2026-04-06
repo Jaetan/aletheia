@@ -18,6 +18,7 @@ open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalGroup; EnvironmentVar; ValueTable)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
 open import Aletheia.CAN.Frame using (CANId)
@@ -43,7 +44,7 @@ record WellFormedSignal (s : DBCSignal) : Set where
 
 record WellFormedMessage (m : DBCMessage) : Set where
   field
-    dlc-bound  : DBCMessage.dlc m ≤ 64
+    dlc-bound  : dlcBytes (DBCMessage.dlc m) ≤ 64
     signals-wf : All WellFormedSignal (DBCMessage.signals m)
 
 -- Additional constraints on a signal within a frame, needed for the BigEndian
@@ -62,7 +63,7 @@ record PhysicallyValid (frameBytes : ℕ) (s : DBCSignal) : Set where
 record WellFormedMessageRT (m : DBCMessage) : Set where
   field
     msg-wf     : WellFormedMessage m
-    signals-pv : All (PhysicallyValid (DBCMessage.dlc m)) (DBCMessage.signals m)
+    signals-pv : All (PhysicallyValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)
 
 record WellFormedDBC (d : DBC) : Set where
   field

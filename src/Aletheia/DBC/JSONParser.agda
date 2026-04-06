@@ -13,6 +13,7 @@ module Aletheia.DBC.JSONParser where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupBool; lookupNat; lookupRational; lookupArray)
+open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Data.List using (List; []; _∷_)
@@ -155,18 +156,18 @@ parseMessageId context obj =
 parseMessageBody : String → String → CANId → List (String × JSON) → String ⊎ DBCMessage
 parseMessageBody context name canId obj =
   require (context ++ₛ ": missing 'dlc' field") (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
+  require (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " is not a valid CAN byte count")
+          (bytesToValidDLC rawDlc) >>=ₑ λ dlc →
   require (context ++ₛ ": missing 'sender' field") (lookupString "sender" obj) >>=ₑ λ sender →
   require (context ++ₛ ": missing 'signals' field") (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
   parseSignalList rawDlc context signalsJSON 0 >>=ₑ λ signals →
-  if rawDlc ≤ᵇ 64
-    then inj₂ (record
-      { id = canId
-      ; name = name
-      ; dlc = rawDlc % 65
-      ; sender = sender
-      ; signals = signals
-      })
-    else inj₁ (context ++ₛ ": DLC " ++ₛ showℕ rawDlc ++ₛ " out of range (max 64)")
+  inj₂ (record
+    { id = canId
+    ; name = name
+    ; dlc = dlc
+    ; sender = sender
+    ; signals = signals
+    })
 
 -- Compose stages into full message field parser.
 -- Exposed at top level for compositional roundtrip proofs.

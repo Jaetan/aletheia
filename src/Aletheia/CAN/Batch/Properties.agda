@@ -29,6 +29,7 @@ open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; Sign
 open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.BatchExtraction using (ExtractionResults; mkExtractionResults; categorizeResult; combineResults; emptyResults; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Properties using (
   PhysicallyDisjoint; physicallyDisjoint-sym; _≟-DBCSignal_;
   SignalPairValid; signalPairValid-sym;
@@ -585,7 +586,7 @@ validDBC→allPairsDisjoint : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
   → AllAlwaysPresent pairs
   → AllFromMessage pairs msg
   → PairsDistinct pairs
-  → AllPairsDisjoint (DBCMessage.dlc msg) pairs
+  → AllPairsDisjoint (dlcBytes (DBCMessage.dlc msg)) pairs
 validDBC→allPairsDisjoint [] _ _ _ _ _ = apd-nil
 validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
     (aap-cons ps aap-rest) (afm-cons s∈ afm-rest) (pd-cons dist pd-rest) =
@@ -601,9 +602,9 @@ validDBC→allPairsDisjoint ((s , v) ∷ rest) vdbc msg∈
 
 private
   buildASF : ∀ {msg} (pairs : List (DBCSignal × ℚ))
-    → StdAll.All (BitsInFrame (DBCMessage.dlc msg)) (DBCMessage.signals msg)
+    → StdAll.All (BitsInFrame (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg)
     → AllFromMessage pairs msg
-    → AllSignalsFit (DBCMessage.dlc msg) pairs
+    → AllSignalsFit (dlcBytes (DBCMessage.dlc msg)) pairs
   buildASF [] _ _ = asf-nil
   buildASF ((s , _) ∷ rest) bifs (afm-cons s∈ afm-rest) =
     asf-cons
@@ -616,7 +617,7 @@ validDBC→allSignalsFit : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllFromMessage pairs msg
-  → AllSignalsFit (DBCMessage.dlc msg) pairs
+  → AllSignalsFit (dlcBytes (DBCMessage.dlc msg)) pairs
 validDBC→allSignalsFit pairs vdbc msg∈ afm =
   buildASF pairs
     (StdAll.lookup (ValidDBC.bitsInFrame vdbc) msg∈)
@@ -637,13 +638,13 @@ validDBC→allSignalsFit pairs vdbc msg∈ afm =
 -- The frame size is the message's DLC (works for both CAN 2.0B and CAN-FD).
 validDBC-roundtrip :
   ∀ {dbc msg} (pairs : List (DBCSignal × ℚ))
-    (frame frame' : CANFrame (DBCMessage.dlc msg))
+    (frame frame' : CANFrame (dlcBytes (DBCMessage.dlc msg)))
   → ValidDBC dbc
   → msg ∈ DBC.messages dbc
   → AllAlwaysPresent pairs
   → AllFromMessage pairs msg
   → PairsDistinct pairs
-  → AllRoundtrip (DBCMessage.dlc msg) pairs
+  → AllRoundtrip (dlcBytes (DBCMessage.dlc msg)) pairs
   → injectAll frame pairs ≡ inj₂ frame'
   → ∀ {s v} → (s , v) ∈ pairs
   → extractSignal frame' (DBCSignal.signalDef s) (DBCSignal.byteOrder s) ≡ just v
@@ -790,7 +791,7 @@ allRepresentable→allRoundtrip : ∀ {dbc msg} (pairs : List (DBCSignal × ℚ)
   → msg ∈ DBC.messages dbc
   → AllFromMessage pairs msg
   → AllRepresentable pairs
-  → AllRoundtrip (DBCMessage.dlc msg) pairs
+  → AllRoundtrip (dlcBytes (DBCMessage.dlc msg)) pairs
 allRepresentable→allRoundtrip [] _ _ _ _ = ar-nil
 allRepresentable→allRoundtrip ((s , v) ∷ rest) vdbc msg∈
     (afm-cons s∈ afm-rest) (arep-cons rep arep-rest) =

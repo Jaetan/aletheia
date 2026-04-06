@@ -8,10 +8,10 @@
 --   dlcToBytes-bounded    : valid DLC codes produce payloads ≤ 64 bytes
 --   dlcToBytes-injective  : distinct valid DLC codes → distinct byte counts
 --   bytesToDlc-complete   : every valid DLC code is in the image of bytesToDlc
---   dlcToBytes-Is-just    : bridge to ValidDLC (Is-just predicate)
+--   dlcToBytes-Is-just    : Is-just predicate bridge
 module Aletheia.CAN.DLC.Properties where
 
-open import Aletheia.CAN.DLC using (dlcToBytes; bytesToDlc)
+open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcToBytes; dlcBytes; bytesToDlc; bytesToValidDLC)
 open import Data.Nat using (ℕ; suc; _+_; _≤_; z≤n)
 open import Data.Nat.Properties using (m≤m+n; ≤-refl; ≤-trans; 1+n≰n)
 open import Data.Maybe using (just; Is-just)
@@ -102,7 +102,28 @@ bytesToDlc-complete 15 _ = 64 , refl , refl
 bytesToDlc-complete (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) d≤15 =
   ⊥-elim (16+k≰15 d≤15)
 
--- Connection to ValidDLC: valid DLC codes produce recognized byte counts.
+-- Valid DLC codes produce recognized byte counts (Is-just predicate).
 -- Useful for constructing ValidDBC proofs from DLC code bounds.
 dlcToBytes-Is-just : ∀ d → d ≤ 15 → Is-just (bytesToDlc (dlcToBytes d))
 dlcToBytes-Is-just d d≤15 rewrite bytesToDlc-dlcToBytes d d≤15 = is-just tt
+
+-- Roundtrip: bytesToValidDLC recovers the original DLC record from dlcBytes.
+-- Each of the 16 valid DLC codes (0–15) reduces to refl by computation.
+bytesToValidDLC-roundtrip : ∀ (d : DLC) → bytesToValidDLC (dlcBytes d) ≡ just d
+bytesToValidDLC-roundtrip (mkDLC 0 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 1 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 2 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 3 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 4 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 5 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 6 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 7 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 8 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 9 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 10 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 11 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 12 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 13 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 14 _) = refl
+bytesToValidDLC-roundtrip (mkDLC 15 _) = refl
+bytesToValidDLC-roundtrip (mkDLC (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))))))))) ())

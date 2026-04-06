@@ -21,7 +21,7 @@ open import Data.String using (String; toList; _≟_) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing; map)
 open import Data.Product using (proj₁; _×_; _,_)
 open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _<ᵇ_)
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec)
 open import Data.Bool using (if_then_else_)
@@ -43,8 +43,8 @@ open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent)
 open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
 open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
 open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
-open import Aletheia.CAN.DLC using (dlcToBytes)
-open import Aletheia.Prelude using (errNoDBC)
+open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcToBytes)
+open import Aletheia.Prelude using (errNoDBC; ifᵀ_then_else_)
 import Aletheia.Protocol.Message as Msg
 
 -- Apply formatJSON ∘ formatResponse to the second component of a state-response pair
@@ -129,19 +129,25 @@ processFormatDBCDirect state = wrapJSON (handleFormatDBC state)
 processExtractDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × String
 {-# NOINLINE processExtractDirect #-}
 processExtractDirect state canId dlc payload =
-  wrapJSON (handleExtractAllSignals canId dlc payload state)
+  ifᵀ (dlc <ᵇ 16) then
+    (λ p → wrapJSON (handleExtractAllSignals canId (mkDLC dlc p) payload state))
+  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
 
 -- Build CAN frame from signal index-value pairs (no JSON/string parsing)
 processBuildFrameDirect : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × String
 {-# NOINLINE processBuildFrameDirect #-}
 processBuildFrameDirect state canId dlc signals =
-  wrapJSON (handleBuildFrameByIndex canId dlc signals state)
+  ifᵀ (dlc <ᵇ 16) then
+    (λ p → wrapJSON (handleBuildFrameByIndex canId (mkDLC dlc p) signals state))
+  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
 
 -- Update CAN frame signals by index (no JSON/string parsing)
 processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × String
 {-# NOINLINE processUpdateFrameDirect #-}
 processUpdateFrameDirect state canId dlc payload signals =
-  wrapJSON (handleUpdateFrameByIndex canId dlc payload signals state)
+  ifᵀ (dlc <ᵇ 16) then
+    (λ p → wrapJSON (handleUpdateFrameByIndex canId (mkDLC dlc p) payload signals state))
+  else (state , formatJSON (formatResponse (Msg.Error "invalid DLC code")))
 
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
