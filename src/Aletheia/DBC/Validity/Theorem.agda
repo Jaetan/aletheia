@@ -13,7 +13,7 @@ open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.Validator using
   ( errorIssues; validateDBCFull
   ; checkDuplicateMessageIds; checkAllDuplicateSignalNames
-  ; checkAllFactorZero; checkAllMuxFound; checkAllMuxAlwaysPresent
+  ; checkAllFactorZero; checkAllMuxFound; checkAllMuxCycle
   ; checkAllMuxScaling; checkAllGlobalNameCollisions; checkAllMinMax
   ; checkAllSignalExceedsDLC; checkAllSignalOverlaps
   ; checkAllBitLengthZero; checkDuplicateMessageNames
@@ -27,7 +27,7 @@ open import Aletheia.DBC.Validity.Composition using
   ; errorIssues-allW
   ; checkDuplicateMessageIds-allE; checkAllDuplicateSignalNames-allE
   ; checkAllFactorZero-allE; checkAllMuxFound-allE
-  ; checkAllMuxAlwaysPresent-allE; checkAllSignalExceedsDLC-allE
+  ; checkAllMuxCycle-allE; checkAllSignalExceedsDLC-allE
   ; checkAllSignalOverlaps-allE; checkAllBitLengthZero-allE
   )
 open import Aletheia.DBC.Validity.ErrorChecks using
@@ -36,8 +36,8 @@ open import Aletheia.DBC.Validity.ErrorChecks using
   ; checkAllDuplicateSignalNames-complete
   ; checkAllFactorZero-sound; checkAllFactorZero-complete
   ; checkAllMuxFound-sound; checkAllMuxFound-complete
-  ; checkAllMuxAlwaysPresent-sound
-  ; checkAllMuxAlwaysPresent-complete
+  ; checkAllMuxCycle-sound
+  ; checkAllMuxCycle-complete
   ; checkAllSignalExceedsDLC-sound; checkAllSignalExceedsDLC-complete
   ; checkAllSignalOverlaps-sound; checkAllSignalOverlaps-complete
   ; checkAllBitLengthZero-sound; checkAllBitLengthZero-complete
@@ -66,8 +66,8 @@ soundness dbc eq₀ = record
       (errorIssues-allE-nil _ (checkAllFactorZero-allE msgs) (proj₁ s₃))
   ; muxExist         = checkAllMuxFound-sound msgs
       (errorIssues-allE-nil _ (checkAllMuxFound-allE msgs) (proj₁ s₄))
-  ; muxAlwaysPresent = checkAllMuxAlwaysPresent-sound msgs
-      (errorIssues-allE-nil _ (checkAllMuxAlwaysPresent-allE msgs) (proj₁ s₅))
+  ; muxAcyclic       = checkAllMuxCycle-sound msgs
+      (errorIssues-allE-nil _ (checkAllMuxCycle-allE msgs) (proj₁ s₅))
   ; bitsInFrame      = checkAllSignalExceedsDLC-sound msgs
       (errorIssues-allE-nil _ (checkAllSignalExceedsDLC-allE msgs) (proj₁ s₈))
   ; sigPairsValid    = checkAllSignalOverlaps-sound msgs
@@ -81,7 +81,7 @@ soundness dbc eq₀ = record
     s₂  = ei-split (checkAllDuplicateSignalNames msgs) _ (proj₂ s₁)
     s₃  = ei-split (checkAllFactorZero msgs) _ (proj₂ s₂)
     s₄  = ei-split (checkAllMuxFound msgs) _ (proj₂ s₃)
-    s₅  = ei-split (checkAllMuxAlwaysPresent msgs) _ (proj₂ s₄)
+    s₅  = ei-split (checkAllMuxCycle msgs) _ (proj₂ s₄)
     s₅b = ei-split (checkAllMuxScaling msgs) _ (proj₂ s₅)
     s₆  = ei-split (checkAllGlobalNameCollisions msgs) _ (proj₂ s₅b)
     s₇  = ei-split (checkAllMinMax msgs) _ (proj₂ s₆)
@@ -103,8 +103,8 @@ completeness dbc v =
     (ei-from-≡[] _ (checkAllFactorZero-complete msgs (ValidDBC.nonZeroFactors v)))
   (ei-combine (checkAllMuxFound msgs) _
     (ei-from-≡[] _ (checkAllMuxFound-complete msgs (ValidDBC.muxExist v)))
-  (ei-combine (checkAllMuxAlwaysPresent msgs) _
-    (ei-from-≡[] _ (checkAllMuxAlwaysPresent-complete msgs (ValidDBC.muxAlwaysPresent v)))
+  (ei-combine (checkAllMuxCycle msgs) _
+    (ei-from-≡[] _ (checkAllMuxCycle-complete msgs (ValidDBC.muxAcyclic v)))
   (ei-combine (checkAllMuxScaling msgs) _
     (errorIssues-allW _ (checkAllMuxScaling-allW msgs))
   (ei-combine (checkAllGlobalNameCollisions msgs) _

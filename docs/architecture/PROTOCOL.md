@@ -126,7 +126,7 @@ Load a DBC (Database CAN) structure from JSON format.
     - `offset`: Offset applied after scaling
     - `minimum`: Minimum physical value
     - `maximum`: Maximum physical value
-    - `presence`: "always" for always-present signals (default if omitted); multiplexed signals use `multiplexor` and `multiplex_value` fields instead (see Multiplexing Support below)
+    - `presence`: "always" for always-present signals (default if omitted); multiplexed signals use `multiplexor` and `multiplex_values` fields instead (see Multiplexing Support below)
 
 **State Transition**: `WaitingForDBC` → `ReadyToStream`
 
@@ -146,16 +146,16 @@ Signal is always present in the frame.
 
 #### Conditional Presence (Multiplexed)
 
-Multiplexed signals use flat `multiplexor` and `multiplex_value` fields instead of `presence`:
+Multiplexed signals use flat `multiplexor` and `multiplex_values` fields instead of `presence`:
 
 ```json
 {
   "multiplexor": "MuxSignal",
-  "multiplex_value": 1
+  "multiplex_values": [1]
 }
 ```
 
-Signal is only present when the multiplexor signal equals the specified value. The `presence` field is omitted for multiplexed signals.
+Signal is only present when the multiplexor signal's value is in the `multiplex_values` array. Single-value mux uses a one-element array (e.g., `[1]`); extended mux (SG_MUL_VAL_) uses multiple values (e.g., `[0, 1, 3]`). The `presence` field is omitted for multiplexed signals.
 
 **Example** (Multiplexed Message):
 ```json
@@ -191,7 +191,7 @@ Signal is only present when the multiplexor signal equals the specified value. T
       "maximum": 1000.0,
       "unit": "rpm",
       "multiplexor": "MuxSignal",
-      "multiplex_value": 0
+      "multiplex_values": [0]
     },
     {
       "name": "Signal_Mux1",
@@ -205,7 +205,7 @@ Signal is only present when the multiplexor signal equals the specified value. T
       "maximum": 150.0,
       "unit": "°C",
       "multiplexor": "MuxSignal",
-      "multiplex_value": 1
+      "multiplex_values": [1]
     }
   ]
 }
@@ -367,7 +367,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 - Response `issues`: Array of validation issues
 
 **Issue Codes** (15 total):
-- **Error** (9): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_not_always_present`, `global_name_collision`, `min_exceeds_max`, `signal_exceeds_dlc`, `signal_overlap`
+- **Error** (9): `duplicate_message_id`, `duplicate_signal_name`, `factor_zero`, `multiplexor_not_found`, `multiplexor_cycle`, `global_name_collision`, `min_exceeds_max`, `signal_exceeds_dlc`, `signal_overlap`
 - **Warning** (6): `bit_length_zero`, `duplicate_message_name`, `offset_scale_range`, `empty_message`, `start_bit_out_of_range`, `bit_length_excessive`
 
 **State Requirements**: Does NOT require `parseDBC`. Does NOT modify client state (read-only probe).

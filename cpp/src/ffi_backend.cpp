@@ -4,19 +4,29 @@
 #include <dlfcn.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <mutex>
-#include <print>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <variant>
+#include <vector>
 
 namespace aletheia {
 
 namespace {
+
+// CAN-FD's largest payload. Used to bound FFI data arguments before they
+// are forwarded to the Haskell core — this keeps the bound symmetric with
+// the core's own length check (dlcValid) and rejects caller-side attempts
+// to smuggle larger payloads.
+constexpr std::size_t max_can_fd_payload_bytes = 64;
 
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();
@@ -48,13 +58,38 @@ using AletheiaBuildFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8
                                                 const std::int64_t*, const std::int64_t*,
                                                 std::uint8_t*, char**);
 using AletheiaUpdateFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                                  const std::uint8_t*, std::uint8_t, std::uint32_t,
-                                                  const std::uint32_t*, const std::int64_t*,
-                                                  const std::int64_t*, std::uint8_t*, char**);
+                                                 const std::uint8_t*, std::uint8_t, std::uint32_t,
+                                                 const std::uint32_t*, const std::int64_t*,
+                                                 const std::int64_t*, std::uint8_t*, char**);
 using AletheiaExtractBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                              const std::uint8_t*, std::uint8_t,
-                                              std::uint8_t**, std::uint32_t*, char**);
+                                             const std::uint8_t*, std::uint8_t, std::uint8_t**,
+                                             std::uint32_t*, char**);
 using AletheiaFreeBufFn = void (*)(std::uint8_t*);
+
+// ---------------------------------------------------------------------------
+// Byte ↔ uint8_t pointer aliasing at the FFI boundary.
+//
+// The C++ surface holds payloads as std::span<const std::byte> / std::vector<
+// std::byte>, while the Haskell FFI signatures expect const std::uint8_t* and
+// std::uint8_t*. The reinterpret_cast here is well-defined: [basic.types]
+// guarantees std::byte is layout-compatible with unsigned char, and std::
+// uint8_t is unsigned char on every platform we target (g++>=14, clang>=21
+// on Linux x86_64/ARM64). The NOLINTs below are centralised so the FFI call
+// sites stay free of noise; every byte-cast flows through these three fns.
+auto as_u8(const std::byte* p) -> const std::uint8_t* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return reinterpret_cast<const std::uint8_t*>(p);
+}
+
+auto as_u8(std::byte* p) -> std::uint8_t* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return reinterpret_cast<std::uint8_t*>(p);
+}
+
+auto as_byte(const std::uint8_t* p) -> const std::byte* {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return reinterpret_cast<const std::byte*>(p);
+}
 
 struct RTSState {
     std::mutex mu;
@@ -86,12 +121,16 @@ class FfiBackend : public IBackend {
     AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
     AletheiaFreeBufFn free_buf_fn_ = nullptr;
+    std::string pending_warning_;
 
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
         auto* sym = dlsym(handle, name);
         if (sym == nullptr)
             throw std::runtime_error(std::string("dlsym failed for ") + name + ": " + dlerror());
+        // dlsym returns void*; POSIX guarantees round-tripping through void*
+        // preserves function pointers on all platforms with dlopen support.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         return reinterpret_cast<Fn>(sym);
     }
 
@@ -116,29 +155,31 @@ public:
             end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_end_stream");
             format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_format_dbc");
             extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle_, "aletheia_extract_signals");
-            build_frame_fn_ =
-                load_sym<AletheiaBuildFrameFn>(handle_, "aletheia_build_frame");
-            update_frame_fn_ =
-                load_sym<AletheiaUpdateFrameFn>(handle_, "aletheia_update_frame");
+            build_frame_fn_ = load_sym<AletheiaBuildFrameFn>(handle_, "aletheia_build_frame");
+            update_frame_fn_ = load_sym<AletheiaUpdateFrameFn>(handle_, "aletheia_update_frame");
             build_frame_bin_fn_ =
                 load_sym<AletheiaBuildFrameBinFn>(handle_, "aletheia_build_frame_bin");
             update_frame_bin_fn_ =
                 load_sym<AletheiaUpdateFrameBinFn>(handle_, "aletheia_update_frame_bin");
             extract_signals_bin_fn_ =
                 load_sym<AletheiaExtractBinFn>(handle_, "aletheia_extract_signals_bin");
-            free_buf_fn_ =
-                load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
+            free_buf_fn_ = load_sym<AletheiaFreeBufFn>(handle_, "aletheia_free_buf");
 
             // Initialize GHC RTS (once per process, never finalized).
             auto& rts = rts_state();
             const std::lock_guard lock(rts.mu);
             if (!rts.initialized) {
                 if (rts_cores > 1) {
-                    auto n_arg = "-N" + std::to_string(rts_cores);
-                    std::array<const char*, 4> args = {"aletheia", "+RTS", n_arg.c_str(), "-RTS"};
+                    // hs_init requires char** (non-const) for argv. We hold the backing
+                    // storage as std::string so .data() returns char* without const_cast.
+                    std::string arg0 = "aletheia";
+                    std::string arg1 = "+RTS";
+                    std::string arg2 = "-N" + std::to_string(rts_cores);
+                    std::string arg3 = "-RTS";
+                    std::array<char*, 4> args = {arg0.data(), arg1.data(), arg2.data(),
+                                                 arg3.data()};
                     auto argc = static_cast<int>(args.size());
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-                    auto* argv = const_cast<char**>(args.data());
+                    auto* argv = args.data();
                     hs_init(&argc, &argv);
                 } else {
                     hs_init(nullptr, nullptr);
@@ -146,11 +187,10 @@ public:
                 rts.cores = rts_cores;
                 rts.initialized = true;
             } else if (rts_cores != rts.cores) {
-                std::println(stderr,
-                             "Warning: GHC RTS already initialized with {} core(s); "
-                             "ignoring rts_cores={}. Set rts_cores on the first "
-                             "make_ffi_backend() call in the process.",
-                             rts.cores, rts_cores);
+                pending_warning_ = std::format("GHC RTS already initialized with {} core(s); "
+                                               "ignoring rts_cores={}. Set rts_cores on the first "
+                                               "make_ffi_backend() call in the process.",
+                                               rts.cores, rts_cores);
             }
         } catch (...) {
             // RTS was never started — safe to release the library handle.
@@ -167,6 +207,8 @@ public:
     FfiBackend& operator=(const FfiBackend&) = delete;
     FfiBackend(FfiBackend&&) = delete;
     FfiBackend& operator=(FfiBackend&&) = delete;
+
+    [[nodiscard]] auto pending_warning() const -> std::string override { return pending_warning_; }
 
     auto init() -> void* override { return init_fn_(); }
 
@@ -190,15 +232,17 @@ public:
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
-        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
+        // malformed caller cannot smuggle 65–255 byte payloads into the
+        // Haskell core before it does its own length check.
+        if (data.size() > max_can_fd_payload_bytes)
             throw std::runtime_error("data length exceeds " +
-                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
-                                     " bytes");
+                                     std::to_string(max_can_fd_payload_bytes) +
+                                     " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
         char* result = send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
-                                      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-                                      reinterpret_cast<const std::uint8_t*>(data.data()), data_len);
+                                      as_u8(data.data()), data_len);
         if (result == nullptr)
             throw std::runtime_error("aletheia_send_frame returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
@@ -266,16 +310,17 @@ public:
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
         const auto dlc_val = dlc.value();
-        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
+        // malformed caller cannot smuggle 65–255 byte payloads into the
+        // Haskell core before it does its own length check.
+        if (data.size() > max_can_fd_payload_bytes)
             throw std::runtime_error("data length exceeds " +
-                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
-                                     " bytes");
+                                     std::to_string(max_can_fd_payload_bytes) +
+                                     " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        char* result = extract_signals_fn_(state, can_id, extended, dlc_val,
-                                           reinterpret_cast<const std::uint8_t*>(data.data()),
-                                           data_len);
+        char* result =
+            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len);
         if (result == nullptr)
             throw std::runtime_error("aletheia_extract_signals returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
@@ -283,16 +328,15 @@ public:
         return std::string{result};
     }
 
-    auto build_frame_binary(void* state, const CanId& id, Dlc dlc, std::uint32_t num_signals,
-                            const std::uint32_t* indices, const std::int64_t* numerators,
-                            const std::int64_t* denominators) -> std::string override {
+    auto build_frame_binary(void* state, const CanId& id, Dlc dlc, SignalInjection signals)
+        -> std::string override {
         const auto can_id =
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
 
-        char* result = build_frame_fn_(state, can_id, extended, dlc.value(), num_signals, indices,
-                                       numerators, denominators);
+        char* result = build_frame_fn_(state, can_id, extended, dlc.value(), signals.count,
+                                       signals.indices, signals.numerators, signals.denominators);
         if (result == nullptr)
             throw std::runtime_error("aletheia_build_frame returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
@@ -300,25 +344,24 @@ public:
         return std::string{result};
     }
 
-    auto update_frame_binary(void* state, const CanId& id, Dlc dlc,
-                             std::span<const std::byte> data, std::uint32_t num_signals,
-                             const std::uint32_t* indices, const std::int64_t* numerators,
-                             const std::int64_t* denominators) -> std::string override {
+    auto update_frame_binary(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data,
+                             SignalInjection signals) -> std::string override {
         const auto can_id =
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
-        if (data.size() > std::numeric_limits<std::uint8_t>::max())
+        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
+        // malformed caller cannot smuggle 65–255 byte payloads into the
+        // Haskell core before it does its own length check.
+        if (data.size() > max_can_fd_payload_bytes)
             throw std::runtime_error("data length exceeds " +
-                                     std::to_string(std::numeric_limits<std::uint8_t>::max()) +
-                                     " bytes");
+                                     std::to_string(max_can_fd_payload_bytes) +
+                                     " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result = update_frame_fn_(
-            state, can_id, extended, dlc.value(),
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-            reinterpret_cast<const std::uint8_t*>(data.data()), data_len, num_signals, indices,
-            numerators, denominators);
+        char* result = update_frame_fn_(state, can_id, extended, dlc.value(), as_u8(data.data()),
+                                        data_len, signals.count, signals.indices,
+                                        signals.numerators, signals.denominators);
         if (result == nullptr)
             throw std::runtime_error("aletheia_update_frame returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
@@ -326,9 +369,8 @@ public:
         return std::string{result};
     }
 
-    auto build_frame_bin(void* state, const CanId& id, Dlc dlc, std::uint32_t num_signals,
-                         const std::uint32_t* indices, const std::int64_t* numerators,
-                         const std::int64_t* denominators, std::size_t expected_bytes)
+    auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
+                         std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
         const auto can_id =
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
@@ -337,24 +379,26 @@ public:
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        const auto status = build_frame_bin_fn_(
-            state, can_id, extended, dlc.value(), num_signals, indices, numerators, denominators,
-            reinterpret_cast<std::uint8_t*>(buf.data()), &err_str);
+        const auto status = build_frame_bin_fn_(state, can_id, extended, dlc.value(), signals.count,
+                                                signals.indices, signals.numerators,
+                                                signals.denominators, as_u8(buf.data()), &err_str);
         if (status != 0) {
-            std::string msg = err_str ? err_str : "Unknown error";
-            if (err_str)
+            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
+            if (err_str != nullptr)
                 free_str_fn_(err_str);
             return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
         }
         return buf;
     }
 
-    auto update_frame_bin(void* state, const CanId& id, Dlc dlc,
-                          std::span<const std::byte> data, std::uint32_t num_signals,
-                          const std::uint32_t* indices, const std::int64_t* numerators,
-                          const std::int64_t* denominators, std::size_t expected_bytes)
+    auto update_frame_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data,
+                          SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        if (data.size() > max_can_fd_payload_bytes)
+            return std::unexpected(
+                AletheiaError{ErrorKind::Validation, "data length exceeds " +
+                                                         std::to_string(max_can_fd_payload_bytes) +
+                                                         " bytes (CAN-FD max)"});
         const auto can_id =
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         const auto extended =
@@ -363,23 +407,25 @@ public:
 
         std::vector<std::byte> buf(expected_bytes);
         char* err_str = nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         const auto status = update_frame_bin_fn_(
-            state, can_id, extended, dlc.value(),
-            reinterpret_cast<const std::uint8_t*>(data.data()), data_len, num_signals, indices,
-            numerators, denominators, reinterpret_cast<std::uint8_t*>(buf.data()), &err_str);
+            state, can_id, extended, dlc.value(), as_u8(data.data()), data_len, signals.count,
+            signals.indices, signals.numerators, signals.denominators, as_u8(buf.data()), &err_str);
         if (status != 0) {
-            std::string msg = err_str ? err_str : "Unknown error";
-            if (err_str)
+            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
+            if (err_str != nullptr)
                 free_str_fn_(err_str);
             return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
         }
         return buf;
     }
 
-    auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
-                             std::span<const std::byte> data)
+    auto extract_signals_bin(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError> override {
+        if (data.size() > max_can_fd_payload_bytes)
+            return std::unexpected(
+                AletheiaError{ErrorKind::Validation, "data length exceeds " +
+                                                         std::to_string(max_can_fd_payload_bytes) +
+                                                         " bytes (CAN-FD max)"});
         const auto can_id =
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         const auto extended =
@@ -389,20 +435,17 @@ public:
         std::uint8_t* out_buf = nullptr;
         std::uint32_t out_size = 0;
         char* err_str = nullptr;
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        const auto status = extract_signals_bin_fn_(
-            state, can_id, extended, dlc.value(),
-            reinterpret_cast<const std::uint8_t*>(data.data()), data_len,
-            &out_buf, &out_size, &err_str);
+        const auto status =
+            extract_signals_bin_fn_(state, can_id, extended, dlc.value(), as_u8(data.data()),
+                                    data_len, &out_buf, &out_size, &err_str);
         if (status != 0) {
-            std::string msg = err_str ? err_str : "Unknown error";
-            if (err_str)
+            const std::string msg = err_str != nullptr ? err_str : "Unknown error";
+            if (err_str != nullptr)
                 free_str_fn_(err_str);
             return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
         }
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-        auto result = std::vector<std::byte>(reinterpret_cast<std::byte*>(out_buf),
-                                              reinterpret_cast<std::byte*>(out_buf) + out_size);
+        const std::span<const std::byte> out_bytes(as_byte(out_buf), out_size);
+        std::vector<std::byte> result(out_bytes.begin(), out_bytes.end());
         free_buf_fn_(out_buf);
         return result;
     }

@@ -24,7 +24,7 @@ open import Aletheia.CAN.BatchFrameBuilding
 open import Aletheia.Prelude using (listIndex)
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String)
 open import Data.Rational using (ℚ)
@@ -85,7 +85,7 @@ lookupSignalsByIndex-lookupSignals-equiv
 -- Both call the shared validateAndBuild after lookup, so the proof just
 -- bridges the lookup step.
 buildFrameByIndex-buildFrame-equiv :
-  ∀ (dbc : DBC) (canId : CANId) (dlc : ℕ)
+  ∀ (dbc : DBC) (canId : CANId) (dlc : DLC)
     (names : List (String × ℚ)) (indices : List (ℕ × ℚ))
   → (∀ msg → findMessageById canId dbc ≡ just msg → AllMatch msg names indices)
   → buildFrame dbc canId dlc names ≡ buildFrameByIndex dbc canId dlc indices

@@ -15,10 +15,12 @@
 //
 #pragma once
 
-#include <aletheia/check.hpp>
-#include <aletheia/error.hpp>
+// load_checks_from_yaml returns Result<vector<CheckResult>> — callers need
+// Check, CheckResult, and the Result/AletheiaError vocabulary without a
+// separate direct include.
+#include <aletheia/check.hpp> // IWYU pragma: export
+#include <aletheia/error.hpp> // IWYU pragma: export
 
-#include <expected>
 #include <filesystem>
 #include <string_view>
 #include <vector>

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import override
+from typing import NamedTuple, override
 
 from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
 
@@ -33,25 +34,35 @@ class ProtocolError(AletheiaError):
 
 
 class BatchError(AletheiaError):
-    """Raised by send_frames_batch when a frame fails mid-batch.
+    """Raised by send_frames when a frame fails mid-batch.
 
     Attributes:
         cause: The underlying exception that caused the batch to stop.
-        partial_results: Responses from frames processed before the error.
+        partial_results: Successfully-processed frame responses *before* the
+            failure. The ErrorResponse (if any) for the offending frame is
+            exposed via ``cause`` and ``frame_index``, not mixed into this
+            list — mirrors the Go and C++ bindings.
+        frame_index: Zero-based index of the frame that caused the error.
     """
 
     cause: Exception
-    partial_results: Sequence[FrameResponse]
+    partial_results: Sequence[AckResponse | PropertyViolationResponse]
+    frame_index: int
 
-    def __init__(self, cause: Exception, partial_results: Sequence[FrameResponse]) -> None:
-        super().__init__(str(cause))
+    def __init__(
+        self,
+        cause: Exception,
+        partial_results: Sequence[AckResponse | PropertyViolationResponse],
+        frame_index: int,
+    ) -> None:
+        super().__init__(f"frame {frame_index}: {cause}")
         self.cause = cause
         self.partial_results = partial_results
+        self.frame_index = frame_index
 
 
 class SignalExtractionResult:
-    """
-    Rich result object for signal extraction.
+    """Rich result object for signal extraction.
 
     Partitions extraction results into three categories:
     - values: Successfully extracted signal values
@@ -63,8 +74,8 @@ class SignalExtractionResult:
         self,
         values: dict[str, float],
         errors: dict[str, str],
-        absent: list[str]
-    ):
+        absent: tuple[str, ...],
+    ) -> None:
         self.values = values
         self.errors = errors
         self.absent = absent
@@ -87,12 +98,44 @@ class SignalExtractionResult:
         )
 
 
-# (can_id, raw_bytes) uniquely identifies a CAN frame for extraction caching.
-type FrameKey = tuple[int, bytes]
+# (can_id, extended, raw_bytes) uniquely identifies a CAN frame for extraction caching.
+type FrameKey = tuple[int, bool, bytes]
 type ExtractionCache = dict[FrameKey, SignalExtractionResult]
+
+# (can_id, extended) → (can_id, dlc, data) for EOS signal extraction.
+type LastFrameKey = tuple[int, bool]
+type LastFrameData = tuple[int, bytearray]
 
 MAX_EXTRACT_CACHE: int = 256
 
+
+@dataclass(slots=True)
+class StreamCaches:
+    """Per-stream mutable caches, cleared together on start_stream/parse_dbc."""
+    extraction: ExtractionCache = dataclasses.field(default_factory=dict)
+    last_frames: dict[LastFrameKey, LastFrameData] = dataclasses.field(default_factory=dict)
+
+    def clear(self) -> None:
+        """Reset all caches for a new stream."""
+        self.extraction.clear()
+        self.last_frames.clear()
+
+
+class CANFrameTuple(NamedTuple):
+    """CAN frame tuple matching ``send_frame()`` positional args.
+
+    Fields:
+        timestamp: Timestamp in microseconds.
+        can_id: CAN arbitration ID (11-bit standard or 29-bit extended).
+        dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD).
+        data: Frame payload (length must equal ``dlc_to_bytes(dlc)``).
+        extended: ``True`` for 29-bit extended CAN ID.
+    """
+    timestamp: int
+    can_id: int
+    dlc: int
+    data: bytearray
+    extended: bool
 
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID
 _MAX_EXTENDED_ID = (1 << 29) - 1  # 29-bit CAN ID
@@ -148,8 +191,20 @@ def bytes_to_dlc(byte_count: int) -> int:
         ) from None
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class PropertyDiagnostic:
     """Per-property diagnostic metadata for violation enrichment."""
-    signals: list[str]
+    signals: tuple[str, ...]
     formula_desc: str
+
+
+@dataclass(slots=True, frozen=True)
+class SignalLookup:
+    """Per-message signal name/index cache populated after ``parse_dbc``.
+
+    ``indices`` maps signal name to its position within the DBC message's
+    signal list; ``names`` is the parallel array used to resolve indices
+    back to names when decoding the binary extraction response.
+    """
+    names: tuple[str, ...]
+    indices: dict[str, int]

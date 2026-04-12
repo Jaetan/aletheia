@@ -70,7 +70,16 @@ using FrameResponse = std::variant<Ack, Violation>;
 // End-of-stream result
 // ---------------------------------------------------------------------------
 
-enum class Verdict { Holds, Fails };
+/// End-of-stream verdict for an LTL property.
+///
+/// ``Unresolved`` corresponds to the Agda coalgebra's three-valued Kleene
+/// ``Unsure`` verdict: the property was neither proved to hold nor proved
+/// to fail on the observed trace. Typical cause: an atomic predicate whose
+/// signal was never observed (e.g. ``Always(p)`` where no frame carrying
+/// ``p``'s signal arrived before end-of-stream). The denotational semantics
+/// agrees this is Unknown, so it is reported as a distinct verdict rather
+/// than collapsed to ``Fails``.
+enum class Verdict { Holds, Fails, Unresolved };
 
 struct PropertyResult {
     PropertyIndex property_index{0};

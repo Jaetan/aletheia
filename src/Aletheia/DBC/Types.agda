@@ -16,6 +16,7 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder)
 open import Data.String using (String)
 open import Data.List using (List)
+open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
@@ -23,18 +24,21 @@ open import Data.Product using (_×_)
 -- Signal presence model for multiplexing.
 -- A signal is either always present or conditionally present based on a multiplexor.
 --
--- Design: Models single-level multiplexing as defined by the DBC file format.
--- Each conditionally-present signal references exactly one multiplexor signal
--- and one selector value.
+-- Design: Models multiplexing with multi-value support and arbitrary nesting.
+-- Each conditionally-present signal references one multiplexor signal and a
+-- non-empty set of selector values (List⁺ ℕ). The signal is present when the
+-- multiplexor's current value matches any element in the set.
 --
--- Limitations (by design):
---   - Nested multiplexing (mux of mux) is not representable.
---   - Range-based multiplexing (signal present for mux values 1–5) is not representable.
---   - These limitations match the standard DBC format; supporting them would require
---     a recursive or range-based presence type, cascading through 34+ modules.
+-- The multiplexor signal may itself be conditionally present (nested mux).
+-- The validator enforces acyclicity of the mux dependency graph; arbitrary
+-- nesting depth is allowed up to length-of-signals.
+--
+-- This covers: standard DBC (single value), extended DBC SG_MUL_VAL_ (ranges
+-- expanded to explicit values by cantools), multi-value selectors, and
+-- nested multiplexing chains.
 data SignalPresence : Set where
   Always : SignalPresence
-  When : (multiplexor : String) → (value : ℕ) → SignalPresence
+  When : (multiplexor : String) → (values : List⁺ ℕ) → SignalPresence
 
 record DBCSignal : Set where
   field
@@ -108,7 +112,7 @@ data IssueCode : Set where
   DuplicateSignalName         : IssueCode
   FactorZero                  : IssueCode
   MultiplexorNotFound         : IssueCode
-  MultiplexorNotAlwaysPresent : IssueCode
+  MultiplexorCycle            : IssueCode
   GlobalNameCollision         : IssueCode
   MinExceedsMax               : IssueCode
   SignalExceedsDLC            : IssueCode

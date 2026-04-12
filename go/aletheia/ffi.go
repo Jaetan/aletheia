@@ -130,6 +130,7 @@ import "C"
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -152,24 +153,24 @@ var (
 // never finalized. All FFI calls are pinned to OS threads via
 // [runtime.LockOSThread] because the GHC RTS has per-capability state.
 type FFIBackend struct {
-	handle           unsafe.Pointer // dlopen handle
-	initFn           unsafe.Pointer
-	processFn        unsafe.Pointer
-	sendFrameFn      unsafe.Pointer
-	sendErrorFn      unsafe.Pointer
-	sendRemoteFn     unsafe.Pointer
-	startStreamFn    unsafe.Pointer
-	endStreamFn      unsafe.Pointer
-	formatDbcFn      unsafe.Pointer
-	extractSignalsFn unsafe.Pointer
-	buildFrameFn     unsafe.Pointer
-	updateFrameFn    unsafe.Pointer
-	buildFrameBinFn      unsafe.Pointer
-	updateFrameBinFn     unsafe.Pointer
-	extractSignalsBinFn  unsafe.Pointer
-	freeBufFn            unsafe.Pointer
-	freeStrFn            unsafe.Pointer
-	closeFn          unsafe.Pointer
+	handle              unsafe.Pointer // dlopen handle
+	initFn              unsafe.Pointer
+	processFn           unsafe.Pointer
+	sendFrameFn         unsafe.Pointer
+	sendErrorFn         unsafe.Pointer
+	sendRemoteFn        unsafe.Pointer
+	startStreamFn       unsafe.Pointer
+	endStreamFn         unsafe.Pointer
+	formatDbcFn         unsafe.Pointer
+	extractSignalsFn    unsafe.Pointer
+	buildFrameFn        unsafe.Pointer
+	updateFrameFn       unsafe.Pointer
+	buildFrameBinFn     unsafe.Pointer
+	updateFrameBinFn    unsafe.Pointer
+	extractSignalsBinFn unsafe.Pointer
+	freeBufFn           unsafe.Pointer
+	freeStrFn           unsafe.Pointer
+	closeFn             unsafe.Pointer
 }
 
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
@@ -321,24 +322,24 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 
 	closeOnErr = false
 	return &FFIBackend{
-		handle:           handle,
-		initFn:           initFn,
-		processFn:        processFn,
-		sendFrameFn:      sendFrameFn,
-		sendErrorFn:      sendErrorFn,
-		sendRemoteFn:     sendRemoteFn,
-		startStreamFn:    startStreamFn,
-		endStreamFn:      endStreamFn,
-		formatDbcFn:      formatDbcFn,
-		extractSignalsFn: extractSignalsFn,
-		buildFrameFn:     buildFrameFn,
-		updateFrameFn:    updateFrameFn,
-		buildFrameBinFn:      buildFrameBinFn,
-		updateFrameBinFn:     updateFrameBinFn,
-		extractSignalsBinFn:  extractSignalsBinFn,
-		freeBufFn:            freeBufFn,
-		freeStrFn:            freeStrFn,
-		closeFn:          closeFn,
+		handle:              handle,
+		initFn:              initFn,
+		processFn:           processFn,
+		sendFrameFn:         sendFrameFn,
+		sendErrorFn:         sendErrorFn,
+		sendRemoteFn:        sendRemoteFn,
+		startStreamFn:       startStreamFn,
+		endStreamFn:         endStreamFn,
+		formatDbcFn:         formatDbcFn,
+		extractSignalsFn:    extractSignalsFn,
+		buildFrameFn:        buildFrameFn,
+		updateFrameFn:       updateFrameFn,
+		buildFrameBinFn:     buildFrameBinFn,
+		updateFrameBinFn:    updateFrameBinFn,
+		extractSignalsBinFn: extractSignalsBinFn,
+		freeBufFn:           freeBufFn,
+		freeStrFn:           freeStrFn,
+		closeFn:             closeFn,
 	}, nil
 }
 
@@ -396,6 +397,8 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
 	}
 
+	// C.uint8_t(len(data)) is safe: the bounds check above guarantees
+	// len(data) <= 64 < 256, so the cast never truncates.
 	result := C.call_send_frame(
 		b.sendFrameFn, state,
 		C.uint64_t(ts.Microseconds),
@@ -417,6 +420,10 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	if ts.Microseconds < 0 {
+		return "", validationError("timestamp must be non-negative")
+	}
+
 	result := C.call_send_error(b.sendErrorFn, state, C.uint64_t(ts.Microseconds))
 	if result == nil {
 		return "", ffiError("aletheia_send_error returned null")
@@ -429,6 +436,10 @@ func (b *FFIBackend) SendErrorBinary(state unsafe.Pointer, ts Timestamp) (string
 func (b *FFIBackend) SendRemoteBinary(state unsafe.Pointer, ts Timestamp, id CanID) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	if ts.Microseconds < 0 {
+		return "", validationError("timestamp must be non-negative")
+	}
 
 	var ext C.uint8_t
 	if id.IsExtended() {
@@ -639,8 +650,13 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numS
 		&outErr,
 	)
 	if status != 0 {
-		msg := C.GoString(outErr)
-		C.call_free_str(b.freeStrFn, outErr)
+		var msg string
+		if outErr != nil {
+			msg = C.GoString(outErr)
+			C.call_free_str(b.freeStrFn, outErr)
+		} else {
+			msg = fmt.Sprintf("build_frame_bin returned status %d with null error message", status)
+		}
 		return nil, protocolError(msg)
 	}
 	return outBuf, nil
@@ -693,8 +709,13 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 		&outErr,
 	)
 	if status != 0 {
-		msg := C.GoString(outErr)
-		C.call_free_str(b.freeStrFn, outErr)
+		var msg string
+		if outErr != nil {
+			msg = C.GoString(outErr)
+			C.call_free_str(b.freeStrFn, outErr)
+		} else {
+			msg = fmt.Sprintf("update_frame_bin returned status %d with null error message", status)
+		}
 		return nil, protocolError(msg)
 	}
 	return outBuf, nil
@@ -731,9 +752,19 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, 
 		&outErr,
 	)
 	if status != 0 {
-		msg := C.GoString(outErr)
-		C.call_free_str(b.freeStrFn, outErr)
+		var msg string
+		if outErr != nil {
+			msg = C.GoString(outErr)
+			C.call_free_str(b.freeStrFn, outErr)
+		} else {
+			msg = fmt.Sprintf("extract_signals_bin returned status %d with null error message", status)
+		}
 		return nil, protocolError(msg)
+	}
+	// Guard against theoretical overflow when casting outSize (uint32) to C.int (int32).
+	if outSize > math.MaxInt32 {
+		C.call_free_buf(b.freeBufFn, outBuf)
+		return nil, protocolError(fmt.Sprintf("extract_signals_bin returned outSize %d exceeding C.int range", outSize))
 	}
 	result := C.GoBytes(unsafe.Pointer(outBuf), C.int(outSize))
 	C.call_free_buf(b.freeBufFn, outBuf)

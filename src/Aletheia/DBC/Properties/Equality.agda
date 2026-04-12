@@ -1,0 +1,82 @@
+{-# OPTIONS --safe --without-K #-}
+
+-- Decidable equality for DBC types.
+--
+-- Purpose: Provide decidable equality instances for SignalPresence,
+--   SignalDef, and DBCSignal, used by membership checks and pair validity.
+module Aletheia.DBC.Properties.Equality where
+
+open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
+open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.CAN.Endianness using (_≟-ByteOrder_)
+open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
+open import Data.List.Properties using (≡-dec)
+open import Data.Nat using (ℕ)
+open import Data.Nat.Properties using (_≟_)
+open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
+open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
+open import Relation.Nullary using (Dec; yes; no)
+
+-- Decidable equality for List⁺ ℕ
+private
+  _≟-List⁺ℕ_ : (vs₁ vs₂ : List⁺ ℕ) → Dec (vs₁ ≡ vs₂)
+  (h₁ ∷⁺ t₁) ≟-List⁺ℕ (h₂ ∷⁺ t₂) with h₁ ≟ h₂ | ≡-dec _≟_ t₁ t₂
+  ... | yes refl | yes refl = yes refl
+  ... | no  h≢   | _        = no (λ { refl → h≢ refl })
+  ... | _        | no  t≢   = no (λ { refl → t≢ refl })
+
+-- Decidable equality for SignalPresence
+_≟-SignalPresence_ : (p₁ p₂ : SignalPresence) → Dec (p₁ ≡ p₂)
+Always       ≟-SignalPresence Always       = yes refl
+Always       ≟-SignalPresence When _ _     = no (λ ())
+When _ _     ≟-SignalPresence Always       = no (λ ())
+When m₁ vs₁ ≟-SignalPresence When m₂ vs₂ with m₁ ≟ₛ m₂ | vs₁ ≟-List⁺ℕ vs₂
+... | yes refl | yes refl = yes refl
+... | no  m≢   | _        = no (λ { refl → m≢ refl })
+... | _        | no  vs≢  = no (λ { refl → vs≢ refl })
+
+-- Decidable equality for SignalDef (7 fields)
+_≟-SignalDef_ : (s₁ s₂ : SignalDef) → Dec (s₁ ≡ s₂)
+s₁ ≟-SignalDef s₂
+  with SignalDef.startBit s₁ ≟ SignalDef.startBit s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.startBit eq))
+... | yes refl
+  with SignalDef.bitLength s₁ ≟ SignalDef.bitLength s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.bitLength eq))
+... | yes refl
+  with SignalDef.isSigned s₁ ≟ᵇ SignalDef.isSigned s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.isSigned eq))
+... | yes refl
+  with SignalDef.factor s₁ ≟ᵣ SignalDef.factor s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.factor eq))
+... | yes refl
+  with SignalDef.offset s₁ ≟ᵣ SignalDef.offset s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.offset eq))
+... | yes refl
+  with SignalDef.minimum s₁ ≟ᵣ SignalDef.minimum s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.minimum eq))
+... | yes refl
+  with SignalDef.maximum s₁ ≟ᵣ SignalDef.maximum s₂
+... | no ¬p = no (λ eq → ¬p (cong SignalDef.maximum eq))
+... | yes refl = yes refl
+
+-- Decidable equality for DBCSignal (5 fields)
+_≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
+s₁ ≟-DBCSignal s₂
+  with DBCSignal.name s₁ ≟ₛ DBCSignal.name s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.name eq))
+... | yes refl
+  with DBCSignal.signalDef s₁ ≟-SignalDef DBCSignal.signalDef s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.signalDef eq))
+... | yes refl
+  with DBCSignal.byteOrder s₁ ≟-ByteOrder DBCSignal.byteOrder s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.byteOrder eq))
+... | yes refl
+  with DBCSignal.unit s₁ ≟ₛ DBCSignal.unit s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.unit eq))
+... | yes refl
+  with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.presence eq))
+... | yes refl = yes refl

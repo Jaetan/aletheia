@@ -133,7 +133,7 @@ def benchmark_frame_building(
 
         start = time.perf_counter()
         for _ in range(num_frames):
-            client.build_frame(can_id=can_id, signals=signals, dlc=dlc)
+            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
         elapsed = time.perf_counter() - start
 
     return num_frames / elapsed

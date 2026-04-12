@@ -34,9 +34,9 @@ ALL_SIMPLE_CONDITIONS = (
 )
 
 WHEN_CONDITIONS = frozenset({"exceeds", "equals", "drops_below"})
-THEN_VALUE_CONDITIONS = frozenset({"equals", "exceeds"})
-THEN_RANGE_CONDITIONS = frozenset({"stays_between"})
-ALL_THEN_CONDITIONS = THEN_VALUE_CONDITIONS | THEN_RANGE_CONDITIONS
+_THEN_VALUE_CONDITIONS = frozenset({"equals", "exceeds"})
+_THEN_RANGE_CONDITIONS = frozenset({"stays_between"})
+ALL_THEN_CONDITIONS = _THEN_VALUE_CONDITIONS | _THEN_RANGE_CONDITIONS
 
 
 # ============================================================================

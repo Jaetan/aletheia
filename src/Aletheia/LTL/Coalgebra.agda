@@ -17,16 +17,25 @@
 -- Two type universes:
 --   Operational: LTL SignalPredicate (JSON, display, user-facing)
 --   Proof:       LTLProc (ℕ-indexed, structural equality, stepL target)
--- Bridge: indexFormula (in Protocol.StreamState) converts the first to the second.
+-- Bridge: indexFormula (in Protocol.StreamState.Internals) converts the first to the second.
 
 module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease) public
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Syntax using (decodeStart; mapLTL)
-open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample; mkCounterexample; FinalVerdict; Holds; Fails)
+open import Aletheia.LTL.Incremental using
+  ( StepResult; Continue; Violated; Satisfied
+  ; Counterexample; mkCounterexample
+  ; FinalVerdict; Holds; Fails; Unsure
+  ; LTLReason
+  ; AtomicFailed; NotStepSatisfied; MetricEventuallyExpired; MetricUntilExpired
+  ; NotEosSatisfied; NextNoFrame; EventuallyUnsatisfied; UntilUnsatisfied
+  ; MetricEventuallyUnsatisfied; MetricUntilUnsatisfied
+  ; AtomicUnresolved
+  )
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 open import Data.Nat using (_≤ᵇ_; _⊔_)
 
 -- ============================================================================
@@ -101,6 +110,19 @@ combineOr l (Violated _) = l
 combineOr (Continue n₁ a) (Continue n₂ b) = Continue (n₁ ⊔ n₂) (Or a b)
 
 -- ============================================================================
+-- METRIC HELPER
+-- ============================================================================
+
+-- Elapsed microseconds since a metric operator's window opened.
+-- Used by all four metric operators (Eventually/Always/Until/Release) below
+-- and re-used by their proof obligations in `Coalgebra/Properties.agda`,
+-- `Adequacy.agda`, and `Adequacy/Agreement.agda`. Defined as a top-level
+-- function (not a `let`-binding inside `stepL`) so proofs can `with`-abstract
+-- on the same syntactic form that `stepL` does.
+metricElapsed : ℕ → TimedFrame → ℕ
+metricElapsed startTime curr = timestampℕ curr ∸ decodeStart startTime (timestampℕ curr)
+
+-- ============================================================================
 -- DEFUNCTIONALIZED STEP SEMANTICS
 -- ============================================================================
 
@@ -113,7 +135,7 @@ stepL : PredTable → LTLProc → TimedFrame → StepResult LTLProc
 -- Atomic: evaluate predicate via table lookup
 stepL table (Atomic n) curr with table n curr
 ... | True    = Satisfied
-... | False   = Violated (mkCounterexample curr "Atomic: predicate failed")
+... | False   = Violated (mkCounterexample curr AtomicFailed)
 ... | Unknown = Continue 0 (Atomic n)  -- Signal not yet observed
 ... | Pending = Continue 0 (Atomic n)  -- Not enough data yet (e.g., first delta observation)
 
@@ -122,7 +144,7 @@ stepL table (Not φ) curr
   with stepL table φ curr
 ... | Continue _ φ' = Continue 0 (Not φ')
 ... | Violated _ = Satisfied  -- Inner violated means outer satisfied
-... | Satisfied = Violated (mkCounterexample curr "Not: inner formula satisfied")
+... | Satisfied = Violated (mkCounterexample curr NotStepSatisfied)
 
 -- And: standard Boolean (resolved sides drop via combineAnd)
 stepL table (And φ ψ) curr = combineAnd (stepL table φ curr) (stepL table ψ curr)
@@ -154,38 +176,38 @@ stepL table (Release φ ψ) curr =
 -- MetricEventually: Rosu prog(F[w]φ, e) = prog(φ,e) ∨ F[w]φ (within window)
 -- Past window: always Violated (φ-satisfaction outside window doesn't count).
 stepL table (MetricEventually windowMicros startTime φ) curr
-  with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
-... | false = Violated (mkCounterexample curr "MetricEventually: window expired")
+  with metricElapsed startTime curr ≤ᵇ windowMicros
+... | false = Violated (mkCounterexample curr MetricEventuallyExpired)
 ... | true  = combineOr (stepL table φ curr)
-                (Continue (windowMicros ∸ (timestamp curr ∸ decodeStart startTime (timestamp curr)))
-                          (MetricEventually windowMicros (suc (decodeStart startTime (timestamp curr))) φ))
+                (Continue (windowMicros ∸ metricElapsed startTime curr)
+                          (MetricEventually windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ))
 
 -- MetricAlways: Rosu prog(G[w]φ, e) = prog(φ,e) ∧ G[w]φ (within window)
 stepL table (MetricAlways windowMicros startTime φ) curr
-  with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ windowMicros
 ... | false = Satisfied  -- Window complete, always held
 ... | true  = combineAnd (stepL table φ curr)
-                (Continue (windowMicros ∸ (timestamp curr ∸ decodeStart startTime (timestamp curr)))
-                          (MetricAlways windowMicros (suc (decodeStart startTime (timestamp curr))) φ))
+                (Continue (windowMicros ∸ metricElapsed startTime curr)
+                          (MetricAlways windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ))
 
 -- MetricUntil: Rosu prog(U[w](φ,ψ), e) = prog(ψ,e) ∨ (prog(φ,e) ∧ U[w](φ,ψ)) (within window)
 -- Past window: always Violated (ψ not satisfied within window).
 stepL table (MetricUntil windowMicros startTime φ ψ) curr
-  with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
-... | false = Violated (mkCounterexample curr "MetricUntil: window expired before ψ")
+  with metricElapsed startTime curr ≤ᵇ windowMicros
+... | false = Violated (mkCounterexample curr MetricUntilExpired)
 ... | true  = combineOr (stepL table ψ curr)
                 (combineAnd (stepL table φ curr)
-                  (Continue (windowMicros ∸ (timestamp curr ∸ decodeStart startTime (timestamp curr)))
-                            (MetricUntil windowMicros (suc (decodeStart startTime (timestamp curr))) φ ψ)))
+                  (Continue (windowMicros ∸ metricElapsed startTime curr)
+                            (MetricUntil windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ ψ)))
 
 -- MetricRelease: Rosu prog(R[w](φ,ψ), e) = prog(ψ,e) ∧ (prog(φ,e) ∨ R[w](φ,ψ)) (within window)
 stepL table (MetricRelease windowMicros startTime φ ψ) curr
-  with (timestamp curr ∸ decodeStart startTime (timestamp curr)) ≤ᵇ windowMicros
+  with metricElapsed startTime curr ≤ᵇ windowMicros
 ... | false = Satisfied  -- Window complete, ψ held throughout
 ... | true  = combineAnd (stepL table ψ curr)
                 (combineOr (stepL table φ curr)
-                  (Continue (windowMicros ∸ (timestamp curr ∸ decodeStart startTime (timestamp curr)))
-                            (MetricRelease windowMicros (suc (decodeStart startTime (timestamp curr))) φ ψ)))
+                  (Continue (windowMicros ∸ metricElapsed startTime curr)
+                            (MetricRelease windowMicros (suc (decodeStart startTime (timestampℕ curr))) φ ψ)))
 
 -- ============================================================================
 -- END-OF-STREAM FINALIZATION
@@ -200,49 +222,67 @@ stepL table (MetricRelease windowMicros startTime φ ψ) curr
 
 finalizeL : LTLProc → FinalVerdict
 
--- Atomic still active at end-of-stream → never resolved
-finalizeL (Atomic _) = Fails "Atomic: predicate never resolved at end of stream"
+-- Atomic still active at end-of-stream → Unknown (Kleene three-valued).
+-- Previously emitted Fails, which was denotationally sound via sound-m-unk
+-- but user-surprising for properties like Always(p) where p's signal was
+-- never observed. Unsure carries the same reason string but converts to
+-- Unknown under verdictToSV, aligning with ⟦ Atomic p ⟧ [] = Unknown.
+finalizeL (Atomic _) = Unsure AtomicUnresolved
 
--- Propositional: compose inner results
+-- Propositional: compose inner results via three-valued Kleene K3 logic.
+-- Not: swap Holds↔Fails, Unsure is fixed point.
+-- And: Fails (⊥) absorbs, Holds (⊤) is identity, Unsure propagates.
+-- Or:  Holds (⊤) absorbs, Fails (⊥) is identity, Unsure propagates.
 finalizeL (Not φ) with finalizeL φ
-... | Holds   = Fails "Not: inner satisfied at end of stream"
-... | Fails _ = Holds
+... | Holds    = Fails NotEosSatisfied
+... | Fails _  = Holds
+... | Unsure r = Unsure r
 
 finalizeL (And φ ψ) with finalizeL φ
-... | Fails r = Fails r
-... | Holds with finalizeL ψ
-...   | Fails r = Fails r
-...   | Holds   = Holds
+... | Fails r  = Fails r
+... | Holds    with finalizeL ψ
+...   | Fails r  = Fails r
+...   | Holds    = Holds
+...   | Unsure r = Unsure r
+finalizeL (And φ ψ) | Unsure r with finalizeL ψ
+...   | Fails r' = Fails r'
+...   | Holds    = Unsure r
+...   | Unsure _ = Unsure r
 
 finalizeL (Or φ ψ) with finalizeL φ
-... | Holds = Holds
-... | Fails _ with finalizeL ψ
-...   | Holds   = Holds
-...   | Fails r = Fails r
+... | Holds    = Holds
+... | Fails _  with finalizeL ψ
+...   | Holds    = Holds
+...   | Fails r  = Fails r
+...   | Unsure r = Unsure r
+finalizeL (Or φ ψ) | Unsure r with finalizeL ψ
+...   | Holds    = Holds
+...   | Fails _  = Unsure r
+...   | Unsure _ = Unsure r
 
 -- Next: unresolved at end-of-stream → violated (next frame never arrived)
-finalizeL (Next _) = Fails "Next: no next frame available at end of stream"
+finalizeL (Next _) = Fails NextNoFrame
 
 -- Always (SAFETY): vacuously true per standard LTLf
 finalizeL (Always _) = Holds
 
 -- Eventually (LIVENESS): still active → never satisfied
-finalizeL (Eventually _) = Fails "Eventually: never satisfied before end of stream"
+finalizeL (Eventually _) = Fails EventuallyUnsatisfied
 
 -- Until (LIVENESS): ψ must eventually hold; still active → Fails
-finalizeL (Until _ _) = Fails "Until: ψ never satisfied before end of stream"
+finalizeL (Until _ _) = Fails UntilUnsatisfied
 
 -- Release (SAFETY): vacuously true per standard LTLf (dual of Until)
 finalizeL (Release _ _) = Holds
 
 -- MetricEventually: still active → never satisfied
-finalizeL (MetricEventually _ _ _) = Fails "MetricEventually: never satisfied within window before end of stream"
+finalizeL (MetricEventually _ _ _) = Fails MetricEventuallyUnsatisfied
 
 -- MetricAlways (SAFETY): vacuously true per standard LTLf
 finalizeL (MetricAlways _ _ _) = Holds
 
 -- MetricUntil: still active → ψ never satisfied
-finalizeL (MetricUntil _ _ _ _) = Fails "MetricUntil: ψ never satisfied within window before end of stream"
+finalizeL (MetricUntil _ _ _ _) = Fails MetricUntilUnsatisfied
 
 -- MetricRelease (SAFETY): vacuously true per standard LTLf (dual of MetricUntil)
 finalizeL (MetricRelease _ _ _ _) = Holds

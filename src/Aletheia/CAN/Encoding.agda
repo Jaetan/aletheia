@@ -1,7 +1,5 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Signal encoding/decoding with runtime bounds checking (no postulates)
-
 -- Signal extraction and injection from CAN frames (bit-level operations).
 --
 -- Purpose: Extract/inject signal values from CAN frames using DBC definitions.
@@ -19,7 +17,7 @@ open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; i
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
-open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _<?_; _≤_; z≤n; s≤s)
+open import Data.Nat using (ℕ; _^_; _<_; _<?_)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -77,6 +75,12 @@ extractSignal frame sig byteOrder =
       value = scaleExtracted raw sig
   in if inBounds value (SignalDef.minimum sig) (SignalDef.maximum sig)
      then just value
+     -- Value outside [minimum, maximum]: reachable via matchMuxValue (mux
+     -- selector value doesn't match any expected value) and via
+     -- extractSignalDirect (which handles this case separately as
+     -- ValueOutOfBounds). The main batch extraction path
+     -- (extractSignalDirect) never sees this nothing — it calls
+     -- extractSignalCoreFast + scaleExtracted + inBounds directly.
      else nothing
 
 -- Inject a signal value into a CAN frame
@@ -91,6 +95,20 @@ injectSignal value signalDef byteOrder frame =
      then injectHelper value signalDef byteOrder frame
      else nothing
   where
+    -- Deferred Bool fast path (AA-16.5): the `_<?_` guard below builds a
+    -- `Dec (fromSigned … < 2 ^ bitLength)` per signal per frame-build.
+    -- A `_<ᵇ_` + `<ᵇ⇒<` refactor would avoid the per-call Dec allocation,
+    -- but the proof files `Encoding/Properties/Roundtrip.agda` (via the
+    -- `fits-check` / `dec-yes-irr` / `inject-reduces` lemmas) and
+    -- `Encoding/Properties/Disjoint.agda` (via `with … <? … | yes bounded`
+    -- patterns at lines 68 and 138) structurally pattern-match on this
+    -- `Dec`. Switching the guard requires rewriting those proofs to use
+    -- `with … <ᵇ … in eq` plus a `<ᵇ⇒<` bridge in every lemma, which
+    -- is a larger proof refactor than the marginal `removeScaling`-dominated
+    -- frame-build throughput gain justifies. Left as-is pending a measured
+    -- Frame Building regression or a dedicated proof-refactor pass.
+    -- (Post-Round-8 Batch 1 benchmarks: Frame Building +1.5%/+4.3% for
+    -- C++/CAN-FD; -2.7%/+1.8% for Go; within noise of the 5% gate.)
     injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
     injectHelper {m} value signalDef byteOrder frame
       with removeScaling value factor offset

@@ -12,29 +12,33 @@
 module Aletheia.Error where
 
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; _∸_)
 open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.List using (List)
-open import Aletheia.DBC.Types using (ValidationIssue)
-open import Aletheia.DBC.Validator using (formatIssuesText; errorIssues)
+open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda)
 -- ============================================================================
 
 data ParseError : Set where
-  MissingField           : String → ParseError
-  InvalidByteOrder       : String → ParseError
-  InvalidPresence        : String → ParseError
-  MissingSigned          : ParseError
-  InvalidSigned          : String → ParseError
-  NotAnObject            : String → ℕ → ParseError
-  ExtCANIdOutOfRange     : ℕ → ParseError
-  StdCANIdOutOfRange     : ℕ → ParseError
-  DefaultCANIdOutOfRange : ℕ → ParseError
-  InvalidDLCBytes        : ℕ → ParseError
-  RootNotObject          : ParseError
-  MissingSignalName      : ParseError
+  MissingField            : String → ParseError
+  InvalidByteOrder        : String → ParseError
+  InvalidPresence         : String → ParseError
+  MissingSigned           : ParseError
+  InvalidSigned           : String → ParseError
+  NotAnObject             : String → ℕ → ParseError
+  ExtCANIdOutOfRange      : ℕ → ParseError
+  StdCANIdOutOfRange      : ℕ → ParseError
+  DefaultCANIdOutOfRange  : ℕ → ParseError
+  InvalidDLCBytes         : ℕ → ParseError
+  RootNotObject           : ParseError
+  MissingSignalName       : ParseError
+  -- Physical-validity errors (BigEndian signals only):
+  -- enforced by JSONParser so parseDBCWithErrors yields WellFormedDBCRT,
+  -- closing the parse-format-parse weak inverse without a hypothesis.
+  SignalBitLengthZero     : ParseError                -- bitLength must be ≥ 1
+  SignalOverflowsFrame    : ℕ → ℕ → ℕ → ParseError    -- startBit, bitLength, frameBytes
+  SignalMSBBelowBitLength : ℕ → ℕ → ParseError        -- startBit, bitLength
   InContext               : String → ParseError → ParseError
 
 formatParseError : ParseError → String
@@ -51,17 +55,25 @@ formatParseError (InvalidSigned s) =
 formatParseError (NotAnObject kind idx) =
   kind ++ₛ " at index " ++ₛ showℕ idx ++ₛ " is not a JSON object"
 formatParseError (ExtCANIdOutOfRange n) =
-  "extended CAN ID " ++ₛ showℕ n ++ₛ " out of range (max 536870911)"
+  "extended CAN ID " ++ₛ showℕ n ++ₛ " out of range (max " ++ₛ showℕ (extended-can-id-max ∸ 1) ++ₛ ")"
 formatParseError (StdCANIdOutOfRange n) =
-  "standard CAN ID " ++ₛ showℕ n ++ₛ " out of range (max 2047)"
+  "standard CAN ID " ++ₛ showℕ n ++ₛ " out of range (max " ++ₛ showℕ (standard-can-id-max ∸ 1) ++ₛ ")"
 formatParseError (DefaultCANIdOutOfRange n) =
-  "CAN ID " ++ₛ showℕ n ++ₛ " out of range for standard ID (max 2047)"
+  "CAN ID " ++ₛ showℕ n ++ₛ " out of range for standard ID (max " ++ₛ showℕ (standard-can-id-max ∸ 1) ++ₛ ")"
 formatParseError (InvalidDLCBytes n) =
   "DLC " ++ₛ showℕ n ++ₛ " is not a valid CAN byte count"
 formatParseError RootNotObject =
-  "ParseDBC: root must be a JSON object"
+  "root must be a JSON object"
 formatParseError MissingSignalName =
   "missing signal 'name' field"
+formatParseError SignalBitLengthZero =
+  "signal bit length must be ≥ 1"
+formatParseError (SignalOverflowsFrame sb bl fb) =
+  "signal at startBit " ++ₛ showℕ sb ++ₛ " with length " ++ₛ showℕ bl
+    ++ₛ " overflows frame (" ++ₛ showℕ fb ++ₛ " bytes)"
+formatParseError (SignalMSBBelowBitLength sb bl) =
+  "bigEndian signal MSB position " ++ₛ showℕ sb
+    ++ₛ " below bitLength " ++ₛ showℕ bl ++ₛ " ∸ 1"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -78,7 +90,41 @@ parseErrorCode (DefaultCANIdOutOfRange _) = "parse_default_can_id_out_of_range"
 parseErrorCode (InvalidDLCBytes _)        = "parse_invalid_dlc_bytes"
 parseErrorCode RootNotObject              = "parse_root_not_object"
 parseErrorCode MissingSignalName          = "parse_missing_signal_name"
+parseErrorCode SignalBitLengthZero        = "parse_signal_bit_length_zero"
+parseErrorCode (SignalOverflowsFrame _ _ _) = "parse_signal_overflows_frame"
+parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_length"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
+
+-- ============================================================================
+-- EXTRACTION ERRORS (CAN/SignalExtraction.agda)
+-- ============================================================================
+
+data ExtractionError : Set where
+  MuxValueMismatch       : ExtractionError
+  MuxSignalNotFound      : String → ExtractionError  -- multiplexor signal name
+  MuxChainCycle          : ExtractionError
+  MuxExtractionFailed    : String → ExtractionError  -- multiplexor signal name
+  -- Bit-level extraction or scaling failed (catch-all for ExtractionResult.ExtractionFailed).
+  -- Routed through the typed Error sum rather than carrying a raw String at the
+  -- ExtractionResult layer, so all errors share a single ADT.
+  BitExtractionFailed    : String → ExtractionError
+
+formatExtractionError : ExtractionError → String
+formatExtractionError MuxValueMismatch         = "multiplexor value mismatch"
+formatExtractionError (MuxSignalNotFound name)  =
+  "multiplexor signal '" ++ₛ name ++ₛ "' not found in message"
+formatExtractionError MuxChainCycle             = "multiplexor chain depth exceeded (cycle?)"
+formatExtractionError (MuxExtractionFailed name) =
+  "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
+formatExtractionError (BitExtractionFailed reason) =
+  "bit extraction failed: " ++ₛ reason
+
+extractionErrorCode : ExtractionError → String
+extractionErrorCode MuxValueMismatch         = "extraction_mux_value_mismatch"
+extractionErrorCode (MuxSignalNotFound _)    = "extraction_mux_signal_not_found"
+extractionErrorCode MuxChainCycle            = "extraction_mux_chain_cycle"
+extractionErrorCode (MuxExtractionFailed _)  = "extraction_mux_extraction_failed"
+extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed"
 
 -- ============================================================================
 -- FRAME BUILDING ERRORS (CAN/BatchFrameBuilding.agda)
@@ -130,21 +176,21 @@ formatRouteError (RouteMissingField cmd f) =
 formatRouteError (RouteMissingArray cmd f) =
   cmd ++ₛ ": missing '" ++ₛ f ++ₛ "' array"
 formatRouteError (UnknownCommand s) =
-  "Unknown command: " ++ₛ s
+  "unknown command: " ++ₛ s
 formatRouteError MissingCommandField =
-  "ParseCommand: missing 'command' field"
+  "missing 'command' field"
 formatRouteError (DLCExceedsMax ctx) =
   ctx ++ₛ ": DLC exceeds maximum value"
 formatRouteError (ByteArrayParseFailed c) =
   c ++ₛ ": failed to parse byte array"
 formatRouteError (ByteCountMismatch c) =
-  c ++ₛ ": byte count doesn't match DLC"
+  c ++ₛ ": byte count does not match DLC"
 formatRouteError (MissingDBCField cmd) =
   cmd ++ₛ ": missing 'dbc' field"
 formatRouteError MissingPropsField =
-  "SetProperties: missing 'properties' field"
+  "missing 'properties' field"
 formatRouteError (WrappedParseError pe) =
-  formatParseError pe
+  "parse error: " ++ₛ formatParseError pe
 
 routeErrorCode : RouteError → String
 routeErrorCode (RouteMissingField _ _) = "route_missing_field"
@@ -163,32 +209,39 @@ routeErrorCode (WrappedParseError pe)  = parseErrorCode pe
 -- ============================================================================
 
 data HandlerError : Set where
-  NoDBC                 : HandlerError
-  AlreadyStreaming      : HandlerError
-  NotStreaming          : HandlerError
-  StreamNotStarted      : HandlerError
-  StreamActive          : HandlerError
-  SignalListParseFailed : HandlerError
-  PropertyParseFailed   : ℕ → HandlerError
-  InvalidDLCCode        : HandlerError
-  ValidationFailed      : List ValidationIssue → HandlerError
-  WrappedParse          : ParseError → HandlerError
-  WrappedFrame          : FrameError → HandlerError
+  NoDBC                  : HandlerError
+  AlreadyStreaming       : HandlerError
+  NotStreaming           : HandlerError
+  StreamNotStarted       : HandlerError
+  StreamActive           : HandlerError
+  SignalListParseFailed  : HandlerError
+  PropertyParseFailed    : ℕ → HandlerError
+  InvalidDLCCode         : HandlerError
+  ValidationFailed       : String → HandlerError
+  -- Non-monotonic timestamp: current < previous (carries both for diagnostics).
+  -- Metric LTL operators (MetricEventually, MetricAlways) compute elapsed time
+  -- via natural subtraction (∸), which clamps at 0 on backward timestamps and
+  -- silently produces wrong verdicts. handleDataFrame refuses such frames.
+  NonMonotonicTimestamp  : ℕ → ℕ → HandlerError
+  WrappedParse           : ParseError → HandlerError
+  WrappedFrame           : FrameError → HandlerError
 
 formatHandlerError : HandlerError → String
 formatHandlerError NoDBC                 = "DBC not loaded"
-formatHandlerError AlreadyStreaming      = "already streaming"
-formatHandlerError NotStreaming          = "not currently streaming"
+formatHandlerError AlreadyStreaming      = "stream already active"
+formatHandlerError NotStreaming          = "stream not active"
 formatHandlerError StreamNotStarted      = "stream not started"
-formatHandlerError StreamActive          = "stream is active"
-formatHandlerError SignalListParseFailed = "failed to parse signal list"
+formatHandlerError StreamActive          = "stream still active"
+formatHandlerError SignalListParseFailed = "signal list parse failure"
 formatHandlerError (PropertyParseFailed idx) =
-  "failed to parse property " ++ₛ showℕ idx
+  "property parse failure at index " ++ₛ showℕ idx
 formatHandlerError InvalidDLCCode        = "invalid DLC code"
-formatHandlerError (ValidationFailed issues) =
-  "validation failed: " ++ₛ formatIssuesText (errorIssues issues)
+formatHandlerError (ValidationFailed msg) = msg
+formatHandlerError (NonMonotonicTimestamp curr prev) =
+  "non-monotonic timestamp: " ++ₛ showℕ curr ++ₛ " μs < previous " ++ₛ showℕ prev ++ₛ
+  " μs (metric LTL operators require monotonic timestamps)"
 formatHandlerError (WrappedParse pe)     = "parse error: " ++ₛ formatParseError pe
-formatHandlerError (WrappedFrame fe)     = formatFrameError fe
+formatHandlerError (WrappedFrame fe)     = "frame error: " ++ₛ formatFrameError fe
 
 handlerErrorCode : HandlerError → String
 handlerErrorCode NoDBC                 = "handler_no_dbc"
@@ -200,6 +253,7 @@ handlerErrorCode SignalListParseFailed = "handler_signal_list_parse_failed"
 handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
 handlerErrorCode InvalidDLCCode        = "handler_invalid_dlc_code"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
+handlerErrorCode (NonMonotonicTimestamp _ _) = "handler_non_monotonic_timestamp"
 handlerErrorCode (WrappedParse pe)     = parseErrorCode pe
 handlerErrorCode (WrappedFrame fe)     = frameErrorCode fe
 
@@ -214,10 +268,10 @@ data DispatchError : Set where
   RequestNotObject   : DispatchError
 
 formatDispatchError : DispatchError → String
-formatDispatchError MissingTypeField       = "Dispatch: missing 'type' field in request"
-formatDispatchError (UnknownMessageType s) = "Dispatch: unknown message type: " ++ₛ s
-formatDispatchError InvalidJSON            = "Dispatch: invalid JSON"
-formatDispatchError RequestNotObject       = "Dispatch: request must be a JSON object"
+formatDispatchError MissingTypeField       = "missing 'type' field in request"
+formatDispatchError (UnknownMessageType s) = "unknown message type: " ++ₛ s
+formatDispatchError InvalidJSON            = "invalid JSON"
+formatDispatchError RequestNotObject       = "request must be a JSON object"
 
 dispatchErrorCode : DispatchError → String
 dispatchErrorCode MissingTypeField       = "dispatch_missing_type_field"
@@ -230,16 +284,18 @@ dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 -- ============================================================================
 
 data Error : Set where
-  ParseErr    : ParseError → Error
-  FrameErr    : FrameError → Error
-  RouteErr    : RouteError → Error
-  HandlerErr  : HandlerError → Error
-  DispatchErr : DispatchError → Error
-  WithContext  : String → Error → Error
+  ParseErr       : ParseError → Error
+  FrameErr       : FrameError → Error
+  ExtractionErr  : ExtractionError → Error
+  RouteErr       : RouteError → Error
+  HandlerErr     : HandlerError → Error
+  DispatchErr    : DispatchError → Error
+  WithContext     : String → Error → Error
 
 formatError : Error → String
 formatError (ParseErr pe)         = formatParseError pe
 formatError (FrameErr fe)         = formatFrameError fe
+formatError (ExtractionErr ee)    = formatExtractionError ee
 formatError (RouteErr re)         = formatRouteError re
 formatError (HandlerErr he)       = formatHandlerError he
 formatError (DispatchErr de)      = formatDispatchError de
@@ -248,10 +304,8 @@ formatError (WithContext ctx inner) = ctx ++ₛ ": " ++ₛ formatError inner
 errorCode : Error → String
 errorCode (ParseErr pe)    = parseErrorCode pe
 errorCode (FrameErr fe)    = frameErrorCode fe
-errorCode (RouteErr (WrappedParseError pe)) = parseErrorCode pe
+errorCode (ExtractionErr ee) = extractionErrorCode ee
 errorCode (RouteErr re)    = routeErrorCode re
-errorCode (HandlerErr (WrappedParse pe)) = parseErrorCode pe
-errorCode (HandlerErr (WrappedFrame fe)) = frameErrorCode fe
 errorCode (HandlerErr he)  = handlerErrorCode he
 errorCode (DispatchErr de) = dispatchErrorCode de
 errorCode (WithContext _ inner) = errorCode inner

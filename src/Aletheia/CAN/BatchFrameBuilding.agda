@@ -13,16 +13,17 @@ module Aletheia.CAN.BatchFrameBuilding where
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
-open import Aletheia.CAN.DLC using (dlcToBytes)
+open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Properties using (signalPhysicalBits; bitsIntersectᵇ)
 open import Data.String using (String)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Vec as Vec using (Vec; replicate)
-open import Data.Nat using (ℕ; zero; suc; _+_; _∸_; _≤ᵇ_)
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_; _∨_)
+open import Data.Nat using (ℕ)
+open import Data.Bool using (Bool; true; false; if_then_else_; _∨_; not)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Prelude using (listIndex; _>>=ₑ_)
 open import Aletheia.Error using
@@ -31,47 +32,37 @@ open import Aletheia.Error using
   )
 
 -- ============================================================================
--- OVERLAP DETECTION
+-- OVERLAP DETECTION (endianness-aware, precomputation-hoisted)
 -- ============================================================================
-
--- Check if two bit ranges overlap
--- Range 1: [start1 .. start1 + len1 - 1]
--- Range 2: [start2 .. start2 + len2 - 1]
--- Zero-length ranges occupy no bits and never overlap.
 --
--- Note: This is defense-in-depth for programmatically-constructed signal lists.
--- Validated DBCs use signalPairValid? (DBC/Properties.agda) which handles
--- zero-length via vacuously-true universal quantification over empty bit ranges,
--- and is endianness-aware (PhysicallyDisjoint).
-rangesOverlap : ℕ → ℕ → ℕ → ℕ → Bool
-rangesOverlap _      zero   _      _      = false
-rangesOverlap _      _      _      zero   = false
-rangesOverlap start1 len1   start2 len2   =
-  let end1 = start1 + len1 ∸ 1
-      end2 = start2 + len2 ∸ 1
-  in (start1 ≤ᵇ end2) ∧ (start2 ≤ᵇ end1)
+-- Uses the Bool-valued `bitsIntersectᵇ` fast path from `DBC/Properties.agda`.
+-- Equivalence with `PhysicallyDisjoint` is proved by
+-- `physicallyOverlapᵇ-sound` / `physicallyOverlapᵇ-complete` in that module,
+-- so this check is as trustworthy as the `Dec`-valued `physicallyDisjoint?`.
+--
+-- Performance note: per-signal physical bit positions are precomputed ONCE
+-- in `hasOverlaps`, outside the O(m²) pair loop. This turns the per-frame
+-- cost from O(m² × l²) (with Dec-boxed per-bit comparisons, as in the
+-- `physicallyDisjoint?` path) into O(m × l) precomputation plus
+-- O(m² × l²) cheap Bool operations on precomputed lists. The frame-building
+-- hot path sees a >2x throughput recovery on CAN-FD.
 
--- Check if a signal overlaps with another signal
-signalsOverlap : DBCSignal → DBCSignal → Bool
-signalsOverlap sig1 sig2 =
-  let def1 = DBCSignal.signalDef sig1
-      def2 = DBCSignal.signalDef sig2
-      start1 = SignalDef.startBit def1
-      len1 = SignalDef.bitLength def1
-      start2 = SignalDef.startBit def2
-      len2 = SignalDef.bitLength def2
-  in rangesOverlap start1 len1 start2 len2
+-- Check if any precomputed signal bit list overlaps a given target bit list.
+anyOverlap : List ℕ → List (List ℕ) → Bool
+anyOverlap target [] = false
+anyOverlap target (bs ∷ rest) = bitsIntersectᵇ target bs ∨ anyOverlap target rest
 
--- Check if any signal in a list overlaps with a given signal
-anyOverlap : DBCSignal → List DBCSignal → Bool
-anyOverlap sig [] = false
-anyOverlap sig (s ∷ rest) = signalsOverlap sig s ∨ anyOverlap sig rest
+-- Check all pairs of precomputed bit lists for physical overlaps.
+anyPairOverlap : List (List ℕ) → Bool
+anyPairOverlap []         = false
+anyPairOverlap (bs ∷ rest) = anyOverlap bs rest ∨ anyPairOverlap rest
 
--- Check all signals for pairwise overlaps
--- Returns true if there is at least one overlap
-hasOverlaps : List DBCSignal → Bool
-hasOverlaps [] = false
-hasOverlaps (sig ∷ rest) = anyOverlap sig rest ∨ hasOverlaps rest
+-- Check all signal pairs for physical overlaps. Precomputes each signal's
+-- physical bit list ONCE, then runs the O(m²) pair loop over the cached lists.
+-- Returns true if at least one pair of signals occupies the same physical bit.
+-- `n` is the frame byte count (8 for CAN 2.0B, up to 64 for CAN-FD).
+hasOverlaps : ℕ → List DBCSignal → Bool
+hasOverlaps n sigs = anyPairOverlap (map (signalPhysicalBits n) sigs)
 
 -- ============================================================================
 -- GENERIC SIGNAL LOOKUP (parameterized by resolution strategy)
@@ -138,20 +129,20 @@ injectAll frame (sig ∷ rest) = injectOne frame sig >>=ₑ λ frame' → inject
 -- - Signals overlap
 -- - Signal value out of bounds or injection fails
 -- Shared build pipeline: check overlaps, inject into empty frame, extract payload
-validateAndBuild : CANId → (dlc : ℕ) → List (DBCSignal × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
-validateAndBuild canId dlc defs with hasOverlaps (map Data.Product.proj₁ defs)
+validateAndBuild : CANId → (dlc : DLC) → List (DBCSignal × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
+validateAndBuild canId dlc defs with hasOverlaps (dlcBytes dlc) (map Data.Product.proj₁ defs)
 ... | true = inj₁ SignalsOverlap
 ... | false = injectAll emptyFrame defs >>=ₑ λ finalFrame → inj₂ (CANFrame.payload finalFrame)
   where
-    emptyFrame : CANFrame (dlcToBytes dlc)
-    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcToBytes dlc) 0 }
+    emptyFrame : CANFrame (dlcBytes dlc)
+    emptyFrame = record { id = canId ; dlc = dlc ; payload = Vec.replicate (dlcBytes dlc) 0 }
 
 -- ============================================================================
 -- GENERIC FRAME BUILDING AND UPDATING
 -- ============================================================================
 
 -- Generic build: lookup signals via strategy, validate overlaps, inject into empty frame.
-buildFrameG : ∀ {K} → LookupStrategy K → DBC → CANId → (dlc : ℕ) → List (K × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
+buildFrameG : ∀ {K} → LookupStrategy K → DBC → CANId → (dlc : DLC) → List (K × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
 buildFrameG strat dbc canId dlc signals with findMessageById canId dbc
 ... | nothing = inj₁ CANIdNotFound
 ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → validateAndBuild canId dlc signalDefs
@@ -169,14 +160,14 @@ updateFrameG strat dbc canId frame signals =
     ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → injectAll frame signalDefs
 
 -- Name-based API (JSON path)
-buildFrame : DBC → CANId → (dlc : ℕ) → List (String × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
+buildFrame : DBC → CANId → (dlc : DLC) → List (String × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
 buildFrame = buildFrameG nameStrategy
 
 updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → FrameError ⊎ CANFrame n
 updateFrame = updateFrameG nameStrategy
 
 -- Index-based API (binary FFI path — no string allocation)
-buildFrameByIndex : DBC → CANId → (dlc : ℕ) → List (ℕ × ℚ) → FrameError ⊎ Vec Byte (dlcToBytes dlc)
+buildFrameByIndex : DBC → CANId → (dlc : DLC) → List (ℕ × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
 buildFrameByIndex = buildFrameG indexStrategy
 
 updateFrameByIndex : ∀ {n} → DBC → CANId → CANFrame n → List (ℕ × ℚ) → FrameError ⊎ CANFrame n

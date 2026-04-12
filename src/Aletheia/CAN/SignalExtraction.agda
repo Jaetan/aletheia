@@ -15,44 +15,80 @@ open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCoreFast; s
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; Always; When)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.Rational using (ℚ; _/_)
-import Data.Rational.Properties as ℚ-Props
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed)
+open import Data.String using (String)
+open import Data.Rational using (ℚ; _/_; _≤ᵇ_)
 open import Data.Integer using (+_)
-open import Data.Nat using (ℕ)
-open import Data.Nat.Show using () renaming (show to showℕ)
-open import Data.List using (List; _∷_; [])
+open import Data.Nat using (ℕ; zero; suc)
+open import Data.List using (List; _∷_; []; length)
+open import Data.Bool.ListAction using (any)
+open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (if_then_else_)
-open import Relation.Nullary.Decidable using (⌊_⌋)
+open import Data.Bool using (Bool; if_then_else_; _∧_)
 
 -- ============================================================================
--- SIGNAL EXTRACTION WITH MULTIPLEXING
+-- SIGNAL EXTRACTION WITH MULTIPLEXING (NESTED CHAINS SUPPORTED)
 -- ============================================================================
 
--- Check if multiplexor signal matches expected value
--- Returns: nothing if match, just reason if mismatch or error
-checkMultiplexor : ∀ {n} → CANFrame n → DBCMessage → String → ℕ → Maybe String
-checkMultiplexor frame msg muxName muxValue with findSignalByName muxName msg
-... | nothing = just ("multiplexor signal '" ++ₛ muxName ++ₛ "' not found in message")
-... | just muxSig with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
-...   | nothing = just ("failed to extract multiplexor signal '" ++ₛ muxName ++ₛ "'")
-...   | just muxVal =
-      -- Check if multiplexor value matches expected value
-      -- Note: We compare to rational directly since muxValue is ℕ
-      let expectedVal = (+ muxValue) / 1
-          matches = ⌊ ℚ-Props._≟_ muxVal expectedVal ⌋
+-- Leaf operation: extract a multiplexor signal's value and check whether it
+-- matches any of the expected selector values.
+-- Returns: nothing on match, just reason on mismatch or extraction failure.
+-- Bool fast path: `_≤ᵇ_` on ℚ compiles to a direct ℤ comparison without
+-- allocating a Dec proof term per selector per call. The previous
+-- `⌊ ℚ-Props._≟_ _ _ ⌋` form built a Dec for every selector on every mux
+-- signal — an allocation hazard of the same class as the 5aa345e regression.
+matchMuxValue : ∀ {n} → CANFrame n → DBCSignal → List⁺ ℕ → Maybe ExtractionError
+matchMuxValue frame muxSig muxValues
+  with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
+... | nothing = just (MuxExtractionFailed (DBCSignal.name muxSig))
+... | just muxVal =
+      let matches = any (λ v → let vℚ = (+ v) / 1
+                                in (muxVal ≤ᵇ vℚ) ∧ (vℚ ≤ᵇ muxVal))
+                        (List⁺.toList muxValues)
       in if matches
-         then nothing  -- Match! Signal is present
-         else just ("multiplexor value mismatch (expected " ++ₛ showℕ muxValue ++ₛ ")")
+         then nothing
+         else just MuxValueMismatch
 
--- Check if signal is present in frame (handles multiplexing)
--- Returns: nothing if present, just reason if not present
-checkSignalPresence : ∀ {n} → CANFrame n → DBCMessage → DBCSignal → Maybe String
-checkSignalPresence frame msg sig with DBCSignal.presence sig
-... | Always = nothing  -- Signal always present, no error
-... | When muxName muxValue = checkMultiplexor frame msg muxName muxValue
+-- Recursive presence check with bounded fuel, parameterised by SignalPresence
+-- (not by DBCSignal). Pattern-matching directly on the presence keeps the
+-- function reduction-friendly for proofs that need the leaf cases to compute.
+--
+-- For a When-multiplexed signal, the multiplexor itself may also be
+-- conditionally present (nested mux). We walk the chain bottom-up: each
+-- mux ancestor must itself be present AND its extracted value must match.
+--
+-- Termination: fuel ≤ length (DBCMessage.signals msg) at entry (the sole
+-- caller `checkSignalPresence` passes exactly this value) and strictly
+-- decreases at every recursive call (`suc f → f`). Structural recursion
+-- on ℕ discharges Agda's termination checker — no well-founded machinery
+-- or `<-Rec` wrapper is needed because the fuel argument is already the
+-- decreasing measure.
+--
+-- Soundness of the fuel bound: the maximum length of an acyclic mux chain
+-- through n signals is n — each signal name is visited at most once before
+-- reaching an `Always` sink, so a chain longer than n must revisit a signal
+-- (i.e. contain a cycle). A correctly validated DBC is acyclic (check 5 in
+-- Validator.Checks rejects MultiplexorCycle), so exhausting fuel is only
+-- possible if validation was skipped; the `just …` fallback below is a
+-- defensive runtime error message for that case rather than a proof of
+-- termination on malformed DBCs.
+checkPresenceP : ∀ {n} → ℕ → CANFrame n → DBCMessage → SignalPresence → Maybe ExtractionError
+checkPresenceP _       _     _   Always         = nothing
+checkPresenceP zero    _     _   (When _ _)     =
+  just MuxChainCycle
+checkPresenceP (suc f) frame msg (When muxName muxValues)
+  with findSignalByName muxName msg
+... | nothing  = just (MuxSignalNotFound muxName)
+... | just muxSig with checkPresenceP f frame msg (DBCSignal.presence muxSig)
+...   | just reason = just reason
+...   | nothing     = matchMuxValue frame muxSig muxValues
+
+-- Check if a signal is present in a frame (handles arbitrary nested mux).
+-- Returns: nothing if present, just reason if not present.
+checkSignalPresence : ∀ {n} → CANFrame n → DBCMessage → DBCSignal → Maybe ExtractionError
+checkSignalPresence frame msg sig =
+  checkPresenceP (length (DBCMessage.signals msg)) frame msg (DBCSignal.presence sig)
 
 -- Extract signal from frame given known message and signal (no DBC lookups)
 -- This is the fast path used by batch extraction.

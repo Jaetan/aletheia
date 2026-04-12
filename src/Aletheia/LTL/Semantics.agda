@@ -30,7 +30,7 @@ open import Data.Nat using (_≤ᵇ_)
 
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 
 open TruthVal
 
@@ -63,8 +63,12 @@ met-un-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthV
 met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
 
 -- Propositional operators
--- Atomic on empty suffix: False (predicate has no frame to evaluate on).
-⟦ Atomic p ⟧ []          = False
+-- Atomic on empty suffix: Unknown (Kleene three-valued — the predicate has
+-- no frame to evaluate on, so we have no evidence either way). This matches
+-- finalizeL (Atomic _) = Unsure under verdictToSV, making finalize-empty-equiv
+-- hold for the Atomic case. Previously False, which was sound via sound-m-unk
+-- but broke the propositional equality.
+⟦ Atomic p ⟧ []          = Unknown
 ⟦ Atomic p ⟧ (x ∷ _)    = p x
 
 ⟦ Not φ ⟧ σ              = notTV (⟦ φ ⟧ σ)
@@ -106,19 +110,19 @@ met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthV
 
 -- Metric Eventually (F[0,w] φ): φ must hold at some point within window
 ⟦ MetricEventually w s φ ⟧ [] = False
-⟦ MetricEventually w s φ ⟧ σ@(y ∷ _) = met-ev-go w φ (decodeStart s (timestamp y)) σ
+⟦ MetricEventually w s φ ⟧ σ@(y ∷ _) = met-ev-go w φ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Always (G[0,w] φ): φ must hold at every point within window
 ⟦ MetricAlways w s φ ⟧ [] = True
-⟦ MetricAlways w s φ ⟧ σ@(y ∷ _) = met-al-go w φ (decodeStart s (timestamp y)) σ
+⟦ MetricAlways w s φ ⟧ σ@(y ∷ _) = met-al-go w φ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Until (φ U[0,w] ψ): ψ must hold within window, with φ holding until then
 ⟦ MetricUntil w s φ ψ ⟧ [] = False
-⟦ MetricUntil w s φ ψ ⟧ σ@(y ∷ _) = met-un-go w φ ψ (decodeStart s (timestamp y)) σ
+⟦ MetricUntil w s φ ψ ⟧ σ@(y ∷ _) = met-un-go w φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- Metric Release (φ R[0,w] ψ): dual of Metric Until
 ⟦ MetricRelease w s φ ψ ⟧ [] = True
-⟦ MetricRelease w s φ ψ ⟧ σ@(y ∷ _) = met-re-go w φ ψ (decodeStart s (timestamp y)) σ
+⟦ MetricRelease w s φ ψ ⟧ σ@(y ∷ _) = met-re-go w φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- ============================================================================
 -- METRIC GO HELPERS (top-level for adequacy proof access)
@@ -127,21 +131,21 @@ met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthV
 -- (and similarly for the other metric operators).
 
 met-ev-go w φ start [] = False
-met-ev-go w φ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-ev-go w φ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | false = False    -- past the window
 ... | true  = ⟦ φ ⟧ (y ∷ rest) ∨TV met-ev-go w φ start rest
 
 met-al-go w φ start [] = True
-met-al-go w φ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-al-go w φ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | false = True     -- past the window, vacuously holds
 ... | true  = ⟦ φ ⟧ (y ∷ rest) ∧TV met-al-go w φ start rest
 
 met-un-go w φ ψ start [] = False
-met-un-go w φ ψ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-un-go w φ ψ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | false = False    -- past the window, ψ never held in time
 ... | true  = ⟦ ψ ⟧ (y ∷ rest) ∨TV (⟦ φ ⟧ (y ∷ rest) ∧TV met-un-go w φ ψ start rest)
 
 met-re-go w φ ψ start [] = True
-met-re-go w φ ψ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-re-go w φ ψ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | false = True     -- past the window, vacuously holds
 ... | true  = ⟦ ψ ⟧ (y ∷ rest) ∧TV (⟦ φ ⟧ (y ∷ rest) ∨TV met-re-go w φ ψ start rest)

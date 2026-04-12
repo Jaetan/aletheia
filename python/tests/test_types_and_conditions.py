@@ -3,7 +3,9 @@
 import pytest
 
 from aletheia.client._helpers import float_to_rational, parse_rational
-from aletheia.client._types import ProcessError, ProtocolError, bytes_to_dlc, dlc_to_bytes
+from aletheia.client._types import (
+    ProcessError, ProtocolError, bytes_to_dlc, dlc_to_bytes, validate_can_id,
+)
 from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -183,8 +185,8 @@ class TestSignalIndexCache:
             }
             client.parse_dbc(dbc)
             # Cache keyed by (can_id, extended)
-            assert (256, False) in client._signal_index_cache
-            idx_map = client._signal_index_cache[(256, False)]
+            assert (256, False) in client._signal_lookup
+            idx_map = client._signal_lookup[(256, False)].indices
             assert idx_map["Sig0"] == 0
             assert idx_map["Sig1"] == 1
 
@@ -206,7 +208,7 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc1)
-            assert "OldSig" in client._signal_index_cache[(256, False)]
+            assert "OldSig" in client._signal_lookup[(256, False)].indices
 
             dbc2 = {
                 "version": "1.0",
@@ -222,15 +224,15 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc2)
-            assert (256, False) not in client._signal_index_cache
-            assert (512, False) in client._signal_index_cache
+            assert (256, False) not in client._signal_lookup
+            assert (512, False) in client._signal_lookup
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
         from aletheia import AletheiaClient
         with AletheiaClient() as client:
             with pytest.raises(ProcessError, match="DBC not loaded"):
-                client.build_frame(can_id=256, signals={"Sig": 1.0})
+                client.build_frame(can_id=256, dlc=8, signals={"Sig": 1.0})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
         """build_frame with unknown signal name raises."""
@@ -251,7 +253,7 @@ class TestSignalIndexCache:
             }
             client.parse_dbc(dbc)
             with pytest.raises(ProcessError, match="unknown signal"):
-                client.build_frame(can_id=256, signals={"NoSuchSig": 1.0})
+                client.build_frame(can_id=256, dlc=8, signals={"NoSuchSig": 1.0})
 
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""
@@ -271,5 +273,41 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            with pytest.raises(ProcessError, match="byte count doesn't match DLC"):
+            with pytest.raises(ProcessError, match="payload length .* does not match DLC"):
                 client.extract_signals(can_id=256, dlc=8, data=bytearray(7))
+
+
+# ============================================================================
+# T-9: validate_can_id boundary conditions
+# ============================================================================
+
+class TestValidateCanId:
+    """Boundary tests for validate_can_id."""
+
+    def test_standard_zero(self) -> None:
+        validate_can_id(0, extended=False)
+
+    def test_standard_max(self) -> None:
+        validate_can_id(0x7FF, extended=False)
+
+    def test_standard_over_max_raises(self) -> None:
+        with pytest.raises(ValueError, match="standard CAN ID"):
+            validate_can_id(0x800, extended=False)
+
+    def test_standard_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="standard CAN ID"):
+            validate_can_id(-1, extended=False)
+
+    def test_extended_zero(self) -> None:
+        validate_can_id(0, extended=True)
+
+    def test_extended_max(self) -> None:
+        validate_can_id(0x1FFFFFFF, extended=True)
+
+    def test_extended_over_max_raises(self) -> None:
+        with pytest.raises(ValueError, match="extended CAN ID"):
+            validate_can_id(0x20000000, extended=True)
+
+    def test_extended_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="extended CAN ID"):
+            validate_can_id(-1, extended=True)

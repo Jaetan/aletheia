@@ -104,7 +104,7 @@ def measure_latencies(
             latencies.append(time.perf_counter() - start)
         elif operation == "build":
             start = time.perf_counter()
-            client.build_frame(can_id=can_id, signals=signals, dlc=dlc)
+            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
             latencies.append(time.perf_counter() - start)
 
     return latencies
@@ -194,7 +194,7 @@ def run_latency_suite(
         client.parse_dbc(dbc)
 
         for _ in range(warmup):
-            client.build_frame(can_id=can_id, signals=signals, dlc=dlc)
+            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
 
         latencies = measure_latencies(client, "build", num_ops, can_id, dlc, frame, signals)
 

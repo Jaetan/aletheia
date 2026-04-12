@@ -16,7 +16,7 @@ open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatCANId; formatDBCSignal)
 open import Aletheia.CAN.Frame using (CANId)
-open import Aletheia.Protocol.JSON using (JSON; JString; JNumber; JArray)
+open import Aletheia.JSON using (JSON; JString; JNumber; JArray)
 open import Aletheia.Prelude using (_>>=ₑ_)
 
 mkMessage : CANId → String → DLC → String → List DBCSignal → DBCMessage

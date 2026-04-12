@@ -52,6 +52,14 @@ public:
         return process(state, detail::serialize_send_frame(ts, id, dlc, data));
     }
 
+    auto send_error_binary(void* state, Timestamp ts) -> std::string override {
+        return process(state, detail::serialize_send_error(ts));
+    }
+
+    auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
+        return process(state, detail::serialize_send_remote(ts, id));
+    }
+
     void close(void* /*state*/) override {}
 };
 

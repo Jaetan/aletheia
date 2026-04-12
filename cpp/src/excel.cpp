@@ -10,16 +10,22 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
+#include <expected>
+#include <filesystem>
 #include <limits>
 #include <map>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
-
-using namespace std::chrono_literals;
 
 namespace aletheia {
 
@@ -30,9 +36,9 @@ namespace {
 // ---------------------------------------------------------------------------
 
 const std::vector<std::string> dbc_headers = {
-    "Message ID",      "Message Name", "DLC",    "Signal", "Start Bit", "Length", "Byte Order",
-    "Signed",          "Factor",       "Offset", "Min",    "Max",       "Unit",   "Multiplexor",
-    "Multiplex Value", "Extended",
+    "Message ID",  "Message Name",    "Extended", "DLC",    "Signal", "Start Bit", "Length",
+    "Byte Order",  "Signed",          "Factor",   "Offset", "Min",    "Max",       "Unit",
+    "Multiplexor", "Multiplex Value",
 };
 
 const std::vector<std::string> checks_headers = {
@@ -108,11 +114,13 @@ auto get_number(const CellMap& cells, const std::string& key, const std::string&
     });
     if (upper == "TRUE" || upper == "FALSE")
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    try {
-        return std::stod(it->second);
-    } catch (const std::exception&) {
+    // std::from_chars is locale-independent (unlike std::stod).
+    const auto& sv = it->second;
+    double result = 0.0;
+    auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
+    if (ec != std::errc{} || ptr != sv.data() + sv.size())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
-    }
+    return result;
 }
 
 auto get_int(const CellMap& cells, const std::string& key, const std::string& ctx_str)
@@ -127,18 +135,21 @@ auto get_int(const CellMap& cells, const std::string& key, const std::string& ct
     });
     if (upper == "TRUE" || upper == "FALSE")
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    try {
-        // Detect float truncation: parse as double first and reject non-integral values.
-        auto dval = std::stod(it->second);
-        if (dval != std::floor(dval))
-            throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second +
-                                     " is not an integer (would be silently truncated)");
-        return std::stoll(it->second);
-    } catch (const std::runtime_error&) {
-        throw; // re-throw our own truncation error
-    } catch (const std::exception&) {
+    // Detect float truncation: parse as double first and reject non-integral values.
+    // std::from_chars is locale-independent (unlike std::stod/std::stoll).
+    const auto& sv = it->second;
+    double dval = 0.0;
+    auto [dptr, dec] = std::from_chars(sv.data(), sv.data() + sv.size(), dval);
+    if (dec != std::errc{} || dptr != sv.data() + sv.size())
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
-    }
+    if (dval != std::floor(dval))
+        throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second +
+                                 " is not an integer (would be silently truncated)");
+    std::int64_t result = 0;
+    auto [iptr, iec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
+    if (iec != std::errc{} || iptr != sv.data() + sv.size())
+        throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
+    return result;
 }
 
 auto get_bool(const CellMap& cells, const std::string& key, const std::string& ctx_str) -> bool {
@@ -192,19 +203,30 @@ auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std
         throw std::runtime_error(
             ctx_str +
             ": invalid 'Message ID' \xe2\x80\x94 expected integer or hex string (e.g. 0x100)");
-    try {
-        auto lower = val;
-        std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
-            return static_cast<char>(std::tolower(ch));
-        });
-        if (lower.starts_with("0x"))
-            return static_cast<std::uint32_t>(std::stoul(val, nullptr, 16));
-        return static_cast<std::uint32_t>(std::stoul(val));
-    } catch (const std::exception&) {
+    // std::from_chars is locale-independent (unlike std::stoul).
+    auto lower = val;
+    std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
+        return static_cast<char>(std::tolower(ch));
+    });
+    std::uint32_t result = 0;
+    const char* begin = val.data();
+    const char* end = val.data() + val.size();
+    std::errc ec{};
+    const char* ptr = nullptr;
+    if (lower.starts_with("0x")) {
+        auto [p, e] = std::from_chars(begin + 2, end, result, 16);
+        ptr = p;
+        ec = e;
+    } else {
+        auto [p, e] = std::from_chars(begin, end, result);
+        ptr = p;
+        ec = e;
+    }
+    if (ec != std::errc{} || ptr != end)
         throw std::runtime_error(
             ctx_str +
             ": invalid 'Message ID' \xe2\x80\x94 expected integer or hex string (e.g. 0x100)");
-    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -348,7 +370,7 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
                                      std::to_string(std::numeric_limits<std::uint32_t>::max()) +
                                      "]: " + std::to_string(mux_val));
         presence = Multiplexed{.multiplexor = SignalName{get_str(cells, "Multiplexor", ctx_str)},
-                               .mux_value = MultiplexValue{static_cast<std::uint32_t>(mux_val)}};
+                               .mux_values = {MultiplexValue{static_cast<std::uint32_t>(mux_val)}}};
     } else {
         presence = AlwaysPresent{};
     }
@@ -459,6 +481,72 @@ auto load_checks_from_excel(const std::filesystem::path& path, std::string_view 
 // Public API: DBC from Excel
 // ===========================================================================
 
+namespace {
+
+// (msg_id, msg_name, dlc, is_extended) — the row-level identity of a message.
+using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
+
+// Group data rows by message key, preserving first-seen order. Each row
+// becomes one signal in its parent message.
+auto group_rows_by_message(const std::vector<CellMap>& data_rows,
+                           const std::vector<int>& row_numbers)
+    -> std::pair<std::map<MessageKeyExt, std::vector<std::size_t>>, std::vector<MessageKeyExt>> {
+    std::map<MessageKeyExt, std::vector<std::size_t>> groups;
+    std::vector<MessageKeyExt> insertion_order;
+    for (std::size_t i = 0; i < data_rows.size(); ++i) {
+        const auto& cells = data_rows[i];
+        auto rn = row_numbers[i];
+        auto msg_id_str = get_str(cells, "Message ID", row_ctx(rn));
+        auto msg_id = parse_message_id(msg_id_str, row_ctx(rn));
+        auto msg_name = get_str(cells, "Message Name", row_ctx(rn));
+        auto dlc = get_int(cells, "DLC", row_ctx(rn));
+        const bool extended =
+            has_key(cells, "Extended") && get_bool(cells, "Extended", row_ctx(rn));
+        const MessageKeyExt key{msg_id, msg_name, dlc, extended};
+        if (!groups.contains(key))
+            insertion_order.push_back(key);
+        groups[key].push_back(i);
+    }
+    return {std::move(groups), std::move(insertion_order)};
+}
+
+// Build one DbcMessage from its group of rows; surfaces validation errors as
+// an unexpected Result so the top-level loop stays linear.
+auto build_message_from_group(const MessageKeyExt& key, const std::vector<std::size_t>& indices,
+                              const std::vector<CellMap>& data_rows,
+                              const std::vector<int>& row_numbers) -> Result<DbcMessage> {
+    std::vector<DbcSignal> signals;
+    signals.reserve(indices.size());
+    for (auto idx : indices)
+        signals.push_back(parse_dbc_signal(data_rows[idx], row_numbers[idx]));
+    auto [msg_id, msg_name, dlc, extended] = key;
+    auto can_id_result =
+        extended
+            ? ExtendedId::create(msg_id).transform([](auto eid) -> CanId { return CanId{eid}; })
+            : StandardId::create(static_cast<std::uint16_t>(msg_id))
+                  .transform([](auto sid) -> CanId { return CanId{sid}; });
+    if (!can_id_result.has_value())
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "Invalid CAN ID: " + std::to_string(msg_id)});
+    if (dlc < 0 || dlc > 15)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Validation, row_ctx(row_numbers[indices[0]]) +
+                                       ": DLC out of range [0, 15]: " + std::to_string(dlc)});
+    auto dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
+    if (!dlc_result.has_value())
+        return std::unexpected(
+            AletheiaError{ErrorKind::Validation, "Invalid DLC: " + std::to_string(dlc)});
+    return DbcMessage{
+        .id = can_id_result.value(),
+        .name = MessageName{msg_name},
+        .dlc = dlc_result.value(),
+        .sender = NodeName{""},
+        .signals = std::move(signals),
+    };
+}
+
+} // namespace
+
 auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view sheet)
     -> Result<DbcDefinition> {
     if (!std::filesystem::exists(path))
@@ -477,10 +565,8 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
         auto headers = headers_from_row(ws, dbc_headers.size());
         auto total_rows = ws.rowCount();
 
-        // Collect all data rows
         std::vector<CellMap> data_rows;
         std::vector<int> row_numbers;
-
         for (std::uint32_t r = 2; r <= total_rows; ++r) {
             auto cells = row_to_map(ws, static_cast<int>(r), headers);
             if (cells.empty())
@@ -488,66 +574,18 @@ auto load_dbc_from_excel(const std::filesystem::path& path, std::string_view she
             data_rows.push_back(cells);
             row_numbers.push_back(static_cast<int>(r));
         }
-
         if (data_rows.empty())
             return std::unexpected(
                 AletheiaError{ErrorKind::Validation, "DBC sheet has no data rows"});
 
-        // Group by message key, preserving insertion order
-        using MessageKeyExt = std::tuple<std::uint32_t, std::string, std::int64_t, bool>;
-        std::map<MessageKeyExt, std::vector<std::size_t>> groups;
-        std::vector<MessageKeyExt> insertion_order;
+        auto [groups, insertion_order] = group_rows_by_message(data_rows, row_numbers);
 
-        for (std::size_t i = 0; i < data_rows.size(); ++i) {
-            auto& cells = data_rows[i];
-            auto rn = row_numbers[i];
-            auto msg_id_str = get_str(cells, "Message ID", row_ctx(rn));
-            auto msg_id = parse_message_id(msg_id_str, row_ctx(rn));
-            auto msg_name = get_str(cells, "Message Name", row_ctx(rn));
-            auto dlc = get_int(cells, "DLC", row_ctx(rn));
-            const bool extended =
-                has_key(cells, "Extended") && get_bool(cells, "Extended", row_ctx(rn));
-            const MessageKeyExt key{msg_id, msg_name, dlc, extended};
-            if (groups.find(key) == groups.end())
-                insertion_order.push_back(key);
-            groups[key].push_back(i);
-        }
-
-        // Build messages
         std::vector<DbcMessage> messages;
         for (const auto& key : insertion_order) {
-            auto& indices = groups[key];
-            std::vector<DbcSignal> signals;
-            for (auto idx : indices)
-                signals.push_back(parse_dbc_signal(data_rows[idx], row_numbers[idx]));
-
-            auto [msg_id, msg_name, dlc, extended] = key;
-            auto can_id_result = extended
-                                     ? ExtendedId::create(msg_id).transform(
-                                           [](auto eid) -> CanId { return CanId{eid}; })
-                                     : StandardId::create(static_cast<std::uint16_t>(msg_id))
-                                           .transform([](auto sid) -> CanId { return CanId{sid}; });
-            if (!can_id_result.has_value())
-                return std::unexpected(AletheiaError{ErrorKind::Validation,
-                                                     "Invalid CAN ID: " + std::to_string(msg_id)});
-
-            if (dlc < 0 || dlc > 15)
-                return std::unexpected(
-                    AletheiaError{ErrorKind::Validation,
-                                  row_ctx(row_numbers[indices[0]]) +
-                                      ": DLC out of range [0, 15]: " + std::to_string(dlc)});
-            auto dlc_result = Dlc::create(static_cast<std::uint8_t>(dlc));
-            if (!dlc_result.has_value())
-                return std::unexpected(
-                    AletheiaError{ErrorKind::Validation, "Invalid DLC: " + std::to_string(dlc)});
-
-            messages.push_back(DbcMessage{
-                .id = can_id_result.value(),
-                .name = MessageName{msg_name},
-                .dlc = dlc_result.value(),
-                .sender = NodeName{""},
-                .signals = std::move(signals),
-            });
+            auto msg = build_message_from_group(key, groups[key], data_rows, row_numbers);
+            if (!msg.has_value())
+                return std::unexpected(msg.error());
+            messages.push_back(std::move(msg.value()));
         }
 
         doc.close();

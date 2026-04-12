@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-#include <aletheia/error.hpp>
-#include <aletheia/types.hpp>
+// Re-export: backend.hpp's interface references CanId, Dlc, Timestamp,
+// AletheiaError, ErrorKind — callers that include backend.hpp should get
+// those vocabulary types without an extra direct include.
+#include <aletheia/error.hpp> // IWYU pragma: export
+#include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +18,20 @@
 #include <vector>
 
 namespace aletheia {
+
+// ---------------------------------------------------------------------------
+// Signal injection parameter block
+// ---------------------------------------------------------------------------
+
+// Bundles the parallel arrays describing signal values to inject into a frame.
+// Grouped into one struct to keep backend-method parameter counts reasonable and
+// to document that the three arrays must all have length `count`.
+struct SignalInjection {
+    std::uint32_t count;
+    const std::uint32_t* indices;
+    const std::int64_t* numerators;
+    const std::int64_t* denominators;
+};
 
 // ---------------------------------------------------------------------------
 // Backend interface (dependency injection for testability)
@@ -45,8 +62,8 @@ public:
         -> std::string;
 
     // --- Binary FFI endpoints (bypass JSON input serialization) ---
-    // Default implementations fall back to JSON via process() for backward
-    // compatibility with MockBackend and other test doubles.
+    // Default implementations fall back to JSON via process() for
+    // testability with MockBackend and other test doubles.
 
     // State transitions (no args → JSON response).
     [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string;
@@ -59,50 +76,38 @@ public:
         -> std::string;
 
     // Signal index-value pairs → JSON response (frame building).
-    // indices/numerators/denominators are parallel arrays of length num_signals.
+    // `signals` bundles the parallel arrays; see SignalInjection above.
     [[nodiscard]] virtual auto build_frame_binary(void* state, const CanId& id, Dlc dlc,
-                                                  std::uint32_t num_signals,
-                                                  const std::uint32_t* indices,
-                                                  const std::int64_t* numerators,
-                                                  const std::int64_t* denominators)
-        -> std::string;
+                                                  SignalInjection signals) -> std::string;
 
     // Frame + signal pairs → JSON response (frame update).
     [[nodiscard]] virtual auto update_frame_binary(void* state, const CanId& id, Dlc dlc,
                                                    std::span<const std::byte> data,
-                                                   std::uint32_t num_signals,
-                                                   const std::uint32_t* indices,
-                                                   const std::int64_t* numerators,
-                                                   const std::int64_t* denominators)
-        -> std::string;
+                                                   SignalInjection signals) -> std::string;
 
     // --- Binary output endpoints (no JSON on output either) ---
     // Returns raw payload bytes on success, error string on failure.
     // Default implementations fall back to JSON path for MockBackend compatibility.
 
     [[nodiscard]] virtual auto build_frame_bin(void* state, const CanId& id, Dlc dlc,
-                                               std::uint32_t num_signals,
-                                               const std::uint32_t* indices,
-                                               const std::int64_t* numerators,
-                                               const std::int64_t* denominators,
-                                               std::size_t expected_bytes)
+                                               SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     [[nodiscard]] virtual auto update_frame_bin(void* state, const CanId& id, Dlc dlc,
                                                 std::span<const std::byte> data,
-                                                std::uint32_t num_signals,
-                                                const std::uint32_t* indices,
-                                                const std::int64_t* numerators,
-                                                const std::int64_t* denominators,
-                                                std::size_t expected_bytes)
+                                                SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
     // --- Binary extraction (no JSON on input or output) ---
     // Returns packed binary buffer on success, error string on failure.
     // Default implementation falls back to JSON path for MockBackend compatibility.
     [[nodiscard]] virtual auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
-                                                    std::span<const std::byte> data)
+                                                   std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
+
+    // Return a non-empty string if the backend produced a startup diagnostic
+    // (e.g., RTS core mismatch).  The Client logs this on construction.
+    [[nodiscard]] virtual auto pending_warning() const -> std::string { return {}; }
 
 protected:
     IBackend() = default;

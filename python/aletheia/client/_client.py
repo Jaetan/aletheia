@@ -5,7 +5,6 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
-import struct
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -15,39 +14,49 @@ from ..protocols import (
     Response,
     ParseDBCCommand,
     SetPropertiesCommand,
-    BuildFrameResponse,
-    UpdateFrameResponse,
     ValidateDBCCommand,
     SuccessResponse,
-    CompleteResponse,
     AckResponse,
     PropertyViolationResponse,
     PropertyResultEntry,
+    CompleteResponse,
     ErrorResponse,
     ValidationIssue,
     ValidationResponse,
     is_str_dict,
     is_object_list,
 )
+from ._client_bin import BinaryFFI, FrameIdentity, SignalValues
 from ._enrichment import build_diagnostic, format_enriched_reason
-from ._ffi import parse_json_object, RTSState, find_ffi_library
+from ._ffi import (
+    parse_json_object,
+    RTSState,
+    find_ffi_library,
+    configure_ffi_signatures,
+)
 from ._helpers import (
     float_to_rational,
-    validate_rational,
     normalize_dbc,
-    parse_frame_data,
-    parse_values_list,
-    parse_errors_list,
     parse_absent_list,
+    parse_errors_list,
+    parse_values_list,
+)
+from ._response_parsers import (
+    build_error_response,
+    parse_event_response,
+    parse_finalization_results,
+    parse_frame_response,
 )
 from ._types import (
     AletheiaError,
     BatchError,
+    CANFrameTuple,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
     PropertyDiagnostic,
-    ExtractionCache,
+    SignalLookup,
+    StreamCaches,
     MAX_EXTRACT_CACHE,
     dlc_to_bytes,
     validate_can_id,
@@ -93,138 +102,18 @@ class AletheiaClient:
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
         self._diags: dict[int, PropertyDiagnostic] = {}
-        self._signal_cache: ExtractionCache = {}
+        self._caches = StreamCaches()
+        # Shallow copy — callers must not mutate CheckResult objects after passing.
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
         self._rts_cores: int = rts_cores
-        self._signal_index_cache: dict[tuple[int, bool], dict[str, int]] = {}
-        self._signal_names_cache: dict[tuple[int, bool], list[str]] = {}
-        self._last_timestamp: int | None = None
+        # Per-message signal name/index lookup, populated by ``parse_dbc``.
+        self._signal_lookup: dict[tuple[int, bool], SignalLookup] = {}
 
     def __enter__(self) -> Self:
         """Load shared library and initialize Haskell RTS."""
         lib_path = find_ffi_library()
         self._lib = ctypes.CDLL(str(lib_path))
-
-        # Set up function signatures
-        self._lib.aletheia_init.argtypes = []
-        self._lib.aletheia_init.restype = ctypes.c_void_p
-        self._lib.aletheia_process.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        self._lib.aletheia_process.restype = ctypes.c_void_p
-        self._lib.aletheia_free_str.argtypes = [ctypes.c_void_p]
-        self._lib.aletheia_free_str.restype = None
-        self._lib.aletheia_close.argtypes = [ctypes.c_void_p]
-        self._lib.aletheia_close.restype = None
-
-        # Binary frame endpoint (hot path — bypasses JSON serialization on input)
-        self._lib.aletheia_send_frame.argtypes = [
-            ctypes.c_void_p,                 # state
-            ctypes.c_uint64,                 # timestamp
-            ctypes.c_uint32,                 # can_id
-            ctypes.c_uint8,                  # extended (0 or 1)
-            ctypes.c_uint8,                  # dlc
-            ctypes.POINTER(ctypes.c_uint8),  # data pointer
-            ctypes.c_uint8,                  # data_len
-        ]
-        self._lib.aletheia_send_frame.restype = ctypes.c_void_p
-
-        # Binary entry points (no JSON parsing on input)
-        self._lib.aletheia_start_stream.argtypes = [ctypes.c_void_p]
-        self._lib.aletheia_start_stream.restype = ctypes.c_void_p
-        self._lib.aletheia_end_stream.argtypes = [ctypes.c_void_p]
-        self._lib.aletheia_end_stream.restype = ctypes.c_void_p
-        self._lib.aletheia_format_dbc.argtypes = [ctypes.c_void_p]
-        self._lib.aletheia_format_dbc.restype = ctypes.c_void_p
-        self._lib.aletheia_extract_signals.argtypes = [
-            ctypes.c_void_p,                 # state
-            ctypes.c_uint32,                 # can_id
-            ctypes.c_uint8,                  # extended
-            ctypes.c_uint8,                  # dlc
-            ctypes.POINTER(ctypes.c_uint8),  # data pointer
-            ctypes.c_uint8,                  # data_len
-        ]
-        self._lib.aletheia_extract_signals.restype = ctypes.c_void_p
-        self._lib.aletheia_build_frame.argtypes = [
-            ctypes.c_void_p,                  # state
-            ctypes.c_uint32,                  # can_id
-            ctypes.c_uint8,                   # extended
-            ctypes.c_uint8,                   # dlc
-            ctypes.c_uint32,                  # numSignals
-            ctypes.POINTER(ctypes.c_uint32),  # indices
-            ctypes.POINTER(ctypes.c_int64),   # numerators
-            ctypes.POINTER(ctypes.c_int64),   # denominators
-        ]
-        self._lib.aletheia_build_frame.restype = ctypes.c_void_p
-        self._lib.aletheia_update_frame.argtypes = [
-            ctypes.c_void_p,                  # state
-            ctypes.c_uint32,                  # can_id
-            ctypes.c_uint8,                   # extended
-            ctypes.c_uint8,                   # dlc
-            ctypes.POINTER(ctypes.c_uint8),   # data pointer
-            ctypes.c_uint8,                   # data_len
-            ctypes.c_uint32,                  # numSignals
-            ctypes.POINTER(ctypes.c_uint32),  # indices
-            ctypes.POINTER(ctypes.c_int64),   # numerators
-            ctypes.POINTER(ctypes.c_int64),   # denominators
-        ]
-        self._lib.aletheia_update_frame.restype = ctypes.c_void_p
-
-        # CAN error/remote event endpoints (acknowledged without LTL evaluation)
-        self._lib.aletheia_send_error.argtypes = [
-            ctypes.c_void_p,   # state
-            ctypes.c_uint64,   # timestamp
-        ]
-        self._lib.aletheia_send_error.restype = ctypes.c_void_p
-        self._lib.aletheia_send_remote.argtypes = [
-            ctypes.c_void_p,   # state
-            ctypes.c_uint64,   # timestamp
-            ctypes.c_uint32,   # can_id
-            ctypes.c_uint8,    # extended (0 or 1)
-        ]
-        self._lib.aletheia_send_remote.restype = ctypes.c_void_p
-
-        # Binary output entry points (no JSON on output either)
-        self._lib.aletheia_build_frame_bin.argtypes = [
-            ctypes.c_void_p,                  # state
-            ctypes.c_uint32,                  # can_id
-            ctypes.c_uint8,                   # extended
-            ctypes.c_uint8,                   # dlc
-            ctypes.c_uint32,                  # numSignals
-            ctypes.POINTER(ctypes.c_uint32),  # indices
-            ctypes.POINTER(ctypes.c_int64),   # numerators
-            ctypes.POINTER(ctypes.c_int64),   # denominators
-            ctypes.POINTER(ctypes.c_uint8),   # out_buf
-            ctypes.POINTER(ctypes.c_char_p),  # out_err
-        ]
-        self._lib.aletheia_build_frame_bin.restype = ctypes.c_int8
-        self._lib.aletheia_update_frame_bin.argtypes = [
-            ctypes.c_void_p,                  # state
-            ctypes.c_uint32,                  # can_id
-            ctypes.c_uint8,                   # extended
-            ctypes.c_uint8,                   # dlc
-            ctypes.POINTER(ctypes.c_uint8),   # data pointer
-            ctypes.c_uint8,                   # data_len
-            ctypes.c_uint32,                  # numSignals
-            ctypes.POINTER(ctypes.c_uint32),  # indices
-            ctypes.POINTER(ctypes.c_int64),   # numerators
-            ctypes.POINTER(ctypes.c_int64),   # denominators
-            ctypes.POINTER(ctypes.c_uint8),   # out_buf
-            ctypes.POINTER(ctypes.c_char_p),  # out_err
-        ]
-        self._lib.aletheia_update_frame_bin.restype = ctypes.c_int8
-        self._lib.aletheia_extract_signals_bin.argtypes = [
-            ctypes.c_void_p,                          # state
-            ctypes.c_uint32,                           # can_id
-            ctypes.c_uint8,                            # extended
-            ctypes.c_uint8,                            # dlc
-            ctypes.POINTER(ctypes.c_uint8),            # data pointer
-            ctypes.c_uint8,                            # data_len
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_uint8)),  # out_buf
-            ctypes.POINTER(ctypes.c_uint32),           # out_size
-            ctypes.POINTER(ctypes.c_char_p),           # out_err
-        ]
-        self._lib.aletheia_extract_signals_bin.restype = ctypes.c_int8
-        self._lib.aletheia_free_buf.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
-        self._lib.aletheia_free_buf.restype = None
+        configure_ffi_signatures(self._lib)
 
         # Initialize GHC RTS (ref-counted, only first client actually calls hs_init)
         RTSState.acquire(self._lib, self._rts_cores)
@@ -276,7 +165,8 @@ class AletheiaClient:
 
     def _parse_ffi_result(self, result_ptr: int) -> Response:
         """Decode JSON response from a binary FFI call and free the C string."""
-        assert self._lib is not None
+        if self._lib is None:
+            raise ProcessError("Client not initialized — use 'with' statement")
         try:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
@@ -288,48 +178,39 @@ class AletheiaClient:
 
     def _resolve_signal_indices(
         self, signals: dict[str, float], can_id: int, extended: bool, cmd_name: str,
-    ) -> tuple[list[int], list[int], list[int]]:
-        """Resolve signal names to indices and convert values to rationals.
-
-        Returns (indices, numerators, denominators) as parallel lists.
-        """
-        index_map = self._signal_index_cache.get((can_id, extended))
-        if index_map is None:
-            if not self._signal_index_cache:
-                raise ProcessError(f"{cmd_name}: DBC not loaded")
+    ) -> SignalValues:
+        """Resolve signal names to indices and convert values to rationals."""
+        lookup = self._signal_lookup.get((can_id, extended))
+        if lookup is None:
+            if not self._signal_lookup:
+                raise ProcessError(f"{cmd_name}: DBC not loaded (call parse_dbc first)")
             raise ProcessError(f"{cmd_name}: no DBC message for CAN ID {can_id}")
         indices: list[int] = []
         nums: list[int] = []
         dens: list[int] = []
         for name, value in signals.items():
-            idx = index_map.get(name)
+            idx = lookup.indices.get(name)
             if idx is None:
                 raise ProcessError(f"{cmd_name}: unknown signal '{name}'")
             n, d = float_to_rational(value)
             indices.append(idx)
             nums.append(n)
             dens.append(d)
-        return indices, nums, dens
+        return SignalValues(indices=indices, numerators=nums, denominators=dens)
 
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
         """Parse a response that should be success or error."""
         status = response.get("status")
-        message = response.get("message")
 
         if status == "success":
             result: SuccessResponse = {"status": "success"}
+            message = response.get("message")
             if isinstance(message, str):
                 result["message"] = message
             return result
 
         if status == "error":
-            code = response.get("code")
-            err: ErrorResponse = {"status": "error", "code": "", "message": ""}
-            if isinstance(code, str):
-                err["code"] = code
-            if isinstance(message, str):
-                err["message"] = message
-            return err
+            return build_error_response(response)
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"
@@ -355,8 +236,8 @@ class AletheiaClient:
         }
         result = self._success_or_error(self._send_command(cmd))
         if result["status"] == "success":
-            self._signal_index_cache.clear()
-            self._signal_names_cache.clear()
+            _logger.info("dbc.parsed messages=%d", len(dbc["messages"]))
+            self._signal_lookup.clear()
             for msg in dbc["messages"]:
                 msg_ext = bool(msg.get("extended", False))
                 sig_map: dict[str, int] = {}
@@ -365,8 +246,7 @@ class AletheiaClient:
                     sig_map[sig["name"]] = i
                     names.append(sig["name"])
                 key = (msg["id"], msg_ext)
-                self._signal_index_cache[key] = sig_map
-                self._signal_names_cache[key] = names
+                self._signal_lookup[key] = SignalLookup(names=tuple(names), indices=sig_map)
         return result
 
     def validate_dbc(self, dbc: DBCDefinition) -> ValidationResponse:
@@ -460,7 +340,7 @@ class AletheiaClient:
         response = self._success_or_error(self._send_command(cmd))
         if response["status"] == "success":
             self._diags.clear()
-            self._signal_cache.clear()
+            self._caches.clear()
             for i, formula in enumerate(properties):
                 self._diags[i] = build_diagnostic(formula)
             _logger.info("properties.set count=%d", len(properties))
@@ -496,19 +376,18 @@ class AletheiaClient:
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
-        self._signal_cache.clear()
         response = self._success_or_error(
             self._parse_ffi_result(self._lib.aletheia_start_stream(self._state)),
         )
         if response["status"] == "success":
+            self._caches.clear()
             _logger.info("stream.started")
         return response
 
     def _enrich_violation(
         self,
         result: PropertyViolationResponse,
-        can_id: int,
-        dlc: int,
+        frame_id: FrameIdentity,
         data: bytearray,
     ) -> None:
         """Enrich a violation response with signal diagnostics (in-place)."""
@@ -525,25 +404,28 @@ class AletheiaClient:
             return
 
         # Extract signal values (cached, bounded).
-        cache_key: tuple[int, bytes] = (can_id, bytes(data))
-        extraction: SignalExtractionResult | None = self._signal_cache.get(cache_key)
+        cache_key = (frame_id.can_id, frame_id.extended, bytes(data))
+        extraction: SignalExtractionResult | None = self._caches.extraction.get(cache_key)
         if extraction is None:
-            _logger.debug("cache.miss canId=%d dlc=%d", can_id, dlc)
+            _logger.debug("cache.miss canId=%d dlc=%d", frame_id.can_id, frame_id.dlc)
             try:
-                extraction = self.extract_signals(can_id=can_id, dlc=dlc, data=data)
-                if len(self._signal_cache) < MAX_EXTRACT_CACHE:
-                    self._signal_cache[cache_key] = extraction
+                extraction = self.extract_signals(
+                    can_id=frame_id.can_id, dlc=frame_id.dlc, data=data,
+                    extended=frame_id.extended,
+                )
+                if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
+                    self._caches.extraction[cache_key] = extraction
                 else:
                     _logger.warning(
-                        "cache.full size=%d", len(self._signal_cache),
+                        "cache.full size=%d", len(self._caches.extraction),
                     )
             except (AletheiaError, ValueError) as exc:
                 _logger.warning(
                     "enrichment.extraction_failed canId=%d error=%s",
-                    can_id, exc,
+                    frame_id.can_id, exc, exc_info=True,
                 )
         else:
-            _logger.debug("cache.hit canId=%d dlc=%d", can_id, dlc)
+            _logger.debug("cache.hit canId=%d dlc=%d", frame_id.can_id, frame_id.dlc)
 
         values: dict[str, float | None] = {}
         if extraction is not None:
@@ -554,9 +436,15 @@ class AletheiaClient:
 
         result["signals"] = values
         result["formula"] = diag.formula_desc
-        result["enriched_reason"] = format_enriched_reason(diag, values)
+        core_reason = result.get("reason", "")
+        result["enriched_reason"] = format_enriched_reason(diag, values, core_reason)
 
-    # Pre-encoded ack response bytes for fast-path comparison
+    # Pre-encoded ack response bytes for fast-path comparison.
+    # _ACK_BYTES is the compact form produced by the binary FFI path;
+    # _ACK_BYTES_SPACED is the form from the JSON FFI path (json.dumps
+    # adds a space after the colon).  Both are checked so that the hot
+    # path avoids a full JSON parse regardless of which FFI path emitted
+    # the response.
     _ACK_BYTES = b'{"status":"ack"}'
     _ACK_BYTES_SPACED = b'{"status": "ack"}'
 
@@ -589,14 +477,13 @@ class AletheiaClient:
             raise ProcessError("Client not initialized — use 'with' statement")
         if timestamp < 0:
             raise ValueError("timestamp must be non-negative")
-        if self._last_timestamp is not None and timestamp < self._last_timestamp:
-            raise ValueError(
-                f"non-monotonic timestamp: {timestamp} µs < previous {self._last_timestamp} µs"
-                " (metric LTL operators require monotonic timestamps)"
-            )
-        self._last_timestamp = timestamp
         validate_can_id(can_id, extended=extended)
-        dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
+        expected_bytes = dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
+        if len(data) != expected_bytes:
+            raise ProcessError(
+                f"payload length {len(data)} does not match DLC {dlc}"
+                + f" (expected {expected_bytes} bytes)"
+            )
 
         # Binary FFI: pass frame components directly (no JSON serialization)
         data_array = (ctypes.c_uint8 * len(data))(*data)
@@ -614,6 +501,10 @@ class AletheiaClient:
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
 
+            # Track last frame per CAN ID for EOS enrichment.
+            if self._diags:
+                self._caches.last_frames[(can_id, extended)] = (dlc, bytearray(data))
+
             # Fast path: ack response (overwhelmingly common in streaming)
             if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
                 _logger.debug(
@@ -628,10 +519,12 @@ class AletheiaClient:
             self._lib.aletheia_free_str(result_ptr)
 
         response = cast(Response, parse_json_object(result_str))
-        result = self._parse_frame_response(response)
+        result = parse_frame_response(response)
 
         if result["status"] == "fails":
-            self._enrich_violation(result, can_id, dlc, data)
+            self._enrich_violation(
+                result, FrameIdentity(can_id, extended, dlc), data,
+            )
             _logger.debug(
                 "frame.processed ts=%d canId=%d extended=%s response=violation",
                 timestamp, can_id, extended,
@@ -644,80 +537,47 @@ class AletheiaClient:
 
         return result
 
-    def _parse_frame_response(
-        self, response: Response,
-    ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
-        """Parse a single frame response into a typed result."""
-        status = response.get("status")
-
-        if status == "ack":
-            return {"status": "ack"}
-
-        if status == "fails":
-            prop_type = response.get("type")
-            if prop_type != "property":
-                raise ProtocolError(f"Expected type='property', got {prop_type}")
-            prop_index = validate_rational("property_index", response.get("property_index"))
-            ts_rational = validate_rational("timestamp", response.get("timestamp"))
-            result_violation: PropertyViolationResponse = {
-                "status": "fails",
-                "type": "property",
-                "property_index": prop_index,
-                "timestamp": ts_rational,
-            }
-            reason = response.get("reason")
-            if isinstance(reason, str):
-                result_violation["reason"] = reason
-            return result_violation
-
-        if status == "error":
-            result_error: ErrorResponse = {"status": "error", "code": "", "message": ""}
-            code = response.get("code")
-            message = response.get("message")
-            if isinstance(code, str):
-                result_error["code"] = code
-            if isinstance(message, str):
-                result_error["message"] = message
-            return result_error
-
-        raise ProtocolError(
-            f"Unexpected response status: {status!r} (expected 'ack', 'fails', or 'error')"
-        )
-
-    def send_frames_batch(
+    def send_frames(
         self,
-        frames: list[tuple[int, int, int, bytearray]],
-        *,
-        extended: bool = False,
-    ) -> list[AckResponse | PropertyViolationResponse | ErrorResponse]:
+        frames: list[CANFrameTuple],
+    ) -> list[AckResponse | PropertyViolationResponse]:
         """Send multiple CAN frames in a batch.
 
-        A violation is a normal response and does not stop the batch.
-        Processing stops at the first transport or validation error. Partial
-        results from frames processed before the error are returned via
-        the ``partial_results`` attribute on the raised ``BatchError``.
+        Processing stops when ``send_frame`` returns an ``ErrorResponse``
+        (e.g. non-monotonic timestamp) or raises a Python exception.
+        The raised ``BatchError`` carries ``partial_results`` collected
+        up to and including the error, plus the ``frame_index`` of the
+        failing frame.
+
+        Violations are normal return values and do not stop the batch.
 
         Args:
-            frames: List of (timestamp, can_id, dlc, data) tuples where:
-                - timestamp: Timestamp in microseconds
-                - can_id: CAN ID (11-bit standard or 29-bit extended)
-                - dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
-                - data: Frame payload
-            extended: True for 29-bit extended CAN IDs, False for 11-bit standard
+            frames: List of CANFrameTuple (timestamp, can_id, dlc, data, extended).
 
         Returns:
-            List of responses in same order as input frames.
+            List of AckResponse or PropertyViolationResponse (no ErrorResponse
+            entries; those stop the batch and raise BatchError).
 
         Raises:
-            BatchError: Wraps the underlying exception and carries
-                ``partial_results`` with responses collected before the error.
+            BatchError: Wraps the underlying exception (or an ErrorResponse)
+                and carries ``partial_results`` and ``frame_index``.
         """
-        results: list[AckResponse | PropertyViolationResponse | ErrorResponse] = []
-        for ts, cid, dlc, d in frames:
+        results: list[AckResponse | PropertyViolationResponse] = []
+        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
             try:
-                results.append(self.send_frame(ts, cid, dlc, d, extended=extended))
+                resp = self.send_frame(ts, cid, dlc, d, extended=ext)
             except Exception as exc:
-                raise BatchError(exc, results) from exc
+                raise BatchError(exc, results, frame_index=i) from exc
+            if resp["status"] == "error":
+                err = ProcessError(
+                    f"error code={resp['code']}: {resp['message']}",
+                )
+                # Partial results contain only successfully-processed frames;
+                # the error response for frame `i` is surfaced via ``err`` and
+                # ``frame_index`` on the BatchError rather than being mixed
+                # into the partial results list, matching the Go/C++ bindings.
+                raise BatchError(err, results, frame_index=i) from err
+            results.append(resp)
         return results
 
     def send_error(self, timestamp: int) -> AckResponse:
@@ -729,6 +589,13 @@ class AletheiaClient:
 
         Args:
             timestamp: Timestamp in microseconds
+
+        Returns:
+            AckResponse on success.
+
+        Raises:
+            ProtocolError: If the Agda core rejects the event (e.g.
+                non-monotonic timestamp).
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
@@ -741,10 +608,14 @@ class AletheiaClient:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
+            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+                _logger.debug("error_event.sent ts=%d response=ack", timestamp)
+                return {"status": "ack"}
+            result_str = result_bytes.decode("utf-8")
         finally:
             self._lib.aletheia_free_str(result_ptr)
-        _logger.debug("error_event.sent ts=%d", timestamp)
-        return {"status": "ack"}
+        response = cast(Response, parse_json_object(result_str))
+        return parse_event_response(response, "error_event", timestamp)
 
     def send_remote(
         self, timestamp: int, can_id: int, *, extended: bool = False,
@@ -759,6 +630,13 @@ class AletheiaClient:
             timestamp: Timestamp in microseconds
             can_id: CAN ID (11-bit standard or 29-bit extended)
             extended: True for 29-bit extended CAN ID
+
+        Returns:
+            AckResponse on success.
+
+        Raises:
+            ProtocolError: If the Agda core rejects the event (e.g.
+                non-monotonic timestamp).
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
@@ -775,10 +653,17 @@ class AletheiaClient:
             result_bytes = ctypes.cast(result_ptr, ctypes.c_char_p).value
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
+            if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
+                _logger.debug(
+                    "remote_event.sent ts=%d canId=%d extended=%s response=ack",
+                    timestamp, can_id, extended,
+                )
+                return {"status": "ack"}
+            result_str = result_bytes.decode("utf-8")
         finally:
             self._lib.aletheia_free_str(result_ptr)
-        _logger.debug("remote_event.sent ts=%d canId=%d extended=%s", timestamp, can_id, extended)
-        return {"status": "ack"}
+        response = cast(Response, parse_json_object(result_str))
+        return parse_event_response(response, "remote_event", timestamp)
 
     def end_stream(self) -> CompleteResponse | ErrorResponse:
         """End streaming mode and finalize all properties.
@@ -790,10 +675,13 @@ class AletheiaClient:
         The ``results`` list contains one entry per property:
         - ``status="holds"`` if the property held on the finite trace
         - ``status="fails"`` if the property failed at end-of-stream
-          (e.g., safety property never resolved, liveness never satisfied)
+          (e.g., liveness never satisfied)
+        - ``status="unresolved"`` if the property's verdict is Unknown
+          (e.g., signal never observed — Kleene three-valued semantics)
 
-        Violations are enriched with ``signals``, ``formula``, and
-        ``enriched_reason`` when checks have been registered.
+        Failed and unresolved results are enriched with ``signals``,
+        ``formula``, and ``enriched_reason`` when checks have been
+        registered.
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
@@ -801,59 +689,59 @@ class AletheiaClient:
             self._lib.aletheia_end_stream(self._state),
         )
         status = response.get("status")
-        message = response.get("message")
 
         if status == "complete":
-            results = self._parse_finalization_results(response)
+            results = parse_finalization_results(
+                response, self._enrich_finalization_result,
+            )
             num_fails = sum(1 for r in results if r["status"] == "fails")
+            num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
+            self._caches.last_frames.clear()
             _logger.info(
-                "stream.ended numResults=%d numFails=%d",
-                len(results), num_fails,
+                "stream.ended numResults=%d numFails=%d numUnresolved=%d",
+                len(results), num_fails, num_unresolved,
             )
             return {"status": "complete", "results": results}
 
         if status == "error":
-            result_error: ErrorResponse = {"status": "error", "code": "", "message": ""}
-            code = response.get("code")
-            if isinstance(code, str):
-                result_error["code"] = code
-            if isinstance(message, str):
-                result_error["message"] = message
-            return result_error
+            return build_error_response(response)
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'complete' or 'error')"
         )
 
-    def _parse_finalization_results(
-        self, response: Response,
-    ) -> list[PropertyResultEntry]:
-        """Parse end-of-stream property finalization results."""
-        cresp = cast(CompleteResponse, response)
-        raw_results = cresp["results"]
-        entries: list[PropertyResultEntry] = []
-        for raw in raw_results:
-            entry_status = raw["status"]
-            prop_index = validate_rational(
-                "property_index", raw["property_index"],
-            )
-            result_entry: PropertyResultEntry = {
-                "type": "property",
-                "status": entry_status,
-                "property_index": prop_index,
-            }
-            if entry_status == "fails":
-                ts = raw.get("timestamp")
-                if ts is not None:
-                    result_entry["timestamp"] = validate_rational(
-                        "timestamp", ts,
-                    )
-                reason = raw.get("reason")
-                if isinstance(reason, str):
-                    result_entry["reason"] = reason
-                self._enrich_finalization_result(result_entry)
-            entries.append(result_entry)
-        return entries
+    def _extract_last_known_values(
+        self, diag: PropertyDiagnostic,
+    ) -> dict[str, float | None]:
+        """Extract signal values from last-seen frames for EOS enrichment."""
+        if not self._caches.last_frames or not diag.signals:
+            return {}
+        wanted = set(diag.signals)
+        values: dict[str, float | None] = {}
+        # Sort by (canID, extended) for deterministic enrichment output,
+        # matching Go's explicit sort and C++'s std::map ordering.
+        for (lf_id, lf_ext), (lf_dlc, lf_data) in sorted(
+            self._caches.last_frames.items(),
+            key=lambda item: (item[0][0], item[0][1]),
+        ):
+            try:
+                extraction = self.extract_signals(
+                    can_id=lf_id, dlc=lf_dlc, data=lf_data, extended=lf_ext,
+                )
+            except (AletheiaError, ValueError) as exc:
+                _logger.warning(
+                    "enrichment.extraction_failed canId=%d error=%s",
+                    lf_id, exc, exc_info=True,
+                )
+                continue
+            for sig in list(wanted):
+                val = extraction.values.get(sig)
+                if val is not None:
+                    values[sig] = val
+                    wanted.discard(sig)
+            if not wanted:
+                break
+        return values
 
     def _enrich_finalization_result(
         self, result: PropertyResultEntry,
@@ -870,8 +758,11 @@ class AletheiaClient:
                 idx, len(self._diags),
             )
             return
+        values = self._extract_last_known_values(diag)
+        result["signals"] = values
         result["formula"] = diag.formula_desc
-        result["enriched_reason"] = "violated: " + diag.formula_desc
+        core_reason = result.get("reason", "")
+        result["enriched_reason"] = format_enriched_reason(diag, values, core_reason)
 
     # =========================================================================
     # Signal Operations (available anytime after DBC loaded)
@@ -903,17 +794,19 @@ class AletheiaClient:
         expected_bytes = dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
         if len(data) != expected_bytes:
             raise ProcessError(
-                "ExtractAllSignals: byte count doesn't match DLC: "
-                + f"expected {expected_bytes}, got {len(data)}"
+                f"payload length {len(data)} does not match DLC {dlc}"
+                + f" (expected {expected_bytes} bytes)"
             )
         validate_can_id(can_id, extended=extended)
         data_array = (ctypes.c_uint8 * len(data))(*data)
 
         # Use binary path when signal name cache is populated
-        names = self._signal_names_cache.get((can_id, extended))
-        if names is not None:
-            return self._extract_signals_bin(
-                can_id, extended, dlc, data_array, len(data), names,
+        lookup = self._signal_lookup.get((can_id, extended))
+        if lookup is not None:
+            return BinaryFFI(self._lib, self._state).extract_signals(
+                FrameIdentity(can_id, extended, dlc),
+                data_array,
+                lookup.names,
             )
 
         # Fallback: JSON path
@@ -929,7 +822,7 @@ class AletheiaClient:
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
-            raise ProcessError(f"Extract signals failed: {error_msg}")
+            raise ProcessError(f"extract_signals failed: {error_msg}")
         if response.get("status") != "success":
             raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
@@ -940,77 +833,8 @@ class AletheiaClient:
         return SignalExtractionResult(
             values=parse_values_list(response.get("values", [])),
             errors=parse_errors_list(response.get("errors", [])),
-            absent=parse_absent_list(response.get("absent", [])),
+            absent=tuple(parse_absent_list(response.get("absent", []))),
         )
-
-    # Error code → message mapping for binary extraction
-    _EXTRACTION_ERROR_MESSAGES: tuple[str, ...] = (
-        "Signal not found in DBC",     # 0
-        "Value out of bounds",          # 1
-        "Extraction failed",            # 2
-    )
-
-    def _extract_signals_bin(
-        self,
-        can_id: int,
-        extended: bool,
-        dlc: int,
-        data_array: ctypes.Array[ctypes.c_uint8],
-        data_len: int,
-        names: list[str],
-    ) -> SignalExtractionResult:
-        """Binary extraction path — no JSON on input or output."""
-        out_buf = ctypes.POINTER(ctypes.c_uint8)()
-        out_size = ctypes.c_uint32()
-        out_err = ctypes.c_char_p()
-        status = self._lib.aletheia_extract_signals_bin(
-            self._state,
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(data_len),
-            ctypes.byref(out_buf),
-            ctypes.byref(out_size),
-            ctypes.byref(out_err),
-        )
-        if status != 0:
-            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
-            if out_err.value:
-                self._lib.aletheia_free_str(out_err)
-            raise ProcessError(f"Extract signals failed: {err_msg}")
-
-        buf = bytes(ctypes.cast(out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value)).contents)
-        self._lib.aletheia_free_buf(out_buf)
-
-        # Parse packed binary: header(6) + values(18 each) + errors(3 each) + absent(2 each)
-        nvals, nerrs, nabss = struct.unpack_from("<HHH", buf, 0)
-        off = 6
-        values: dict[str, float] = {}
-        for _ in range(nvals):
-            idx, num, den = struct.unpack_from("<Hqq", buf, off)
-            off += 18
-            name = names[idx] if idx < len(names) else f"signal_{idx}"
-            values[name] = num / den if den != 0 else 0.0
-
-        errors: dict[str, str] = {}
-        for _ in range(nerrs):
-            idx, code = struct.unpack_from("<HB", buf, off)
-            off += 3
-            name = names[idx] if idx < len(names) else f"signal_{idx}"
-            if code < len(self._EXTRACTION_ERROR_MESSAGES):
-                errors[name] = self._EXTRACTION_ERROR_MESSAGES[code]
-            else:
-                errors[name] = f"Unknown error code {code}"
-
-        absent: list[str] = []
-        for _ in range(nabss):
-            (idx,) = struct.unpack_from("<H", buf, off)
-            off += 2
-            name = names[idx] if idx < len(names) else f"signal_{idx}"
-            absent.append(name)
-
-        return SignalExtractionResult(values=values, errors=errors, absent=absent)
 
     def update_frame(  # pylint: disable=too-many-arguments
         self,
@@ -1045,41 +869,24 @@ class AletheiaClient:
         expected_bytes = dlc_to_bytes(dlc)
         if len(frame) != expected_bytes:
             raise ProcessError(
-                "UpdateFrame: byte count doesn't match DLC: "
-                + f"expected {expected_bytes}, got {len(frame)}"
+                f"payload length {len(frame)} does not match DLC {dlc}"
+                + f" (expected {expected_bytes} bytes)"
             )
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
-            signals, can_id, extended, "UpdateFrame",
+        sig_values = self._resolve_signal_indices(
+            signals, can_id, extended, "update_frame",
         )
-        n_signals = len(indices)
         frame_array = (ctypes.c_uint8 * len(frame))(*frame)
-        out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        status = self._lib.aletheia_update_frame_bin(
-            self._state,
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
+        return BinaryFFI(self._lib, self._state).update_frame(
+            FrameIdentity(can_id, extended, dlc),
             frame_array,
-            ctypes.c_uint8(len(frame)),
-            ctypes.c_uint32(n_signals),
-            (ctypes.c_uint32 * n_signals)(*indices),
-            (ctypes.c_int64 * n_signals)(*nums),
-            (ctypes.c_int64 * n_signals)(*dens),
-            out_buf,
-            ctypes.byref(out_err),
+            sig_values,
+            expected_bytes,
         )
-        if status != 0:
-            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
-            if out_err.value:
-                self._lib.aletheia_free_str(out_err)
-            raise ProcessError(f"Update frame failed: {err_msg}")
-        return bytearray(out_buf)
 
     def build_frame(
-        self, can_id: int, signals: dict[str, float], *,
-        dlc: int = 8, extended: bool = False,
+        self, can_id: int, dlc: int, signals: dict[str, float], *,
+        extended: bool = False,
     ) -> bytearray:
         """Build a CAN frame from signal values.
 
@@ -1088,8 +895,8 @@ class AletheiaClient:
 
         Args:
             can_id: CAN message ID
+            dlc: Data Length Code (0-15).
             signals: Signal values to encode (name -> value)
-            dlc: Data Length Code (0-15). Defaults to 8 (classic CAN).
             extended: True for 29-bit extended CAN ID, False for 11-bit standard
 
         Returns:
@@ -1102,31 +909,14 @@ class AletheiaClient:
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
         validate_can_id(can_id, extended=extended)
-        indices, nums, dens = self._resolve_signal_indices(
-            signals, can_id, extended, "BuildFrame",
+        sig_values = self._resolve_signal_indices(
+            signals, can_id, extended, "build_frame",
         )
-        expected_bytes = dlc_to_bytes(dlc)
-        n_signals = len(indices)
-        out_buf = (ctypes.c_uint8 * expected_bytes)()
-        out_err = ctypes.c_char_p()
-        status = self._lib.aletheia_build_frame_bin(
-            self._state,
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            ctypes.c_uint32(n_signals),
-            (ctypes.c_uint32 * n_signals)(*indices),
-            (ctypes.c_int64 * n_signals)(*nums),
-            (ctypes.c_int64 * n_signals)(*dens),
-            out_buf,
-            ctypes.byref(out_err),
+        return BinaryFFI(self._lib, self._state).build_frame(
+            FrameIdentity(can_id, extended, dlc),
+            sig_values,
+            dlc_to_bytes(dlc),
         )
-        if status != 0:
-            err_msg = out_err.value.decode("utf-8") if out_err.value else "Unknown error"
-            if out_err.value:
-                self._lib.aletheia_free_str(out_err)
-            raise ProcessError(f"Build frame failed: {err_msg}")
-        return bytearray(out_buf)
 
     @override
     def __repr__(self) -> str:

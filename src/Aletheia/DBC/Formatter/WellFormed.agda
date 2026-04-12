@@ -9,7 +9,7 @@ module Aletheia.DBC.Formatter.WellFormed where
 
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; z≤n; s≤s; _<ᵇ_; _≤ᵇ_; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
-open import Data.Nat.Properties using (≤⇒≤ᵇ; ≤-trans; <-≤-trans; ≤-<-trans; *-monoˡ-≤; m∸n≤m; +-comm)
+open import Data.Nat.Properties using (≤-trans; <-≤-trans; ≤-<-trans; *-monoˡ-≤; m∸n≤m; +-comm)
 open import Data.List using (List; [])
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Bool using (Bool; true; T)
@@ -17,7 +17,7 @@ open import Data.Maybe using (just)
 open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst)
 
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalGroup; EnvironmentVar; ValueTable)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
@@ -25,9 +25,10 @@ open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (physicalBitPos-BE-bounded-any)
-open import Aletheia.Protocol.JSON using (getNat)
-open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
-open import Aletheia.Prelude using (max-physical-bits; 8≤max-physical-bits)
+open import Aletheia.JSON using (getNat)
+open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
+open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
+
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATES
@@ -48,15 +49,24 @@ record WellFormedMessage (m : DBCMessage) : Set where
     signals-wf : All WellFormedSignal (DBCMessage.signals m)
 
 -- Additional constraints on a signal within a frame, needed for the BigEndian
--- unconvert→convert roundtrip. Always satisfied by physically valid CAN signals.
--- LE signals don't need these — the roundtrip closes from WellFormedSignalDef alone.
-record PhysicallyValid (frameBytes : ℕ) (s : DBCSignal) : Set where
-  field
-    len-pos       : 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)
-    fits-in-frame : SignalDef.startBit (DBCSignal.signalDef s) +
-                    SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 < frameBytes * 8
-    msb-ge-len    : SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 ≤
-                    SignalDef.startBit (DBCSignal.signalDef s)
+-- unconvert→convert roundtrip. LE signals impose NO extra constraints — the
+-- roundtrip closes from WellFormedSignalDef alone, and `msb-ge-len` would in
+-- fact reject most real LE signals (a typical 8-bit LE signal at startBit 0
+-- has `msb = 7 > 0 = startBit`). BE signals carry the three constraints:
+--   • len-pos       — bitLength ≥ 1 (signals must occupy at least one bit).
+--   • fits-in-frame — startBit + bitLength − 1 < frameBytes * 8.
+--   • msb-ge-len    — bitLength − 1 ≤ startBit (the BE LSB is below the MSB).
+data PhysicallyValid (frameBytes : ℕ) (s : DBCSignal) : Set where
+  -- LE signals: trivially valid (the roundtrip needs no extra constraints).
+  pv-LE : DBCSignal.byteOrder s ≡ LittleEndian → PhysicallyValid frameBytes s
+  -- BE signals: three constraints needed for unconvert→convert roundtrip.
+  pv-BE : DBCSignal.byteOrder s ≡ BigEndian
+        → 1 ≤ SignalDef.bitLength (DBCSignal.signalDef s)
+        → SignalDef.startBit (DBCSignal.signalDef s) +
+          SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 < frameBytes * 8
+        → SignalDef.bitLength (DBCSignal.signalDef s) ∸ 1 ≤
+          SignalDef.startBit (DBCSignal.signalDef s)
+        → PhysicallyValid frameBytes s
 
 -- Full well-formedness for message roundtrip: WellFormedMessage plus
 -- PhysicallyValid for each signal (needed for BigEndian startBit roundtrip).
@@ -71,14 +81,12 @@ record WellFormedDBC (d : DBC) : Set where
 
 -- Full well-formedness for DBC roundtrip: WellFormedMessage plus
 -- PhysicallyValid for each signal in each message.
--- Metadata fields (signal groups, environment vars, value tables) must be empty
--- because the JSON parser does not yet round-trip them — it always produces [].
+-- Metadata fields (signal groups, environment vars, value tables) round-trip
+-- without additional constraints — all field types are strings, rationals, or
+-- bounded naturals that parse/format cleanly.
 record WellFormedDBCRT (d : DBC) : Set where
   field
-    messages-wf   : All WellFormedMessageRT (DBC.messages d)
-    groups-empty  : DBC.signalGroups d ≡ []
-    envvars-empty : DBC.environmentVars d ≡ []
-    vtables-empty : DBC.valueTables d ≡ []
+    messages-wf : All WellFormedMessageRT (DBC.messages d)
 
 -- ============================================================================
 -- BRIDGE LEMMAS
@@ -92,16 +100,6 @@ getNat-ℕtoJSON = getNat-ℕtoℚ
 byteOrder-roundtrip : ∀ bo → parseByteOrder (formatByteOrder bo) ≡ inj₂ bo
 byteOrder-roundtrip LittleEndian = refl
 byteOrder-roundtrip BigEndian = refl
-
--- Boolean bridge helpers
-T→true : ∀ {b : Bool} → T b → b ≡ true
-T→true {true} _ = refl
-
-<→<ᵇ-true : ∀ {m n} → m < n → (m <ᵇ n) ≡ true
-<→<ᵇ-true p = T→true (≤⇒≤ᵇ p)
-
-≤→≤ᵇ-true : ∀ {m n} → m ≤ n → (m ≤ᵇ n) ≡ true
-≤→≤ᵇ-true p = T→true (≤⇒≤ᵇ p)
 
 -- ============================================================================
 -- UNCONVERT STARTBIT BOUNDS

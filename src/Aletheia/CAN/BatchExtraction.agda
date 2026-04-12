@@ -8,6 +8,8 @@
 --
 -- Design: Returns structured results partitioning signals into: successful extractions,
 --         errors (with reasons), and absent signals (multiplexing).
+--         Both string-keyed and index-keyed variants share the parameterized
+--         PartitionedResults record.
 module Aletheia.CAN.BatchExtraction where
 
 open import Aletheia.CAN.Frame using (CANFrame)
@@ -17,66 +19,72 @@ open import Aletheia.CAN.DBCHelpers using (findMessageById)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
-open import Data.Rational.Show using (show)
+open import Data.Rational.Show using () renaming (show to showℚ)
 open import Data.List using (List; []; _∷_; map; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.Error using (FrameError; CANIdNotFound; formatFrameError)
+open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; formatFrameError; Error; ExtractionErr; MuxValueMismatch; formatError)
 
 -- ============================================================================
--- BATCH EXTRACTION RESULT TYPE
+-- PARAMETERIZED RESULT TYPE
 -- ============================================================================
 
--- Results of extracting all signals from a frame
--- Partitions signals into three categories: success, errors, absent
-record ExtractionResults : Set where
-  constructor mkExtractionResults
+-- Partitioned extraction results, parameterized by key type K and error type E.
+-- K = String for named results (JSON API), K = ℕ for indexed results (binary API).
+-- E = String for human-readable errors, E = ExtractionErrorCode for binary wire format.
+record PartitionedResults (K : Set) (E : Set) : Set where
+  constructor mkPartitionedResults
   field
-    -- Successfully extracted signal values (name, value)
-    values : List (String × ℚ)
+    values : List (K × ℚ)
+    errors : List (K × E)
+    absent : List K
 
-    -- Extraction errors (signal name, error message)
-    errors : List (String × String)
+emptyPartitioned : ∀ {K E} → PartitionedResults K E
+emptyPartitioned = mkPartitionedResults [] [] []
 
-    -- Multiplexed signals not present in this frame (signal name)
-    absent : List String
+combinePartitioned : ∀ {K E} → PartitionedResults K E → PartitionedResults K E → PartitionedResults K E
+combinePartitioned (mkPartitionedResults v1 e1 a1) (mkPartitionedResults v2 e2 a2) =
+  mkPartitionedResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
 
 -- ============================================================================
--- BATCH EXTRACTION
+-- STRING-KEYED EXTRACTION (JSON output)
 -- ============================================================================
+
+ExtractionResults : Set
+ExtractionResults = PartitionedResults String String
 
 -- Categorize a single extraction result into the appropriate partition
 categorizeResult : String → ExtractionResult → ExtractionResults
 categorizeResult sigName (Success value) =
-  mkExtractionResults ((sigName , value) ∷ []) [] []
+  mkPartitionedResults ((sigName , value) ∷ []) [] []
 categorizeResult sigName SignalNotInDBC =
-  mkExtractionResults [] ((sigName , "signal not found in DBC") ∷ []) []
+  mkPartitionedResults [] ((sigName , formatFrameError (SignalNotFound sigName)) ∷ []) []
+-- Mux value mismatch is genuine absence (multiplexed out for this frame).
+categorizeResult sigName (SignalNotPresent MuxValueMismatch) =
+  mkPartitionedResults [] [] (sigName ∷ [])
+-- Other ExtractionError variants indicate structural DBC problems
+-- (missing mux signal, cycle, extraction failure) — report as errors.
 categorizeResult sigName (SignalNotPresent reason) =
-  -- Multiplexed signal not present
-  mkExtractionResults [] [] (sigName ∷ [])
+  mkPartitionedResults [] ((sigName , formatError (ExtractionErr reason)) ∷ []) []
 categorizeResult sigName (ValueOutOfBounds value min max) =
-  mkExtractionResults [] ((sigName , "value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
+  mkPartitionedResults [] ((sigName , "value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
   where
     formatBounds : ℚ → ℚ → ℚ → String
-    formatBounds v mn mx = show v ++ₛ " not in [" ++ₛ show mn ++ₛ ", " ++ₛ show mx ++ₛ "]"
+    formatBounds v mn mx = showℚ v ++ₛ " not in [" ++ₛ showℚ mn ++ₛ ", " ++ₛ showℚ mx ++ₛ "]"
+-- Dead branch on the batch extraction path: extractSignalDirect (the sole
+-- upstream producer) never constructs ExtractionFailed — it produces
+-- SignalNotPresent, Success, or ValueOutOfBounds. Kept for completeness
+-- since ExtractionResult is a public type. Routed through the typed Error
+-- sum so the reason is formatted the same way as every other error.
 categorizeResult sigName (ExtractionFailed reason) =
-  mkExtractionResults [] ((sigName , reason) ∷ []) []
-
--- Combine two extraction results
-combineResults : ExtractionResults → ExtractionResults → ExtractionResults
-combineResults (mkExtractionResults v1 e1 a1) (mkExtractionResults v2 e2 a2) =
-  mkExtractionResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
-
--- Empty extraction results
-emptyResults : ExtractionResults
-emptyResults = mkExtractionResults [] [] []
+  mkPartitionedResults [] ((sigName , formatError (ExtractionErr reason)) ∷ []) []
 
 -- Extract all signals from a message
 extractAllSignalsFromMessage : ∀ {n} → CANFrame n → DBCMessage → ExtractionResults
 extractAllSignalsFromMessage frame msg =
-  foldr combineResults emptyResults (map extractOne (DBCMessage.signals msg))
+  foldr combinePartitioned emptyPartitioned (map extractOne (DBCMessage.signals msg))
   where
     extractOne : DBCSignal → ExtractionResults
     extractOne sig =
@@ -89,10 +97,8 @@ extractAllSignalsFromMessage frame msg =
 extractAllSignals : ∀ {n} → DBC → CANFrame n → ExtractionResults
 extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 ... | nothing =
-    -- Message not found in DBC - return error
-    mkExtractionResults [] (("message" , formatFrameError CANIdNotFound) ∷ []) []
+    mkPartitionedResults [] (("message" , formatFrameError CANIdNotFound) ∷ []) []
 ... | just msg =
-    -- Extract all signals from this message
     extractAllSignalsFromMessage frame msg
 
 -- ============================================================================
@@ -100,55 +106,45 @@ extractAllSignals dbc frame with findMessageById (CANFrame.id frame) dbc
 -- ============================================================================
 
 -- Extraction error codes for the binary wire format.
--- Constructors map 1:1 to u8 wire values via errorCodeToℕ.
-data ErrorCode : Set where
-  NotInDBC          : ErrorCode  -- 0: signal name not found in DBC message
-  OutOfBounds       : ErrorCode  -- 1: extracted value outside min/max range
-  ExtractionFailed  : ErrorCode  -- 2: bit extraction or scaling failed
+-- Constructors map 1:1 to u8 wire values via extractionErrorCodeToℕ.
+data ExtractionErrorCode : Set where
+  NotInDBC          : ExtractionErrorCode  -- 0: signal name not found in DBC message
+  OutOfBounds       : ExtractionErrorCode  -- 1: extracted value outside min/max range
+  ExtractionFailed  : ExtractionErrorCode  -- 2: bit extraction or scaling failed
 
--- Encode ErrorCode as ℕ for binary wire format serialization.
+-- Encode ExtractionErrorCode as ℕ for binary wire format serialization.
 -- Must match Main.agda binary output documentation and AletheiaFFI.hs.
-errorCodeToℕ : ErrorCode → ℕ
-errorCodeToℕ NotInDBC         = 0
-errorCodeToℕ OutOfBounds      = 1
-errorCodeToℕ ExtractionFailed = 2
+extractionErrorCodeToℕ : ExtractionErrorCode → ℕ
+extractionErrorCodeToℕ NotInDBC         = 0
+extractionErrorCodeToℕ OutOfBounds      = 1
+extractionErrorCodeToℕ ExtractionFailed = 2
 
--- Results with signal indices instead of names.
-record IndexedExtractionResults : Set where
-  constructor mkIndexedExtractionResults
-  field
-    values : List (ℕ × ℚ)            -- (signal_index, value)
-    errors : List (ℕ × ErrorCode)    -- (signal_index, error_code)
-    absent : List ℕ                  -- signal_index
-
-emptyIndexedResults : IndexedExtractionResults
-emptyIndexedResults = mkIndexedExtractionResults [] [] []
-
-combineIndexedResults : IndexedExtractionResults → IndexedExtractionResults → IndexedExtractionResults
-combineIndexedResults (mkIndexedExtractionResults v1 e1 a1) (mkIndexedExtractionResults v2 e2 a2) =
-  mkIndexedExtractionResults (v1 ++ₗ v2) (e1 ++ₗ e2) (a1 ++ₗ a2)
+IndexedExtractionResults : Set
+IndexedExtractionResults = PartitionedResults ℕ ExtractionErrorCode
 
 categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
 categorizeIndexed idx (Success value) =
-  mkIndexedExtractionResults ((idx , value) ∷ []) [] []
+  mkPartitionedResults ((idx , value) ∷ []) [] []
 categorizeIndexed idx SignalNotInDBC =
-  mkIndexedExtractionResults [] ((idx , NotInDBC) ∷ []) []
+  mkPartitionedResults [] ((idx , NotInDBC) ∷ []) []
+categorizeIndexed idx (SignalNotPresent MuxValueMismatch) =
+  mkPartitionedResults [] [] (idx ∷ [])
 categorizeIndexed idx (SignalNotPresent _) =
-  mkIndexedExtractionResults [] [] (idx ∷ [])
+  mkPartitionedResults [] ((idx , ExtractionFailed) ∷ []) []
 categorizeIndexed idx (ValueOutOfBounds _ _ _) =
-  mkIndexedExtractionResults [] ((idx , OutOfBounds) ∷ []) []
+  mkPartitionedResults [] ((idx , OutOfBounds) ∷ []) []
 categorizeIndexed idx (ExtractionFailed _) =
-  mkIndexedExtractionResults [] ((idx , ExtractionFailed) ∷ []) []
+  mkPartitionedResults [] ((idx , ExtractionFailed) ∷ []) []
 
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults
 extractAllSignalsIndexedFromMessage frame msg = go 0 (DBCMessage.signals msg)
   where
     go : ℕ → List DBCSignal → IndexedExtractionResults
-    go _ [] = emptyIndexedResults
+    go _ [] = emptyPartitioned
     go idx (sig ∷ sigs) =
-      combineIndexedResults (categorizeIndexed idx (extractSignalDirect msg frame sig))
-                            (go (suc idx) sigs)
+      combinePartitioned (categorizeIndexed idx (extractSignalDirect msg frame sig))
+                         (go (suc idx) sigs)
 
 extractAllSignalsIndexed : ∀ {n} → DBC → CANFrame n → FrameError ⊎ IndexedExtractionResults
 extractAllSignalsIndexed dbc frame with findMessageById (CANFrame.id frame) dbc

@@ -2,7 +2,7 @@
 
 -- DBC structural validator: individual check functions.
 --
--- Purpose: Per-check functions for all 17 DBC validity conditions.
+-- Purpose: Per-check functions for all 16 DBC validity conditions.
 -- Each check returns [] (no issues) or a singleton list (issue found).
 -- checkAll* variants lift per-element checks to full message lists via concatMap.
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
@@ -13,34 +13,35 @@ open import Aletheia.DBC.Types using
   ( DBCMessage; DBCSignal; SignalPresence; Always; When
   ; ValidationIssue; mkIssue; IsError; IsWarning
   ; DuplicateMessageId; DuplicateSignalName; FactorZero
-  ; MultiplexorNotFound; MultiplexorNotAlwaysPresent
+  ; MultiplexorNotFound; MultiplexorCycle
   ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
   ; SignalOverlap; BitLengthZero; DuplicateMessageName
   ; OffsetScaleRange; EmptyMessage
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   )
-open import Aletheia.Prelude using (max-physical-bits)
+open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes; dlcToBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; map; filter; concatMap)
+open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.String.Properties using (_≟_)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Nat using (ℕ; _+_; _*_; _^_; _∸_; pred)
-open import Data.Nat.Properties using (_≤?_; _<?_) renaming (_≟_ to _≟ₙ_)
-open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _^_; _∸_; pred)
+open import Data.Nat.Properties using (_≤?_; _<?_; _≟_)
+open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
-open import Aletheia.Protocol.JSON using (ℕtoℚ)
+open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Relation.Nullary using (yes; no)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
+open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.DBC.Validity.Combinators using
   (requireDec; rejectDec; checkAgainst; triangularCheck)
 
@@ -49,48 +50,55 @@ open import Aletheia.DBC.Validity.Combinators using
 -- ============================================================================
 
 findSignalPresence : String → List DBCSignal → Maybe SignalPresence
-findSignalPresence name [] = nothing
-findSignalPresence name (sig ∷ rest) with DBCSignal.name sig ≟ name
-... | yes _ = just (DBCSignal.presence sig)
-... | no  _ = findSignalPresence name rest
+findSignalPresence name sigs = mapₘ DBCSignal.presence (findSignalInList name sigs)
+
+-- ============================================================================
+-- LIFTING COMBINATOR
+-- ============================================================================
+
+-- Lift a per-signal check (parameterised by message name) to all messages.
+-- Replaces the recurring concatMap (λ msg → concatMap (f (name msg)) (signals msg)) pattern.
+liftPerSignal : (String → DBCSignal → List ValidationIssue) → List DBCMessage → List ValidationIssue
+liftPerSignal f = concatMap λ msg →
+  concatMap (f (DBCMessage.name msg)) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs
 -- ============================================================================
 
-checkDupIdPair : DBCMessage → DBCMessage → List ValidationIssue
-checkDupIdPair m1 m2 =
+checkDuplicateIdPair : DBCMessage → DBCMessage → List ValidationIssue
+checkDuplicateIdPair m1 m2 =
   rejectDec (DBCMessage.id m1 ≟-CANId DBCMessage.id m2)
             (mkIssue IsError DuplicateMessageId
               ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
                ++ₛ DBCMessage.name m2 ++ₛ "' share the same CAN ID"))
 
-checkDupIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDupIdAgainstList = checkAgainst checkDupIdPair
+checkDuplicateIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
+checkDuplicateIdAgainstList = checkAgainst checkDuplicateIdPair
 
 checkDuplicateMessageIds : List DBCMessage → List ValidationIssue
-checkDuplicateMessageIds = triangularCheck checkDupIdPair
+checkDuplicateMessageIds = triangularCheck checkDuplicateIdPair
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (within a message)
 -- ============================================================================
 
-checkDupSigPair : String → DBCSignal → DBCSignal → List ValidationIssue
-checkDupSigPair msgName s1 s2 =
-  rejectDec (DBCSignal.name s1 ≟ DBCSignal.name s2)
+checkDuplicateSignalPair : String → DBCSignal → DBCSignal → List ValidationIssue
+checkDuplicateSignalPair msgName s1 s2 =
+  rejectDec (DBCSignal.name s1 ≟ₛ DBCSignal.name s2)
             (mkIssue IsError DuplicateSignalName
               ("Message '" ++ₛ msgName ++ₛ "': duplicate signal name '"
                ++ₛ DBCSignal.name s1 ++ₛ "'"))
 
-checkDupSigAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
-checkDupSigAgainstList msgName = checkAgainst (checkDupSigPair msgName)
+checkDuplicateSignalAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
+checkDuplicateSignalAgainstList msgName = checkAgainst (checkDuplicateSignalPair msgName)
 
-checkDupSigTriangular : String → List DBCSignal → List ValidationIssue
-checkDupSigTriangular msgName = triangularCheck (checkDupSigPair msgName)
+checkDuplicateSignalTriangular : String → List DBCSignal → List ValidationIssue
+checkDuplicateSignalTriangular msgName = triangularCheck (checkDuplicateSignalPair msgName)
 
 checkDuplicateSignalNamesInMsg : DBCMessage → List ValidationIssue
 checkDuplicateSignalNamesInMsg msg =
-  checkDupSigTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
+  checkDuplicateSignalTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
 
 checkAllDuplicateSignalNames : List DBCMessage → List ValidationIssue
 checkAllDuplicateSignalNames = concatMap checkDuplicateSignalNamesInMsg
@@ -107,8 +115,7 @@ checkFactorZeroSig msgName sig =
                ++ₛ "': factor is zero (constant-zero signal)"))
 
 checkAllFactorZero : List DBCMessage → List ValidationIssue
-checkAllFactorZero = concatMap λ msg →
-  concatMap (checkFactorZeroSig (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllFactorZero = liftPerSignal checkFactorZeroSig
 
 -- ============================================================================
 -- CHECK 4: MULTIPLEXOR NOT FOUND
@@ -117,7 +124,7 @@ checkAllFactorZero = concatMap λ msg →
 checkMuxFoundSig : String → List DBCSignal → DBCSignal → List ValidationIssue
 checkMuxFoundSig msgName allSigs sig with DBCSignal.presence sig
 ... | Always        = []
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ muxName) allSigs
+... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) allSigs
 ...   | yes _ = []
 ...   | no  _ = mkIssue IsError MultiplexorNotFound
                   ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
@@ -130,24 +137,47 @@ checkAllMuxFound = concatMap λ msg →
             (DBCMessage.signals msg)
 
 -- ============================================================================
--- CHECK 5: MULTIPLEXOR NOT ALWAYS PRESENT
+-- CHECK 5: MULTIPLEXOR CYCLE
 -- ============================================================================
 
-checkMuxAlwaysPresentSig : String → List DBCSignal → DBCSignal → List ValidationIssue
-checkMuxAlwaysPresentSig msgName allSigs sig with DBCSignal.presence sig
-... | Always        = []
-... | When muxName _ with findSignalPresence muxName allSigs
-...   | nothing          = []
-...   | just Always      = []
-...   | just (When _ _)  = mkIssue IsError MultiplexorNotAlwaysPresent
-                             ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                              ++ₛ DBCSignal.name sig ++ₛ "': multiplexor '"
-                              ++ₛ muxName
-                              ++ₛ "' is itself conditionally present") ∷ []
+-- Walk a mux chain with bounded fuel. Returns true if the chain reaches an
+-- Always signal (acyclic) or an unresolved reference (caught by check 4).
+-- Returns false only when fuel is exhausted, indicating a cycle.
+--
+-- Termination: fuel ≤ length sigs at entry (callers pass `length allSigs`),
+-- and strictly decreases at every recursive call (`suc f → f`). The
+-- structural recursion on ℕ discharges Agda's termination checker without
+-- well-founded machinery. No `<-Rec` wrapper is needed because the fuel
+-- argument is already the decreasing measure.
+--
+-- Soundness of the fuel bound: the maximum length of an acyclic mux chain
+-- through n signals is n (each signal is visited at most once before
+-- reaching an `Always` sink); any chain of length > n must revisit a
+-- signal, i.e. contain a cycle. Therefore fuel = length sigs is both
+-- necessary (shorter fuel would reject valid acyclic chains longer than the
+-- remaining fuel at recursion) and sufficient (longer fuel would accept
+-- cycles). Proof of "no-false-positive" would require a pigeonhole argument
+-- on the set of visited signals; we rely on the fuel bound operationally
+-- and let check 4 (MultiplexorNotFound) catch dangling references.
+walkMux : ℕ → List DBCSignal → SignalPresence → Bool
+walkMux _       _    Always         = true
+walkMux zero    _    (When _ _)     = false
+walkMux (suc f) sigs (When name _) with findSignalPresence name sigs
+... | nothing = true   -- caught by checkMuxFound (check 4)
+... | just p  = walkMux f sigs p
 
-checkAllMuxAlwaysPresent : List DBCMessage → List ValidationIssue
-checkAllMuxAlwaysPresent = concatMap λ msg →
-  concatMap (checkMuxAlwaysPresentSig (DBCMessage.name msg) (DBCMessage.signals msg))
+checkMuxCycleSig : String → List DBCSignal → DBCSignal → List ValidationIssue
+checkMuxCycleSig msgName allSigs sig
+  with walkMux (length allSigs) allSigs (DBCSignal.presence sig)
+... | true  = []
+... | false = mkIssue IsError MultiplexorCycle
+                ("Message '" ++ₛ msgName ++ₛ "', signal '"
+                 ++ₛ DBCSignal.name sig
+                 ++ₛ "': multiplexor chain forms a cycle") ∷ []
+
+checkAllMuxCycle : List DBCMessage → List ValidationIssue
+checkAllMuxCycle = concatMap λ msg →
+  concatMap (checkMuxCycleSig (DBCMessage.name msg) (DBCMessage.signals msg))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -214,8 +244,7 @@ checkMinMaxSig msgName sig =
                 ++ₛ "': minimum exceeds maximum"))
 
 checkAllMinMax : List DBCMessage → List ValidationIssue
-checkAllMinMax = concatMap λ msg →
-  concatMap (checkMinMaxSig (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllMinMax = liftPerSignal checkMinMaxSig
 
 -- ============================================================================
 -- CHECK 8: SIGNAL EXCEEDS DLC
@@ -264,38 +293,34 @@ checkAllSignalOverlaps = concatMap checkOverlapsInMsg
 
 checkBitLengthZero : String → DBCSignal → List ValidationIssue
 checkBitLengthZero msgName sig =
-  rejectDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0)
+  rejectDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ 0)
             (mkIssue IsError BitLengthZero
               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
                ++ₛ "': bit length is zero"))
 
 checkAllBitLengthZero : List DBCMessage → List ValidationIssue
-checkAllBitLengthZero = concatMap λ msg →
-  concatMap (checkBitLengthZero (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllBitLengthZero = liftPerSignal checkBitLengthZero
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME
 -- ============================================================================
 
-checkDupNamePair : DBCMessage → DBCMessage → List ValidationIssue
-checkDupNamePair m1 m2 =
-  rejectDec (DBCMessage.name m1 ≟ DBCMessage.name m2)
+checkDuplicateNamePair : DBCMessage → DBCMessage → List ValidationIssue
+checkDuplicateNamePair m1 m2 =
+  rejectDec (DBCMessage.name m1 ≟ₛ DBCMessage.name m2)
             (mkIssue IsWarning DuplicateMessageName
               ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
                ++ₛ DBCMessage.name m2 ++ₛ "' share the same name"))
 
-checkDupNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
-checkDupNameAgainstList = checkAgainst checkDupNamePair
+checkDuplicateNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
+checkDuplicateNameAgainstList = checkAgainst checkDuplicateNamePair
 
 checkDuplicateMessageNames : List DBCMessage → List ValidationIssue
-checkDuplicateMessageNames = triangularCheck checkDupNamePair
+checkDuplicateMessageNames = triangularCheck checkDuplicateNamePair
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE
 -- ============================================================================
-
-ℤtoℚ : ℤ → ℚ
-ℤtoℚ z = z /ᵣ 1
 
 isNegativeℚ : ℚ → Bool
 isNegativeℚ q with ℚ.numerator q
@@ -324,37 +349,26 @@ checkRangeBounds msgName sigName factor physA physB declMin declMax
 ... | false = checkRangeLow msgName sigName physA declMin ++ₗ checkRangeHigh msgName sigName physB declMax
 ... | true  = checkRangeLow msgName sigName physB declMin ++ₗ checkRangeHigh msgName sigName physA declMax
 
+-- Raw (pre-scaling) range of an n-bit integer value.
+-- Signed: two's complement range [−2^(n−1), 2^(n−1)−1].
+-- Unsigned: [0, 2^n − 1].
+rawRange : Bool → ℕ → ℚ × ℚ
+rawRange true  n = fromℤ (-[1+ pred (2 ^ (n ∸ 1)) ]) , ℕtoℚ (pred (2 ^ (n ∸ 1)))
+rawRange false n = ℕtoℚ 0 , ℕtoℚ (pred (2 ^ n))
+
 checkOffsetScaleRange : String → DBCSignal → List ValidationIssue
-checkOffsetScaleRange msgName sig with SignalDef.isSigned (DBCSignal.signalDef sig)
-... | true =
-  let sd     = DBCSignal.signalDef sig
-      n      = SignalDef.bitLength sd
-      factor = SignalDef.factor sd
-      offset = SignalDef.offset sd
-      half   = 2 ^ (n ∸ 1)
-      sn     = DBCSignal.name sig
-      rawMinℚ = ℤtoℚ (-[1+ pred half ])
-      rawMaxℚ = ℕtoℚ (pred half)
-      physA   = rawMinℚ *ᵣ factor +ᵣ offset
-      physB   = rawMaxℚ *ᵣ factor +ᵣ offset
-  in checkRangeBounds msgName sn factor physA physB
-                      (SignalDef.minimum sd) (SignalDef.maximum sd)
-... | false =
-  let sd     = DBCSignal.signalDef sig
-      n      = SignalDef.bitLength sd
-      factor = SignalDef.factor sd
-      offset = SignalDef.offset sd
-      sn     = DBCSignal.name sig
-      rawMinℚ = ℕtoℚ 0
-      rawMaxℚ = ℕtoℚ (pred (2 ^ n))
-      physA   = rawMinℚ *ᵣ factor +ᵣ offset
-      physB   = rawMaxℚ *ᵣ factor +ᵣ offset
-  in checkRangeBounds msgName sn factor physA physB
+checkOffsetScaleRange msgName sig =
+  let sd      = DBCSignal.signalDef sig
+      factor  = SignalDef.factor sd
+      offset  = SignalDef.offset sd
+      raw     = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
+      physA   = proj₁ raw *ᵣ factor +ᵣ offset
+      physB   = proj₂ raw *ᵣ factor +ᵣ offset
+  in checkRangeBounds msgName (DBCSignal.name sig) factor physA physB
                       (SignalDef.minimum sd) (SignalDef.maximum sd)
 
 checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
-checkAllOffsetScaleRange = concatMap λ msg →
-  concatMap (checkOffsetScaleRange (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllOffsetScaleRange = liftPerSignal checkOffsetScaleRange
 
 -- ============================================================================
 -- CHECK 14: EMPTY MESSAGE
@@ -382,8 +396,7 @@ checkStartBitOutOfRange msgName sig =
                 ++ₛ "': start bit ≥ max-physical-bits"))
 
 checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
-checkAllStartBitOutOfRange = concatMap λ msg →
-  concatMap (checkStartBitOutOfRange (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllStartBitOutOfRange = liftPerSignal checkStartBitOutOfRange
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE
@@ -397,5 +410,4 @@ checkBitLengthExcessive msgName sig =
                 ++ₛ "': bit length exceeds max-physical-bits"))
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
-checkAllBitLengthExcessive = concatMap λ msg →
-  concatMap (checkBitLengthExcessive (DBCMessage.name msg)) (DBCMessage.signals msg)
+checkAllBitLengthExcessive = liftPerSignal checkBitLengthExcessive

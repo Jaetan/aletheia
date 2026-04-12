@@ -11,9 +11,8 @@
 module Aletheia.CAN.Encoding.Arithmetic where
 
 open import Data.Nat using (ℕ; zero; suc; _∸_; _^_)
-open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; _≟_; toℚᵘ; fromℚᵘ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
+open import Data.Rational as Rat using (ℚ; _≤ᵇ_; _/_; floor; 0ℚ; toℚᵘ; fromℚᵘ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _-_ to _-ᵣ_)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ; _÷_; 0ℚᵘ)
-open import Relation.Nullary.Decidable as Dec using (⌊_⌋)
 open import Data.Integer as ℤ using (ℤ; +_; -[1+_])
 open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -55,9 +54,10 @@ removeScaling signalValue factor offset =
   then nothing  -- Cannot divide by zero
   else just (floor (divideByFactor (signalValue -ᵣ offset) factor))
   where
-    -- Check if rational is zero
+    -- Check if rational is zero via the Bool-valued `_≤ᵇ_`, which compiles to
+    -- a direct ℤ comparison without allocating a Dec proof term per call.
     isZero : ℚ → Bool
-    isZero q = Dec.⌊ q Rat.≟ 0ℚ ⌋
+    isZero q = (q ≤ᵇ 0ℚ) ∧ (0ℚ ≤ᵇ q)
 
     -- Divide by factor (only called when factor ≠ 0, but Agda can't prove this)
     -- We work with unnormalized rationals to avoid coprimality proofs
@@ -65,9 +65,16 @@ removeScaling signalValue factor offset =
     divideByFactor numer denom =
       Rat.fromℚᵘ (divideUnnorm (Rat.toℚᵘ numer) (Rat.toℚᵘ denom))
       where
-        -- Divide unnormalized rationals by pattern matching to expose nonzero structure
+        -- Divide unnormalized rationals by pattern matching to expose nonzero structure.
+        --
+        -- Dead branch: the `(+ zero)` case is unreachable because `removeScaling`
+        -- guards with `if isZero factor then nothing` above (line 54), so this
+        -- helper is only ever called on a non-zero `factor`. Retained to satisfy
+        -- Agda's pattern coverage checker — returning `0ℚᵘ` keeps the branch
+        -- total without requiring a proof-carrying NonZero instance through the
+        -- call chain from `removeScaling`.
         divideUnnorm : ℚᵘ → ℚᵘ → ℚᵘ
-        divideUnnorm n (ℚᵘ.mkℚᵘ (+ zero) _) = ℚᵘ.0ℚᵘ  -- Unreachable (isZero check prevents), but needed for coverage
+        divideUnnorm n (ℚᵘ.mkℚᵘ (+ zero) _) = ℚᵘ.0ℚᵘ  -- Dead branch, see comment above.
         divideUnnorm n (ℚᵘ.mkℚᵘ (+ suc num) denom) =  -- Explicit nonzero pattern, instance exists!
           n ℚᵘ.÷ (ℚᵘ.mkℚᵘ (+ suc num) denom)
         divideUnnorm n (ℚᵘ.mkℚᵘ -[1+ num ] denom) =    -- Explicit nonzero pattern, instance exists!

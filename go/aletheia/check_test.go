@@ -29,11 +29,35 @@ func TestCheckSignalNeverBelow(t *testing.T) {
 }
 
 func TestCheckSignalStaysBetween(t *testing.T) {
-	r := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	r, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
 	got := FormatFormula(r.Formula())
 	want := "always(11.5 <= Voltage <= 14.5)"
 	if got != want {
 		t.Errorf("StaysBetween: got %q, want %q", got, want)
+	}
+}
+
+func TestCheckSignalStaysBetweenInverted(t *testing.T) {
+	_, err := CheckSignal("Voltage").StaysBetween(14.5, 11.5)
+	if err == nil {
+		t.Fatal("expected error for inverted range")
+	}
+}
+
+func TestCheckSignalSettlesBetweenInverted(t *testing.T) {
+	_, err := CheckSignal("Temp").SettlesBetween(80, 60).Within(500)
+	if err == nil {
+		t.Fatal("expected error for inverted range")
+	}
+}
+
+func TestCheckWhenThenStaysBetweenInverted(t *testing.T) {
+	_, err := CheckWhen("Brake").Exceeds(50).Then("Speed").StaysBetween(10, 0).Within(200)
+	if err == nil {
+		t.Fatal("expected error for inverted range")
 	}
 }
 
@@ -206,11 +230,14 @@ func TestCheckNeverExceedsMatchesManual(t *testing.T) {
 }
 
 func TestCheckStaysBetweenMatchesManual(t *testing.T) {
-	checkF := CheckSignal("V").StaysBetween(11.5, 14.5).Formula()
+	checkR, err := CheckSignal("V").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
 	manualF := Always{Inner: Atomic{Predicate: Between{Signal: "V", Min: 11.5, Max: 14.5}}}
-	if FormatFormula(checkF) != FormatFormula(manualF) {
+	if FormatFormula(checkR.Formula()) != FormatFormula(manualF) {
 		t.Errorf("mismatch: check=%q manual=%q",
-			FormatFormula(checkF), FormatFormula(manualF))
+			FormatFormula(checkR.Formula()), FormatFormula(manualF))
 	}
 }
 
@@ -250,9 +277,13 @@ func TestAddChecks(t *testing.T) {
 	}
 	defer client.Close()
 
+	staysBetween, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
 	checks := []CheckResult{
 		CheckSignal("Speed").NeverExceeds(220),
-		CheckSignal("Voltage").StaysBetween(11.5, 14.5),
+		staysBetween,
 	}
 	if err := client.AddChecks(checks); err != nil {
 		t.Errorf("AddChecks: %v", err)
@@ -261,7 +292,10 @@ func TestAddChecks(t *testing.T) {
 
 func TestAddChecksWithDefaults(t *testing.T) {
 	mock := NewMockBackend(Respond(`{"status": "success"}`))
-	defaultCheck := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	defaultCheck, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
 	client, err := NewClient(mock, WithDefaultChecks(defaultCheck))
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)

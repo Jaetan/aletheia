@@ -14,7 +14,7 @@ enum class IssueCode {
     DuplicateSignalName,
     FactorZero,
     MultiplexorNotFound,
-    MultiplexorNotAlwaysPresent,
+    MultiplexorCycle,
     GlobalNameCollision,
     MinExceedsMax,
     SignalExceedsDlc,

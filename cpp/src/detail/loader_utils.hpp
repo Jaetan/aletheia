@@ -63,13 +63,9 @@ inline auto is_simple_settles_condition(const std::string& c) -> bool {
     return c == "settles_between";
 }
 
-inline auto is_simple_equals_condition(const std::string& c) -> bool {
-    return c == "equals";
-}
-
 inline auto is_simple_condition(const std::string& c) -> bool {
     return is_simple_value_condition(c) || is_simple_range_condition(c) ||
-           is_simple_settles_condition(c) || is_simple_equals_condition(c);
+           is_simple_settles_condition(c) || c == "equals";
 }
 
 inline auto is_when_condition(const std::string& c) -> bool {

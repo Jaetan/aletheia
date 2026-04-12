@@ -6,9 +6,35 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-set(CMAKE_CXX_STANDARD 23)
+# CMAKE_CXX_STANDARD is set globally because yaml-cpp 0.8.0 has latent bugs
+# around missing <cstdint> / uint16_t that only link cleanly when the parent
+# project defines CMAKE_CXX_STANDARD to a modern-enough standard (C++20 works
+# around the transitive-include path on GCC 15). target_compile_features on
+# aletheia-cpp below is still the authoritative statement of our *own* C++23
+# requirement — the global is purely a yaml-cpp workaround and should be
+# removed once we upgrade to a yaml-cpp that includes <cstdint> explicitly.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# ---------------------------------------------------------------------------
+# clang-tidy integration (opt-in)
+# ---------------------------------------------------------------------------
+#
+# When enabled, clang-tidy runs on every compile of the aletheia-cpp library
+# target, turning .clang-tidy findings into build-time errors (via
+# WarningsAsErrors: '*' in the project .clang-tidy). Scoped to the library
+# only — tests use Catch2 conventions that trigger many cognitive-complexity
+# and designated-initialiser findings that are not worth fixing.
+#
+# Enable with: cmake -B build -DALETHEIA_CLANG_TIDY=ON
+option(ALETHEIA_CLANG_TIDY "Run clang-tidy on aletheia-cpp sources" OFF)
+
+if(ALETHEIA_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)
+    set(ALETHEIA_CLANG_TIDY_COMMAND "${CLANG_TIDY_EXE};--quiet")
+    message(STATUS "clang-tidy integration enabled: ${CLANG_TIDY_EXE}")
+endif()
 
 # ---------------------------------------------------------------------------
 # Dependencies (fetched, not exported to consumers)
@@ -21,18 +47,20 @@ FetchContent_Declare(json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
     URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
 
-# yaml-cpp 0.8.0 and OpenXLSX use old cmake_minimum_required; allow with CMake 4.x
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
+# yaml-cpp 0.8.0 and OpenXLSX use old cmake_minimum_required; allow with CMake 4.x.
+# Regular variable (not CACHE FORCE) — visible to FetchContent subdirectories
+# via scope inheritance but does not persist in the cache.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 FetchContent_Declare(yaml-cpp
-    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG 0.8.0)
+    URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
+    URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(OpenXLSX
-    GIT_REPOSITORY https://github.com/troldal/OpenXLSX.git
-    GIT_TAG 5723411d47643ce3b5b9994064c26ca8cd841f13)  # Post-v0.4.1: includes <cstdint> fix for GCC 15
+    URL https://github.com/troldal/OpenXLSX/archive/5723411d47643ce3b5b9994064c26ca8cd841f13.tar.gz
+    URL_HASH SHA256=86bdb7aa594a0b2bea31cae9e4603832844be2095d7e281e9d7e74003bc16b98)  # Post-v0.4.1: includes <cstdint> fix for GCC 15
 
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 
@@ -43,6 +71,7 @@ FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 add_library(aletheia-cpp
     src/backend.cpp
     src/client.cpp
+    src/dbc.cpp
     src/enrich.cpp
     src/excel.cpp
     src/ffi_backend.cpp
@@ -57,6 +86,8 @@ target_include_directories(aletheia-cpp
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE src)
 
+target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
+
 target_link_libraries(aletheia-cpp
     PRIVATE dl
         $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>
@@ -66,6 +97,11 @@ target_link_libraries(aletheia-cpp
 set_target_properties(aletheia-cpp PROPERTIES
     SOVERSION 1
     VERSION ${PROJECT_VERSION})
+
+if(ALETHEIA_CLANG_TIDY)
+    set_target_properties(aletheia-cpp PROPERTIES
+        CXX_CLANG_TIDY "${ALETHEIA_CLANG_TIDY_COMMAND}")
+endif()
 
 # ---------------------------------------------------------------------------
 # Install & export (allows find_package(aletheia-cpp) by downstream projects)

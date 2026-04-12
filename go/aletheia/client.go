@@ -1,10 +1,12 @@
 package aletheia
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"math"
+	"slices"
 	"sync"
 	"unsafe"
 )
@@ -36,15 +38,13 @@ type Client struct {
 	mu            sync.Mutex
 	closeOnce     sync.Once
 	closed        bool
-	logger        *slog.Logger                      // nil = no logging
-	defaultChecks []CheckResult                     // prepended by AddChecks
-	diags         []PropertyDiagnostic              // one per property, auto-derived
-	cache         *extractCache                     // extraction cache for enrichment
-	lastFrames    map[lastFrameKey]lastFrameData    // last frame seen per CAN ID, for EOS enrichment
-	signalIndex   map[signalIndexKey]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
-	signalNames   map[signalIndexKey][]string        // index -> signal name, keyed by (canId, extended)
-	lastTimestamp int64                               // last frame timestamp (µs), for monotonicity check
-	hasTimestamp  bool                                // true after first frame sent
+	logger        *slog.Logger              // nil = no logging
+	defaultChecks []CheckResult             // prepended by AddChecks
+	diags         []PropertyDiagnostic      // one per property, auto-derived
+	cache         *extractCache             // extraction cache for enrichment
+	lastFrames    map[uint64]lastFrameData  // last frame seen per CAN ID, for EOS enrichment
+	signalIndex   map[uint64]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
+	signalNames   map[uint64][]string       // index -> signal name, keyed by (canId, extended)
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -91,12 +91,6 @@ func (c *Client) processLocked(input string) (string, error) {
 	return c.backend.Process(c.state, input)
 }
 
-// lastFrameKey distinguishes standard and extended CAN IDs in the last-frame map.
-type lastFrameKey struct {
-	value    uint32
-	extended bool
-}
-
 // lastFrameData stores the last frame seen for a CAN ID, for EOS enrichment.
 type lastFrameData struct {
 	id   CanID
@@ -111,12 +105,6 @@ func validatePayload(dlc DLC, data FramePayload) error {
 		return validationError(fmt.Sprintf("payload length %d does not match DLC %d (expected %d bytes)", len(data), dlc.Value(), expected))
 	}
 	return nil
-}
-
-// signalIndexKey identifies a DBC message by its CAN ID and type for signal index lookup.
-type signalIndexKey struct {
-	value    uint32
-	extended bool
 }
 
 const rationalDenominator int64 = 1_000_000_000
@@ -134,7 +122,7 @@ func (c *Client) resolveSignalIndices(signals []SignalValue, id CanID, cmdName s
 	if c.signalIndex == nil {
 		return nil, nil, nil, stateError(cmdName + ": no DBC loaded (call ParseDBC first)")
 	}
-	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	key := canIDKey(id)
 	indexMap, ok := c.signalIndex[key]
 	if !ok {
 		return nil, nil, nil, validationError(fmt.Sprintf("%s: no DBC message for CAN ID %d (extended=%v)", cmdName, id.Value(), id.IsExtended()))
@@ -181,10 +169,10 @@ func (c *Client) ParseDBC(dbc DbcDefinition) error {
 		return err
 	}
 	// Build signal name -> index cache from the DBC definition.
-	c.signalIndex = make(map[signalIndexKey]map[string]int, len(dbc.Messages))
-	c.signalNames = make(map[signalIndexKey][]string, len(dbc.Messages))
+	c.signalIndex = make(map[uint64]map[string]int, len(dbc.Messages))
+	c.signalNames = make(map[uint64][]string, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
-		key := signalIndexKey{value: msg.ID.Value(), extended: msg.ID.IsExtended()}
+		key := canIDKey(msg.ID)
 		sigMap := make(map[string]int, len(msg.Signals))
 		names := make([]string, len(msg.Signals))
 		for i, sig := range msg.Signals {
@@ -249,7 +237,7 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 	}
 
 	// Use binary path when signal name cache is populated.
-	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	key := canIDKey(id)
 	if names, ok := c.signalNames[key]; ok {
 		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
 		if err == nil {
@@ -386,7 +374,13 @@ func (c *Client) StartStream() error {
 	if c.cache != nil {
 		c.cache.clear()
 	}
-	c.lastFrames = make(map[lastFrameKey]lastFrameData)
+	// Track last frames only when diagnostics are set — lastFrames feeds EOS
+	// enrichment, which requires diags. Matches Python's conditional tracking.
+	if c.diags != nil {
+		c.lastFrames = make(map[uint64]lastFrameData)
+	} else {
+		c.lastFrames = nil
+	}
 	if c.logger != nil {
 		c.logger.Info("stream.started")
 	}
@@ -435,8 +429,18 @@ func (c *Client) SendError(ts Timestamp) error {
 	if ts.Microseconds < 0 {
 		return validationError("negative timestamp")
 	}
-	_, err := c.backend.SendErrorBinary(c.state, ts)
-	return err
+	resp, err := c.backend.SendErrorBinary(c.state, ts)
+	if err != nil {
+		return err
+	}
+	if err := parseEventAck(resp); err != nil {
+		return err
+	}
+	if c.logger != nil {
+		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "error_event.sent",
+			slog.Int64("ts", ts.Microseconds), slog.String("response", resp))
+	}
+	return nil
 }
 
 // SendRemote sends a CAN remote frame event (ID but no payload). Remote frames
@@ -451,8 +455,19 @@ func (c *Client) SendRemote(ts Timestamp, id CanID) error {
 	if ts.Microseconds < 0 {
 		return validationError("negative timestamp")
 	}
-	_, err := c.backend.SendRemoteBinary(c.state, ts, id)
-	return err
+	resp, err := c.backend.SendRemoteBinary(c.state, ts, id)
+	if err != nil {
+		return err
+	}
+	if err := parseEventAck(resp); err != nil {
+		return err
+	}
+	if c.logger != nil {
+		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "remote_event.sent",
+			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
+			slog.Bool("extended", id.IsExtended()), slog.String("response", resp))
+	}
+	return nil
 }
 
 // sendFrameLocked is the inner implementation of SendFrame. Caller must hold c.mu.
@@ -463,13 +478,6 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 	if ts.Microseconds < 0 {
 		return nil, validationError("negative timestamp")
 	}
-	if c.hasTimestamp && ts.Microseconds < c.lastTimestamp {
-		return nil, validationError(fmt.Sprintf(
-			"non-monotonic timestamp: %d µs < previous %d µs (metric LTL operators require monotonic timestamps)",
-			ts.Microseconds, c.lastTimestamp))
-	}
-	c.lastTimestamp = ts.Microseconds
-	c.hasTimestamp = true
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
@@ -486,25 +494,29 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 	if c.lastFrames != nil {
 		dataCopy := make(FramePayload, len(data))
 		copy(dataCopy, data)
-		c.lastFrames[lastFrameKey{value: id.Value(), extended: id.IsExtended()}] = lastFrameData{id: id, dlc: dlc, data: dataCopy}
+		c.lastFrames[canIDKey(id)] = lastFrameData{id: id, dlc: dlc, data: dataCopy}
 	}
 	if v, ok := fr.(Violation); ok && c.diags != nil {
 		c.enrichViolation(&v, id, dlc, data)
 		if c.logger != nil {
-			c.logger.Debug("frame.processed", "ts", ts.Microseconds, "canId", id.Value(), "extended", id.IsExtended(), "response", "violation")
+			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "frame.processed",
+				slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
+				slog.Bool("extended", id.IsExtended()), slog.String("response", "violation"))
 		}
 		return v, nil
 	}
 	if c.logger != nil {
-		c.logger.Debug("frame.processed", "ts", ts.Microseconds, "canId", id.Value(), "extended", id.IsExtended(), "response", "ack")
+		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "frame.processed",
+			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
+			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
 	}
 	return fr, nil
 }
 
 // EndStream finalizes the monitoring stream and returns verdicts for all properties.
-// Failed verdicts are enriched with signal names, formula description, and the most
-// recent signal values per CAN ID when available. Earlier frames in the stream are
-// not retained.
+// Failed and Unresolved verdicts are enriched with signal names, formula description,
+// and the most recent signal values per CAN ID when available. Earlier frames in the
+// stream are not retained.
 func (c *Client) EndStream() (*StreamResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -520,17 +532,25 @@ func (c *Client) EndStream() (*StreamResult, error) {
 		return nil, err
 	}
 	numFails := 0
-	if c.diags != nil {
-		for i := range sr.Results {
-			if sr.Results[i].Verdict == Fails {
-				numFails++
+	numUnresolved := 0
+	for i := range sr.Results {
+		switch sr.Results[i].Verdict {
+		case Fails:
+			numFails++
+			if c.diags != nil {
+				c.enrichPropertyResult(&sr.Results[i])
+			}
+		case Unresolved:
+			numUnresolved++
+			if c.diags != nil {
 				c.enrichPropertyResult(&sr.Results[i])
 			}
 		}
 	}
 	c.lastFrames = nil
 	if c.logger != nil {
-		c.logger.Info("stream.ended", "numResults", len(sr.Results), "numFails", numFails)
+		c.logger.Info("stream.ended", "numResults", len(sr.Results),
+			"numFails", numFails, "numUnresolved", numUnresolved)
 	}
 	return sr, nil
 }
@@ -587,8 +607,17 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 		wanted[s] = true
 	}
 	values := make(map[SignalName]PhysicalValue)
+	// Sort map keys for deterministic enrichment output. The uint64 key encodes
+	// (CAN ID value, extended flag) via canIDKey, so the natural ordering sorts
+	// by value then by extended-flag.
+	keys := make([]uint64, 0, len(c.lastFrames))
+	for k := range c.lastFrames {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
 	// Try extraction against all last-seen frames to find matching signals.
-	for _, lf := range c.lastFrames {
+	for _, k := range keys {
+		lf := c.lastFrames[k]
 		result := c.extractSignalsLocked(lf.id, lf.dlc, lf.data)
 		if result == nil {
 			if c.logger != nil {
@@ -622,11 +651,13 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 	result, ok := c.cache.get(key)
 	if ok {
 		if c.logger != nil {
-			c.logger.Debug("cache.hit", "canId", id.Value(), "dlc", dlc.Value())
+			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "cache.hit",
+				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
 	} else {
 		if c.logger != nil {
-			c.logger.Debug("cache.miss", "canId", id.Value(), "dlc", dlc.Value())
+			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "cache.miss",
+				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
 		result = c.extractSignalsLocked(id, dlc, data)
 		if result != nil {
@@ -656,7 +687,7 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 // extractSignalsLocked performs signal extraction via binary FFI. Caller must hold c.mu.
 func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
 	// Use binary path when signal name cache is populated.
-	key := signalIndexKey{value: id.Value(), extended: id.IsExtended()}
+	key := canIDKey(id)
 	if names, ok := c.signalNames[key]; ok {
 		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
 		if err != nil {

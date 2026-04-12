@@ -8,33 +8,54 @@ version = "1.1.1"
 description = "Formally verified CAN frame analysis with LTL"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "BSD-2-Clause"}
 authors = [
-    {name = "Aletheia Team", email = "aletheia@example.com"}
+    {name = "Nicolas Pelletier"}
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
     "Topic :: Software Development :: Testing",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = [
-    "cantools>=39.0",
-    "openpyxl>=3.1",
-    "python-can>=4.0",
-    "pyyaml>=6.0",
-]
+# The core package has no runtime dependencies outside the standard library —
+# the Agda-compiled Haskell shared library is loaded via ``ctypes`` at import
+# time. Loaders for .dbc files (cantools), CAN logs (python-can), YAML rule
+# files (pyyaml), and Excel rule sheets (openpyxl) are opt-in via extras so
+# that users who only need the core streaming/LTL path don't pull in
+# cantools' numpy/matplotlib closure. Install with:
+#   pip install aletheia               # core only
+#   pip install aletheia[dbc]          # + .dbc file loader
+#   pip install aletheia[can]          # + CAN log reader
+#   pip install aletheia[yaml]         # + YAML rule loader
+#   pip install aletheia[excel]        # + Excel rule/DBC loader
+#   pip install aletheia[all]          # everything
+dependencies = []
+
+[project.scripts]
+aletheia = "aletheia.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["aletheia*"]
 
+[tool.setuptools.package-data]
+aletheia = ["py.typed"]
+
 [project.optional-dependencies]
+dbc = ["cantools>=39.0"]
+can = ["python-can>=4.0"]
+yaml = ["pyyaml>=6.0"]
+excel = ["openpyxl>=3.1"]
+all = ["cantools>=39.0", "python-can>=4.0", "pyyaml>=6.0", "openpyxl>=3.1"]
 dev = [
+    "aletheia[all]",
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "black>=23.0",
-    "ruff>=0.1.0",
+    "pylint>=3.0",
+    "basedpyright>=1.0",
 ]
 
 [tool.basedpyright]

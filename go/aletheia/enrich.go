@@ -96,7 +96,7 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 		}
 		return s
 	default:
-		return "<unknown>"
+		return fmt.Sprintf("<unknown formula: %T>", f)
 	}
 }
 
@@ -194,6 +194,10 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 	case MetricRelease:
 		collectSignalsInto(v.Left, signals, seen)
 		collectSignalsInto(v.Right, signals, seen)
+	default:
+		// Unknown formula types have no signals to collect. The Formula
+		// interface is sealed, so this branch is unreachable for all
+		// in-package types; it exists as a defensive no-op.
 	}
 }
 
@@ -248,6 +252,11 @@ func formatEnrichedReason(diag PropertyDiagnostic, values map[SignalName]Physica
 
 // --- Extraction cache ---
 
+// maxExtractCache bounds the extraction cache capacity. The cache is a plain
+// bounded map (entries are rejected when the map is full — no eviction).
+// 256 entries covers most production DBCs (typically 20–60 CAN IDs × 1–3
+// DLC variants) with headroom for bursty traffic patterns, while keeping
+// the per-Client memory footprint under ~100 KB for the map overhead.
 const maxExtractCache = 256
 
 type frameKey struct {

@@ -10,10 +10,10 @@ type AlwaysPresent struct{}
 
 func (AlwaysPresent) signalPresence() {}
 
-// Multiplexed means the signal is present only when a multiplexor has a specific value.
+// Multiplexed means the signal is present only when a multiplexor has one of the specified values.
 type Multiplexed struct {
 	Multiplexor SignalName
-	MuxValue    MultiplexValue
+	MuxValues   []MultiplexValue
 }
 
 func (Multiplexed) signalPresence() {}
@@ -112,9 +112,11 @@ func (m DbcMessage) MuxValues(multiplexor SignalName) []MultiplexValue {
 	var out []MultiplexValue
 	for _, s := range m.Signals {
 		if mux, ok := s.Presence.(Multiplexed); ok && mux.Multiplexor == multiplexor {
-			if !seen[mux.MuxValue] {
-				seen[mux.MuxValue] = true
-				out = append(out, mux.MuxValue)
+			for _, v := range mux.MuxValues {
+				if !seen[v] {
+					seen[v] = true
+					out = append(out, v)
+				}
 			}
 		}
 	}
@@ -131,12 +133,21 @@ func (m DbcMessage) SignalsForMuxValue(multiplexor SignalName, value MultiplexVa
 		case AlwaysPresent:
 			out = append(out, s)
 		case Multiplexed:
-			if p.Multiplexor == multiplexor && p.MuxValue == value {
+			if p.Multiplexor == multiplexor && containsMuxValue(p.MuxValues, value) {
 				out = append(out, s)
 			}
 		}
 	}
 	return out
+}
+
+func containsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
+	for _, mv := range vals {
+		if mv == v {
+			return true
+		}
+	}
+	return false
 }
 
 // SignalByName returns a deep copy of the first signal with the given name,

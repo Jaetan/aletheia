@@ -104,11 +104,11 @@ def main() -> int:
 
     # Warmup
     for _ in range(100):
-        client.build_frame(can_id=0x100, signals=signals)
+        client.build_frame(can_id=0x100, dlc=8, signals=signals)
 
     start = time.perf_counter()
     for _ in range(NUM_FRAMES):
-        client.build_frame(can_id=0x100, signals=signals)
+        client.build_frame(can_id=0x100, dlc=8, signals=signals)
     building_elapsed = time.perf_counter() - start
     building_fps = NUM_FRAMES / building_elapsed
 

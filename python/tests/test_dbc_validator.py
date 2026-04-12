@@ -9,6 +9,7 @@ min > max).
 import pytest
 
 from aletheia import AletheiaClient
+from aletheia.client._types import ProtocolError
 from aletheia.protocols import DBCDefinition, ValidationResponse
 
 
@@ -87,7 +88,7 @@ def _make_mux_signal(
         "maximum": 255.0,
         "unit": "",
         "multiplexor": multiplexor,
-        "multiplex_value": mux_value,
+        "multiplex_values": [mux_value],
     }
 
 
@@ -263,11 +264,12 @@ class TestSignalExceedsDLC:
         assert exceeds == []
 
     def test_big_endian_signal_exceeds_dlc(self) -> None:
-        # After CAN-FD: convertStartBit uses actual DLC, not hardcoded 8.
-        # For BE signals, the internal start bit is mapped within the frame,
-        # so exceeding DLC requires bitLength > dlc * 8.
-        # startBit=7, length=33 in dlc=4 → internal start wraps to 0,
-        # 0+33=33 > 4*8=32 → error
+        # BE signals that overflow the frame are now rejected by the JSON
+        # parser's `physicalGate` (PhysicallyValid enforcement) before the
+        # validator runs — system review §12.1, parser produces
+        # WellFormedDBCRT directly. This test documents the new layer:
+        # parse_signal_overflows_frame surfaces here instead of the
+        # downstream validator's signal_exceeds_dlc.
         dbc = _make_dbc([
             _make_message(0x100, "Msg1", [
                 _make_signal("TooWide", start_bit=7, length=33, byte_order="big_endian",
@@ -275,10 +277,8 @@ class TestSignalExceedsDLC:
             ], dlc=4),
         ])
         with AletheiaClient() as client:
-            result = client.validate_dbc(dbc)
-
-        codes = [i["code"] for i in result["issues"]]
-        assert "signal_exceeds_dlc" in codes
+            with pytest.raises(ProtocolError, match="overflows frame"):
+                client.validate_dbc(dbc)
 
     def test_big_endian_signal_fits_dlc(self) -> None:
         # BitsInFrame checks startBit + bitLength ≤ dlc * 8 on the

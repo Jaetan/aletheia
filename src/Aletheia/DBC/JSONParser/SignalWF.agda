@@ -11,27 +11,29 @@
 -- Role: Used by MessageWF for the signal-list component.
 module Aletheia.DBC.JSONParser.SignalWF where
 
-open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; suc; zero; z≤n; s≤s; _∸_)
+open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; _≤ᵇ_; _<ᵇ_; suc; zero; z≤n; s≤s; _∸_)
 open import Data.Nat.DivMod using (m%n<n)
-open import Data.Nat.Properties using (≤-trans; m∸n≤m; *-monoˡ-≤)
+open import Data.Nat.Properties using (≤-trans; m∸n≤m; *-monoˡ-≤; ≤ᵇ⇒≤; <ᵇ⇒<)
 open import Data.List using (List; []; _∷_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
-open import Data.Product using (_×_)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Bool using (Bool)
+open import Data.Bool using (Bool; true; false; T)
+open import Data.Unit using (tt)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; subst)
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
+open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
   lookupString; lookupBool; lookupNat; lookupRational; lookupArray)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList;
-  parseByteOrder; parseSigned; parseSignalPresence)
-open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal)
-open import Aletheia.Prelude using (max-physical-bits; 8≤max-physical-bits)
+  parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate)
+open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
+  PhysicallyValid; pv-LE; pv-BE)
+open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
 
 -- ============================================================================
 -- HELPER: convertStartBit bound for parser well-formedness
@@ -60,18 +62,77 @@ private
   convertSB-bound (suc n) BigEndian s l n≤64 s<mpb =
     convertStartBit-wf-bound (suc n) BigEndian s l (s≤s z≤n) (*-monoˡ-≤ 8 n≤64) s<mpb
 
+  -- Combined helper extracting BOTH WellFormedSignal AND PhysicallyValid in a
+  -- single pass after the 11-deep with-chain. Takes byte order as an explicit
+  -- parameter so we can pattern-match: LE makes physicalGate reduce to inj₂ rec
+  -- immediately; BE forces a 3-deep with-chain on the boolean checks.
+  -- Combining eliminates the duplicate postPresence-wf/postPresence-pv pair.
+  postPresence-wf×pv :
+    ∀ (frameBytes : ℕ) (ctx name : String) (bo : ByteOrder)
+      (sb-mod : ℕ) (sb-bound : sb-mod < max-physical-bits)
+      (bl-mod : ℕ) (bl-bound : bl-mod < suc max-physical-bits)
+      isSigned factor offset minimum maximum unit presence sig
+    → frameBytes ≤ 64
+    → addSignalContext ctx (physicalGate frameBytes bo
+        (convertStartBit frameBytes bo sb-mod bl-mod)
+        bl-mod
+        (record
+          { name = name
+          ; signalDef = record
+              { startBit = convertStartBit frameBytes bo sb-mod bl-mod
+              ; bitLength = bl-mod
+              ; isSigned = isSigned
+              ; factor = factor
+              ; offset = offset
+              ; minimum = minimum
+              ; maximum = maximum
+              }
+          ; byteOrder = bo
+          ; unit = unit
+          ; presence = presence
+          }))
+      ≡ inj₂ sig
+    → WellFormedSignal sig × PhysicallyValid frameBytes sig
+  postPresence-wf×pv frameBytes ctx name LittleEndian sb-mod sb-bound bl-mod bl-bound
+    isSigned factor offset minimum maximum unit presence sig fb≤64 refl =
+    record { def-wf = record
+      { startBit-bound = sb-bound
+      ; bitLength-bound = bl-bound
+      } }
+    , pv-LE refl
+  postPresence-wf×pv frameBytes ctx name BigEndian sb-mod sb-bound bl-mod bl-bound
+    isSigned factor offset minimum maximum unit presence sig fb≤64 eq
+    with 1 ≤ᵇ bl-mod in b1 | eq
+  ... | false | ()
+  ... | true | eq₁
+    with (convertStartBit frameBytes BigEndian sb-mod bl-mod + bl-mod) ∸ 1 <ᵇ frameBytes * 8 in b2 | eq₁
+  ... | false | ()
+  ... | true | eq₂
+    with bl-mod ∸ 1 ≤ᵇ convertStartBit frameBytes BigEndian sb-mod bl-mod in b3 | eq₂
+  ... | false | ()
+  ... | true | refl =
+    record { def-wf = record
+      { startBit-bound = convertSB-bound frameBytes BigEndian sb-mod bl-mod fb≤64 sb-bound
+      ; bitLength-bound = bl-bound
+      } }
+    , pv-BE refl
+        (≤ᵇ⇒≤ 1 bl-mod (subst T (sym b1) tt))
+        (<ᵇ⇒< (convertStartBit frameBytes BigEndian sb-mod bl-mod + bl-mod ∸ 1) (frameBytes * 8) (subst T (sym b2) tt))
+        (≤ᵇ⇒≤ (bl-mod ∸ 1) (convertStartBit frameBytes BigEndian sb-mod bl-mod) (subst T (sym b3) tt))
+
 -- ============================================================================
--- SIGNAL FIELDS WELL-FORMEDNESS
+-- COMBINED SIGNAL FIELDS WELL-FORMEDNESS + PHYSICAL VALIDITY
 -- ============================================================================
 
--- If parseSignalFields succeeds, the result is well-formed.
+-- If parseSignalFields succeeds, the result is both well-formed AND physically valid.
+-- A single 11-deep with-chain (finding A15: eliminates the duplicate -wf/-pv chains).
 -- Strategy: nested with on each lookup/parse step. Failure cases are absurd.
--- In the final success case, startBit = sb % max-physical-bits and bitLength = bl % (suc max-physical-bits),
--- so m%n<n provides the bounds. For BE, convertSB-bound handles startBit.
-parseSignalFields-wf : ∀ frameBytes ctx name obj sig
+-- In the final success case, postPresence-wf×pv extracts both properties.
+parseSignalFields-wf×pv : ∀ frameBytes ctx name obj sig
   → frameBytes ≤ 64
-  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig → WellFormedSignal sig
-parseSignalFields-wf frameBytes ctx name obj sig fb≤64 eq
+  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig
+  → WellFormedSignal sig × PhysicallyValid frameBytes sig
+parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
   with lookupNat "startBit" obj | eq
 ... | nothing | ()
 ... | just sb | eq₁
@@ -104,11 +165,24 @@ parseSignalFields-wf frameBytes ctx name obj sig fb≤64 eq
 ...                   | just unit | eq₁₀
                     with parseSignalPresence obj | eq₁₀
 ...                     | inj₁ _ | ()
-...                     | inj₂ presence | refl =
-                          record { def-wf = record
-                            { startBit-bound = convertSB-bound frameBytes bo (sb % max-physical-bits) (bl % suc max-physical-bits) fb≤64 (m%n<n sb max-physical-bits)
-                            ; bitLength-bound = m%n<n bl (suc max-physical-bits)
-                            } }
+...                     | inj₂ presence | eq₁₁ =
+                          postPresence-wf×pv frameBytes ctx name bo
+                            (sb % max-physical-bits) (m%n<n sb max-physical-bits)
+                            (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
+                            isSigned factor offset minimum maximum unit presence sig fb≤64 eq₁₁
+
+-- Projections of the combined proof (preserve backward-compatible API).
+parseSignalFields-wf : ∀ frameBytes ctx name obj sig
+  → frameBytes ≤ 64
+  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig → WellFormedSignal sig
+parseSignalFields-wf frameBytes ctx name obj sig fb≤64 eq =
+  proj₁ (parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq)
+
+parseSignalFields-pv : ∀ frameBytes ctx name obj sig
+  → frameBytes ≤ 64
+  → parseSignalFields frameBytes ctx name obj ≡ inj₂ sig → PhysicallyValid frameBytes sig
+parseSignalFields-pv frameBytes ctx name obj sig fb≤64 eq =
+  proj₂ (parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq)
 
 -- ============================================================================
 -- SIGNAL WELL-FORMEDNESS
@@ -145,3 +219,36 @@ parseSignalList-wf frameBytes ctx (JBool _   ∷ _) idx sigs fb≤64 ()
 parseSignalList-wf frameBytes ctx (JNumber _ ∷ _) idx sigs fb≤64 ()
 parseSignalList-wf frameBytes ctx (JString _ ∷ _) idx sigs fb≤64 ()
 parseSignalList-wf frameBytes ctx (JArray _  ∷ _) idx sigs fb≤64 ()
+
+-- ============================================================================
+-- SIGNAL PHYSICAL VALIDITY
+-- ============================================================================
+
+-- If parseSignal succeeds, the result is physically valid.
+parseSignal-pv : ∀ frameBytes ctx obj sig
+  → frameBytes ≤ 64
+  → parseSignal frameBytes ctx obj ≡ inj₂ sig → PhysicallyValid frameBytes sig
+parseSignal-pv frameBytes ctx obj sig fb≤64 eq
+  with lookupString "name" obj | eq
+... | nothing | ()
+... | just name | eq' = parseSignalFields-pv frameBytes _ name obj sig fb≤64 eq'
+
+-- If parseSignalList succeeds, all signals are physically valid.
+parseSignalList-pv : ∀ frameBytes ctx jsons idx sigs
+  → frameBytes ≤ 64
+  → parseSignalList frameBytes ctx jsons idx ≡ inj₂ sigs
+  → All (PhysicallyValid frameBytes) sigs
+parseSignalList-pv frameBytes ctx [] idx .[] fb≤64 refl = []
+parseSignalList-pv frameBytes ctx (JObject sigObj ∷ rest) idx sigs fb≤64 eq
+  with parseSignal frameBytes ctx sigObj in sig-eq | eq
+... | inj₁ _ | ()
+... | inj₂ sig | eq₁
+  with parseSignalList frameBytes ctx rest (idx + 1) in rest-eq | eq₁
+...   | inj₁ _ | ()
+...   | inj₂ sigs' | refl = parseSignal-pv frameBytes ctx sigObj sig fb≤64 sig-eq ∷
+                             parseSignalList-pv frameBytes ctx rest (idx + 1) sigs' fb≤64 rest-eq
+parseSignalList-pv frameBytes ctx (JNull     ∷ _) idx sigs fb≤64 ()
+parseSignalList-pv frameBytes ctx (JBool _   ∷ _) idx sigs fb≤64 ()
+parseSignalList-pv frameBytes ctx (JNumber _ ∷ _) idx sigs fb≤64 ()
+parseSignalList-pv frameBytes ctx (JString _ ∷ _) idx sigs fb≤64 ()
+parseSignalList-pv frameBytes ctx (JArray _  ∷ _) idx sigs fb≤64 ()

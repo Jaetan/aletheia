@@ -5,6 +5,9 @@
 #include <cstdint>
 #include <format>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <variant>
 #include <vector>
 
 namespace aletheia {
@@ -23,7 +26,7 @@ auto format_timebound(Timestamp t) -> std::string {
         return std::format("{}s ", us / us_per_second);
     if (us % us_per_millisecond == 0)
         return std::format("{}ms ", us / us_per_millisecond);
-    return std::format("{}us ", us);
+    return std::format("{}\u03bcs ", us);
 }
 
 auto format_predicate(const Predicate& p) -> std::string {
@@ -51,10 +54,10 @@ auto format_predicate(const Predicate& p) -> std::string {
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
                 return v.delta.get() >= 0
-                    ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},
-                                  format_value(v.delta.get()))
-                    : std::format("{}{} <= {}", "\xce\x94", std::string_view{v.signal},
-                                  format_value(v.delta.get()));
+                           ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},
+                                         format_value(v.delta.get()))
+                           : std::format("{}{} <= {}", "\xce\x94", std::string_view{v.signal},
+                                         format_value(v.delta.get()));
             else if constexpr (std::is_same_v<T, StableWithin>)
                 return std::format("|{}{}| <= {}", "\xce\x94", std::string_view{v.signal},
                                    format_value(v.tolerance.get()));
@@ -96,48 +99,64 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
 
 } // namespace
 
-auto format_formula(const LtlFormula& f) -> std::string {
+// Inner formatter: parenthesize_binary wraps binary operators in parens when
+// they appear as children of other binary operators, matching Go's behavior.
+static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
     return std::visit(
-        [](const auto& v) -> std::string {
+        [parenthesize_binary](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Atomic>)
                 return format_predicate(v.predicate);
             else if constexpr (std::is_same_v<T, Not>)
-                return "not(" + format_formula(*v.formula) + ")";
-            else if constexpr (std::is_same_v<T, And>)
-                return format_formula(*v.left) + " and " + format_formula(*v.right);
-            else if constexpr (std::is_same_v<T, Or>)
-                return format_formula(*v.left) + " or " + format_formula(*v.right);
-            else if constexpr (std::is_same_v<T, Next>)
-                return "next(" + format_formula(*v.formula) + ")";
+                return "not(" + format_formula_inner(*v.formula, false) + ")";
+            else if constexpr (std::is_same_v<T, And>) {
+                auto s = format_formula_inner(*v.left, true) + " and " +
+                         format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else if constexpr (std::is_same_v<T, Or>) {
+                auto s = format_formula_inner(*v.left, true) + " or " +
+                         format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else if constexpr (std::is_same_v<T, Next>)
+                return "next(" + format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, Always>) {
                 // Detect Never pattern: Always{Not{Atomic{p}}}
                 if (auto* n = std::get_if<Not>(v.formula.get()))
                     if (auto* a = std::get_if<Atomic>(n->formula.get()))
                         return "never " + format_predicate(a->predicate);
-                return "always(" + format_formula(*v.formula) + ")";
+                return "always(" + format_formula_inner(*v.formula, false) + ")";
             } else if constexpr (std::is_same_v<T, Eventually>)
-                return "eventually(" + format_formula(*v.formula) + ")";
-            else if constexpr (std::is_same_v<T, Until>)
-                return format_formula(*v.left) + " until " + format_formula(*v.right);
-            else if constexpr (std::is_same_v<T, Release>)
-                return format_formula(*v.left) + " release " + format_formula(*v.right);
-            else if constexpr (std::is_same_v<T, MetricAlways>)
+                return "eventually(" + format_formula_inner(*v.formula, false) + ")";
+            else if constexpr (std::is_same_v<T, Until>) {
+                auto s = format_formula_inner(*v.left, true) + " until " +
+                         format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else if constexpr (std::is_same_v<T, Release>) {
+                auto s = format_formula_inner(*v.left, true) + " release " +
+                         format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else if constexpr (std::is_same_v<T, MetricAlways>)
                 return "always within " + format_timebound(v.bound) + "(" +
-                       format_formula(*v.formula) + ")";
+                       format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, MetricEventually>)
                 return "eventually within " + format_timebound(v.bound) + "(" +
-                       format_formula(*v.formula) + ")";
-            else if constexpr (std::is_same_v<T, MetricUntil>)
-                return format_formula(*v.left) + " until within " + format_timebound(v.bound) +
-                       format_formula(*v.right);
-            else if constexpr (std::is_same_v<T, MetricRelease>)
-                return format_formula(*v.left) + " release within " + format_timebound(v.bound) +
-                       format_formula(*v.right);
-            else
+                       format_formula_inner(*v.formula, false) + ")";
+            else if constexpr (std::is_same_v<T, MetricUntil>) {
+                auto s = format_formula_inner(*v.left, true) + " until within " +
+                         format_timebound(v.bound) + format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else if constexpr (std::is_same_v<T, MetricRelease>) {
+                auto s = format_formula_inner(*v.left, true) + " release within " +
+                         format_timebound(v.bound) + format_formula_inner(*v.right, true);
+                return parenthesize_binary ? "(" + s + ")" : s;
+            } else
                 static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
         },
         f);
+}
+
+auto format_formula(const LtlFormula& f) -> std::string {
+    return format_formula_inner(f, false);
 }
 
 auto collect_signals(const LtlFormula& f) -> std::vector<SignalName> {

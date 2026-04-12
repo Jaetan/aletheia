@@ -57,7 +57,15 @@ type Violation struct {
 
 func (Violation) frameResponse() {}
 
-// Verdict is the final determination for a property.
+// Verdict is the final determination for a property at end-of-stream.
+//
+// Unresolved corresponds to the Agda coalgebra's three-valued Kleene
+// "Unsure" verdict: the property was neither proved to hold nor proved to
+// fail on the observed trace. The typical cause is an atomic predicate
+// whose signal was never observed (e.g. Always(p) where no frame carrying
+// p's signal arrived before end-of-stream). The denotational semantics
+// agrees this is Unknown, so it is reported as a distinct verdict rather
+// than collapsed to Fails.
 type Verdict int
 
 const (
@@ -65,15 +73,19 @@ const (
 	Holds Verdict = iota
 	// Fails means the property was violated.
 	Fails
+	// Unresolved means the verdict is Unknown (three-valued Kleene).
+	Unresolved
 )
 
-// String returns "holds", "fails", or "unknown".
+// String returns "holds", "fails", "unresolved", or "unknown".
 func (v Verdict) String() string {
 	switch v {
 	case Holds:
 		return "holds"
 	case Fails:
 		return "fails"
+	case Unresolved:
+		return "unresolved"
 	default:
 		return "unknown"
 	}
@@ -119,23 +131,23 @@ func (s IssueSeverity) String() string {
 type IssueCode string
 
 const (
-	IssueDuplicateMessageID          IssueCode = "duplicate_message_id"           // Two messages share the same CAN ID.
-	IssueDuplicateMessageName        IssueCode = "duplicate_message_name"         // Two messages share the same name.
-	IssueDuplicateSignalName         IssueCode = "duplicate_signal_name"          // Two signals in the same message share a name.
-	IssueFactorZero                  IssueCode = "factor_zero"                    // Signal scaling factor is zero (division by zero).
-	IssueMultiplexorNotFound         IssueCode = "multiplexor_not_found"          // Multiplexed signal references a missing multiplexor.
-	IssueMultiplexorNotAlwaysPresent IssueCode = "multiplexor_not_always_present" // Multiplexor signal is itself conditional.
-	IssueGlobalNameCollision         IssueCode = "global_name_collision"          // Signal name is not unique across all messages.
-	IssueMinExceedsMax               IssueCode = "min_exceeds_max"                // Signal physical min exceeds max.
-	IssueSignalExceedsDLC            IssueCode = "signal_exceeds_dlc"             // Signal bit range extends beyond the message DLC.
-	IssueSignalOverlap               IssueCode = "signal_overlap"                 // Two signals occupy overlapping bit positions.
-	IssueBitLengthZero               IssueCode = "bit_length_zero"                // Signal has zero bit length.
-	IssueOffsetScaleRange            IssueCode = "offset_scale_range"             // Offset/scale combination produces out-of-range values.
-	IssueEmptyMessage                IssueCode = "empty_message"                  // Message declares no signals.
-	IssueStartBitOutOfRange          IssueCode = "start_bit_out_of_range"         // Signal start bit exceeds frame capacity.
-	IssueBitLengthExcessive          IssueCode = "bit_length_excessive"           // Signal bit length exceeds 64 bits.
-	IssueMultiplexorNonUnitScaling   IssueCode = "multiplexor_non_unit_scaling"   // Multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
-	IssueUnknown                     IssueCode = "unknown"                        // Unrecognized issue code from the Agda core.
+	IssueDuplicateMessageID        IssueCode = "duplicate_message_id"         // Two messages share the same CAN ID.
+	IssueDuplicateMessageName      IssueCode = "duplicate_message_name"       // Two messages share the same name.
+	IssueDuplicateSignalName       IssueCode = "duplicate_signal_name"        // Two signals in the same message share a name.
+	IssueFactorZero                IssueCode = "factor_zero"                  // Signal scaling factor is zero (division by zero).
+	IssueMultiplexorNotFound       IssueCode = "multiplexor_not_found"        // Multiplexed signal references a missing multiplexor.
+	IssueMultiplexorCycle          IssueCode = "multiplexor_cycle"            // Multiplexor chain references itself (cycle).
+	IssueGlobalNameCollision       IssueCode = "global_name_collision"        // Signal name is not unique across all messages.
+	IssueMinExceedsMax             IssueCode = "min_exceeds_max"              // Signal physical min exceeds max.
+	IssueSignalExceedsDLC          IssueCode = "signal_exceeds_dlc"           // Signal bit range extends beyond the message DLC.
+	IssueSignalOverlap             IssueCode = "signal_overlap"               // Two signals occupy overlapping bit positions.
+	IssueBitLengthZero             IssueCode = "bit_length_zero"              // Signal has zero bit length.
+	IssueOffsetScaleRange          IssueCode = "offset_scale_range"           // Offset/scale combination produces out-of-range values.
+	IssueEmptyMessage              IssueCode = "empty_message"                // Message declares no signals.
+	IssueStartBitOutOfRange        IssueCode = "start_bit_out_of_range"       // Signal start bit exceeds frame capacity.
+	IssueBitLengthExcessive        IssueCode = "bit_length_excessive"         // Signal bit length exceeds 64 bits.
+	IssueMultiplexorNonUnitScaling IssueCode = "multiplexor_non_unit_scaling" // Multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
+	IssueUnknown                   IssueCode = "unknown"                      // Unrecognized issue code from the Agda core.
 )
 
 // ValidationIssue is a single issue found during DBC validation.

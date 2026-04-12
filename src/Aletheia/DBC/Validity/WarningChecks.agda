@@ -13,7 +13,7 @@ open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
   ; checkMinMaxSig; checkAllMinMax
-  ; checkDupNamePair; checkDupNameAgainstList
+  ; checkDuplicateNamePair; checkDuplicateNameAgainstList
   ; checkDuplicateMessageNames
   ; checkRangeLow; checkRangeHigh; checkRangeBounds; isNegativeℚ
   ; checkOffsetScaleRange; checkAllOffsetScaleRange
@@ -42,7 +42,7 @@ open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.List.Relation.Unary.Any using (Any)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
-open import Data.String.Properties using (_≟_)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
@@ -53,10 +53,10 @@ open import Data.Empty using (⊥-elim)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary using (yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl)
-open import Data.List.Membership.DecPropositional _≟_ using (_∈?_)
+open import Data.List.Membership.DecPropositional _≟ₛ_ using (_∈?_)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Aletheia.Protocol.JSON using (ℕtoℚ)
-open import Aletheia.Prelude using (max-physical-bits)
+open import Aletheia.Prelude using (ℕtoℚ)
+open import Aletheia.CAN.Constants using (max-physical-bits)
 
 private
   -- Severity predicate shorthand
@@ -203,8 +203,8 @@ checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
 -- CHECK 11: DUPLICATE MESSAGE NAME — Severity
 -- ============================================================================
 
-checkDupNamePair-allW : ∀ m1 m2 → All W (checkDupNamePair m1 m2)
-checkDupNamePair-allW m1 m2 with DBCMessage.name m1 ≟ DBCMessage.name m2
+checkDuplicateNamePair-allW : ∀ m1 m2 → All W (checkDuplicateNamePair m1 m2)
+checkDuplicateNamePair-allW m1 m2 with DBCMessage.name m1 ≟ₛ DBCMessage.name m2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
@@ -213,47 +213,47 @@ checkDuplicateMessageNames-allW [] = []
 checkDuplicateMessageNames-allW (m ∷ rest) =
   ++⁺ (go m rest) (checkDuplicateMessageNames-allW rest)
   where
-    go : ∀ m rest → All W (checkDupNameAgainstList m rest)
+    go : ∀ m rest → All W (checkDuplicateNameAgainstList m rest)
     go _ [] = []
-    go m (other ∷ rest) = ++⁺ (checkDupNamePair-allW m other) (go m rest)
+    go m (other ∷ rest) = ++⁺ (checkDuplicateNamePair-allW m other) (go m rest)
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME — Soundness/Completeness
 -- ============================================================================
 
-checkDupNamePair-sound : ∀ m1 m2 →
-  checkDupNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
-checkDupNamePair-sound m1 m2 =
-  rejectDec-sound (DBCMessage.name m1 ≟ DBCMessage.name m2) _
+checkDuplicateNamePair-sound : ∀ m1 m2 →
+  checkDuplicateNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
+checkDuplicateNamePair-sound m1 m2 =
+  rejectDec-sound (DBCMessage.name m1 ≟ₛ DBCMessage.name m2) _
 
-checkDupNamePair-complete : ∀ m1 m2 →
-  DistinctMessageNames m1 m2 → checkDupNamePair m1 m2 ≡ []
-checkDupNamePair-complete m1 m2 =
-  rejectDec-complete (DBCMessage.name m1 ≟ DBCMessage.name m2) _
+checkDuplicateNamePair-complete : ∀ m1 m2 →
+  DistinctMessageNames m1 m2 → checkDuplicateNamePair m1 m2 ≡ []
+checkDuplicateNamePair-complete m1 m2 =
+  rejectDec-complete (DBCMessage.name m1 ≟ₛ DBCMessage.name m2) _
 
-checkDupNameAgainstList-sound : ∀ m rest →
-  checkDupNameAgainstList m rest ≡ [] →
+checkDuplicateNameAgainstList-sound : ∀ m rest →
+  checkDuplicateNameAgainstList m rest ≡ [] →
   All (DistinctMessageNames m) rest
-checkDupNameAgainstList-sound m =
-  liftConcatMap-sound (checkDupNamePair m) (checkDupNamePair-sound m)
+checkDuplicateNameAgainstList-sound m =
+  liftConcatMap-sound (checkDuplicateNamePair m) (checkDuplicateNamePair-sound m)
 
-checkDupNameAgainstList-complete : ∀ m rest →
+checkDuplicateNameAgainstList-complete : ∀ m rest →
   All (DistinctMessageNames m) rest →
-  checkDupNameAgainstList m rest ≡ []
-checkDupNameAgainstList-complete m =
-  liftConcatMap-complete (checkDupNamePair m) (checkDupNamePair-complete m)
+  checkDuplicateNameAgainstList m rest ≡ []
+checkDuplicateNameAgainstList-complete m =
+  liftConcatMap-complete (checkDuplicateNamePair m) (checkDuplicateNamePair-complete m)
 
 checkDuplicateMessageNames-sound : ∀ msgs →
   checkDuplicateMessageNames msgs ≡ [] →
   AllPairs DistinctMessageNames msgs
 checkDuplicateMessageNames-sound =
-  liftTriangular-sound checkDupNamePair checkDupNamePair-sound
+  liftTriangular-sound checkDuplicateNamePair checkDuplicateNamePair-sound
 
 checkDuplicateMessageNames-complete : ∀ msgs →
   AllPairs DistinctMessageNames msgs →
   checkDuplicateMessageNames msgs ≡ []
 checkDuplicateMessageNames-complete =
-  liftTriangular-complete checkDupNamePair checkDupNamePair-complete
+  liftTriangular-complete checkDuplicateNamePair checkDuplicateNamePair-complete
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE — Severity

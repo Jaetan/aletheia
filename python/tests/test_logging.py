@@ -13,6 +13,7 @@ import pytest
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.protocols import DBCDefinition
 
 
 class _Capture(logging.Handler):
@@ -27,7 +28,7 @@ class _Capture(logging.Handler):
 
 
 @pytest.fixture
-def simple_dbc() -> dict:
+def simple_dbc() -> DBCDefinition:
     """Create a simple DBC for testing."""
     return {
         "version": "1.0",
@@ -74,7 +75,7 @@ def capture() -> _Capture:
 class TestLoggingStreamingEvents:
     """Verify that streaming workflow emits the expected log events."""
 
-    def test_no_logging_without_handler(self, simple_dbc: dict) -> None:
+    def test_no_logging_without_handler(self, simple_dbc: DBCDefinition) -> None:
         """Without a handler installed, nothing crashes."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
@@ -89,7 +90,7 @@ class TestLoggingStreamingEvents:
             client.end_stream()
 
     def test_streaming_ack_events(
-        self, simple_dbc: dict, capture: _Capture,
+        self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """properties.set, stream.started, frame.processed(ack), stream.ended."""
         with AletheiaClient() as client:
@@ -127,7 +128,7 @@ class TestLoggingStreamingEvents:
         assert "numFails=0" in ended_msgs[0]
 
     def test_streaming_violation_events(
-        self, simple_dbc: dict, capture: _Capture,
+        self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """Violation path logs frame.processed with response=violation."""
         with AletheiaClient() as client:
@@ -153,7 +154,7 @@ class TestLoggingStreamingEvents:
         assert any(m.startswith("cache.miss") for m in messages)
 
     def test_stream_ended_counts_fails(
-        self, simple_dbc: dict, capture: _Capture,
+        self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """stream.ended includes correct numFails count.
 
@@ -186,7 +187,7 @@ class TestLoggingStreamingEvents:
         assert "numFails=0" in ended_msgs[0]
 
     def test_log_levels(
-        self, simple_dbc: dict, capture: _Capture,
+        self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """Verify correct log levels for each event type."""
         with AletheiaClient() as client:

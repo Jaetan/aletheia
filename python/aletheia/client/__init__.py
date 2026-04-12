@@ -17,16 +17,16 @@ Example:
         speed = result.get("VehicleSpeed", 0.0)
 
         # Build a frame from signal values
-        frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 50.0})
+        frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50.0})
 
         # Streaming LTL checking
         client.set_properties([Signal("VehicleSpeed").less_than(120).always().to_dict()])
         client.start_stream()
 
-        for ts, can_id, dlc, data in frames:
+        for ts, can_id, dlc, data, ext in frames:
             # Can still use signal operations while streaming!
-            modified = client.update_frame(can_id, dlc, data, {"VehicleSpeed": 130.0})
-            response = client.send_frame(ts, can_id, dlc, modified)
+            modified = client.update_frame(can_id, dlc, data, {"VehicleSpeed": 130.0}, extended=ext)
+            response = client.send_frame(ts, can_id, dlc, modified, extended=ext)
 
         client.end_stream()
 """
@@ -35,6 +35,7 @@ from ._client import AletheiaClient
 from ._types import (
     AletheiaError,
     BatchError,
+    CANFrameTuple,
     FrameResponse,
     ProcessError,
     ProtocolError,
@@ -45,6 +46,6 @@ from ._types import (
 
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
-    "dlc_to_bytes", "FrameResponse", "ProcessError", "ProtocolError",
-    "SignalExtractionResult",
+    "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "ProcessError",
+    "ProtocolError", "SignalExtractionResult",
 ]

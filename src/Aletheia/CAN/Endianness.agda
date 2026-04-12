@@ -8,6 +8,20 @@
 --
 -- Architecture: Uses BitVec for structural bit operations, not arithmetic.
 -- Proofs live in Aletheia.CAN.Endianness.Properties (separate module).
+--
+-- Public API (all used by at least one downstream module):
+--   Types:       ByteOrder, LittleEndian, BigEndian, _≟-ByteOrder_
+--   Bit I/O:     extractBits, extractRaw, extractRaw-extractBits, injectBits,
+--                lookupSafe, updateSafe
+--   Byte conv:   byteToBitVec, bitVecToByte
+--   Byte order:  isBigEndian, swapBytes, payloadIso, injectPayload
+--   Geometry:    physicalBitPos, convertStartBit, unconvertStartBit
+--   Proof util:  not-in-interval
+--
+-- All internal helpers (shiftR, dropVec, extractCore, shiftR-≡, bit-equiv,
+-- extractCore-extractBits, lookupSafe-dropVec, extractCore-dropVec) are in
+-- a private block and not exported. All downstream open-import statements
+-- use explicit `using` lists.
 module Aletheia.CAN.Endianness where
 
 open import Aletheia.CAN.Frame using (Byte)
@@ -46,7 +60,15 @@ bitVecToByte bits = bitVecToℕ bits
 -- ============================================================================
 
 -- Safe lookup: returns 0 for out-of-bounds indices.
--- Callers validated by DBC condition 6 (startBit + bitLength ≤ dlc × 8).
+--
+-- Dead default branch: the `zero _ _ = 0` clause (and the `suc n (suc m) (_ ∷ bs)`
+-- tail recursion that eventually lands on it) is only reached when the index
+-- exceeds the vector length. `Aletheia.DBC.Validator.Checks.checkSignalExceedsDLC`
+-- (DBC validation check 6) rejects DBCs where `startBit + bitLength > dlc * 8`,
+-- so by the time `extractRaw` / `extractCore` compute `byteIdx = startBit / 8`
+-- on a validator-accepted DBC the index is always in bounds. Returning 0 is
+-- a safe operational fallback for tests/synthetic inputs that bypass the
+-- validator — no client-facing code path exercises the dead default.
 lookupSafe : (n : ℕ) → ℕ → Vec Byte n → Byte
 lookupSafe zero _ _ = 0
 lookupSafe (suc n) zero (b ∷ _) = b

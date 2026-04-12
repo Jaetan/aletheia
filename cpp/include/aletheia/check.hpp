@@ -14,8 +14,11 @@
 //
 #pragma once
 
-#include <aletheia/ltl.hpp>
-#include <aletheia/types.hpp>
+// check.hpp wraps LtlFormula construction and uses SignalName/PhysicalValue
+// throughout its builder API, so callers that include check.hpp always need
+// the ltl and types vocabulary.
+#include <aletheia/ltl.hpp>   // IWYU pragma: export
+#include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <chrono>
 #include <format>
@@ -52,6 +55,8 @@ public:
     [[nodiscard]] auto to_formula() -> std::optional<LtlFormula> {
         return std::exchange(formula_, std::nullopt);
     }
+
+    [[nodiscard]] auto formula() const -> const std::optional<LtlFormula>& { return formula_; }
 
     [[nodiscard]] auto name() const -> const std::string& { return name_; }
     [[nodiscard]] auto check_severity() const -> const std::string& { return check_severity_; }
@@ -114,34 +119,34 @@ class CheckSignal {
 public:
     explicit CheckSignal(std::string name) : name_(std::move(name)) {}
 
-    auto never_exceeds(PhysicalValue value) const -> CheckResult {
+    [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{name_}, value)));
         return {std::move(f), name_, std::format("< {:g}", value.get())};
     }
 
-    auto never_below(PhysicalValue value) const -> CheckResult {
+    [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::at_least(SignalName{name_}, value)));
         return {std::move(f), name_, std::format(">= {:g}", value.get())};
     }
 
-    auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
+    [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
         return {std::move(f), name_, std::format("between {:g} and {:g}", lo.get(), hi.get())};
     }
 
-    auto never_equals(PhysicalValue value) const -> CheckResult {
+    [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
         return {std::move(f), name_, std::format("!= {:g}", value.get())};
     }
 
-    auto equals(PhysicalValue value) const -> CheckSignalPredicate {
+    [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
         return {std::move(f), name_, std::format("= {:g}", value.get())};
     }
 
-    auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
+    [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
         if (lo.get() > hi.get())
             throw std::invalid_argument("settles_between: lo must be <= hi");
         return {name_, lo, hi};
@@ -189,17 +194,17 @@ public:
         : trigger_(std::move(trigger))
         , then_name_(std::move(then_signal_name)) {}
 
-    auto equals(PhysicalValue value) const -> ThenCondition {
+    [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
                 std::format("= {:g}", value.get())};
     }
 
-    auto exceeds(PhysicalValue value) const -> ThenCondition {
+    [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
                 std::format("> {:g}", value.get())};
     }
 
-    auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
+    [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
@@ -215,7 +220,7 @@ class WhenCondition {
 public:
     explicit WhenCondition(Predicate trigger) : trigger_(std::move(trigger)) {}
 
-    auto then(std::string signal_name) const -> ThenSignal {
+    [[nodiscard]] auto then(std::string signal_name) const -> ThenSignal {
         return {trigger_, std::move(signal_name)};
     }
 
@@ -227,15 +232,15 @@ class WhenSignal {
 public:
     explicit WhenSignal(std::string name) : name_(std::move(name)) {}
 
-    auto exceeds(PhysicalValue value) const -> WhenCondition {
+    [[nodiscard]] auto exceeds(PhysicalValue value) const -> WhenCondition {
         return WhenCondition{ltl::greater_than(SignalName{name_}, value)};
     }
 
-    auto equals(PhysicalValue value) const -> WhenCondition {
+    [[nodiscard]] auto equals(PhysicalValue value) const -> WhenCondition {
         return WhenCondition{ltl::equals(SignalName{name_}, value)};
     }
 
-    auto drops_below(PhysicalValue value) const -> WhenCondition {
+    [[nodiscard]] auto drops_below(PhysicalValue value) const -> WhenCondition {
         return WhenCondition{ltl::less_than(SignalName{name_}, value)};
     }
 

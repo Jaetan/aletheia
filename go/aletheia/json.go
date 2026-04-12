@@ -64,6 +64,36 @@ func serializeDataFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) stri
 	return buf.String()
 }
 
+// serializeErrorEvent serializes a CAN error event as JSON. Used by the
+// MockBackend so tests can observe error events alongside data frames.
+func serializeErrorEvent(ts Timestamp) string {
+	var buf strings.Builder
+	buf.Grow(48)
+	buf.WriteString(`{"type":"error","timestamp":`)
+	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
+	buf.WriteByte('}')
+	return buf.String()
+}
+
+// serializeRemoteEvent serializes a CAN remote frame event as JSON. Used by the
+// MockBackend so tests can observe remote events alongside data frames.
+func serializeRemoteEvent(ts Timestamp, id CanID) string {
+	var buf strings.Builder
+	buf.Grow(80)
+	buf.WriteString(`{"type":"remote","timestamp":`)
+	buf.WriteString(strconv.FormatInt(ts.Microseconds, 10))
+	buf.WriteString(`,"id":`)
+	buf.WriteString(strconv.FormatUint(uint64(id.Value()), 10))
+	buf.WriteString(`,"extended":`)
+	if id.IsExtended() {
+		buf.WriteString("true")
+	} else {
+		buf.WriteString("false")
+	}
+	buf.WriteByte('}')
+	return buf.String()
+}
+
 func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
@@ -90,7 +120,11 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			}
 			if mux, ok := sig.Presence.(Multiplexed); ok {
 				s["multiplexor"] = string(mux.Multiplexor)
-				s["multiplex_value"] = mux.MuxValue
+				vals := make([]uint32, len(mux.MuxValues))
+				for i, v := range mux.MuxValues {
+					vals[i] = uint32(v)
+				}
+				s["multiplex_values"] = vals
 			} else {
 				s["presence"] = "always"
 			}
@@ -110,17 +144,6 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		"version":  dbc.Version,
 		"messages": msgs,
 	}, nil
-}
-
-func serializeSignalValues(values []SignalValue) []map[string]any {
-	result := make([]map[string]any, 0, len(values))
-	for _, sv := range values {
-		result = append(result, map[string]any{
-			"name":  string(sv.Name),
-			"value": float64(sv.Value),
-		})
-	}
-	return result
 }
 
 func serializePredicate(p Predicate) (map[string]any, error) {
@@ -158,8 +181,6 @@ func validateTimeBound(t TimeBound) error {
 	}
 	return nil
 }
-
-const maxFormulaDepth = 100
 
 func serializeFormula(f Formula) (map[string]any, error) {
 	return serializeFormulaDepth(f, 0)
@@ -464,6 +485,28 @@ func parseSuccessResponse(raw string) error {
 	return protocolError(fmt.Sprintf("unexpected status: %q", status))
 }
 
+// parseEventAck parses a response that should be either "ack" or "success".
+// Used for send_error and send_remote responses where the Agda core returns
+// "ack" (real FFI) but the base IBackend default returns "success".
+func parseEventAck(raw string) error {
+	// Fast path: byte-level check before JSON parsing (~99% of real traffic).
+	if raw == ackCompact || raw == ackSpaced {
+		return nil
+	}
+	m, err := parseResponse(raw)
+	if err != nil {
+		return err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return err
+	}
+	status := getString(m, "status")
+	if status == "ack" || status == "success" {
+		return nil
+	}
+	return protocolError(fmt.Sprintf("unexpected status: %q", status))
+}
+
 func parseValidationResponse(raw string) (*ValidationResult, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -639,7 +682,7 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		code := buf[off+2]
 		off += 3
 		name := signalNameByIndex(names, idx)
-		msg := fmt.Sprintf("Unknown error code %d", code)
+		msg := fmt.Sprintf("unknown error code %d", code)
 		if int(code) < len(extractionErrorMessages) {
 			msg = extractionErrorMessages[code]
 		}
@@ -653,6 +696,13 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 		idx := binary.LittleEndian.Uint16(buf[off : off+2])
 		off += 2
 		result.Absent = append(result.Absent, signalNameByIndex(names, idx))
+	}
+
+	// Reject trailing bytes: the header (6B) + all entries must consume the whole
+	// buffer. Extra bytes indicate a protocol mismatch between Agda writer and Go
+	// reader and would silently hide bugs if ignored.
+	if off != len(buf) {
+		return nil, protocolError(fmt.Sprintf("extraction binary buffer has %d trailing bytes", len(buf)-off))
 	}
 
 	result.buildIndex()
@@ -669,8 +719,11 @@ func signalNameByIndex(names []string, idx uint16) SignalName {
 // Ack fast path constants — avoid json.Unmarshal for ~99% of streaming frames.
 // The Agda core emits exactly {"status":"ack"} (compact). The spaced variant
 // covers json.Marshal output used by MockBackend.
-const ackCompact = `{"status":"ack"}`
-const ackSpaced = `{"status": "ack"}`
+const (
+	maxFormulaDepth = 100
+	ackCompact      = `{"status":"ack"}`
+	ackSpaced       = `{"status": "ack"}`
+)
 
 func parseFrameResponse(raw string) (FrameResponse, error) {
 	// Fast path: byte-level check before JSON parsing.
@@ -758,6 +811,8 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 		verdict = Holds
 	case "fails":
 		verdict = Fails
+	case "unresolved":
+		verdict = Unresolved
 	default:
 		return zero, protocolError(fmt.Sprintf("unknown verdict status: %q", entryStatus))
 	}
@@ -971,15 +1026,23 @@ func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 	if muxName == "" {
 		return AlwaysPresent{}, nil
 	}
-	muxVal, err := parseNumberAsInt64(j["multiplex_value"])
-	if err != nil {
-		return nil, wrapProtocol("invalid multiplex_value", err)
+	rawVals, ok := j["multiplex_values"].([]any)
+	if !ok || len(rawVals) == 0 {
+		return nil, protocolError("multiplex_values must be a non-empty array")
 	}
-	if muxVal < 0 || muxVal > math.MaxUint32 {
-		return nil, protocolError(fmt.Sprintf("multiplex_value %d out of range (0-%d)", muxVal, uint32(math.MaxUint32)))
+	muxVals := make([]MultiplexValue, 0, len(rawVals))
+	for i, rv := range rawVals {
+		v, err := parseNumberAsInt64(rv)
+		if err != nil {
+			return nil, wrapProtocol(fmt.Sprintf("invalid multiplex_values[%d]", i), err)
+		}
+		if v < 0 || v > math.MaxUint32 {
+			return nil, protocolError(fmt.Sprintf("multiplex_values[%d] %d out of range (0-%d)", i, v, uint32(math.MaxUint32)))
+		}
+		muxVals = append(muxVals, MultiplexValue(v))
 	}
 	return Multiplexed{
 		Multiplexor: SignalName(muxName),
-		MuxValue:    MultiplexValue(muxVal),
+		MuxValues:   muxVals,
 	}, nil
 }

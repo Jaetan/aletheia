@@ -11,19 +11,19 @@
 module Aletheia.DBC.Validity where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Validator using (findSignalPresence)
+open import Aletheia.DBC.Validator using (findSignalPresence; walkMux)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.List.Relation.Unary.Any using (Any)
 open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
-open import Aletheia.Protocol.JSON using (ℕtoℚ)
+open import Aletheia.Prelude using (ℕtoℚ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
@@ -31,7 +31,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
 open import Data.String using (String)
 open import Data.Bool using (Bool; true; false)
 open import Data.Product using (_×_)
-open import Aletheia.Prelude using (max-physical-bits)
+open import Aletheia.CAN.Constants using (max-physical-bits)
 
 -- ============================================================================
 -- PER-SIGNAL PREDICATES
@@ -52,16 +52,14 @@ MuxResolvable : List DBCSignal → SignalPresence → Set
 MuxResolvable _    Always           = ⊤
 MuxResolvable sigs (When muxName _) = Any (λ s → DBCSignal.name s ≡ muxName) sigs
 
--- Condition 5: Multiplexor signal (if found) is always-present
--- Defined in terms of findSignalPresence from Validator (first-match lookup)
-MuxAPLookup : Maybe SignalPresence → Set
-MuxAPLookup nothing            = ⊤
-MuxAPLookup (just Always)      = ⊤
-MuxAPLookup (just (When _ _))  = ⊥
-
-MuxIsAlways : List DBCSignal → SignalPresence → Set
-MuxIsAlways _    Always           = ⊤
-MuxIsAlways sigs (When muxName _) = MuxAPLookup (findSignalPresence muxName sigs)
+-- Condition 5: Multiplexor chain is acyclic.
+-- Defined in terms of walkMux from Validator: starting from a signal's
+-- presence, walking the chain via findSignalPresence reaches Always (or an
+-- unresolved reference, caught by check 4) within length sigs steps.
+-- Equivalent to: the mux dependency graph (restricted to in-message signals)
+-- has no cycle reachable from this signal.
+MuxAcyclic : List DBCSignal → SignalPresence → Set
+MuxAcyclic sigs presence = walkMux (length sigs) sigs presence ≡ true
 
 -- Condition 6 (check 8): Signal bits fit in frame
 -- After convertStartBit at parse time, the internal startBit is in a
@@ -95,8 +93,8 @@ record ValidDBC (dbc : DBC) : Set where
     muxExist          : All (λ m → All (λ sig → MuxResolvable (DBCMessage.signals m)
                                                                (DBCSignal.presence sig))
                                        (DBCMessage.signals m)) msgs
-    -- 5. Multiplexor signals are always-present
-    muxAlwaysPresent  : All (λ m → All (λ sig → MuxIsAlways (DBCMessage.signals m)
+    -- 5. Multiplexor chains are acyclic
+    muxAcyclic        : All (λ m → All (λ sig → MuxAcyclic (DBCMessage.signals m)
                                                              (DBCSignal.presence sig))
                                        (DBCMessage.signals m)) msgs
     -- 6. Signal bits fit in frame (dlcBytes extracts byte count from DLC code)

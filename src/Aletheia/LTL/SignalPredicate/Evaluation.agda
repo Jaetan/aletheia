@@ -10,8 +10,8 @@
 module Aletheia.LTL.SignalPredicate.Evaluation where
 
 open import Aletheia.Prelude
-open import Data.Rational as Rat using (_-_; ∣_∣; _≤?_; _<?_; 0ℚ)
-open import Data.Maybe as M using (map)
+open import Data.Rational as Rat using (_-_; ∣_∣; 0ℚ; _≤ᵇ_)
+open import Data.Maybe using (_<∣>_) renaming (map to mapₘ)
 open import Function using (case_of_)
 
 open import Aletheia.CAN.Frame using (CANFrame)
@@ -26,14 +26,21 @@ open import Aletheia.LTL.SignalPredicate.Cache
 -- COMPARISON HELPERS
 -- ============================================================================
 
+-- Bool-valued comparisons via `Rat._≤ᵇ_`, which compiles to a direct ℤ
+-- comparison without allocating a `Dec` proof term per call. Replacing the
+-- previous `⌊ _≟ _ ⌋` / `⌊ _≤? _ ⌋` / `⌊ _<? _ ⌋` forms is a MAlonzo hot-path
+-- win of the same class as the 2026-04-07 `signalsPhysicallyOverlapᵇ` fix.
+-- See `feedback_hot_path_refactor_benchmark.md` and the equivalence proofs in
+-- `DBC/Properties/Disjointness.agda` for the template.
+
 _==ℚ_ : ℚ → ℚ → Bool
-x ==ℚ y = ⌊ x Rat.≟ y ⌋
+x ==ℚ y = (x ≤ᵇ y) ∧ (y ≤ᵇ x)
 
 _≤ℚ_ : ℚ → ℚ → Bool
-x ≤ℚ y = ⌊ x Rat.≤? y ⌋
+x ≤ℚ y = x ≤ᵇ y
 
 _<ℚ_ : ℚ → ℚ → Bool
-x <ℚ y = ⌊ x Rat.<? y ⌋
+x <ℚ y = (x ≤ᵇ y) ∧ not (y ≤ᵇ x)
 
 _>ℚ_ : ℚ → ℚ → Bool
 x >ℚ y = y <ℚ x
@@ -50,34 +57,36 @@ extractTruthValue : ∀ {n} → String → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
 -- ============================================================================
--- PURE PREDICATE EVALUATION (internal)
+-- PURE PREDICATE EVALUATION
 -- ============================================================================
+--
+-- These are exposed (no longer private) so that Evaluation/Properties.agda can
+-- state definiteness lemmas by case-splitting on their Bool outputs. They
+-- characterize the raw predicate semantics over definite (already extracted)
+-- values; the *TV wrappers below add cache fallback and Unknown/Pending.
 
-private
-  evalValuePredicate : ValuePredicate → ℚ → Bool
-  evalValuePredicate (Equals _ v) x             = x ==ℚ v
-  evalValuePredicate (LessThan _ v) x           = x <ℚ v
-  evalValuePredicate (GreaterThan _ v) x        = x >ℚ v
-  evalValuePredicate (LessThanOrEqual _ v) x    = x ≤ℚ v
-  evalValuePredicate (GreaterThanOrEqual _ v) x = x ≥ℚ v
-  evalValuePredicate (Between _ lo hi) x        = lo ≤ℚ x ∧ x ≤ℚ hi
+evalValuePredicate : ValuePredicate → ℚ → Bool
+evalValuePredicate (Equals _ v) x             = x ==ℚ v
+evalValuePredicate (LessThan _ v) x           = x <ℚ v
+evalValuePredicate (GreaterThan _ v) x        = x >ℚ v
+evalValuePredicate (LessThanOrEqual _ v) x    = x ≤ℚ v
+evalValuePredicate (GreaterThanOrEqual _ v) x = x ≥ℚ v
+evalValuePredicate (Between _ lo hi) x        = lo ≤ℚ x ∧ x ≤ℚ hi
 
-  evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
-  evalDeltaPredicate (ChangedBy _ delta) prev curr =
-    let diff = curr Rat.- prev
-    in  if 0ℚ ≤ℚ delta then delta ≤ℚ diff else diff ≤ℚ delta
-  evalDeltaPredicate (StableWithin _ tol) prev curr = ⌊ ∣ curr Rat.- prev ∣ Rat.≤? tol ⌋
+evalDeltaPredicate : DeltaPredicate → ℚ → ℚ → Bool
+evalDeltaPredicate (ChangedBy _ delta) prev curr =
+  let diff = curr Rat.- prev
+  in  if 0ℚ ≤ℚ delta then delta ≤ℚ diff else diff ≤ℚ delta
+evalDeltaPredicate (StableWithin _ tol) prev curr = ∣ curr Rat.- prev ∣ ≤ℚ tol
 
 -- ============================================================================
 -- THREE-VALUED PREDICATE EVALUATION
 -- ============================================================================
 
--- Get signal value: try frame first, then cache
+-- Get signal value: try frame first, then cache (via Maybe's _<∣>_ alternative).
 getTruthValue : ∀ {n} → String → DBC → SignalCache → CANFrame n → Maybe ℚ
 getTruthValue sigName dbc cache frame =
-  case extractTruthValue sigName dbc frame of λ where
-    (just v) → just v
-    nothing  → M.map CachedSignal.value (lookupCache sigName cache)
+  extractTruthValue sigName dbc frame <∣> mapₘ CachedSignal.value (lookupCache sigName cache)
 
 -- Evaluate value predicate with cache fallback
 evalValuePredicateTV : ∀ {n} → DBC → SignalCache → ValuePredicate → CANFrame n → TruthVal
@@ -91,7 +100,7 @@ evalDeltaPredicateTV : ∀ {n} → DBC → SignalCache → DeltaPredicate → CA
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
       currVal = getTruthValue sigName dbc cache frame
-      prevVal = M.map CachedSignal.value (lookupCache sigName cache)
+      prevVal = mapₘ CachedSignal.value (lookupCache sigName cache)
   in case currVal of λ where
     nothing   → Unknown
     (just cv) → case prevVal of λ where

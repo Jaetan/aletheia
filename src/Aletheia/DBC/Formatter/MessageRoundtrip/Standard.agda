@@ -18,7 +18,8 @@ open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
 open import Aletheia.DBC.JSONParser using (parseMessage;
   parseMessageId; parseMessageBody; parseCANId)
 open import Aletheia.CAN.Frame using (CANId; Standard)
-open import Aletheia.Prelude using (standard-can-id-max; ifᵀ-witness)
+open import Aletheia.CAN.Constants using (standard-can-id-max)
+open import Aletheia.Prelude using (ifᵀ-witness)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;
   getNat-ℕtoJSON)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)

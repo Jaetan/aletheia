@@ -10,11 +10,13 @@
 //
 #pragma once
 
-#include <aletheia/check.hpp>
-#include <aletheia/dbc.hpp>
-#include <aletheia/error.hpp>
+// load_checks_from_excel returns Result<vector<CheckResult>> and load_dbc_from_excel
+// returns Result<DbcDefinition> — callers need CheckResult, DbcDefinition, and the
+// Result/AletheiaError vocabulary without a separate direct include.
+#include <aletheia/check.hpp> // IWYU pragma: export
+#include <aletheia/dbc.hpp>   // IWYU pragma: export
+#include <aletheia/error.hpp> // IWYU pragma: export
 
-#include <expected>
 #include <filesystem>
 #include <string_view>
 #include <vector>

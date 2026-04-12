@@ -15,7 +15,7 @@ enum class ErrorKind {
     Ffi         // Library load / RTS initialization failure
 };
 
-/// Machine-readable error codes matching Agda Error ADT (37 codes).
+/// Machine-readable error codes matching Agda Error ADT (44 codes).
 /// Each maps 1:1 to an Agda error constructor via errorCode.
 enum class ErrorCode {
     Unknown,
@@ -32,6 +32,9 @@ enum class ErrorCode {
     ParseInvalidDlcBytes,
     ParseRootNotObject,
     ParseMissingSignalName,
+    ParseSignalBitLengthZero,
+    ParseSignalOverflowsFrame,
+    ParseSignalMsbBelowBitLength,
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,
@@ -59,6 +62,7 @@ enum class ErrorCode {
     HandlerPropertyParseFailed,
     HandlerInvalidDlcCode,
     HandlerValidationFailed,
+    HandlerNonMonotonicTimestamp,
     // Dispatch errors
     DispatchMissingTypeField,
     DispatchUnknownMessageType,

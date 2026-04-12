@@ -62,7 +62,7 @@ _CHECKS_YAML = (
 
 def _write_dbc(path: Path, *messages: str) -> None:
     """Write a minimal .dbc file from message blocks."""
-    path.write_text(_DBC_HEADER + "\n".join(messages))
+    path.write_text(_DBC_HEADER + "\n".join(messages), encoding="utf-8")
 
 
 def _write_asc(path: Path, messages: list[can.Message]) -> None:
@@ -109,7 +109,7 @@ class TestParseHexData:
             parse_hex_data("ABC")
 
     def test_invalid_hex_raises(self) -> None:
-        with pytest.raises(ValueError, match="invalid hex"):
+        with pytest.raises(ValueError, match="Invalid hex data"):
             parse_hex_data("ZZZZ")
 
 
@@ -136,7 +136,7 @@ class TestParseCanId:
         assert parse_can_id("  0x100  ") == 256
 
     def test_invalid_raises(self) -> None:
-        with pytest.raises(ValueError, match="invalid CAN ID"):
+        with pytest.raises(ValueError, match="Invalid CAN ID"):
             parse_can_id("not_a_number")
 
 
@@ -285,7 +285,7 @@ class TestCheckCommand:
     @pytest.fixture()
     def checks_file(self, tmp_path: Path) -> Path:
         p = tmp_path / "checks.yaml"
-        p.write_text(_CHECKS_YAML)
+        p.write_text(_CHECKS_YAML, encoding="utf-8")
         return p
 
     def test_passing_log(
@@ -465,6 +465,6 @@ class TestErrorCases:
         asc = tmp_path / "test.asc"
         asc.touch()
         checks = tmp_path / "checks.yaml"
-        checks.write_text(_CHECKS_YAML)
+        checks.write_text(_CHECKS_YAML, encoding="utf-8")
         code = main(["check", "--checks", str(checks), str(asc)])
         assert code == 2

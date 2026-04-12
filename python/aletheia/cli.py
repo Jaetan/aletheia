@@ -15,16 +15,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sys
 from pathlib import Path
-from typing import NoReturn, TypedDict
+from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
 
-from .can_log import iter_can_log
 from .checks import CheckResult
 from .client import AletheiaClient, AletheiaError, SignalExtractionResult
-from .dbc_converter import dbc_to_json
-from .excel_loader import load_checks_from_excel, load_dbc_from_excel
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -35,7 +33,49 @@ from .protocols import (
     RationalNumber,
     ValidationIssue,
 )
-from .yaml_loader import load_checks
+
+if TYPE_CHECKING:
+    # Type-only imports for the lazy helpers below — these are not available
+    # at runtime when the corresponding optional dependency is not installed.
+    from collections.abc import Callable, Iterator
+
+    from .client._types import CANFrameTuple
+
+
+# Optional-dependency loaders: each CLI helper resolves its target via
+# ``importlib.import_module`` at the point of use so that subcommands whose
+# code paths don't need a given optional package (e.g. ``aletheia signals
+# --dbc foo.json`` needs neither cantools nor python-can) can still run
+# without the corresponding extras installed. Using ``importlib`` (rather
+# than a function-scoped ``from .X import Y``) keeps pylint's
+# ``import-outside-toplevel`` check happy without suppressions.
+def _lazy_dbc_to_json() -> Callable[[str | Path], DBCDefinition]:
+    mod = importlib.import_module(".dbc_converter", __package__)
+    return cast("Callable[[str | Path], DBCDefinition]", mod.dbc_to_json)
+
+
+def _lazy_load_dbc_from_excel() -> Callable[[str | Path], DBCDefinition]:
+    mod = importlib.import_module(".excel_loader", __package__)
+    return cast("Callable[[str | Path], DBCDefinition]", mod.load_dbc_from_excel)
+
+
+def _lazy_load_checks_from_excel() -> Callable[[str | Path], list[CheckResult]]:
+    mod = importlib.import_module(".excel_loader", __package__)
+    return cast(
+        "Callable[[str | Path], list[CheckResult]]", mod.load_checks_from_excel
+    )
+
+
+def _lazy_load_yaml_checks() -> Callable[[str | Path], list[CheckResult]]:
+    mod = importlib.import_module(".yaml_loader", __package__)
+    return cast("Callable[[str | Path], list[CheckResult]]", mod.load_checks)
+
+
+def _lazy_iter_can_log() -> Callable[[str | Path], Iterator[CANFrameTuple]]:
+    mod = importlib.import_module(".can_log", __package__)
+    return cast(
+        "Callable[[str | Path], Iterator[CANFrameTuple]]", mod.iter_can_log
+    )
 
 
 # ============================================================================
@@ -79,7 +119,7 @@ def parse_can_id(s: str) -> int:
             return int(s, 16)
         return int(s)
     except ValueError as exc:
-        raise ValueError(f"invalid CAN ID: {s!r}") from exc
+        raise ValueError(f"Invalid CAN ID: {s!r}") from exc
 
 
 def parse_hex_data(s: str) -> bytearray:
@@ -97,11 +137,11 @@ def parse_hex_data(s: str) -> bytearray:
     if cleaned.lower().startswith("0x"):
         cleaned = cleaned[2:]
     if len(cleaned) % 2 != 0:
-        raise ValueError(f"hex data has odd number of characters: {s!r}")
+        raise ValueError(f"Hex data has odd number of characters: {s!r}")
     try:
         return bytearray.fromhex(cleaned)
     except ValueError as exc:
-        raise ValueError(f"invalid hex data: {s!r}") from exc
+        raise ValueError(f"Invalid hex data: {s!r}") from exc
 
 
 def rational_to_int(r: RationalNumber) -> int:
@@ -131,14 +171,14 @@ def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
         if not p.exists():
             _die(f"DBC file not found: {dbc_path}")
         if p.suffix == ".xlsx":
-            return load_dbc_from_excel(p)
-        return dbc_to_json(p)
+            return _lazy_load_dbc_from_excel()(p)
+        return _lazy_dbc_to_json()(p)
 
     if excel_path is not None:
         p = Path(excel_path)
         if not p.exists():
             _die(f"Excel file not found: {excel_path}")
-        return load_dbc_from_excel(p)
+        return _lazy_load_dbc_from_excel()(p)
 
     _die("no DBC source specified (use --dbc or --excel)")
 
@@ -155,15 +195,15 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
         if not p.exists():
             _die(f"checks file not found: {checks_path}")
         if p.suffix == ".xlsx":
-            results.extend(load_checks_from_excel(p))
+            results.extend(_lazy_load_checks_from_excel()(p))
         else:
-            results.extend(load_checks(p))
+            results.extend(_lazy_load_yaml_checks()(p))
 
     if excel_path is not None and checks_path is None:
         p = Path(excel_path)
         if not p.exists():
             _die(f"Excel file not found: {excel_path}")
-        results.extend(load_checks_from_excel(p))
+        results.extend(_lazy_load_checks_from_excel()(p))
 
     if not results:
         _die("no checks specified (use --checks or --excel)")
@@ -171,10 +211,12 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
     return results
 
 
-def _find_message(dbc: DBCDefinition, can_id: int) -> DBCMessage | None:
-    """Find a message by CAN ID in a DBC definition."""
+def _find_message(
+    dbc: DBCDefinition, can_id: int, extended: bool = False,
+) -> DBCMessage | None:
+    """Find a message by CAN ID + extended flag in a DBC definition."""
     for msg in dbc["messages"]:
-        if msg["id"] == can_id:
+        if msg["id"] == can_id and bool(msg.get("extended", False)) == extended:
             return msg
     return None
 
@@ -342,11 +384,13 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     dbc = _load_dbc(args)
     can_id = parse_can_id(args.can_id)
     data = parse_hex_data(args.data)
+    extended: bool = getattr(args, "extended", False)
 
     # Look up expected DLC from the DBC message definition
-    msg = _find_message(dbc, can_id)
+    msg = _find_message(dbc, can_id, extended=extended)
     if msg is None:
-        _die(f"CAN ID 0x{can_id:X} not found in DBC")
+        id_kind = "extended" if extended else "standard"
+        _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
     if len(data) != msg["dlc"]:
         _die(
             f"data length ({len(data)} bytes) does not match "
@@ -357,11 +401,14 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
             _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
-        result = client.extract_signals(can_id=can_id, dlc=msg["dlc"], data=data)
+        result = client.extract_signals(
+            can_id=can_id, dlc=msg["dlc"], data=data, extended=extended,
+        )
 
     if getattr(args, "json", False):
         out = {
             "can_id": can_id,
+            "extended": extended,
             "values": result.values,
             "errors": result.errors,
             "absent": result.absent,
@@ -443,10 +490,14 @@ def _run_checks(  # pylint: disable=too-many-locals
     checks: list[CheckResult],
     logfile: str,
     default_checks: list[CheckResult] | None = None,
-) -> tuple[list[_Violation], int]:
+) -> tuple[list[_Violation], list[_Violation], int]:
     """Stream a CAN log through the Aletheia engine.
 
-    Returns (violations, total_frames).
+    Returns (violations, unresolved, total_frames). ``unresolved`` contains
+    end-of-stream finalization results whose three-valued Kleene verdict was
+    Unknown (``status="unresolved"``), e.g. ``Always(p)`` where ``p``'s
+    signal was never observed. These are distinct from violations: the
+    property was neither proved to hold nor proved to fail.
     """
     all_checks = (default_checks or []) + checks
     with AletheiaClient(default_checks=default_checks) as client:
@@ -463,27 +514,31 @@ def _run_checks(  # pylint: disable=too-many-locals
             _die(f"start stream failed: {resp['message']}")
 
         violations: list[_Violation] = []
+        unresolved: list[_Violation] = []
         total_frames = 0
 
-        for ts, can_id, dlc, data in iter_can_log(logfile):
+        for ts, can_id, dlc, data, ext in _lazy_iter_can_log()(logfile):
             total_frames += 1
-            response = client.send_frame(ts, can_id, dlc, data)
+            response = client.send_frame(ts, can_id, dlc, data, extended=ext)
             if response["status"] == "fails":
                 violations.append(_build_violation(response, all_checks))
 
         end_resp = client.end_stream()
         if end_resp["status"] == "error":
             _die(f"end stream failed: {end_resp['message']}")
-        # Collect end-of-stream violations from finalization
+        # Collect end-of-stream results from finalization
         for result in end_resp["results"]:
             if result["status"] == "fails":
                 violations.append(_build_eos_violation(result, all_checks))
+            elif result["status"] == "unresolved":
+                unresolved.append(_build_eos_violation(result, all_checks))
 
-    return violations, total_frames
+    return violations, unresolved, total_frames
 
 
 def _print_check_results(
     violations: list[_Violation],
+    unresolved: list[_Violation],
     total_frames: int,
     num_checks: int,
 ) -> None:
@@ -496,13 +551,21 @@ def _print_check_results(
         print()
         for i, v in enumerate(violations, 1):
             _print_violation(i, v)
+    elif unresolved:
+        print(f"RESULT: no violations, {len(unresolved)} unresolved")
+        print()
     else:
         print("RESULT: all checks passed")
         print()
 
+    if unresolved:
+        print(f"Unresolved ({len(unresolved)} — signal never observed or verdict Unknown):")
+        for i, v in enumerate(unresolved, 1):
+            _print_violation(i, v)
+
     print(
-        f"Summary: {len(violations)} violations in {num_checks} checks, "
-        + f"{total_frames} frames processed"
+        f"Summary: {len(violations)} violations, {len(unresolved)} unresolved "
+        + f"in {num_checks} checks, {total_frames} frames processed"
     )
 
 
@@ -525,8 +588,8 @@ def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
     if not p.exists():
         _die(f"defaults file not found: {defaults_path}")
     if p.suffix == ".xlsx":
-        return load_checks_from_excel(p)
-    return load_checks(p)
+        return _lazy_load_checks_from_excel()(p)
+    return _lazy_load_yaml_checks()(p)
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
@@ -539,15 +602,24 @@ def _cmd_check(args: argparse.Namespace) -> int:
     if not Path(logfile).exists():
         _die(f"log file not found: {logfile}")
 
-    violations, total_frames = _run_checks(dbc, checks, logfile, default_checks)
+    violations, unresolved, total_frames = _run_checks(
+        dbc, checks, logfile, default_checks
+    )
 
     if getattr(args, "json", False):
-        status = "pass" if not violations else "violations"
+        if violations:
+            status = "violations"
+        elif unresolved:
+            status = "unresolved"
+        else:
+            status = "pass"
         out = {
             "status": status,
             "total_frames": total_frames,
             "total_violations": len(violations),
+            "total_unresolved": len(unresolved),
             "violations": violations,
+            "unresolved": unresolved,
         }
         print(json.dumps(out, indent=2))
     else:
@@ -566,7 +638,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
             print(f"Checks: {checks_label} ({len(checks)} checks)")
         print(f"Log:    {logfile}")
         print()
-        _print_check_results(violations, total_frames, total_checks)
+        _print_check_results(violations, unresolved, total_frames, total_checks)
 
     return _EXIT_VIOLATIONS if violations else _EXIT_OK
 
@@ -612,6 +684,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_extract.add_argument("can_id", help="CAN ID (hex 0x100 or decimal 256)")
     p_extract.add_argument("data", help="frame data as hex bytes")
     p_extract.add_argument("--dbc", required=True, help=".dbc or .xlsx file")
+    p_extract.add_argument(
+        "--extended",
+        action="store_true",
+        help="treat CAN ID as 29-bit extended (default: 11-bit standard)",
+    )
     p_extract.add_argument("--json", action="store_true", help="output as JSON")
 
     # -- signals -------------------------------------------------------------

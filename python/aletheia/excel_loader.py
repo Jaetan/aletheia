@@ -97,6 +97,7 @@ class _MessageKey:
 
     msg_id: int
     name: str
+    extended: bool
     dlc: int
 
 
@@ -105,9 +106,9 @@ class _MessageKey:
 # ============================================================================
 
 _DBC_HEADERS = [
-    "Message ID", "Message Name", "DLC", "Signal", "Start Bit", "Length",
-    "Byte Order", "Signed", "Factor", "Offset", "Min", "Max", "Unit",
-    "Multiplexor", "Multiplex Value",
+    "Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit",
+    "Length", "Byte Order", "Signed", "Factor", "Offset", "Min", "Max",
+    "Unit", "Multiplexor", "Multiplex Value",
 ]
 
 _CHECKS_HEADERS = [
@@ -467,7 +468,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
             "maximum": get_number(row, "Max", ctx),
             "unit": unit_str,
             "multiplexor": get_str(row, "Multiplexor", ctx),
-            "multiplex_value": get_int(row, "Multiplex Value", ctx),
+            "multiplex_values": [get_int(row, "Multiplex Value", ctx)],
         }
         return mux_signal
 
@@ -494,9 +495,12 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
 
     for idx, row in enumerate(rows):
         row_num = idx + 2  # 1-indexed, skip header
+        ext_val = row.get("Extended")
+        is_extended = get_bool(row, "Extended", _row_ctx(row_num)) if ext_val is not None else False
         key = _MessageKey(
             msg_id=_parse_message_id(row.get("Message ID"), _row_ctx(row_num)),
             name=get_str(row, "Message Name", _row_ctx(row_num)),
+            extended=is_extended,
             dlc=get_int(row, "DLC", _row_ctx(row_num)),
         )
         if key not in groups:
@@ -508,12 +512,15 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
         signals: list[DBCSignal] = [
             _parse_dbc_signal(rows[i], i + 2) for i in groups[key]
         ]
-        messages.append({
-            "id": key.msg_id,
-            "name": key.name,
-            "dlc": key.dlc,
-            "sender": "",
-            "signals": signals,
-        })
+        msg = DBCMessage(
+            id=key.msg_id,
+            name=key.name,
+            dlc=key.dlc,
+            sender="",
+            signals=signals,
+        )
+        if key.extended:
+            msg["extended"] = True
+        messages.append(msg)
 
     return {"version": "", "messages": messages}

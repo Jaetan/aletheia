@@ -101,6 +101,9 @@ func TestVerdictString(t *testing.T) {
 	if aletheia.Fails.String() != "fails" {
 		t.Errorf("expected 'fails', got %q", aletheia.Fails.String())
 	}
+	if aletheia.Unresolved.String() != "unresolved" {
+		t.Errorf("expected 'unresolved', got %q", aletheia.Unresolved.String())
+	}
 }
 
 func TestConstructorErrorType(t *testing.T) {

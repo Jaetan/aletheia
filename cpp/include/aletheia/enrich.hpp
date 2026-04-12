@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-#include <aletheia/ltl.hpp>
-#include <aletheia/response.hpp>
+// enrich.hpp surfaces LtlFormula, Predicate variants, and PropertyDiagnostic
+// to callers; those vocabulary types live in ltl.hpp and response.hpp.
+#include <aletheia/ltl.hpp>      // IWYU pragma: export
+#include <aletheia/response.hpp> // IWYU pragma: export
 
 #include <string>
 #include <vector>

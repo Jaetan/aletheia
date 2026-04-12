@@ -65,7 +65,11 @@ checks:
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Voltage").StaysBetween(11.5, 14.5).Formula())
+	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
+	want := FormatFormula(reference.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -157,7 +161,11 @@ checks:
 	if got0 != want0 {
 		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
 	}
-	want1 := FormatFormula(CheckSignal("Voltage").StaysBetween(11.5, 14.5).Formula())
+	reference1, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
+	want1 := FormatFormula(reference1.Formula())
 	got1 := FormatFormula(checks[1].Formula())
 	if got1 != want1 {
 		t.Errorf("check[1] formula mismatch: got %q, want %q", got1, want1)
@@ -408,7 +416,11 @@ func TestLoadYAMLFromFileFunc(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Voltage").StaysBetween(11.5, 14.5).Formula())
+	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
+	want := FormatFormula(reference.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -434,7 +446,7 @@ func TestLoadYAMLMissingChecksKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "YAML must contain a 'checks' list") {
+	if !strings.Contains(err.Error(), "YAML document must contain a 'checks' list") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -444,7 +456,7 @@ func TestLoadYAMLChecksNotList(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "YAML must contain a 'checks' list") {
+	if !strings.Contains(err.Error(), "YAML 'checks' field must be a list") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

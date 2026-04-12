@@ -140,11 +140,12 @@ class TestFrameFiltering:
             msg, skip_error_frames=True, skip_remote_frames=True
         )
         assert result is not None
-        ts, can_id, dlc, data = result
+        ts, can_id, dlc, data, ext = result
         assert ts == 1_000_000
         assert can_id == 0x100
         assert dlc == 8
         assert data == bytearray([0xDE, 0xAD, 0, 0, 0, 0, 0, 0])
+        assert ext is False
 
     def test_error_frame_skipped(self) -> None:
         msg = self._make_msg(is_error=True)
@@ -268,7 +269,7 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 1
-        _, can_id, dlc, data = frames[0]
+        _, can_id, dlc, data, _ = frames[0]
         # ASC uses relative timestamps (first message is t=0), so we only
         # verify CAN ID, DLC, and data survive the round-trip.
         assert can_id == 0x100
@@ -307,7 +308,7 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 5
-        for i, (ts, can_id, dlc, data) in enumerate(frames):
+        for i, (ts, can_id, dlc, data, _ext) in enumerate(frames):
             assert can_id == 0x100 + i
             assert data[0] == i
 

@@ -76,16 +76,16 @@ func (b CheckSignalBuilder) NeverBelow(value PhysicalValue) CheckResult {
 }
 
 // StaysBetween produces G(lo <= signal <= hi).
-// Panics if lo > hi (inverted range is always false — programming error).
-func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) CheckResult {
+// Returns an error if lo > hi (inverted range is always false).
+func (b CheckSignalBuilder) StaysBetween(lo, hi PhysicalValue) (CheckResult, error) {
 	if lo > hi {
-		panic("StaysBetween: lo must be <= hi")
+		return CheckResult{}, validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
 	}
 	f := Always{Inner: Atomic{Predicate: Between{Signal: SignalName(b.name), Min: lo, Max: hi}}}
 	return CheckResult{
 		formula: f, signalName: b.name,
 		conditionDesc: fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
-	}
+	}, nil
 }
 
 // NeverEquals produces G(¬(signal = value)).
@@ -107,12 +107,14 @@ func (b CheckSignalBuilder) Equals(value PhysicalValue) CheckSignalPredicate {
 }
 
 // SettlesBetween begins a settles_between(lo, hi).Within(ms) chain.
-// Panics if lo > hi (inverted range is always false — programming error).
+// An inverted range (lo > hi) is captured and surfaced from Within() so the
+// fluent chain is unbroken.
 func (b CheckSignalBuilder) SettlesBetween(lo, hi PhysicalValue) SettlesBuilder {
+	sb := SettlesBuilder{signalName: b.name, lo: lo, hi: hi}
 	if lo > hi {
-		panic("SettlesBetween: lo must be <= hi")
+		sb.rangeErr = validationError(fmt.Sprintf("settles_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
 	}
-	return SettlesBuilder{signalName: b.name, lo: lo, hi: hi}
+	return sb
 }
 
 // CheckSignalPredicate is an intermediate needing .Always() to finish.
@@ -134,10 +136,14 @@ func (p CheckSignalPredicate) Always() CheckResult {
 type SettlesBuilder struct {
 	signalName string
 	lo, hi     PhysicalValue
+	rangeErr   error // populated by SettlesBetween when lo > hi; surfaced from Within()
 }
 
 // Within completes the check: signal must settle between lo and hi within timeMs milliseconds.
 func (b SettlesBuilder) Within(timeMs int64) (CheckResult, error) {
+	if b.rangeErr != nil {
+		return CheckResult{}, b.rangeErr
+	}
 	if timeMs < 0 {
 		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
 	}
@@ -222,17 +228,19 @@ func (b ThenSignalBuilder) Exceeds(value PhysicalValue) ThenCondition {
 }
 
 // StaysBetween requires the then-signal to stay between lo and hi.
-// Panics if lo > hi (inverted range is always false — programming error).
+// An inverted range (lo > hi) is captured and surfaced from Within() so the
+// fluent chain is unbroken.
 func (b ThenSignalBuilder) StaysBetween(lo, hi PhysicalValue) ThenCondition {
-	if lo > hi {
-		panic("StaysBetween: lo must be <= hi")
-	}
-	return ThenCondition{
+	tc := ThenCondition{
 		trigger:    b.trigger,
 		thenPred:   Between{Signal: SignalName(b.thenName), Min: lo, Max: hi},
 		thenSignal: b.thenName,
 		thenDesc:   fmt.Sprintf("between %g and %g", float64(lo), float64(hi)),
 	}
+	if lo > hi {
+		tc.rangeErr = validationError(fmt.Sprintf("stays_between: lo (%g) must be <= hi (%g)", float64(lo), float64(hi)))
+	}
+	return tc
 }
 
 // ThenCondition holds trigger + response predicates and needs .Within() to finish.
@@ -241,10 +249,14 @@ type ThenCondition struct {
 	thenPred   Predicate
 	thenSignal string
 	thenDesc   string
+	rangeErr   error // populated by ThenSignalBuilder.StaysBetween when lo > hi
 }
 
 // Within completes the causal check: G(trigger → F≤t(response)).
 func (c ThenCondition) Within(timeMs int64) (CheckResult, error) {
+	if c.rangeErr != nil {
+		return CheckResult{}, c.rangeErr
+	}
 	if timeMs < 0 {
 		return CheckResult{}, validationError(fmt.Sprintf("time must be non-negative, got %d", timeMs))
 	}

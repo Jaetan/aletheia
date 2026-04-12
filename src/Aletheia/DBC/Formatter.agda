@@ -10,10 +10,12 @@ module Aletheia.DBC.Formatter where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
+open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Bool using (true)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray; ℕtoℚ)
+open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JBool; JArray)
+open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
   SignalGroup; EnvironmentVar; ValueTable; varTypeToℕ)
 open import Aletheia.CAN.DLC using (dlcBytes)
@@ -41,8 +43,9 @@ formatCANId (CANId.Standard n _) = ("id" , ℕtoJSON n) ∷ []
 formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
 
 formatPresence : SignalPresence → List (String × JSON)
-formatPresence Always       = ("presence" , JString "always") ∷ []
-formatPresence (When mux v) = ("multiplexor" , JString mux) ∷ ("multiplex_value" , ℕtoJSON v) ∷ []
+formatPresence Always        = ("presence" , JString "always") ∷ []
+formatPresence (When mux vs) = ("multiplexor" , JString mux)
+  ∷ ("multiplex_values" , JArray (map ℕtoJSON (List⁺.toList vs))) ∷ []
 
 -- ============================================================================
 -- SIGNAL / MESSAGE / DBC FORMATTERS

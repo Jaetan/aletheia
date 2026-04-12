@@ -412,8 +412,8 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 
 	// Mock had 5 responses: SetProperties, StartStream, Extraction, Violation1, Violation2.
 	// If extraction was called twice, mock would have run out.
-	if len(mock.Inputs) != 5 {
-		t.Errorf("expected 5 mock calls (1 extraction), got %d", len(mock.Inputs))
+	if got := len(mock.Inputs()); got != 5 {
+		t.Errorf("expected 5 mock calls (1 extraction), got %d", got)
 	}
 }
 

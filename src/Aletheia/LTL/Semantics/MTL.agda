@@ -33,8 +33,9 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong;
 open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
   Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
-open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; Monotonic)
+open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; Monotonic)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
+open import Aletheia.Prelude using (T→true)
 
 open TruthVal
 
@@ -54,7 +55,10 @@ met-un-ref : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → Truth
 met-re-ref : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthVal) → ℕ → List TimedFrame → TruthVal
 
 -- Propositional operators — identical to ⟦_⟧
-⟦ Atomic p ⟧ₘ []          = False
+-- Atomic on empty suffix: Unknown (Kleene three-valued — matches ⟦_⟧).
+-- Previously False; changed under Path G so the equivalence
+-- mtl-equiv : ⟦ φ ⟧ σ ≡ ⟦ φ ⟧ₘ σ continues to hold on Atomic [].
+⟦ Atomic p ⟧ₘ []          = Unknown
 ⟦ Atomic p ⟧ₘ (x ∷ _)    = p x
 ⟦ Not φ ⟧ₘ σ              = notTV (⟦ φ ⟧ₘ σ)
 ⟦ And φ ψ ⟧ₘ σ            = ⟦ φ ⟧ₘ σ ∧TV ⟦ ψ ⟧ₘ σ
@@ -74,35 +78,35 @@ met-re-ref : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → Truth
 
 -- Metric operators — delegate to NON-short-circuiting go helpers
 ⟦ MetricEventually w s φ ⟧ₘ [] = False
-⟦ MetricEventually w s φ ⟧ₘ σ@(y ∷ _) = met-ev-ref w φ (decodeStart s (timestamp y)) σ
+⟦ MetricEventually w s φ ⟧ₘ σ@(y ∷ _) = met-ev-ref w φ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricAlways w s φ ⟧ₘ [] = True
-⟦ MetricAlways w s φ ⟧ₘ σ@(y ∷ _) = met-al-ref w φ (decodeStart s (timestamp y)) σ
+⟦ MetricAlways w s φ ⟧ₘ σ@(y ∷ _) = met-al-ref w φ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricUntil w s φ ψ ⟧ₘ [] = False
-⟦ MetricUntil w s φ ψ ⟧ₘ σ@(y ∷ _) = met-un-ref w φ ψ (decodeStart s (timestamp y)) σ
+⟦ MetricUntil w s φ ψ ⟧ₘ σ@(y ∷ _) = met-un-ref w φ ψ (decodeStart s (timestampℕ y)) σ
 ⟦ MetricRelease w s φ ψ ⟧ₘ [] = True
-⟦ MetricRelease w s φ ψ ⟧ₘ σ@(y ∷ _) = met-re-ref w φ ψ (decodeStart s (timestamp y)) σ
+⟦ MetricRelease w s φ ψ ⟧ₘ σ@(y ∷ _) = met-re-ref w φ ψ (decodeStart s (timestampℕ y)) σ
 
 -- Reference MetricEventually: no short-circuit, identity element False for ∨
 met-ev-ref w φ start [] = False
-met-ev-ref w φ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-ev-ref w φ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | true  = ⟦ φ ⟧ₘ (y ∷ rest) ∨TV met-ev-ref w φ start rest
 ... | false = met-ev-ref w φ start rest  -- continue scanning (vs ⟦_⟧ which returns False)
 
 -- Reference MetricAlways: no short-circuit, identity element True for ∧
 met-al-ref w φ start [] = True
-met-al-ref w φ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-al-ref w φ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | true  = ⟦ φ ⟧ₘ (y ∷ rest) ∧TV met-al-ref w φ start rest
 ... | false = met-al-ref w φ start rest  -- continue scanning (vs ⟦_⟧ which returns True)
 
 -- Reference MetricUntil: no short-circuit
 met-un-ref w φ ψ start [] = False
-met-un-ref w φ ψ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-un-ref w φ ψ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | true  = ⟦ ψ ⟧ₘ (y ∷ rest) ∨TV (⟦ φ ⟧ₘ (y ∷ rest) ∧TV met-un-ref w φ ψ start rest)
 ... | false = met-un-ref w φ ψ start rest
 
 -- Reference MetricRelease: no short-circuit
 met-re-ref w φ ψ start [] = True
-met-re-ref w φ ψ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
+met-re-ref w φ ψ start (y ∷ rest) with (timestampℕ y ∸ start) ≤ᵇ w
 ... | true  = ⟦ ψ ⟧ₘ (y ∷ rest) ∧TV (⟦ φ ⟧ₘ (y ∷ rest) ∨TV met-re-ref w φ ψ start rest)
 ... | false = met-re-ref w φ ψ start rest
 
@@ -111,12 +115,8 @@ met-re-ref w φ ψ start (y ∷ rest) with (timestamp y ∸ start) ≤ᵇ w
 -- ============================================================================
 
 -- Core lemma: in a monotonic trace, once past the window, always past.
--- If (timestamp y ∸ start) > w and timestamps are non-decreasing,
--- then every z after y also has (timestamp z ∸ start) > w.
-
--- Boolean bridge: T b → b ≡ true
-T→true : ∀ {b : Bool} → T b → b ≡ true
-T→true {true} _ = refl
+-- If (timestampℕ y ∸ start) > w and timestamps are non-decreasing,
+-- then every z after y also has (timestampℕ z ∸ start) > w.
 
 -- Key: if a ≤ b and ((a ∸ c) ≤ᵇ w) ≡ false, then ((b ∸ c) ≤ᵇ w) ≡ false.
 -- (Larger timestamp ⇒ larger elapsed time ⇒ still past window)
@@ -138,35 +138,35 @@ past-window-mono {a} {b} {c} {w} a≤b eq
 -- When a frame y is past the window in a monotonic trace, met-ev-ref on
 -- the remaining trace returns False (no future frame can be in-window).
 met-ev-ref-past : ∀ w φ start y rest → Monotonic (y ∷ rest)
-  → ((timestamp y ∸ start) ≤ᵇ w) ≡ false
+  → ((timestampℕ y ∸ start) ≤ᵇ w) ≡ false
   → met-ev-ref w φ start rest ≡ False
 met-ev-ref-past w φ start y [] _ _ = refl
 met-ev-ref-past w φ start y (z ∷ rest) (y≤z , mzr) pw
-  with past-window-mono {timestamp y} {timestamp z} {start} {w} y≤z pw
+  with past-window-mono {timestampℕ y} {timestampℕ z} {start} {w} y≤z pw
 ... | zpw rewrite zpw = met-ev-ref-past w φ start z rest mzr zpw
 
 met-al-ref-past : ∀ w φ start y rest → Monotonic (y ∷ rest)
-  → ((timestamp y ∸ start) ≤ᵇ w) ≡ false
+  → ((timestampℕ y ∸ start) ≤ᵇ w) ≡ false
   → met-al-ref w φ start rest ≡ True
 met-al-ref-past w φ start y [] _ _ = refl
 met-al-ref-past w φ start y (z ∷ rest) (y≤z , mzr) pw
-  with past-window-mono {timestamp y} {timestamp z} {start} {w} y≤z pw
+  with past-window-mono {timestampℕ y} {timestampℕ z} {start} {w} y≤z pw
 ... | zpw rewrite zpw = met-al-ref-past w φ start z rest mzr zpw
 
 met-un-ref-past : ∀ w φ ψ start y rest → Monotonic (y ∷ rest)
-  → ((timestamp y ∸ start) ≤ᵇ w) ≡ false
+  → ((timestampℕ y ∸ start) ≤ᵇ w) ≡ false
   → met-un-ref w φ ψ start rest ≡ False
 met-un-ref-past w φ ψ start y [] _ _ = refl
 met-un-ref-past w φ ψ start y (z ∷ rest) (y≤z , mzr) pw
-  with past-window-mono {timestamp y} {timestamp z} {start} {w} y≤z pw
+  with past-window-mono {timestampℕ y} {timestampℕ z} {start} {w} y≤z pw
 ... | zpw rewrite zpw = met-un-ref-past w φ ψ start z rest mzr zpw
 
 met-re-ref-past : ∀ w φ ψ start y rest → Monotonic (y ∷ rest)
-  → ((timestamp y ∸ start) ≤ᵇ w) ≡ false
+  → ((timestampℕ y ∸ start) ≤ᵇ w) ≡ false
   → met-re-ref w φ ψ start rest ≡ True
 met-re-ref-past w φ ψ start y [] _ _ = refl
 met-re-ref-past w φ ψ start y (z ∷ rest) (y≤z , mzr) pw
-  with past-window-mono {timestamp y} {timestamp z} {start} {w} y≤z pw
+  with past-window-mono {timestampℕ y} {timestampℕ z} {start} {w} y≤z pw
 ... | zpw rewrite zpw = met-re-ref-past w φ ψ start z rest mzr zpw
 
 -- ============================================================================
@@ -192,9 +192,12 @@ FormulaIH₂ : LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthVal) �
 FormulaIH₂ φ ψ = FormulaIH φ × FormulaIH ψ
 
 -- Metric go helper equivalences (list-recursive only).
--- Use well-founded recursion on list length (Acc _<_ (length σ)) so the
--- termination checker trusts Acc's structural decrease (acc a → a _ _)
--- regardless of extra `with ... in h` columns in the call matrix.
+-- Well-founded recursion on list length is needed rather than direct structural
+-- recursion on σ because the `with (timestampℕ y ∸ start) ≤ᵇ w in h` pattern
+-- adds an extra column to the termination call matrix.  Agda's checker cannot
+-- then verify that the recursive call `go (z ∷ rs) …` is structurally smaller
+-- on σ, since the `in h` column varies.  Wrapping with Acc _<_ (length σ)
+-- makes the decrease explicit: `acc rec → rec ≤-refl`.
 
 met-ev-equiv : ∀ w φ start σ → Monotonic σ → FormulaIH φ
   → met-ev-go w φ start σ ≡ met-ev-ref w φ start σ
@@ -204,11 +207,11 @@ met-ev-equiv w φ start σ mono ih = go σ (<-wellFounded (length σ)) mono ih
       → met-ev-go w φ start σ ≡ met-ev-ref w φ start σ
     go [] _ _ _ = refl
     go (y ∷ []) _ mono ih
-      with (timestamp y ∸ start) ≤ᵇ w in h
-    ... | true  = cong₂ _∨TV_ (ih (y ∷ []) tt) refl
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
+    ... | true  = cong (_∨TV False) (ih (y ∷ []) tt)
     ... | false = sym (met-ev-ref-past w φ start y [] mono h)
     go (y ∷ z ∷ rs) wf mono ih
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     go (y ∷ z ∷ rs) (acc rec) mono ih | true =
       cong₂ _∨TV_ (ih (y ∷ z ∷ rs) mono)
         (go (z ∷ rs) (rec ≤-refl) (proj₂ mono) ih)
@@ -223,11 +226,11 @@ met-al-equiv w φ start σ mono ih = go σ (<-wellFounded (length σ)) mono ih
       → met-al-go w φ start σ ≡ met-al-ref w φ start σ
     go [] _ _ _ = refl
     go (y ∷ []) _ mono ih
-      with (timestamp y ∸ start) ≤ᵇ w in h
-    ... | true  = cong₂ _∧TV_ (ih (y ∷ []) tt) refl
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
+    ... | true  = cong (_∧TV True) (ih (y ∷ []) tt)
     ... | false = sym (met-al-ref-past w φ start y [] mono h)
     go (y ∷ z ∷ rs) wf mono ih
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     go (y ∷ z ∷ rs) (acc rec) mono ih | true =
       cong₂ _∧TV_ (ih (y ∷ z ∷ rs) mono)
         (go (z ∷ rs) (rec ≤-refl) (proj₂ mono) ih)
@@ -242,12 +245,12 @@ met-un-equiv w φ ψ start σ mono ih = go σ (<-wellFounded (length σ)) mono i
       → met-un-go w φ ψ start σ ≡ met-un-ref w φ ψ start σ
     go [] _ _ _ = refl
     go (y ∷ []) _ mono (ihφ , ihψ)
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     ... | true  = cong₂ _∨TV_ (ihψ (y ∷ []) tt)
-                    (cong₂ _∧TV_ (ihφ (y ∷ []) tt) refl)
+                    (cong (_∧TV False) (ihφ (y ∷ []) tt))
     ... | false = sym (met-un-ref-past w φ ψ start y [] mono h)
     go (y ∷ z ∷ rs) wf mono ih@(ihφ , ihψ)
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     go (y ∷ z ∷ rs) (acc rec) mono ih@(ihφ , ihψ) | true =
       cong₂ _∨TV_ (ihψ (y ∷ z ∷ rs) mono)
         (cong₂ _∧TV_ (ihφ (y ∷ z ∷ rs) mono)
@@ -263,12 +266,12 @@ met-re-equiv w φ ψ start σ mono ih = go σ (<-wellFounded (length σ)) mono i
       → met-re-go w φ ψ start σ ≡ met-re-ref w φ ψ start σ
     go [] _ _ _ = refl
     go (y ∷ []) _ mono (ihφ , ihψ)
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     ... | true  = cong₂ _∧TV_ (ihψ (y ∷ []) tt)
-                    (cong₂ _∨TV_ (ihφ (y ∷ []) tt) refl)
+                    (cong (_∨TV True) (ihφ (y ∷ []) tt))
     ... | false = sym (met-re-ref-past w φ ψ start y [] mono h)
     go (y ∷ z ∷ rs) wf mono ih@(ihφ , ihψ)
-      with (timestamp y ∸ start) ≤ᵇ w in h
+      with (timestampℕ y ∸ start) ≤ᵇ w in h
     go (y ∷ z ∷ rs) (acc rec) mono ih@(ihφ , ihψ) | true =
       cong₂ _∧TV_ (ihψ (y ∷ z ∷ rs) mono)
         (cong₂ _∨TV_ (ihφ (y ∷ z ∷ rs) mono)
@@ -324,13 +327,13 @@ mtl-equiv (Release φ ψ) (x ∷ x₂ ∷ rs) mono =
 -- Metric operators: delegate to go-helper equivalences, passing formula IH
 mtl-equiv (MetricEventually w s φ) [] _ = refl
 mtl-equiv (MetricEventually w s φ) (y ∷ rest) mono =
-  met-ev-equiv w φ (decodeStart s (timestamp y)) (y ∷ rest) mono (mtl-equiv φ)
+  met-ev-equiv w φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
 mtl-equiv (MetricAlways w s φ) [] _ = refl
 mtl-equiv (MetricAlways w s φ) (y ∷ rest) mono =
-  met-al-equiv w φ (decodeStart s (timestamp y)) (y ∷ rest) mono (mtl-equiv φ)
+  met-al-equiv w φ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ)
 mtl-equiv (MetricUntil w s φ ψ) [] _ = refl
 mtl-equiv (MetricUntil w s φ ψ) (y ∷ rest) mono =
-  met-un-equiv w φ ψ (decodeStart s (timestamp y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
+  met-un-equiv w φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
 mtl-equiv (MetricRelease w s φ ψ) [] _ = refl
 mtl-equiv (MetricRelease w s φ ψ) (y ∷ rest) mono =
-  met-re-equiv w φ ψ (decodeStart s (timestamp y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)
+  met-re-equiv w φ ψ (decodeStart s (timestampℕ y)) (y ∷ rest) mono (mtl-equiv φ , mtl-equiv ψ)

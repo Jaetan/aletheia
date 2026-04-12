@@ -79,8 +79,102 @@ indexFormula φ = Data.Product.proj₁ (indexHelper φ 0)
 lookupAtom : List SignalPredicate → ℕ → Maybe SignalPredicate
 lookupAtom xs n = listIndex n xs
 
--- Build PredTable from atom list + DBC + SignalCache
+-- Build PredTable from atom list + DBC + SignalCache.
 -- The table maps predicate indices to evaluation functions.
+--
+-- The `nothing → Unknown` branch is dead code: all atom indices in a stepped
+-- formula are in [0, length atoms) by construction. collectAtoms assigns
+-- indices sequentially, indexFormula preserves them, and neither simplify
+-- nor stepL introduces new Atom indices. Proven in
+-- FrameProcessor/Properties.agda Property 27 (indexFormula-bound,
+-- simplify-bound, stepL-bound, mkPredTable-bounded).
+--
+-- DEFERRED REFACTOR (system-review item 11.1): One could replace the ℕ index
+-- with `Fin (length atoms)` and make the nothing-branch structurally
+-- impossible. This is a structural improvement, not a bug fix — Property 27
+-- already closes the soundness gap propositionally — but it has a real
+-- performance hazard on the hot path, so it is deliberately NOT done:
+--
+--   * MAlonzo compiles `Fin n` as a unary Peano chain:
+--     `data T_Fin_10 = C_zero_12 | C_suc_16 T_Fin_10`. Every index value is
+--     k heap-allocated constructor cells for `Fin k`; pattern matching costs
+--     one heap dereference per step.
+--   * The current ℕ index compiles via the BUILTIN pragma to Haskell
+--     `Integer`, so `zero`/`suc` become `eqInt 0` / `subInt 1` — native ops
+--     with no per-step allocation. `listIndex` (the engine of `lookupAtom`)
+--     currently benefits from this.
+--   * `mkPredTable` is called once per frame in the streaming loop, and its
+--     returned closure is invoked by `stepL` for every Atomic cell reached
+--     in the step. Any constant-factor slowdown to atom lookup lands
+--     squarely on Stream LTL throughput.
+--   * This is the same failure mode recorded in memory as the "Dec-vs-Bool"
+--     regression (commit 5aa345e): replacing a Bool-valued predicate with a
+--     Dec-valued one looked free at the type level but allocated proof
+--     terms per call and cost 30–65% throughput until reverted with an
+--     equivalence-proven Bool fast path. Type-level strengthening in a
+--     MAlonzo hot path warrants a benchmark before commit, not after.
+--
+-- Additional costs if this refactor is ever scheduled:
+--   * Threading `length atoms` through `PredTable`, `stepL`, `runL`, `denot`
+--     and all their callers (~8 files).
+--   * The four-valued `agreement` theorem signature would have to change
+--     shape to carry the bound.
+--   * AletheiaFFI.hs would need re-verification of MAlonzo constructor
+--     mangling.
+--
+-- Recommendation for future reviewers: leave this alone unless you have a
+-- concrete reason beyond "the nothing branch is dead" (Property 27 already
+-- says that). If you do pursue it, run
+-- `benchmarks/run_all.sh --frames 10000 --runs 5 --bench throughput` across
+-- all three benchmarks BEFORE committing, and be ready to fall back to a
+-- Bool/ℕ fast path if Stream LTL regresses.
+-- ====================================================================
+-- STALE-CACHE SOUNDNESS (finding A28)
+-- ====================================================================
+--
+-- The signal cache can become "stale": a signal observed N frames ago
+-- may not appear in subsequent frames (different CAN ID). When
+-- `evalPredicateTV` falls back to the cache via `getTruthValue`:
+--
+--   getTruthValue sigName dbc cache frame =
+--     case extractTruthValue sigName dbc frame of
+--       just v  → just v          -- prefer live extraction
+--       nothing → map CachedSignal.value (lookupCache sigName cache)
+--
+-- the evaluation uses the most recent observed value. This is SOUND
+-- by CAN bus semantics: signal values persist until the next message
+-- carrying that signal. The cache stores the last definite observation,
+-- so a stale cache entry is the correct last-known value.
+--
+-- Three cases:
+--   1. Signal present in current frame → extracted directly, cache ignored.
+--   2. Signal absent but in cache → cached value used; evalPredicateTV
+--      returns a definite True/False (not Unknown). Sound because the
+--      cached value IS the signal's current value under CAN persistence.
+--   3. Signal never observed → cache miss; evalPredicateTV returns
+--      Unknown. The coalgebra's stepL maps Unknown → Continue (formula
+--      remains active), which is trivially sound: no definite verdict
+--      is produced from missing data.
+--
+-- The formal proof chain for cases 1-2 is:
+--   evalPredicate-cache-definite  (Evaluation/Properties.agda)
+--     — cache hit ⇒ any predicate returns True or False
+--   lookupAtom-warm               (Adequacy/WarmCache.agda)
+--     — all atom indices have warm cache entries
+--   warm-cache-table-definite     (Adequacy/WarmCache.agda)
+--     — mkPredTable returns True/False when cache is warm
+--   warm-cache-agreement          (Adequacy/WarmCache.agda)
+--     — composes with adequacy for the main soundness theorem
+--
+-- The key invariant maintained by handleDataFrame in StreamState.agda is
+-- the "evaluate then update" ordering:
+--   stepProperty dbc cache tf       — evaluates predicates with OLD cache
+--   updatedCache = updateCacheFromFrame ...  — updates cache for NEXT frame
+-- This ensures that delta predicates (ChangedBy, StableWithin) see the
+-- correct previous value (from cache) and current value (from frame),
+-- without the cache update interfering with the current frame's evaluation.
+-- ====================================================================
+
 mkPredTable : DBC → SignalCache → List SignalPredicate → PredTable
 mkPredTable dbc cache atoms n frame =
   case lookupAtom atoms n of λ where
@@ -116,6 +210,19 @@ classifyStepResult : StepResult LTLProc → PropertyState → StepOutcome Proper
 classifyStepResult (Continue _ newProc) prop =
   advance (mkPropertyState (PropertyState.index prop) (PropertyState.formula prop) (PropertyState.atoms prop) (simplify newProc))
 classifyStepResult (Violated ce) prop = halt (PropertyState.index prop , ce)
+-- Satisfied: property holds at this step. The property stays in the iteration
+-- list and its proc continues being stepped on subsequent frames. This is
+-- correct (re-evaluating a satisfied formula is harmless) but wasteful.
+-- The LTL type lacks a Top constructor, so there's no trivially-true formula
+-- to substitute that wouldn't risk false violations via stepL evaluation.
+--
+-- Stability argument: once stepL returns Satisfied for a formula, re-stepping
+-- the same proc with any subsequent frame also returns Satisfied or Continue.
+-- This follows from stepL's structural decomposition: Satisfied is a terminal
+-- state for Always/Release (the only safety operators that yield Satisfied),
+-- and combining Satisfied with any other StepResult via combineAnd/combineOr
+-- preserves or downgrades — it cannot produce Violated. The runL-stepL-satisfied
+-- lemma in Coalgebra/Properties.agda formalises the trace-level consequence.
 classifyStepResult Satisfied prop = advance prop
 
 -- Step one property: build PredTable, call stepL, classify result.

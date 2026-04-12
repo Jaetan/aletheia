@@ -23,25 +23,6 @@ data TruthVal : Set where
   Unknown : TruthVal
   Pending : TruthVal
 
--- Decidable equality on TruthVal
-_≟TV_ : (x y : TruthVal) → Dec (x ≡ y)
-True    ≟TV True    = yes refl
-True    ≟TV False   = no λ ()
-True    ≟TV Unknown = no λ ()
-True    ≟TV Pending = no λ ()
-False   ≟TV True    = no λ ()
-False   ≟TV False   = yes refl
-False   ≟TV Unknown = no λ ()
-False   ≟TV Pending = no λ ()
-Unknown ≟TV True    = no λ ()
-Unknown ≟TV False   = no λ ()
-Unknown ≟TV Unknown = yes refl
-Unknown ≟TV Pending = no λ ()
-Pending ≟TV True    = no λ ()
-Pending ≟TV False   = no λ ()
-Pending ≟TV Unknown = no λ ()
-Pending ≟TV Pending = yes refl
-
 -- Negation: ¬ Unknown = Unknown, ¬ Pending = Pending
 notTV : TruthVal → TruthVal
 notTV True    = False

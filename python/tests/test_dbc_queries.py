@@ -35,14 +35,14 @@ def _mux_dbc() -> DBCDefinition:
                         byteOrder="little_endian", signed=True,
                         factor=0.1, offset=-40, minimum=-40, maximum=215,
                         unit="degC",
-                        multiplexor="MuxSelector", multiplex_value=0,
+                        multiplexor="MuxSelector", multiplex_values=[0],
                     ),
                     DBCSignalMultiplexed(
                         name="Pressure", startBit=8, length=16,
                         byteOrder="little_endian", signed=False,
                         factor=0.01, offset=0, minimum=0, maximum=655,
                         unit="bar",
-                        multiplexor="MuxSelector", multiplex_value=1,
+                        multiplexor="MuxSelector", multiplex_values=[1],
                     ),
                     DBCSignalAlways(
                         name="Voltage", startBit=40, length=16,
@@ -270,7 +270,7 @@ def _dual_mux_dbc() -> DBCDefinition:
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
                         unit="",
-                        multiplexor="MuxA", multiplex_value=0,
+                        multiplexor="MuxA", multiplex_values=[0],
                     ),
                     DBCSignalAlways(
                         name="MuxB", startBit=4, length=4,
@@ -283,14 +283,14 @@ def _dual_mux_dbc() -> DBCDefinition:
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
                         unit="",
-                        multiplexor="MuxB", multiplex_value=0,
+                        multiplexor="MuxB", multiplex_values=[0],
                     ),
                     DBCSignalMultiplexed(
                         name="SigA2", startBit=8, length=8,
                         byteOrder="little_endian", signed=False,
                         factor=1, offset=0, minimum=0, maximum=255,
                         unit="",
-                        multiplexor="MuxA", multiplex_value=1,
+                        multiplexor="MuxA", multiplex_values=[1],
                     ),
                 ],
             }

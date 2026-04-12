@@ -3,6 +3,8 @@
 
 #include "detail/mock_backend.hpp"
 
+#include <memory>
+
 namespace aletheia {
 
 auto make_mock_backend() -> std::unique_ptr<IBackend> {

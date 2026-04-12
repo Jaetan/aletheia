@@ -39,7 +39,7 @@ class IssueCode(str, Enum):
     DUPLICATE_SIGNAL_NAME = "duplicate_signal_name"
     FACTOR_ZERO = "factor_zero"
     MULTIPLEXOR_NOT_FOUND = "multiplexor_not_found"
-    MULTIPLEXOR_NOT_ALWAYS_PRESENT = "multiplexor_not_always_present"
+    MULTIPLEXOR_CYCLE = "multiplexor_cycle"
     GLOBAL_NAME_COLLISION = "global_name_collision"
     MIN_EXCEEDS_MAX = "min_exceeds_max"
     SIGNAL_EXCEEDS_DLC = "signal_exceeds_dlc"
@@ -71,6 +71,9 @@ class ErrorCode(str, Enum):
     PARSE_INVALID_DLC_BYTES = "parse_invalid_dlc_bytes"
     PARSE_ROOT_NOT_OBJECT = "parse_root_not_object"
     PARSE_MISSING_SIGNAL_NAME = "parse_missing_signal_name"
+    PARSE_SIGNAL_BIT_LENGTH_ZERO = "parse_signal_bit_length_zero"
+    PARSE_SIGNAL_OVERFLOWS_FRAME = "parse_signal_overflows_frame"
+    PARSE_SIGNAL_MSB_BELOW_BIT_LENGTH = "parse_signal_msb_below_bit_length"
     # Frame errors
     FRAME_SIGNAL_NOT_FOUND = "frame_signal_not_found"
     FRAME_SIGNAL_INDEX_OOB = "frame_signal_index_oob"
@@ -98,6 +101,7 @@ class ErrorCode(str, Enum):
     HANDLER_PROPERTY_PARSE_FAILED = "handler_property_parse_failed"
     HANDLER_INVALID_DLC_CODE = "handler_invalid_dlc_code"
     HANDLER_VALIDATION_FAILED = "handler_validation_failed"
+    HANDLER_NON_MONOTONIC_TIMESTAMP = "handler_non_monotonic_timestamp"
     # Dispatch errors
     DISPATCH_MISSING_TYPE_FIELD = "dispatch_missing_type_field"
     DISPATCH_UNKNOWN_MESSAGE_TYPE = "dispatch_unknown_message_type"
@@ -149,7 +153,7 @@ class DBCSignalMultiplexed(TypedDict):
     maximum: float
     unit: str
     multiplexor: str
-    multiplex_value: int
+    multiplex_values: list[int]
 
 
 # Union type for all signal types
@@ -157,7 +161,13 @@ DBCSignal = DBCSignalAlways | DBCSignalMultiplexed
 
 
 class DBCMessage(TypedDict):
-    """DBC message definition structure"""
+    """DBC message definition structure.
+
+    Note: ``dlc`` is the payload byte count (from ``cantools message.length``),
+    not the raw DLC code.  For CAN 2.0B (DLC 0-8) the values coincide;
+    for CAN-FD (DLC 9-15) this field holds 12/16/20/24/32/48/64.
+    The JSON key name ``"dlc"`` matches the Agda parser's wire format.
+    """
     id: int
     name: str
     dlc: int
@@ -403,49 +413,6 @@ class SetPropertiesCommand(TypedDict):
     properties: list[LTLFormula]
 
 
-class StartStreamCommand(TypedDict):
-    """Start streaming command"""
-    type: Literal["command"]
-    command: Literal["startStream"]
-
-
-class EndStreamCommand(TypedDict):
-    """End streaming command"""
-    type: Literal["command"]
-    command: Literal["endStream"]
-
-
-class BuildFrameCommand(TypedDict):
-    """Build CAN frame from signal values"""
-    type: Literal["command"]
-    command: Literal["buildFrame"]
-    canId: int
-    dlc: int
-    signals: list[SignalValue]
-    extended: bool
-
-
-class ExtractSignalsCommand(TypedDict):
-    """Extract all signals from CAN frame"""
-    type: Literal["command"]
-    command: Literal["extractAllSignals"]
-    canId: int
-    dlc: int
-    data: list[int]
-    extended: bool
-
-
-class UpdateFrameCommand(TypedDict):
-    """Update signals in existing CAN frame"""
-    type: Literal["command"]
-    command: Literal["updateFrame"]
-    canId: int
-    dlc: int
-    data: list[int]
-    signals: list[SignalValue]
-    extended: bool
-
-
 class ValidateDBCCommand(TypedDict):
     """Validate a parsed DBC definition"""
     type: Literal["command"]
@@ -453,24 +420,8 @@ class ValidateDBCCommand(TypedDict):
     dbc: DBCDefinition
 
 
-class FormatDBCCommand(TypedDict):
-    """Format currently-loaded DBC back to JSON"""
-    type: Literal["command"]
-    command: Literal["formatDBC"]
-
-
-# Union type for all commands
-Command = (
-    ParseDBCCommand |
-    SetPropertiesCommand |
-    StartStreamCommand |
-    EndStreamCommand |
-    BuildFrameCommand |
-    ExtractSignalsCommand |
-    UpdateFrameCommand |
-    ValidateDBCCommand |
-    FormatDBCCommand
-)
+# Union type for JSON-path commands (binary FFI operations are not represented here).
+Command = ParseDBCCommand | SetPropertiesCommand | ValidateDBCCommand
 
 
 class SuccessResponse(TypedDict):
@@ -504,12 +455,20 @@ class PropertyViolationResponse(TypedDict):
 
 
 class PropertyResultEntry(TypedDict):
-    """A single property finalization result at end-of-stream"""
+    """A single property finalization result at end-of-stream.
+
+    ``status="unresolved"`` means the Agda coalgebra's three-valued Kleene
+    ``finalizeL`` returned ``Unsure`` — typically when an atomic predicate's
+    signal was never observed on the trace, so neither satisfaction nor
+    violation can be proved. The denotational semantics agrees this is
+    Unknown, so it is reported as a distinct verdict rather than collapsed
+    to a failure.
+    """
     type: Literal["property"]
-    status: Literal["fails", "holds"]
+    status: Literal["fails", "holds", "unresolved"]
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
-    reason: NotRequired[str]  # Only for violations
+    reason: NotRequired[str]  # Only for violations and unresolved
     signals: NotRequired[dict[str, float | None]]  # Enriched: signal values
     formula: NotRequired[str]  # Enriched: human-readable formula
     enriched_reason: NotRequired[str]  # Enriched: counter-example string

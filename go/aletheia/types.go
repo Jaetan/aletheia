@@ -171,7 +171,7 @@ func (d DLC) ToBytes() int {
 // NewDLC creates a DLC. Returns an error if v > 15.
 func NewDLC(v uint8) (DLC, error) {
 	if v > 15 {
-		return DLC{}, validationError(fmt.Sprintf("DLC %d exceeds CAN-FD range (0-15)", v))
+		return DLC{}, validationError(fmt.Sprintf("DLC %d out of range [0, 15]", v))
 	}
 	return DLC{value: v}, nil
 }

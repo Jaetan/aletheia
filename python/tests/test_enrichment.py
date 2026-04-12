@@ -182,7 +182,7 @@ class TestBuildDiagnostic:
         f = Signal("Speed").less_than(220).always().to_dict()
         diag = build_diagnostic(f)
         assert isinstance(diag, PropertyDiagnostic)
-        assert diag.signals == ["Speed"]
+        assert diag.signals == ("Speed",)
         assert "Speed" in diag.formula_desc
         assert "220" in diag.formula_desc
 
@@ -191,7 +191,7 @@ class TestBuildDiagnostic:
             Signal("RPM").greater_than(500)
         ).always().to_dict()
         diag = build_diagnostic(f)
-        assert diag.signals == ["Speed", "RPM"]
+        assert diag.signals == ("Speed", "RPM")
         assert "Speed" in diag.formula_desc
         assert "RPM" in diag.formula_desc
 
@@ -206,7 +206,7 @@ class TestFormatEnrichedReason:
 
     def test_with_values(self) -> None:
         diag = PropertyDiagnostic(
-            signals=["Speed"],
+            signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
         values: dict[str, float | None] = {"Speed": 245.0}
@@ -217,7 +217,7 @@ class TestFormatEnrichedReason:
 
     def test_multi_signal(self) -> None:
         diag = PropertyDiagnostic(
-            signals=["Speed", "RPM"],
+            signals=("Speed", "RPM"),
             formula_desc="always(Speed < 220 and RPM > 500)",
         )
         values: dict[str, float | None] = {"Speed": 245.0, "RPM": 3000.0}
@@ -228,11 +228,39 @@ class TestFormatEnrichedReason:
 
     def test_no_values(self) -> None:
         diag = PropertyDiagnostic(
-            signals=["Speed"],
+            signals=("Speed",),
             formula_desc="always(Speed < 220)",
         )
         reason = format_enriched_reason(diag, {})
         assert reason == "violated: always(Speed < 220)"
+
+    def test_core_reason_appended(self) -> None:
+        diag = PropertyDiagnostic(
+            signals=("Speed",),
+            formula_desc="always(Speed < 220)",
+        )
+        values: dict[str, float | None] = {"Speed": 245.0}
+        reason = format_enriched_reason(diag, values, core_reason="liveness timeout")
+        assert reason.endswith("[core: liveness timeout]")
+        assert "Speed = 245" in reason
+
+    def test_core_reason_empty_is_omitted(self) -> None:
+        diag = PropertyDiagnostic(
+            signals=("Speed",),
+            formula_desc="always(Speed < 220)",
+        )
+        values: dict[str, float | None] = {"Speed": 245.0}
+        reason = format_enriched_reason(diag, values, core_reason="")
+        assert "[core:" not in reason
+
+    def test_core_reason_with_no_values(self) -> None:
+        diag = PropertyDiagnostic(
+            signals=("Speed",),
+            formula_desc="always(Speed < 220)",
+        )
+        reason = format_enriched_reason(diag, {}, core_reason="never observed")
+        assert "violated:" in reason
+        assert reason.endswith("[core: never observed]")
 
     def test_dsl_roundtrip(self) -> None:
         """DSL formula -> diagnostic -> enriched reason."""

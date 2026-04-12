@@ -266,7 +266,7 @@ class TestLoadFromFile:
               - signal: Speed
                 condition: never_exceeds
                 value: 220
-        """))
+        """), encoding="utf-8")
         checks = load_checks(yaml_file)
         assert len(checks) == 1
         assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
@@ -279,7 +279,7 @@ class TestLoadFromFile:
                 condition: stays_between
                 min: 11.5
                 max: 14.5
-        """))
+        """), encoding="utf-8")
         checks = load_checks(str(yaml_file))
         assert len(checks) == 1
         assert checks[0].to_dict() == (

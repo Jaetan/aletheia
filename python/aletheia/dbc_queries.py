@@ -47,10 +47,10 @@ def mux_values(msg: DBCMessage, multiplexor: str) -> list[int]:
     out: list[int] = []
     for s in msg["signals"]:
         if s.get("multiplexor") == multiplexor:
-            v = cast(DBCSignalMultiplexed, s)["multiplex_value"]
-            if v not in seen:
-                seen.add(v)
-                out.append(v)
+            for v in cast(DBCSignalMultiplexed, s)["multiplex_values"]:
+                if v not in seen:
+                    seen.add(v)
+                    out.append(v)
     return out
 
 
@@ -67,7 +67,7 @@ def signals_for_mux_value(
         mux = s.get("multiplexor")
         if mux is None:
             out.append(s)
-        elif mux == multiplexor and cast(DBCSignalMultiplexed, s)["multiplex_value"] == value:
+        elif mux == multiplexor and value in cast(DBCSignalMultiplexed, s)["multiplex_values"]:
             out.append(s)
     return out
 

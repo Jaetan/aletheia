@@ -26,11 +26,14 @@ namespace aletheia {
 // Default-constructed Logger is a no-op (null callback).
 // ---------------------------------------------------------------------------
 
-enum class LogLevel : std::uint8_t { Debug, Info, Warn };
+enum class LogLevel : std::uint8_t { Debug, Info, Warn, Error };
 
 using LogValue = std::variant<std::string_view, std::int64_t, std::uint64_t, double, bool>;
 using LogField = std::pair<std::string_view, LogValue>;
 
+// LogRecord is valid only for the duration of the Logger::log() call.
+// The span and string_view fields may reference temporaries from the caller's
+// initializer list — do not store or copy LogRecord beyond the callback scope.
 struct LogRecord {
     LogLevel level;
     std::string_view event;
@@ -71,6 +74,11 @@ public:
     void warn(std::string_view event, std::initializer_list<LogField> fields = {},
               std::source_location loc = std::source_location::current()) const {
         log(LogLevel::Warn, event, fields, loc);
+    }
+
+    void error(std::string_view event, std::initializer_list<LogField> fields = {},
+               std::source_location loc = std::source_location::current()) const {
+        log(LogLevel::Error, event, fields, loc);
     }
 
     explicit operator bool() const { return static_cast<bool>(cb_); }

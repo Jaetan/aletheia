@@ -117,3 +117,133 @@ func TestDoubleClose(t *testing.T) {
 		t.Errorf("second close: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Parse error codes from the PhysicallyValid gate (2026-04-08)
+// ---------------------------------------------------------------------------
+// DBC/JSONParser.agda's physicalGate enforces three constraints on BigEndian
+// signals at parse time (closes deferred item §12.1):
+//
+//   • bitLength ≥ 1                     → SignalBitLengthZero
+//   • csb + bl − 1 < frameBytes * 8      → SignalOverflowsFrame
+//   • bl − 1 ≤ csb                      → SignalMSBBelowBitLength
+//
+// Go's surface for this layer is JSON error-code parsing — the actual
+// physicalGate logic lives in Agda and is already verified by the
+// real-FFI C++/Python tests. These tests exercise the Go binding's
+// JSON error-code extraction via MockBackend, ensuring the three new
+// codes (from 2026-04-08) round-trip through parseErrorResponse into
+// aErr.Code with the expected ErrProtocol kind.
+
+func TestParseError_SignalBitLengthZero(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status": "error",
+			"code": "parse_signal_bit_length_zero",
+			"message": "signal bit length must be at least 1"
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.ParseDBC(testDBC())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeParseSignalBitLengthZero {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalBitLengthZero, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+}
+
+func TestParseError_SignalOverflowsFrame(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status": "error",
+			"code": "parse_signal_overflows_frame",
+			"message": "signal overflows frame: startBit=0 bitLength=33 frameBytes=4"
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.ParseDBC(testDBC())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeParseSignalOverflowsFrame {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalOverflowsFrame, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+}
+
+func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status": "error",
+			"code": "parse_signal_msb_below_bit_length",
+			"message": "signal MSB below bitLength: csb=0 bl=2"
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.ParseDBC(testDBC())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeParseSignalMSBBelowBitLength {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseSignalMSBBelowBitLength, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+}
+
+func TestParseError_CodeConstantsExported(t *testing.T) {
+	// Regression guard: the three parse error codes added in 2026-04-08 must
+	// remain exported as public constants with the exact string values that
+	// Agda emits. These are matched directly by application code that wants
+	// to react to specific parse errors (e.g. "signal bit length zero" →
+	// "try re-exporting with a wider bit length"), so a typo would silently
+	// break error-recovery logic in downstream tools.
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"SignalBitLengthZero", aletheia.CodeParseSignalBitLengthZero, "parse_signal_bit_length_zero"},
+		{"SignalOverflowsFrame", aletheia.CodeParseSignalOverflowsFrame, "parse_signal_overflows_frame"},
+		{"SignalMSBBelowBitLength", aletheia.CodeParseSignalMSBBelowBitLength, "parse_signal_msb_below_bit_length"},
+	}
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
+		}
+	}
+}

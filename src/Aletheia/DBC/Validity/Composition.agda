@@ -10,13 +10,13 @@ module Aletheia.DBC.Validity.Composition where
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
-  ( errorIssues; findSignalPresence
-  ; checkDupIdPair; checkDupIdAgainstList; checkDuplicateMessageIds
-  ; checkDupSigPair; checkDupSigAgainstList; checkDupSigTriangular
+  ( errorIssues; findSignalPresence; walkMux
+  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkDuplicateMessageIds
+  ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
   ; checkFactorZeroSig; checkAllFactorZero
   ; checkMuxFoundSig; checkAllMuxFound
-  ; checkMuxAlwaysPresentSig; checkAllMuxAlwaysPresent
+  ; checkMuxCycleSig; checkAllMuxCycle
   ; checkSignalExceedsDLC; checkAllSignalExceedsDLC
   ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
   ; checkAllSignalOverlaps
@@ -26,17 +26,18 @@ open import Aletheia.CAN.DBCHelpers using (_≟-CANId_)
 open import Aletheia.DBC.Validity.ListLemmas using (++-≡[]-combine; ++-≡[]-split; All-concatMap)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; concatMap; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_; universal)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.Any using (any?)
-open import Data.String.Properties using (_≟_)
+open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat using (ℕ; _+_; _*_)
-open import Data.Nat.Properties using (_≤?_) renaming (_≟_ to _≟ₙ_)
+open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
 open import Data.Maybe using (just; nothing)
+open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary using (yes; no)
@@ -90,14 +91,14 @@ ei-combine xs ys px py = trans (errorIssues-++ xs ys) (++-≡[]-combine px py)
 -- ============================================================================
 
 -- Check 1: DuplicateMessageIds
-checkDupIdPair-allE : ∀ m1 m2 → All E (checkDupIdPair m1 m2)
-checkDupIdPair-allE m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
+checkDuplicateIdPair-allE : ∀ m1 m2 → All E (checkDuplicateIdPair m1 m2)
+checkDuplicateIdPair-allE m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
 -- Check 2: DuplicateSignalNames
-checkDupSigPair-allE : ∀ msgName s1 s2 → All E (checkDupSigPair msgName s1 s2)
-checkDupSigPair-allE msgName s1 s2 with DBCSignal.name s1 ≟ DBCSignal.name s2
+checkDuplicateSignalPair-allE : ∀ msgName s1 s2 → All E (checkDuplicateSignalPair msgName s1 s2)
+checkDuplicateSignalPair-allE msgName s1 s2 with DBCSignal.name s1 ≟ₛ DBCSignal.name s2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
@@ -112,19 +113,17 @@ checkFactorZeroSig-allE msgName sig
 checkMuxFoundSig-allE : ∀ msgName sigs sig → All E (checkMuxFoundSig msgName sigs sig)
 checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
 ... | Always = []
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ muxName) sigs
+... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) sigs
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 
--- Check 5: MuxAlwaysPresent
-checkMuxAlwaysPresentSig-allE : ∀ msgName sigs sig →
-  All E (checkMuxAlwaysPresentSig msgName sigs sig)
-checkMuxAlwaysPresentSig-allE msgName sigs sig with DBCSignal.presence sig
-... | Always = []
-... | When muxName _ with findSignalPresence muxName sigs
-...   | nothing        = []
-...   | just Always    = []
-...   | just (When _ _) = refl ∷ []
+-- Check 5: MuxCycle
+checkMuxCycleSig-allE : ∀ msgName sigs sig →
+  All E (checkMuxCycleSig msgName sigs sig)
+checkMuxCycleSig-allE msgName sigs sig
+  with walkMux (length sigs) sigs (DBCSignal.presence sig)
+... | true  = []
+... | false = refl ∷ []
 
 -- Check 8: SignalExceedsDLC
 checkSignalExceedsDLC-allE : ∀ msgName dlc sig →
@@ -144,7 +143,7 @@ checkOverlapPair-allE msgName n s1 s2 with signalPairValid? n s1 s2
 -- Check 10: BitLengthZero
 checkBitLengthZero-allE : ∀ msgName sig → All E (checkBitLengthZero msgName sig)
 checkBitLengthZero-allE msgName sig
-  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ₙ 0
+  with SignalDef.bitLength (DBCSignal.signalDef sig) ≟ 0
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
@@ -153,36 +152,36 @@ checkBitLengthZero-allE msgName sig
 -- ============================================================================
 
 -- Check 1
-checkDupIdAgainstList-allE : ∀ m rest → All E (checkDupIdAgainstList m rest)
-checkDupIdAgainstList-allE _ [] = []
-checkDupIdAgainstList-allE m (other ∷ rest) =
-  ++⁺ (checkDupIdPair-allE m other) (checkDupIdAgainstList-allE m rest)
+checkDuplicateIdAgainstList-allE : ∀ m rest → All E (checkDuplicateIdAgainstList m rest)
+checkDuplicateIdAgainstList-allE _ [] = []
+checkDuplicateIdAgainstList-allE m (other ∷ rest) =
+  ++⁺ (checkDuplicateIdPair-allE m other) (checkDuplicateIdAgainstList-allE m rest)
 
 checkDuplicateMessageIds-allE : ∀ msgs → All E (checkDuplicateMessageIds msgs)
 checkDuplicateMessageIds-allE [] = []
 checkDuplicateMessageIds-allE (m ∷ rest) =
-  ++⁺ (checkDupIdAgainstList-allE m rest) (checkDuplicateMessageIds-allE rest)
+  ++⁺ (checkDuplicateIdAgainstList-allE m rest) (checkDuplicateMessageIds-allE rest)
 
 -- Check 2
-checkDupSigAgainstList-allE : ∀ msgName sig rest →
-  All E (checkDupSigAgainstList msgName sig rest)
-checkDupSigAgainstList-allE _ _ [] = []
-checkDupSigAgainstList-allE msgName sig (other ∷ rest) =
-  ++⁺ (checkDupSigPair-allE msgName sig other)
-         (checkDupSigAgainstList-allE msgName sig rest)
+checkDuplicateSignalAgainstList-allE : ∀ msgName sig rest →
+  All E (checkDuplicateSignalAgainstList msgName sig rest)
+checkDuplicateSignalAgainstList-allE _ _ [] = []
+checkDuplicateSignalAgainstList-allE msgName sig (other ∷ rest) =
+  ++⁺ (checkDuplicateSignalPair-allE msgName sig other)
+         (checkDuplicateSignalAgainstList-allE msgName sig rest)
 
-checkDupSigTriangular-allE : ∀ msgName sigs →
-  All E (checkDupSigTriangular msgName sigs)
-checkDupSigTriangular-allE _ [] = []
-checkDupSigTriangular-allE msgName (sig ∷ rest) =
-  ++⁺ (checkDupSigAgainstList-allE msgName sig rest)
-         (checkDupSigTriangular-allE msgName rest)
+checkDuplicateSignalTriangular-allE : ∀ msgName sigs →
+  All E (checkDuplicateSignalTriangular msgName sigs)
+checkDuplicateSignalTriangular-allE _ [] = []
+checkDuplicateSignalTriangular-allE msgName (sig ∷ rest) =
+  ++⁺ (checkDuplicateSignalAgainstList-allE msgName sig rest)
+         (checkDuplicateSignalTriangular-allE msgName rest)
 
 checkAllDuplicateSignalNames-allE : ∀ msgs →
   All E (checkAllDuplicateSignalNames msgs)
 checkAllDuplicateSignalNames-allE [] = []
 checkAllDuplicateSignalNames-allE (msg ∷ rest) =
-  ++⁺ (checkDupSigTriangular-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+  ++⁺ (checkDuplicateSignalTriangular-allE (DBCMessage.name msg) (DBCMessage.signals msg))
          (checkAllDuplicateSignalNames-allE rest)
 
 -- Check 3
@@ -198,9 +197,9 @@ checkAllMuxFound-allE msgs = All-concatMap (universal (λ msg →
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 5
-checkAllMuxAlwaysPresent-allE : ∀ msgs → All E (checkAllMuxAlwaysPresent msgs)
-checkAllMuxAlwaysPresent-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkMuxAlwaysPresentSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+checkAllMuxCycle-allE : ∀ msgs → All E (checkAllMuxCycle msgs)
+checkAllMuxCycle-allE msgs = All-concatMap (universal (λ msg →
+  All-concatMap (universal (checkMuxCycleSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 8

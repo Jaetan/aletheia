@@ -2,7 +2,7 @@
 
 -- Correctness properties for the LTL JSON parser and formatter.
 --
--- Purpose: Prove roundtrip, soundness, and completeness for LTL formula serialization.
+-- Purpose: Prove roundtrip and soundness for LTL formula serialization.
 -- Properties:
 --   Roundtrip: parseLTL (formatLTL φ) ≡ just (resetStart φ)
 --   Soundness: parseLTL json ≡ just φ → json is a JObject
@@ -18,8 +18,9 @@ open import Data.Maybe using (just)
 open import Data.Product using (_,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat; ℕtoℚ)
-open import Aletheia.Protocol.JSON.Properties using (getNat-ℕtoℚ)
+open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; getNat)
+open import Aletheia.Prelude using (ℕtoℚ)
+open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP; Equals; LessThan; GreaterThan; LessThanOrEqual; GreaterThanOrEqual; Between; ChangedBy; StableWithin)
 open import Aletheia.LTL.JSON using (parseLTL; parseSignalPredicate)
@@ -121,17 +122,6 @@ roundtrip (LTL.MetricRelease n _ f g)
   with getNat (JNumber (ℕtoℚ n)) | getNat-ℕtoℚ n
 ... | .(just n) | refl
   rewrite roundtrip f | roundtrip g = refl
-
--- ============================================================================
--- COMPLETENESS (corollary of roundtrip)
--- ============================================================================
-
--- If a formula was successfully parsed, it can be re-serialized and re-parsed.
--- Note: parsed formulas always have startTime=0, so resetStart f ≡ f for them.
-completeness : (json : JSON) (f : LTL SignalPredicate)
-  → parseLTL json ≡ just f
-  → parseLTL (formatLTL f) ≡ just (resetStart f)
-completeness json f _ = roundtrip f
 
 -- ============================================================================
 -- SOUNDNESS (structural property)

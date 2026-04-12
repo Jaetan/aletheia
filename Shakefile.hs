@@ -28,24 +28,25 @@ extractMangledName funcName content =
                            prefix `isInfixOf` name]
 
 -- | Extract the function name currently used in the FFI wrapper for a given Agda function.
--- Looks for pattern: "Agda.d_<funcName>_XX"
-extractFFIName :: String -> String -> Maybe String
-extractFFIName funcName content =
+-- Looks for pattern: "<qualifier>.d_<funcName>_XX" where qualifier is e.g. "AgdaJSON" or "AgdaBin".
+extractFFIName :: String -> String -> String -> Maybe String
+extractFFIName qualifier funcName content =
     let prefix = "d_" ++ funcName ++ "_"
-        agdaPrefix = "Agda." ++ prefix
+        qualPrefix = qualifier ++ "." ++ prefix
+        qualLen = length qualifier + 1 -- qualifier + "."
     in listToMaybe [cleaned | line <- lines content,
-                              "Agda." `isInfixOf` line,
+                              qualifier `isInfixOf` line,
                               funcName `isInfixOf` line,
                               let parts = words line,
                               name <- parts,
-                              agdaPrefix `isInfixOf` name,
-                              let cleaned = drop 5 name, -- drop "Agda."
+                              qualPrefix `isInfixOf` name,
+                              let cleaned = drop qualLen name,
                               prefix `isInfixOf` cleaned]
 
 -- | Check that the FFI wrapper uses the correct mangled name for a single function.
-checkOneFFIName :: String -> String -> String -> Action ()
-checkOneFFIName funcName malonzoContent ffiContent =
-    case (extractMangledName funcName malonzoContent, extractFFIName funcName ffiContent) of
+checkOneFFIName :: String -> String -> String -> String -> Action ()
+checkOneFFIName qualifier funcName malonzoContent ffiContent =
+    case (extractMangledName funcName malonzoContent, extractFFIName qualifier funcName ffiContent) of
         (Just generatedName, Just ffiName) ->
             when (generatedName /= ffiName) $ do
                 putError $ unlines
@@ -76,13 +77,32 @@ checkOneFFIName funcName malonzoContent ffiContent =
             putWarn $ "Could not extract " ++ funcName ++ " name from FFI wrapper"
 
 -- | Check that the FFI wrapper uses the correct mangled names for all exported functions.
-checkFFIName :: FilePath -> FilePath -> Action ()
-checkFFIName malonzoFile ffiFile = do
-    malonzoContent <- liftIO $ readFile malonzoFile
+-- After Main.agda split: processJSONLine is in Main/JSON.hs, all others in Main/Binary.hs.
+-- StreamState type/initialState are in Protocol/StreamState/Types.hs.
+checkFFINames :: FilePath -> Action ()
+checkFFINames ffiFile = do
     ffiContent <- liftIO $ readFile ffiFile
-    -- Check both FFI entry points
-    checkOneFFIName "processJSONLine" malonzoContent ffiContent
-    checkOneFFIName "processFrameDirect" malonzoContent ffiContent
+    jsonContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Main/JSON.hs"
+    binaryContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Main/Binary.hs"
+    stateContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Protocol/StreamState/Types.hs"
+    -- JSON entry point
+    checkOneFFIName "AgdaJSON" "processJSONLine" jsonContent ffiContent
+    -- Binary entry points (all in Main/Binary.hs)
+    mapM_ (\fn -> checkOneFFIName "AgdaBin" fn binaryContent ffiContent)
+        [ "processFrameDirect"
+        , "processEventDirect"
+        , "processStartStreamDirect"
+        , "processEndStreamDirect"
+        , "processFormatDBCDirect"
+        , "processExtractDirect"
+        , "processBuildFrameDirect"
+        , "processUpdateFrameDirect"
+        , "processBuildFrameBin"
+        , "processUpdateFrameBin"
+        , "processExtractBin"
+        ]
+    -- StreamState type and initialState
+    checkOneFFIName "AgdaState" "initialState" stateContent ffiContent
 
 -- | Get GHC runtime .so dependencies for a shared library.
 -- Runs ldd and filters for libraries under GHC's lib directory.
@@ -157,14 +177,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/LTL/Coalgebra/Properties.agda"
         -- LTL adequacy pipeline (transitively checks SimplifySound)
         agdaWithRTS "Aletheia/LTL/Adequacy/Pipeline.agda"
-        -- LTL semantics MTL equivalence proof
+        -- LTL semantics MTL equivalence proof and safety-liveness duality
         agdaWithRTS "Aletheia/LTL/Semantics/MTL.agda"
+        agdaWithRTS "Aletheia/LTL/Semantics/Duality.agda"
         -- CAN proofs
         agdaWithRTS "Aletheia/CAN/DLC/Properties.agda"
         agdaWithRTS "Aletheia/CAN/SignalExtraction/Properties.agda"
         agdaWithRTS "Aletheia/CAN/BatchFrameBuilding/Properties.agda"
         -- Binary frame processing proofs (handleDataFrame guards, byte modulus identity)
         agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
+        -- Warm-cache agreement chain (transitively checks Evaluation/Properties)
+        agdaWithRTS "Aletheia/Protocol/Adequacy/WarmCache.agda"
         putInfo "All proof modules type-checked successfully!"
 
     phony "dist" $ do
@@ -284,8 +307,8 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         if exists
             then do
                 putInfo $ "MAlonzo output generated: " ++ out
-                -- Check that FFI wrapper uses correct mangled name
-                checkFFIName out "haskell-shim/src/AletheiaFFI.hs"
+                -- Check that FFI wrapper uses correct mangled names
+                checkFFINames "haskell-shim/src/AletheiaFFI.hs"
             else error $ "Agda compilation failed: " ++ out ++ " not created"
 
     phony "create-symlink" $ do

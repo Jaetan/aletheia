@@ -32,7 +32,7 @@ validateDBCFull dbc =
      ++ₗ checkAllDuplicateSignalNames msgs
      ++ₗ checkAllFactorZero msgs
      ++ₗ checkAllMuxFound msgs
-     ++ₗ checkAllMuxAlwaysPresent msgs
+     ++ₗ checkAllMuxCycle msgs
      ++ₗ checkAllMuxScaling msgs
      ++ₗ checkAllGlobalNameCollisions msgs
      ++ₗ checkAllMinMax msgs

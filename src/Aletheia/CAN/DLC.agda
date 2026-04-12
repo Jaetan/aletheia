@@ -9,7 +9,7 @@
 -- Properties: See CAN/DLC/Properties.agda for roundtrip, bound, and injectivity proofs.
 module Aletheia.CAN.DLC where
 
-open import Data.Nat using (ℕ; _≡ᵇ_; _<ᵇ_)
+open import Data.Nat using (ℕ; suc; _≡ᵇ_; _<ᵇ_)
 open import Data.Bool using (Bool; T; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (tt)
@@ -26,6 +26,9 @@ dlcToBytes 12 = 24
 dlcToBytes 13 = 32
 dlcToBytes 14 = 48
 dlcToBytes 15 = 64
+-- Catch-all: structurally required by Agda's totality checker because ℕ is
+-- open (0–8 also land here as identity). Unreachable from validated code paths:
+-- DLC.bounded ensures code < 16, so only 0–15 are constructed.
 dlcToBytes n  = n
 
 -- Inverse: payload byte count to DLC.
@@ -49,6 +52,9 @@ bytesToDlc n  =
   else if n ≡ᵇ 32 then just 13
   else if n ≡ᵇ 48 then just 14
   else if n ≡ᵇ 64 then just 15
+  -- Reached for byte counts not in the CAN-FD mapping table (e.g., 3, 9–11,
+  -- 13–15, 17–19, 21–23, 25–31, 33–47, 49–63, ≥65). Callers: Routing.agda
+  -- parses user-supplied byte arrays, so invalid counts are possible.
   else nothing
 
 -- Maximum DLC value for CAN 2.0B
@@ -66,7 +72,7 @@ record DLC : Set where
   constructor mkDLC
   field
     code : ℕ
-    @0 bounded : T (code <ᵇ 16)
+    @0 bounded : T (code <ᵇ suc maxDLC-FD)
 
 -- Extract byte count from a validated DLC code.
 dlcBytes : DLC → ℕ

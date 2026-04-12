@@ -88,12 +88,12 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 
 	checksRaw, ok := raw["checks"]
 	if !ok {
-		return nil, validationError("YAML must contain a 'checks' list")
+		return nil, validationError("YAML document must contain a 'checks' list")
 	}
 
 	// Verify it's a list.
 	if _, isList := checksRaw.([]interface{}); !isList {
-		return nil, validationError("YAML must contain a 'checks' list")
+		return nil, validationError("YAML 'checks' field must be a list")
 	}
 
 	// Now unmarshal into our typed structs.
@@ -152,7 +152,7 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
 		}
-		return CheckSignal(entry.Signal).StaysBetween(PhysicalValue(*entry.Min), PhysicalValue(*entry.Max)), nil
+		return CheckSignal(entry.Signal).StaysBetween(PhysicalValue(*entry.Min), PhysicalValue(*entry.Max))
 	}
 
 	if simpleSettlesConditions[condition] {

@@ -1,216 +1,200 @@
 {-# OPTIONS --safe --without-K --no-main #-}
 
--- Main entry point for Aletheia (JSON streaming protocol).
+-- Main entry point for Aletheia (JSON streaming protocol + binary APIs).
 --
--- Purpose: Process line-delimited JSON requests and emit JSON responses.
--- Protocol: parse_dbc → set_properties → start_stream → data_frames* → end_stream,
---   plus build_frame, extract_all_signals, update_frame, validate_dbc, format_dbc
+-- Purpose: Curated public facade re-exporting the types, state-machine,
+--   command dispatch, frame/error types, and FFI entry points that external
+--   callers (Haskell REPL, tests, AletheiaFFI.hs) need.
+--
 -- State Machine: WaitingForDBC → ReadyToStream → Streaming
 --
--- Compilation: Compiled to Haskell via MAlonzo, called from AletheiaFFI.hs.
--- Integration: Python loads libaletheia-ffi.so via ctypes (direct FFI, no subprocess).
+-- Compilation: Compiled to Haskell via MAlonzo; the FFI shim
+-- (AletheiaFFI.hs) calls processJSONLine and the processXxxDirect/Bin
+-- entries directly from the Main.JSON and Main.Binary sub-modules. This
+-- facade does not add FFI symbols of its own — it exists for
+-- discoverability. Bindings (Python/C++/Go) load libaletheia-ffi.so via
+-- ctypes/dlopen (direct FFI).
 --
--- Exports: processJSONLine (JSON commands), processFrameDirect (binary data frames).
--- State machine logic delegated to Protocol.StreamState.
+-- Sub-modules:
+--   Main.JSON   — processJSONLine and (private) JSON dispatch helpers
+--   Main.Binary — all binary entry points (*Direct for JSON output,
+--                 *Bin for binary output)
 --
--- Key design: ALL logic lives in Agda (parsing, validation, state, LTL checking).
--- Haskell FFI shim (AletheiaFFI.hs) only handles C-callable exports and state management.
+-- Key design: ALL logic lives in Agda (parsing, validation, state, LTL
+-- checking). Haskell FFI shim (AletheiaFFI.hs) only handles C-callable
+-- exports and state management.
+--
+-- Name clashes: The constructor `Response.Error` (from
+-- `Aletheia.Protocol.Message`) and the constructor `TraceEvent.Error`
+-- (from `Aletheia.Trace.CANTrace`) both clash with the `Error` type from
+-- `Aletheia.Error`. They are re-exported under renamed names
+-- (`ResponseError` and `TraceError`) to keep all three names in scope
+-- simultaneously from this facade.
 module Aletheia.Main where
 
-open import Data.String using (String; toList; _≟_)
-open import Data.Maybe using (Maybe; just; nothing; map)
-open import Data.Product using (proj₁; _×_; _,_)
-open import Data.List using (List; []; _∷_)
-open import Data.Nat using (ℕ; _<ᵇ_)
-open import Data.Rational using (ℚ)
-open import Data.Vec using (Vec)
-open import Data.Bool using (if_then_else_)
-open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+-- ============================================================================
+-- FFI ENTRY POINTS
+-- ============================================================================
+-- Called directly from AletheiaFFI.hs via MAlonzo (the shim imports
+-- MAlonzo.Code.Aletheia.Main.JSON and MAlonzo.Code.Aletheia.Main.Binary
+-- rather than this facade, so these re-exports are for discoverability).
 
-open import Aletheia.Parser.Combinators using (runParser)
-open import Aletheia.Protocol.JSON using (JSON; JObject; parseJSON; formatJSON; lookupString)
-open import Aletheia.Protocol.Routing using (parseCommand)
-open import Aletheia.Protocol.ResponseFormat using (formatResponse)
-open import Aletheia.Protocol.StreamState using (StreamState; initialState; getDBC; handleDataFrame; handleTraceEvent)
-open import Aletheia.Protocol.Handlers using
-  ( processStreamCommand
-  ; handleStartStream; handleEndStream; handleFormatDBC
-  ; handleExtractAllSignals
-  ; handleBuildFrameByIndex; handleUpdateFrameByIndex
-  )
-open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent)
-open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
-open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex; updateFrameByIndex)
-open import Aletheia.CAN.BatchExtraction using (IndexedExtractionResults; extractAllSignalsIndexed)
-open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcToBytes)
-open import Aletheia.Prelude using (ifᵀ_then_else_; mapₑ)
-open import Aletheia.Error as Err using
-  ( Error; RouteErr; DispatchErr; HandlerErr; WithContext
-  ; DispatchError; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
-  ; HandlerError; InvalidDLCCode
-  ; formatFrameError
-  )
-import Aletheia.Protocol.Message as Msg
+open import Aletheia.Main.JSON public
+  using (processJSONLine)
 
--- Apply formatJSON ∘ formatResponse to the second component of a state-response pair
-wrapJSON : StreamState × Msg.Response → StreamState × String
-wrapJSON (s , r) = (s , formatJSON (formatResponse r))
+open import Aletheia.Main.Binary public
+  using ( processFrameDirect
+        ; processEventDirect
+        ; processStartStreamDirect
+        ; processEndStreamDirect
+        ; processFormatDBCDirect
+        ; processExtractDirect
+        ; processBuildFrameDirect
+        ; processUpdateFrameDirect
+        ; processBuildFrameBin
+        ; processUpdateFrameBin
+        ; processExtractBin
+        )
 
 -- ============================================================================
--- JSON Streaming Protocol (helpers extracted for proof access)
+-- STATE MACHINE
 -- ============================================================================
+-- Stream state type, phase constructors, initial state, and the public
+-- frame/trace-event handlers. `checkMonotonic` is exported so tests and
+-- proof clients can reference the monotonicity predicate directly.
 
--- Try to parse and execute a command from JSON fields
-tryParseCommand : StreamState → List (String × JSON) → StreamState × String
-tryParseCommand state obj with parseCommand obj
-... | inj₁ routeErr = wrapJSON (state , Msg.Response.Error (RouteErr routeErr))
-... | inj₂ cmd = wrapJSON (processStreamCommand cmd state)
-
--- Dispatch by message type field
-dispatchCommand : StreamState → List (String × JSON) → StreamState × String
-dispatchCommand state obj with lookupString "type" obj
-... | nothing = wrapJSON (state , Msg.Response.Error (DispatchErr MissingTypeField))
-... | just msgType =
-  if ⌊ msgType ≟ "command" ⌋
-  then tryParseCommand state obj
-  else wrapJSON (state , Msg.Response.Error (DispatchErr (UnknownMessageType msgType)))
-
--- Handle parsed JSON result
-handleParsedJSON : StreamState → Maybe JSON → StreamState × String
-handleParsedJSON state nothing = wrapJSON (state , Msg.Response.Error (DispatchErr InvalidJSON))
-handleParsedJSON state (just (JObject obj)) = dispatchCommand state obj
-handleParsedJSON state (just _) = wrapJSON (state , Msg.Response.Error (DispatchErr RequestNotObject))
-
--- Process a single JSON line and update stream state.
--- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
-processJSONLine : StreamState → String → StreamState × String
-{-# NOINLINE processJSONLine #-}
-processJSONLine state jsonLine = handleParsedJSON state (map proj₁ (runParser parseJSON (toList jsonLine)))
+open import Aletheia.Protocol.StreamState public
+  using ( StreamState
+        ; WaitingForDBC
+        ; ReadyToStream
+        ; Streaming
+        ; initialState
+        ; getDBC
+        ; checkMonotonic
+        ; handleDataFrame
+        ; handleTraceEvent
+        )
 
 -- ============================================================================
--- BINARY FRAME ENTRY POINT (No JSON parsing)
+-- COMMAND DISPATCH
 -- ============================================================================
+-- High-level streaming protocol: StreamCommand sum, Response sum, and
+-- the command dispatcher. Response.Error is renamed to `ResponseError`
+-- to avoid clashing with Aletheia.Error.Error.
 
--- Binary entry point: process a pre-parsed data frame.
--- Called by aletheia_send_frame via AletheiaFFI.hs.
--- No JSON parsing — frame components passed directly by the Haskell shim.
---
--- This calls handleDataFrame directly, then formats the response.
--- The proof obligation (refl) is in Protocol/FrameProcessor/Properties.agda.
-processFrameDirect : StreamState → TimedFrame → StreamState × String
-{-# NOINLINE processFrameDirect #-}
-processFrameDirect state tf = wrapJSON (handleDataFrame state tf)
+open import Aletheia.Protocol.Message public
+  using ( StreamCommand
+        ; ParseDBC
+        ; SetProperties
+        ; StartStream
+        ; BuildFrame
+        ; ExtractAllSignals
+        ; UpdateFrame
+        ; EndStream
+        ; ValidateDBC
+        ; FormatDBC
+        ; Response
+        ; Success
+        ; ByteArray
+        ; ExtractionResultsResponse
+        ; PropertyResponse
+        ; Ack
+        ; Complete
+        ; ValidationResponse
+        ; DBCResponse
+        )
+  renaming (Error to ResponseError)
 
--- Binary entry point: process a trace event (data, error, or remote frame).
--- Called by aletheia_send_event via AletheiaFFI.hs.
--- Data events delegate to handleDataFrame; error/remote events are acknowledged.
-processEventDirect : StreamState → TraceEvent → StreamState × String
-{-# NOINLINE processEventDirect #-}
-processEventDirect state ev = wrapJSON (handleTraceEvent state ev)
-
--- ============================================================================
--- DIRECT ENTRY POINTS (No JSON parsing on input)
--- ============================================================================
-
--- These bypass processJSONLine's JSON parsing and command routing.
--- Called directly from AletheiaFFI.hs with pre-marshalled arguments.
-
--- Start streaming mode (no input data)
-processStartStreamDirect : StreamState → StreamState × String
-{-# NOINLINE processStartStreamDirect #-}
-processStartStreamDirect state = wrapJSON (handleStartStream state)
-
--- End streaming mode and finalize properties (no input data)
-processEndStreamDirect : StreamState → StreamState × String
-{-# NOINLINE processEndStreamDirect #-}
-processEndStreamDirect state = wrapJSON (handleEndStream state)
-
--- Format currently-loaded DBC as JSON (no input data)
-processFormatDBCDirect : StreamState → StreamState × String
-{-# NOINLINE processFormatDBCDirect #-}
-processFormatDBCDirect state = wrapJSON (handleFormatDBC state)
-
--- Extract all signals from a binary CAN frame (no JSON input parsing)
-processExtractDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × String
-{-# NOINLINE processExtractDirect #-}
-processExtractDirect state canId dlc payload =
-  ifᵀ (dlc <ᵇ 16) then
-    (λ p → wrapJSON (handleExtractAllSignals canId (mkDLC dlc p) payload state))
-  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
-
--- Build CAN frame from signal index-value pairs (no JSON/string parsing)
-processBuildFrameDirect : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × String
-{-# NOINLINE processBuildFrameDirect #-}
-processBuildFrameDirect state canId dlc signals =
-  ifᵀ (dlc <ᵇ 16) then
-    (λ p → wrapJSON (handleBuildFrameByIndex canId (mkDLC dlc p) signals state))
-  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
-
--- Update CAN frame signals by index (no JSON/string parsing)
-processUpdateFrameDirect : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × String
-{-# NOINLINE processUpdateFrameDirect #-}
-processUpdateFrameDirect state canId dlc payload signals =
-  ifᵀ (dlc <ᵇ 16) then
-    (λ p → wrapJSON (handleUpdateFrameByIndex canId (mkDLC dlc p) payload signals state))
-  else (state , formatJSON (formatResponse (Msg.Error (HandlerErr InvalidDLCCode))))
+open import Aletheia.Protocol.Handlers public
+  using (processStreamCommand)
 
 -- ============================================================================
--- BINARY OUTPUT ENTRY POINTS (No JSON serialization on output)
+-- FRAME, TRACE, AND DLC TYPES
 -- ============================================================================
---
--- Wire format (canonical documentation — AletheiaFFI.hs references this):
---
--- processBuildFrameBin / processUpdateFrameBin:
---   Success: raw frame bytes (Vec Byte n) written to caller-provided buffer.
---   Error:   error string via outErr pointer; return code 1.
---
--- processExtractBin:
---   Success: Haskell-allocated buffer (free with aletheia_free_buf).
---   Layout:
---     Header:  3 × u16 (nValues, nErrors, nAbsent)
---     Values:  nValues × (signal_index:u16, numerator:i64, denominator:i64) = 18 bytes each
---     Errors:  nErrors × (signal_index:u16, error_code:u8) = 3 bytes each
---              Error codes: 0=not_in_dbc, 1=out_of_bounds, 2=extraction_failed
---     Absent:  nAbsent × (signal_index:u16) = 2 bytes each
---   Error:   error string via outErr pointer; return code 1.
---
--- Byte order: native (platform-dependent; little-endian on x86_64/aarch64).
--- Multi-byte integers (u16, i64) use the host's native byte order via Haskell's
--- Storable poke. All three language bindings run on the same host, so this is safe.
---
--- CALLER CONTRACT — Timestamp monotonicity:
---   processFrameDirect and processExtractDirect assume monotonically
---   non-decreasing timestamps. Metric LTL operators (MetricEventually,
---   MetricAlways) compute elapsed time via natural subtraction (∸), which
---   clamps to 0 on backward timestamps — silently producing wrong verdicts.
---   All three language bindings (Python, C++, Go) enforce monotonicity at
---   the client level before calling these entry points.
+-- Types that appear in the signatures of the FFI entry points above.
+-- TraceEvent.Error is renamed to `TraceError` to avoid clashing with
+-- Aletheia.Error.Error.
 
--- Build CAN frame, returning raw bytes instead of JSON-formatted Response.
--- Called by aletheia_build_frame_bin via AletheiaFFI.hs.
--- Bypasses formatResponse/formatJSON entirely — zero string allocation on success.
-processBuildFrameBin : StreamState → CANId → (dlc : ℕ) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
-{-# NOINLINE processBuildFrameBin #-}
-processBuildFrameBin state canId dlc signals with getDBC state
-... | nothing  = (state , inj₁ "DBC not loaded")
-... | just dbc = (state , mapₑ formatFrameError (buildFrameByIndex dbc canId dlc signals))
+open import Aletheia.CAN.Frame public
+  using ( Byte
+        ; CANId
+        ; Standard
+        ; Extended
+        ; CANFrame
+        )
 
--- Update CAN frame, returning raw bytes instead of JSON-formatted Response.
--- Called by aletheia_update_frame_bin via AletheiaFFI.hs.
-processUpdateFrameBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcToBytes dlc))
-{-# NOINLINE processUpdateFrameBin #-}
-processUpdateFrameBin state canId dlc payload signals with getDBC state
-... | nothing  = (state , inj₁ "DBC not loaded")
-... | just dbc with updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals
-...   | inj₁ err   = (state , inj₁ (formatFrameError err))
-...   | inj₂ frame = (state , inj₂ (CANFrame.payload frame))
+open import Aletheia.CAN.DLC public
+  using ( DLC
+        ; mkDLC
+        ; dlcBytes
+        ; dlcToBytes
+        ; bytesToDlc
+        ; maxDLC-2B
+        ; maxDLC-FD
+        )
 
--- Extract signals returning indexed results (no strings on success path).
--- Called by aletheia_extract_signals_bin via AletheiaFFI.hs.
-processExtractBin : StreamState → CANId → (dlc : ℕ) → Vec Byte (dlcToBytes dlc) → StreamState × (String ⊎ IndexedExtractionResults)
-{-# NOINLINE processExtractBin #-}
-processExtractBin state canId dlc payload with getDBC state
-... | nothing  = (state , inj₁ "DBC not loaded")
-... | just dbc = (state , mapₑ formatFrameError (extractAllSignalsIndexed dbc (record { id = canId ; dlc = dlc ; payload = payload })))
+open import Aletheia.Trace.CANTrace public
+  using ( TimedFrame
+        ; TraceEvent
+        ; Data
+        ; Remote
+        ; timestampℕ
+        ; eventTimestamp
+        )
+  renaming (Error to TraceError)
 
+open import Aletheia.Trace.Time public
+  using ( Timestamp
+        ; tsValue
+        ; TimeUnit
+        ; μs
+        )
+
+-- ============================================================================
+-- ERROR TYPES AND INSPECTION
+-- ============================================================================
+-- Top-level `Error` sum plus the per-domain error ADTs and the
+-- `formatError` / `errorCode` inspection helpers that tests and callers
+-- use to classify failures.
+
+open import Aletheia.Error public
+  using ( Error
+        ; ParseErr
+        ; FrameErr
+        ; ExtractionErr
+        ; RouteErr
+        ; HandlerErr
+        ; DispatchErr
+        ; WithContext
+        ; ParseError
+        ; FrameError
+        ; ExtractionError
+        ; RouteError
+        ; HandlerError
+        ; DispatchError
+        ; formatError
+        ; errorCode
+        ; formatParseError
+        ; formatFrameError
+        ; formatExtractionError
+        ; formatRouteError
+        ; formatHandlerError
+        ; formatDispatchError
+        )
+
+-- ============================================================================
+-- JSON AND RESPONSE FORMATTING
+-- ============================================================================
+-- JSON datatype and the formatter that turns a Response into
+-- wire-format JSON. Exposed so that callers that build Responses
+-- directly (Haskell REPL, tests) can render them the same way the FFI
+-- shim does.
+
+open import Aletheia.Protocol.JSON public
+  using ( JSON
+        ; parseJSON
+        ; formatJSON
+        )
+
+open import Aletheia.Protocol.ResponseFormat public
+  using (formatResponse)

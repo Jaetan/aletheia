@@ -3,8 +3,13 @@
 
 #include <aletheia/aletheia.hpp>
 
-#include <concepts>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
 #include <type_traits>
+#include <variant>
+#include <vector>
 
 using namespace aletheia;
 
@@ -101,9 +106,12 @@ static_assert(dlc_to_bytes(Dlc::create(15).value()) == 64);
 
 static_assert(PhysicalValue{42.0}.get() == 42.0);
 static_assert(PhysicalValue{-1.5}.get() == -1.5);
-static_assert(RationalFactor{Rational{1, 4}}.get() == Rational{1, 4});
-static_assert(RationalOffset{Rational{-40, 1}}.get() == Rational{-40, 1});
-static_assert(RationalBound{Rational{0, 1}}.get() == Rational{0, 1});
+static_assert(RationalFactor{Rational{.numerator = 1, .denominator = 4}}.get() ==
+              Rational{.numerator = 1, .denominator = 4});
+static_assert(RationalOffset{Rational{.numerator = -40, .denominator = 1}}.get() ==
+              Rational{.numerator = -40, .denominator = 1});
+static_assert(RationalBound{Rational{.numerator = 0, .denominator = 1}}.get() ==
+              Rational{.numerator = 0, .denominator = 1});
 static_assert(Delta{100.0}.get() == 100.0);
 
 static_assert(BitPosition{0}.get() == 0);
@@ -184,6 +192,8 @@ static_assert(std::variant_size_v<Predicate> == 8);
 // ===========================================================================
 
 static_assert(Verdict::Holds != Verdict::Fails);
+static_assert(Verdict::Holds != Verdict::Unresolved);
+static_assert(Verdict::Fails != Verdict::Unresolved);
 
 // ===========================================================================
 // IssueSeverity and IssueCode enums
@@ -220,13 +230,20 @@ static_assert(std::is_abstract_v<IBackend>);
 static_assert(std::has_virtual_destructor_v<IBackend>);
 
 // ===========================================================================
-// StrongString implicit conversion to string_view
+// StrongString explicit conversion to string_view (via direct-init)
 // ===========================================================================
 
-static_assert(std::is_convertible_v<SignalName, std::string_view>);
-static_assert(std::is_convertible_v<MessageName, std::string_view>);
-static_assert(std::is_convertible_v<NodeName, std::string_view>);
-static_assert(std::is_convertible_v<Unit, std::string_view>);
+// string_view must be constructible from StrongString (direct-init form:
+// std::string_view{name}), but the conversion is explicit so implicit
+// conversion is disallowed.
+static_assert(std::is_constructible_v<std::string_view, SignalName>);
+static_assert(std::is_constructible_v<std::string_view, MessageName>);
+static_assert(std::is_constructible_v<std::string_view, NodeName>);
+static_assert(std::is_constructible_v<std::string_view, Unit>);
+static_assert(!std::is_convertible_v<SignalName, std::string_view>);
+static_assert(!std::is_convertible_v<MessageName, std::string_view>);
+static_assert(!std::is_convertible_v<NodeName, std::string_view>);
+static_assert(!std::is_convertible_v<Unit, std::string_view>);
 
 // Strong<> does NOT convert implicitly
 static_assert(!std::is_convertible_v<PhysicalValue, double>);

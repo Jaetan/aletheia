@@ -41,9 +41,9 @@ _WHEN_THEN_HEADERS = [
 ]
 
 _DBC_HEADERS = [
-    "Message ID", "Message Name", "DLC", "Signal", "Start Bit", "Length",
-    "Byte Order", "Signed", "Factor", "Offset", "Min", "Max", "Unit",
-    "Multiplexor", "Multiplex Value",
+    "Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit",
+    "Length", "Byte Order", "Signed", "Factor", "Offset", "Min", "Max",
+    "Unit", "Multiplexor", "Multiplex Value",
 ]
 
 
@@ -274,8 +274,8 @@ class TestLoadDBCFromExcel:
 
     def test_single_signal(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            # id, name, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
-            [256, "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            # id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
+            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["version"] == ""
@@ -301,9 +301,9 @@ class TestLoadDBCFromExcel:
     def test_message_grouping(self, tmp_path: Path) -> None:
         """Multiple rows with same message ID are grouped."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
-            [256, "EngineData", 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
-            [512, "BrakeData", 4, "BrakePressure", 0, 16, "big_endian", False, 0.1, 0, 0, 6553.5, "bar"],
+            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            [256, "EngineData", None, 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
+            [512, "BrakeData", None, 4, "BrakePressure", 0, 16, "big_endian", False, 0.1, 0, 0, 6553.5, "bar"],
         ])
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 2
@@ -317,14 +317,14 @@ class TestLoadDBCFromExcel:
     def test_hex_message_id(self, tmp_path: Path) -> None:
         """Message IDs can be hex strings."""
         p = _make_dbc_workbook(tmp_path, [
-            ["0x100", "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            ["0x100", "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["id"] == 0x100
 
     def test_signed_true(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", 8, "Temp", 0, 8, "little_endian", True, 1, -40, -40, 215, "C"],
+            [256, "EngineData", None, 8, "Temp", 0, 8, "little_endian", True, 1, -40, -40, 215, "C"],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
@@ -332,7 +332,7 @@ class TestLoadDBCFromExcel:
     def test_signed_integer_one(self, tmp_path: Path) -> None:
         """Signed column as integer 1 (Excel data_only mode) accepted."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""],
+            [256, "Msg", None, 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
@@ -340,14 +340,14 @@ class TestLoadDBCFromExcel:
     def test_signed_integer_zero(self, tmp_path: Path) -> None:
         """Signed column as integer 0 (Excel data_only mode) accepted."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""],
+            [256, "Msg", None, 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is False
 
     def test_missing_unit_defaults_empty(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, None],
+            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, None],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["unit"] == ""
@@ -363,19 +363,19 @@ class TestLoadDBCMultiplexed:
     def test_multiplexed_signal(self, tmp_path: Path) -> None:
         """Signal with both Multiplexor and Multiplex Value produces DBCSignalMultiplexed."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "MuxSignal", 8, 8, "little_endian", False, 1, 0, 0, 255, "", "Selector", 3],
+            [256, "Msg", None, 8, "MuxSignal", 8, 8, "little_endian", False, 1, 0, 0, 255, "", "Selector", 3],
         ])
         dbc = load_dbc_from_excel(p)
         sig = dbc["messages"][0]["signals"][0]
         assert "multiplexor" in sig
         assert sig["multiplexor"] == "Selector"
-        assert sig["multiplex_value"] == 3
+        assert sig["multiplex_values"] == [3]
         assert "presence" not in sig
 
     def test_always_signal_no_mux_columns(self, tmp_path: Path) -> None:
         """Signal without Multiplexor/Multiplex Value columns is always-present."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, None],
+            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, None],
         ])
         dbc = load_dbc_from_excel(p)
         sig = dbc["messages"][0]["signals"][0]
@@ -385,23 +385,23 @@ class TestLoadDBCMultiplexed:
     def test_mixed_always_and_multiplexed(self, tmp_path: Path) -> None:
         """Same message can have both always-present and multiplexed signals."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Selector", 0, 8, "little_endian", False, 1, 0, 0, 255, "", None, None],
-            [256, "Msg", 8, "TempA", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 0],
-            [256, "Msg", 8, "TempB", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 1],
+            [256, "Msg", None, 8, "Selector", 0, 8, "little_endian", False, 1, 0, 0, 255, "", None, None],
+            [256, "Msg", None, 8, "TempA", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 0],
+            [256, "Msg", None, 8, "TempB", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 1],
         ])
         dbc = load_dbc_from_excel(p)
         msg = dbc["messages"][0]
         assert len(msg["signals"]) == 3
         assert msg["signals"][0]["presence"] == "always"
         assert msg["signals"][1]["multiplexor"] == "Selector"
-        assert msg["signals"][1]["multiplex_value"] == 0
+        assert msg["signals"][1]["multiplex_values"] == [0]
         assert msg["signals"][2]["multiplexor"] == "Selector"
-        assert msg["signals"][2]["multiplex_value"] == 1
+        assert msg["signals"][2]["multiplex_values"] == [1]
 
     def test_partial_mux_raises(self, tmp_path: Path) -> None:
         """Only Multiplexor without Multiplex Value raises ValueError."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", "Selector", None],
+            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", "Selector", None],
         ])
         with pytest.raises(ValueError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
@@ -409,7 +409,7 @@ class TestLoadDBCMultiplexed:
     def test_partial_mux_value_only_raises(self, tmp_path: Path) -> None:
         """Only Multiplex Value without Multiplexor raises ValueError."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, 3],
+            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, 3],
         ])
         with pytest.raises(ValueError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
@@ -555,14 +555,14 @@ class TestLoadErrors:
 
     def test_invalid_byte_order(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", 8, "Sig", 0, 16, "mixed_endian", False, 1, 0, 0, 100, ""],
+            [256, "Msg", None, 8, "Sig", 0, 16, "mixed_endian", False, 1, 0, 0, 100, ""],
         ])
         with pytest.raises(ValueError, match="Byte Order"):
             load_dbc_from_excel(p)
 
     def test_invalid_message_id(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            ["not_a_number", "Msg", 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, ""],
+            ["not_a_number", "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, ""],
         ])
         with pytest.raises(ValueError, match="invalid 'Message ID'"):
             load_dbc_from_excel(p)
@@ -625,8 +625,8 @@ class TestLoadFromFile:
 
     def test_dbc_round_trip(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
-            [256, "EngineData", 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
+            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            [256, "EngineData", None, 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
         ])
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 1

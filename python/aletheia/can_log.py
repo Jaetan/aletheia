@@ -8,25 +8,22 @@ Example:
 
     # Eager: load entire file
     frames = load_can_log("drive.blf")
-    responses = client.send_frames_batch(frames)
+    responses = client.send_frames(frames)
 
     # Lazy: iterate one frame at a time
-    for ts, can_id, dlc, data in iter_can_log("highway.asc"):
-        response = client.send_frame(ts, can_id, dlc, data)
+    for ts, can_id, dlc, data, ext in iter_can_log("highway.asc"):
+        response = client.send_frame(ts, can_id, dlc, data, extended=ext)
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import can
 
-from aletheia.client._types import bytes_to_dlc
-
-CANFrameTuple: TypeAlias = tuple[int, int, int, bytearray]
-"""(timestamp_us, arbitration_id, dlc, data) — matches send_frame() signature."""
+from .client import CANFrameTuple, bytes_to_dlc
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
@@ -49,7 +46,7 @@ def load_can_log(
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Returns:
-        List of (timestamp_us, arbitration_id, dlc, data) tuples
+        List of (timestamp_us, arbitration_id, dlc, data, extended) tuples
     """
     return list(iter_can_log(
         path,
@@ -75,7 +72,7 @@ def iter_can_log(
         on_error: "skip" to silently skip corrupt frames, "raise" to propagate
 
     Yields:
-        (timestamp_us, arbitration_id, dlc, data) tuples
+        (timestamp_us, arbitration_id, dlc, data, extended) tuples
     """
     resolved = Path(path)
     _validate_path(resolved)
@@ -140,7 +137,7 @@ def _convert_message(
     dlc: int = bytes_to_dlc(msg.dlc)
     data = _normalize_data(msg.data, msg.dlc)
 
-    return (timestamp_us, msg.arbitration_id, dlc, data)
+    return CANFrameTuple(timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id)
 
 
 def _timestamp_to_us(timestamp: float) -> int:

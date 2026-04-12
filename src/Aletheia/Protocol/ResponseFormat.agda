@@ -13,15 +13,18 @@ open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool; ℕtoℚ)
+open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool)
+open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error; ByteArray;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
 import Aletheia.Error as Err
 open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
+open import Aletheia.LTL.Incremental using (formatLTLReason)
+open import Aletheia.Trace.Time using (tsValue)
 open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   IssueCode; DuplicateMessageId; DuplicateSignalName; FactorZero;
-  MultiplexorNotFound; MultiplexorNotAlwaysPresent; GlobalNameCollision;
+  MultiplexorNotFound; MultiplexorCycle; GlobalNameCollision;
   MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
   DuplicateMessageName; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling; ValidationIssue)
@@ -31,22 +34,29 @@ open import Aletheia.DBC.Validator using (hasAnyError)
 bytesToJSON : ∀ {n} → Vec Byte n → JSON
 bytesToJSON bytes = JArray (map (λ n → JNumber (ℕtoℚ n)) (toList bytes))
 
+-- Shared header + variant-specific extras for PropertyResult JSON output.
+-- Every PropertyResult variant emits the same `type`/`status`/`property_index`
+-- prefix; extras carry per-variant fields (timestamp, reason, …).
+mkPropertyResult : String → ℕ → List (String × JSON) → JSON
+mkPropertyResult status idx extras =
+  JObject (
+    ("type" , JString "property") ∷
+    ("status" , JString status) ∷
+    ("property_index" , JNumber (ℕtoℚ idx)) ∷
+    extras)
+
 -- Format PropertyResult as JSON object
 formatPropertyResult : PropertyResult → JSON
 formatPropertyResult (PropertyResult.Violation idx counterex) =
-  JObject (
-    ("type" , JString "property") ∷
-    ("status" , JString "fails") ∷
-    ("property_index" , JNumber (ℕtoℚ idx)) ∷
-    ("timestamp" , JNumber (ℕtoℚ (CounterexampleData.timestamp counterex))) ∷
-    ("reason" , JString (CounterexampleData.reason counterex)) ∷
-    [])
+  mkPropertyResult "fails" idx
+    (("timestamp" , JNumber (ℕtoℚ (tsValue (CounterexampleData.timestamp counterex)))) ∷
+     ("reason" , JString (formatLTLReason (CounterexampleData.reason counterex))) ∷
+     [])
 formatPropertyResult (PropertyResult.Satisfaction idx) =
-  JObject (
-    ("type" , JString "property") ∷
-    ("status" , JString "holds") ∷
-    ("property_index" , JNumber (ℕtoℚ idx)) ∷
-    [])
+  mkPropertyResult "holds" idx []
+formatPropertyResult (PropertyResult.Unresolved idx reason) =
+  mkPropertyResult "unresolved" idx
+    (("reason" , JString (formatLTLReason reason)) ∷ [])
 
 -- Format Response as JSON
 formatResponse : Response → JSON
@@ -119,7 +129,7 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
     formatIssueCode FactorZero                  = "factor_zero"
     formatIssueCode MultiplexorNotFound         = "multiplexor_not_found"
-    formatIssueCode MultiplexorNotAlwaysPresent = "multiplexor_not_always_present"
+    formatIssueCode MultiplexorCycle            = "multiplexor_cycle"
     formatIssueCode GlobalNameCollision         = "global_name_collision"
     formatIssueCode MinExceedsMax               = "min_exceeds_max"
     formatIssueCode SignalExceedsDLC            = "signal_exceeds_dlc"

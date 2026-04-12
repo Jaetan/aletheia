@@ -363,7 +363,8 @@ TEST_CASE("excel: DBC multiplexed signal", "[excel][mux]") {
     REQUIRE(std::holds_alternative<Multiplexed>(pres));
     auto& mux = std::get<Multiplexed>(pres);
     CHECK(mux.multiplexor.get() == "Selector");
-    CHECK(mux.mux_value.get() == 3);
+    REQUIRE(mux.mux_values.size() == 1);
+    CHECK(mux.mux_values[0].get() == 3);
 }
 
 TEST_CASE("excel: DBC mixed always and mux", "[excel][mux]") {
@@ -427,15 +428,15 @@ TEST_CASE("excel: template DBC headers correct", "[excel][template]") {
     doc.open(tf.path.string());
     auto ws = doc.workbook().worksheet("DBC");
     OpenXLSX::XLCellValue v1 = ws.cell(1, 1).value();
-    OpenXLSX::XLCellValue v4 = ws.cell(1, 4).value();
-    OpenXLSX::XLCellValue v15 = ws.cell(1, 15).value();
+    OpenXLSX::XLCellValue v3 = ws.cell(1, 3).value();
+    OpenXLSX::XLCellValue v5 = ws.cell(1, 5).value();
     OpenXLSX::XLCellValue v16 = ws.cell(1, 16).value();
     doc.close();
 
     CHECK(v1.get<std::string>() == "Message ID");
-    CHECK(v4.get<std::string>() == "Signal");
-    CHECK(v15.get<std::string>() == "Multiplex Value");
-    CHECK(v16.get<std::string>() == "Extended");
+    CHECK(v3.get<std::string>() == "Extended");
+    CHECK(v5.get<std::string>() == "Signal");
+    CHECK(v16.get<std::string>() == "Multiplex Value");
 }
 
 TEST_CASE("excel: template Checks headers correct", "[excel][template]") {

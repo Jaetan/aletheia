@@ -23,7 +23,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey)
-open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupRational; lookupObject; lookupNat)
+open import Aletheia.JSON using (JSON; JObject; lookupString; lookupRational; lookupObject; lookupNat)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
 import Aletheia.LTL.SignalPredicate as SP

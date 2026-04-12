@@ -10,7 +10,7 @@
 -- The `many` combinator terminates by tracking consumed input length.
 module Aletheia.Parser.Combinators where
 
-open import Data.List using (List; []; _∷_; _++_; length)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char; _≈ᵇ_)
@@ -200,7 +200,7 @@ count (suc n) p = (λ x xs → x ∷ xs) <$> p <*> count n p
 countRange : ∀ {A : Set} → ℕ → ℕ → Parser A → Parser (List A)
 countRange min max p = count min p >>= λ xs →
   countUpTo (max ∸ min) p >>= λ ys →
-  pure (xs ++ ys)
+  pure (xs ++ₗ ys)
   where
     -- Parse up to n occurrences (structurally recursive on n)
     countUpTo : ∀ {A : Set} → ℕ → Parser A → Parser (List A)

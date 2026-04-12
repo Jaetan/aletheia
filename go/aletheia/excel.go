@@ -1,3 +1,5 @@
+//go:build aletheia_excel
+
 package aletheia
 
 import (
@@ -76,7 +78,7 @@ func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, validationError(fmt.Sprintf("Excel file not found: %s", path))
+		return nil, validationError(fmt.Sprintf("excel file not found: %s", path))
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -122,7 +124,7 @@ func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) 
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, validationError(fmt.Sprintf("Excel file not found: %s", path))
+		return nil, validationError(fmt.Sprintf("excel file not found: %s", path))
 	}
 
 	f, err := excelize.OpenFile(path)
@@ -142,7 +144,7 @@ func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) 
 	}
 
 	if len(rows) < 2 {
-		return nil, validationError("DBC sheet must have a header row and at least one data row")
+		return nil, validationError("dbc sheet must have a header row and at least one data row")
 	}
 
 	headers := rows[0]
@@ -156,7 +158,7 @@ func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) 
 	}
 
 	if len(dataRows) == 0 {
-		return nil, validationError("DBC sheet has no data rows")
+		return nil, validationError("dbc sheet has no data rows")
 	}
 
 	return parseDbcRows(dataRows)
@@ -321,7 +323,10 @@ func parseSimpleRow(d map[string]string, rowNum int) (CheckResult, error) {
 		if err != nil {
 			return CheckResult{}, err
 		}
-		result = CheckSignal(signal).StaysBetween(PhysicalValue(lo), PhysicalValue(hi))
+		result, err = CheckSignal(signal).StaysBetween(PhysicalValue(lo), PhysicalValue(hi))
+		if err != nil {
+			return CheckResult{}, err
+		}
 
 	case simpleSettlesConditions[condition]:
 		if _, ok := d["Min"]; !ok {
@@ -683,7 +688,7 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (DbcSignal, error) {
 		}
 		presence = Multiplexed{
 			Multiplexor: SignalName(muxor),
-			MuxValue:    MultiplexValue(muxVal),
+			MuxValues:   []MultiplexValue{MultiplexValue(muxVal)},
 		}
 	} else {
 		presence = AlwaysPresent{}

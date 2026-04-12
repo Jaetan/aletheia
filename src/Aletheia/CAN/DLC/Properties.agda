@@ -12,15 +12,16 @@
 module Aletheia.CAN.DLC.Properties where
 
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcToBytes; dlcBytes; bytesToDlc; bytesToValidDLC)
-open import Data.Nat using (ℕ; suc; _+_; _≤_; z≤n)
-open import Data.Nat.Properties using (m≤m+n; ≤-refl; ≤-trans; 1+n≰n)
+open import Data.Nat using (ℕ; suc; _+_; _≤_; _≡ᵇ_; z≤n)
+open import Data.Nat.Properties using (m≤m+n; ≤-refl; ≤-trans; 1+n≰n; ≡ᵇ⇒≡)
 open import Data.Maybe using (just; Is-just)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Maybe.Relation.Unary.Any using () renaming (just to is-just)
+open import Data.Bool using (Bool; true; false; T)
 open import Data.Product using (_×_; _,_; Σ-syntax)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥; ⊥-elim)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 
 -- Helper: values ≥ 16 can't be ≤ 15
 private
@@ -106,6 +107,41 @@ bytesToDlc-complete (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc 
 -- Useful for constructing ValidDBC proofs from DLC code bounds.
 dlcToBytes-Is-just : ∀ d → d ≤ 15 → Is-just (bytesToDlc (dlcToBytes d))
 dlcToBytes-Is-just d d≤15 rewrite bytesToDlc-dlcToBytes d d≤15 = is-just tt
+
+-- Inverse direction: when bytesToValidDLC succeeds with `just d`, the DLC's
+-- byte count agrees with the input byte count. Each literal case reduces to
+-- refl after pattern-matching the resulting `d`. The catch-all (n ≥ 17) walks
+-- the if/≡ᵇ chain mirroring bytesToValidDLC's definition.
+bvd-bytes : ∀ n d → bytesToValidDLC n ≡ just d → dlcBytes d ≡ n
+bvd-bytes 0  .(mkDLC 0  tt) refl = refl
+bvd-bytes 1  .(mkDLC 1  tt) refl = refl
+bvd-bytes 2  .(mkDLC 2  tt) refl = refl
+bvd-bytes 3  .(mkDLC 3  tt) refl = refl
+bvd-bytes 4  .(mkDLC 4  tt) refl = refl
+bvd-bytes 5  .(mkDLC 5  tt) refl = refl
+bvd-bytes 6  .(mkDLC 6  tt) refl = refl
+bvd-bytes 7  .(mkDLC 7  tt) refl = refl
+bvd-bytes 8  .(mkDLC 8  tt) refl = refl
+bvd-bytes 9  _ ()
+bvd-bytes 10 _ ()
+bvd-bytes 11 _ ()
+bvd-bytes 12 .(mkDLC 9  tt) refl = refl
+bvd-bytes 13 _ ()
+bvd-bytes 14 _ ()
+bvd-bytes 15 _ ()
+bvd-bytes 16 .(mkDLC 10 tt) refl = refl
+bvd-bytes n@(suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))))))))) d eq
+  with n ≡ᵇ 20 in eq₂₀ | eq
+... | true  | refl = sym (≡ᵇ⇒≡ n 20 (subst T (sym eq₂₀) tt))
+... | false | eq₁ with n ≡ᵇ 24 in eq₂₄ | eq₁
+...   | true  | refl = sym (≡ᵇ⇒≡ n 24 (subst T (sym eq₂₄) tt))
+...   | false | eq₂ with n ≡ᵇ 32 in eq₃₂ | eq₂
+...     | true  | refl = sym (≡ᵇ⇒≡ n 32 (subst T (sym eq₃₂) tt))
+...     | false | eq₃ with n ≡ᵇ 48 in eq₄₈ | eq₃
+...       | true  | refl = sym (≡ᵇ⇒≡ n 48 (subst T (sym eq₄₈) tt))
+...       | false | eq₄ with n ≡ᵇ 64 in eq₆₄ | eq₄
+...         | true  | refl = sym (≡ᵇ⇒≡ n 64 (subst T (sym eq₆₄) tt))
+...         | false | ()
 
 -- Roundtrip: bytesToValidDLC recovers the original DLC record from dlcBytes.
 -- Each of the 16 valid DLC codes (0–15) reduces to refl by computation.

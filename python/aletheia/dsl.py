@@ -45,10 +45,22 @@ def _atomic(predicate: SignalPredicate) -> AtomicFormula:
     return {'operator': 'atomic', 'predicate': predicate}
 
 
+def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
+    """Desugar implication to ``or(not(antecedent), consequent)``."""
+    return {
+        'operator': 'or',
+        'left': {
+            'operator': 'not',
+            'formula': antecedent
+        },
+        'right': consequent
+    }
+
+
 class Signal:
     """Reference to a CAN signal for use in temporal properties"""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Create a signal reference
 
         Args:
@@ -221,7 +233,7 @@ class Predicate:
     temporal properties using temporal operators.
     """
 
-    def __init__(self, formula: LTLFormula):
+    def __init__(self, formula: LTLFormula) -> None:
         """Internal constructor - use Signal methods instead"""
         self._data: LTLFormula = formula
 
@@ -435,15 +447,7 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        formula: OrFormula = {
-            'operator': 'or',
-            'left': {
-                'operator': 'not',
-                'formula': self._data
-            },
-            'right': other.to_formula()
-        }
-        return Property(formula)
+        return Property(_implies_formula(self._data, other.to_formula()))
 
 
 class Property:
@@ -453,7 +457,7 @@ class Property:
     other properties using logical operators.
     """
 
-    def __init__(self, formula: LTLFormula):
+    def __init__(self, formula: LTLFormula) -> None:
         """Internal constructor - use Predicate methods instead"""
         self._data: LTLFormula = formula
 
@@ -517,15 +521,7 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        formula: OrFormula = {
-            'operator': 'or',
-            'left': {
-                'operator': 'not',
-                'formula': self._data
-            },
-            'right': other.to_formula()
-        }
-        return Property(formula)
+        return Property(_implies_formula(self._data, other.to_formula()))
 
     def until(self, other: 'Property') -> 'Property':
         """Temporal until: self holds until other becomes true

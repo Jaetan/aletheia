@@ -31,21 +31,17 @@
 #       — `using namespace aletheia` in tests is fine
 #   llvm-header-guard
 #       — we use #pragma once
-#   modernize-use-nodiscard
-#       — we already use [[nodiscard]] where chosen; auto-applying everywhere is noisy
 #   bugprone-easily-swappable-parameters
 #       — strong typedefs already prevent parameter swaps at the type level
 #   cppcoreguidelines-avoid-do-while
 #       — Catch2 macros expand to do-while
 #   hicpp-no-array-decay, cppcoreguidelines-pro-bounds-array-to-pointer-decay
 #       — Catch2 macros and string literals trigger these
-#   cppcoreguidelines-pro-type-reinterpret-cast
-#       — needed for void* FFI interop
+#   (cppcoreguidelines-pro-type-reinterpret-cast was previously disabled here;
+#    re-enabled 2026-04-09 once the byte↔uint8_t casts were centralised into
+#    three helpers in ffi_backend.cpp with inline NOLINTNEXTLINE annotations)
 #   performance-unnecessary-value-param
 #       — strong types are tiny; pass-by-value is intentional for 8-16 byte wrappers
-#   misc-include-cleaner
-#       — incompatible with umbrella header pattern; wants explicit includes for every
-#         transitively-included symbol
 #   google-readability-braces-around-statements,
 #   hicpp-braces-around-statements,
 #   readability-braces-around-statements
@@ -57,6 +53,12 @@
 #   misc-use-anonymous-namespace
 #       — we use anonymous namespaces already; false positives on file-scope helpers in
 #         translation units that also have named namespaces
+#
+# Previously disabled, now re-enabled (2026-04-09):
+#   modernize-use-nodiscard — valuable for catching ignored return values; NOLINT
+#       intentional ignores rather than silencing project-wide
+#   misc-include-cleaner — catches transitive-include reliance; use IWYU-style pragmas
+#       where necessary
 
 Checks: >
   *,
@@ -79,14 +81,11 @@ Checks: >
   -cppcoreguidelines-owning-memory,
   -google-build-using-namespace,
   -llvm-header-guard,
-  -modernize-use-nodiscard,
   -bugprone-easily-swappable-parameters,
   -cppcoreguidelines-avoid-do-while,
   -hicpp-no-array-decay,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
   -performance-unnecessary-value-param,
-  -misc-include-cleaner,
   -google-readability-braces-around-statements,
   -hicpp-braces-around-statements,
   -readability-braces-around-statements,
@@ -94,7 +93,10 @@ Checks: >
   -concurrency-mt-unsafe,
   -misc-use-anonymous-namespace
 
-WarningsAsErrors: ''
+# Make findings fatal. Combined with CMAKE_CXX_CLANG_TIDY in CMakeLists.txt
+# (opt-in via -DALETHEIA_CLANG_TIDY=ON), this turns drift into a compile-time
+# error instead of an after-the-fact audit.
+WarningsAsErrors: '*'
 
 HeaderFilterRegex: 'include/aletheia/.*\.hpp$|src/detail/.*\.hpp$'
 
@@ -144,10 +146,31 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.GlobalConstantCase
     value: lower_case
-  # Thresholds
+  # Thresholds (tightened 2026-04-09 — prior values 30/100/8)
   - key: readability-function-cognitive-complexity.Threshold
-    value: 30
+    value: 25
   - key: readability-function-size.LineThreshold
-    value: 100
+    value: 80
   - key: readability-function-size.ParameterThreshold
     value: 8
+  # Catch implicit pointer/integer→bool conversions at the root, rather than
+  # flagging each `if (ptr)` / `if (int)` site individually.
+  - key: readability-implicit-bool-conversion.AllowIntegerConditions
+    value: 'false'
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: 'false'
+  # Require /*name=*/ comments on every positional argument at call sites
+  # where the parameter name is also present in scope. Helps catch argument
+  # swaps at boundaries the strong typedefs don't cover.
+  - key: bugprone-argument-comment.StrictMode
+    value: 'true'
+  # Default-initialise to zero for fundamental types — silences the
+  # cppcoreguidelines-init-variables finding at the source.
+  - key: cppcoreguidelines-init-variables.IncludeStyle
+    value: google
+  # Treat <nlohmann/json.hpp> as an umbrella header that legitimately re-exports
+  # symbols declared in its own detail/ subtree. Without this, misc-include-cleaner
+  # asks callers to include <nlohmann/json_fwd.hpp> even though the library's
+  # public API is the single <nlohmann/json.hpp> header.
+  - key: misc-include-cleaner.IgnoreHeaders
+    value: 'nlohmann/.*;OpenXLSX.*;yaml-cpp/.*'

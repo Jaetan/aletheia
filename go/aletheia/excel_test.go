@@ -1,3 +1,5 @@
+//go:build aletheia_excel
+
 package aletheia
 
 import (
@@ -146,7 +148,11 @@ func TestLoadExcelStaysBetween(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Voltage").StaysBetween(11.5, 14.5).Formula())
+	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	if err != nil {
+		t.Fatalf("StaysBetween: %v", err)
+	}
+	want := FormatFormula(reference.Formula())
 	got := FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
@@ -547,8 +553,8 @@ func TestLoadExcelDbcMultiplexed(t *testing.T) {
 	if string(mux.Multiplexor) != "Selector" {
 		t.Errorf("Multiplexor: got %q", mux.Multiplexor)
 	}
-	if mux.MuxValue != 3 {
-		t.Errorf("MuxValue: got %d", mux.MuxValue)
+	if len(mux.MuxValues) != 1 || mux.MuxValues[0] != 3 {
+		t.Errorf("MuxValues: got %v", mux.MuxValues)
 	}
 }
 
@@ -569,11 +575,11 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 	if _, ok := msg.Signals[0].Presence.(AlwaysPresent); !ok {
 		t.Errorf("sig[0] expected AlwaysPresent, got %T", msg.Signals[0].Presence)
 	}
-	if mux, ok := msg.Signals[1].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || mux.MuxValue != 0 {
-		t.Errorf("sig[1] expected Multiplexed(Selector, 0), got %v", msg.Signals[1].Presence)
+	if mux, ok := msg.Signals[1].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !containsMuxValue(mux.MuxValues, 0) {
+		t.Errorf("sig[1] expected Multiplexed(Selector, [0]), got %v", msg.Signals[1].Presence)
 	}
-	if mux, ok := msg.Signals[2].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || mux.MuxValue != 1 {
-		t.Errorf("sig[2] expected Multiplexed(Selector, 1), got %v", msg.Signals[2].Presence)
+	if mux, ok := msg.Signals[2].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !containsMuxValue(mux.MuxValues, 1) {
+		t.Errorf("sig[2] expected Multiplexed(Selector, [1]), got %v", msg.Signals[2].Presence)
 	}
 }
 
@@ -770,7 +776,7 @@ func TestLoadExcelFileNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "Excel file not found") {
+	if !strings.Contains(err.Error(), "excel file not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -780,7 +786,7 @@ func TestLoadExcelDbcFileNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "Excel file not found") {
+	if !strings.Contains(err.Error(), "excel file not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

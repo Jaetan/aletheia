@@ -22,12 +22,13 @@ func TestParseDBC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
-	if len(mock.Inputs) != 1 {
-		t.Fatalf("expected 1 input, got %d", len(mock.Inputs))
+	inputs := mock.Inputs()
+	if len(inputs) != 1 {
+		t.Fatalf("expected 1 input, got %d", len(inputs))
 	}
 	// AlwaysPresent signals must emit "presence":"always" for cross-language parity.
-	if !strings.Contains(mock.Inputs[0], `"presence":"always"`) {
-		t.Errorf("expected presence field in serialized DBC, got: %s", mock.Inputs[0])
+	if !strings.Contains(inputs[0], `"presence":"always"`) {
+		t.Errorf("expected presence field in serialized DBC, got: %s", inputs[0])
 	}
 }
 
@@ -131,6 +132,107 @@ func TestFormatDBC(t *testing.T) {
 	}
 	if dbc.Messages[0].Signals[0].Name != "Speed" {
 		t.Errorf("expected Speed, got %s", dbc.Messages[0].Signals[0].Name)
+	}
+}
+
+func TestFormatDBC_Success(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"success",
+			"dbc":{
+				"version":"2.0",
+				"messages":[{
+					"id":291,"extended":false,"name":"EngineData","dlc":8,"sender":"ECU",
+					"signals":[{
+						"name":"Speed","startBit":0,"length":16,"byteOrder":"little_endian",
+						"signed":false,"factor":{"numerator":1,"denominator":10},
+						"offset":0,"minimum":0,"maximum":300,"unit":"km/h"
+					},{
+						"name":"RPM","startBit":16,"length":16,"byteOrder":"little_endian",
+						"signed":false,"factor":1,"offset":0,"minimum":0,"maximum":8000,"unit":"rpm"
+					}]
+				}]
+			}
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	dbc, err := c.FormatDBC()
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	if dbc.Version != "2.0" {
+		t.Errorf("version: got %q, want %q", dbc.Version, "2.0")
+	}
+	if len(dbc.Messages) != 1 {
+		t.Fatalf("messages: got %d, want 1", len(dbc.Messages))
+	}
+	msg := dbc.Messages[0]
+	if msg.Name != "EngineData" {
+		t.Errorf("message name: got %q, want %q", msg.Name, "EngineData")
+	}
+	if msg.ID.Value() != 291 {
+		t.Errorf("message ID: got %d, want 291", msg.ID.Value())
+	}
+	if msg.ID.IsExtended() {
+		t.Error("expected standard ID, got extended")
+	}
+	if msg.DLC.Value() != 8 {
+		t.Errorf("DLC: got %d, want 8", msg.DLC.Value())
+	}
+	if msg.Sender != "ECU" {
+		t.Errorf("sender: got %q, want %q", msg.Sender, "ECU")
+	}
+	if len(msg.Signals) != 2 {
+		t.Fatalf("signals: got %d, want 2", len(msg.Signals))
+	}
+	speed := msg.Signals[0]
+	if speed.Name != "Speed" {
+		t.Errorf("signal[0] name: got %q, want %q", speed.Name, "Speed")
+	}
+	if speed.StartBit != 0 {
+		t.Errorf("signal[0] startBit: got %d, want 0", speed.StartBit)
+	}
+	if speed.BitLength != 16 {
+		t.Errorf("signal[0] bitLength: got %d, want 16", speed.BitLength)
+	}
+	if speed.ByteOrder != aletheia.LittleEndian {
+		t.Errorf("signal[0] byteOrder: got %v, want LittleEndian", speed.ByteOrder)
+	}
+	if speed.Factor.Numerator != 1 || speed.Factor.Denominator != 10 {
+		t.Errorf("signal[0] factor: got %d/%d, want 1/10", speed.Factor.Numerator, speed.Factor.Denominator)
+	}
+	if speed.Unit != "km/h" {
+		t.Errorf("signal[0] unit: got %q, want %q", speed.Unit, "km/h")
+	}
+	rpm := msg.Signals[1]
+	if rpm.Name != "RPM" {
+		t.Errorf("signal[1] name: got %q, want %q", rpm.Name, "RPM")
+	}
+}
+
+func TestFormatDBC_AfterClose(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+
+	_, err = c.FormatDBC()
+	if err == nil {
+		t.Fatal("expected error after Close")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Kind != aletheia.ErrState {
+		t.Errorf("expected ErrState, got %s", aErr.Kind)
 	}
 }
 
@@ -323,7 +425,7 @@ func TestMultiplexedSignal(t *testing.T) {
 				{
 					Name: "TempA", StartBit: 8, BitLength: 16,
 					ByteOrder: aletheia.LittleEndian,
-					Presence:  aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValue: 0},
+					Presence:  aletheia.Multiplexed{Multiplexor: "MuxSelector", MuxValues: []aletheia.MultiplexValue{0}},
 					Factor:    aletheia.Rational{Numerator: 1, Denominator: 10}, Offset: aletheia.Rational{Numerator: -40, Denominator: 1}, Minimum: aletheia.Rational{Numerator: -40, Denominator: 1}, Maximum: aletheia.Rational{Numerator: 215, Denominator: 1}, Unit: "degC",
 				},
 			},
@@ -383,7 +485,7 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 					},{
 						"name":"TempA","startBit":8,"length":16,"byteOrder":"little_endian",
 						"signed":false,"factor":{"numerator":1,"denominator":10},"offset":-40,"minimum":-40,"maximum":215,"unit":"degC",
-						"multiplexor":"MuxSel","multiplex_value":0
+						"multiplexor":"MuxSel","multiplex_values":[0]
 					}]
 				}]
 			}
@@ -413,8 +515,8 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 	if mux.Multiplexor != "MuxSel" {
 		t.Errorf("expected multiplexor MuxSel, got %s", mux.Multiplexor)
 	}
-	if mux.MuxValue != 0 {
-		t.Errorf("expected mux value 0, got %d", mux.MuxValue)
+	if len(mux.MuxValues) != 1 || mux.MuxValues[0] != 0 {
+		t.Errorf("expected mux values [0], got %v", mux.MuxValues)
 	}
 }
 
@@ -467,10 +569,11 @@ func TestChangedByPredicate(t *testing.T) {
 		t.Fatalf("SetProperties: %v", err)
 	}
 	// Verify "delta" appears in the serialized JSON.
-	if len(mock.Inputs) != 1 {
-		t.Fatalf("expected 1 input, got %d", len(mock.Inputs))
+	inputs := mock.Inputs()
+	if len(inputs) != 1 {
+		t.Fatalf("expected 1 input, got %d", len(inputs))
 	}
-	input := mock.Inputs[0]
+	input := inputs[0]
 	if !strings.Contains(input, `"delta"`) {
 		t.Errorf("expected delta field in JSON, got: %s", input)
 	}
@@ -495,10 +598,11 @@ func TestBetweenPredicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
-	if len(mock.Inputs) != 1 {
-		t.Fatalf("expected 1 input, got %d", len(mock.Inputs))
+	inputs := mock.Inputs()
+	if len(inputs) != 1 {
+		t.Fatalf("expected 1 input, got %d", len(inputs))
 	}
-	input := mock.Inputs[0]
+	input := inputs[0]
 	if !strings.Contains(input, `"between"`) {
 		t.Errorf("expected between predicate in JSON, got: %s", input)
 	}

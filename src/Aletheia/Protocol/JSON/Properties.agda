@@ -7,7 +7,8 @@
 -- Approach: Congruence lemmas, structural induction, no character/integer decomposition.
 module Aletheia.Protocol.JSON.Properties where
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject; getNat; ℕtoℚ)
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject; getNat)
+open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
 open import Aletheia.Parser.Properties using (parser-deterministic)
 open import Data.Bool using (true)
@@ -28,13 +29,6 @@ open import Relation.Nullary.Decidable using (⌊_⌋)
 -- CONGRUENCE LEMMAS (Equality-Preserving Properties)
 -- ============================================================================
 
--- Base cases for empty structures (non-trivial, keep these)
-formatJSON-empty-array : formatJSON (JArray []) ≡ "[]"
-formatJSON-empty-array = refl
-
-formatJSON-empty-object : formatJSON (JObject []) ≡ "{}"
-formatJSON-empty-object = refl
-
 -- Note: Trivial congruence lemmas removed - use stdlib cong when needed.
 -- Parser determinism proven in Parser.Properties (parseJSON-deterministic).
 
@@ -42,16 +36,8 @@ formatJSON-empty-object = refl
 -- STRUCTURAL PROPERTIES (for schema proofs)
 -- ============================================================================
 
--- Array length (needed for validation)
-array-length-empty : length ([] {A = JSON}) ≡ 0
-array-length-empty = refl
-
 -- Object field lookup properties (needed for schema parsing proofs)
 open import Aletheia.Prelude using (lookupByKey)
-
-lookupByKey-empty : ∀ {A : Set} (key : String)
-  → lookupByKey {A} key [] ≡ nothing
-lookupByKey-empty key = refl
 
 -- Note: These proofs require reasoning about if_then_else with decidable equality
 -- When key ≟ key returns yes, ⌊ yes _ ⌋ = true, so if evaluates to then-branch
@@ -85,35 +71,28 @@ getNat-ℕtoℚ n with 1 ∣? n
 -- ============================================================================
 
 -- ============================================================================
--- INSPECT IDIOM FOR WITH-ABSTRACTION PROOFS
+-- `with expr in eq` IDIOM FOR WITH-ABSTRACTION PROOFS
 -- ============================================================================
 --
--- The inspect idiom solves a critical problem in Agda proofs:
+-- The `with expr in eq` form (Agda ≥ 2.6.3) captures the equation between
+-- the scrutinee and the result of a with-abstraction without requiring the
+-- legacy `inspect`/`[_]` plumbing:
 --
--- Problem: In with-abstractions, we lose track of which expression produced
---          which result. For example:
+-- Problem: In plain with-abstractions, we lose track of which expression
+--          produced which result:
 --
 --   proof x with someFunction x
---   ... | result = ?
+--   ... | result = ?   -- can't reference `someFunction x ≡ result`
 --
---   We know someFunction returned 'result', but we can't reference
---   the equality (someFunction x ≡ result) in the proof term.
+-- Solution:
 --
--- Solution: The inspect idiom captures this equality:
---
---   proof x with someFunction x | inspect someFunction x
---   ... | result | [ eq ] = ...
---
---   Now 'eq' has type: someFunction x ≡ result
+--   proof x with someFunction x in eq
+--   ... | result = ?   -- `eq : someFunction x ≡ result` is in scope
 --
 -- Usage in this module:
---   parseDBC-sound uses inspect to capture
---   lookupByKey equalities for the soundness proof witness.
---
--- This is the most advanced proof technique in the Aletheia codebase.
+--   parseDBC-sound captures lookupByKey equalities via `in eqVer`/`in eqMsgs`
+--   and threads them into the existential witness.
 -- ============================================================================
-
-open Relation.Binary.PropositionalEquality using (inspect; [_])
 
 -- DBC File Structure
 -- Proves that DBC files have expected structure (object with version and messages)
@@ -134,27 +113,27 @@ parseDBC-sound : ∀ (input : JSON) (result : DBC)
       (input ≡ JObject obj
        × lookupByKey "version" obj ≡ just (JString version)
        × lookupByKey "messages" obj ≡ just (JArray messages))
-parseDBC-sound (JObject obj) result eq with lookupByKey "version" obj | inspect (lookupByKey "version") obj
-parseDBC-sound (JObject obj) result eq | just (JString version) | [ eqVer ]
-  with lookupByKey "messages" obj | inspect (lookupByKey "messages") obj
-parseDBC-sound (JObject obj) result eq | just (JString version) | [ eqVer ]
-  | just (JArray messages) | [ eqMsgs ] = obj , version , messages , refl , eqVer , eqMsgs
+parseDBC-sound (JObject obj) result eq with lookupByKey "version" obj in eqVer
+parseDBC-sound (JObject obj) result eq | just (JString version)
+  with lookupByKey "messages" obj in eqMsgs
+parseDBC-sound (JObject obj) result eq | just (JString version)
+  | just (JArray messages) = obj , version , messages , refl , eqVer , eqMsgs
 -- Absurdity cases: messages field has wrong type (6 cases)
 -- All are impossible because parser rejects non-array "messages" fields
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | just (JBool _) | _
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | just (JNumber _) | _
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | just (JString _) | _
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | just (JObject _) | _
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | just JNull | _
-parseDBC-sound (JObject obj) result () | just (JString version) | [ eqVer ] | nothing | _
+parseDBC-sound (JObject obj) result () | just (JString version) | just (JBool _)
+parseDBC-sound (JObject obj) result () | just (JString version) | just (JNumber _)
+parseDBC-sound (JObject obj) result () | just (JString version) | just (JString _)
+parseDBC-sound (JObject obj) result () | just (JString version) | just (JObject _)
+parseDBC-sound (JObject obj) result () | just (JString version) | just JNull
+parseDBC-sound (JObject obj) result () | just (JString version) | nothing
 -- Absurdity cases: version field has wrong type (6 cases)
 -- All are impossible because parser rejects non-string "version" fields
-parseDBC-sound (JObject obj) result () | just (JBool _) | _  -- version not a string
-parseDBC-sound (JObject obj) result () | just (JNumber _) | _
-parseDBC-sound (JObject obj) result () | just (JArray _) | _
-parseDBC-sound (JObject obj) result () | just (JObject _) | _
-parseDBC-sound (JObject obj) result () | just JNull | _
-parseDBC-sound (JObject obj) result () | nothing | _  -- no version field
+parseDBC-sound (JObject obj) result () | just (JBool _)    -- version not a string
+parseDBC-sound (JObject obj) result () | just (JNumber _)
+parseDBC-sound (JObject obj) result () | just (JArray _)
+parseDBC-sound (JObject obj) result () | just (JObject _)
+parseDBC-sound (JObject obj) result () | just JNull
+parseDBC-sound (JObject obj) result () | nothing           -- no version field
 -- Absurdity cases: input is not an object (5 cases)
 -- parseDBCWithErrors requires JObject input; all other JSON types rejected at entry
 parseDBC-sound JNull result ()

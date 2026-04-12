@@ -57,6 +57,29 @@ data Sound : TruthVal → TruthVal → Set where
 -- ============================================================================
 
 -- These let us compose Sound proofs through propositional connectives.
+--
+-- Design note (finding A24): sound-and and sound-or share a superficially
+-- similar 6x6 case structure, each containing 8 local helpers with 4x4
+-- truth tables. Extracting a generic `sound-binop` parameterized by the
+-- binary TV operation (∧TV/∨TV), absorber (False/True), and identity laws
+-- was investigated but rejected because:
+--
+--   1. ∧TV/∨TV have overlapping clause patterns (e.g., False ∧TV _ = False
+--      AND _ ∧TV False = False). Agda cannot reduce `C ∧TV a` when C is
+--      Unknown or Pending and a is abstract — reduction is blocked on a.
+--      This is the fundamental reason the 4x4 truth-table helpers exist.
+--
+--   2. A generic combinator would still need the same 4x4 case analysis
+--      per (monitor-uncertain, denotation-uncertain) pair. The parameters
+--      (op, absorber) would make each case MORE complex to state and verify
+--      without reducing the total number of cases.
+--
+--   3. The two functions differ in their absorber patterns: sound-and
+--      short-circuits on sound-ff (any second arg), sound-or on sound-tt.
+--      This asymmetry means the top-level dispatch differs structurally.
+--
+-- The current structure (two parallel 6x6 functions) is the simplest that
+-- Agda can type-check without stuck reductions in downstream consumers.
 
 sound-not : ∀ {m d} → Sound m d → Sound (notTV m) (notTV d)
 sound-not sound-tt    = sound-ff

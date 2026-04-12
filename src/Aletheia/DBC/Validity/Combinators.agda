@@ -9,15 +9,15 @@
 --   3. triangularCheck/liftTriangular — pairwise AllPairs checks
 module Aletheia.DBC.Validity.Combinators where
 
-open import Data.List using (List; []; _∷_; _++_; concatMap)
-open import Data.List.Relation.Unary.All using (All; []; _∷_)
+open import Data.List using (List; []; _∷_; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
 open import Data.Empty using (⊥-elim)
 open import Data.Product using (_,_)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 open import Aletheia.DBC.Validity.ListLemmas using
-  ( concatMap-≡[]-sound; concatMap-≡[]-complete; All-map
+  ( concatMap-≡[]-sound; concatMap-≡[]-complete
   ; ++-≡[]-split; ++-≡[]-combine )
 
 private
@@ -74,7 +74,7 @@ liftConcatMap-sound : {P : A → Set}
   (∀ x → f x ≡ [] → P x) →
   ∀ xs → concatMap f xs ≡ [] → All P xs
 liftConcatMap-sound f sound xs eq =
-  All-map (λ x → sound x) (concatMap-≡[]-sound eq)
+  All.map (λ {x} → sound x) (concatMap-≡[]-sound eq)
 
 -- Lift a per-element complete proof to a concatMap-level proof.
 -- Given: ∀ x → P x → f x ≡ []
@@ -84,7 +84,7 @@ liftConcatMap-complete : {P : A → Set}
   (∀ x → P x → f x ≡ []) →
   ∀ xs → All P xs → concatMap f xs ≡ []
 liftConcatMap-complete f complete xs pf =
-  concatMap-≡[]-complete (All-map (λ x → complete x) pf)
+  concatMap-≡[]-complete (All.map (λ {x} → complete x) pf)
 
 -- ============================================================================
 -- TRIANGULAR (PAIRWISE) CHECK COMBINATORS
@@ -97,7 +97,7 @@ checkAgainst check x = concatMap (check x)
 -- Check all pairs in a list (triangular: each element against all later ones).
 triangularCheck : (A → A → List B) → List A → List B
 triangularCheck _ [] = []
-triangularCheck check (x ∷ xs) = checkAgainst check x xs ++ triangularCheck check xs
+triangularCheck check (x ∷ xs) = checkAgainst check x xs ++ₗ triangularCheck check xs
 
 -- Lift pairwise sound proof to triangular AllPairs proof.
 liftTriangular-sound : {R : A → A → Set}

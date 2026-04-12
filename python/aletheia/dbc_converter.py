@@ -59,13 +59,11 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
 
     # Handle multiplexing: check if signal has multiplexer_ids
     if signal.multiplexer_ids:
-        # Aletheia supports single-level multiplexing only — take first ID,
-        # additional multiplexer_ids (from extended mux) are not represented.
         multiplexor_name = signal.multiplexer_signal if signal.multiplexer_signal else "unknown"
         return cast(DBCSignal, {
             **base_fields,
             "multiplexor": multiplexor_name,
-            "multiplex_value": signal.multiplexer_ids[0]
+            "multiplex_values": list(signal.multiplexer_ids)
         })
 
     # Default: signal is always present
@@ -94,14 +92,17 @@ def message_to_json(message: cantools.database.can.Message) -> DBCMessage:
 
 
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
-    """
-    Convert a .dbc file to JSON format.
+    """Convert a .dbc file to JSON format.
 
     Args:
         dbc_path: Path to the .dbc file
 
     Returns:
         DBC definition in the format expected by Aletheia.DBC.JSONParser
+
+    Raises:
+        OSError: If the file cannot be read.
+        ValueError: If the file is not a valid DBC.
     """
     # Load DBC file using cantools
     try:
@@ -148,10 +149,12 @@ def _signal_to_dbc_line(
     unit = signal["unit"]
 
     # Multiplexing indicator: M for multiplexor, m<val> for multiplexed
+    # Standard DBC format only supports a single mux value in the SG_ line;
+    # extended mux (SG_MUL_VAL_) is not emitted here. Take the first value.
     mux_indicator = ""
     if "multiplexor" in signal:
-        mux_val = signal["multiplex_value"]
-        mux_indicator = f" m{mux_val}"
+        mux_vals = signal["multiplex_values"]
+        mux_indicator = f" m{mux_vals[0]}"
     elif mux_signal_names and name in mux_signal_names:
         mux_indicator = " M"
 
@@ -229,8 +232,7 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
 
 
 def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None) -> str:
-    """
-    Convert a .dbc file to JSON and optionally write to file.
+    """Convert a .dbc file to JSON and optionally write to file.
 
     Args:
         dbc_path: Path to the .dbc file

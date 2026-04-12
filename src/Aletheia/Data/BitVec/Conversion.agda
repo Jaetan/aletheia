@@ -19,7 +19,7 @@ open import Data.Fin.Properties using (toℕ-fromℕ<)
 open import Data.Bool using (Bool; true; false; if_then_else_; T)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Nullary using (¬_)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst; inspect; [_])
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 open import Data.Vec using (Vec; []; _∷_; lookup)
 
 -- ============================================================================
@@ -80,10 +80,10 @@ private
 
 -- Prove decomposition using % and / (non-dependent!)
 parity-decomp : ∀ m → ParityDecomp m
-parity-decomp m with m % 2 | inspect (_% 2) m
-... | zero | [ eq ] = even (m / 2) (decomp-even m eq)
-... | suc zero | [ eq ] = odd (m / 2) (decomp-odd m eq)
-... | suc (suc r) | [ eq ] = ⊥-elim (¬m%2≥2 m r eq)
+parity-decomp m with m % 2 in eq
+... | zero        = even (m / 2) (decomp-even m eq)
+... | suc zero    = odd (m / 2) (decomp-odd m eq)
+... | suc (suc r) = ⊥-elim (¬m%2≥2 m r eq)
 
 -- ============================================================================
 -- ARITHMETIC BRIDGE LEMMAS (confined plumbing - proven once)
@@ -209,32 +209,6 @@ private
 
       bound' : value < 2 ^ n * 2
       bound' = subst (value <_) normalize bound
-
-{- ✅ COMPLETED: bitVec-roundtrip proven without postulates
-
-   Property: bitVec-roundtrip
-   ---------------------------
-   Converting ℕ → BitVec → ℕ preserves the original value
-
-   ∀ {n} (value : ℕ) (bound : value < 2^n)
-     → bitVecToℕ (ℕToBitVec value bound) ≡ value
-
-   Proof structure:
-   - Induction on n
-   - Base case (n = 0): value < 2^0 = 1, so value = 0. Trivial.
-   - Inductive case:
-     * Specialize division algorithm to base 2: value = (value % 2) + (value / 2) * 2
-     * Prove arithmetic facts on ℕ (mod-div-when-1, mod-div-when-0)
-     * Bridge Bool test to arithmetic via mod2≡1-from-bool, mod2≡0-from-bool
-     * Apply inductive hypothesis with explicit type annotations
-
-   Key lemmas:
-   - m≡m%n+[m/n]*n from Data.Nat.DivMod (division algorithm)
-   - toℕ-fromℕ< from Data.Fin.Properties (coherence between _mod_ and _%_)
-   - Explicit type annotations to help unification with div-helper
-
-   This is the ONLY place we need deep arithmetic reasoning.
--}
 
 -- ============================================================================
 -- BASE-2 SPECIALIZATION OF DIVISION ALGORITHM

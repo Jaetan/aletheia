@@ -9,8 +9,6 @@ from ..protocols import (
     DBCDefinition,
     DBCSignal,
     DBCMessage,
-    BuildFrameResponse,
-    UpdateFrameResponse,
     RationalNumber,
     is_str_dict,
     is_object_list,
@@ -66,11 +64,8 @@ def parse_rational(value_raw: object) -> float:
     if isinstance(value_raw, (int, float)):
         return float(value_raw)
     if is_str_dict(value_raw):
-        try:
-            n, d = extract_rational_from_dict(value_raw, "rational")
-            return n / d
-        except ProtocolError:
-            pass
+        n, d = extract_rational_from_dict(value_raw, "rational")
+        return n / d
     if isinstance(value_raw, str):
         if "/" in value_raw:
             parts = value_raw.split("/")
@@ -135,20 +130,6 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
         "version": str(raw.get("version", "")),
         "messages": messages,
     }
-
-
-def parse_frame_data(
-    response: BuildFrameResponse | UpdateFrameResponse,
-    expected_bytes: int,
-) -> bytearray:
-    """Extract and validate frame data from a response."""
-    frame_data = response["data"]
-    if len(frame_data) != expected_bytes:
-        raise ProtocolError(
-            f"Invalid frame data: expected {expected_bytes} bytes, "
-            + f"got {len(frame_data)}"
-        )
-    return bytearray(frame_data)
 
 
 def parse_values_list(values_data: Sequence[object]) -> dict[str, float]:

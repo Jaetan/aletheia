@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-#include <aletheia/backend.hpp>
-#include <aletheia/check.hpp>
-#include <aletheia/dbc.hpp>
-#include <aletheia/error.hpp>
-#include <aletheia/log.hpp>
-#include <aletheia/ltl.hpp>
-#include <aletheia/response.hpp>
-#include <aletheia/types.hpp>
-#include <aletheia/validation.hpp>
+// client.hpp is the umbrella facade for the public API — consumers include
+// this header and get the full vocabulary types transitively. IWYU pragmas
+// tell misc-include-cleaner the re-exports are intentional, so using (e.g.)
+// aletheia::CanId after `#include <aletheia/client.hpp>` does not require a
+// second direct include of types.hpp at every call site.
+#include <aletheia/backend.hpp>    // IWYU pragma: export
+#include <aletheia/check.hpp>      // IWYU pragma: export
+#include <aletheia/dbc.hpp>        // IWYU pragma: export
+#include <aletheia/error.hpp>      // IWYU pragma: export
+#include <aletheia/log.hpp>        // IWYU pragma: export
+#include <aletheia/ltl.hpp>        // IWYU pragma: export
+#include <aletheia/response.hpp>   // IWYU pragma: export
+#include <aletheia/types.hpp>      // IWYU pragma: export
+#include <aletheia/validation.hpp> // IWYU pragma: export
+
+#include <aletheia/detail/cache_keys.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -38,7 +45,8 @@ namespace aletheia {
 // there is no contention between clients.
 class AletheiaClient {
 public:
-    explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {});
+    explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
+                            std::vector<CheckResult> default_checks = {});
     ~AletheiaClient();
 
     AletheiaClient(const AletheiaClient&) = delete;
@@ -71,6 +79,8 @@ public:
     // with extracted signal values and a formatted reason string (requires
     // set_properties() to have been called to install diagnostics).
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
+    // CAN-FD note: BRS/ESI flags are not part of the FFI protocol and are silently
+    // dropped.  The Agda core operates on payload bytes + DLC only.
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
@@ -88,33 +98,40 @@ public:
     [[nodiscard]] auto end_stream() -> Result<StreamResult>;
 
 private:
-    void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data);
+    // Signal-to-index resolution for binary FFI build/update paths.
+    struct ResolvedSignals {
+        std::vector<std::uint32_t> indices;
+        std::vector<std::int64_t> numerators;
+        std::vector<std::int64_t> denominators;
+        [[nodiscard]] auto injection() const -> SignalInjection;
+    };
+    auto resolve_signals(CanId id, std::span<const SignalValue> signals) -> Result<ResolvedSignals>;
+
+    void enrich_violation(Violation& v, CanId id, Dlc dlc, std::span<const std::byte> data,
+                          std::uint32_t id_value, bool is_extended);
     void enrich_property_result(PropertyResult& pr);
     auto extract_signal_values(const PropertyDiagnostic& diag, CanId id, Dlc dlc,
-                               std::span<const std::byte> data)
-        -> std::map<SignalName, PhysicalValue>;
+                               std::span<const std::byte> data, std::uint32_t id_value,
+                               bool is_extended) -> std::map<SignalName, PhysicalValue>;
     auto extract_last_known_values(const PropertyDiagnostic& diag)
         -> std::map<SignalName, PhysicalValue>;
-    auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data)
+    auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
+                                  std::uint32_t id_value, bool is_extended)
         -> std::optional<ExtractionResult>;
 
     std::unique_ptr<IBackend> backend_;
     void* state_ = nullptr;
     Logger logger_;
+    std::vector<CheckResult> default_checks_;
     std::vector<PropertyDiagnostic> diags_;
 
     // Extraction cache: keyed by (id_value, is_extended, dlc, payload).
     // Capped at max_cache_size entries; when full, new extractions are
     // performed but not cached (silent fallback to per-frame extraction).
-    struct FrameKey {
-        std::uint32_t id_value;
-        bool is_extended;
-        std::uint8_t dlc;
-        FramePayload data;
-        auto operator<=>(const FrameKey&) const = default;
-    };
+    // Cache key types live in detail/cache_keys.hpp — see there for the
+    // transparent comparator that enables heterogeneous lookup by FrameKeyView.
     static constexpr std::size_t max_cache_size = 256;
-    std::map<FrameKey, ExtractionResult> cache_;
+    std::map<detail::FrameKey, ExtractionResult, detail::FrameKeyLess> cache_;
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame(); cleared by start_stream().
@@ -127,43 +144,13 @@ private:
     std::map<LastFrameKey, LastFrame> last_frames_;
 
     // Signal name → 0-based index within the DBC message's signal list.
-    // Keyed by (can_id_value, is_extended, signal_name).
     // Populated by parse_dbc(); cleared by parse_dbc().
-    struct SignalKey {
-        std::uint32_t id_value;
-        bool is_extended;
-        std::string signal_name;
-        auto operator==(const SignalKey&) const -> bool = default;
-    };
-    struct SignalKeyHash {
-        auto operator()(const SignalKey& k) const -> std::size_t {
-            auto h1 = std::hash<std::uint32_t>{}(k.id_value);
-            auto h2 = std::hash<bool>{}(k.is_extended);
-            auto h3 = std::hash<std::string>{}(k.signal_name);
-            // Combine hashes (boost::hash_combine pattern).
-            h1 ^= h2 + 0x9e3779b9 + (h1 << 6U) + (h1 >> 2U);
-            h1 ^= h3 + 0x9e3779b9 + (h1 << 6U) + (h1 >> 2U);
-            return h1;
-        }
-    };
-    std::unordered_map<SignalKey, std::uint32_t, SignalKeyHash> signal_index_;
+    std::unordered_map<detail::SignalKey, std::uint32_t, detail::SignalKeyHash> signal_index_;
 
     // Index → signal name reverse lookup, keyed by (can_id_value, is_extended).
     // Populated alongside signal_index_ in parse_dbc().
-    using MessageKey = std::pair<std::uint32_t, bool>;
-    struct MessageKeyHash {
-        auto operator()(const MessageKey& k) const -> std::size_t {
-            auto h = std::hash<std::uint32_t>{}(k.first);
-            h ^= std::hash<bool>{}(k.second) + 0x9e3779b9 + (h << 6U) + (h >> 2U);
-            return h;
-        }
-    };
-    std::unordered_map<MessageKey, std::vector<std::string>, MessageKeyHash> signal_names_;
-
-    // Timestamp monotonicity enforcement.
-    // Metric LTL operators use truncated subtraction on timestamps; non-monotonic
-    // timestamps produce silently wrong verdicts.
-    std::optional<std::int64_t> last_timestamp_;
+    std::unordered_map<detail::MessageKey, std::vector<std::string>, detail::MessageKeyHash>
+        signal_names_;
 };
 
 static_assert(!std::is_copy_constructible_v<AletheiaClient>,

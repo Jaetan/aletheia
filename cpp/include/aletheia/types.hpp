@@ -32,8 +32,9 @@ public:
     auto operator<=>(const Strong&) const = default;
 };
 
-// String strong types add implicit string_view conversion for ergonomic use
-// in logging and formatting, while still preventing implicit mixing.
+// String strong types expose an explicit string_view conversion for use in
+// logging and formatting via direct-init (`std::string_view{name}`), while
+// still preventing implicit mixing with bare strings.
 template<typename Tag>
 class StrongString {
     std::string value_;
@@ -41,8 +42,7 @@ class StrongString {
 public:
     explicit StrongString(std::string v) : value_(std::move(v)) {}
     [[nodiscard]] auto get() const -> const std::string& { return value_; }
-    // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
-    [[nodiscard]] operator std::string_view() const noexcept { return value_; }
+    [[nodiscard]] explicit operator std::string_view() const noexcept { return value_; }
     auto operator<=>(const StrongString&) const = default;
 };
 
@@ -80,14 +80,31 @@ struct Rational {
     }
 
     // Cross-multiply comparison (avoids floating-point).
+    // __int128 is a GCC/Clang extension (not standard C++); the project targets
+    // g++ >= 14 and clang >= 21 on Linux only, where it is always available.
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
+#if defined(__SIZEOF_INT128__)
         auto lhs_prod = static_cast<__int128>(numerator) * rhs.denominator;
         auto rhs_prod = static_cast<__int128>(rhs.numerator) * denominator;
         return lhs_prod <=> rhs_prod;
+#else
+        // Fallback for compilers without __int128 (not expected on project targets).
+        return to_double() <=> rhs.to_double();
+#endif
     }
     constexpr bool operator==(const Rational& rhs) const {
         return (*this <=> rhs) == std::strong_ordering::equal;
+    }
+
+    // Validated factory: returns an error if denominator is not positive.
+    // Use aggregate construction for internal paths where the denominator is
+    // already validated (e.g., from the Agda JSON parser).
+    static constexpr auto make(std::int64_t num, std::int64_t den)
+        -> std::expected<Rational, std::string> {
+        if (den <= 0)
+            return std::unexpected("Rational denominator must be positive");
+        return Rational{.numerator = num, .denominator = den};
     }
 };
 

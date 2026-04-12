@@ -327,6 +327,129 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 	}
 }
 
+func TestSendError_Ack(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendError
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.SendError(aletheia.Timestamp{Microseconds: 1000}); err != nil {
+		t.Fatalf("SendError: %v", err)
+	}
+
+	// Verify the mock saw the serialized error event as its third input.
+	inputs := mock.Inputs()
+	if len(inputs) != 3 {
+		t.Fatalf("expected 3 inputs, got %d", len(inputs))
+	}
+	if !strings.Contains(inputs[2], `"type":"error"`) || !strings.Contains(inputs[2], `"timestamp":1000`) {
+		t.Errorf("expected error event in third input, got: %s", inputs[2])
+	}
+}
+
+func TestSendError_NegativeTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.SendError(aletheia.Timestamp{Microseconds: -1})
+	if err == nil {
+		t.Fatal("expected error for negative timestamp")
+	}
+	if !strings.Contains(err.Error(), "negative timestamp") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSendRemote_Ack(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendRemote
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	if err := c.SendRemote(aletheia.Timestamp{Microseconds: 1000}, sid); err != nil {
+		t.Fatalf("SendRemote: %v", err)
+	}
+
+	// Verify the mock saw the serialized remote event as its third input.
+	inputs := mock.Inputs()
+	if len(inputs) != 3 {
+		t.Fatalf("expected 3 inputs, got %d", len(inputs))
+	}
+	if !strings.Contains(inputs[2], `"type":"remote"`) || !strings.Contains(inputs[2], `"id":256`) {
+		t.Errorf("expected remote event in third input, got: %s", inputs[2])
+	}
+}
+
+func TestSendRemote_NegativeTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	err = c.SendRemote(aletheia.Timestamp{Microseconds: -1}, sid)
+	if err == nil {
+		t.Fatal("expected error for negative timestamp")
+	}
+	if !strings.Contains(err.Error(), "negative timestamp") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSendError_AfterClose(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+
+	err = c.SendError(aletheia.Timestamp{Microseconds: 1000})
+	if err == nil {
+		t.Fatal("expected error after Close")
+	}
+	if !strings.Contains(err.Error(), "closed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestConcurrentSendFrame(t *testing.T) {
 	const n = 10
 	responses := make([]aletheia.MockResponse, 0, n+2)
@@ -393,6 +516,73 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "negative timestamp") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestSendFrame_NonMonotonicTimestamp verifies the Go binding correctly parses
+// the JSON error response that Agda's handleDataFrame produces when a frame
+// regresses in time. The monotonicity check lives in Agda (see
+// FrameProcessor/Properties.agda PROPERTY 28); the Go binding's job is to
+// surface the error code to the caller.
+func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame @ 5000
+		aletheia.Respond(`{"status":"error","code":"handler_non_monotonic_timestamp","message":"DataFrame: non-monotonic timestamp: 4999 µs < previous 5000 µs (metric LTL operators require monotonic timestamps)"}`),
+		aletheia.Respond(`{"status":"ack"}`), // SendFrame @ 5000 (=, accepted)
+		aletheia.Respond(`{"status":"ack"}`), // SendFrame @ 6000
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 500}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
+
+	// First frame at t=5000 — accepted.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("first SendFrame: %v", err)
+	}
+
+	// Regressing to t=4999 — rejected by Agda; binding surfaces the coded error.
+	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data)
+	if err == nil {
+		t.Fatal("expected error for backward timestamp")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeHandlerNonMonotonicTimestamp {
+		t.Errorf("expected code %q, got %q", aletheia.CodeHandlerNonMonotonicTimestamp, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+	if !strings.Contains(aErr.Error(), "non-monotonic") {
+		t.Errorf("expected 'non-monotonic' in error message: %s", aErr.Error())
+	}
+
+	// Same-timestamp frames (≥, not >) should still be accepted.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("equal-timestamp SendFrame: %v", err)
+	}
+
+	// Anchor unchanged after rejection — forward frame still works.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("forward SendFrame: %v", err)
 	}
 }
 
@@ -611,6 +801,56 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 	}
 }
 
+func TestStreamingLTL_Unresolved(t *testing.T) {
+	// Atomic predicate whose signal was never observed finalizes to
+	// Unresolved (three-valued Kleene Unknown) rather than Fails.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame (unrelated frame)
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "UnobservedSignal", Value: 100,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x123)
+	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved, got %s", result.Results[0].Verdict)
+	}
+	if !strings.Contains(result.Results[0].Reason, "never resolved") {
+		t.Errorf("expected reason to mention 'never resolved', got %q", result.Results[0].Reason)
+	}
+}
+
 func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{"status":"success"}`), // SetProperties (1 property)
@@ -648,5 +888,507 @@ func TestEndStream_PropertyIndexOutOfBounds(t *testing.T) {
 	// OOB index → enrichment should be nil (graceful degradation).
 	if result.Results[0].Enrichment != nil {
 		t.Errorf("expected nil Enrichment for OOB property index, got %+v", result.Results[0].Enrichment)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// End-of-stream three-valued Kleene finalization (Path G, 2026-04-09)
+// ---------------------------------------------------------------------------
+//
+// These tests mirror python/tests/test_eos_finalization.py::TestMissingSignalFinalization
+// to give Go client-level coverage of the Unresolved (Unsure) verdict. They
+// complement TestStreamingLTL_Unresolved above with additional scenarios:
+//
+//   - Always + never-observed signal after many frames → Unresolved
+//   - changed_by on a one-frame trace → Unresolved
+//   - Eventually + never-observed signal → Unresolved (regression guard
+//     against the pre-Path-G collapse to Fails)
+//   - Eventually on empty trace → Fails (liveness, no vacuous truth)
+//   - Always on empty trace → Holds (vacuous LTLf)
+//   - K3 truth-table combinations via And/Or
+//   - Enrichment populated for Unresolved results when diagnostics exist
+//
+// Go uses MockBackend (not real FFI) because the Go binding's surface is JSON
+// marshaling — feedback_cross_binding_test_placement.md records this as valid
+// parity. These tests verify the JSON → Verdict → PropertyResult pipeline and
+// the enrichment branch in Client.EndStream.
+
+func TestEOS_AlwaysNeverObserved_ManyFrames(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 1
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 2
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 3
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 4
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 5
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "Speed", Value: 100,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x200)
+	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
+	for i := range 5 {
+		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
+		if _, err := c.SendFrame(ts, sid, dlc8(), data); err != nil {
+			t.Fatalf("SendFrame %d: %v", i, err)
+		}
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved after 5 frames without Speed, got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_ChangedByOneFrame_Unresolved(t *testing.T) {
+	// A single frame gives changed_by(0) no prior observation to compare
+	// against, so its inner Atomic finalizes to Unsure. Under Kleene K3 the
+	// negation stays Unsure and the Always absorption leaves an
+	// And (Not Atomic) (Always _) which reduces via Unsure ∧ Holds = Unsure.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"ChangedBy: single-frame trace"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Not{Inner: aletheia.Atomic{
+			Predicate: aletheia.ChangedBy{Signal: "Speed", Delta: 0},
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved on one-frame changed_by, got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_EventuallyNeverObserved_Unresolved(t *testing.T) {
+	// Regression guard: pre-Path-G this collapsed to Fails via the
+	// Or φ (Eventually ψ) → Eventually ψ absorption. Path G guards that
+	// rewrite with finalizesFails φ = true, so a bare Atomic (finalizeL =
+	// Unsure) no longer triggers it — the Or persists and finalizes via
+	// Unsure ∨ Fails = Unsure.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 1
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 2
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 3
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 4
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame 5
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
+			Signal: "Speed", Value: 10,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x200)
+	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
+	for i := range 5 {
+		ts := aletheia.Timestamp{Microseconds: int64(i) * 1000}
+		if _, err := c.SendFrame(ts, sid, dlc8(), data); err != nil {
+			t.Fatalf("SendFrame %d: %v", i, err)
+		}
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved for Eventually on never-observed signal, got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_EventuallyZeroFrames_Fails(t *testing.T) {
+	// Contrast with the N ≥ 1 case above. On the empty trace, finalizeL is
+	// applied directly to Eventually _ which returns Fails — liveness
+	// operators do not get three-valued absorption on the empty trace.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"fails","reason":"Eventually: never satisfied"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
+			Signal: "Speed", Value: 10,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Fails {
+		t.Errorf("expected Fails for 0-frame Eventually, got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_AlwaysZeroFrames_Holds(t *testing.T) {
+	// Standard LTLf vacuous truth: G φ on the empty trace holds regardless
+	// of whether φ's signal would be observable. Distinguishes the
+	// empty-trace finalization path (direct on Always) from the non-empty
+	// path (finalizeL after progression leaves an And behind).
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"holds"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "Speed", Value: 100,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Holds {
+		t.Errorf("expected Holds for 0-frame Always, got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_K3Combination_UnresolvedAndHolds(t *testing.T) {
+	// Kleene truth table: Unsure ∧ Holds = Unsure. The And combinator with
+	// one Unresolved operand and one Holds operand must surface as
+	// Unresolved. Verifies the JSON status mapping and the Go Verdict
+	// constant roundtrip on a representative K3 conjunction case.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"And: Unsure ∧ Holds = Unsure"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.And{
+			Left: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+				Signal: "Speed", Value: 100,
+			}}},
+			Right: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+				Signal: "Rpm", Value: 100,
+			}}},
+		},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x200)
+	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved (Unsure ∧ Holds = Unsure), got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_K3Combination_UnresolvedOrFails(t *testing.T) {
+	// Kleene truth table: Unsure ∨ Fails = Unsure. An Or with one Unresolved
+	// operand and one Fails operand must surface as Unresolved.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Or: Unsure ∨ Fails = Unsure"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Or{
+			Left: aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+				Signal: "Speed", Value: 100,
+			}}},
+			Right: aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
+				Signal: "Rpm", Value: 999999,
+			}}},
+		},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x200)
+	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Unresolved (Unsure ∨ Fails = Unsure), got %s",
+			result.Results[0].Verdict)
+	}
+}
+
+func TestEOS_MixedVerdicts(t *testing.T) {
+	// Stream with three properties that finalize to different K3 verdicts.
+	// Confirms the Go result decoder correctly parses and orders a mix of
+	// Holds, Fails, and Unresolved in a single stream response.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[
+				{"property_index":0,"status":"holds"},
+				{"property_index":1,"status":"fails","timestamp":1000,"reason":"Eventually: never satisfied"},
+				{"property_index":2,"status":"unresolved","reason":"Atomic: predicate never resolved"}
+			]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "Speed", Value: 1000,
+		}}},
+		aletheia.Eventually{Inner: aletheia.Atomic{Predicate: aletheia.GreaterThan{
+			Signal: "Speed", Value: 999999,
+		}}},
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "Rpm", Value: 100,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(result.Results))
+	}
+	if result.Results[0].Verdict != aletheia.Holds {
+		t.Errorf("expected Results[0] Holds, got %s", result.Results[0].Verdict)
+	}
+	if result.Results[1].Verdict != aletheia.Fails {
+		t.Errorf("expected Results[1] Fails, got %s", result.Results[1].Verdict)
+	}
+	if result.Results[2].Verdict != aletheia.Unresolved {
+		t.Errorf("expected Results[2] Unresolved, got %s", result.Results[2].Verdict)
+	}
+}
+
+func TestEOS_UnresolvedCarriesEnrichment(t *testing.T) {
+	// Client.EndStream runs enrichPropertyResult for Unresolved verdicts
+	// (client.go case Unresolved). Verify the enrichment field is populated
+	// with FormulaDesc/CoreReason for an Unresolved result, parallel to the
+	// Fails enrichment path exercised by TestEndStream_Enriched.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame
+		aletheia.Respond(`{
+			"status":"complete",
+			"results":[{"property_index":0,"status":"unresolved","reason":"Atomic: predicate never resolved at end of stream"}]
+		}`), // EndStream
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{
+			Signal: "Speed", Value: 100,
+		}}},
+	}); err != nil {
+		t.Fatalf("SetProperties: %v", err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatalf("StartStream: %v", err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x200)
+	data := aletheia.FramePayload{5, 0, 0, 0, 0, 0, 0, 0}
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 0}, sid, dlc8(), data); err != nil {
+		t.Fatalf("SendFrame: %v", err)
+	}
+
+	result, err := c.EndStream()
+	if err != nil {
+		t.Fatalf("EndStream: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Results))
+	}
+	pr := result.Results[0]
+	if pr.Verdict != aletheia.Unresolved {
+		t.Fatalf("expected Unresolved, got %s", pr.Verdict)
+	}
+	if pr.Enrichment == nil {
+		t.Fatal("expected Enrichment populated for Unresolved result, got nil")
+	}
+	if pr.Enrichment.CoreReason == "" {
+		t.Error("expected CoreReason populated from raw Reason")
+	}
+	if pr.Enrichment.FormulaDesc == "" {
+		t.Error("expected FormulaDesc populated from diagnostic")
+	}
+	if !strings.Contains(pr.Reason, "never resolved") {
+		t.Errorf("expected raw Reason to mention 'never resolved', got %q", pr.Reason)
 	}
 }

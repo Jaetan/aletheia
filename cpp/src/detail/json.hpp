@@ -2,12 +2,16 @@
 // Tests may include this header to verify JSON round-trips directly.
 #pragma once
 
-#include <aletheia/dbc.hpp>
-#include <aletheia/error.hpp>
-#include <aletheia/ltl.hpp>
-#include <aletheia/response.hpp>
-#include <aletheia/types.hpp>
-#include <aletheia/validation.hpp>
+// The serialize_*/parse_* signatures below use DbcDefinition, LtlFormula,
+// FramePayload, FrameResponse, StreamResult, etc. Callers (json_parse.cpp,
+// json_serialize.cpp, tests) need those vocabulary types without extra
+// direct includes.
+#include <aletheia/dbc.hpp>        // IWYU pragma: export
+#include <aletheia/error.hpp>      // IWYU pragma: export
+#include <aletheia/ltl.hpp>        // IWYU pragma: export
+#include <aletheia/response.hpp>   // IWYU pragma: export
+#include <aletheia/types.hpp>      // IWYU pragma: export
+#include <aletheia/validation.hpp> // IWYU pragma: export
 
 #include <span>
 #include <string>
@@ -32,6 +36,8 @@ auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string;
 auto serialize_start_stream() -> std::string;
 auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string;
+auto serialize_send_error(Timestamp ts) -> std::string;
+auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string;
 auto serialize_end_stream() -> std::string;
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ module Aletheia.DBC.Formatter.SignalRoundtrip where
 open import Data.Nat using (ℕ; _+_; _∸_; _*_; _<_; _≤_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.List using (List; []; _∷_; map)
+open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
@@ -26,13 +27,15 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; tran
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; formatDBCSignal; formatByteOrder; formatPresence)
-open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList)
+open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList; parseNatList)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (unconvertStartBit-roundtrip)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JString; JNumber; JBool; JArray)
+open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JBool; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignalDef; WellFormedSignal;
-  PhysicallyValid; getNat-ℕtoJSON; byteOrder-roundtrip; unconvertSB-bound-BE)
+  PhysicallyValid; pv-LE; pv-BE; getNat-ℕtoJSON; byteOrder-roundtrip; unconvertSB-bound-BE)
+open import Aletheia.Prelude using (T→true)
+open import Data.Nat.Properties using (≤⇒≤ᵇ)
 
 -- ============================================================================
 -- SIGNAL ROUNDTRIP
@@ -63,6 +66,12 @@ private
        ("unit"      , JString (DBCSignal.unit sig)) ∷
        formatPresence (DBCSignal.presence sig)
 
+  -- parseNatList roundtrips through map ℕtoJSON
+  parseNatList-roundtrip : ∀ ns → parseNatList (map ℕtoJSON ns) ≡ inj₂ ns
+  parseNatList-roundtrip [] = refl
+  parseNatList-roundtrip (n ∷ ns)
+    rewrite getNat-ℕtoJSON n | parseNatList-roundtrip ns = refl
+
   -- LE roundtrip: unconvertStartBit _ LE s _ = s, convertStartBit _ LE s _ = s,
   -- so the startBit roundtrips through % 512 using WF bounds.
   signal-roundtrip-LE : ∀ frameBytes ctx n sd u p → WellFormedSignalDef sd
@@ -75,11 +84,11 @@ private
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
     = refl
-  signal-roundtrip-LE frameBytes ctx n sd u (When mux v) dwf
+  signal-roundtrip-LE frameBytes ctx n sd u (When mux vs) dwf
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
-          | getNat-ℕtoJSON v
+          | parseNatList-roundtrip (List⁺.toList vs)
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
     = refl
@@ -100,15 +109,21 @@ private
           | m<n⇒m%n≡m (unconvertSB-bound-BE frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) fb≤64)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | unconvertStartBit-roundtrip frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) len-pos fits msb-ge
+          | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
+          | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
+          | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
     = refl
-  signal-roundtrip-BE frameBytes ctx n sd u (When mux v) dwf fb≤64 len-pos fits msb-ge
+  signal-roundtrip-BE frameBytes ctx n sd u (When mux vs) dwf fb≤64 len-pos fits msb-ge
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
-          | getNat-ℕtoJSON v
+          | parseNatList-roundtrip (List⁺.toList vs)
           | m<n⇒m%n≡m (unconvertSB-bound-BE frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) fb≤64)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | unconvertStartBit-roundtrip frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) len-pos fits msb-ge
+          | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
+          | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
+          | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
     = refl
 
   signal-roundtrip-go : ∀ frameBytes ctx n sd bo u p
@@ -118,11 +133,9 @@ private
       ≡ inj₂ (mkSignal n sd bo u p)
   signal-roundtrip-go frameBytes ctx n sd LittleEndian u p dwf _ _ =
     signal-roundtrip-LE frameBytes ctx n sd u p dwf
-  signal-roundtrip-go frameBytes ctx n sd BigEndian u p dwf fb≤64 pv =
-    signal-roundtrip-BE frameBytes ctx n sd u p dwf fb≤64
-      (PhysicallyValid.len-pos pv)
-      (PhysicallyValid.fits-in-frame pv)
-      (PhysicallyValid.msb-ge-len pv)
+  signal-roundtrip-go frameBytes ctx n sd BigEndian u p dwf fb≤64 (pv-BE _ lp fits msb) =
+    signal-roundtrip-BE frameBytes ctx n sd u p dwf fb≤64 lp fits msb
+  signal-roundtrip-go frameBytes ctx n sd BigEndian u p dwf fb≤64 (pv-LE ())
 
 signal-roundtrip : ∀ frameBytes ctx sig
   → WellFormedSignal sig → frameBytes ≤ 64

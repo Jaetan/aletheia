@@ -9,7 +9,7 @@ open import Aletheia.Parser.Combinators using (Parser; ParseResult; value; remai
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_; _++_; length)
+open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Maybe.Properties using (just-injective)
@@ -165,11 +165,11 @@ pure-preserves-input : ∀ {A : Set} (a : A) (pos : Position) (input : List Char
                      → ∃[ result ] (pure a pos input ≡ just result × remaining result ≡ input)
 pure-preserves-input a pos input = mkResult a pos input , refl , refl
 
--- For satisfy: input is split into [c] ++ cs
+-- For satisfy: input is split into [c] ++ₗ cs
 satisfy-consumes-one : ∀ (pred : Char → Bool) (pos : Position) (c : Char) (cs : List Char)
                      → pred c ≡ true
                      → satisfy pred pos (c ∷ cs) ≡ just (mkResult c (advancePosition pos c) cs)
-                       × (c ∷ cs) ≡ (c ∷ []) ++ cs
+                       × (c ∷ cs) ≡ (c ∷ []) ++ₗ cs
 satisfy-consumes-one pred pos c cs pred-true =
   satisfy-position-advances pred pos c cs pred-true , refl
 
@@ -178,13 +178,13 @@ satisfy-consumes-one pred pos c cs pred-true =
 
 -- pure preserves all input (prefix = [])
 input-preserved-pure : ∀ {A : Set} (a : A) (pos : Position) (input : List Char)
-                     → input ≡ [] ++ input
+                     → input ≡ [] ++ₗ input
 input-preserved-pure a pos input = refl
 
 -- satisfy consumes exactly the matched character
 input-preserved-satisfy : ∀ (pred : Char → Bool) (pos : Position) (c : Char) (cs : List Char)
                         → pred c ≡ true
-                        → (c ∷ cs) ≡ (c ∷ []) ++ cs
+                        → (c ∷ cs) ≡ (c ∷ []) ++ₗ cs
 input-preserved-satisfy pred pos c cs pred-true = refl
 
 -- map preserves input consumption (same prefix as underlying parser)
@@ -192,8 +192,8 @@ input-preserved-map : ∀ {A B : Set} (g : A → B) (p : Parser A)
                        (pos : Position) (input : List Char)
                        (result : ParseResult A) (prefix : List Char)
                    → p pos input ≡ just result
-                   → input ≡ prefix ++ remaining result
-                   → input ≡ prefix ++ remaining result  -- Map doesn't change remaining
+                   → input ≡ prefix ++ₗ remaining result
+                   → input ≡ prefix ++ₗ remaining result  -- Map doesn't change remaining
 input-preserved-map g p pos input result prefix eq pres = pres
 
 -- bind composes prefixes
@@ -202,10 +202,10 @@ input-preserved-bind : ∀ {A B : Set} (m : Parser A) (f : A → Parser B)
                         (resultₘ : ParseResult A) (resultf : ParseResult B)
                         (prefix₁ prefix₂ : List Char)
                     → m pos input ≡ just resultₘ
-                    → input ≡ prefix₁ ++ remaining resultₘ
+                    → input ≡ prefix₁ ++ₗ remaining resultₘ
                     → f (value resultₘ) (position resultₘ) (remaining resultₘ) ≡ just resultf
-                    → remaining resultₘ ≡ prefix₂ ++ remaining resultf
-                    → input ≡ (prefix₁ ++ prefix₂) ++ remaining resultf
+                    → remaining resultₘ ≡ prefix₂ ++ₗ remaining resultf
+                    → input ≡ (prefix₁ ++ₗ prefix₂) ++ₗ remaining resultf
 input-preserved-bind m f pos input resultₘ resultf prefix₁ prefix₂ eqₘ pres₁ eqf pres₂
   rewrite pres₁ | pres₂ = sym (++-assoc prefix₁ prefix₂ (remaining resultf))
 

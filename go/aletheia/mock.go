@@ -3,6 +3,7 @@ package aletheia
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"unsafe"
 )
 
@@ -15,15 +16,31 @@ type MockResponse struct {
 // MockBackend implements [Backend] with canned JSON responses for testing.
 // Each call to Process pops the next response from the queue. If the queue
 // is exhausted, Process returns an error.
+//
+// MockBackend is safe for concurrent use: Process, the Send*Binary shims,
+// and the stream/format/extract/frame helpers all serialize through the
+// internal mutex. The mutex is required because multiple Client methods
+// may run concurrently on a multi-bus deployment that shares one mock.
 type MockBackend struct {
+	mu        sync.Mutex
 	responses []MockResponse
 	cursor    int
-	Inputs    []string // records all JSON inputs sent to Process
+	inputs    []string // records all JSON inputs sent to Process
 }
 
 // NewMockBackend creates a MockBackend preloaded with the given responses.
 func NewMockBackend(responses ...MockResponse) *MockBackend {
 	return &MockBackend{responses: responses}
+}
+
+// Inputs returns a copy of the recorded inputs so callers cannot race with
+// ongoing Process calls.
+func (m *MockBackend) Inputs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.inputs))
+	copy(out, m.inputs)
+	return out
 }
 
 // Respond is a convenience for adding a successful JSON response.
@@ -51,9 +68,16 @@ func NewMockError(msg string) error { return errors.New(msg) }
 
 // Process returns the next canned response, recording the input.
 func (m *MockBackend) Process(_ unsafe.Pointer, input string) (string, error) {
-	m.Inputs = append(m.Inputs, input)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.processLocked(input)
+}
+
+// processLocked is the inner implementation of Process. Caller must hold m.mu.
+func (m *MockBackend) processLocked(input string) (string, error) {
+	m.inputs = append(m.inputs, input)
 	if m.cursor >= len(m.responses) {
-		return "", fmt.Errorf("mock backend: no more responses (got %d calls, have %d responses)", m.cursor+1, len(m.responses))
+		return "", stateError(fmt.Sprintf("mock backend: no more responses (got %d calls, have %d responses)", m.cursor+1, len(m.responses)))
 	}
 	resp := m.responses[m.cursor]
 	m.cursor++
@@ -70,14 +94,16 @@ func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CanID, 
 	return m.Process(nil, input)
 }
 
-// SendErrorBinary returns an ack response (error events are always acknowledged).
-func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
-	return `{"status":"ack"}`, nil
+// SendErrorBinary routes through Process so tests can observe error events and
+// inject canned responses — matching the real FFI backend's request/response shape.
+func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, ts Timestamp) (string, error) {
+	return m.Process(nil, serializeErrorEvent(ts))
 }
 
-// SendRemoteBinary returns an ack response (remote frame events are always acknowledged).
-func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
-	return `{"status":"ack"}`, nil
+// SendRemoteBinary routes through Process so tests can observe remote events and
+// inject canned responses — matching the real FFI backend's request/response shape.
+func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, ts Timestamp, id CanID) (string, error) {
+	return m.Process(nil, serializeRemoteEvent(ts, id))
 }
 
 // StartStreamBinary delegates to Process with a JSON startStream command.
@@ -189,7 +215,10 @@ func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, da
 }
 
 // ExtractSignalsBin is not supported by MockBackend — returns an error.
-// The Client falls back to the JSON path when the signal name cache is not populated.
+// The binary extraction path requires the real FFI shared library to call
+// aletheia_extract_signals_bin; MockBackend cannot provide this. When the
+// Client receives this error, it falls back to the JSON extraction path
+// via ExtractSignalsBinary -> Process, which the mock can handle.
 func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, protocolError("extract_signals_bin requires FFI backend")
 }

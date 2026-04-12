@@ -24,7 +24,7 @@ open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat
 open import Aletheia.DBC.JSONParser using (parseCANId)
 open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
-open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes)
+open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
   ( RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
   ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
@@ -36,10 +36,6 @@ open import Aletheia.Error using
 -- ============================================================================
 
 private
-  -- Maximum DLC code (CAN-FD)
-  max-dlc-code : ℕ
-  max-dlc-code = 15
-
   -- Byte upper bound (exclusive): values must be < 256
   byte-bound : ℕ
   byte-bound = 256
@@ -54,7 +50,7 @@ private
   -- Validate DLC code (0–15) and construct validated DLC record.
   requireValidDLC : String → ℕ → RouteError ⊎ DLC
   requireValidDLC ctx n =
-    ifᵀ (n <ᵇ 16) then (λ p → inj₂ (mkDLC n p)) else inj₁ (DLCExceedsMax ctx)
+    ifᵀ (n <ᵇ suc maxDLC-FD) then (λ p → inj₂ (mkDLC n p)) else inj₁ (DLCExceedsMax ctx)
 
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
   parseCANIdField : String → String → List (String × JSON) → RouteError ⊎ CANId
@@ -100,35 +96,40 @@ private
   tryStartStream : List (String × JSON) → RouteError ⊎ StreamCommand
   tryStartStream _ = inj₂ StartStream
 
+  -- Shared prefix: parse CAN ID + validated DLC from command fields.
+  parseCanIdDlc : String → List (String × JSON) → RouteError ⊎ (CANId × DLC)
+  parseCanIdDlc ctx obj =
+    parseCANIdField ctx "canId" obj >>=ₑ λ canId →
+    requireNat ctx "dlc" obj >>=ₑ λ rawDlc →
+    requireValidDLC ctx rawDlc >>=ₑ λ dlc →
+    inj₂ (canId , dlc)
+
+  -- Shared prefix: parse byte payload from "data" array with DLC-based length check.
+  parseBytePayload : String → (dlc : DLC) → List (String × JSON) → RouteError ⊎ Vec Byte (dlcBytes dlc)
+  parseBytePayload ctx dlc obj =
+    requireArray ctx "data" obj >>=ₑ λ bytesJSON →
+    require (ByteArrayParseFailed ctx) (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require (ByteCountMismatch ctx) (listToVec (dlcBytes dlc) byteList)
+
   -- Parse BuildFrame command
   tryBuildFrame : List (String × JSON) → RouteError ⊎ StreamCommand
   tryBuildFrame obj =
-    parseCANIdField "BuildFrame" "canId" obj >>=ₑ λ canId →
-    requireNat "BuildFrame" "dlc" obj >>=ₑ λ rawDlc →
-    requireValidDLC "BuildFrame" rawDlc >>=ₑ λ dlc →
+    parseCanIdDlc "BuildFrame" obj >>=ₑ λ (canId , dlc) →
     requireArray "BuildFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (BuildFrame canId dlc signals)
 
   -- Parse ExtractAllSignals command
   tryExtractAllSignals : List (String × JSON) → RouteError ⊎ StreamCommand
   tryExtractAllSignals obj =
-    parseCANIdField "ExtractAllSignals" "canId" obj >>=ₑ λ canId →
-    requireNat "ExtractAllSignals" "dlc" obj >>=ₑ λ rawDlc →
-    requireValidDLC "ExtractAllSignals" rawDlc >>=ₑ λ dlc →
-    requireArray "ExtractAllSignals" "data" obj >>=ₑ λ bytesJSON →
-    require (ByteArrayParseFailed "ExtractAllSignals") (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require (ByteCountMismatch "ExtractAllSignals") (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
+    parseCanIdDlc "ExtractAllSignals" obj >>=ₑ λ (canId , dlc) →
+    parseBytePayload "ExtractAllSignals" dlc obj >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
 
   -- Parse UpdateFrame command
   tryUpdateFrame : List (String × JSON) → RouteError ⊎ StreamCommand
   tryUpdateFrame obj =
-    parseCANIdField "UpdateFrame" "canId" obj >>=ₑ λ canId →
-    requireNat "UpdateFrame" "dlc" obj >>=ₑ λ rawDlc →
-    requireValidDLC "UpdateFrame" rawDlc >>=ₑ λ dlc →
-    requireArray "UpdateFrame" "data" obj >>=ₑ λ bytesJSON →
-    require (ByteArrayParseFailed "UpdateFrame") (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require (ByteCountMismatch "UpdateFrame") (listToVec (dlcBytes dlc) byteList) >>=ₑ λ bytes →
+    parseCanIdDlc "UpdateFrame" obj >>=ₑ λ (canId , dlc) →
+    parseBytePayload "UpdateFrame" dlc obj >>=ₑ λ bytes →
     requireArray "UpdateFrame" "signals" obj >>=ₑ λ signals →
     inj₂ (UpdateFrame canId dlc bytes signals)
 

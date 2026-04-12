@@ -9,9 +9,9 @@
 -- Design: Simple sum type for explicit error propagation (no exceptions in Agda).
 module Aletheia.CAN.ExtractionResult where
 
-open import Data.String using (String)
 open import Data.Rational using (ℚ)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Aletheia.Error using (ExtractionError)
 
 -- ============================================================================
 -- EXTRACTION RESULT TYPE
@@ -27,13 +27,13 @@ data ExtractionResult : Set where
   SignalNotInDBC : ExtractionResult
 
   -- Signal exists but is multiplexed out (not present in this frame)
-  SignalNotPresent : (reason : String) → ExtractionResult
+  SignalNotPresent : (reason : ExtractionError) → ExtractionResult
 
   -- Signal extracted but value out of bounds
   ValueOutOfBounds : (value : ℚ) → (minimum : ℚ) → (maximum : ℚ) → ExtractionResult
 
-  -- Bit extraction or scaling failed
-  ExtractionFailed : (reason : String) → ExtractionResult
+  -- Bit extraction or scaling failed (typed via ExtractionError to unify all errors).
+  ExtractionFailed : (reason : ExtractionError) → ExtractionResult
 
 -- ============================================================================
 -- HELPER FUNCTIONS

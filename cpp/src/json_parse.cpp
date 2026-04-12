@@ -3,61 +3,87 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
+#include <expected>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
-using json = nlohmann::json; // NOLINT(readability-identifier-naming)
+using Json = nlohmann::json;
 
 namespace aletheia {
 
-auto error_code_from_string(std::string_view s) -> ErrorCode {
+namespace {
+
+// String → ErrorCode lookup table. Grouped by error family for readability;
+// the order within each group mirrors the Agda error ADTs. Linear scan is fine
+// for the 44-entry table on a cold parse path.
+using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
+constexpr std::array<ErrorCodeEntry, 44> error_code_table{{
     // Parse errors
-    if (s == "parse_missing_field") return ErrorCode::ParseMissingField;
-    if (s == "parse_invalid_byte_order") return ErrorCode::ParseInvalidByteOrder;
-    if (s == "parse_invalid_presence") return ErrorCode::ParseInvalidPresence;
-    if (s == "parse_missing_signed") return ErrorCode::ParseMissingSigned;
-    if (s == "parse_invalid_signed") return ErrorCode::ParseInvalidSigned;
-    if (s == "parse_not_an_object") return ErrorCode::ParseNotAnObject;
-    if (s == "parse_ext_can_id_out_of_range") return ErrorCode::ParseExtCanIdOutOfRange;
-    if (s == "parse_std_can_id_out_of_range") return ErrorCode::ParseStdCanIdOutOfRange;
-    if (s == "parse_default_can_id_out_of_range") return ErrorCode::ParseDefaultCanIdOutOfRange;
-    if (s == "parse_invalid_dlc_bytes") return ErrorCode::ParseInvalidDlcBytes;
-    if (s == "parse_root_not_object") return ErrorCode::ParseRootNotObject;
-    if (s == "parse_missing_signal_name") return ErrorCode::ParseMissingSignalName;
+    {"parse_missing_field", ErrorCode::ParseMissingField},
+    {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
+    {"parse_invalid_presence", ErrorCode::ParseInvalidPresence},
+    {"parse_missing_signed", ErrorCode::ParseMissingSigned},
+    {"parse_invalid_signed", ErrorCode::ParseInvalidSigned},
+    {"parse_not_an_object", ErrorCode::ParseNotAnObject},
+    {"parse_ext_can_id_out_of_range", ErrorCode::ParseExtCanIdOutOfRange},
+    {"parse_std_can_id_out_of_range", ErrorCode::ParseStdCanIdOutOfRange},
+    {"parse_default_can_id_out_of_range", ErrorCode::ParseDefaultCanIdOutOfRange},
+    {"parse_invalid_dlc_bytes", ErrorCode::ParseInvalidDlcBytes},
+    {"parse_root_not_object", ErrorCode::ParseRootNotObject},
+    {"parse_missing_signal_name", ErrorCode::ParseMissingSignalName},
+    {"parse_signal_bit_length_zero", ErrorCode::ParseSignalBitLengthZero},
+    {"parse_signal_overflows_frame", ErrorCode::ParseSignalOverflowsFrame},
+    {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
     // Frame errors
-    if (s == "frame_signal_not_found") return ErrorCode::FrameSignalNotFound;
-    if (s == "frame_signal_index_oob") return ErrorCode::FrameSignalIndexOob;
-    if (s == "frame_injection_failed") return ErrorCode::FrameInjectionFailed;
-    if (s == "frame_signals_overlap") return ErrorCode::FrameSignalsOverlap;
-    if (s == "frame_can_id_not_found") return ErrorCode::FrameCanIdNotFound;
-    if (s == "frame_can_id_mismatch") return ErrorCode::FrameCanIdMismatch;
+    {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
+    {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
+    {"frame_injection_failed", ErrorCode::FrameInjectionFailed},
+    {"frame_signals_overlap", ErrorCode::FrameSignalsOverlap},
+    {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
+    {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     // Route errors
-    if (s == "route_missing_field") return ErrorCode::RouteMissingField;
-    if (s == "route_missing_array") return ErrorCode::RouteMissingArray;
-    if (s == "route_unknown_command") return ErrorCode::RouteUnknownCommand;
-    if (s == "route_missing_command_field") return ErrorCode::RouteMissingCommandField;
-    if (s == "route_dlc_exceeds_max") return ErrorCode::RouteDlcExceedsMax;
-    if (s == "route_byte_array_parse_failed") return ErrorCode::RouteByteArrayParseFailed;
-    if (s == "route_byte_count_mismatch") return ErrorCode::RouteByteCountMismatch;
-    if (s == "route_missing_dbc_field") return ErrorCode::RouteMissingDbcField;
-    if (s == "route_missing_props_field") return ErrorCode::RouteMissingPropsField;
+    {"route_missing_field", ErrorCode::RouteMissingField},
+    {"route_missing_array", ErrorCode::RouteMissingArray},
+    {"route_unknown_command", ErrorCode::RouteUnknownCommand},
+    {"route_missing_command_field", ErrorCode::RouteMissingCommandField},
+    {"route_dlc_exceeds_max", ErrorCode::RouteDlcExceedsMax},
+    {"route_byte_array_parse_failed", ErrorCode::RouteByteArrayParseFailed},
+    {"route_byte_count_mismatch", ErrorCode::RouteByteCountMismatch},
+    {"route_missing_dbc_field", ErrorCode::RouteMissingDbcField},
+    {"route_missing_props_field", ErrorCode::RouteMissingPropsField},
     // Handler errors
-    if (s == "handler_no_dbc") return ErrorCode::HandlerNoDbc;
-    if (s == "handler_already_streaming") return ErrorCode::HandlerAlreadyStreaming;
-    if (s == "handler_not_streaming") return ErrorCode::HandlerNotStreaming;
-    if (s == "handler_stream_not_started") return ErrorCode::HandlerStreamNotStarted;
-    if (s == "handler_stream_active") return ErrorCode::HandlerStreamActive;
-    if (s == "handler_signal_list_parse_failed") return ErrorCode::HandlerSignalListParseFailed;
-    if (s == "handler_property_parse_failed") return ErrorCode::HandlerPropertyParseFailed;
-    if (s == "handler_invalid_dlc_code") return ErrorCode::HandlerInvalidDlcCode;
-    if (s == "handler_validation_failed") return ErrorCode::HandlerValidationFailed;
+    {"handler_no_dbc", ErrorCode::HandlerNoDbc},
+    {"handler_already_streaming", ErrorCode::HandlerAlreadyStreaming},
+    {"handler_not_streaming", ErrorCode::HandlerNotStreaming},
+    {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
+    {"handler_stream_active", ErrorCode::HandlerStreamActive},
+    {"handler_signal_list_parse_failed", ErrorCode::HandlerSignalListParseFailed},
+    {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
+    {"handler_invalid_dlc_code", ErrorCode::HandlerInvalidDlcCode},
+    {"handler_validation_failed", ErrorCode::HandlerValidationFailed},
+    {"handler_non_monotonic_timestamp", ErrorCode::HandlerNonMonotonicTimestamp},
     // Dispatch errors
-    if (s == "dispatch_missing_type_field") return ErrorCode::DispatchMissingTypeField;
-    if (s == "dispatch_unknown_message_type") return ErrorCode::DispatchUnknownMessageType;
-    if (s == "dispatch_invalid_json") return ErrorCode::DispatchInvalidJson;
-    if (s == "dispatch_request_not_object") return ErrorCode::DispatchRequestNotObject;
+    {"dispatch_missing_type_field", ErrorCode::DispatchMissingTypeField},
+    {"dispatch_unknown_message_type", ErrorCode::DispatchUnknownMessageType},
+    {"dispatch_invalid_json", ErrorCode::DispatchInvalidJson},
+    {"dispatch_request_not_object", ErrorCode::DispatchRequestNotObject},
+}};
+
+} // namespace
+
+auto error_code_from_string(std::string_view s) -> ErrorCode {
+    for (const auto& [name, code] : error_code_table)
+        if (name == s)
+            return code;
     return ErrorCode::Unknown;
 }
 
@@ -69,19 +95,20 @@ namespace aletheia::detail {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCode::Unknown) -> AletheiaError {
+static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCode::Unknown)
+    -> AletheiaError {
     return {kind, std::move(msg), code};
 }
 
 /// Extract error from a JSON response with status=="error", parsing the code field.
-static auto make_json_error(ErrorKind kind, const json& j) -> AletheiaError {
+static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     auto code = error_code_from_string(j.value("code", ""));
     return make_error(kind, j.value("message", "Unknown error"), code);
 }
 
 // Agda emits numbers as int, float, or {"numerator": n, "denominator": d}.
 // Throws on unrecognized formats; callers catch at the public API boundary.
-static auto parse_number(const json& j) -> double {
+static auto parse_number(const Json& j) -> double {
     if (j.is_number())
         return j.get<double>();
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
@@ -105,8 +132,8 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
         return IssueCode::FactorZero;
     if (code == "multiplexor_not_found")
         return IssueCode::MultiplexorNotFound;
-    if (code == "multiplexor_not_always_present")
-        return IssueCode::MultiplexorNotAlwaysPresent;
+    if (code == "multiplexor_cycle")
+        return IssueCode::MultiplexorCycle;
     if (code == "global_name_collision")
         return IssueCode::GlobalNameCollision;
     if (code == "min_exceeds_max")
@@ -132,7 +159,7 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
 
 // Parse a JSON value as an exact Rational (for DBC signal parameters).
 // Accepts plain integers or {numerator, denominator} dicts.
-static auto parse_rational(const json& j) -> Rational {
+static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
         return {.numerator = j.get<std::int64_t>(), .denominator = 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
@@ -152,7 +179,7 @@ static auto parse_rational(const json& j) -> Rational {
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
 }
 
-static auto parse_rational_as_int(const json& j) -> std::int64_t {
+static auto parse_rational_as_int(const Json& j) -> std::int64_t {
     if (j.is_number_integer())
         return j.get<std::int64_t>();
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
@@ -173,15 +200,25 @@ static auto parse_rational_as_int(const json& j) -> std::int64_t {
 // DBC parsing (for formatDBC response)
 // ---------------------------------------------------------------------------
 
-static auto parse_signal_def(const json& j) -> DbcSignal {
+static auto parse_signal_def(const Json& j) -> DbcSignal {
     auto bo_str = j.value("byteOrder", "little_endian");
-    auto bo = (bo_str == "big_endian") ? ByteOrder::BigEndian : ByteOrder::LittleEndian;
+    ByteOrder bo{};
+    if (bo_str == "little_endian")
+        bo = ByteOrder::LittleEndian;
+    else if (bo_str == "big_endian")
+        bo = ByteOrder::BigEndian;
+    else
+        throw std::runtime_error("Unrecognized byteOrder: " + bo_str);
 
     SignalPresence presence = AlwaysPresent{};
     if (j.contains("multiplexor")) {
-        presence =
-            Multiplexed{.multiplexor = SignalName{j.at("multiplexor").get<std::string>()},
-                        .mux_value = MultiplexValue{j.at("multiplex_value").get<std::uint32_t>()}};
+        const auto& arr = j.at("multiplex_values");
+        std::vector<MultiplexValue> vals;
+        vals.reserve(arr.size());
+        for (const auto& elem : arr)
+            vals.emplace_back(elem.get<std::uint32_t>());
+        presence = Multiplexed{.multiplexor = SignalName{j.at("multiplexor").get<std::string>()},
+                               .mux_values = std::move(vals)};
     }
 
     return DbcSignal{
@@ -199,7 +236,7 @@ static auto parse_signal_def(const json& j) -> DbcSignal {
     };
 }
 
-static auto parse_message_def(const json& j) -> DbcMessage {
+static auto parse_message_def(const Json& j) -> DbcMessage {
     auto id_val = j.at("id").get<std::uint32_t>();
     const bool extended = j.value("extended", false);
 
@@ -238,7 +275,7 @@ static auto parse_message_def(const json& j) -> DbcMessage {
     };
 }
 
-static auto parse_dbc_definition(const json& j) -> DbcDefinition {
+static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
         messages.push_back(parse_message_def(m));
@@ -257,13 +294,12 @@ static auto parse_dbc_definition(const json& j) -> DbcDefinition {
 
 auto parse_success(std::string_view input) -> Result<void> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
-        if (status == "success")
+        if (status == "success" || status == "ack")
             return {};
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
@@ -272,11 +308,10 @@ auto parse_success(std::string_view input) -> Result<void> {
 
 auto parse_validation(std::string_view input) -> Result<ValidationResult> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Validation, j));
+            return std::unexpected(make_json_error(ErrorKind::Validation, j));
         if (status != "validation")
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected validation response"));
 
@@ -301,26 +336,25 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
 
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Unexpected extraction status: " + status));
 
         std::vector<SignalValue> values;
-        for (const auto& v : j.value("values", json::array()))
+        for (const auto& v : j.value("values", Json::array()))
             values.push_back({SignalName{v.at("name").get<std::string>()},
                               PhysicalValue{parse_number(v.at("value"))}});
 
         std::vector<std::pair<SignalName, std::string>> errors;
-        for (const auto& e : j.value("errors", json::array()))
+        for (const auto& e : j.value("errors", Json::array()))
             errors.emplace_back(SignalName{e.at("name").get<std::string>()}, e.value("error", ""));
 
         std::vector<SignalName> absent;
-        for (const auto& a : j.value("absent", json::array()))
+        for (const auto& a : j.value("absent", Json::array()))
             absent.emplace_back(a.get<std::string>());
 
         return ExtractionResult{
@@ -335,11 +369,10 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
 
 auto parse_frame_data(std::string_view input) -> Result<FramePayload> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Unexpected frame data status: " + status));
@@ -364,7 +397,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         return FrameResponse{Ack{}};
 
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
 
         if (status == "ack")
@@ -388,8 +421,7 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
         }
 
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
 
         return std::unexpected(
             make_error(ErrorKind::Protocol, "Unexpected frame status: " + status));
@@ -400,12 +432,11 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
 
 auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
 
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "complete")
             return std::unexpected(make_error(ErrorKind::Protocol, "Expected complete response"));
 
@@ -417,6 +448,8 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
                 verdict = Verdict::Holds;
             else if (entry_status == "fails")
                 verdict = Verdict::Fails;
+            else if (entry_status == "unresolved")
+                verdict = Verdict::Unresolved;
             else
                 throw std::runtime_error("Unknown verdict status: " + entry_status);
             auto idx = parse_rational_as_int(r.at("property_index"));
@@ -450,11 +483,10 @@ auto parse_stream_result(std::string_view input) -> Result<StreamResult> {
 
 auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     try {
-        auto j = json::parse(input);
+        auto j = Json::parse(input);
         auto status = j.value("status", "");
         if (status == "error")
-            return std::unexpected(
-                make_json_error(ErrorKind::Protocol, j));
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
         if (status != "success")
             return std::unexpected(
                 make_error(ErrorKind::Protocol, "Unexpected DBC response status: " + status));

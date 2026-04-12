@@ -142,9 +142,9 @@ class TestSignalConversion:
         # Cast to DBCSignalMultiplexed since signal has multiplexer values
         result = cast(DBCSignalMultiplexed, raw_result)
 
-        # Should use first multiplexer value
+        # Should pass all multiplexer values
         assert result["multiplexor"] == "Multiplexor"
-        assert result["multiplex_value"] == 5
+        assert result["multiplex_values"] == [5, 6, 7]
         assert "presence" not in result
 
     def test_signal_multiplexed_no_values(self) -> None:

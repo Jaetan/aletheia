@@ -81,7 +81,7 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(sig["minimum"] == 0);
     CHECK(sig["maximum"] == 300);
     CHECK(sig["unit"] == "km/h");
-    CHECK(sig["presence"] == "always");
+    CHECK_FALSE(sig.contains("presence"));
 }
 
 TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]") {
@@ -164,7 +164,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
         .minimum = RationalBound{Rational{-40, 1}},
         .maximum = RationalBound{Rational{215, 1}},
         .unit = Unit{"C"},
-        .presence = Multiplexed{SignalName{"MuxSelector"}, MultiplexValue{3}},
+        .presence = Multiplexed{SignalName{"MuxSelector"}, {MultiplexValue{3}}},
     };
 
     DbcDefinition dbc{
@@ -185,7 +185,7 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     CHECK(jsig["byteOrder"] == "big_endian");
     CHECK(jsig["signed"] == true);
     CHECK(jsig["multiplexor"] == "MuxSelector");
-    CHECK(jsig["multiplex_value"] == 3);
+    CHECK(jsig["multiplex_values"] == json::array({3}));
     CHECK_FALSE(jsig.contains("presence"));
 }
 
@@ -241,6 +241,7 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
     check(ltl::at_least(SignalName{"S"}, PhysicalValue{0}), "greaterThanOrEqual");
     check(ltl::between(SignalName{"S"}, PhysicalValue{0}, PhysicalValue{100}), "between");
     check(ltl::changed_by(SignalName{"S"}, Delta{10.0}), "changedBy");
+    check(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}), "stableWithin");
 }
 
 // ===========================================================================
@@ -366,16 +367,21 @@ TEST_CASE("parse_stream_result complete", "[json][parse]") {
         "results": [
             {"type": "property", "status": "holds", "property_index": 0},
             {"type": "property", "status": "fails", "property_index": 1,
-             "timestamp": 5000000, "reason": "Never satisfied"}
+             "timestamp": 5000000, "reason": "Never satisfied"},
+            {"type": "property", "status": "unresolved", "property_index": 2,
+             "reason": "Atomic: predicate never resolved at end of stream"}
         ]
     })");
     REQUIRE(result.has_value());
-    CHECK(result->results.size() == 2);
+    CHECK(result->results.size() == 3);
     CHECK(result->results[0].verdict == Verdict::Holds);
     CHECK(result->results[0].property_index == PropertyIndex{0});
     CHECK(result->results[1].verdict == Verdict::Fails);
     CHECK(result->results[1].timestamp == Timestamp{5'000'000});
     CHECK(result->results[1].reason == "Never satisfied");
+    CHECK(result->results[2].verdict == Verdict::Unresolved);
+    CHECK(result->results[2].property_index == PropertyIndex{2});
+    CHECK(result->results[2].reason == "Atomic: predicate never resolved at end of stream");
 }
 
 TEST_CASE("parse_dbc_response", "[json][parse]") {
@@ -471,10 +477,8 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     CHECK(j["dlc"] == 8);
 }
 
-TEST_CASE("client build_frame round-trip", "[client][mock]") {
+TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success", "data": [232, 3, 0, 0, 0, 0, 0, 0]})");
-
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
@@ -482,9 +486,9 @@ TEST_CASE("client build_frame round-trip", "[client][mock]") {
     };
     auto result = client.build_frame(id, Dlc::create(8).value(), signals);
 
-    REQUIRE(result.has_value());
-    CHECK((*result)[0] == std::byte{232});
-    CHECK((*result)[1] == std::byte{3});
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::State);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("no DBC loaded"));
 }
 
 TEST_CASE("client streaming workflow", "[client][mock]") {
@@ -612,6 +616,99 @@ TEST_CASE("client is movable", "[client]") {
 
     AletheiaClient client2 = std::move(client1);
     CHECK(client2.parse_dbc(make_test_dbc()).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Client lifecycle / "close" semantics
+// ---------------------------------------------------------------------------
+// C++ uses RAII, not an explicit `close()` method — the destructor calls
+// backend_->close(state_) when both are non-null. These tests mirror the
+// Python and Go "double close / use after close" tests: they verify the
+// C++ equivalent (move-from destructor, sequential scope lifecycle) is
+// crash-safe and preserves backend state semantics.
+
+TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
+    // Destructor must handle `state_ == nullptr` without dereferencing —
+    // the guard at client.cpp:56 (`if (backend_ != nullptr && state_ != nullptr)`)
+    // protects against a double close when the source of a move is
+    // subsequently destroyed. This is the C++ equivalent of Python's and
+    // Go's "double close is safe" guarantee: the FFI state pointer is
+    // transferred to the target, and the source is left in a valid-but-
+    // moved-from state whose destructor is a no-op.
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})");
+
+    {
+        AletheiaClient source(std::move(mock));
+        {
+            AletheiaClient target = std::move(source);
+            CHECK(target.parse_dbc(make_test_dbc()).has_value());
+        } // target destructor closes state_
+        // source destructor runs here — state_ is already nullptr from the
+        // move; the guard in ~AletheiaClient prevents a double close.
+    }
+    // No crash, no double-free — test passes if we reach here.
+    SUCCEED("moved-from client destructor completed without crash");
+}
+
+TEST_CASE("move-assignment releases current state before taking new", "[client][lifecycle]") {
+    // Move-assigning an already-initialized client to another initialized
+    // client must release the target's current state (so it isn't leaked)
+    // before adopting the source's state. The guard at client.cpp:73
+    // (`if (backend_ != nullptr && state_ != nullptr)`) enforces this.
+    auto mock_a = std::make_unique<MockBackend>();
+    mock_a->queue_response(R"({"status": "success"})");
+    auto mock_b = std::make_unique<MockBackend>();
+    mock_b->queue_response(R"({"status": "success"})");
+
+    AletheiaClient client_a(std::move(mock_a));
+    CHECK(client_a.parse_dbc(make_test_dbc()).has_value());
+
+    AletheiaClient client_b(std::move(mock_b));
+    // Overwrite client_a — the state_ from mock_a must be closed by the
+    // move-assignment operator before client_a adopts mock_b's state.
+    client_a = std::move(client_b);
+    // Subsequent operations on client_a must use mock_b's queued responses.
+    CHECK(client_a.parse_dbc(make_test_dbc()).has_value());
+    // client_b is now in moved-from state — destructor is a no-op (tested
+    // implicitly by the lack of crash at end of scope).
+}
+
+TEST_CASE("sequential clients in same scope work independently", "[client][lifecycle]") {
+    // Multiple clients created and destroyed in sequence must each have
+    // independent state. This mirrors Python's test_sequential_clients.
+    // Any shared mutable state across instances would be a serious bug —
+    // the GHC RTS is reference-counted and thread-safe, but each
+    // AletheiaClient owns its own StablePtr on the Haskell side.
+    for (int i = 0; i < 3; ++i) {
+        auto mock = std::make_unique<MockBackend>();
+        mock->queue_response(R"({"status": "success"})");
+        AletheiaClient client(std::move(mock));
+        CHECK(client.parse_dbc(make_test_dbc()).has_value());
+    } // Each iteration's destructor closes its state_ cleanly.
+}
+
+TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]") {
+    // Creating an inner client and destroying it inside an outer scope
+    // must not affect the outer client's backend state. Guards against
+    // bugs where the backend's close() logic somehow touches global state
+    // that another live client depends on.
+    auto mock_outer = std::make_unique<MockBackend>();
+    mock_outer->queue_response(R"({"status": "success"})"); // first outer op
+    mock_outer->queue_response(R"({"status": "success"})"); // second outer op
+
+    AletheiaClient outer(std::move(mock_outer));
+    CHECK(outer.parse_dbc(make_test_dbc()).has_value());
+
+    {
+        auto mock_inner = std::make_unique<MockBackend>();
+        mock_inner->queue_response(R"({"status": "success"})");
+        AletheiaClient inner(std::move(mock_inner));
+        CHECK(inner.parse_dbc(make_test_dbc()).has_value());
+    } // inner destructed
+
+    // Outer client must still be functional after inner's destruction.
+    CHECK(outer.parse_dbc(make_test_dbc()).has_value());
 }
 
 // ===========================================================================
@@ -1481,10 +1578,8 @@ TEST_CASE("serialize_update_frame produces correct JSON", "[json][serialize]") {
     CHECK(j["signals"][0]["value"] == Catch::Approx(3000.0));
 }
 
-TEST_CASE("client update_frame round-trip", "[client][mock]") {
+TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success", "data": [232, 3, 184, 11, 0, 0, 0, 0]})");
-
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
@@ -1495,11 +1590,9 @@ TEST_CASE("client update_frame round-trip", "[client][mock]") {
     };
 
     auto result = client.update_frame(id, dlc, data, signals);
-    REQUIRE(result.has_value());
-    CHECK(result->size() == 8);
-    CHECK((*result)[0] == std::byte{232});
-    CHECK((*result)[2] == std::byte{184});
-    CHECK((*result)[3] == std::byte{11});
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::State);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("no DBC loaded"));
 }
 
 // ===========================================================================
@@ -1589,6 +1682,40 @@ TEST_CASE("send_frame rejects negative timestamp", "[client][validation]") {
     FramePayload data(8, std::byte{0});
     auto result = client.send_frame(Timestamp{-1000}, id, dlc, data);
 
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
+}
+
+TEST_CASE("send_error succeeds with mock backend", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+    auto result = client.send_error(Timestamp{1'000'000});
+    CHECK(result.has_value());
+}
+
+TEST_CASE("send_error rejects negative timestamp", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+    auto result = client.send_error(Timestamp{-1000});
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Validation);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
+}
+
+TEST_CASE("send_remote succeeds with mock backend", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto result = client.send_remote(Timestamp{1'000'000}, id);
+    CHECK(result.has_value());
+}
+
+TEST_CASE("send_remote rejects negative timestamp", "[client][validation]") {
+    auto mock = std::make_unique<MockBackend>();
+    AletheiaClient client(std::move(mock));
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto result = client.send_remote(Timestamp{-1000}, id);
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Validation);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("non-negative"));
@@ -1973,6 +2100,22 @@ TEST_CASE("add_checks rejects consumed check", "[check][client]") {
     CHECK(std::string(result.error().message()).find("already consumed") != std::string::npos);
 }
 
+TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
+    auto mock = std::make_unique<MockBackend>();
+    mock->queue_response(R"({"status": "success"})");
+
+    std::vector<CheckResult> defaults;
+    defaults.push_back(
+        Check::signal("Voltage").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5}));
+
+    AletheiaClient client(std::move(mock), {}, std::move(defaults));
+
+    std::vector<CheckResult> checks;
+    checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{220}));
+    auto result = client.add_checks(std::move(checks));
+    REQUIRE(result.has_value());
+}
+
 // ===========================================================================
 // Multiplexing query helpers
 // ===========================================================================
@@ -2004,7 +2147,7 @@ static auto make_mux_dbc() -> DbcDefinition {
                              .maximum = RationalBound{Rational{215, 1}},
                              .unit = Unit{"degC"},
                              .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
-                                                     .mux_value = MultiplexValue{0}}});
+                                                     .mux_values = {MultiplexValue{0}}}});
     sigs.push_back(DbcSignal{.name = SignalName{"Pressure"},
                              .start_bit = BitPosition{8},
                              .bit_length = BitLength{16},
@@ -2016,7 +2159,7 @@ static auto make_mux_dbc() -> DbcDefinition {
                              .maximum = RationalBound{Rational{655, 1}},
                              .unit = Unit{"bar"},
                              .presence = Multiplexed{.multiplexor = SignalName{"MuxSelector"},
-                                                     .mux_value = MultiplexValue{1}}});
+                                                     .mux_values = {MultiplexValue{1}}}});
     sigs.push_back(DbcSignal{.name = SignalName{"Voltage"},
                              .start_bit = BitPosition{40},
                              .bit_length = BitLength{16},

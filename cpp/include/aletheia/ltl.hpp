@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-#include <aletheia/types.hpp>
+// ltl.hpp's predicate and formula structs embed SignalName/PhysicalValue/
+// Delta/Tolerance/Timestamp from types.hpp, so callers that include ltl.hpp
+// always need those vocabulary types.
+#include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <memory>
 #include <variant>
@@ -196,6 +199,46 @@ inline auto changed_by(SignalName name, Delta delta) -> Predicate {
 
 inline auto stable_within(SignalName name, Tolerance tol) -> Predicate {
     return StableWithin{.signal = std::move(name), .tolerance = tol};
+}
+
+// Deep-copy a formula tree (LtlFormula contains unique_ptr children).
+inline auto clone(const LtlFormula& f) -> LtlFormula {
+    auto cp = [](const std::unique_ptr<LtlFormula>& p) -> std::unique_ptr<LtlFormula> {
+        return p ? std::make_unique<LtlFormula>(clone(*p)) : nullptr;
+    };
+    return std::visit(
+        [&cp](const auto& v) -> LtlFormula {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, Atomic>)
+                return Atomic{v.predicate};
+            else if constexpr (std::is_same_v<T, Not>)
+                return Not{cp(v.formula)};
+            else if constexpr (std::is_same_v<T, And>)
+                return And{cp(v.left), cp(v.right)};
+            else if constexpr (std::is_same_v<T, Or>)
+                return Or{cp(v.left), cp(v.right)};
+            else if constexpr (std::is_same_v<T, Next>)
+                return Next{cp(v.formula)};
+            else if constexpr (std::is_same_v<T, Always>)
+                return Always{cp(v.formula)};
+            else if constexpr (std::is_same_v<T, Eventually>)
+                return Eventually{cp(v.formula)};
+            else if constexpr (std::is_same_v<T, Until>)
+                return Until{cp(v.left), cp(v.right)};
+            else if constexpr (std::is_same_v<T, Release>)
+                return Release{cp(v.left), cp(v.right)};
+            else if constexpr (std::is_same_v<T, MetricAlways>)
+                return MetricAlways{v.bound, cp(v.formula)};
+            else if constexpr (std::is_same_v<T, MetricEventually>)
+                return MetricEventually{v.bound, cp(v.formula)};
+            else if constexpr (std::is_same_v<T, MetricUntil>)
+                return MetricUntil{v.bound, cp(v.left), cp(v.right)};
+            else if constexpr (std::is_same_v<T, MetricRelease>)
+                return MetricRelease{v.bound, cp(v.left), cp(v.right)};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled formula type in clone");
+        },
+        f);
 }
 
 } // namespace ltl

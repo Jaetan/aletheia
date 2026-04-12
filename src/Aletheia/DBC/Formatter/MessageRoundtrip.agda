@@ -19,7 +19,7 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Formatter using (formatDBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessage; parseMessageList)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
-open import Aletheia.Prelude using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Base using (mkMessage; messageFields)

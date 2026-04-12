@@ -21,7 +21,14 @@ record CachedSignal : Set where
   constructor mkCachedSignal
   field
     value        : ℚ
-    lastObserved : ℕ  -- timestamp in microseconds
+    -- Deferred refinement (§10.1): should be `Timestamp μs` for
+    -- dimensional type-safety, matching TimedFrame.timestamp. Left as ℕ
+    -- because CachedSignal is internal bookkeeping — not part of the
+    -- public TimedFrame/TraceEvent API that the Timestamp phantom was
+    -- introduced to protect. MAlonzo cost: zero (Timestamp μs erases
+    -- to the same Integer newtype). Refactor when Cache gains a public
+    -- API or if a unit mismatch bug motivates the change.
+    lastObserved : ℕ
 
 -- Bare list of cache entries (exported for proof use).
 CacheEntries : Set
@@ -43,13 +50,40 @@ record SignalCache : Set where
 -- LIST-LEVEL OPERATIONS (for proofs in Properties.agda)
 -- ============================================================================
 
--- Lookup a signal in a cache entry list
+-- Lookup a signal in a cache entry list.
+--
+-- Deferred Bool fast path (AA-16.3): `⌊ _≟ₛ_ ⌋` allocates a yes/no Dec heap
+-- cell per cache entry per atom evaluation — a hot path on the streaming LTL
+-- loop. The blocker is structural: `updateEntries-All-neq` (line 81 below)
+-- and `updateEntries-unique` (line 90 below) destructure the same `_≟ₛ_`
+-- call via `with name ≟ₛ n ... | yes refl`, relying on the `Dec` to give
+-- back the propositional equality `name ≡ n` so the `All`-preservation
+-- proofs can rewrite `name` for `n` in the head case. A pure `Bool`
+-- primitive (`primStringEquality` or any non-Dec equality) cannot supply
+-- this `refl` without a soundness postulate
+-- `prim-string-eq-sound : primStringEquality a b ≡ true → a ≡ b`, which
+-- breaks `--safe`. The proofs are `@0` so they're MAlonzo-erased (no
+-- runtime cost in the proof itself), but Agda still type-checks them and
+-- blocks the swap.
+-- Two refactors that *would* work, both larger than the AA-16 hot-path
+-- scope:
+--   (1) Promote `UniqueKeys` from an `@0`-erased `AllPairs` to a runtime
+--       data structure (e.g. an OrderedMap with O(log n) lookup), which
+--       forgoes the propositional-equality requirement entirely.
+--   (2) Move the soundness postulate to a separate `*.Unsafe.agda` module
+--       and import it only into Cache (the rest of Aletheia stays `--safe`).
+-- Left as-is pending a measured Stream LTL regression that justifies the
+-- structural change. Post-Round-8 Batch 1 benchmarks show Stream LTL
+-- within ±5% of baseline; cache lookups are dominated by `evalPredicate`
+-- which AA-16.1 already optimised via `Rat._≤ᵇ_`.
 lookupEntries : String → CacheEntries → Maybe CachedSignal
 lookupEntries _ [] = nothing
 lookupEntries name ((n , cached) ∷ rest) =
   if ⌊ name ≟ₛ n ⌋ then just cached else lookupEntries name rest
 
--- Update or insert a signal value in a cache entry list
+-- Update or insert a signal value in a cache entry list.
+-- Same Dec allocation hazard as `lookupEntries` above; same blocker via
+-- `updateEntries-unique`'s `with name ≟ₛ n | yes refl` pattern.
 updateEntries : String → ℚ → ℕ → CacheEntries → CacheEntries
 updateEntries name val ts [] = (name , mkCachedSignal val ts) ∷ []
 updateEntries name val ts ((n , cached) ∷ rest) =

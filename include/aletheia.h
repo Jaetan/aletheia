@@ -66,7 +66,10 @@ char *aletheia_process(void *state, const char *input);
  * @param extended  0 for standard 11-bit ID, 1 for extended 29-bit ID.
  * @param dlc       Data Length Code (0-15). DLC 0-8 map directly to byte
  *                  counts; 9-15 map to CAN-FD sizes (12,16,20,24,32,48,64).
- * @param data      Pointer to payload bytes. Must not be NULL if data_len > 0.
+ * @param data      Pointer to payload bytes in CAN message array order
+ *                  (data[0] = first byte transmitted on the bus, per
+ *                  ISO 11898 field order — not host endianness). Must not
+ *                  be NULL if data_len > 0.
  * @param data_len  Number of payload bytes. Must equal dlcToBytes(dlc).
  * @return          UTF-8 encoded, null-terminated JSON response.
  *                  The caller MUST free the returned string with

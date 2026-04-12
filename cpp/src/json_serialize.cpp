@@ -3,11 +3,17 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <format>
+#include <span>
 #include <stdexcept>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
-using json = nlohmann::json; // NOLINT(readability-identifier-naming)
+using Json = nlohmann::json;
 
 namespace aletheia::detail {
 
@@ -23,39 +29,43 @@ static auto can_id_extended(const CanId& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
 
-static auto data_to_json(std::span<const std::byte> data) -> json {
-    json arr = json::array();
+static auto data_to_json(std::span<const std::byte> data) -> Json {
+    Json arr = Json::array();
     for (auto b : data)
         arr.push_back(static_cast<std::uint8_t>(b));
     return arr;
 }
 
-static auto signal_value_to_json(const SignalValue& sv) -> json {
+static auto signal_value_to_json(const SignalValue& sv) -> Json {
     return {{"name", sv.name.get()}, {"value", sv.value.get()}};
 }
 
-static auto signals_to_json(std::span<const SignalValue> signals) -> json {
-    json arr = json::array();
+static auto signals_to_json(std::span<const SignalValue> signals) -> Json {
+    Json arr = Json::array();
     for (const auto& sv : signals)
         arr.push_back(signal_value_to_json(sv));
     return arr;
 }
 
-static auto rational_to_json(const Rational& r) -> json {
+static auto rational_to_json(const Rational& r) -> Json {
     if (r.denominator == 1)
         return r.numerator;
     return {{"numerator", r.numerator}, {"denominator", r.denominator}};
 }
 
-static auto presence_to_json(const SignalPresence& p, json& sig) -> void {
+static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
     std::visit(
         [&sig](auto&& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, AlwaysPresent>) {
-                sig["presence"] = "always";
+                // AlwaysPresent is the default — no "presence" key needed.
+                // The parser determines presence by checking for "multiplexor".
             } else if constexpr (std::is_same_v<T, Multiplexed>) {
                 sig["multiplexor"] = v.multiplexor.get();
-                sig["multiplex_value"] = v.mux_value.get();
+                auto arr = Json::array();
+                for (const auto& mv : v.mux_values)
+                    arr.push_back(mv.get());
+                sig["multiplex_values"] = std::move(arr);
             } else {
                 static_assert(sizeof(T) == 0, "Unhandled SignalPresence type");
             }
@@ -63,8 +73,8 @@ static auto presence_to_json(const SignalPresence& p, json& sig) -> void {
         p);
 }
 
-static auto signal_def_to_json(const DbcSignal& s) -> json {
-    json sig = {
+static auto signal_def_to_json(const DbcSignal& s) -> Json {
+    Json sig = {
         {"name", s.name.get()},
         {"startBit", s.start_bit.get()},
         {"length", s.bit_length.get()},
@@ -80,8 +90,8 @@ static auto signal_def_to_json(const DbcSignal& s) -> json {
     return sig;
 }
 
-static auto message_to_json(const DbcMessage& m) -> json {
-    json sigs = json::array();
+static auto message_to_json(const DbcMessage& m) -> Json {
+    Json sigs = Json::array();
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     return {
@@ -91,17 +101,17 @@ static auto message_to_json(const DbcMessage& m) -> json {
     };
 }
 
-static auto dbc_to_json(const DbcDefinition& dbc) -> json {
-    json msgs = json::array();
+static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
+    Json msgs = Json::array();
     for (const auto& m : dbc.messages)
         msgs.push_back(message_to_json(m));
     return {{"version", dbc.version}, {"messages", std::move(msgs)}};
 }
 
 // Map each predicate variant to its JSON representation for the Agda core.
-static auto predicate_to_json(const Predicate& p) -> json {
+static auto predicate_to_json(const Predicate& p) -> Json {
     return std::visit(
-        [](auto&& v) -> json {
+        [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Equals>)
                 return {
@@ -144,12 +154,12 @@ static auto predicate_to_json(const Predicate& p) -> json {
 // Recursively serialize an LTL formula tree to JSON for the Agda core.
 static constexpr int max_formula_depth = 100;
 
-static auto formula_to_json(const LtlFormula& f, int depth = 0) -> json {
+static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
     if (depth > max_formula_depth)
         throw std::runtime_error("Formula nesting depth exceeds " +
                                  std::to_string(max_formula_depth));
     return std::visit(
-        [depth](auto&& v) -> json {
+        [depth](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Atomic>)
                 return {{"operator", "atomic"}, {"predicate", predicate_to_json(v.predicate)}};
@@ -208,15 +218,15 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> json {
 // ---------------------------------------------------------------------------
 
 auto serialize_parse_dbc(const DbcDefinition& dbc) -> std::string {
-    return json{{"type", "command"}, {"command", "parseDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
+    return Json{{"type", "command"}, {"command", "parseDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
 }
 
 auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {
-    return json{{"type", "command"}, {"command", "validateDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
+    return Json{{"type", "command"}, {"command", "validateDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
 }
 
 auto serialize_format_dbc() -> std::string {
-    return json{{"type", "command"}, {"command", "formatDBC"}}.dump();
+    return Json{{"type", "command"}, {"command", "formatDBC"}}.dump();
 }
 
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
@@ -237,7 +247,7 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
 
 auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)
     -> std::string {
-    return json{{"type", "command"},           {"command", "buildFrame"},
+    return Json{{"type", "command"},           {"command", "buildFrame"},
                 {"canId", can_id_numeric(id)}, {"extended", can_id_extended(id)},
                 {"dlc", dlc.value()},          {"signals", signals_to_json(signals)}}
         .dump();
@@ -245,7 +255,7 @@ auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue
 
 auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data,
                             std::span<const SignalValue> signals) -> std::string {
-    return json{{"type", "command"},
+    return Json{{"type", "command"},
                 {"command", "updateFrame"},
                 {"canId", can_id_numeric(id)},
                 {"extended", can_id_extended(id)},
@@ -256,15 +266,15 @@ auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte>
 }
 
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string {
-    json arr = json::array();
+    Json arr = Json::array();
     for (const auto& f : props)
         arr.push_back(formula_to_json(f));
-    return json{{"type", "command"}, {"command", "setProperties"}, {"properties", std::move(arr)}}
+    return Json{{"type", "command"}, {"command", "setProperties"}, {"properties", std::move(arr)}}
         .dump();
 }
 
 auto serialize_start_stream() -> std::string {
-    return json{{"type", "command"}, {"command", "startStream"}}.dump();
+    return Json{{"type", "command"}, {"command", "startStream"}}.dump();
 }
 
 auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<const std::byte> data)
@@ -285,7 +295,16 @@ auto serialize_send_frame(Timestamp ts, const CanId& id, Dlc dlc, std::span<cons
 }
 
 auto serialize_end_stream() -> std::string {
-    return json{{"type", "command"}, {"command", "endStream"}}.dump();
+    return Json{{"type", "command"}, {"command", "endStream"}}.dump();
+}
+
+auto serialize_send_error(Timestamp ts) -> std::string {
+    return std::format(R"({{"type":"error","timestamp":{}}})", ts.count());
+}
+
+auto serialize_send_remote(Timestamp ts, const CanId& id) -> std::string {
+    return std::format(R"({{"type":"remote","timestamp":{},"id":{},"extended":{}}})", ts.count(),
+                       can_id_numeric(id), can_id_extended(id) ? "true" : "false");
 }
 
 } // namespace aletheia::detail

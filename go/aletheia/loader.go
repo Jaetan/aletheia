@@ -13,9 +13,7 @@ var (
 	simpleEqualsConditions  = map[string]bool{"equals": true}
 	allSimpleConditions     = mergeConditions(simpleValueConditions, simpleRangeConditions, simpleSettlesConditions, simpleEqualsConditions)
 	whenConditions          = map[string]bool{"exceeds": true, "equals": true, "drops_below": true}
-	thenValueConditions     = map[string]bool{"equals": true, "exceeds": true}
-	thenRangeConditions     = map[string]bool{"stays_between": true}
-	allThenConditions       = mergeConditions(thenValueConditions, thenRangeConditions)
+	allThenConditions       = map[string]bool{"equals": true, "exceeds": true, "stays_between": true}
 )
 
 // mergeConditions returns the union of one or more condition sets.
@@ -40,7 +38,7 @@ func dispatchSimple(signal, condition string, value PhysicalValue) (CheckResult,
 	case "never_equals":
 		return CheckSignal(signal).NeverEquals(value), nil
 	default:
-		return CheckResult{}, fmt.Errorf("unknown simple condition: %q", condition)
+		return CheckResult{}, validationError(fmt.Sprintf("unknown simple condition: %q", condition))
 	}
 }
 
@@ -54,7 +52,7 @@ func dispatchWhen(builder WhenSignalBuilder, condition string, value PhysicalVal
 	case "drops_below":
 		return builder.DropsBelow(value), nil
 	default:
-		return WhenCondition{}, fmt.Errorf("unknown when condition: %q", condition)
+		return WhenCondition{}, validationError(fmt.Sprintf("unknown when condition: %q", condition))
 	}
 }
 

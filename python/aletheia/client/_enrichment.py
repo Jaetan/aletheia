@@ -65,17 +65,24 @@ def _format_predicate(pred: dict[str, object]) -> str:
     signal = str(pred.get("signal", ""))
     op = _COMPARISON_OPS.get(str(kind))
     if op is not None:
-        return f"{signal} {op} {pred['value']:g}"
+        v = pred.get("value", 0)
+        return f"{signal} {op} {float(v) if isinstance(v, (int, float)) else 0:g}"
     if kind == "between":
-        return f"{pred['min']:g} <= {signal} <= {pred['max']:g}"
+        lo = pred.get("min", 0)
+        hi = pred.get("max", 0)
+        lo_f = float(lo) if isinstance(lo, (int, float)) else 0.0
+        hi_f = float(hi) if isinstance(hi, (int, float)) else 0.0
+        return f"{lo_f:g} <= {signal} <= {hi_f:g}"
     if kind == "changedBy":
-        raw_delta = pred.get('delta', 0)
+        raw_delta = pred.get("delta", 0)
         d = float(raw_delta) if isinstance(raw_delta, (int, float)) else 0.0
         if d >= 0:
             return f"\u0394{signal} >= {d:g}"
         return f"\u0394{signal} <= {d:g}"
     if kind == "stableWithin":
-        return f"|\u0394{signal}| <= {pred['tolerance']:g}"
+        raw_tol = pred.get("tolerance", 0)
+        t = float(raw_tol) if isinstance(raw_tol, (int, float)) else 0.0
+        return f"|\u0394{signal}| <= {t:g}"
     return "<unknown predicate>"
 
 
@@ -85,7 +92,7 @@ def _format_timebound(us: int) -> str:
         return f"{us // 1_000_000}s "
     if us % 1_000 == 0:
         return f"{us // 1_000}ms "
-    return f"{us}\u00b5s "
+    return f"{us}\u03bcs "
 
 
 def _get_timebound(formula: dict[str, object]) -> str:
@@ -98,6 +105,7 @@ def _get_timebound(formula: dict[str, object]) -> str:
 
 def format_formula(  # pylint: disable=too-many-return-statements,too-many-branches
     formula: dict[str, object], depth: int = 0,
+    *, _parenthesize_binary: bool = False,
 ) -> str:
     """Format an LTL formula dict as a human-readable string.
 
@@ -107,21 +115,43 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
         raise ValueError(
             f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
         )
+    inner = _format_formula_inner(formula, depth, parenthesize_binary=_parenthesize_binary)
+    return inner
+
+
+def _format_formula_inner(  # pylint: disable=too-many-return-statements,too-many-branches
+    formula: dict[str, object], depth: int,
+    *, parenthesize_binary: bool,
+) -> str:
+    """Inner formatter with parenthesization for binary operators."""
+    if depth > _MAX_FORMULA_DEPTH:
+        raise ValueError(
+            f"Formula nesting depth exceeds {_MAX_FORMULA_DEPTH}"
+        )
+    recur = _format_formula_inner
     op = formula.get("operator")
     if op == "atomic":
         return _format_predicate(cast(dict[str, object], formula["predicate"]))
     if op == "not":
-        return "not(" + format_formula(cast(dict[str, object], formula["formula"]), depth + 1) + ")"
+        return "not(" + recur(cast(dict[str, object], formula["formula"]),
+                              depth + 1, parenthesize_binary=False) + ")"
     if op == "and":
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " and "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " and "
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     if op == "or":
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " or "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " or "
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     if op == "next":
-        return "next(" + format_formula(cast(dict[str, object], formula["formula"]), depth + 1) + ")"
+        inner = cast(dict[str, object], formula["formula"])
+        return "next(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
     if op == "always":
         inner = cast(dict[str, object], formula["formula"])
         # Detect Never pattern: always(not(atomic(p)))
@@ -129,35 +159,50 @@ def format_formula(  # pylint: disable=too-many-return-statements,too-many-branc
             inner_not = cast(dict[str, object], inner["formula"])
             if inner_not.get("operator") == "atomic":
                 return "never " + _format_predicate(cast(dict[str, object], inner_not["predicate"]))
-        return "always(" + format_formula(inner, depth + 1) + ")"
+        return "always(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
     if op == "eventually":
-        return "eventually(" + format_formula(cast(dict[str, object], formula["formula"]), depth + 1) + ")"
+        inner = cast(dict[str, object], formula["formula"])
+        return "eventually(" + recur(inner, depth + 1, parenthesize_binary=False) + ")"
     if op == "until":
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " until "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " until "
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     if op == "release":
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " release "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " release "
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     if op == "metricAlways":
         tb = _get_timebound(formula)
         return ("always within " + tb + "("
-                + format_formula(cast(dict[str, object], formula["formula"]), depth + 1) + ")")
+                + recur(cast(dict[str, object], formula["formula"]),
+                        depth + 1, parenthesize_binary=False) + ")")
     if op == "metricEventually":
         tb = _get_timebound(formula)
         return ("eventually within " + tb + "("
-                + format_formula(cast(dict[str, object], formula["formula"]), depth + 1) + ")")
+                + recur(cast(dict[str, object], formula["formula"]),
+                        depth + 1, parenthesize_binary=False) + ")")
     if op == "metricUntil":
         tb = _get_timebound(formula)
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " until within " + tb + " "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " until within " + tb
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     if op == "metricRelease":
         tb = _get_timebound(formula)
-        return (format_formula(cast(dict[str, object], formula["left"]), depth + 1)
-                + " release within " + tb + " "
-                + format_formula(cast(dict[str, object], formula["right"]), depth + 1))
+        s = (recur(cast(dict[str, object], formula["left"]),
+                   depth + 1, parenthesize_binary=True)
+             + " release within " + tb
+             + recur(cast(dict[str, object], formula["right"]),
+                     depth + 1, parenthesize_binary=True))
+        return "(" + s + ")" if parenthesize_binary else s
     return "<unknown>"
 
 
@@ -183,20 +228,29 @@ def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
     """Build a PropertyDiagnostic from a formula. Always succeeds."""
     f = cast(dict[str, object], formula)
     return PropertyDiagnostic(
-        signals=collect_signals(f),
+        signals=tuple(collect_signals(f)),
         formula_desc=format_formula(f),
     )
 
 
 def format_enriched_reason(
     diag: PropertyDiagnostic, values: dict[str, float | None],
+    core_reason: str = "",
 ) -> str:
-    """Build the enriched reason string."""
+    """Build the enriched reason string.
+
+    When ``core_reason`` is non-empty it is appended as ``[core: ...]``
+    context, matching Go and C++ enrichment output.
+    """
     parts: list[str] = []
     for sig in diag.signals:
         val = values.get(sig)
         if val is not None:
             parts.append(f"{sig} = {val:g}")
     if not parts:
-        return "violated: " + diag.formula_desc
-    return ", ".join(parts) + " (formula: " + diag.formula_desc + ")"
+        base = "violated: " + diag.formula_desc
+    else:
+        base = ", ".join(parts) + " (formula: " + diag.formula_desc + ")"
+    if core_reason:
+        return base + " [core: " + core_reason + "]"
+    return base
