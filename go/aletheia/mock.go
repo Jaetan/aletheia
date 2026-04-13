@@ -28,6 +28,8 @@ type MockBackend struct {
 	inputs    []string // records all JSON inputs sent to Process
 }
 
+func (*MockBackend) backend() {}
+
 // NewMockBackend creates a MockBackend preloaded with the given responses.
 func NewMockBackend(responses ...MockResponse) *MockBackend {
 	return &MockBackend{responses: responses}

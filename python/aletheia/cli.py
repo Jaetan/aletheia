@@ -409,8 +409,8 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         out = {
             "can_id": can_id,
             "extended": extended,
-            "values": result.values,
-            "errors": result.errors,
+            "values": dict(result.values),
+            "errors": dict(result.errors),
             "absent": result.absent,
         }
         print(json.dumps(out, indent=2))

@@ -157,26 +157,38 @@ parseMessage-wf obj msg eq
 ... | just name | eq' = parseMessageFields-wf _ name obj msg eq'
 
 -- ============================================================================
+-- MESSAGE LIST: SHARED LIFT COMBINATOR
+-- ============================================================================
+
+-- Lift a per-element proof over parseMessageList's traversal.
+private
+  parseMessageList-lift : ∀ {P : DBCMessage → Set}
+    → (∀ obj msg → parseMessage obj ≡ inj₂ msg → P msg)
+    → ∀ jsons idx msgs
+    → parseMessageList jsons idx ≡ inj₂ msgs → All P msgs
+  parseMessageList-lift _ [] idx .[] refl = []
+  parseMessageList-lift f (JObject msgObj ∷ rest) idx msgs eq
+    with parseMessage msgObj in msg-eq | eq
+  ... | inj₁ _ | ()
+  ... | inj₂ msg | eq₁
+    with parseMessageList rest (idx + 1) in rest-eq | eq₁
+  ...   | inj₁ _ | ()
+  ...   | inj₂ msgs' | refl = f msgObj msg msg-eq ∷
+                                parseMessageList-lift f rest (idx + 1) msgs' rest-eq
+  parseMessageList-lift _ (JNull     ∷ _) idx msgs ()
+  parseMessageList-lift _ (JBool _   ∷ _) idx msgs ()
+  parseMessageList-lift _ (JNumber _ ∷ _) idx msgs ()
+  parseMessageList-lift _ (JString _ ∷ _) idx msgs ()
+  parseMessageList-lift _ (JArray _  ∷ _) idx msgs ()
+
+-- ============================================================================
 -- MESSAGE LIST WELL-FORMEDNESS
 -- ============================================================================
 
 -- If parseMessageList succeeds, all messages are well-formed.
 parseMessageList-wf : ∀ jsons idx msgs
   → parseMessageList jsons idx ≡ inj₂ msgs → All WellFormedMessage msgs
-parseMessageList-wf [] idx .[] refl = []
-parseMessageList-wf (JObject msgObj ∷ rest) idx msgs eq
-  with parseMessage msgObj in msg-eq | eq
-... | inj₁ _ | ()
-... | inj₂ msg | eq₁
-  with parseMessageList rest (idx + 1) in rest-eq | eq₁
-...   | inj₁ _ | ()
-...   | inj₂ msgs' | refl = parseMessage-wf msgObj msg msg-eq ∷
-                              parseMessageList-wf rest (idx + 1) msgs' rest-eq
-parseMessageList-wf (JNull     ∷ _) idx msgs ()
-parseMessageList-wf (JBool _   ∷ _) idx msgs ()
-parseMessageList-wf (JNumber _ ∷ _) idx msgs ()
-parseMessageList-wf (JString _ ∷ _) idx msgs ()
-parseMessageList-wf (JArray _  ∷ _) idx msgs ()
+parseMessageList-wf = parseMessageList-lift parseMessage-wf
 
 -- ============================================================================
 -- MESSAGE PHYSICAL VALIDITY
@@ -235,21 +247,8 @@ parseMessage-pv obj msg eq
 -- for every message in the list.
 parseMessageList-pv : ∀ jsons idx msgs
   → parseMessageList jsons idx ≡ inj₂ msgs → All WellFormedMessageRT msgs
-parseMessageList-pv [] idx .[] refl = []
-parseMessageList-pv (JObject msgObj ∷ rest) idx msgs eq
-  with parseMessage msgObj in msg-eq | eq
-... | inj₁ _ | ()
-... | inj₂ msg | eq₁
-  with parseMessageList rest (idx + 1) in rest-eq | eq₁
-...   | inj₁ _ | ()
-...   | inj₂ msgs' | refl =
-          record
-            { msg-wf     = parseMessage-wf msgObj msg msg-eq
-            ; signals-pv = parseMessage-pv msgObj msg msg-eq
-            }
-        ∷ parseMessageList-pv rest (idx + 1) msgs' rest-eq
-parseMessageList-pv (JNull     ∷ _) idx msgs ()
-parseMessageList-pv (JBool _   ∷ _) idx msgs ()
-parseMessageList-pv (JNumber _ ∷ _) idx msgs ()
-parseMessageList-pv (JString _ ∷ _) idx msgs ()
-parseMessageList-pv (JArray _  ∷ _) idx msgs ()
+parseMessageList-pv = parseMessageList-lift
+  (λ obj msg eq → record
+    { msg-wf     = parseMessage-wf obj msg eq
+    ; signals-pv = parseMessage-pv obj msg eq
+    })

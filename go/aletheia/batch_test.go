@@ -1,7 +1,6 @@
 package aletheia_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
@@ -58,6 +57,7 @@ func TestSendFrames_WithViolation(t *testing.T) {
 		aletheia.Respond(`{"status":"ack"}`),     // Frame 1
 		aletheia.Respond(`{
 			"status":"fails",
+			"type":"property",
 			"property_index":0,
 			"timestamp":2000,
 			"reason":"Speed >= 220"
@@ -142,12 +142,7 @@ func TestSendFrames_StopsOnError(t *testing.T) {
 	}
 
 	results, err := c.SendFrames(frames)
-	if err == nil {
-		t.Fatal("expected error for DLC/payload mismatch")
-	}
-	if !strings.Contains(err.Error(), "payload length") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "payload length")
 	// First frame succeeded before the error.
 	if len(results) != 1 {
 		t.Errorf("expected 1 partial result, got %d", len(results))
@@ -231,10 +226,5 @@ func TestSendFrames_AfterClose(t *testing.T) {
 	}
 
 	_, err = c.SendFrames(frames)
-	if err == nil {
-		t.Fatal("expected error for SendFrames after Close")
-	}
-	if !strings.Contains(err.Error(), "closed") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "closed")
 }

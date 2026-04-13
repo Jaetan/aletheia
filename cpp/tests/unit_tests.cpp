@@ -2000,15 +2000,15 @@ TEST_CASE("Check when/then metadata", "[check]") {
 }
 
 // ===========================================================================
-// Check API — to_formula consumed on second call
+// Check API — to_formula returns copy without consuming
 // ===========================================================================
 
-TEST_CASE("Check to_formula consumed", "[check]") {
+TEST_CASE("Check to_formula non-consuming", "[check]") {
     auto result = Check::signal("Speed").never_exceeds(PhysicalValue{220});
     auto f1 = result.to_formula();
     REQUIRE(f1.has_value());
     auto f2 = result.to_formula();
-    CHECK_FALSE(f2.has_value());
+    CHECK(f2.has_value());
 }
 
 // ===========================================================================
@@ -2085,19 +2085,20 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     REQUIRE(result.has_value());
 }
 
-TEST_CASE("add_checks rejects consumed check", "[check][client]") {
+TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     auto mock = std::make_unique<MockBackend>();
-    AletheiaClient client(std::move(mock));
+    mock->queue_response(R"({"status": "success"})");
 
-    auto check = Check::signal("Speed").never_exceeds(PhysicalValue{220});
-    auto _ = check.to_formula(); // consume
-    (void)_;
+    std::vector<CheckResult> defaults;
+    defaults.push_back(
+        Check::signal("Voltage").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5}));
+
+    AletheiaClient client(std::move(mock), {}, std::move(defaults));
 
     std::vector<CheckResult> checks;
-    checks.push_back(std::move(check));
+    checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{220}));
     auto result = client.add_checks(std::move(checks));
-    REQUIRE_FALSE(result.has_value());
-    CHECK(std::string(result.error().message()).find("already consumed") != std::string::npos);
+    REQUIRE(result.has_value());
 }
 
 TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
@@ -2452,6 +2453,36 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     CHECK(result.error->message().find("non-negative") != std::string::npos);
     REQUIRE(result.responses.size() == 1);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
+}
+
+TEST_CASE("send_frames payload validation mid-batch reports frame index", "[client][batch]") {
+    auto backend = std::make_unique<MockBackend>();
+    backend->queue_response(R"({"status":"success"})"); // set_properties
+    backend->queue_response(R"({"status":"success"})"); // start_stream
+    backend->queue_response(R"({"status":"ack"})");     // frame 0
+    AletheiaClient client(std::move(backend));
+
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    (void)client.set_properties(std::span{&prop, 1});
+    (void)client.start_stream();
+
+    auto sid = CanId{StandardId::create(0x100).value()};
+    auto dlc8 = Dlc::create(8).value();
+    auto dlc4 = Dlc::create(4).value();
+    std::array<std::byte, 8> good{};
+    std::array<std::byte, 8> bad{}; // 8 bytes but DLC says 4
+
+    std::vector<Frame> frames;
+    frames.push_back({Timestamp{1000}, sid, dlc8, FramePayload(good.begin(), good.end())});
+    frames.push_back({Timestamp{2000}, sid, dlc4, FramePayload(bad.begin(), bad.end())}); // mismatch
+    frames.push_back({Timestamp{3000}, sid, dlc8, FramePayload(good.begin(), good.end())});
+
+    auto result = client.send_frames(frames);
+    REQUIRE(result.has_error());
+    CHECK(result.responses.size() == 1); // frame 0 succeeded
+    auto msg = std::string(result.error->message());
+    CHECK(msg.find("frame 1") != std::string::npos);
+    CHECK(msg.find("payload") != std::string::npos);
 }
 
 TEST_CASE("send_frames empty", "[client][batch]") {

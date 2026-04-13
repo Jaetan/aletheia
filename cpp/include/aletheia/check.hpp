@@ -52,8 +52,10 @@ public:
         return *this;
     }
 
-    [[nodiscard]] auto to_formula() -> std::optional<LtlFormula> {
-        return std::exchange(formula_, std::nullopt);
+    [[nodiscard]] auto to_formula() const -> std::optional<LtlFormula> {
+        if (!formula_)
+            return std::nullopt;
+        return ltl::clone(*formula_);
     }
 
     [[nodiscard]] auto formula() const -> const std::optional<LtlFormula>& { return formula_; }

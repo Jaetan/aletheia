@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-10 (Review Round 6)
+**Last Updated**: 2026-04-12 (Review Round 9 — plan approved, implementation pending)
 
 ---
 
@@ -376,10 +376,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 103 (all `--safe --without-K`)
+- Agda modules: 119 (all `--safe --without-K`)
 - Python modules: 18
-- C++ files: 30 (14 public headers + 8 source + 3 internal headers in src/detail/ + 5 test files)
-- Go files: 17 source + 12 test
+- C++ files: 33 (14 public headers + 1 public detail header + 10 source + 3 internal detail headers + 5 test files)
+- Go files: 17 source + 15 test
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
@@ -413,7 +413,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 103 Agda modules use `--safe --without-K` (4 also use `--no-main`)
+- All 119 Agda modules use `--safe --without-K` (4 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state, metric operator window bounds)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`

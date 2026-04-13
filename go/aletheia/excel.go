@@ -614,10 +614,18 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (DbcSignal, error) {
 	if err != nil {
 		return DbcSignal{}, err
 	}
+	if startBit < 0 || startBit > int64(maxBitPosition) {
+		return DbcSignal{}, validationError(fmt.Sprintf(
+			"row %d: 'Start Bit' %d out of range [0, %d]", rowNum, startBit, maxBitPosition))
+	}
 
 	length, err := xlsxInt(row, "Length", rowNum)
 	if err != nil {
 		return DbcSignal{}, err
+	}
+	if length < 1 || length > int64(maxBitLength) {
+		return DbcSignal{}, validationError(fmt.Sprintf(
+			"row %d: 'Length' %d out of range [1, %d]", rowNum, length, maxBitLength))
 	}
 
 	byteOrderStr, err := xlsxStr(row, "Byte Order", rowNum)

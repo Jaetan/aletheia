@@ -8,6 +8,8 @@ import "unsafe"
 // CGO_ENABLED=0 (e.g. for MockBackend-only testing on non-Linux platforms).
 type FFIBackend struct{}
 
+func (*FFIBackend) backend() {}
+
 // NewFFIBackend returns an error because cgo/linux is not available in this build.
 func NewFFIBackend(_ string, _ ...FFIBackendOption) (*FFIBackend, error) {
 	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")

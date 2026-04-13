@@ -84,6 +84,10 @@ public:
     // For batch operations, see send_frames().
     [[nodiscard]] auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
         -> Result<FrameResponse>;
+    // Convenience: send a Frame directly.
+    [[nodiscard]] auto send_frame(const Frame& f) -> Result<FrameResponse> {
+        return send_frame(f.timestamp, f.id, f.dlc, f.data);
+    }
     // CAN error event (no ID, no payload). Acknowledged without LTL evaluation.
     [[nodiscard]] auto send_error(Timestamp ts) -> Result<void>;
     // CAN remote frame (ID but no payload, CAN 2.0B only). Acknowledged without LTL evaluation.
@@ -134,7 +138,8 @@ private:
     std::map<detail::FrameKey, ExtractionResult, detail::FrameKeyLess> cache_;
 
     // Last frame seen per CAN ID, for end-of-stream enrichment.
-    // Populated by send_frame(); cleared by start_stream().
+    // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
+    // Cost: one FramePayload copy per unique CAN ID (not per frame), via insert_or_assign.
     using LastFrameKey = std::pair<std::uint32_t, bool>; // {id_value, is_extended}
     struct LastFrame {
         CanId id;

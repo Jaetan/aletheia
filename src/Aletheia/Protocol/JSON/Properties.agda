@@ -23,7 +23,6 @@ open import Data.Empty as Empty using (⊥-elim)
 open import Data.Product using (_×_; _,_; ∃-syntax)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; _≢_)
 open import Relation.Nullary using (yes; no)
-open import Relation.Nullary.Decidable using (⌊_⌋)
 
 -- ============================================================================
 -- CONGRUENCE LEMMAS (Equality-Preserving Properties)
@@ -145,12 +144,6 @@ parseDBC-sound (JArray _) result ()
 -- ============================================================================
 -- TYPED LOOKUP LEMMAS (for roundtrip proofs)
 -- ============================================================================
-
--- String decidable equality is reflexive (needed for dispatchOperator if-then-else)
-≟-refl : (s : String) → (⌊ s ≟ s ⌋) ≡ true
-≟-refl s with s ≟ s
-... | yes _ = refl
-... | no s≢s = ⊥-elim (s≢s refl)
 
 -- Typed lookup at head position: lookupString
 lookupString-here : (k : String) (s : String) (rest : List (String × JSON))

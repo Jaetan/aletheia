@@ -115,11 +115,12 @@ ifᵀ false then _ else x = x
 
 -- T b has at most one inhabitant: T true = ⊤ (unique by η), T false = ⊥ (empty).
 -- Essential for decidable equality and roundtrip proofs on bounded types.
-open import Data.Bool.Properties public using (T-irrelevant)
+open import Data.Bool.Properties public using (T-irrelevant; T-≡)
+open import Function.Bundles using (module Equivalence)
 
--- Convert T b witness to propositional equality b ≡ true.
+-- Convert T b witness to propositional equality b ≡ true (stdlib T-≡ forward).
 T→true : ∀ {b : Bool} → T b → b ≡ true
-T→true {true} _ = refl
+T→true = Equivalence.to T-≡
 
 -- Given a T b witness, ifᵀ selects the true branch applied to pf.
 -- Splits on b internally; avoids with-abstraction at call sites where

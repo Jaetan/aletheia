@@ -198,6 +198,35 @@ parseSignal-wf frameBytes ctx obj sig fb≤64 eq
 ... | just name | eq' = parseSignalFields-wf frameBytes _ name obj sig fb≤64 eq'
 
 -- ============================================================================
+-- SIGNAL LIST: SHARED LIFT COMBINATOR
+-- ============================================================================
+
+-- Lift a per-element proof over parseSignalList's traversal.
+-- P is indexed by frameBytes so it can be either constant (WellFormedSignal)
+-- or dependent (PhysicallyValid frameBytes).
+private
+  parseSignalList-lift : ∀ {P : ℕ → DBCSignal → Set}
+    → (∀ frameBytes ctx obj sig → frameBytes ≤ 64
+       → parseSignal frameBytes ctx obj ≡ inj₂ sig → P frameBytes sig)
+    → ∀ frameBytes ctx jsons idx sigs
+    → frameBytes ≤ 64
+    → parseSignalList frameBytes ctx jsons idx ≡ inj₂ sigs → All (P frameBytes) sigs
+  parseSignalList-lift _ frameBytes ctx [] idx .[] fb≤64 refl = []
+  parseSignalList-lift f frameBytes ctx (JObject sigObj ∷ rest) idx sigs fb≤64 eq
+    with parseSignal frameBytes ctx sigObj in sig-eq | eq
+  ... | inj₁ _ | ()
+  ... | inj₂ sig | eq₁
+    with parseSignalList frameBytes ctx rest (idx + 1) in rest-eq | eq₁
+  ...   | inj₁ _ | ()
+  ...   | inj₂ sigs' | refl = f frameBytes ctx sigObj sig fb≤64 sig-eq ∷
+                               parseSignalList-lift f frameBytes ctx rest (idx + 1) sigs' fb≤64 rest-eq
+  parseSignalList-lift _ frameBytes ctx (JNull     ∷ _) idx sigs fb≤64 ()
+  parseSignalList-lift _ frameBytes ctx (JBool _   ∷ _) idx sigs fb≤64 ()
+  parseSignalList-lift _ frameBytes ctx (JNumber _ ∷ _) idx sigs fb≤64 ()
+  parseSignalList-lift _ frameBytes ctx (JString _ ∷ _) idx sigs fb≤64 ()
+  parseSignalList-lift _ frameBytes ctx (JArray _  ∷ _) idx sigs fb≤64 ()
+
+-- ============================================================================
 -- SIGNAL LIST WELL-FORMEDNESS
 -- ============================================================================
 
@@ -205,20 +234,7 @@ parseSignal-wf frameBytes ctx obj sig fb≤64 eq
 parseSignalList-wf : ∀ frameBytes ctx jsons idx sigs
   → frameBytes ≤ 64
   → parseSignalList frameBytes ctx jsons idx ≡ inj₂ sigs → All WellFormedSignal sigs
-parseSignalList-wf frameBytes ctx [] idx .[] fb≤64 refl = []
-parseSignalList-wf frameBytes ctx (JObject sigObj ∷ rest) idx sigs fb≤64 eq
-  with parseSignal frameBytes ctx sigObj in sig-eq | eq
-... | inj₁ _ | ()
-... | inj₂ sig | eq₁
-  with parseSignalList frameBytes ctx rest (idx + 1) in rest-eq | eq₁
-...   | inj₁ _ | ()
-...   | inj₂ sigs' | refl = parseSignal-wf frameBytes ctx sigObj sig fb≤64 sig-eq ∷
-                             parseSignalList-wf frameBytes ctx rest (idx + 1) sigs' fb≤64 rest-eq
-parseSignalList-wf frameBytes ctx (JNull     ∷ _) idx sigs fb≤64 ()
-parseSignalList-wf frameBytes ctx (JBool _   ∷ _) idx sigs fb≤64 ()
-parseSignalList-wf frameBytes ctx (JNumber _ ∷ _) idx sigs fb≤64 ()
-parseSignalList-wf frameBytes ctx (JString _ ∷ _) idx sigs fb≤64 ()
-parseSignalList-wf frameBytes ctx (JArray _  ∷ _) idx sigs fb≤64 ()
+parseSignalList-wf = parseSignalList-lift parseSignal-wf
 
 -- ============================================================================
 -- SIGNAL PHYSICAL VALIDITY
@@ -238,17 +254,4 @@ parseSignalList-pv : ∀ frameBytes ctx jsons idx sigs
   → frameBytes ≤ 64
   → parseSignalList frameBytes ctx jsons idx ≡ inj₂ sigs
   → All (PhysicallyValid frameBytes) sigs
-parseSignalList-pv frameBytes ctx [] idx .[] fb≤64 refl = []
-parseSignalList-pv frameBytes ctx (JObject sigObj ∷ rest) idx sigs fb≤64 eq
-  with parseSignal frameBytes ctx sigObj in sig-eq | eq
-... | inj₁ _ | ()
-... | inj₂ sig | eq₁
-  with parseSignalList frameBytes ctx rest (idx + 1) in rest-eq | eq₁
-...   | inj₁ _ | ()
-...   | inj₂ sigs' | refl = parseSignal-pv frameBytes ctx sigObj sig fb≤64 sig-eq ∷
-                             parseSignalList-pv frameBytes ctx rest (idx + 1) sigs' fb≤64 rest-eq
-parseSignalList-pv frameBytes ctx (JNull     ∷ _) idx sigs fb≤64 ()
-parseSignalList-pv frameBytes ctx (JBool _   ∷ _) idx sigs fb≤64 ()
-parseSignalList-pv frameBytes ctx (JNumber _ ∷ _) idx sigs fb≤64 ()
-parseSignalList-pv frameBytes ctx (JString _ ∷ _) idx sigs fb≤64 ()
-parseSignalList-pv frameBytes ctx (JArray _  ∷ _) idx sigs fb≤64 ()
+parseSignalList-pv = parseSignalList-lift parseSignal-pv

@@ -110,10 +110,17 @@ func validatePayload(dlc DLC, data FramePayload) error {
 const rationalDenominator int64 = 1_000_000_000
 
 // floatToRational converts a float64 to (numerator, denominator) using 10^9 scaling.
-// Precision: 9 decimal digits (~1 ppb). Values beyond ±9.2e9 overflow int64.
-// The Haskell side normalizes to coprime form via GCD.
-func floatToRational(value float64) (int64, int64) {
-	return int64(math.Round(value * float64(rationalDenominator))), rationalDenominator
+// Precision: 9 decimal digits (~1 ppb). The Haskell side normalizes to coprime form via GCD.
+// Returns an error for Inf, NaN, or values that overflow int64 when scaled.
+func floatToRational(value float64) (int64, int64, error) {
+	if math.IsInf(value, 0) || math.IsNaN(value) {
+		return 0, 0, validationError(fmt.Sprintf("cannot convert %v to rational", value))
+	}
+	const limit = math.MaxInt64/rationalDenominator - 1
+	if value > float64(limit) || value < -float64(limit) {
+		return 0, 0, validationError(fmt.Sprintf("value %g overflows int64 when scaled to rational", value))
+	}
+	return int64(math.Round(value * float64(rationalDenominator))), rationalDenominator, nil
 }
 
 // resolveSignalIndices looks up signal names in the cached index and converts values to rationals.
@@ -135,7 +142,10 @@ func (c *Client) resolveSignalIndices(signals []SignalValue, id CanID, cmdName s
 		if !found {
 			return nil, nil, nil, validationError(fmt.Sprintf("%s: unknown signal %q for CAN ID %d", cmdName, sv.Name, id.Value()))
 		}
-		n, d := floatToRational(float64(sv.Value))
+		n, d, err := floatToRational(float64(sv.Value))
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("%s: signal %q: %w", cmdName, sv.Name, err)
+		}
 		indices = append(indices, uint32(idx))
 		nums = append(nums, n)
 		dens = append(dens, d)
@@ -407,10 +417,10 @@ func (c *Client) SendFrames(frames []Frame) ([]FrameResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	results := make([]FrameResponse, 0, len(frames))
-	for _, f := range frames {
+	for i, f := range frames {
 		resp, err := c.sendFrameLocked(f.Timestamp, f.ID, f.DLC, f.Data)
 		if err != nil {
-			return results, err
+			return results, fmt.Errorf("frame %d: %w", i, err)
 		}
 		results = append(results, resp)
 	}

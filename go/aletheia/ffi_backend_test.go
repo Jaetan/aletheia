@@ -87,14 +87,15 @@ func TestFFIBackend_RTSCoresMismatchWarns(t *testing.T) {
 	}
 	_ = b1
 
-	// Second call with different rts_cores must emit slog.Warn.
-	output := captureSlog(func() {
-		b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(8))
-		if err != nil {
-			t.Fatalf("second NewFFIBackend: %v", err)
-		}
-		_ = b2
-	})
+	// Second call with different rts_cores must log a warning via WithFFILogger.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(8), aletheia.WithFFILogger(logger))
+	if err != nil {
+		t.Fatalf("second NewFFIBackend: %v", err)
+	}
+	_ = b2
+	output := buf.String()
 
 	if !strings.Contains(output, "already initialized") {
 		t.Errorf("expected 'already initialized' in slog output, got: %s", output)

@@ -650,12 +650,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
 	_, err = c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
-	if err == nil {
-		t.Fatal("expected error for byte value 256")
-	}
-	if !strings.Contains(err.Error(), "out of range") {
-		t.Errorf("expected 'out of range' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "out of range")
 }
 
 func TestBuildFrame_VariableLengthPayload(t *testing.T) {
@@ -700,12 +695,7 @@ func TestExtractSignals_InvalidStatus(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	_, err = c.ExtractSignals(sid, dlc8(), data)
-	if err == nil {
-		t.Fatal("expected error for unexpected status 'validation'")
-	}
-	if !strings.Contains(err.Error(), "expected success") {
-		t.Errorf("expected 'expected success' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "expected success")
 }
 
 func TestExtractSignals_NonStringAbsent(t *testing.T) {
@@ -725,12 +715,7 @@ func TestExtractSignals_NonStringAbsent(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	_, err = c.ExtractSignals(sid, dlc8(), data)
-	if err == nil {
-		t.Fatal("expected error for non-string in absent array")
-	}
-	if !strings.Contains(err.Error(), "expected string in absent") {
-		t.Errorf("expected 'expected string in absent' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "expected string in absent")
 }
 
 // --- Group P: Malformed response tests ---
@@ -895,9 +880,7 @@ func TestFormatDBC_StartBitOutOfRange(t *testing.T) {
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
-	if !strings.Contains(err.Error(), "out of range") {
-		t.Errorf("expected 'out of range' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "out of range")
 }
 
 func TestFormatDBC_LengthZero(t *testing.T) {
@@ -933,9 +916,7 @@ func TestFormatDBC_LengthZero(t *testing.T) {
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
-	if !strings.Contains(err.Error(), "out of range") {
-		t.Errorf("expected 'out of range' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "out of range")
 }
 
 func TestFormatDBC_LengthExcessive(t *testing.T) {
@@ -971,9 +952,7 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 	if aErr.Kind != aletheia.ErrProtocol {
 		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
-	if !strings.Contains(err.Error(), "out of range") {
-		t.Errorf("expected 'out of range' in error, got: %s", err)
-	}
+	requireErrorContains(t, err, "out of range")
 }
 
 // --- Group R6-K: Empty name validation tests ---

@@ -144,13 +144,9 @@ signalsPhysicallyOverlapᵇ n sig₁ sig₂ =
 -- EQUIVALENCE: signalsPhysicallyOverlapᵇ ⇔ ¬ PhysicallyDisjoint
 -- ============================================================================
 
+open import Data.Bool.Properties using (∨-conicalˡ; ∨-conicalʳ)
+
 private
-  ∨-false-left : ∀ {x y} → x ∨ y ≡ false → x ≡ false
-  ∨-false-left {false} _ = refl
-
-  ∨-false-right : ∀ {x y} → x ∨ y ≡ false → y ≡ false
-  ∨-false-right {false} eq = eq
-
   ∨-true-split : ∀ {x y} → x ∨ y ≡ true → (x ≡ true) ⊎ (y ≡ true)
   ∨-true-split {true}  {_}     _  = inj₁ refl
   ∨-true-split {false} {true}  _  = inj₂ refl
@@ -164,19 +160,19 @@ bitsMemberᵇ-false-absent : ∀ x xs
   → (y : ℕ) → Any (_≡_ y) xs → x ≢ y
 bitsMemberᵇ-false-absent x [] _ _ ()
 bitsMemberᵇ-false-absent x (z ∷ zs) eq y (here y≡z) x≡y =
-  ≡ᵇ-false→≢ x z (∨-false-left eq) (trans x≡y y≡z)
+  ≡ᵇ-false→≢ x z (∨-conicalˡ _ _ eq) (trans x≡y y≡z)
 bitsMemberᵇ-false-absent x (z ∷ zs) eq y (there y∈zs) =
-  bitsMemberᵇ-false-absent x zs (∨-false-right eq) y y∈zs
+  bitsMemberᵇ-false-absent x zs (∨-conicalʳ _ _ eq) y y∈zs
 
 bitsIntersectᵇ-false-disjoint : ∀ xs ys
   → bitsIntersectᵇ xs ys ≡ false
   → (x y : ℕ) → Any (_≡_ x) xs → Any (_≡_ y) ys → x ≢ y
 bitsIntersectᵇ-false-disjoint [] _ _ _ _ () _
 bitsIntersectᵇ-false-disjoint (z ∷ zs) ys eq x y (here x≡z) y∈ys x≡y =
-  bitsMemberᵇ-false-absent z ys (∨-false-left eq) y y∈ys
+  bitsMemberᵇ-false-absent z ys (∨-conicalˡ _ _ eq) y y∈ys
     (trans (sym x≡z) x≡y)
 bitsIntersectᵇ-false-disjoint (z ∷ zs) ys eq x y (there x∈zs) y∈ys =
-  bitsIntersectᵇ-false-disjoint zs ys (∨-false-right eq) x y x∈zs y∈ys
+  bitsIntersectᵇ-false-disjoint zs ys (∨-conicalʳ _ _ eq) x y x∈zs y∈ys
 
 buildPhysicalBits-∈ : ∀ n bo s r k i
   → i < r

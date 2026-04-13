@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import NamedTuple, override
 
 from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
@@ -70,14 +71,18 @@ class SignalExtractionResult:
     - absent: Multiplexed signals not present in this frame
     """
 
+    values: Mapping[str, float]
+    errors: Mapping[str, str]
+    absent: tuple[str, ...]
+
     def __init__(
         self,
         values: dict[str, float],
         errors: dict[str, str],
         absent: tuple[str, ...],
     ) -> None:
-        self.values = values
-        self.errors = errors
+        self.values = MappingProxyType(values)
+        self.errors = MappingProxyType(errors)
         self.absent = absent
 
     def get(self, signal_name: str, default: float = 0.0) -> float:

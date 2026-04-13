@@ -3,7 +3,6 @@ package aletheia
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -429,12 +428,7 @@ func TestLoadYAMLFromFileFunc(t *testing.T) {
 
 func TestLoadYAMLFileNotFoundFunc(t *testing.T) {
 	_, err := LoadChecksFromYAMLFile("/nonexistent/path/checks.yaml")
-	if err == nil {
-		t.Fatal("expected error for non-existent file")
-	}
-	if !strings.Contains(err.Error(), "YAML file not found") {
-		t.Errorf("error message should contain 'YAML file not found', got: %v", err)
-	}
+	requireErrorContains(t, err, "YAML file not found")
 }
 
 // ===========================================================================
@@ -443,22 +437,12 @@ func TestLoadYAMLFileNotFoundFunc(t *testing.T) {
 
 func TestLoadYAMLMissingChecksKey(t *testing.T) {
 	_, err := LoadChecksFromYAML("signals:\n  - foo\n")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "YAML document must contain a 'checks' list") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "YAML document must contain a 'checks' list")
 }
 
 func TestLoadYAMLChecksNotList(t *testing.T) {
 	_, err := LoadChecksFromYAML("checks: not_a_list\n")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "YAML 'checks' field must be a list") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "YAML 'checks' field must be a list")
 }
 
 func TestLoadYAMLNoSignalOrWhen(t *testing.T) {
@@ -468,12 +452,7 @@ checks:
     condition: never_exceeds
     value: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "must have 'signal' or 'when'/'then'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "must have 'signal' or 'when'/'then'")
 }
 
 func TestLoadYAMLUnknownCondition(t *testing.T) {
@@ -483,12 +462,7 @@ checks:
     condition: bogus
     value: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown condition 'bogus'")
 }
 
 func TestLoadYAMLMissingValue(t *testing.T) {
@@ -497,12 +471,7 @@ checks:
   - signal: Speed
     condition: never_exceeds
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'value'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'value'")
 }
 
 func TestLoadYAMLStaysBetweenMissingRange(t *testing.T) {
@@ -512,12 +481,7 @@ checks:
     condition: stays_between
     max: 14.5
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'min' and 'max'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'min' and 'max'")
 }
 
 func TestLoadYAMLSettlesMissingWithin(t *testing.T) {
@@ -528,12 +492,7 @@ checks:
     min: 80
     max: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'within_ms'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'within_ms'")
 }
 
 func TestLoadYAMLSettlesMissingRange(t *testing.T) {
@@ -543,12 +502,7 @@ checks:
     condition: settles_between
     within_ms: 5000
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'min' and 'max'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'min' and 'max'")
 }
 
 func TestLoadYAMLEqualsMissingValue(t *testing.T) {
@@ -557,12 +511,7 @@ checks:
   - signal: Gear
     condition: equals
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'value'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'value'")
 }
 
 func TestLoadYAMLUnknownWhenCondition(t *testing.T) {
@@ -578,12 +527,7 @@ checks:
       value: 1
     within_ms: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown when condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown when condition 'bogus'")
 }
 
 func TestLoadYAMLUnknownThenCondition(t *testing.T) {
@@ -599,12 +543,7 @@ checks:
       value: 1
     within_ms: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown then condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown then condition 'bogus'")
 }
 
 func TestLoadYAMLNamedCheckInError(t *testing.T) {
@@ -615,12 +554,7 @@ checks:
     condition: bogus
     value: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "check 'My Check'") {
-		t.Errorf("error should contain check name, got: %v", err)
-	}
+	requireErrorContains(t, err, "check 'My Check'")
 }
 
 func TestLoadYAMLUnnamedCheckInError(t *testing.T) {
@@ -630,12 +564,7 @@ checks:
     condition: bogus
     value: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "check '<unnamed>'") {
-		t.Errorf("error should contain '<unnamed>', got: %v", err)
-	}
+	requireErrorContains(t, err, "check '<unnamed>'")
 }
 
 func TestLoadYAMLWhenThenMissingThen(t *testing.T) {
@@ -648,12 +577,7 @@ checks:
       value: 50
     within_ms: 100
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "must have 'signal' or 'when'/'then'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "must have 'signal' or 'when'/'then'")
 }
 
 func TestLoadYAMLWhenThenMissingWithinMs(t *testing.T) {
@@ -668,10 +592,5 @@ checks:
       condition: equals
       value: 1
 `)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "require 'within_ms'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "require 'within_ms'")
 }

@@ -76,6 +76,7 @@ func TestStreamingLTL_Violation(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
 			"status":"fails",
+			"type":"property",
 			"property_index":0,
 			"timestamp":5000,
 			"reason":"Speed >= 200"
@@ -146,6 +147,7 @@ func TestViolation_CoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
 			"status":"fails",
+			"type":"property",
 			"property_index":0,
 			"timestamp":5000,
 			"reason":"MetricEventually: window expired"
@@ -220,6 +222,7 @@ func TestViolation_EmptyCoreReason(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
 			"status":"fails",
+			"type":"property",
 			"property_index":0,
 			"timestamp":5000
 		}`), // SendFrame — violation with no reason field
@@ -319,12 +322,115 @@ func TestEndStream_TimestampParseError(t *testing.T) {
 	}
 
 	_, err = c.EndStream()
-	if err == nil {
-		t.Fatal("expected error for non-numeric timestamp")
+	requireErrorContains(t, err, "invalid timestamp")
+}
+
+func TestSendError_Ack(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendError
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "invalid timestamp") {
-		t.Errorf("expected 'invalid timestamp' in error, got: %s", err)
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+	}); err != nil {
+		t.Fatal(err)
 	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.SendError(aletheia.Timestamp{Microseconds: 1000}); err != nil {
+		t.Fatalf("SendError: %v", err)
+	}
+
+	// Verify the mock saw the serialized error event as its third input.
+	inputs := mock.Inputs()
+	if len(inputs) != 3 {
+		t.Fatalf("expected 3 inputs, got %d", len(inputs))
+	}
+	if !strings.Contains(inputs[2], `"type":"error"`) || !strings.Contains(inputs[2], `"timestamp":1000`) {
+		t.Errorf("expected error event in third input, got: %s", inputs[2])
+	}
+}
+
+func TestSendError_NegativeTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.SendError(aletheia.Timestamp{Microseconds: -1})
+	requireErrorContains(t, err, "negative timestamp")
+}
+
+func TestSendRemote_Ack(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendRemote
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	if err := c.SendRemote(aletheia.Timestamp{Microseconds: 1000}, sid); err != nil {
+		t.Fatalf("SendRemote: %v", err)
+	}
+
+	// Verify the mock saw the serialized remote event as its third input.
+	inputs := mock.Inputs()
+	if len(inputs) != 3 {
+		t.Fatalf("expected 3 inputs, got %d", len(inputs))
+	}
+	if !strings.Contains(inputs[2], `"type":"remote"`) || !strings.Contains(inputs[2], `"id":256`) {
+		t.Errorf("expected remote event in third input, got: %s", inputs[2])
+	}
+}
+
+func TestSendRemote_NegativeTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	err = c.SendRemote(aletheia.Timestamp{Microseconds: -1}, sid)
+	requireErrorContains(t, err, "negative timestamp")
+}
+
+func TestSendError_AfterClose(t *testing.T) {
+	mock := aletheia.NewMockBackend()
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+
+	err = c.SendError(aletheia.Timestamp{Microseconds: 1000})
+	requireErrorContains(t, err, "closed")
 }
 
 func TestSendError_Ack(t *testing.T) {
@@ -511,11 +617,71 @@ func TestSendFrame_NegativeTimestamp(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
 	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: -1}, sid, dlc8(), data)
-	if err == nil {
-		t.Fatal("expected error for negative timestamp")
+	requireErrorContains(t, err, "negative timestamp")
+}
+
+// TestSendFrame_NonMonotonicTimestamp verifies the Go binding correctly parses
+// the JSON error response that Agda's handleDataFrame produces when a frame
+// regresses in time. The monotonicity check lives in Agda (see
+// FrameProcessor/Properties.agda PROPERTY 28); the Go binding's job is to
+// surface the error code to the caller.
+func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"ack"}`),     // SendFrame @ 5000
+		aletheia.Respond(`{"status":"error","code":"handler_non_monotonic_timestamp","message":"DataFrame: non-monotonic timestamp: 4999 µs < previous 5000 µs (metric LTL operators require monotonic timestamps)"}`),
+		aletheia.Respond(`{"status":"ack"}`), // SendFrame @ 5000 (=, accepted)
+		aletheia.Respond(`{"status":"ack"}`), // SendFrame @ 6000
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "negative timestamp") {
-		t.Errorf("unexpected error: %v", err)
+	defer c.Close()
+
+	if err := c.SetProperties([]aletheia.Formula{
+		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 500}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	sid, _ := aletheia.NewStandardID(0x100)
+	data := aletheia.FramePayload{10, 0, 0, 0, 0, 0, 0, 0}
+
+	// First frame at t=5000 — accepted.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("first SendFrame: %v", err)
+	}
+
+	// Regressing to t=4999 — rejected by Agda; binding surfaces the coded error.
+	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 4999}, sid, dlc8(), data)
+	if err == nil {
+		t.Fatal("expected error for backward timestamp")
+	}
+	aErr, ok := err.(*aletheia.Error)
+	if !ok {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeHandlerNonMonotonicTimestamp {
+		t.Errorf("expected code %q, got %q", aletheia.CodeHandlerNonMonotonicTimestamp, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
+	}
+	requireErrorContains(t, err, "non-monotonic")
+
+	// Same-timestamp frames (≥, not >) should still be accepted.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("equal-timestamp SendFrame: %v", err)
+	}
+
+	// Anchor unchanged after rejection — forward frame still works.
+	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 6000}, sid, dlc8(), data); err != nil {
+		t.Fatalf("forward SendFrame: %v", err)
 	}
 }
 
@@ -609,12 +775,7 @@ func TestSendFrame_PayloadDLCMismatch(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x100)
 	shortData := aletheia.FramePayload{0, 0, 0, 0} // 4 bytes vs DLC 8
 	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), shortData)
-	if err == nil {
-		t.Fatal("expected error for payload/DLC mismatch")
-	}
-	if !strings.Contains(err.Error(), "payload length") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "payload length")
 }
 
 func TestSetProperties_NegativeTimeBound(t *testing.T) {
@@ -631,12 +792,7 @@ func TestSetProperties_NegativeTimeBound(t *testing.T) {
 			Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
 		},
 	})
-	if err == nil {
-		t.Fatal("expected error for negative time bound")
-	}
-	if !strings.Contains(err.Error(), "negative time bound") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "negative time bound")
 }
 
 func TestSetProperties_NegativeDelta(t *testing.T) {
@@ -669,12 +825,7 @@ func TestSetProperties_NegativeTolerance(t *testing.T) {
 	err = c.SetProperties([]aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.StableWithin{Signal: "Speed", Tolerance: -2}}},
 	})
-	if err == nil {
-		t.Fatal("expected error for negative tolerance")
-	}
-	if !strings.Contains(err.Error(), "negative tolerance") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "negative tolerance")
 }
 
 // --- Group Q: Out-of-order streaming tests ---
@@ -762,6 +913,7 @@ func TestSendFrame_PropertyIndexOutOfBounds(t *testing.T) {
 		aletheia.Respond(`{"status":"success"}`), // StartStream
 		aletheia.Respond(`{
 			"status":"fails",
+			"type":"property",
 			"property_index":5,
 			"timestamp":1000,
 			"reason":"out of bounds"

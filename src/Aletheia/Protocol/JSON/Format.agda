@@ -15,7 +15,7 @@ open import Data.Integer using (ℤ)
 open import Data.Rational as Rat using (ℚ)
 open import Data.Rational.Unnormalised as ℚᵘ using (ℚᵘ; mkℚᵘ)
 open import Data.Product using (_×_; _,_)
-import Data.Integer.Show as IntShow
+open import Data.Integer.Show using () renaming (show to showℤ)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JString; JArray; JObject)
 
@@ -24,10 +24,10 @@ formatRational : ℚ → String
 formatRational r with Rat.toℚᵘ r
 ... | ℚᵘ.mkℚᵘ num zero =
       -- Denominator is 1, format as integer
-      IntShow.show num
+      showℤ num
 ... | ℚᵘ.mkℚᵘ num (suc denom-1) =
       -- Denominator > 1, format as object for exact representation
-      "{\"numerator\": " ++ₛ IntShow.show num ++ₛ
+      "{\"numerator\": " ++ₛ showℤ num ++ₛ
       ", \"denominator\": " ++ₛ showℕ (suc (suc denom-1)) ++ₛ "}"
 
 formatJSON : JSON → String

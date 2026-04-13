@@ -1,6 +1,28 @@
 package aletheia_test
 
-import "github.com/aletheia-automotive/aletheia-go/aletheia"
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/aletheia-automotive/aletheia-go/aletheia"
+)
+
+// requireErrorContains asserts err is a non-nil *aletheia.Error whose message
+// contains substr. Uses errors.As for proper unwrapping (G-6 review finding).
+func requireErrorContains(t *testing.T, err error, substr string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var e *aletheia.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), substr) {
+		t.Errorf("expected error containing %q, got: %v", substr, err)
+	}
+}
 
 // dlc8 creates a DLC with value 8 for convenience in tests.
 func dlc8() aletheia.DLC {

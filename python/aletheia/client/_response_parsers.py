@@ -85,8 +85,10 @@ def parse_event_response(
     matching Go (returns ``error``) and C++ (returns ``Result<void>``).
     """
     status = response.get("status")
-    if status == "ack":
-        _logger.debug("%s.sent ts=%d response=ack", event_kind, timestamp)
+    # Accept both "ack" (real FFI) and "success" (mock backends) — matches
+    # C++ parse_success and Go parseEventAck cross-binding parity.
+    if status in ("ack", "success"):
+        _logger.debug("%s.sent ts=%d response=%s", event_kind, timestamp, status)
         return {"status": "ack"}
     if status == "error":
         result_error = build_error_response(response)
@@ -100,7 +102,7 @@ def parse_event_response(
         )
     raise ProtocolError(
         f"Unexpected {event_kind} response status: {status!r}"
-        + " (expected 'ack' or 'error')"
+        + " (expected 'ack', 'success', or 'error')"
     )
 
 

@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/xuri/excelize/v2"
@@ -588,12 +587,7 @@ func TestLoadExcelDbcPartialMuxError(t *testing.T) {
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
 	})
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error for partial mux")
-	}
-	if !strings.Contains(err.Error(), "must both be provided or both be empty") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "must both be provided or both be empty")
 }
 
 func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
@@ -601,12 +595,7 @@ func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
 	})
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error for partial mux value only")
-	}
-	if !strings.Contains(err.Error(), "must both be provided or both be empty") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "must both be provided or both be empty")
 }
 
 // ===========================================================================
@@ -759,12 +748,7 @@ func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := CreateExcelTemplate(path)
-	if err == nil {
-		t.Fatal("expected error when file exists")
-	}
-	if !strings.Contains(err.Error(), "file already exists") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "file already exists")
 }
 
 // ===========================================================================
@@ -773,22 +757,12 @@ func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 
 func TestLoadExcelFileNotFound(t *testing.T) {
 	_, err := LoadChecksFromExcel("/nonexistent/path/checks.xlsx")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "excel file not found") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "excel file not found")
 }
 
 func TestLoadExcelDbcFileNotFound(t *testing.T) {
 	_, err := LoadDbcFromExcel("/nonexistent/path/dbc.xlsx")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "excel file not found") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "excel file not found")
 }
 
 func TestLoadExcelNoChecksOrWhenThenSheet(t *testing.T) {
@@ -800,12 +774,7 @@ func TestLoadExcelNoChecksOrWhenThenSheet(t *testing.T) {
 	_ = f.SaveAs(path)
 
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "no 'Checks' or 'When-Then' sheet") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "no 'Checks' or 'When-Then' sheet")
 }
 
 func TestLoadExcelNoDbcSheet(t *testing.T) {
@@ -817,12 +786,7 @@ func TestLoadExcelNoDbcSheet(t *testing.T) {
 	_ = f.SaveAs(path)
 
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "no 'DBC' sheet") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "no 'DBC' sheet")
 }
 
 func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
@@ -830,12 +794,7 @@ func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
 		{nil, "Speed", "bogus", 100, nil, nil, nil, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown condition 'bogus'")
 }
 
 func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
@@ -843,12 +802,7 @@ func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
 		{nil, "Speed", "never_exceeds", nil, nil, nil, nil, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "missing or invalid 'Value'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "missing or invalid 'Value'")
 }
 
 func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
@@ -856,12 +810,7 @@ func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
 		{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'Min' and 'Max'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'Min' and 'Max'")
 }
 
 func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
@@ -869,12 +818,7 @@ func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
 		{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "requires 'Time (ms)'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "requires 'Time (ms)'")
 }
 
 func TestLoadExcelUnknownWhenCondition(t *testing.T) {
@@ -882,12 +826,7 @@ func TestLoadExcelUnknownWhenCondition(t *testing.T) {
 		{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown when condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown when condition 'bogus'")
 }
 
 func TestLoadExcelUnknownThenCondition(t *testing.T) {
@@ -895,12 +834,7 @@ func TestLoadExcelUnknownThenCondition(t *testing.T) {
 		{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
 	})
 	_, err := LoadChecksFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "unknown then condition 'bogus'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "unknown then condition 'bogus'")
 }
 
 func TestLoadExcelInvalidByteOrder(t *testing.T) {
@@ -908,12 +842,7 @@ func TestLoadExcelInvalidByteOrder(t *testing.T) {
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "Byte Order") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "Byte Order")
 }
 
 func TestLoadExcelInvalidMessageID(t *testing.T) {
@@ -921,12 +850,7 @@ func TestLoadExcelInvalidMessageID(t *testing.T) {
 		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "invalid 'Message ID'") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "invalid 'Message ID'")
 }
 
 func TestLoadExcelDbcEmptyData(t *testing.T) {
@@ -942,15 +866,9 @@ func TestLoadExcelDbcEmptyData(t *testing.T) {
 	_ = f.SaveAs(path)
 
 	_, err := LoadDbcFromExcel(path)
-	if err == nil {
-		t.Fatal("expected error")
-	}
 	// The error could be "at least one data row" or "no data rows" depending
 	// on how excelize reports the sheet rows.
-	msg := err.Error()
-	if !strings.Contains(msg, "data row") {
-		t.Errorf("unexpected error: %v", err)
-	}
+	requireErrorContains(t, err, "data row")
 }
 
 // ===========================================================================

@@ -53,7 +53,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - DBC parser                            │
 │ - LTL model checker                     │
 │ - All correctness proofs                │
-│ - All 67 modules use --safe --without-K │
+│ - All 119 modules use --safe --without-K│
 └─────────────────────────────────────────┘
 ```
 

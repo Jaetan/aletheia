@@ -595,20 +595,22 @@ Send a CAN frame for incremental checking.
 
 **Returns** (violation): A property response with `status`, `property_index`, `timestamp`, and `reason`. When checks are registered via `add_checks()`, violations are automatically enriched with signal values and formula descriptions. See [Enriched Violations](#enriched-violations) for the full response schema.
 
-#### `send_frames_batch(frames: list[tuple[int, int, int, bytearray]], *, extended: bool = False) -> list[FrameResponse]`
+#### `send_frames(frames: list[CANFrameTuple]) -> list[AckResponse | PropertyViolationResponse]`
 
-Send multiple CAN frames in a batch. Convenience wrapper around `send_frame()`.
+Send multiple CAN frames in a batch. Processing stops at the first error, raising `BatchError` with `partial_results` and `frame_index`.
 
 ```python
+from aletheia import CANFrameTuple
+
 frames = [
-    (1000, 0x100, 8, bytearray(b'\x20\x1C\x00\x00\x00\x00\x00\x00')),
-    (2000, 0x100, 8, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00')),
+    CANFrameTuple(1000, 0x100, 8, bytearray(b'\x20\x1C\x00\x00\x00\x00\x00\x00'), False),
+    CANFrameTuple(2000, 0x100, 8, bytearray(b'\x40\x1C\x00\x00\x00\x00\x00\x00'), False),
 ]
-responses = client.send_frames_batch(frames)
+responses = client.send_frames(frames)
 violations = [r for r in responses if r["status"] == "fails"]
 ```
 
-**Parameters**: List of `(timestamp_us, can_id, dlc, data)` tuples.
+**Parameters**: List of `CANFrameTuple(timestamp, can_id, dlc, data, extended)`.
 **Returns**: List of responses in same order as input frames.
 
 #### `end_stream() -> CompleteResponse | ErrorResponse`
@@ -900,7 +902,7 @@ All Aletheia exceptions inherit from a common base class:
 AletheiaError (base)
 ├── ProcessError     # FFI or shared library errors (library not found, init failure)
 ├── ProtocolError    # Protocol errors (invalid JSON, missing response, bad state)
-└── BatchError       # send_frames_batch stopped mid-batch; carries .partial_results
+└── BatchError       # send_frames stopped mid-batch; carries .partial_results
 ```
 
 ```python

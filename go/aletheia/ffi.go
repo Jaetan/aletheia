@@ -129,7 +129,6 @@ import "C"
 
 import (
 	"fmt"
-	"log/slog"
 	"math"
 	"runtime"
 	"sync"
@@ -172,6 +171,8 @@ type FFIBackend struct {
 	freeStrFn           unsafe.Pointer
 	closeFn             unsafe.Pointer
 }
+
+func (*FFIBackend) backend() {}
 
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 	cName := C.CString(name)
@@ -304,6 +305,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}
 
 	// Initialize GHC RTS exactly once per process.
+	if cfg.rtsCores > math.MaxInt32 {
+		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
+	}
 	hsInitMu.Lock()
 	if !hsInitDone {
 		if cfg.rtsCores > 1 {
@@ -313,8 +317,8 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 		hsInitCores = cfg.rtsCores
 		hsInitDone = true
-	} else if cfg.rtsCores != hsInitCores {
-		slog.Warn("GHC RTS already initialized; ignoring WithRTSCores",
+	} else if cfg.rtsCores != hsInitCores && cfg.logger != nil {
+		cfg.logger.Warn("GHC RTS already initialized; ignoring WithRTSCores",
 			"active_cores", hsInitCores,
 			"requested_cores", cfg.rtsCores)
 	}

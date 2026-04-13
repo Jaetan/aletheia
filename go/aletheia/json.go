@@ -741,6 +741,9 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 	case "ack":
 		return Ack{}, nil
 	case "fails":
+		if propType := getString(m, "type"); propType != "property" {
+			return nil, protocolError(fmt.Sprintf("expected type \"property\" in violation response, got %q", propType))
+		}
 		idx, err := parseNumberAsInt64(m["property_index"])
 		if err != nil {
 			return nil, wrapProtocol("invalid property_index", err)

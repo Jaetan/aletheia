@@ -342,12 +342,12 @@ auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void>
         if (f)
             formulas.push_back(ltl::clone(*f));
     }
-    for (auto& check : checks) {
-        auto f = check.to_formula();
+    for (const auto& check : checks) {
+        const auto& f = check.formula();
         if (!f)
             return std::unexpected(
-                AletheiaError{ErrorKind::Validation, "check has no formula (already consumed)"});
-        formulas.push_back(std::move(*f));
+                AletheiaError{ErrorKind::Validation, "check has no formula"});
+        formulas.push_back(ltl::clone(*f));
     }
     return set_properties(formulas);
 }
@@ -401,11 +401,12 @@ auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const
 auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
     BatchResult batch;
     batch.responses.reserve(frames.size());
-    for (const auto& f : frames) {
-        auto r = send_frame(f.timestamp, f.id, f.dlc,
-                            std::span<const std::byte>(f.data.data(), f.data.size()));
+    for (std::size_t i = 0; i < frames.size(); ++i) {
+        auto r = send_frame(frames[i]);
         if (!r.has_value()) {
-            batch.error = r.error();
+            auto& e = r.error();
+            batch.error = AletheiaError{
+                e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
             return batch;
         }
         batch.responses.push_back(std::move(*r));
@@ -421,7 +422,7 @@ auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
     auto r = detail::parse_success(resp);
     if (r.has_value() && logger_) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
-                                           {"response", std::string_view{"ack"}}});
+                                           {"response", resp}});
     }
     return r;
 }
@@ -439,7 +440,7 @@ auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
              {"canId", static_cast<std::uint64_t>(std::visit(
                            [](const auto& v) -> std::uint32_t { return v.value(); }, id))},
              {"extended", std::holds_alternative<ExtendedId>(id)},
-             {"response", std::string_view{"ack"}}});
+             {"response", resp}});
     }
     return r;
 }

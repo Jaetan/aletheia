@@ -1,12 +1,16 @@
 package aletheia
 
-import "unsafe"
+import (
+	"log/slog"
+	"unsafe"
+)
 
 // FFIBackendOption configures optional [FFIBackend] behavior.
 type FFIBackendOption func(*ffiConfig)
 
 type ffiConfig struct {
 	rtsCores int
+	logger   *slog.Logger
 }
 
 // WithRTSCores sets the number of GHC RTS capabilities (-N flag).
@@ -17,9 +21,17 @@ func WithRTSCores(n int) FFIBackendOption {
 	return func(c *ffiConfig) { c.rtsCores = n }
 }
 
+// WithFFILogger sets a logger for FFI backend initialization events.
+// When nil (default), no logging occurs.
+func WithFFILogger(l *slog.Logger) FFIBackendOption {
+	return func(c *ffiConfig) { c.logger = l }
+}
+
 // Backend abstracts the FFI boundary to the Agda core.
 // Production code uses [FFIBackend]; tests use [MockBackend].
+// Sealed: only types in this package may implement Backend.
 type Backend interface {
+	backend() // sealed — prevents third-party implementations
 	// Init creates a new session and returns an opaque state handle.
 	Init() (unsafe.Pointer, error)
 	// Process sends a JSON command and returns the JSON response.

@@ -102,12 +102,31 @@ func (b ByteOrder) String() string {
 }
 
 // BitPosition is a start bit position within a CAN frame.
-// Valid domain is 0-511 (64 bytes × 8 bits); out-of-range values are rejected
-// by the Agda core during DBC validation.
+// Valid domain is 0-511 (64 bytes × 8 bits). Use [NewBitPosition] to create one.
 type BitPosition uint16
 
-// BitLength is a signal length in bits (1-64).
+const maxBitPosition = 511 // 64 bytes × 8 bits − 1
+
+// NewBitPosition creates a validated BitPosition. Returns an error if v > 511.
+func NewBitPosition(v uint16) (BitPosition, error) {
+	if v > maxBitPosition {
+		return 0, validationError(fmt.Sprintf("bit position %d exceeds maximum %d", v, maxBitPosition))
+	}
+	return BitPosition(v), nil
+}
+
+// BitLength is a signal length in bits (1-64). Use [NewBitLength] to create one.
 type BitLength uint8
+
+const maxBitLength = 64 // max signal bits in a CAN frame
+
+// NewBitLength creates a validated BitLength. Returns an error if v < 1 or v > 64.
+func NewBitLength(v uint8) (BitLength, error) {
+	if v < 1 || v > maxBitLength {
+		return 0, validationError(fmt.Sprintf("bit length %d out of range [1, %d]", v, maxBitLength))
+	}
+	return BitLength(v), nil
+}
 
 // CanID is a CAN bus identifier. Use [NewStandardID] or [NewExtendedID] to create one.
 type CanID interface {

@@ -40,7 +40,7 @@ open import Aletheia.Trace.CANTrace using (TimedFrame; timestampℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (just)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++)
+open import Data.List.Properties using (++-assoc; ++-identityʳ; length-++; length-++-≤ˡ)
 open import Data.Nat using (ℕ; zero; suc; _+_; _<_; _≤_; s≤s; z≤n; _∸_; _≤ᵇ_)
 open import Data.Nat.Properties using (+-assoc; +-comm; +-identityʳ;
     ≤-refl; ≤-trans; n≤1+n)
@@ -97,9 +97,7 @@ private
   -- Extend k < |xs| to k < |xs ++ₗ ys|
   extend-< : ∀ {k} (xs ys : List SignalPredicate)
     → k < length xs → k < length (xs ++ₗ ys)
-  extend-<         []       ys ()
-  extend-< {zero}  (x ∷ xs) ys _         = s≤s z≤n
-  extend-< {suc k} (x ∷ xs) ys (s≤s k<) = s≤s (extend-< xs ys k<)
+  extend-< xs ys k< = ≤-trans k< (length-++-≤ˡ xs)
 
   -- Shift k < |ys| to |xs| + k < |xs ++ₗ ys|
   shift-< : ∀ (xs ys : List SignalPredicate) {k}

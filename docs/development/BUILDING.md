@@ -549,6 +549,33 @@ agda +RTS -N32 -RTS Aletheia/Protocol/Message.agda  # Check just Message module
 - On some distributions, you may need: `sudo apt-get install libtinfo-dev`
 - Ubuntu 26.04+: `sudo apt install python3.14`; older releases: use deadsnakes PPA (see above)
 
+### C++ Build Fails
+
+**Error**: `cmake` reports missing `nlohmann/json` or `Catch2`
+
+**Solution**: These are fetched automatically via CMake FetchContent. Ensure CMake 3.25+ and an internet connection on first build:
+```bash
+cd cpp && cmake -B build && cmake --build build
+```
+
+**Error**: `error: use of undeclared identifier 'std::format'`
+
+**Solution**: C++23 is required. Ensure g++ >= 14 or clang >= 21.
+
+### Go Build/Test Fails
+
+**Error**: `cgo: C compiler "gcc" not found`
+
+**Solution**: Install build-essential: `sudo apt-get install build-essential`
+
+**Error**: `cannot open shared object file: No such file or directory` at test time
+
+**Solution**: Set `LD_LIBRARY_PATH` to include the directory containing `libaletheia-ffi.so`:
+```bash
+export LD_LIBRARY_PATH=/path/to/aletheia/build:$LD_LIBRARY_PATH
+cd go && go test ./aletheia/ -v -count=1 -race
+```
+
 ## Build Performance
 
 ### First Build
