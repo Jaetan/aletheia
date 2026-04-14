@@ -585,7 +585,7 @@ Send a CAN frame for incremental checking.
 - `timestamp`: Microseconds (integer)
 - `can_id`: 0-2047 (standard) or 0-536870911 (extended)
 - `dlc`: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
-- `data`: Payload as `bytearray` (should match `dlc_to_bytes(dlc)`; mismatch is caught by the FFI)
+- `data`: Payload as `bytearray` (must match `dlc_to_bytes(dlc)`; mismatch raises `ProcessError` client-side)
 - `extended`: `True` for 29-bit extended CAN IDs (default `False`)
 
 **Returns** (acknowledged):
@@ -660,12 +660,12 @@ modified = client.update_frame(
 # original unchanged, modified has new speed value
 ```
 
-#### `build_frame(can_id: int, signals: dict[str, float], *, dlc: int = 8, extended: bool = False) -> bytearray`
+#### `build_frame(can_id: int, dlc: int, signals: dict[str, float], *, extended: bool = False) -> bytearray`
 
 Build a CAN frame from signal values (starts with zero-filled frame).
 
 ```python
-frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
+frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 # Returns frame with VehicleSpeed encoded
 ```
 
@@ -716,21 +716,24 @@ except FileNotFoundError as e:
 ### Invalid Frame Data
 
 ```python
-# Data length vs DLC mismatch is caught by the FFI, not client-side
-response = client.send_frame(1000, 256, dlc=8, data=bytearray([0xFF, 0xFF]))  # Only 2 bytes, DLC expects 8
-if response.get("status") == "error":
-    print(f"Error: {response['message']}")
+# Data length vs DLC mismatch is caught client-side before FFI call
+try:
+    client.send_frame(1000, 256, dlc=8, data=bytearray([0xFF, 0xFF]))  # Only 2 bytes, DLC expects 8
+except ProcessError as e:
+    print(f"Error: {e}")  # payload length 2 does not match DLC 8
 ```
 
 ### Signal Not Found
 
 ```python
+from aletheia import ProtocolError
+
 property = Signal("InvalidSignal").less_than(100).always()
 
-response = client.set_properties([property.to_dict()])
-
-if response.get("status") == "error":
-    print(f"Error: {response['message']}")
+try:
+    client.set_properties([property.to_dict()])
+except ProtocolError as e:
+    print(f"Error: {e}")
 ```
 
 ---

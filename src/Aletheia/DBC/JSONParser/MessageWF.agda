@@ -43,6 +43,8 @@ private
   ≡ᵇ-true→≤64 m k eq bound = subst (_≤ 64) (sym (≡ᵇ⇒≡ m k (subst T (sym eq) tt))) bound
 
   -- dlcBytes of any DLC value is ≤ 64.
+  -- Mirrors dlcToBytes-bounded from DLC/Properties.agda but operates on the
+  -- DLC newtype (whose @0 erased bound cannot be extracted to delegate).
   -- Exhaustive match on the 16 valid DLC codes; ≥16 is absurd by erased bound.
   dlcBytes-bounded : ∀ (d : DLC) → dlcBytes d ≤ 64
   dlcBytes-bounded (mkDLC 0  _) = z≤n

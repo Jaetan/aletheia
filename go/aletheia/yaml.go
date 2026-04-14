@@ -3,6 +3,7 @@ package aletheia
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -20,6 +21,7 @@ func LoadChecksFromYAML(source string) ([]CheckResult, error) {
 
 // LoadChecksFromYAMLFile loads checks from a YAML file.
 func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
+	path = filepath.Clean(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -34,6 +36,7 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 // If source refers to an existing file, it is read; otherwise it is treated
 // as inline YAML content.
 func loadYAMLData(source string) ([]byte, error) {
+	source = filepath.Clean(source)
 	if _, err := os.Stat(source); err == nil {
 		data, err := os.ReadFile(source)
 		if err != nil {

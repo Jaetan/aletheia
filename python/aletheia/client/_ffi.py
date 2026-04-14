@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import ctypes
 import json
+import logging
 import os
 import threading
-import warnings
 from pathlib import Path
 
 from ..protocols import is_str_dict
@@ -75,11 +75,10 @@ class RTSState:
                 cls.cores = rts_cores
                 cls.initialized = True
             elif rts_cores != cls.cores:
-                warnings.warn(
-                    f"GHC RTS already initialized with {cls.cores} core(s); "
-                    + f"ignoring rts_cores={rts_cores}. Set rts_cores on the "
-                    + "first AletheiaClient created in the process.",
-                    stacklevel=3,
+                logging.getLogger("aletheia").warning(
+                    "rts.cores_mismatch active_cores=%d requested_cores=%d",
+                    cls.cores,
+                    rts_cores,
                 )
             cls.refcount += 1
 

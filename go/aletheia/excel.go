@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -72,6 +73,7 @@ var (
 // LoadChecksFromExcel loads signal checks from an Excel workbook.
 // Reads the Checks and When-Then sheets. Either or both may be present.
 func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error) {
+	path = filepath.Clean(path)
 	cfg := defaultExcelConfig()
 	for _, o := range opts {
 		o(&cfg)
@@ -118,6 +120,7 @@ func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error
 
 // LoadDbcFromExcel loads a DBC definition from the DBC sheet of an Excel workbook.
 func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) {
+	path = filepath.Clean(path)
 	cfg := defaultExcelConfig()
 	for _, o := range opts {
 		o(&cfg)

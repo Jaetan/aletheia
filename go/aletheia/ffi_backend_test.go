@@ -97,8 +97,8 @@ func TestFFIBackend_RTSCoresMismatchWarns(t *testing.T) {
 	_ = b2
 	output := buf.String()
 
-	if !strings.Contains(output, "already initialized") {
-		t.Errorf("expected 'already initialized' in slog output, got: %s", output)
+	if !strings.Contains(output, "rts.cores_mismatch") {
+		t.Errorf("expected 'rts.cores_mismatch' in slog output, got: %s", output)
 	}
 	if !strings.Contains(output, `"level":"WARN"`) {
 		t.Errorf("expected WARN level in slog output, got: %s", output)

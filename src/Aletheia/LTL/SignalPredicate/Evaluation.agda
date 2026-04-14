@@ -11,7 +11,7 @@ module Aletheia.LTL.SignalPredicate.Evaluation where
 
 open import Aletheia.Prelude
 open import Data.Rational as Rat using (_-_; ∣_∣; 0ℚ; _≤ᵇ_)
-open import Data.Maybe using (_<∣>_) renaming (map to mapₘ)
+open import Data.Maybe using (_<∣>_)
 open import Function using (case_of_)
 
 open import Aletheia.CAN.Frame using (CANFrame)
@@ -56,6 +56,13 @@ x ≥ℚ y = y ≤ℚ x
 extractTruthValue : ∀ {n} → String → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
+-- Direct pattern match on cache lookup, avoiding the per-call closure that
+-- `Data.Maybe.map CachedSignal.value` would allocate via MAlonzo.
+lookupCacheValue : String → SignalCache → Maybe ℚ
+lookupCacheValue sigName cache with lookupCache sigName cache
+... | nothing = nothing
+... | just cs = just (CachedSignal.value cs)
+
 -- ============================================================================
 -- PURE PREDICATE EVALUATION
 -- ============================================================================
@@ -86,7 +93,7 @@ evalDeltaPredicate (StableWithin _ tol) prev curr = ∣ curr Rat.- prev ∣ ≤�
 -- Get signal value: try frame first, then cache (via Maybe's _<∣>_ alternative).
 getTruthValue : ∀ {n} → String → DBC → SignalCache → CANFrame n → Maybe ℚ
 getTruthValue sigName dbc cache frame =
-  extractTruthValue sigName dbc frame <∣> mapₘ CachedSignal.value (lookupCache sigName cache)
+  extractTruthValue sigName dbc frame <∣> lookupCacheValue sigName cache
 
 -- Evaluate value predicate with cache fallback
 evalValuePredicateTV : ∀ {n} → DBC → SignalCache → ValuePredicate → CANFrame n → TruthVal
@@ -100,7 +107,7 @@ evalDeltaPredicateTV : ∀ {n} → DBC → SignalCache → DeltaPredicate → CA
 evalDeltaPredicateTV dbc cache dp frame =
   let sigName = deltaPredicateSignal dp
       currVal = getTruthValue sigName dbc cache frame
-      prevVal = mapₘ CachedSignal.value (lookupCache sigName cache)
+      prevVal = lookupCacheValue sigName cache
   in case currVal of λ where
     nothing   → Unknown
     (just cv) → case prevVal of λ where

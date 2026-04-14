@@ -101,7 +101,7 @@ public:
         , lo_(lo)
         , hi_(hi) {}
 
-    auto within(std::chrono::milliseconds ms) -> CheckResult {
+    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
         if (ms.count() < 0)
             throw std::invalid_argument("time must be non-negative");
         auto us = std::chrono::duration_cast<Timestamp>(ms);
@@ -171,7 +171,7 @@ public:
         , then_signal_(std::move(then_signal))
         , then_desc_(std::move(then_desc)) {}
 
-    auto within(std::chrono::milliseconds ms) -> CheckResult {
+    [[nodiscard]] auto within(std::chrono::milliseconds ms) const -> CheckResult {
         if (ms.count() < 0)
             throw std::invalid_argument("time must be non-negative");
         auto us = std::chrono::duration_cast<Timestamp>(ms);

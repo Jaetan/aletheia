@@ -818,10 +818,19 @@ class AletheiaClient:
             data_array,
             ctypes.c_uint8(len(data)),
         )
-        response = self._parse_ffi_result(result_ptr)
+        try:
+            response = self._parse_ffi_result(result_ptr)
+        except (ProcessError, ProtocolError) as exc:
+            _logger.warning(
+                "extraction.process_failed canId=%d error=%s", can_id, exc,
+            )
+            raise
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
+            _logger.warning(
+                "extraction.parse_failed canId=%d error=%s", can_id, error_msg,
+            )
             raise ProcessError(f"extract_signals failed: {error_msg}")
         if response.get("status") != "success":
             raise ProtocolError(f"Unexpected status: {response.get('status')}")

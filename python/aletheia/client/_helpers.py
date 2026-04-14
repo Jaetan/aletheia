@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import cast
 
@@ -24,8 +25,18 @@ def float_to_rational(value: float) -> tuple[int, int]:
 
     Uses 10^9 scaling to match JSON decimal precision.
     The Haskell side normalizes to coprime form via GCD.
+
+    Raises:
+        ValueError: If *value* is NaN, infinite, or too large for int64.
     """
+    if math.isnan(value) or math.isinf(value):
+        raise ValueError(f"Cannot convert {value!r} to rational")
     numerator = round(value * 1_000_000_000)
+    # Guard against values that would overflow int64 in the binary FFI.
+    if numerator > (1 << 53) or numerator < -(1 << 53):
+        raise ValueError(
+            f"signal value {value!r} too large for rational representation"
+        )
     return (numerator, 1_000_000_000)
 
 

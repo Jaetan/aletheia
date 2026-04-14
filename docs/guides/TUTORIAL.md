@@ -371,7 +371,7 @@ with AletheiaClient() as client:
     speed = result.get("VehicleSpeed", default=0.0)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 
     # Update specific signals in an existing frame
     modified = client.update_frame(

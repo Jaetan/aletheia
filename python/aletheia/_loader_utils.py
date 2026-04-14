@@ -17,11 +17,6 @@ def is_str(val: object) -> TypeGuard[str]:
     return isinstance(val, str)
 
 
-def is_number(val: object) -> TypeGuard[int | float]:
-    """Type guard: value is numeric (int or float, excluding bool)."""
-    return isinstance(val, (int, float)) and not isinstance(val, bool)
-
-
 def get_str(d: dict[str, object], key: str, ctx: str) -> str:
     """Extract a required string field from *d*.
 

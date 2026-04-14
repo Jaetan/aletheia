@@ -245,6 +245,8 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
                        data_str);
 }
 
+// Test infrastructure: serialize_build_frame and serialize_update_frame are used
+// by MockBackend and unit tests, not by production FFI paths.
 auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)
     -> std::string {
     return Json{{"type", "command"},           {"command", "buildFrame"},

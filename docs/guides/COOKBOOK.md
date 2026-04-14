@@ -266,7 +266,7 @@ python3 -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
 ### Build a frame from signal values
 
 ```python
-frame = client.build_frame(can_id=0x100, signals={"VehicleSpeed": 72.0})
+frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 # Returns bytearray with VehicleSpeed encoded
 ```
 

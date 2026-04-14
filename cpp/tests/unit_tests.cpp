@@ -2101,22 +2101,6 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     REQUIRE(result.has_value());
 }
 
-TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
-    auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success"})");
-
-    std::vector<CheckResult> defaults;
-    defaults.push_back(
-        Check::signal("Voltage").stays_between(PhysicalValue{11.5}, PhysicalValue{14.5}));
-
-    AletheiaClient client(std::move(mock), {}, std::move(defaults));
-
-    std::vector<CheckResult> checks;
-    checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{220}));
-    auto result = client.add_checks(std::move(checks));
-    REQUIRE(result.has_value());
-}
-
 // ===========================================================================
 // Multiplexing query helpers
 // ===========================================================================
@@ -2474,7 +2458,8 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
 
     std::vector<Frame> frames;
     frames.push_back({Timestamp{1000}, sid, dlc8, FramePayload(good.begin(), good.end())});
-    frames.push_back({Timestamp{2000}, sid, dlc4, FramePayload(bad.begin(), bad.end())}); // mismatch
+    frames.push_back(
+        {Timestamp{2000}, sid, dlc4, FramePayload(bad.begin(), bad.end())}); // mismatch
     frames.push_back({Timestamp{3000}, sid, dlc8, FramePayload(good.begin(), good.end())});
 
     auto result = client.send_frames(frames);

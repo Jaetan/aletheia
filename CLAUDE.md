@@ -60,6 +60,12 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
   - Makes proofs more general and reusable
   - Required for certain classes of formal verification
 
+**Library-level flag** (set in `aletheia.agda-lib`, applies to all modules):
+- `--erasure`: Enables the `@0` (erased) modality for zero-cost type-level information
+  - Used for phantom type parameters (e.g., `Timestamp μs` where `μs` is erased)
+  - Erased arguments are removed at compile time — no runtime overhead
+  - This flag is in the library file, not per-module OPTIONS pragmas
+
 **Exceptions**:
 - If postulate is truly needed (rare), create separate `*.Unsafe.agda` module
   - Remove `--safe` flag ONLY in that module
@@ -177,7 +183,7 @@ See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed re
 ### Agda Compilation
 
 - Always use `--safe --without-K` flags (enforced in module headers)
-- Four modules use `--no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda — binary entry point is in Haskell)
+- Four modules use `--no-main` (see Module Safety Flag Breakdown above)
 - Generated MAlonzo code goes to `build/` directory
 - Don't edit generated Haskell code; modify Agda source instead
 - **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
@@ -211,7 +217,7 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 - **10 source files** in `src/`: `backend.cpp`, `client.cpp`, `dbc.cpp`, `enrich.cpp`, `excel.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`, `yaml.cpp`
 - **5 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2), `yaml_tests.cpp`, `excel_tests.cpp`
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
-- **Observability**: Custom `Logger` class (`log.hpp`, ~80 lines) — callback-based structured logging with 12 event types matching Go's slog; zero-cost when null (default)
+- **Observability**: Custom `Logger` class (`log.hpp`, ~90 lines) — callback-based structured logging with 12 event types matching Go's slog; zero-cost when null (default)
 - **RTS cores**: `make_ffi_backend(path, rts_cores)` — default 1; once-per-process with mismatch warning
 - **Build**: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
 - **Style**: `.clang-format` + `.clang-tidy` enforce naming/formatting; C++23, targets g++>=14 and clang>=21
@@ -362,7 +368,7 @@ Types can depend on values:
 
 **Haskell:**
 - Style: Follow standard Haskell style
-- Keep it minimal: Haskell shim should stay minimal (~470 lines across 3 files: AletheiaFFI.hs + Marshal.hs + BinaryOutput.hs)
+- Keep it minimal: Haskell shim should stay minimal (see Haskell FFI Layer section above)
 
 **C++:**
 - Standard: C++23, targets g++>=14 and clang>=21
@@ -406,9 +412,9 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-14):** AGENTS.md review round 9 — all 12 implementation phases complete. 56 findings: Agda (9), Go (10), C++ (7), Python (3), Docs (27). All code + doc fixes applied. Python 598/598, pyright clean, pylint 10.00.
+**Latest (2026-04-14):** AGENTS.md review round 10 — 68 findings: Agda (13), Go (7), C++ (12), Python (13), Docs (20). Hot-path +10.8% Stream LTL. Commit `f227d88`. Python 598/598, pyright clean, pylint 10.00.
 
-**Prior (2026-04-12):** R9 plan approved. Squash-merged phase-5.1→main as `a8ba94c`. Prior round 8 partial in commit `6ab5639`.
+**Prior (2026-04-14):** R9 — 56 findings, commit `7203d9f`. R8 partial (`6ab5639`). Squash-merged phase-5.1→main as `a8ba94c`.
 
 **Prior (2026-04-11):** AGENTS.md review round 7 — 51 findings across Agda (22), Go (18), C++ (9), Python (5). Commit `cdd5821`.
 

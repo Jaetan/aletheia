@@ -149,15 +149,17 @@ C++:
 Check::signal("Speed").never_exceeds(PhysicalValue{220});
 load_checks_from_yaml("checks.yaml");
 load_checks_from_excel("tests.xlsx");
-Signal("Speed").less_than(PhysicalValue{220}).always();
+// LTL formulas via ltl:: namespace (compositional, not fluent DSL):
+auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220})));
 ```
 
 Go:
 ```go
-CheckSignal("Speed").NeverExceeds(220)
-LoadChecksFromYAML("checks.yaml")
-LoadChecksFromExcel("tests.xlsx")
-Signal("Speed").LessThan(220).Always()
+aletheia.CheckSignal("Speed").NeverExceeds(220)
+aletheia.LoadChecksFromYAML("checks.yaml")
+aletheia.LoadChecksFromExcel("tests.xlsx")
+// LTL formulas via ltl package (compositional):
+f := ltl.Always(ltl.Atomic(ltl.LessThan("Speed", 220)))
 ```
 
 **Streaming workflow** (Python shown; C++ and Go follow the same pattern):
@@ -183,7 +185,7 @@ with AletheiaClient() as client:
     client.end_stream()
 ```
 
-**Learning curve**: If you can use a standard library in your language, you can use Aletheia. The API is the same across all three bindings — same methods, same workflow, same results.
+**Learning curve**: If you can use a standard library in your language, you can use Aletheia. All three bindings follow the same workflow and produce identical verification results — surface APIs use each language's idioms (Python fluent DSL, C++ strong types + `std::expected`, Go interfaces + functional options) but the protocol-level behavior is the same.
 
 **Debugging**: Violations include counterexamples (frame number, signal values). Standard debugging in your language applies.
 
@@ -274,7 +276,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 ## Current Status
 
-**Phase 5 in progress** (Phase 4 complete ✅)
+**Phase 5 complete** ✅ (see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture

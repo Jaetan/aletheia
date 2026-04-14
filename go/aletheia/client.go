@@ -437,7 +437,7 @@ func (c *Client) SendError(ts Timestamp) error {
 		return stateError("client is closed")
 	}
 	if ts.Microseconds < 0 {
-		return validationError("negative timestamp")
+		return validationError("timestamp must be non-negative")
 	}
 	resp, err := c.backend.SendErrorBinary(c.state, ts)
 	if err != nil {
@@ -463,7 +463,7 @@ func (c *Client) SendRemote(ts Timestamp, id CanID) error {
 		return stateError("client is closed")
 	}
 	if ts.Microseconds < 0 {
-		return validationError("negative timestamp")
+		return validationError("timestamp must be non-negative")
 	}
 	resp, err := c.backend.SendRemoteBinary(c.state, ts, id)
 	if err != nil {
@@ -486,7 +486,7 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 		return nil, stateError("client is closed")
 	}
 	if ts.Microseconds < 0 {
-		return nil, validationError("negative timestamp")
+		return nil, validationError("timestamp must be non-negative")
 	}
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
@@ -570,7 +570,8 @@ func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayl
 	idx := int(v.PropertyIndex)
 	if idx >= len(c.diags) {
 		if c.logger != nil {
-			c.logger.Warn("enrichment.property_index_oob", "index", idx, "count", len(c.diags))
+			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
+					slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
@@ -591,7 +592,8 @@ func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 	idx := int(pr.PropertyIndex)
 	if idx >= len(c.diags) {
 		if c.logger != nil {
-			c.logger.Warn("enrichment.property_index_oob", "index", idx, "count", len(c.diags))
+			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
+					slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
@@ -631,7 +633,8 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 		result := c.extractSignalsLocked(lf.id, lf.dlc, lf.data)
 		if result == nil {
 			if c.logger != nil {
-				c.logger.Warn("enrichment.extraction_failed", "canId", lf.id.Value())
+				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.extraction_failed",
+						slog.Uint64("canId", uint64(lf.id.Value())))
 			}
 			continue
 		}
@@ -672,13 +675,15 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 		result = c.extractSignalsLocked(id, dlc, data)
 		if result != nil {
 			if !c.cache.put(key, result) && c.logger != nil {
-				c.logger.Warn("cache.full", "size", maxExtractCache)
+				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "cache.full",
+					slog.Int("size", maxExtractCache))
 			}
 		}
 	}
 	if result == nil {
 		if c.logger != nil {
-			c.logger.Warn("enrichment.extraction_failed", "canId", id.Value())
+			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.extraction_failed",
+				slog.Uint64("canId", uint64(id.Value())))
 		}
 		return nil
 	}
@@ -702,14 +707,16 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
 		if err != nil {
 			if c.logger != nil {
-				c.logger.Warn("extraction.process_failed", "canId", id.Value(), "error", err)
+				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
+					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 			}
 			return nil
 		}
 		result, err := parseExtractionBin(buf, names)
 		if err != nil {
 			if c.logger != nil {
-				c.logger.Warn("extraction.parse_failed", "canId", id.Value(), "error", err)
+				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
+					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 			}
 			return nil
 		}
@@ -720,14 +727,16 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		if c.logger != nil {
-			c.logger.Warn("extraction.process_failed", "canId", id.Value(), "error", err)
+			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
+					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
 	}
 	result, err := parseExtractionResponse(resp)
 	if err != nil {
 		if c.logger != nil {
-			c.logger.Warn("extraction.parse_failed", "canId", id.Value(), "error", err)
+			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
+					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
 	}

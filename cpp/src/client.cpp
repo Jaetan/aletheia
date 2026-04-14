@@ -41,11 +41,17 @@ auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> 
 // Uses 10^9 scaling: round(value * 1e9) as numerator, 1'000'000'000 as denominator.
 constexpr std::int64_t rational_denominator = 1'000'000'000;
 
-auto to_rational_numerator(double value) -> std::int64_t {
+// Conservative int64 bounds for double comparison. static_cast<double>(INT64_MAX)
+// rounds up to 2^63, which exceeds INT64_MAX. Using 2^53 (the largest exact
+// integer representable in double) ensures the comparison is safe.
+constexpr double safe_int64_max = 9007199254740992.0;  // 2^53
+constexpr double safe_int64_min = -9007199254740992.0; // -2^53
+
+auto to_rational_numerator(double value) -> std::expected<std::int64_t, AletheiaError> {
     auto scaled = value * static_cast<double>(rational_denominator);
-    if (scaled < static_cast<double>(std::numeric_limits<std::int64_t>::min()) ||
-        scaled > static_cast<double>(std::numeric_limits<std::int64_t>::max()))
-        throw std::overflow_error("signal value too large for rational representation");
+    if (scaled < safe_int64_min || scaled > safe_int64_max)
+        return std::unexpected(AletheiaError{ErrorKind::Validation,
+                                             "signal value too large for rational representation"});
     return static_cast<std::int64_t>(std::llround(scaled));
 }
 
@@ -57,6 +63,8 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , state_(backend_->init())
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
+    if (!state_)
+        throw std::runtime_error("backend init() returned null state");
     if (auto w = backend_->pending_warning(); !w.empty() && logger_)
         logger_.warn("backend.init", {{"warning", w}});
 }
@@ -277,7 +285,10 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
                                                    std::string_view{sv.name}, id_value)});
         }
         resolved.indices.push_back(it->second);
-        resolved.numerators.push_back(to_rational_numerator(sv.value.get()));
+        auto num = to_rational_numerator(sv.value.get());
+        if (!num.has_value())
+            return std::unexpected(num.error());
+        resolved.numerators.push_back(*num);
         resolved.denominators.push_back(rational_denominator);
     }
     return resolved;
@@ -335,21 +346,25 @@ auto AletheiaClient::set_properties(std::span<const LtlFormula> properties) -> R
 }
 
 auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void> {
-    std::vector<LtlFormula> formulas;
-    formulas.reserve(default_checks_.size() + checks.size());
-    for (const auto& dc : default_checks_) {
-        const auto& f = dc.formula();
-        if (f)
+    try {
+        std::vector<LtlFormula> formulas;
+        formulas.reserve(default_checks_.size() + checks.size());
+        for (const auto& dc : default_checks_) {
+            const auto& f = dc.formula();
+            if (f)
+                formulas.push_back(ltl::clone(*f));
+        }
+        for (const auto& check : checks) {
+            const auto& f = check.formula();
+            if (!f)
+                return std::unexpected(
+                    AletheiaError{ErrorKind::Validation, "check has no formula"});
             formulas.push_back(ltl::clone(*f));
+        }
+        return set_properties(formulas);
+    } catch (const std::exception& e) {
+        return std::unexpected(AletheiaError{ErrorKind::Validation, e.what()});
     }
-    for (const auto& check : checks) {
-        const auto& f = check.formula();
-        if (!f)
-            return std::unexpected(
-                AletheiaError{ErrorKind::Validation, "check has no formula"});
-        formulas.push_back(ltl::clone(*f));
-    }
-    return set_properties(formulas);
 }
 
 auto AletheiaClient::start_stream() -> Result<void> {
@@ -405,8 +420,8 @@ auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
         auto r = send_frame(frames[i]);
         if (!r.has_value()) {
             auto& e = r.error();
-            batch.error = AletheiaError{
-                e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
+            batch.error =
+                AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
             return batch;
         }
         batch.responses.push_back(std::move(*r));
@@ -422,7 +437,7 @@ auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
     auto r = detail::parse_success(resp);
     if (r.has_value() && logger_) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
-                                           {"response", resp}});
+                                           {"response", std::string_view{"ack"}}});
     }
     return r;
 }
@@ -440,7 +455,7 @@ auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
              {"canId", static_cast<std::uint64_t>(std::visit(
                            [](const auto& v) -> std::uint32_t { return v.value(); }, id))},
              {"extended", std::holds_alternative<ExtendedId>(id)},
-             {"response", resp}});
+             {"response", std::string_view{"ack"}}});
     }
     return r;
 }

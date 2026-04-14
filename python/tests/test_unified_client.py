@@ -1133,9 +1133,10 @@ class TestRTSState:
         assert RTSState.refcount == 0
         RTSState.refcount = saved
 
-    def test_rts_cores_mismatch_warns(self) -> None:
-        """Second client with different rts_cores emits a warning."""
+    def test_rts_cores_mismatch_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Second client with different rts_cores logs a warning."""
         with AletheiaClient(rts_cores=1):
-            with pytest.warns(UserWarning, match="already initialized"):
+            with caplog.at_level("WARNING", logger="aletheia"):
                 with AletheiaClient(rts_cores=4):
                     pass
+            assert "rts.cores_mismatch" in caplog.text

@@ -86,7 +86,7 @@ def iter_can_log(
                     skip_error_frames=skip_error_frames,
                     skip_remote_frames=skip_remote_frames,
                 )
-            except (ValueError, TypeError, AttributeError):
+            except (ValueError, TypeError):
                 if on_error == "raise":
                     raise
                 continue

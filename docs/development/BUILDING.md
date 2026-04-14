@@ -114,7 +114,7 @@ agda test.agda
 #### 5. Python
 
 **Minimum version: 3.12** (required by package dependencies)
-**Recommended: 3.14** (latest stable)
+**Recommended: 3.13+** (Docker images use 3.13; 3.14 works but is not in the Dockerfile base images yet)
 
 The project uses modern Python type hints with `from __future__ import annotations`.
 
@@ -268,15 +268,16 @@ python3 -c "import aletheia; print(aletheia.__version__)"
 
 ### 6. Run Tests
 ```bash
-# Ensure virtual environment is active
+# Python tests
 source .venv/bin/activate          # fish: source .venv/bin/activate.fish
-
-# Install test dependencies
-cd python
-pip install -e ".[dev]"
-
-# Run tests
+cd python && pip install -e ".[dev]"
 python3 -m pytest tests/ -v
+
+# C++ tests
+cd ../cpp && cmake -B build && cmake --build build && ctest --test-dir build
+
+# Go tests (requires cgo + libaletheia-ffi.so on LD_LIBRARY_PATH)
+cd ../go && go test ./aletheia/ -v -count=1 -race
 
 # Try an example
 cd ..

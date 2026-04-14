@@ -16,7 +16,6 @@ from typing import cast
 
 from ..protocols import (
     AckResponse,
-    CompleteResponse,
     ErrorResponse,
     PropertyResultEntry,
     PropertyViolationResponse,
@@ -116,10 +115,14 @@ def parse_finalization_results(
     client can attach ``signals``/``formula``/``enriched_reason`` using
     its own diagnostic and cache state.
     """
-    cresp = cast(CompleteResponse, response)
+    results_raw = response.get("results")
+    if not isinstance(results_raw, list):
+        raise ProtocolError(
+            "Missing or invalid 'results' in finalization response"
+        )
     # Treat results as raw dicts for defensive parsing — the FFI
     # JSON is untrusted and may omit required keys.
-    raw_results = cast(list[dict[str, object]], cresp["results"])
+    raw_results = cast(list[dict[str, object]], results_raw)
     entries: list[PropertyResultEntry] = []
     for raw in raw_results:
         entry_status = raw.get("status")

@@ -102,10 +102,9 @@ struct DbcMessage {
                                              MultiplexValue value) const -> std::vector<DbcSignal>;
     [[nodiscard]] auto signal_by_name(const SignalName& name) const -> const DbcSignal*;
 
-    // Implementation detail — lazily populated by signal_by_name().
-    // Mutable so const methods can populate the cache.  Trailing underscore
-    // signals "internal, do not access directly".
-    mutable detail::LazyIndex<std::string> signal_index_cache_;
+    // Lazily populated by signal_by_name(). Mutable so const methods can
+    // populate the cache on first access. Public for aggregate initialization.
+    mutable detail::LazyIndex<std::string> signal_index_cache;
 };
 
 // ---------------------------------------------------------------------------

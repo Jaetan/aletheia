@@ -128,8 +128,11 @@ package aletheia
 import "C"
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"math"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -196,6 +199,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
+	libPath = filepath.Clean(libPath)
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 
@@ -305,6 +309,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	}
 
 	// Initialize GHC RTS exactly once per process.
+	if cfg.rtsCores < 1 {
+		return nil, validationError(fmt.Sprintf("rtsCores must be >= 1, got %d", cfg.rtsCores))
+	}
 	if cfg.rtsCores > math.MaxInt32 {
 		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
 	}
@@ -318,9 +325,9 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		hsInitCores = cfg.rtsCores
 		hsInitDone = true
 	} else if cfg.rtsCores != hsInitCores && cfg.logger != nil {
-		cfg.logger.Warn("GHC RTS already initialized; ignoring WithRTSCores",
-			"active_cores", hsInitCores,
-			"requested_cores", cfg.rtsCores)
+		cfg.logger.LogAttrs(context.Background(), slog.LevelWarn, "rts.cores_mismatch",
+			slog.Int("active_cores", hsInitCores),
+			slog.Int("requested_cores", cfg.rtsCores))
 	}
 	hsInitMu.Unlock()
 

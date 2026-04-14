@@ -25,7 +25,7 @@ open import Data.Nat using (ℕ; suc)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (_×_; _,_)
 open import Data.Maybe using (just; nothing)
-open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; formatFrameError; Error; ExtractionErr; MuxValueMismatch; formatError)
+open import Aletheia.Error using (FrameError; CANIdNotFound; SignalNotFound; SignalValueOutOfBounds; formatFrameError; Error; ExtractionErr; MuxValueMismatch; formatError)
 
 -- ============================================================================
 -- PARAMETERIZED RESULT TYPE
@@ -52,34 +52,39 @@ combinePartitioned (mkPartitionedResults v1 e1 a1) (mkPartitionedResults v2 e2 a
 -- STRING-KEYED EXTRACTION (JSON output)
 -- ============================================================================
 
+-- Shared structure for categorizeResult and categorizeIndexed.
+-- Success → success partition; MuxValueMismatch → absent partition;
+-- remaining error cases delegated to the toErr callback.
+categorizeWith : ∀ {K E}
+  → (K → ExtractionResult → E)
+  → K → ExtractionResult → PartitionedResults K E
+categorizeWith _ key (Success value) =
+  mkPartitionedResults ((key , value) ∷ []) [] []
+-- Mux value mismatch is genuine absence (multiplexed out for this frame).
+categorizeWith _ key (SignalNotPresent MuxValueMismatch) =
+  mkPartitionedResults [] [] (key ∷ [])
+-- Other ExtractionError variants, SignalNotInDBC, ValueOutOfBounds, and the
+-- dead ExtractionFailed branch (see extractSignalDirect) — all routed to toErr.
+categorizeWith toErr key result =
+  mkPartitionedResults [] ((key , toErr key result) ∷ []) []
+
 ExtractionResults : Set
 ExtractionResults = PartitionedResults String String
 
--- Categorize a single extraction result into the appropriate partition
+private
+  formatBounds : ℚ → ℚ → ℚ → String
+  formatBounds v mn mx = showℚ v ++ₛ " not in [" ++ₛ showℚ mn ++ₛ ", " ++ₛ showℚ mx ++ₛ "]"
+
+  resultToString : String → ExtractionResult → String
+  resultToString name SignalNotInDBC = formatFrameError (SignalNotFound name)
+  resultToString _ (SignalNotPresent reason) = formatError (ExtractionErr reason)
+  resultToString _ (ValueOutOfBounds value mn mx) =
+    formatFrameError (SignalValueOutOfBounds (formatBounds value mn mx))
+  resultToString _ (ExtractionFailed reason) = formatError (ExtractionErr reason)
+  resultToString _ (Success _) = ""  -- unreachable: handled by categorizeWith
+
 categorizeResult : String → ExtractionResult → ExtractionResults
-categorizeResult sigName (Success value) =
-  mkPartitionedResults ((sigName , value) ∷ []) [] []
-categorizeResult sigName SignalNotInDBC =
-  mkPartitionedResults [] ((sigName , formatFrameError (SignalNotFound sigName)) ∷ []) []
--- Mux value mismatch is genuine absence (multiplexed out for this frame).
-categorizeResult sigName (SignalNotPresent MuxValueMismatch) =
-  mkPartitionedResults [] [] (sigName ∷ [])
--- Other ExtractionError variants indicate structural DBC problems
--- (missing mux signal, cycle, extraction failure) — report as errors.
-categorizeResult sigName (SignalNotPresent reason) =
-  mkPartitionedResults [] ((sigName , formatError (ExtractionErr reason)) ∷ []) []
-categorizeResult sigName (ValueOutOfBounds value min max) =
-  mkPartitionedResults [] ((sigName , "value out of bounds: " ++ₛ formatBounds value min max) ∷ []) []
-  where
-    formatBounds : ℚ → ℚ → ℚ → String
-    formatBounds v mn mx = showℚ v ++ₛ " not in [" ++ₛ showℚ mn ++ₛ ", " ++ₛ showℚ mx ++ₛ "]"
--- Dead branch on the batch extraction path: extractSignalDirect (the sole
--- upstream producer) never constructs ExtractionFailed — it produces
--- SignalNotPresent, Success, or ValueOutOfBounds. Kept for completeness
--- since ExtractionResult is a public type. Routed through the typed Error
--- sum so the reason is formatted the same way as every other error.
-categorizeResult sigName (ExtractionFailed reason) =
-  mkPartitionedResults [] ((sigName , formatError (ExtractionErr reason)) ∷ []) []
+categorizeResult = categorizeWith resultToString
 
 -- Extract all signals from a message
 extractAllSignalsFromMessage : ∀ {n} → CANFrame n → DBCMessage → ExtractionResults
@@ -122,19 +127,16 @@ extractionErrorCodeToℕ ExtractionFailed = 2
 IndexedExtractionResults : Set
 IndexedExtractionResults = PartitionedResults ℕ ExtractionErrorCode
 
+private
+  resultToCode : ℕ → ExtractionResult → ExtractionErrorCode
+  resultToCode _ SignalNotInDBC         = NotInDBC
+  resultToCode _ (SignalNotPresent _)   = ExtractionFailed
+  resultToCode _ (ValueOutOfBounds _ _ _) = OutOfBounds
+  resultToCode _ (ExtractionFailed _)   = ExtractionFailed
+  resultToCode _ (Success _)            = ExtractionFailed  -- unreachable: handled by categorizeWith
+
 categorizeIndexed : ℕ → ExtractionResult → IndexedExtractionResults
-categorizeIndexed idx (Success value) =
-  mkPartitionedResults ((idx , value) ∷ []) [] []
-categorizeIndexed idx SignalNotInDBC =
-  mkPartitionedResults [] ((idx , NotInDBC) ∷ []) []
-categorizeIndexed idx (SignalNotPresent MuxValueMismatch) =
-  mkPartitionedResults [] [] (idx ∷ [])
-categorizeIndexed idx (SignalNotPresent _) =
-  mkPartitionedResults [] ((idx , ExtractionFailed) ∷ []) []
-categorizeIndexed idx (ValueOutOfBounds _ _ _) =
-  mkPartitionedResults [] ((idx , OutOfBounds) ∷ []) []
-categorizeIndexed idx (ExtractionFailed _) =
-  mkPartitionedResults [] ((idx , ExtractionFailed) ∷ []) []
+categorizeIndexed = categorizeWith resultToCode
 
 -- Extract all signals from a message, returning indexed results.
 extractAllSignalsIndexedFromMessage : ∀ {n} → CANFrame n → DBCMessage → IndexedExtractionResults

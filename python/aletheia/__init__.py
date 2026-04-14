@@ -68,6 +68,7 @@ from .client import (
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from .protocols import ErrorCode
 from .dbc_queries import (
     is_multiplexed,
     always_present_signals,
@@ -94,7 +95,7 @@ def _missing_pkg(exc: ImportError, pkg: str) -> bool:
 
 
 try:
-    from .dbc_converter import dbc_to_json, dbc_to_text
+    from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
 except ImportError as _e:
     if not _missing_pkg(_e, "cantools"):
         raise
@@ -137,6 +138,8 @@ __all__ = [
     # Check API
     "Check",
     "CheckResult",
+    # Error codes (consumer API for matching error responses)
+    "ErrorCode",
     # Excel loader (optional: pip install aletheia[excel])
     "load_checks_from_excel",
     "load_dbc_from_excel",
@@ -145,6 +148,7 @@ __all__ = [
     "load_can_log",
     "iter_can_log",
     # DBC converter (optional: pip install aletheia[dbc])
+    "convert_dbc_file",
     "dbc_to_json",
     "dbc_to_text",
     # YAML loader (optional: pip install aletheia[yaml])

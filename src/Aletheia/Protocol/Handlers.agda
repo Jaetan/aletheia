@@ -7,8 +7,9 @@
 -- Role: Separated from StreamState to isolate command business logic
 --       from state machine transitions, LTL processing, and proof-facing functions.
 --
--- StreamState.agda retains: state types, formula indexing, signal cache,
---   and LTL frame processing (classifyStepResult, stepProperty, handleDataFrame).
+-- StreamState.agda retains: state types, formula indexing, and signal cache.
+-- StreamState/Internals.agda retains: LTL frame processing
+--   (classifyStepResult, stepProperty, handleDataFrame).
 -- This module also provides processStreamCommand (command dispatch).
 module Aletheia.Protocol.Handlers where
 
@@ -26,7 +27,6 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
-open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)

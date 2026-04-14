@@ -84,7 +84,7 @@ with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
 
     # Build a frame from signal values
-    frame = client.build_frame(can_id=0x100, signals={"Speed": 72.0})
+    frame = client.build_frame(can_id=0x100, dlc=8, signals={"Speed": 72.0})
 
     # Extract signals from a frame
     result = client.extract_signals(can_id=0x100, dlc=8, data=frame)

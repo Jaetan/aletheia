@@ -71,6 +71,11 @@ def _parse_values_segment(
     buf: bytes, off: int, count: int, names: Sequence[str],
 ) -> tuple[dict[str, float], int]:
     """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each)."""
+    needed = off + count * 18
+    if len(buf) < needed:
+        raise ProcessError(
+            f"Truncated values segment: need {needed} bytes, have {len(buf)}"
+        )
     values: dict[str, float] = {}
     for _ in range(count):
         idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
@@ -84,6 +89,11 @@ def _parse_errors_segment(
     buf: bytes, off: int, count: int, names: Sequence[str],
 ) -> tuple[dict[str, str], int]:
     """Parse the errors segment: ``count`` × ``<HB`` (3 bytes each)."""
+    needed = off + count * 3
+    if len(buf) < needed:
+        raise ProcessError(
+            f"Truncated errors segment: need {needed} bytes, have {len(buf)}"
+        )
     errors: dict[str, str] = {}
     for _ in range(count):
         idx, code = map(int, struct.unpack_from("<HB", buf, off))
@@ -100,6 +110,11 @@ def _parse_absent_segment(
     buf: bytes, off: int, count: int, names: Sequence[str],
 ) -> tuple[list[str], int]:
     """Parse the absent segment: ``count`` × ``<H`` (2 bytes each)."""
+    needed = off + count * 2
+    if len(buf) < needed:
+        raise ProcessError(
+            f"Truncated absent segment: need {needed} bytes, have {len(buf)}"
+        )
     absent: list[str] = []
     for _ in range(count):
         (idx,) = map(int, struct.unpack_from("<H", buf, off))

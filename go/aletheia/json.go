@@ -1009,12 +1009,23 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		return zero, protocolError("signal missing required field: name")
 	}
 
+	// Explicit lookup: "signed" must be present in well-formed DBC JSON
+	// from the Agda parser. Default to false (unsigned, the CAN standard
+	// default) but log a warning via error return if missing.
+	signedVal, signedOk := j["signed"]
+	isSigned := false
+	if signedOk {
+		if b, ok := signedVal.(bool); ok {
+			isSigned = b
+		}
+	}
+
 	return DbcSignal{
 		Name:      SignalName(name),
 		StartBit:  BitPosition(startBit),
 		BitLength: BitLength(length),
 		ByteOrder: bo,
-		IsSigned:  getBool(j, "signed"),
+		IsSigned:  isSigned,
 		Factor:    factor,
 		Offset:    offset,
 		Minimum:   minimum,

@@ -131,28 +131,31 @@ extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed
 -- ============================================================================
 
 data FrameError : Set where
-  SignalNotFound  : String → FrameError
-  SignalIndexOOB  : ℕ → FrameError
-  InjectionFailed : String → FrameError
-  SignalsOverlap  : FrameError
-  CANIdNotFound   : FrameError
-  CANIdMismatch   : FrameError
+  SignalNotFound         : String → FrameError
+  SignalIndexOOB         : ℕ → FrameError
+  InjectionFailed        : String → FrameError
+  SignalsOverlap         : FrameError
+  CANIdNotFound          : FrameError
+  CANIdMismatch          : FrameError
+  SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
 
 formatFrameError : FrameError → String
-formatFrameError (SignalNotFound name) = "signal not found in message: " ++ₛ name
-formatFrameError (SignalIndexOOB idx)  = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
-formatFrameError (InjectionFailed n)   = "injection failed for signal: " ++ₛ n
-formatFrameError SignalsOverlap        = "signals overlap"
-formatFrameError CANIdNotFound         = "CAN ID not found in DBC"
-formatFrameError CANIdMismatch         = "CAN ID does not match frame"
+formatFrameError (SignalNotFound name)          = "signal not found in message: " ++ₛ name
+formatFrameError (SignalIndexOOB idx)           = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
+formatFrameError (InjectionFailed n)            = "injection failed for signal: " ++ₛ n
+formatFrameError SignalsOverlap                 = "signals overlap"
+formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
+formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
+formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
 
 frameErrorCode : FrameError → String
-frameErrorCode (SignalNotFound _)  = "frame_signal_not_found"
-frameErrorCode (SignalIndexOOB _)  = "frame_signal_index_oob"
-frameErrorCode (InjectionFailed _) = "frame_injection_failed"
-frameErrorCode SignalsOverlap      = "frame_signals_overlap"
-frameErrorCode CANIdNotFound       = "frame_can_id_not_found"
-frameErrorCode CANIdMismatch       = "frame_can_id_mismatch"
+frameErrorCode (SignalNotFound _)          = "frame_signal_not_found"
+frameErrorCode (SignalIndexOOB _)          = "frame_signal_index_oob"
+frameErrorCode (InjectionFailed _)         = "frame_injection_failed"
+frameErrorCode SignalsOverlap              = "frame_signals_overlap"
+frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
+frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
+frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"
 
 -- ============================================================================
 -- ROUTE/COMMAND ERRORS (Protocol/Routing.agda)

@@ -59,6 +59,7 @@ MuxResolvable sigs (When muxName _) = Any (λ s → DBCSignal.name s ≡ muxName
 -- Equivalent to: the mux dependency graph (restricted to in-message signals)
 -- has no cycle reachable from this signal.
 MuxAcyclic : List DBCSignal → SignalPresence → Set
+-- Fuel: length sigs — acyclic chain visits each signal at most once.
 MuxAcyclic sigs presence = walkMux (length sigs) sigs presence ≡ true
 
 -- Condition 6 (check 8): Signal bits fit in frame

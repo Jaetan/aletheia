@@ -91,7 +91,7 @@ Requires Go 1.24+.
 
 ## Runtime — Python Layer
 
-### Direct dependencies (from `pyproject.toml`)
+### Optional dependencies (from `pyproject.toml` extras)
 
 | Package | Version | License |
 |---|---|---|

@@ -16,7 +16,7 @@
 #include <aletheia/types.hpp>      // IWYU pragma: export
 #include <aletheia/validation.hpp> // IWYU pragma: export
 
-#include <aletheia/detail/cache_keys.hpp>
+#include <aletheia/detail/cache_keys.hpp> // IWYU pragma: private, include "aletheia/client.hpp"
 
 #include <cstddef>
 #include <cstdint>

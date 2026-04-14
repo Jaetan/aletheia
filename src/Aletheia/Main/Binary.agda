@@ -46,7 +46,7 @@ open import Data.Nat using (ℕ)
 open import Data.Rational using (ℚ)
 open import Data.Vec using (Vec)
 open import Data.Maybe using (nothing; just)
-open import Data.Sum using (_⊎_; inj₁; inj₂; map)
+open import Data.Sum using (_⊎_; inj₁) renaming (map to bimapₑ)
 
 open import Aletheia.Protocol.JSON using (formatJSON)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
@@ -142,7 +142,7 @@ processBuildFrameBin state canId dlc signals =
 processUpdateFrameBin : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List (ℕ × ℚ) → StreamState × (String ⊎ Vec Byte (dlcBytes dlc))
 {-# NOINLINE processUpdateFrameBin #-}
 processUpdateFrameBin state canId dlc payload signals =
-  withDBCBin state λ dbc → map formatFrameError CANFrame.payload
+  withDBCBin state λ dbc → bimapₑ formatFrameError CANFrame.payload
     (updateFrameByIndex dbc canId (record { id = canId ; dlc = dlc ; payload = payload }) signals)
 
 -- Extract signals returning indexed results (no strings on success path).

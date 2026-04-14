@@ -129,6 +129,7 @@ mutual
     else lookupAndParse key rest
 
   -- Dispatch to correct operator parser.
+  -- Cold path: runs once per JSON property definition (not per frame).
   -- Uses if-then-else (not a dispatch table) so Agda's termination checker
   -- can see through to the recursive calls.
   dispatchOperator : String → List (String × JSON) → Maybe (LTL SignalPredicate)

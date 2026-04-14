@@ -195,6 +195,12 @@ The GHC runtime `.so` files are found automatically via `RPATH=$ORIGIN` on `liba
 
 The Go binding (`go/` in the Aletheia repository) uses `dlopen` at runtime via cgo. Requires Go 1.24+ and `CGO_ENABLED=1`.
 
+#### Install
+
+```bash
+go get github.com/aletheia-automotive/aletheia-go/aletheia
+```
+
 #### Usage
 
 ```go

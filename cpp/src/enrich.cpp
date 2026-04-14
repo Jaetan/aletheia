@@ -97,11 +97,9 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
         f);
 }
 
-} // namespace
-
 // Inner formatter: parenthesize_binary wraps binary operators in parens when
 // they appear as children of other binary operators, matching Go's behavior.
-static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
+auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
     return std::visit(
         [parenthesize_binary](const auto& v) -> std::string {
             using T = std::decay_t<decltype(v)>;
@@ -154,6 +152,8 @@ static auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) 
         },
         f);
 }
+
+} // namespace
 
 auto format_formula(const LtlFormula& f) -> std::string {
     return format_formula_inner(f, false);

@@ -43,13 +43,13 @@ auto IBackend::build_frame_binary(void* /*state*/, const CanId& /*id*/, Dlc /*dl
     // The Client falls back to JSON serialization via process() when
     // the signal index cache is not populated.  This path should never
     // be reached in normal operation.
-    return R"({"status":"error","error":"build_frame_binary requires FFI backend"})";
+    return R"({"status":"error","message":"build_frame_binary requires FFI backend"})";
 }
 
 auto IBackend::update_frame_binary(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                    std::span<const std::byte> /*data*/, SignalInjection /*signals*/)
     -> std::string {
-    return R"({"status":"error","error":"update_frame_binary requires FFI backend"})";
+    return R"({"status":"error","message":"update_frame_binary requires FFI backend"})";
 }
 
 auto IBackend::build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
