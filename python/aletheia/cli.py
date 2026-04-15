@@ -22,8 +22,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
 
 from .checks import CheckResult
-from .client import AletheiaClient, AletheiaError, SignalExtractionResult
-from .client._helpers import dump_json
+from .client import (
+    AletheiaClient,
+    AletheiaError,
+    SignalExtractionResult,
+    dump_json,
+)
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -40,7 +44,7 @@ if TYPE_CHECKING:
     # at runtime when the corresponding optional dependency is not installed.
     from collections.abc import Callable, Iterator
 
-    from .client._types import CANFrameTuple
+    from .client import CANFrameTuple
 
 
 # Optional-dependency loaders: each CLI helper resolves its target via

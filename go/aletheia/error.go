@@ -63,7 +63,7 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching Agda Error ADT (44 codes).
+// Machine-readable error codes matching Agda Error ADT (49 codes).
 // Each maps 1:1 to an Agda error constructor via errorCode.
 const (
 	// Parse errors.
@@ -115,6 +115,12 @@ const (
 	CodeDispatchUnknownMessageType = "dispatch_unknown_message_type"
 	CodeDispatchInvalidJSON        = "dispatch_invalid_json"
 	CodeDispatchRequestNotObject   = "dispatch_request_not_object"
+	// Extraction errors.
+	CodeExtractionMuxValueMismatch    = "extraction_mux_value_mismatch"
+	CodeExtractionMuxSignalNotFound   = "extraction_mux_signal_not_found"
+	CodeExtractionMuxChainCycle       = "extraction_mux_chain_cycle"
+	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
+	CodeExtractionBitExtractionFailed = "extraction_bit_extraction_failed"
 )
 
 func newError(kind ErrorKind, msg string) *Error {
@@ -129,11 +135,14 @@ func wrapError(kind ErrorKind, msg string, cause error) *Error {
 	return &Error{Kind: kind, Message: msg, Cause: cause}
 }
 
-func protocolError(msg string) *Error             { return newError(ErrProtocol, msg) }
-func validationError(msg string) *Error           { return newError(ErrValidation, msg) }
-func stateError(msg string) *Error                { return newError(ErrState, msg) }
-func ffiError(msg string) *Error                  { return newError(ErrFFI, msg) }
-func wrapProtocol(msg string, cause error) *Error { return wrapError(ErrProtocol, msg, cause) }
+func protocolError(msg string) *Error               { return newError(ErrProtocol, msg) }
+func validationError(msg string) *Error             { return newError(ErrValidation, msg) }
+func stateError(msg string) *Error                  { return newError(ErrState, msg) }
+func ffiError(msg string) *Error                    { return newError(ErrFFI, msg) }
+func wrapProtocol(msg string, cause error) *Error   { return wrapError(ErrProtocol, msg, cause) }
+func wrapValidation(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
+func wrapState(msg string, cause error) *Error      { return wrapError(ErrState, msg, cause) }
+func wrapFFI(msg string, cause error) *Error        { return wrapError(ErrFFI, msg, cause) }
 
 // NewValidationError returns an [ErrValidation] error with the given message.
 // Exported so external loaders (the Excel subpackage, custom plug-ins) report
@@ -145,5 +154,5 @@ func NewValidationError(msg string) *Error { return validationError(msg) }
 // [NewValidationError] — external loaders should reuse this instead of
 // constructing *Error directly.
 func WrapValidationError(msg string, cause error) *Error {
-	return wrapError(ErrValidation, msg, cause)
+	return wrapValidation(msg, cause)
 }

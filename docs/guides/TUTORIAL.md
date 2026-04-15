@@ -258,8 +258,9 @@ with AletheiaClient() as client:
     for ts, can_id, dlc, data in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
         if response.get("status") == "fails":
-            print(f"VIOLATION: {response.get('enriched_reason')}")
-            print(f"  Signals: {response.get('signals')}")
+            enrichment = response.get("enrichment", {})
+            print(f"VIOLATION: {enrichment.get('enriched_reason')}")
+            print(f"  Signals: {enrichment.get('signals')}")
 
     client.end_stream()
 ```

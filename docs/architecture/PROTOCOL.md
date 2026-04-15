@@ -2,7 +2,7 @@
 
 **Purpose**: Complete specification of the FFI protocol for CAN frame analysis with LTL checking.
 **Version**: 1.1.1
-**Last Updated**: 2026-04-02
+**Last Updated**: 2026-04-15
 
 ---
 

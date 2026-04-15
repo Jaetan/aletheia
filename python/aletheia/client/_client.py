@@ -43,6 +43,7 @@ from ._helpers import (
     parse_errors_list,
     parse_values_list,
 )
+from ._log import LogEvent, log_event
 from ._response_parsers import (
     build_error_response,
     parse_event_response,
@@ -243,7 +244,10 @@ class AletheiaClient:
         }
         result = self._success_or_error(self._send_command(cmd))
         if result["status"] == "success":
-            _logger.info("dbc.parsed messages=%d", len(dbc["messages"]))
+            log_event(
+                _logger, logging.INFO, LogEvent.DBC_PARSED,
+                messages=len(dbc["messages"]),
+            )
             self._signal_lookup.clear()
             for msg in dbc["messages"]:
                 msg_ext = bool(msg.get("extended", False))
@@ -350,7 +354,10 @@ class AletheiaClient:
             self._caches.clear()
             for i, formula in enumerate(properties):
                 self._diags[i] = build_diagnostic(formula)
-            _logger.info("properties.set count=%d", len(properties))
+            log_event(
+                _logger, logging.INFO, LogEvent.PROPERTIES_SET,
+                count=len(properties),
+            )
         return response
 
     def add_checks(
@@ -388,14 +395,14 @@ class AletheiaClient:
         )
         if response["status"] == "success":
             self._caches.clear()
-            _logger.info("stream.started")
+            log_event(_logger, logging.INFO, LogEvent.STREAM_STARTED)
         return response
 
     def _enrich_violation(
         self,
         result: PropertyViolationResponse,
         frame_id: FrameIdentity,
-        data: bytearray,
+        data: bytes | bytearray,
     ) -> None:
         """Enrich a violation response with signal diagnostics (in-place)."""
         if not self._diags:
@@ -404,9 +411,9 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
-            _logger.warning(
-                "enrichment.property_index_oob index=%d count=%d",
-                idx, len(self._diags),
+            log_event(
+                _logger, logging.WARNING, LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
+                index=idx, count=len(self._diags),
             )
             return
 
@@ -414,7 +421,10 @@ class AletheiaClient:
         cache_key = (frame_id.can_id, frame_id.extended, bytes(data))
         extraction: SignalExtractionResult | None = self._caches.extraction.get(cache_key)
         if extraction is None:
-            _logger.debug("cache.miss canId=%d dlc=%d", frame_id.can_id, frame_id.dlc)
+            log_event(
+                _logger, logging.DEBUG, LogEvent.CACHE_MISS,
+                canId=frame_id.can_id, dlc=frame_id.dlc,
+            )
             try:
                 extraction = self.extract_signals(
                     can_id=frame_id.can_id, dlc=frame_id.dlc, data=data,
@@ -423,16 +433,25 @@ class AletheiaClient:
                 if len(self._caches.extraction) < MAX_EXTRACT_CACHE:
                     self._caches.extraction[cache_key] = extraction
                 else:
-                    _logger.warning(
-                        "cache.full size=%d", len(self._caches.extraction),
+                    log_event(
+                        _logger, logging.WARNING, LogEvent.CACHE_FULL,
+                        size=len(self._caches.extraction),
                     )
             except (AletheiaError, ValueError) as exc:
-                _logger.warning(
-                    "enrichment.extraction_failed canId=%d error=%s",
-                    frame_id.can_id, exc, exc_info=True,
+                # Enrichment is best-effort — the frame still streamed and the
+                # core verdict is authoritative.  Emit a single-line warning
+                # with the exception message; dropping ``exc_info`` keeps
+                # production logs scannable (traceback-worthy paths use
+                # ``_logger.error(..., exc_info=True)`` instead).
+                log_event(
+                    _logger, logging.WARNING, LogEvent.ENRICHMENT_EXTRACTION_FAILED,
+                    canId=frame_id.can_id, error=str(exc),
                 )
         else:
-            _logger.debug("cache.hit canId=%d dlc=%d", frame_id.can_id, frame_id.dlc)
+            log_event(
+                _logger, logging.DEBUG, LogEvent.CACHE_HIT,
+                canId=frame_id.can_id, dlc=frame_id.dlc,
+            )
 
         values: dict[str, Fraction | None] = {}
         if extraction is not None:
@@ -463,7 +482,7 @@ class AletheiaClient:
         timestamp: int,
         can_id: int,
         dlc: int,
-        data: bytearray,
+        data: bytes | bytearray,
         *,
         extended: bool = False,
     ) -> AckResponse | PropertyViolationResponse | ErrorResponse:
@@ -518,9 +537,10 @@ class AletheiaClient:
 
             # Fast path: ack response (overwhelmingly common in streaming)
             if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
-                _logger.debug(
-                    "frame.processed ts=%d canId=%d extended=%s response=ack",
-                    timestamp, can_id, extended,
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                    ts=timestamp, canId=can_id, extended=extended,
+                    response="ack",
                 )
                 return {"status": "ack"}
 
@@ -536,14 +556,16 @@ class AletheiaClient:
             self._enrich_violation(
                 result, FrameIdentity(can_id, extended, dlc), data,
             )
-            _logger.debug(
-                "frame.processed ts=%d canId=%d extended=%s response=violation",
-                timestamp, can_id, extended,
+            log_event(
+                _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                ts=timestamp, canId=can_id, extended=extended,
+                response="violation",
             )
         else:
-            _logger.debug(
-                "frame.processed ts=%d canId=%d extended=%s response=%s",
-                timestamp, can_id, extended, result.get("status", "unknown"),
+            log_event(
+                _logger, logging.DEBUG, LogEvent.FRAME_PROCESSED,
+                ts=timestamp, canId=can_id, extended=extended,
+                response=result.get("status", "unknown"),
             )
 
         return result
@@ -582,6 +604,7 @@ class AletheiaClient:
             if resp["status"] == "error":
                 err = ProcessError(
                     f"error code={resp['code']}: {resp['message']}",
+                    code=resp["code"],
                 )
                 # Partial results contain only successfully-processed frames;
                 # the error response for frame `i` is surfaced via ``err`` and
@@ -620,7 +643,10 @@ class AletheiaClient:
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
             if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
-                _logger.debug("error_event.sent ts=%d response=ack", timestamp)
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.ERROR_EVENT_SENT,
+                    ts=timestamp, response="ack",
+                )
                 return {"status": "ack"}
             result_str = result_bytes.decode("utf-8")
         finally:
@@ -665,9 +691,10 @@ class AletheiaClient:
             if result_bytes is None:
                 raise ProtocolError("FFI returned null pointer")
             if result_bytes in (self._ACK_BYTES, self._ACK_BYTES_SPACED):
-                _logger.debug(
-                    "remote_event.sent ts=%d canId=%d extended=%s response=ack",
-                    timestamp, can_id, extended,
+                log_event(
+                    _logger, logging.DEBUG, LogEvent.REMOTE_EVENT_SENT,
+                    ts=timestamp, canId=can_id, extended=extended,
+                    response="ack",
                 )
                 return {"status": "ack"}
             result_str = result_bytes.decode("utf-8")
@@ -708,9 +735,10 @@ class AletheiaClient:
             num_fails = sum(1 for r in results if r["status"] == "fails")
             num_unresolved = sum(1 for r in results if r["status"] == "unresolved")
             self._caches.last_frames.clear()
-            _logger.info(
-                "stream.ended numResults=%d numFails=%d numUnresolved=%d",
-                len(results), num_fails, num_unresolved,
+            log_event(
+                _logger, logging.INFO, LogEvent.STREAM_ENDED,
+                numResults=len(results), numFails=num_fails,
+                numUnresolved=num_unresolved,
             )
             return {"status": "complete", "results": results}
 
@@ -740,9 +768,13 @@ class AletheiaClient:
                     can_id=lf_id, dlc=lf_dlc, data=lf_data, extended=lf_ext,
                 )
             except (AletheiaError, ValueError) as exc:
-                _logger.warning(
-                    "enrichment.extraction_failed canId=%d error=%s",
-                    lf_id, exc, exc_info=True,
+                # Finalization enrichment is best-effort (mirrors the hot
+                # path); keep the warning single-line so operators can grep
+                # ``enrichment.extraction_failed`` without drowning in
+                # tracebacks.
+                log_event(
+                    _logger, logging.WARNING, LogEvent.ENRICHMENT_EXTRACTION_FAILED,
+                    canId=lf_id, error=str(exc),
                 )
                 continue
             for sig in list(wanted):
@@ -764,9 +796,9 @@ class AletheiaClient:
         idx = prop_index_r["numerator"] // prop_index_r["denominator"]
         diag = self._diags.get(idx)
         if diag is None:
-            _logger.warning(
-                "enrichment.property_index_oob index=%d count=%d",
-                idx, len(self._diags),
+            log_event(
+                _logger, logging.WARNING, LogEvent.ENRICHMENT_PROPERTY_INDEX_OOB,
+                index=idx, count=len(self._diags),
             )
             return
         values = self._extract_last_known_values(diag)
@@ -783,7 +815,7 @@ class AletheiaClient:
     # =========================================================================
 
     def extract_signals(
-        self, can_id: int, dlc: int, data: bytearray,
+        self, can_id: int, dlc: int, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
@@ -835,17 +867,26 @@ class AletheiaClient:
         try:
             response = self._parse_ffi_result(result_ptr)
         except (ProcessError, ProtocolError) as exc:
-            _logger.warning(
-                "extraction.process_failed canId=%d error=%s", can_id, exc,
+            log_event(
+                _logger, logging.WARNING, LogEvent.EXTRACTION_PROCESS_FAILED,
+                canId=can_id, error=str(exc),
             )
             raise
 
         if response.get("status") == "error":
             error_msg = response.get("message", "Unknown error")
-            _logger.warning(
-                "extraction.parse_failed canId=%d error=%s", can_id, error_msg,
+            error_code_raw = response.get("code")
+            error_code = error_code_raw if isinstance(error_code_raw, str) else None
+            log_event(
+                _logger, logging.WARNING, LogEvent.EXTRACTION_PARSE_FAILED,
+                canId=can_id, error=error_msg,
             )
-            raise ProcessError(f"extract_signals failed: {error_msg}")
+            # Forward the Agda wire ``code`` so callers can branch on e.g.
+            # ``extraction_bit_extraction_failed`` vs ``frame_signal_not_found``
+            # without parsing the message string (matches Go / C++ bindings).
+            raise ProcessError(
+                f"extract_signals failed: {error_msg}", code=error_code,
+            )
         if response.get("status") != "success":
             raise ProtocolError(f"Unexpected status: {response.get('status')}")
 
@@ -863,7 +904,7 @@ class AletheiaClient:
         self,
         can_id: int,
         dlc: int,
-        frame: bytearray,
+        frame: bytes | bytearray,
         signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,

@@ -37,7 +37,9 @@ open import Aletheia.Prelude using (listIndex)
 -- ============================================================================
 
 -- Collect all atomic predicates in left-to-right tree order (O(n) via accumulator).
-collectAtomsAcc : LTL SignalPredicate → List SignalPredicate → List SignalPredicate
+-- Structurally polymorphic in the atom type: only LTL shape, no SignalPredicate
+-- operations, are used. Specialized via `collectAtoms` below.
+collectAtomsAcc : ∀ {α} → LTL α → List α → List α
 collectAtomsAcc (Atomic a)                 acc = a ∷ acc
 collectAtomsAcc (Not φ)                    acc = collectAtomsAcc φ acc
 collectAtomsAcc (And φ ψ)                  acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)

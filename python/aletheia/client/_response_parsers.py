@@ -8,8 +8,6 @@ enrichment step (which needs ``self._diags``/``self._caches``) remains on
 the client.
 """
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Callable
 from typing import cast
@@ -22,6 +20,7 @@ from ..protocols import (
     Response,
 )
 from ._helpers import validate_rational
+from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
 _logger = logging.getLogger("aletheia")
@@ -83,17 +82,32 @@ def parse_event_response(
     timestamp) is raised as a ``ProtocolError`` rather than returned,
     matching Go (returns ``error``) and C++ (returns ``Result<void>``).
     """
+    # Map the caller's ``event_kind`` onto the canonical structured event
+    # name.  Only ``"error_event"`` and ``"remote_event"`` are accepted; any
+    # new kind must be added to ``LogEvent`` first so the cross-binding
+    # observability vocabulary stays stable.
+    event_map = {
+        "error_event": LogEvent.ERROR_EVENT_SENT,
+        "remote_event": LogEvent.REMOTE_EVENT_SENT,
+    }
+    event = event_map.get(event_kind)
+    if event is None:
+        raise ProtocolError(f"Unknown event_kind {event_kind!r}")
+
     status = response.get("status")
     # Accept both "ack" (real FFI) and "success" (mock backends) — matches
     # C++ parse_success and Go parseEventAck cross-binding parity.
     if status in ("ack", "success"):
-        _logger.debug("%s.sent ts=%d response=%s", event_kind, timestamp, status)
+        log_event(
+            _logger, logging.DEBUG, event,
+            ts=timestamp, response=str(status),
+        )
         return {"status": "ack"}
     if status == "error":
         result_error = build_error_response(response)
-        _logger.debug(
-            "%s.sent ts=%d response=error code=%s",
-            event_kind, timestamp, result_error["code"],
+        log_event(
+            _logger, logging.DEBUG, event,
+            ts=timestamp, response="error", code=result_error["code"],
         )
         raise ProtocolError(
             f"{event_kind} failed: {result_error['message']}",

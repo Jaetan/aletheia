@@ -5,8 +5,6 @@ helpful error messages.  This module provides runtime-checked accessors
 that raise ``ValueError`` with a caller-supplied context string.
 """
 
-from __future__ import annotations
-
 from typing import TypeGuard
 
 from .protocols import is_str_dict

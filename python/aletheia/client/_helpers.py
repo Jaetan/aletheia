@@ -1,7 +1,5 @@
 """Pure helper functions for response parsing and type conversion."""
 
-from __future__ import annotations
-
 import json
 import math
 from collections.abc import Sequence
@@ -42,6 +40,16 @@ def dump_json(value: object, *, indent: int | None = None) -> str:
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
 
 
+# Shared bounds and scaling factors for the binary FFI rational encoding.
+# int64 bounds match the Haskell ``Int64`` numerator/denominator that the
+# Agda core consumes; the decimal precision denominator mirrors the 10^9
+# scaling that Agda's ``formatRational`` emits on the JSON path so the two
+# wire formats stay bit-identical on round-trip.
+_INT64_MAX = (1 << 63) - 1
+_INT64_MIN = -(1 << 63)
+_DECIMAL_PRECISION_DEN = 1_000_000_000
+
+
 def float_to_rational(value: float) -> tuple[int, int]:
     """Convert a float to (numerator, denominator) for binary FFI.
 
@@ -53,17 +61,16 @@ def float_to_rational(value: float) -> tuple[int, int]:
     """
     if math.isnan(value) or math.isinf(value):
         raise ValueError(f"Cannot convert {value!r} to rational")
-    numerator = round(value * 1_000_000_000)
+    numerator = round(value * _DECIMAL_PRECISION_DEN)
     # Guard against values that would overflow int64 in the binary FFI.
-    if numerator > (1 << 53) or numerator < -(1 << 53):
+    # Use the full int64 range, not the 53-bit float mantissa bound — the
+    # denominator is a compile-time constant ≤ int64 so any numerator that
+    # fits int64 is safe to pack as ``<q`` little-endian.
+    if not _INT64_MIN <= numerator <= _INT64_MAX:
         raise ValueError(
             f"signal value {value!r} too large for rational representation"
         )
-    return (numerator, 1_000_000_000)
-
-
-_INT64_MAX = (1 << 63) - 1
-_INT64_MIN = -(1 << 63)
+    return (numerator, _DECIMAL_PRECISION_DEN)
 
 
 def fraction_to_rational(value: Fraction) -> tuple[int, int]:
@@ -107,7 +114,7 @@ def to_signal_fraction(value: float | int | Fraction) -> Fraction:
         return value
     if isinstance(value, int) and not isinstance(value, bool):
         return Fraction(value)
-    return Fraction(value).limit_denominator(1_000_000_000)
+    return Fraction(value).limit_denominator(_DECIMAL_PRECISION_DEN)
 
 
 def extract_rational_from_dict(
@@ -162,7 +169,7 @@ def parse_rational(value_raw: object) -> Fraction:
     if isinstance(value_raw, float):
         if math.isnan(value_raw) or math.isinf(value_raw):
             raise ProtocolError(f"Cannot convert {value_raw!r} to rational")
-        return Fraction(value_raw).limit_denominator(1_000_000_000)
+        return Fraction(value_raw).limit_denominator(_DECIMAL_PRECISION_DEN)
     if is_str_dict(value_raw):
         n, d = extract_rational_from_dict(value_raw, "rational")
         return Fraction(n, d)

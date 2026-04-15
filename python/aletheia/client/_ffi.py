@@ -1,7 +1,5 @@
 """FFI infrastructure for loading and initializing the Aletheia shared library."""
 
-from __future__ import annotations
-
 import ctypes
 import json
 import logging
@@ -10,6 +8,7 @@ import threading
 from pathlib import Path
 
 from ..protocols import is_str_dict
+from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
 
@@ -75,10 +74,10 @@ class RTSState:
                 cls.cores = rts_cores
                 cls.initialized = True
             elif rts_cores != cls.cores:
-                logging.getLogger("aletheia").warning(
-                    "rts.cores_mismatch active_cores=%d requested_cores=%d",
-                    cls.cores,
-                    rts_cores,
+                log_event(
+                    logging.getLogger("aletheia"), logging.WARNING,
+                    LogEvent.RTS_CORES_MISMATCH,
+                    active_cores=cls.cores, requested_cores=rts_cores,
                 )
             cls.refcount += 1
 

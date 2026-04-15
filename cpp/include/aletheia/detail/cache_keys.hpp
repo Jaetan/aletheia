@@ -1,21 +1,33 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-// Internal cache key types for AletheiaClient. These are implementation
-// details and not part of the public API — they live under detail:: to make
-// that explicit. Moved out of client.hpp to keep the public surface focused
-// on client operations rather than cache bookkeeping.
+// Internal cache key types for AletheiaClient.
+//
+// These types exist under `aletheia::detail::` and are **not part of the
+// supported public API**. They appear in the layout of non-public member
+// variables inside `AletheiaClient`, which is why this header must be
+// installed alongside `<aletheia/client.hpp>` (the facade #includes it and
+// uses the concrete types in private member declarations). The
+// `IWYU pragma: private, include "aletheia/client.hpp"` line on the client
+// facade directs IWYU-style tools to never suggest this file directly, and
+// downstream consumers should not include it directly either — its layout
+// may change in any minor release without notice.
+//
+// Moving this content into `src/detail/` and hiding it behind a pImpl would
+// be cleaner, but doing so turns every `AletheiaClient` method into a
+// cross-TU call and blocks the small-function inlining that keeps the hot
+// extraction path competitive with Go/Python. The tradeoff chosen here is:
+// the types are exposed at compile time but documented as off-limits.
 
 #include <aletheia/types.hpp>
 
-#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
-#include <vector>
 
 namespace aletheia::detail {
 

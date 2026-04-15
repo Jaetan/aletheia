@@ -8,27 +8,56 @@ client module focused on high-level protocol flow and lets the
 binary-path helpers stay under pylint's complexity thresholds.
 """
 
-from __future__ import annotations
-
 import ctypes
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import IntEnum
 from fractions import Fraction
 from typing import NoReturn
 
 from ._types import ProcessError, SignalExtractionResult
 
 
-# Positional mapping of Agda's binary extraction error codes to human-readable
-# messages.  The index matches the ``ExtractionError`` constructor order in
-# ``Aletheia.CAN.Encoding``: 0 = SignalNotFound, 1 = ValueOutOfBounds,
-# 2 = ExtractionFailed.  The binary FFI encodes these as a single ``u8``
-# in the ``<HB`` errors segment (see ``_parse_errors_segment``).
-EXTRACTION_ERROR_MESSAGES: tuple[str, ...] = (
-    "Signal not found in DBC",     # 0
-    "Value out of bounds",          # 1
-    "Extraction failed",            # 2
+class ExtractionErrorCode(IntEnum):
+    """Binary-FFI extraction error codes shared with the Agda core.
+
+    Values are a permanent part of the wire format — each constructor of
+    ``Aletheia.CAN.BatchExtraction.ExtractionErrorCode`` serializes to a
+    single ``u8`` in the ``<HB`` errors segment of the binary response,
+    and ``extractionErrorCodeToℕ`` pins them to the integers below.
+
+    Changing a value or removing a member is a breaking change; any new
+    Agda constructor must be mirrored here (and in the Go/C++ bindings)
+    *before* the Haskell layer emits the new code, or all three bindings
+    will surface ``"Unknown error code N"`` instead of the real message.
+    """
+
+    # Agda: ``Aletheia.CAN.BatchExtraction.NotInDBC``
+    NOT_IN_DBC = 0
+    # Agda: ``Aletheia.CAN.BatchExtraction.OutOfBounds``
+    OUT_OF_BOUNDS = 1
+    # Agda: ``Aletheia.CAN.BatchExtraction.ExtractionFailed``
+    EXTRACTION_FAILED = 2
+
+
+# Human-readable message for each code — keyed on the enum so a renamed
+# Agda constructor surfaces as an ``IntEnum`` membership error rather than
+# a silently shifted message.  The tuple alias below keeps the ``[code]``
+# lookup shape used by ``_parse_errors_segment``.
+EXTRACTION_ERROR_MESSAGES_BY_CODE: dict[ExtractionErrorCode, str] = {
+    ExtractionErrorCode.NOT_IN_DBC: "Signal not found in DBC",
+    ExtractionErrorCode.OUT_OF_BOUNDS: "Value out of bounds",
+    ExtractionErrorCode.EXTRACTION_FAILED: "Extraction failed",
+}
+
+# Legacy positional alias preserved for the existing ``_parse_errors_segment``
+# fast path and for any external caller indexing by integer.  ``ExtractionError
+# Code(i)`` validates membership so a wire code outside the enum raises
+# ``ValueError`` before the tuple index is taken.
+EXTRACTION_ERROR_MESSAGES: tuple[str, ...] = tuple(
+    EXTRACTION_ERROR_MESSAGES_BY_CODE[ExtractionErrorCode(i)]
+    for i in range(len(ExtractionErrorCode))
 )
 
 
@@ -105,9 +134,12 @@ def _parse_errors_segment(
         idx, code = map(int, struct.unpack_from("<HB", buf, off))
         off += 3
         name = names[idx] if idx < len(names) else f"signal_{idx}"
-        if code < len(EXTRACTION_ERROR_MESSAGES):
-            errors[name] = EXTRACTION_ERROR_MESSAGES[code]
-        else:
+        # Validate against the Agda-mirrored enum; unknown codes are
+        # surfaced verbatim so a binding/Agda skew is visible in logs
+        # rather than silently coerced to an existing message.
+        try:
+            errors[name] = EXTRACTION_ERROR_MESSAGES_BY_CODE[ExtractionErrorCode(code)]
+        except ValueError:
             errors[name] = f"Unknown error code {code}"
     return errors, off
 

@@ -156,39 +156,117 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cores <- liftIO getNumProcessors
         let rtsFlags = ["+RTS", "-N" ++ show cores, "-M4G", "-RTS"]
         let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
-        -- Parser and protocol proofs
+        -- All Properties modules are explicitly invoked below (20 total).
+        -- Parser / top-level JSON
         agdaWithRTS "Aletheia/Parser/Properties.agda"
+        agdaWithRTS "Aletheia/JSON/Properties.agda"
+        -- Protocol
         agdaWithRTS "Aletheia/Protocol/JSON/Properties.agda"
-        -- CAN encoding and batch proofs
+        agdaWithRTS "Aletheia/Protocol/ResponseFormat/Properties.agda"
+        agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
+        agdaWithRTS "Aletheia/Protocol/Adequacy/WarmCache.agda"
+        -- CAN
         agdaWithRTS "Aletheia/CAN/Encoding/Properties.agda"
         agdaWithRTS "Aletheia/CAN/Batch/Properties.agda"
-        -- DBC proofs
-        agdaWithRTS "Aletheia/DBC/Properties.agda"
-        agdaWithRTS "Aletheia/DBC/JSONParser/Properties.agda"
-        -- DBC validator soundness/completeness (transitively checks all Validity submodules)
-        agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
-        -- DBC formatter roundtrip proof (transitively checks all MessageRoundtrip submodules)
-        agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
-        -- LTL proofs
-        agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
-        -- LTL adequacy (transitively checks Semantics, SoundOps, TruthVal/Properties)
-        agdaWithRTS "Aletheia/LTL/Adequacy.agda"
-        -- LTL coalgebra initProc-correct proof
-        agdaWithRTS "Aletheia/LTL/Coalgebra/Properties.agda"
-        -- LTL adequacy pipeline (transitively checks SimplifySound)
-        agdaWithRTS "Aletheia/LTL/Adequacy/Pipeline.agda"
-        -- LTL semantics MTL equivalence proof and safety-liveness duality
-        agdaWithRTS "Aletheia/LTL/Semantics/MTL.agda"
-        agdaWithRTS "Aletheia/LTL/Semantics/Duality.agda"
-        -- CAN proofs
         agdaWithRTS "Aletheia/CAN/DLC/Properties.agda"
         agdaWithRTS "Aletheia/CAN/SignalExtraction/Properties.agda"
         agdaWithRTS "Aletheia/CAN/BatchFrameBuilding/Properties.agda"
-        -- Binary frame processing proofs (handleDataFrame guards, byte modulus identity)
-        agdaWithRTS "Aletheia/Protocol/FrameProcessor/Properties.agda"
-        -- Warm-cache agreement chain (transitively checks Evaluation/Properties)
-        agdaWithRTS "Aletheia/Protocol/Adequacy/WarmCache.agda"
+        agdaWithRTS "Aletheia/CAN/Endianness/Properties.agda"
+        -- DBC
+        agdaWithRTS "Aletheia/DBC/Properties.agda"
+        agdaWithRTS "Aletheia/DBC/JSONParser/Properties.agda"
+        agdaWithRTS "Aletheia/DBC/Validity/Theorem.agda"
+        agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
+        -- LTL
+        agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
+        agdaWithRTS "Aletheia/LTL/Adequacy.agda"
+        agdaWithRTS "Aletheia/LTL/Adequacy/Pipeline.agda"
+        agdaWithRTS "Aletheia/LTL/Coalgebra/Properties.agda"
+        agdaWithRTS "Aletheia/LTL/Semantics/MTL.agda"
+        agdaWithRTS "Aletheia/LTL/Semantics/Duality.agda"
+        agdaWithRTS "Aletheia/LTL/TruthVal/Properties.agda"
+        agdaWithRTS "Aletheia/LTL/SignalPredicate/Cache/Properties.agda"
+        agdaWithRTS "Aletheia/LTL/SignalPredicate/Evaluation/Properties.agda"
         putInfo "All proof modules type-checked successfully!"
+
+    phony "check-invariants" $ do
+        -- Enforce "zero postulates, zero *.Unsafe.agda modules" project-wide.
+        -- --safe alone rules out postulates in each module; this rule additionally
+        -- forbids any *.Unsafe.agda escape hatch from creeping into the tree.
+        -- grep exits 1 when there are no matches (the desired case here), so
+        -- we take Exit + Stdout explicitly and ignore the exit code.
+        (Exit _, Stdout postulates) <-
+            cmd "grep" "-rn" "--include=*.agda" "-E" "^postulate" "src/"
+        unless (null (postulates :: String)) $ do
+            putError $ "postulate found in Agda source:\n" ++ postulates
+            error "check-invariants failed"
+        unsafe <- getDirectoryFiles "src" ["//*.Unsafe.agda"]
+        unless (null unsafe) $ do
+            putError $ "*.Unsafe.agda module(s) found: " ++ show unsafe
+            error "check-invariants failed"
+        putInfo "Invariants OK: 0 postulates, 0 *.Unsafe.agda modules."
+
+    phony "check-no-properties-in-runtime" $ do
+        -- Runtime modules must not import Properties modules; a Properties
+        -- import would transitively pull every lemma into MAlonzo output.
+        let runtime = [ "src/Aletheia/Main.agda"
+                      , "src/Aletheia/Main/JSON.agda"
+                      , "src/Aletheia/Main/Binary.agda"
+                      , "src/Aletheia/Protocol/Handlers.agda"
+                      ]
+        -- Wrap the regex in a singleton list so Shake's `cmd` does not split
+        -- it on whitespace (the pattern contains a space between "open" and
+        -- "import" and would otherwise become multiple argv entries).
+        let pat = ["^open import .*\\.Properties\\b|^import .*\\.Properties\\b"]
+        (Exit _, Stdout violations) <-
+            cmd "grep" ["-nE"] pat runtime
+        unless (null (violations :: String)) $ do
+            putError $ "Runtime module imports a Properties module:\n" ++ violations
+            error "check-no-properties-in-runtime failed"
+        putInfo "No Properties imports in runtime modules."
+
+    phony "count-modules" $ do
+        agdaFiles <- getDirectoryFiles "src" ["//*.agda"]
+        let n = length agdaFiles
+        putInfo $ "Agda modules under src/: " ++ show n
+
+    phony "check-fidelity" $ do
+        -- MAlonzo constructor-drift smoke test.
+        -- The cabal test-suite constructor-fidelity exercises the binary FFI
+        -- path end-to-end with hand-rolled constructor calls; if a MAlonzo
+        -- mangled name or constructor arity drifts relative to the shim, the
+        -- test fails to compile OR segfaults on first frame.
+        need ["build/libaletheia-ffi.so"]
+        putInfo "Running MAlonzo constructor-fidelity test..."
+        cmd_ (Cwd "haskell-shim") "cabal" "test" "constructor-fidelity"
+             "--test-show-details=direct"
+
+    phony "check-erasure" $ do
+        -- Guard the FFI marshaling assumptions about MAlonzo output shape.
+        -- Marshal.hs feeds `unsafeCoerce ()` for the erased proof slot of
+        -- CANId constructors; this is safe only while MAlonzo keeps those
+        -- slots compiled to `AgdaAny`. Likewise, Timestamp comparisons rely
+        -- on the newtype compilation to avoid a hot-path allocation.
+        -- If either assumption regresses we want a clear early failure
+        -- before ConstructorTest runs.
+        need ["build/libaletheia-ffi.so"]
+        frame <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Frame.hs"
+        time  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Trace/Time.hs"
+        let canIdErasure =
+              "C_Standard_12 Integer AgdaAny" `isInfixOf` frame &&
+              "C_Extended_16 Integer AgdaAny" `isInfixOf` frame
+        unless canIdErasure $
+          error $ "check-erasure failed: CAN ID constructors no longer use "
+               ++ "AgdaAny for the bound proof. "
+               ++ "Marshal.hs mkAgdaCanId assumes the proof slot is erased; "
+               ++ "fix Marshal.hs before this regresses end-to-end."
+        let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
+        unless tsNewtype $
+          error $ "check-erasure failed: Timestamp is no longer compiled as "
+               ++ "a newtype. Trace/Time.agda uses `record ... no-eta-equality` "
+               ++ "intentionally so MAlonzo compiles Timestamp comparisons "
+               ++ "without a wrapper allocation on the hot path."
+        putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype."
 
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]
@@ -333,7 +411,12 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         need (map ("build" </>) malonzoFiles)
 
         need ["create-symlink"]  -- Depend on phony target, not directory
-        need ["haskell-shim/src/AletheiaFFI.hs", "haskell-shim/aletheia.cabal"]
+        need [ "haskell-shim/src/AletheiaFFI.hs"
+             , "haskell-shim/src/AletheiaFFI/Marshal.hs"
+             , "haskell-shim/src/AletheiaFFI/BinaryOutput.hs"
+             , "haskell-shim/test/ConstructorTest.hs"
+             , "haskell-shim/aletheia.cabal"
+             ]
 
         -- Force Cabal to rebuild when MAlonzo files change
         -- Touch AletheiaFFI.hs to invalidate Cabal's cache

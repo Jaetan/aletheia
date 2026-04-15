@@ -29,8 +29,8 @@ from pathlib import Path
 
 import can
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
 from aletheia.checks import Check, CheckResult
 from aletheia.cli import _run_checks

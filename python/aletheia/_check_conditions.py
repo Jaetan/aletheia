@@ -5,8 +5,6 @@ through the same Check API builders.  This module defines the keyword sets
 and dispatch helpers so that the two loaders stay in sync.
 """
 
-from __future__ import annotations
-
 from .checks import Check, CheckResult, WhenCondition, WhenSignal
 
 

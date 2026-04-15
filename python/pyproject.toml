@@ -18,8 +18,10 @@ classifiers = [
     "License :: OSI Approved :: BSD License",
     "Topic :: Software Development :: Testing",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
 ]
 # The core package has no runtime dependencies outside the standard library —
 # the Agda-compiled Haskell shared library is loaded via ``ctypes`` at import
@@ -39,7 +41,10 @@ dependencies = []
 aletheia = "aletheia.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["aletheia*"]
+# Exact package list — ``aletheia*`` also matched stray top-level helpers when
+# the project briefly had scratch modules at the repo root; pin to the real
+# package and its subpackages to make the wheel contents reproducible.
+include = ["aletheia", "aletheia.*"]
 
 [tool.setuptools.package-data]
 aletheia = ["py.typed"]
@@ -55,10 +60,14 @@ excel = ["openpyxl>=3.1"]
 all = ["aletheia[dbc,can,yaml,excel]"]
 dev = [
     "aletheia[all]",
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "pylint>=3.0",
-    "basedpyright>=1.0",
+    # Upper bounds guard against the next major — AGENTS.md hard-gates the
+    # review cycle on pylint 10.00/10 and basedpyright 0/0/0, so a breaking
+    # major release would silently regress CI.  Bump the upper bound
+    # (and re-verify the gates) on a new major rather than floating.
+    "pytest>=7.0,<9",
+    "pytest-cov>=4.0,<7",
+    "pylint>=3.0,<4",
+    "basedpyright>=1.0,<2",
 ]
 
 [tool.basedpyright]
@@ -74,3 +83,32 @@ reportExplicitAny = "error"  # Force explicit structure definitions instead of A
 reportPrivateUsage = "error"  # Disallow accessing private members
 reportMissingModuleSource = false  # _install_config.py is generated at install time
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
+
+[tool.pylint.main]
+# Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` package.
+# Line length follows PEP 8 Black-ish; existing code uses up to 100 chars.
+max-line-length = 100
+# ``tests/`` and ``benchmarks/`` are lint-checked separately (different rules
+# around fixtures/asserts) and are not part of the release gate.
+ignore = ["tests", "benchmarks", "stubs", ".venv", "build"]
+# ctypes and cantools lack full stubs; pyright handles the real type checks,
+# so silence pylint's redundant no-member/import-error noise for them.
+extension-pkg-allow-list = ["ctypes"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.pylint."messages control"]
+# No blanket disables — every suppression in the tree is inline with a
+# per-line justification.  This section exists so pylint picks up the
+# config file (pylint skips the [tool.pylint.main] section for disables).
+disable = []
+
+[tool.pytest.ini_options]
+# Single source of truth for the pytest invocation used in CI / AGENTS.md.
+# ``testpaths`` avoids collecting the generated ``build/`` tree; strict
+# markers/config catches typos in fixtures or xfail reasons at startup.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true

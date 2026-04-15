@@ -1,6 +1,7 @@
 package aletheia_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -111,8 +112,8 @@ func TestConstructorErrorType(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrValidation {
@@ -234,8 +235,8 @@ func TestBytesToDLC(t *testing.T) {
 		if err == nil {
 			t.Errorf("BytesToDLC(%d): expected error, got nil", b)
 		}
-		aErr, ok := err.(*aletheia.Error)
-		if !ok {
+		var aErr *aletheia.Error
+		if !errors.As(err, &aErr) {
 			t.Errorf("BytesToDLC(%d): expected *aletheia.Error, got %T", b, err)
 		} else if aErr.Kind != aletheia.ErrValidation {
 			t.Errorf("BytesToDLC(%d): expected ErrValidation, got %s", b, aErr.Kind)

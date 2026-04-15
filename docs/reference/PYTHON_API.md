@@ -1,12 +1,18 @@
-# Aletheia Python DSL Guide
+# Aletheia Python API Guide
 
-**Purpose**: Reference for Aletheia's Python DSL (Signal, Predicate, Property) and AletheiaClient.
+**Purpose**: Reference for Aletheia's Python API — the raw DSL (Signal, Predicate, Property) and `AletheiaClient`.
 **Version**: 1.1.1
-**Last Updated**: 2026-04-02
+**Last Updated**: 2026-04-15
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
 > [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.
 > **CLI**: See the [CLI Reference](CLI.md) for command-line usage.
+> **Other bindings**: This guide documents the Python binding. C++ and Go ship
+> the same verified core with equivalent APIs — see `cpp/include/aletheia/*.hpp`
+> for C++ (especially `check.hpp`, `client.hpp`, `ltl.hpp`) and
+> `go doc github.com/aletheia-automotive/aletheia-go/aletheia` for Go. The
+> [Interface Guide § Binding parity](INTERFACES.md#binding-parity) summarizes
+> feature availability per binding.
 
 ---
 
@@ -886,14 +892,18 @@ When checks are registered via `set_properties()` (or `add_checks()`), violation
     "status": "fails",
     "property_index": {"numerator": 0, "denominator": 1},
     "timestamp": {"numerator": 4523000, "denominator": 1},
-    "reason": "Always violated",
-    "signals": {"VehicleSpeed": 225.5},    # enriched: extracted signal values
-    "formula": "always(VehicleSpeed < 220)",  # enriched: formula description
-    "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))"  # enriched
+    "reason": "Always violated",  # core_reason (raw Agda string)
+    "enrichment": {
+        "signals": {"VehicleSpeed": 225.5},                    # extracted signal values
+        "formula_desc": "always(VehicleSpeed < 220)",           # formula description
+        "enriched_reason": "VehicleSpeed = 225.5 (formula: always(VehicleSpeed < 220))",
+        "core_reason": "Always violated"                        # original Agda reason
+    }
 }
 ```
 
-Without registered checks, only `property_index`, `timestamp`, and `reason` are present.
+Access the enriched fields via `response["enrichment"]["enriched_reason"]`, etc.
+Without registered checks, only `property_index`, `timestamp`, and `reason` are present (no `enrichment` field).
 
 ---
 

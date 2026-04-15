@@ -1,7 +1,7 @@
 # Aletheia: Project Pitch
 
 **Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
-**Last Updated**: 2026-04-03
+**Last Updated**: 2026-04-15
 
 LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 
@@ -276,7 +276,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 
 ## Current Status
 
-**Phase 5 complete** ✅ (see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
+**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, plus the LSP/CLI tooling) are at cross-language parity. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
 
 - Core infrastructure (parser, CAN encoding/decoding, DBC parser)
 - LTL verification with streaming architecture
@@ -342,6 +342,8 @@ See [BUILDING.md](development/BUILDING.md) for detailed instructions.
 - Python API: See [Python API Guide](reference/PYTHON_API.md)
 - Architecture: See [Architecture Overview](architecture/DESIGN.md)
 - Contributing: See [CONTRIBUTING.md](../CONTRIBUTING.md)
+
+**For stakeholders / talks**: A standalone HTML slide deck lives at [`docs/presentation/index.html`](presentation/index.html) — open it directly in a browser.
 
 ---
 

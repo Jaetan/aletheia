@@ -26,6 +26,8 @@ For complete build instructions, troubleshooting, and development workflow, see 
 
 ### Basic Usage
 
+> **Which style should I use?** New users should start with the **Check API** or YAML/Excel loaders shown under [Higher-Level Interfaces](#higher-level-interfaces) below — they cover the common cases. The raw DSL (`Signal`, `set_properties`) shown here is the escape hatch for full LTL control (e.g., metric operators, custom predicates). See the [Interface Guide](docs/reference/INTERFACES.md) for an end-to-end comparison.
+
 ```python
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
@@ -33,7 +35,7 @@ from aletheia.dbc_converter import dbc_to_json
 # Load DBC specification (converts .dbc to JSON)
 dbc_json = dbc_to_json("vehicle.dbc")
 
-# Define temporal properties using fluent DSL
+# Define temporal properties using fluent DSL (raw LTL)
 speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
@@ -57,7 +59,8 @@ See [Python API Guide](docs/reference/PYTHON_API.md) for the complete DSL refere
 ### Higher-Level Interfaces
 
 For users who don't need full LTL control, Aletheia provides three
-higher-level interfaces that compile to the same verified core:
+higher-level interfaces that compile to the same verified core (recommended
+entry point for new users):
 
 ```python
 from aletheia import Check, load_checks, load_checks_from_excel

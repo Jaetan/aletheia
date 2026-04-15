@@ -706,30 +706,41 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 }
 
 // extractSignalsLocked performs signal extraction via binary FFI. Caller must hold c.mu.
+//
+// Mirrors the ErrBinaryPathUnsupported fallback contract in the public
+// [Client.ExtractSignals]: only that sentinel triggers the JSON fallback —
+// any other error from ExtractSignalsBin is a real failure (decode / truncation /
+// genuine FFI error) and is logged + surfaced as nil. The fall-through is what
+// lets a MockBackend-backed Client yield enrichment through the JSON path even
+// after a DBC has populated the signal-name cache.
 func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
 	// Use binary path when signal name cache is populated.
 	key := canIDKey(id)
 	if names, ok := c.signalNames[key]; ok {
 		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
-		if err != nil {
+		if err == nil {
+			result, perr := parseExtractionBin(buf, names)
+			if perr != nil {
+				if c.logger != nil {
+					c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
+						slog.Uint64("canId", uint64(id.Value())), slog.String("error", perr.Error()))
+				}
+				return nil
+			}
+			return result
+		}
+		if !errors.Is(err, ErrBinaryPathUnsupported) {
 			if c.logger != nil {
 				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
 					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 			}
 			return nil
 		}
-		result, err := parseExtractionBin(buf, names)
-		if err != nil {
-			if c.logger != nil {
-				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
-					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
-			}
-			return nil
-		}
-		return result
+		// ErrBinaryPathUnsupported: fall through to JSON path (e.g. MockBackend).
 	}
 
-	// Fallback: JSON path.
+	// Fallback: JSON path. Reachable either when the signal-name cache is
+	// empty, or when the binary path returned ErrBinaryPathUnsupported above.
 	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		if c.logger != nil {

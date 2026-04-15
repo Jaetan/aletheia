@@ -6,9 +6,6 @@ Convert between .dbc files, JSON, and DBC text format.
 - ``convert_dbc_file``: Parse .dbc to JSON string, optionally write to file.
 """
 
-from __future__ import annotations
-
-import json
 from fractions import Fraction
 from pathlib import Path
 from typing import cast
@@ -16,7 +13,7 @@ from typing import cast
 import cantools
 import cantools.database.can
 
-from .client._helpers import to_signal_fraction
+from .client import dump_json, to_signal_fraction
 from .protocols import (
     DBCSignal,
     DBCMessage,
@@ -257,7 +254,7 @@ def convert_dbc_file(dbc_path: str | Path, output_path: str | Path | None = None
         JSON string representation of the DBC file
     """
     dbc_json = dbc_to_json(dbc_path)
-    json_str = json.dumps(dbc_json, indent=2)
+    json_str = dump_json(dbc_json, indent=2)
 
     if output_path:
         _ = Path(output_path).write_text(json_str, encoding='utf-8')

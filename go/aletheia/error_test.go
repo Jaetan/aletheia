@@ -1,6 +1,7 @@
 package aletheia_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
@@ -20,8 +21,8 @@ func TestErrorResponse(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -74,8 +75,8 @@ func TestUseAfterClose(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after Close")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrState {
@@ -153,8 +154,8 @@ func TestParseError_SignalBitLengthZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Code != aletheia.CodeParseSignalBitLengthZero {
@@ -183,8 +184,8 @@ func TestParseError_SignalOverflowsFrame(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Code != aletheia.CodeParseSignalOverflowsFrame {
@@ -213,8 +214,8 @@ func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Code != aletheia.CodeParseSignalMSBBelowBitLength {

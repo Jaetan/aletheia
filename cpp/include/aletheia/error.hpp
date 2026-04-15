@@ -15,8 +15,17 @@ enum class ErrorKind {
     Ffi         // Library load / RTS initialization failure
 };
 
-/// Machine-readable error codes matching Agda Error ADT (44 codes).
-/// Each maps 1:1 to an Agda error constructor via errorCode.
+/// Machine-readable error codes mirroring the Agda `Error` ADT.
+///
+/// Each named constant other than `Unknown` maps 1:1 to a string emitted by
+/// `errorCode` in `Aletheia.Error` — the ADT defines 49 codes across 6
+/// families (Parse / Frame / Route / Handler / Dispatch / Extraction).
+///
+/// `Unknown` is a forward-compatibility sentinel used by
+/// `error_code_from_string` when the Agda core returns a code the C++
+/// binding does not recognise. In lock-step builds it should never be
+/// produced; its presence here is a deliberate escape hatch rather than a
+/// 50th ADT constructor.
 enum class ErrorCode {
     Unknown,
     // Parse errors
@@ -68,6 +77,12 @@ enum class ErrorCode {
     DispatchUnknownMessageType,
     DispatchInvalidJson,
     DispatchRequestNotObject,
+    // Extraction errors
+    ExtractionMuxValueMismatch,
+    ExtractionMuxSignalNotFound,
+    ExtractionMuxChainCycle,
+    ExtractionMuxExtractionFailed,
+    ExtractionBitExtractionFailed,
 };
 
 /// Parse an error code string from Agda JSON into the enum.

@@ -1,7 +1,5 @@
 """Client types, exceptions, and result containers."""
 
-from __future__ import annotations
-
 import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -15,24 +13,41 @@ type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
 
 
 class AletheiaError(Exception):
-    """Base exception for all Aletheia errors"""
-
-
-class ProcessError(AletheiaError):
-    """FFI or shared library errors"""
-
-
-class ProtocolError(AletheiaError):
-    """Protocol-related errors (invalid JSON, missing response, etc.)
+    """Base exception for all Aletheia errors.
 
     Attributes:
-        code: Machine-readable error code from Agda (None for client-side errors).
+        code: Machine-readable error code from the Agda core
+            (``aletheia.protocols.ErrorCode``).  ``None`` for errors raised
+            purely client-side (e.g. "library not loaded", "null pointer
+            from FFI") — those surface as a plain Python exception without
+            an Agda wire value.
     """
+
     code: str | None
 
     def __init__(self, message: str, code: str | None = None) -> None:
         super().__init__(message)
         self.code = code
+
+
+class ProcessError(AletheiaError):
+    """FFI or shared library errors.
+
+    Carries ``code`` (from :class:`AletheiaError`) so callers can
+    distinguish e.g. ``extraction_bit_extraction_failed`` from
+    ``frame_signal_not_found`` without parsing the message string.
+    The Go binding's ``*ProcessError`` and C++'s ``ExtractionError``
+    expose the same field; keep the three surfaces in sync.
+    """
+
+
+class ProtocolError(AletheiaError):
+    """Protocol-related errors (invalid JSON, missing response, etc.).
+
+    ``code`` is inherited from :class:`AletheiaError`; kept as its own
+    subclass so ``except ProtocolError`` remains narrower than
+    ``except AletheiaError`` where the distinction matters.
+    """
 
 
 class BatchError(AletheiaError):
@@ -141,7 +156,11 @@ class CANFrameTuple(NamedTuple):
     timestamp: int
     can_id: int
     dlc: int
-    data: bytearray
+    # Either ``bytes`` (immutable read-only payload) or ``bytearray`` (mutable
+    # buffer filled from a SocketCAN read).  Both work at the ctypes boundary;
+    # ``bytes`` is preferred for precomputed frame constants in benchmarks and
+    # tests so the module-level data cannot be mutated between iterations.
+    data: bytes | bytearray
     extended: bool
 
 _MAX_STANDARD_ID = (1 << 11) - 1  # 11-bit CAN ID

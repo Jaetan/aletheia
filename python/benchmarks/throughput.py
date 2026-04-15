@@ -13,73 +13,24 @@ Usage:
 
 import argparse
 import json
-import os
-import platform
 import statistics
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# Benchmarks import the *installed* package (``pip install -e .[dev]``) so
+# that any wheel/setuptools shim overhead shows up in the numbers — matches
+# how end users measure Aletheia in production.  Do not reintroduce
+# ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
-
-EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
-
-
-# ============================================================================
-# DBC loaders
-# ============================================================================
-
-def load_dbc() -> dict:
-    """Load the CAN 2.0B example DBC file."""
-    return dbc_to_json(str(EXAMPLES_DIR / "example.dbc"))
-
-
-def load_canfd_dbc() -> dict:
-    """Load the CAN-FD example DBC file."""
-    return dbc_to_json(str(EXAMPLES_DIR / "example_canfd.dbc"))
-
-
-# ============================================================================
-# CAN 2.0B frames (DLC 8, 8 bytes)
-# ============================================================================
-
-CAN20_FRAME = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-CAN20_CAN_ID = 0x100
-CAN20_DLC = 8
-CAN20_SIGNALS = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
-
-# ============================================================================
-# CAN-FD frames (DLC 15, 64 bytes)
-# ============================================================================
-
-# 64-byte sensor fusion frame with realistic values
-CANFD_FRAME = bytearray(
-    [0x00, 0xE1, 0xF5, 0x05]   # GPSLatitude  (raw ~100000000 → 10.0 deg)
-    + [0x00, 0x6C, 0xDC, 0x02]  # GPSLongitude (raw ~48100000 → 4.81 deg)
-    + [0xE8, 0x03]               # GPSAltitude  (raw 1000 → 100.0 m)
-    + [0xD0, 0x07]               # GPSSpeed     (raw 2000 → 20.0 m/s)
-    + [0x00, 0x00]               # YawRate      (raw 0 → 0.0 deg/s)
-    + [0x00, 0x00]               # LateralAccel (raw 0)
-    + [0x00, 0x00]               # LongAccel    (raw 0)
-    + [0x00, 0x00]               # SteeringAngle(raw 0)
-    + [0xE8, 0x03]               # WheelSpeedFL (raw 1000 → 10.0 m/s)
-    + [0xE8, 0x03]               # WheelSpeedFR (raw 1000 → 10.0 m/s)
-    + [0xE8, 0x03]               # WheelSpeedRL
-    + [0xE8, 0x03]               # WheelSpeedRR
-    + [0x00] * 36                # Remaining signals + padding to 64 bytes
+# Shared benchmark vocabulary — DBC loaders, frame constants, system info.
+# Consolidating these in ``_common.py`` keeps the five benchmark scripts
+# from drifting apart; see PY-31-1.
+from ._common import (
+    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
+    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
+    get_system_info, load_canfd_dbc, load_dbc,
 )
-CANFD_CAN_ID = 0x200
-CANFD_DLC = 15
-CANFD_SIGNALS = {
-    "GPSSpeed": 20.0,
-    "YawRate": 0.0,
-    "WheelSpeedFL": 10.0,
-    "WheelSpeedFR": 10.0,
-}
 
 
 # ============================================================================
@@ -88,7 +39,7 @@ CANFD_SIGNALS = {
 
 def benchmark_streaming(
     dbc: dict, num_frames: int, *,
-    can_id: int, dlc: int, frame: bytearray,
+    can_id: int, dlc: int, frame: bytes,
     properties: list[dict],
 ) -> float:
     """Benchmark streaming throughput. Returns frames per second."""
@@ -109,7 +60,7 @@ def benchmark_streaming(
 
 def benchmark_signal_extraction(
     dbc: dict, num_frames: int, *,
-    can_id: int, dlc: int, frame: bytearray,
+    can_id: int, dlc: int, frame: bytes,
 ) -> float:
     """Benchmark signal extraction throughput. Returns extractions per second."""
     with AletheiaClient() as client:
@@ -170,16 +121,6 @@ def run_benchmark(
         "min": min(results),
         "max": max(results),
         "results": results,
-    }
-
-
-def get_system_info() -> dict:
-    """Collect system information for benchmark metadata."""
-    return {
-        "cpu": platform.processor() or platform.machine(),
-        "cores": os.cpu_count() or 0,
-        "platform": platform.system(),
-        "python": platform.python_version(),
     }
 
 

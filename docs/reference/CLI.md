@@ -2,7 +2,7 @@
 
 **Purpose**: Command-line interface for Aletheia CAN signal verification.
 **Version**: 1.1.1
-**Last Updated**: 2026-04-03
+**Last Updated**: 2026-04-15
 
 ---
 

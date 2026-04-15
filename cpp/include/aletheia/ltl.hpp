@@ -7,6 +7,8 @@
 #include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <memory>
+#include <type_traits>
+#include <utility>
 #include <variant>
 
 namespace aletheia {

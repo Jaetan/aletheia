@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <set>
-#include <string>
 #include <variant>
 #include <vector>
 
@@ -84,12 +83,12 @@ auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexV
 }
 
 auto DbcMessage::signal_by_name(const SignalName& target) const -> const DbcSignal* {
-    signal_index_cache.ensure([this](auto& map) {
+    signal_index_cache_.ensure([this](auto& map) {
         for (std::size_t i = 0; i < signals.size(); ++i) {
             map.emplace(signals[i].name.get(), i);
         }
     });
-    auto idx = signal_index_cache.find(target.get());
+    auto idx = signal_index_cache_.find(target.get());
     if (!idx) {
         return nullptr;
     }

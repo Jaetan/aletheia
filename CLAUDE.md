@@ -77,15 +77,15 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 119 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 120 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (119 total):
-- **115 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (120 total):
+- **116 modules**: `--safe --without-K` (standard safe modules)
 - **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 
-**All 119 modules use `--safe`**. No modules require `--sized-types`.
+**All 120 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -212,6 +212,8 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 
 ### C++ Binding
 
+> **Canonical metrics**: file/test counts and Phase 5.1 deliverable inventory live in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). The summary below is for quick orientation; if it ever disagrees with PROJECT_STATUS.md, PROJECT_STATUS.md wins.
+
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 - **14 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `excel.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`, `yaml.hpp`
 - **10 source files** in `src/`: `backend.cpp`, `client.cpp`, `dbc.cpp`, `enrich.cpp`, `excel.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`, `yaml.cpp`
@@ -224,9 +226,12 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 
 ### Go Binding
 
+> **Canonical metrics**: see [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) (same single source of truth as the C++ Binding section above).
+
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **17 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `excel.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
-- **15 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `excel_test.go`, `ffi_backend_test.go`, `helpers_test.go`, `internal_test_helpers_test.go`, `mux_test.go`, `nested_mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (mock backend)
+- **16 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
+- **14 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `ffi_backend_test.go`, `helpers_test.go`, `internal_test_helpers_test.go`, `mux_test.go`, `nested_mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (mock backend)
+- **Optional Excel package**: `go/excel/` is a separate Go module (separate `go.mod`) that pulls in the heavy `xuri/excelize` dependency chain; depend on it only if you need the Excel loader.
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
 - **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning
@@ -323,7 +328,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in all 119 Aletheia modules
+  - Used in all 120 Aletheia modules
 - `--without-K` disables Streicher's K axiom (uniqueness of identity proofs)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

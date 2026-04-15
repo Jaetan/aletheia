@@ -1,6 +1,7 @@
 package aletheia_test
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -539,8 +540,8 @@ func TestSendFrame_NonMonotonicTimestamp(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for backward timestamp")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Code != aletheia.CodeHandlerNonMonotonicTimestamp {

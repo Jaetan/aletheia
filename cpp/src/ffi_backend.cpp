@@ -8,13 +8,15 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <limits>
+#include <format>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -122,6 +124,11 @@ class FfiBackend : public IBackend {
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
     AletheiaFreeBufFn free_buf_fn_ = nullptr;
     std::string pending_warning_;
+    // Populated alongside `pending_warning_` when the backend detects that the
+    // GHC RTS was already initialised with a different -N value than the
+    // caller requested. Structured counterpart to the warning string, used by
+    // Client::rts.cores_mismatch logging for parity with Go/Python.
+    std::optional<std::pair<int, int>> rts_mismatch_;
 
     template<typename Fn>
     static auto load_sym(void* handle, const char* name) -> Fn {
@@ -191,6 +198,7 @@ public:
                                                "ignoring rts_cores={}. Set rts_cores on the first "
                                                "make_ffi_backend() call in the process.",
                                                rts.cores, rts_cores);
+                rts_mismatch_ = std::make_pair(rts.cores, rts_cores);
             }
         } catch (...) {
             // RTS was never started — safe to release the library handle.
@@ -209,6 +217,10 @@ public:
     FfiBackend& operator=(FfiBackend&&) = delete;
 
     [[nodiscard]] auto pending_warning() const -> std::string override { return pending_warning_; }
+
+    [[nodiscard]] auto rts_mismatch_info() const -> std::optional<std::pair<int, int>> override {
+        return rts_mismatch_;
+    }
 
     auto init() -> void* override { return init_fn_(); }
 
@@ -448,6 +460,13 @@ public:
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.
         std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out_buf, free_buf_fn_);
+        // Guard against the degenerate case where the backend signalled
+        // success but produced a null buffer: constructing std::span from a
+        // null pointer with non-zero size is undefined behaviour
+        // ([span.cons]/3). A zero-length extraction is a legal successful
+        // response — return an empty payload instead of reading through null.
+        if (out_buf == nullptr)
+            return std::vector<std::byte>{};
         const std::span<const std::byte> out_bytes(as_byte(out_buf), out_size);
         return std::vector<std::byte>(out_bytes.begin(), out_bytes.end());
     }

@@ -27,7 +27,7 @@ func LoadChecksFromYAMLFile(path string) ([]CheckResult, error) {
 		if os.IsNotExist(err) {
 			return nil, validationError(fmt.Sprintf("YAML file not found: %s", path))
 		}
-		return nil, wrapError(ErrValidation, "reading YAML file", err)
+		return nil, wrapValidation("reading YAML file", err)
 	}
 	return parseYAMLChecks(data)
 }
@@ -40,7 +40,7 @@ func loadYAMLData(source string) ([]byte, error) {
 	if _, err := os.Stat(source); err == nil {
 		data, err := os.ReadFile(source)
 		if err != nil {
-			return nil, wrapError(ErrValidation, "reading YAML file", err)
+			return nil, wrapValidation("reading YAML file", err)
 		}
 		return data, nil
 	}
@@ -86,7 +86,7 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	// We need to verify the top-level structure manually to give good errors.
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, wrapError(ErrValidation, "invalid YAML", err)
+		return nil, wrapValidation("invalid YAML", err)
 	}
 
 	checksRaw, ok := raw["checks"]
@@ -102,7 +102,7 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	// Now unmarshal into our typed structs.
 	var file yamlFile
 	if err := yaml.Unmarshal(data, &file); err != nil {
-		return nil, wrapError(ErrValidation, "invalid YAML", err)
+		return nil, wrapValidation("invalid YAML", err)
 	}
 
 	results := make([]CheckResult, 0, len(file.Checks))

@@ -2,6 +2,7 @@ package aletheia_test
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -227,8 +228,8 @@ func TestFormatDBC_AfterClose(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after Close")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrState {
@@ -746,8 +747,8 @@ func TestFormatDBC_InvalidByteOrder(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid byteOrder")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -778,8 +779,8 @@ func TestFormatDBC_NegativeID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for negative ID")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -813,8 +814,8 @@ func TestFormatDBC_MissingSignalName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing signal name")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -836,8 +837,8 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for Between with Min > Max")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrValidation {
@@ -873,8 +874,8 @@ func TestFormatDBC_StartBitOutOfRange(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for startBit=600")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -909,8 +910,8 @@ func TestFormatDBC_LengthZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for length=0")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -945,8 +946,8 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for length=65")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -978,8 +979,8 @@ func TestExtractSignals_EmptySignalName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty signal name in extraction")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {
@@ -1010,8 +1011,8 @@ func TestFormatDBC_EmptyMessageName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty message name")
 	}
-	aErr, ok := err.(*aletheia.Error)
-	if !ok {
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
 		t.Fatalf("expected *aletheia.Error, got %T", err)
 	}
 	if aErr.Kind != aletheia.ErrProtocol {

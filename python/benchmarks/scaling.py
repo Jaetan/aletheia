@@ -15,52 +15,19 @@ Usage:
 
 import argparse
 import json
-import os
-import platform
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
-
-EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
-
-
-def load_dbc() -> dict:
-    """Load the CAN 2.0B example DBC file."""
-    return dbc_to_json(str(EXAMPLES_DIR / "example.dbc"))
-
-
-def load_canfd_dbc() -> dict:
-    """Load the CAN-FD example DBC file."""
-    return dbc_to_json(str(EXAMPLES_DIR / "example_canfd.dbc"))
-
-
-CAN20_FRAME = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-CAN20_CAN_ID = 0x100
-CAN20_DLC = 8
-
-CANFD_FRAME = bytearray(
-    [0x00, 0xE1, 0xF5, 0x05]
-    + [0x00, 0x6C, 0xDC, 0x02]
-    + [0xE8, 0x03]
-    + [0xD0, 0x07]
-    + [0x00, 0x00]
-    + [0x00, 0x00]
-    + [0x00, 0x00]
-    + [0x00, 0x00]
-    + [0xE8, 0x03]
-    + [0xE8, 0x03]
-    + [0xE8, 0x03]
-    + [0xE8, 0x03]
-    + [0x00] * 36
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from ._common import (
+    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
+    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME,
+    get_system_info, load_canfd_dbc, load_dbc,
 )
-CANFD_CAN_ID = 0x200
-CANFD_DLC = 15
 
 
 def benchmark_frames_per_sec(
@@ -69,7 +36,7 @@ def benchmark_frames_per_sec(
     properties: list[dict],
     can_id: int,
     dlc: int,
-    frame: bytearray,
+    frame: bytes,
 ) -> tuple[float, float]:
     """Benchmark streaming throughput. Returns (frames_per_sec, total_time)."""
     with AletheiaClient() as client:
@@ -273,16 +240,6 @@ def test_property_complexity_scaling(dbc: dict, quick: bool = False, file=None) 
     print(file=out)
     print("Expected: More complex properties should be slower", file=out)
     return results
-
-
-def get_system_info() -> dict:
-    """Collect system information for benchmark metadata."""
-    return {
-        "cpu": platform.processor() or platform.machine(),
-        "cores": os.cpu_count() or 0,
-        "platform": platform.system(),
-        "python": platform.python_version(),
-    }
 
 
 def main():

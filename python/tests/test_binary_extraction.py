@@ -1,13 +1,13 @@
 """Tests for binary extraction buffer parsing (_client_bin.py)."""
 
-from __future__ import annotations
-
 import struct
 
 import pytest
 
 from aletheia.client._client_bin import (
     EXTRACTION_ERROR_MESSAGES,
+    EXTRACTION_ERROR_MESSAGES_BY_CODE,
+    ExtractionErrorCode,
     parse_extraction_buffer,
 )
 from aletheia.client._types import ProcessError
@@ -105,3 +105,83 @@ class TestParseExtractionBuffer:
         assert result.values == {}
         assert result.errors == {}
         assert result.absent == ()
+
+
+class TestExtractionErrorCodeSync:
+    """Guard the Python enum against Agda drift.
+
+    ``ExtractionErrorCode`` mirrors ``Aletheia.CAN.BatchExtraction.
+    ExtractionErrorCode``.  The Agda source is the authoritative
+    manifest; this test reads the constructor order directly from
+    ``src/Aletheia/CAN/BatchExtraction.agda`` so that adding, removing,
+    or reordering an Agda constructor breaks this test instead of
+    silently shifting a wire code to a stale message in production.
+    """
+
+    def _agda_constructors(self) -> list[str]:
+        """Parse the Agda source for ``ExtractionErrorCode`` constructors."""
+        from pathlib import Path
+        agda = (
+            Path(__file__).resolve().parents[2]
+            / "src" / "Aletheia" / "CAN" / "BatchExtraction.agda"
+        )
+        if not agda.exists():
+            pytest.fail(
+                f"Agda source required for enum drift test but not at {agda}"
+            )
+        lines = agda.read_text(encoding="utf-8").splitlines()
+        # Find the data block; constructors follow with 2-space indent until
+        # a non-indented line or blank line is reached.
+        try:
+            start = next(
+                i for i, line in enumerate(lines)
+                if line.startswith("data ExtractionErrorCode")
+            )
+        except StopIteration:
+            pytest.fail("``data ExtractionErrorCode`` block not found in Agda source")
+        ctors: list[str] = []
+        for line in lines[start + 1:]:
+            stripped = line.strip()
+            if not stripped or not line.startswith(" "):
+                break
+            # Constructor lines look like ``Name : ExtractionErrorCode ...``
+            head = stripped.split(":", 1)[0].strip()
+            if head:
+                ctors.append(head)
+        return ctors
+
+    def test_enum_matches_agda_constructor_order(self) -> None:
+        """Enum values match ``extractionErrorCodeToℕ`` in Agda."""
+        # Agda → Python name mapping: both are stable by design; adding a
+        # new Agda constructor forces a parallel addition here AND in the
+        # Go/C++ bindings (see AGENTS.md cross-binding parity rule).
+        expected_name_for_code = {
+            "NotInDBC": "NOT_IN_DBC",
+            "OutOfBounds": "OUT_OF_BOUNDS",
+            "ExtractionFailed": "EXTRACTION_FAILED",
+        }
+        agda_ctors = self._agda_constructors()
+        assert agda_ctors, "no constructors parsed from Agda source"
+        assert len(agda_ctors) == len(ExtractionErrorCode), (
+            f"Agda has {len(agda_ctors)} constructors, Python enum has "
+            f"{len(ExtractionErrorCode)} — update Python to match"
+        )
+        for i, agda_name in enumerate(agda_ctors):
+            py_name = expected_name_for_code.get(agda_name)
+            assert py_name is not None, (
+                f"Agda constructor {agda_name!r} has no Python mirror; "
+                f"add it to ExtractionErrorCode"
+            )
+            py_member = ExtractionErrorCode[py_name]
+            assert py_member.value == i, (
+                f"{agda_name} is Agda constructor #{i} but Python "
+                f"{py_name} = {py_member.value}"
+            )
+
+    def test_messages_cover_every_code(self) -> None:
+        """Every enum member has a message — no ``KeyError`` at runtime."""
+        for code in ExtractionErrorCode:
+            assert code in EXTRACTION_ERROR_MESSAGES_BY_CODE
+            assert EXTRACTION_ERROR_MESSAGES_BY_CODE[code]
+        # Legacy positional tuple is derived from the dict — guard it too.
+        assert len(EXTRACTION_ERROR_MESSAGES) == len(ExtractionErrorCode)

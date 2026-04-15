@@ -11,33 +11,20 @@ Usage:
 """
 
 import platform
-import resource
 import sys
 import time
 from multiprocessing import cpu_count
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
-from aletheia.dbc_converter import dbc_to_json
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from ._common import (
+    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
+    get_rss_mb, load_dbc,
+)
 
 NUM_FRAMES = 2000
-
-
-def get_rss_mb() -> float:
-    """Get current max RSS in MB (works on Linux and macOS)."""
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    ru_maxrss = usage.ru_maxrss  # KB on Linux, bytes on macOS
-    if platform.system() == "Darwin":
-        return ru_maxrss / (1024 * 1024)
-    return ru_maxrss / 1024
-
-
-def load_dbc() -> dict:
-    """Load the example DBC file."""
-    dbc_path = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
-    return dbc_to_json(str(dbc_path))
 
 
 def main() -> int:
@@ -73,15 +60,15 @@ def main() -> int:
     client.set_properties([p.to_dict() for p in properties])
     client.start_stream()
 
-    frame = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-
     # Warmup (100 frames)
     for i in range(100):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=frame)
+        client.send_frame(timestamp=i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
 
     start = time.perf_counter()
     for i in range(NUM_FRAMES):
-        client.send_frame(timestamp=100 + i, can_id=0x100, dlc=8, data=frame)
+        client.send_frame(
+            timestamp=100 + i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME,
+        )
     streaming_elapsed = time.perf_counter() - start
     streaming_fps = NUM_FRAMES / streaming_elapsed
 
@@ -91,11 +78,11 @@ def main() -> int:
     # --- Throughput: signal extraction ---
     # Warmup
     for _ in range(100):
-        client.extract_signals(can_id=0x100, dlc=8, data=frame)
+        client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
 
     start = time.perf_counter()
     for _ in range(NUM_FRAMES):
-        client.extract_signals(can_id=0x100, dlc=8, data=frame)
+        client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
     extraction_elapsed = time.perf_counter() - start
     extraction_fps = NUM_FRAMES / extraction_elapsed
 
@@ -104,11 +91,11 @@ def main() -> int:
 
     # Warmup
     for _ in range(100):
-        client.build_frame(can_id=0x100, dlc=8, signals=signals)
+        client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
 
     start = time.perf_counter()
     for _ in range(NUM_FRAMES):
-        client.build_frame(can_id=0x100, dlc=8, signals=signals)
+        client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
     building_elapsed = time.perf_counter() - start
     building_fps = NUM_FRAMES / building_elapsed
 

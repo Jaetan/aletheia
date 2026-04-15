@@ -3,8 +3,6 @@
 Module-level functions, testable without an AletheiaClient instance.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from fractions import Fraction
 from typing import cast

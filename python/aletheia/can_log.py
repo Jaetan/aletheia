@@ -15,8 +15,6 @@ Example:
         response = client.send_frame(ts, can_id, dlc, data, extended=ext)
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal

@@ -82,16 +82,15 @@ struct Rational {
     // Cross-multiply comparison (avoids floating-point).
     // __int128 is a GCC/Clang extension (not standard C++); the project targets
     // g++ >= 14 and clang >= 21 on Linux only, where it is always available.
+    // A double-precision fallback would silently lose precision on large
+    // numerator/denominator pairs, so we refuse to build rather than ship it.
+    static_assert(sizeof(__int128) >= 16, "Aletheia requires __int128 support "
+                                          "(g++ >= 14 / clang >= 21 on Linux).");
     constexpr auto operator<=>(const Rational& rhs) const {
         // a/b <=> c/d  iff  a*d <=> c*b  (denominators always positive)
-#if defined(__SIZEOF_INT128__)
         auto lhs_prod = static_cast<__int128>(numerator) * rhs.denominator;
         auto rhs_prod = static_cast<__int128>(rhs.numerator) * denominator;
         return lhs_prod <=> rhs_prod;
-#else
-        // Fallback for compilers without __int128 (not expected on project targets).
-        return to_double() <=> rhs.to_double();
-#endif
     }
     constexpr bool operator==(const Rational& rhs) const {
         return (*this <=> rhs) == std::strong_ordering::equal;

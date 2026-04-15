@@ -60,19 +60,14 @@ Build and contribute:
 Learn by example:
 
 - **[Examples Directory](../examples/)** - Sample DBC files and verification scripts
-- **[Demo Scripts](../examples/demo/)** - 11 demo scripts + support files:
-  - `demo_check_api.py` - Check API fluent interface (9 checks, all condition types)
-  - `demo_yaml_loader.py` - YAML loader with `demo_checks.yaml`
-  - `demo_excel_loader.py` - Excel loader: templates, checks, DBC from spreadsheets
-  - `demo_all_interfaces.py` - Equivalence proof: DSL == Check API == YAML == Excel
-  - `demo.py` - Full presentation: DBC loading, streaming, fault injection
-  - `dbc_validation.py` - DBC validation (overlap detection, range consistency)
-  - `frame_injection.py` - Real-time frame injection during streaming
-  - `drive_log.py` - Sample CAN frame generators
-  - `engine_ecu_sim.py` - Engine ECU freeze simulation (staleness demo)
-  - `test_engine_naive.py` - Naive unit tests that pass against buggy ECU
-  - `demo_ltl_bug.py` - LTL catches frozen alive counter violations
-  - `demo_workbook.xlsx` - Persistent Excel workbook for live demos
+- **[Examples README](../examples/README.md)** - Curated index of demo scripts and support files
+- **[Demo Scripts](../examples/demo/)** - demo scripts covering Check API, YAML/Excel loaders, DBC validation, streaming, fault injection, and LTL property checking (see the examples README above for the authoritative inventory)
+
+---
+
+## Benchmarks
+
+- **[Python benchmarks README](../python/benchmarks/README.md)** - Cross-language throughput benchmarks and measurement methodology
 
 ---
 
@@ -80,6 +75,10 @@ Learn by example:
 
 - **[LICENSE](../LICENSE.md)** - BSD 2-Clause License
 - **[Python Package README](../python/README.md)** - Installation via pip
+- **[DEPENDENCIES.md](../DEPENDENCIES.md)** - Third-party runtime dependencies and their licenses
+- **[DEFERRALS.md](../DEFERRALS.md)** - Items deliberately deferred out of scope with rationale
+- **[AGENTS.md](../AGENTS.md)** - Per-language coding standards and review categories (canonical source for AI-assisted and human code review)
+- **[Presentation](presentation/index.html)** - Slide deck for talks and demos (open in browser)
 
 ---
 
@@ -90,8 +89,11 @@ aletheia/
 ├── README.md                          # Main entry point
 ├── CLAUDE.md                          # AI development guide
 ├── CONTRIBUTING.md                    # Contribution guidelines
-├── PROJECT_STATUS.md                  # Phase tracking
+├── PROJECT_STATUS.md                  # Phase tracking (canonical metrics)
 ├── LICENSE.md                         # Legal
+├── AGENTS.md                          # Per-language coding standards / review categories
+├── DEPENDENCIES.md                    # Third-party dependencies & licenses
+├── DEFERRALS.md                       # Deliberately deferred items
 │
 ├── docs/
 │   ├── INDEX.md                       # THIS FILE - Navigation hub
@@ -100,7 +102,7 @@ aletheia/
 │   ├── guides/
 │   │   ├── QUICKSTART.md              # 5-minute quick start
 │   │   ├── TUTORIAL.md                # End-to-end walkthroughs
-│   │   └── COOKBOOK.md                 # Problem-driven recipes
+│   │   └── COOKBOOK.md                # Problem-driven recipes
 │   │
 │   ├── reference/
 │   │   ├── INTERFACES.md              # Check API, YAML, Excel
@@ -111,18 +113,25 @@ aletheia/
 │   │   ├── DESIGN.md                  # Architecture overview
 │   │   └── PROTOCOL.md                # JSON protocol spec
 │   │
-│   └── development/
-│       ├── BUILDING.md                # Build instructions
-│       └── DISTRIBUTION.md            # Packaging & native integration
+│   ├── development/
+│   │   ├── BUILDING.md                # Build instructions
+│   │   └── DISTRIBUTION.md            # Packaging & native integration
+│   │
+│   └── presentation/
+│       └── index.html                 # Slide deck for talks and demos
 │
-└── examples/
-    ├── example.dbc                    # Sample CAN 2.0B DBC file
-    ├── example_canfd.dbc              # Sample CAN-FD DBC file
-    ├── simple_verification.py         # Standalone verification example
-    └── demo/                          # Demo scripts + support files
+├── examples/
+│   ├── README.md                      # Curated index of demo scripts
+│   ├── example.dbc                    # Sample CAN 2.0B DBC file
+│   ├── example_canfd.dbc              # Sample CAN-FD DBC file
+│   ├── simple_verification.py         # Standalone verification example
+│   └── demo/                          # Demo scripts + support files
+│
+└── python/benchmarks/
+    └── README.md                      # Cross-language benchmark methodology
 ```
 
 ---
 
-**Last Updated**: 2026-04-02
+**Last Updated**: 2026-04-15
 **Maintained By**: Aletheia Team

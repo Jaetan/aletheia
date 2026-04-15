@@ -1,0 +1,19 @@
+// Workspace for the Aletheia Go modules.
+//
+// The excel submodule lives in its own module (./excel) so its heavy
+// excelize/crypto/text dependency chain is optional — consumers that only
+// want the core binding depend on github.com/aletheia-automotive/aletheia-go
+// without pulling in excelize.
+//
+// Local development uses this workspace so changes to the core module
+// propagate to the excel submodule without a tagged release. Downstream
+// consumers do not see this file — they resolve the published core module
+// version from excel/go.mod's require directive.
+go 1.24.0
+
+toolchain go1.24.6
+
+use (
+	.
+	./excel
+)

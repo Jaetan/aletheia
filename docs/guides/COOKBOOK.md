@@ -336,9 +336,10 @@ client.add_checks(checks)
 ```python
 response = client.send_frame(ts, can_id, dlc, data)
 if response.get("status") == "fails":
-    signals = response.get("signals", {})
-    formula = response.get("formula", "")
-    reason = response.get("enriched_reason", "")
+    enrichment = response.get("enrichment", {})
+    signals = enrichment.get("signals", {})
+    formula = enrichment.get("formula_desc", "")
+    reason = enrichment.get("enriched_reason", "")
     print(f"{reason}  signals={signals}")
 ```
 
@@ -358,7 +359,7 @@ for v in violations:
     ts_ms = v["timestamp"]["numerator"] / 1000  # µs → ms
     idx = v["property_index"]["numerator"]
     name = checks[idx].name or f"Check #{idx}"
-    reason = v.get("enriched_reason", "?")
+    reason = v.get("enrichment", {}).get("enriched_reason", "?")
     print(f"[{ts_ms:.1f}ms] {name}: {reason}")
 ```
 

@@ -1,7 +1,5 @@
 """Tests for formula enrichment: pretty-printer, signal collector, diagnostics."""
 
-from __future__ import annotations
-
 from aletheia.client._enrichment import (
     build_diagnostic,
     collect_signals,

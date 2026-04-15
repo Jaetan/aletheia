@@ -243,9 +243,9 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - ✅ extractAllSignals completeness proof: `extractAll-complete` proves `totalEntries (extractAllSignalsFromMessage dbc frame msg) ≡ length (DBCMessage.signals msg)` (~40 lines in `CAN/Batch/Properties.agda`). Every signal produces exactly one entry across the three result partitions (values, errors, absent). Proof by foldr induction with `with`-decomposition of the recursive accumulator.
 - ✅ Mixed byte-order injection commutativity: `injectPayload-commute-mixed` proves disjoint `injectPayload` calls commute for all 4 byte-order combinations (~278 lines in `CAN/Endianness.agda`). 4-layer proof: swap-conjugation converts cross-BO operations to `applyWrites` at physical positions, then existing `applyWrites-comm` handles commutativity. Layered architecture: concrete Vec Byte 8 → single BitWrite → write list → AllDiffPos structural conversion → 4-case dispatch.
 
-- ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc., `Rational` for exact signal values), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. Hash-map `DbcIndex` for O(1) signal lookups. Formula depth limit (100). 142 unit + 8 integration + 33 YAML + 47 Excel TEST_CASEs (230 total) + static_asserts across 5 test suites. 11 rounds of code review — all categories pass, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
+- ✅ C++23 binding (`cpp/`): Complete client library wrapping `libaletheia-ffi.so` via `dlopen`. Strong types (`std::byte` frame data, validated newtypes for CAN ID / DLC / BitPosition / etc., `Rational` for exact signal values), `std::expected` for errors, RAII state lifecycle, dependency injection via `IBackend` interface. Mock backend for testing without Agda core. Hash-map `DbcIndex` for O(1) signal lookups. Formula depth limit (100). 151 unit + 33 integration + 33 YAML + 47 Excel TEST_CASEs (264 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite, `ctest 5/5` PASS (see Key Metrics). 11+ rounds of code review — all categories pass, clang-format and clang-tidy enforced as hard gates (zero violations/warnings). CMake build with `FetchContent` (nlohmann/json, Catch2), `SOVERSION`, install/export for `find_package()`.
 
-- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC, `Rational` for exact signal values). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (12 event types, `ClientOption`/`WithLogger`). Hash-map indexes in `Dbc` for O(1) signal lookups. Formula depth limit (100). 17 source files, 15 test files, 243 tests (all pass with `-race`). 23 rounds of code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
+- ✅ Go binding (`go/`): Complete client library wrapping `libaletheia-ffi.so` via cgo + dlopen. Strong types (`[]byte` payload with DLC-based validation, sealed interfaces for CanID/Predicate/Formula/SignalPresence/FrameResponse, validated newtypes for CAN ID / DLC, `Rational` for exact signal values). `Backend` interface abstracts FFI; `MockBackend` for testing, `FFIBackend` for production. Goroutine-safe `Client` (`sync.Mutex`), double-close safe (`sync.Once`), GHC RTS init thread-pinned. `slog` structured logging (12 event types, `ClientOption`/`WithLogger`). Hash-map indexes in `Dbc` for O(1) signal lookups. Formula depth limit (100). 16 source files + 14 test files in `go/aletheia/` (218 tests), plus a separate `go/excel/` module (58 tests) — all pass with `-race`. 23 rounds of code review (AGENTS.md). `ffi_nocgo.go` build tag fallback for non-cgo builds.
 
 - ✅ C header (`include/aletheia.h`): Documents the 5 C-callable FFI functions + GHC RTS initialization contract. The contract all language bindings implement against. Shakefile packaging target (`cabal run shake -- dist`) bundles .so + header.
 
@@ -378,10 +378,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 119 (all `--safe --without-K`)
-- Python modules: 18
+- Agda modules: 120 (all `--safe --without-K`)
+- Python modules: 21 (13 top-level + 8 in `aletheia/client/` subpackage)
 - C++ files: 33 (14 public headers + 1 public detail header + 10 source + 3 internal detail headers + 5 test files)
-- Go files: 17 source + 15 test
+- Go files: 16 source + 14 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
@@ -415,11 +415,11 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 119 Agda modules use `--safe --without-K` (4 also use `--no-main`)
+- All 120 Agda modules use `--safe --without-K` (4 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state, metric operator window bounds)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`
-- **All verification suites green**: Python (basedpyright 0 errors, pylint 10.00/10), C++ (clang-format clean, clang-tidy clean, ctest 3/3), Go (go test -race, go vet, gofmt all clean)
+- **All verification suites green**: Python (basedpyright 0 errors, pylint 10.00/10), C++ (clang-format clean, clang-tidy clean, ctest 5/5), Go (go test -race, go vet, gofmt all clean)
 
 ---
 

@@ -122,6 +122,12 @@ try:
     __version__ = _pkg_version("aletheia")
 except PackageNotFoundError:
     __version__ = "0.0.0"  # Development mode — not installed via pip
+
+# Static ``__all__`` covers the full public surface, including optional
+# extras. Names backed by optional dependencies may not be importable if
+# those packages aren't installed; ``from aletheia import *`` in that case
+# raises ``AttributeError`` for the missing name, which is the documented
+# behaviour for missing extras.
 __all__ = [
     # Client
     "AletheiaClient",
@@ -140,20 +146,7 @@ __all__ = [
     "CheckResult",
     # Error codes (consumer API for matching error responses)
     "ErrorCode",
-    # Excel loader (optional: pip install aletheia[excel])
-    "load_checks_from_excel",
-    "load_dbc_from_excel",
-    "create_template",
-    # CAN log reader (optional: pip install aletheia[can])
-    "load_can_log",
-    "iter_can_log",
-    # DBC converter (optional: pip install aletheia[dbc])
-    "convert_dbc_file",
-    "dbc_to_json",
-    "dbc_to_text",
-    # YAML loader (optional: pip install aletheia[yaml])
-    "load_checks",
-    # DBC queries
+    # DBC queries (no optional deps)
     "is_multiplexed",
     "always_present_signals",
     "multiplexed_signals",
@@ -170,4 +163,17 @@ __all__ = [
     "infinitely_often",
     "eventually_always",
     "never",
+    # Optional: aletheia[dbc]
+    "convert_dbc_file",
+    "dbc_to_json",
+    "dbc_to_text",
+    # Optional: aletheia[can]
+    "load_can_log",
+    "iter_can_log",
+    # Optional: aletheia[yaml]
+    "load_checks",
+    # Optional: aletheia[excel]
+    "load_checks_from_excel",
+    "load_dbc_from_excel",
+    "create_template",
 ]

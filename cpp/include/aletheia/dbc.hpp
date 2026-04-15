@@ -7,6 +7,8 @@
 #include <aletheia/types.hpp> // IWYU pragma: export
 
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -103,8 +105,11 @@ struct DbcMessage {
     [[nodiscard]] auto signal_by_name(const SignalName& name) const -> const DbcSignal*;
 
     // Lazily populated by signal_by_name(). Mutable so const methods can
-    // populate the cache on first access. Public for aggregate initialization.
-    mutable detail::LazyIndex<std::string> signal_index_cache;
+    // populate the cache on first access. Public because DbcDefinition
+    // holds DbcMessage by value, so downstream aggregate construction still
+    // works — the trailing underscore matches the data-member convention
+    // used by name_index_cache_ / id_index_cache_ on DbcDefinition.
+    mutable detail::LazyIndex<std::string> signal_index_cache_;
 };
 
 // ---------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 
 **Project**: Formally verified CAN frame analysis with Linear Temporal Logic
 **Version**: 1.1.1
-**Status**: Phase 5 - Optional Extensions (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md))
-**Last Updated**: 2026-04-02
+**Status**: Phase 5.1 complete (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for the authoritative status)
+**Last Updated**: 2026-04-15
 
 ## Project Overview
 
@@ -53,7 +53,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - DBC parser                            │
 │ - LTL model checker                     │
 │ - All correctness proofs                │
-│ - All 119 modules use --safe --without-K│
+│ - All 120 modules use --safe --without-K│
 └─────────────────────────────────────────┘
 ```
 

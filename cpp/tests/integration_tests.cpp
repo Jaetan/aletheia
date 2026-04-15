@@ -1303,6 +1303,30 @@ TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi
     REQUIRE(backend != nullptr);
 
     CHECK(backend->pending_warning().empty());
+    CHECK_FALSE(backend->rts_mismatch_info().has_value());
+}
+
+TEST_CASE("rts.cores_mismatch structured fields match Go/Python schema",
+          "[integration][ffi_backend]") {
+    auto lib = find_lib();
+
+    // First init fixes the core count to 1 (deterministic prior state).
+    {
+        auto backend = make_ffi_backend(lib);
+        REQUIRE(backend != nullptr);
+    }
+
+    auto backend = make_ffi_backend(lib, /*rts_cores=*/4);
+    REQUIRE(backend != nullptr);
+
+    const auto info = backend->rts_mismatch_info();
+    REQUIRE(info.has_value());
+    // active_cores = what the RTS was already running with; requested_cores =
+    // what this call asked for. Both integer fields must be populated for
+    // parity with Go's slog `active_cores` / `requested_cores` (ffi.go:337-338)
+    // and Python's logging record (client/_ffi.py:79-82).
+    CHECK(info->first == 1);
+    CHECK(info->second == 4);
 }
 
 TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]") {

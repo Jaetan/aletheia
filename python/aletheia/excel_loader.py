@@ -45,12 +45,9 @@ signal is multiplexed; if both are empty, the signal is always-present.
     Within (ms) | Severity
 """
 
-from __future__ import annotations
-
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
 
 import openpyxl
 from openpyxl.styles import Font
@@ -83,13 +80,16 @@ from ._loader_utils import (
     get_int,
     get_bool,
 )
-from .client._helpers import to_signal_fraction
+from .client import to_signal_fraction
 
 # Excel cell values: str, numbers, booleans, or None (empty)
-CellValue: TypeAlias = str | int | float | bool | None
+# PEP 695 native ``type`` statement — lazy, no ``from __future__ import``
+# needed, and basedpyright treats it as a proper type alias rather than a
+# module-level variable.
+type CellValue = str | int | float | bool | None
 
 # A row of cell values as returned by openpyxl iter_rows(values_only=True)
-ExcelRow: TypeAlias = tuple[CellValue, ...]
+type ExcelRow = tuple[CellValue, ...]
 
 
 @dataclass(frozen=True)

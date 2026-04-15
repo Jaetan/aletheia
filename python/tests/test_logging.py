@@ -1,9 +1,10 @@
 """Tests for opt-in structured logging.
 
-Verifies that the 12 log events from Go parity are emitted at the correct
-levels with the expected fields.  Uses Python's standard ``logging`` module
-with a capturing handler — no output is produced unless a handler is installed,
-matching the opt-in design.
+Verifies that the 15 log events shared with Go's ``slog`` and the C++
+``Logger`` class are emitted at the correct levels with the expected
+fields.  Uses Python's standard ``logging`` module with a capturing
+handler — no output is produced unless a handler is installed, matching
+the opt-in design.
 """
 
 import logging
@@ -12,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from aletheia import AletheiaClient, Signal
+from aletheia.client._log import KNOWN_EVENTS, LogEvent
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition
 
@@ -216,3 +218,55 @@ class TestLoggingStreamingEvents:
                 assert record.levelno == logging.WARNING, (
                     f"Expected WARNING for {msg}, got {record.levelname}"
                 )
+
+
+class TestLoggingSchema:
+    """Guard the structured log-event vocabulary against accidental drift.
+
+    Every log record emitted by the client must carry a ``LogRecord.event``
+    attribute whose value is a member of :class:`LogEvent` — matching the
+    Go ``slog`` and C++ ``Logger`` event sets documented in CLAUDE.md.
+    """
+
+    def test_known_events_matches_enum(self) -> None:
+        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 15 names."""
+        assert KNOWN_EVENTS == {event.value for event in LogEvent}
+        assert len(KNOWN_EVENTS) == 15
+
+    def test_event_names_follow_namespace_dot_action(self) -> None:
+        """All events are of the form ``namespace.action`` for grep-ability."""
+        for name in KNOWN_EVENTS:
+            assert "." in name, f"event {name!r} missing ``.`` separator"
+            namespace, action = name.split(".", 1)
+            assert namespace and action, f"event {name!r} has empty parts"
+
+    def test_all_emitted_events_are_known(
+        self, simple_dbc: DBCDefinition, capture: _Capture,
+    ) -> None:
+        """Every record from a streaming+violation workflow uses a known event."""
+        with AletheiaClient() as client:
+            client.parse_dbc(simple_dbc)
+            client.set_properties([
+                Signal("TestSignal").less_than(100).always().to_dict(),
+            ])
+            client.start_stream()
+            # Violation path exercises enrichment + cache warmup.
+            client.send_frame(
+                timestamp=1000, can_id=256, dlc=8,
+                data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
+            )
+            client.end_stream()
+
+        # Every record must carry ``extra["event"]`` — the structured key
+        # that downstream JSON collectors pick up — AND that value must
+        # be a member of the cross-binding vocabulary.
+        assert capture.records, "expected at least one log record"
+        for record in capture.records:
+            event = getattr(record, "event", None)
+            assert event is not None, (
+                f"record {record.getMessage()!r} missing ``event`` attr"
+            )
+            assert event in KNOWN_EVENTS, (
+                f"record emitted unknown event {event!r}; "
+                f"add it to LogEvent or switch the call site"
+            )

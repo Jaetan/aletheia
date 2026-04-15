@@ -1,8 +1,8 @@
 # Distributing Aletheia
 
 ---
-**Version**: 1.1.1
-**Last Updated**: 2026-04-03
+**Version**: 1.1.1 (canonical sources: `haskell-shim/aletheia.cabal` `version:` field and `python/pyproject.toml` `version =` field — update those when bumping)
+**Last Updated**: 2026-04-15
 **Platform**: Linux x86-64 only
 ---
 
@@ -70,6 +70,22 @@ LD_LIBRARY_PATH=/path/to/aletheia/lib ./my_app
 ```
 
 ## Integration Guide
+
+### Feature availability per binding
+
+All bindings share the same Agda core and JSON protocol, but surface coverage differs. The authoritative feature matrix lives in the [Interface Guide § Binding parity](../reference/INTERFACES.md#binding-parity); the highlights are:
+
+| Feature | C | Python | C++ | Go |
+|---|---|---|---|---|
+| Raw JSON FFI (`aletheia_process`) | ✅ | ✅ | ✅ | ✅ |
+| Binary `aletheia_send_frame` hot path | ✅ | ✅ | ✅ | ✅ |
+| Check API fluent interface | — | ✅ | ✅ | ✅ |
+| YAML loader | — | ✅ | ✅ | ✅ |
+| Excel loader | — | ✅ | ✅ | ✅ (separate `go/excel/` module) |
+| DBC JSON input | ✅ | ✅ | ✅ | ✅ |
+| DBC text (`.dbc`) parsing | — | ✅ (via `cantools`) | ❌ | ❌ |
+
+C consumers get the raw JSON/binary FFI surface — higher-level conveniences (Check API, loaders, DBC text parsing) live in the language bindings.
 
 ### Deploying the Library
 

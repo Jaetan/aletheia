@@ -79,8 +79,8 @@ mkAgdaRational num den
             n' = n `div` g
             d' = d `div` g
         in if gcd (abs n') d' /= 1
-           then error $ "mkAgdaRational: internal error — gcd not 1 after normalization ("
-                     ++ show n' ++ "/" ++ show d' ++ ")"
+           then Left $ "mkAgdaRational: internal invariant violated — gcd not 1 after normalization ("
+                    ++ show n' ++ "/" ++ show d' ++ ")"
            else Right $ AgdaRational.C_mkℚ_24 n' (d' - 1)
 
 -- | Build MAlonzo List (ℕ × ℚ) from parallel C arrays.

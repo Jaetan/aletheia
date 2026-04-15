@@ -25,42 +25,23 @@ Usage:
 
 import argparse
 import json
-import os
-import platform
-import resource
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
+# See ``throughput.py`` — benchmarks import the installed package to keep
+# the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
 from aletheia.dsl import Property, infinitely_often, eventually_always
-from aletheia.dbc_converter import dbc_to_json
-
-EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
-
-# Frame data: EngineSpeed=2000, EngineTemp=90 (all signals in normal range)
-CAN20_FRAME = bytearray([0x40, 0x1F, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00])
-CAN20_CAN_ID = 0x100
-CAN20_DLC = 8
+# Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
+from ._common import (
+    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
+    get_rss_mb, get_system_info, load_dbc,
+)
 
 # Timestamp spacing: 10 time-units per frame.
 # Metric windows use the same unit, so within(1000) = 100 frames.
 TS_STEP = 10
-
-
-def load_dbc() -> dict:
-    return dbc_to_json(str(EXAMPLES_DIR / "example.dbc"))
-
-
-def get_rss_mb() -> float:
-    """Current max RSS in MB."""
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    if platform.system() == "Darwin":
-        return usage.ru_maxrss / (1024 * 1024)
-    return usage.ru_maxrss / 1024
 
 
 # ============================================================================
@@ -307,12 +288,7 @@ def main() -> int:
             "benchmark": "simplification",
             "language": "python",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system": {
-                "cpu": platform.processor() or platform.machine(),
-                "cores": os.cpu_count() or 0,
-                "platform": platform.system(),
-                "python": platform.python_version(),
-            },
+            "system": get_system_info(),
             "trace_sizes": sizes,
             "results": all_results,
         }

@@ -690,6 +690,13 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 		ext = 1
 	}
 
+	// Cap at the CAN-FD maximum payload size; every other data-accepting
+	// method (SendFrameBinary, ExtractSignalsBinary, UpdateFrameBinary)
+	// applies the same bound before taking &data[0] into cgo.
+	if len(data) > 64 {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	}
+
 	var dataPtr *C.uint8_t
 	if len(data) > 0 {
 		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
@@ -747,6 +754,12 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, 
 	var ext C.uint8_t
 	if id.IsExtended() {
 		ext = 1
+	}
+
+	// Cap at the CAN-FD maximum payload size; every other data-accepting
+	// method applies the same bound before taking &data[0] into cgo.
+	if len(data) > 64 {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
 	}
 
 	var dataPtr *C.uint8_t

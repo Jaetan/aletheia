@@ -2,7 +2,7 @@
 
 **Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
 **Version**: 1.1.1
-**Last Updated**: 2026-04-02
+**Last Updated**: 2026-04-15
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,
 > see the [Python API Guide](PYTHON_API.md).
@@ -24,6 +24,29 @@ formulas — only the syntax differs.
 Choose the simplest tier that covers your needs. You can mix tiers freely —
 load DBC from Excel, checks from YAML, and additional checks from the
 Check API, all in the same session.
+
+### Binding parity
+
+All three bindings (Python, C++, Go) share the same verified Agda core and the
+same JSON protocol. Code snippets in this guide are in Python for brevity, but
+the Check API, YAML loader, and DSL are available in every binding. The
+following table summarizes feature availability per binding:
+
+| Feature | Python | C++ | Go |
+|---|---|---|---|
+| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::check::signal(...)`) | ✅ (`check.Signal(...)`) |
+| Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`ltl.Property`) |
+| YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
+| Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
+| DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
+| DBC text (`.dbc`) parsing | ✅ (via `cantools`) | ❌ (use Python to convert) | ❌ (use Python to convert) |
+| Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
+
+For language-specific entry points, see:
+
+- **Python**: [`docs/reference/PYTHON_API.md`](PYTHON_API.md) for the full DSL reference and `AletheiaClient` usage.
+- **C++**: header-level docs in `cpp/include/aletheia/*.hpp`, especially `check.hpp`, `client.hpp`, `ltl.hpp`, `yaml.hpp`, `excel.hpp`. The integration snippets in [`docs/development/DISTRIBUTION.md`](../development/DISTRIBUTION.md) show how to wire `make_ffi_backend` into a project.
+- **Go**: run `go doc github.com/aletheia-automotive/aletheia-go/aletheia` for the package overview and per-type docs; the constructor is `NewFFIBackend` from `go/aletheia/ffi.go`.
 
 ---
 
@@ -135,7 +158,8 @@ with AletheiaClient() as client:
     for timestamp, can_id, dlc, data in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
         if response.get("status") == "fails":
-            print(f"Violation: {response.get('enriched_reason')}")
+            enrichment = response.get("enrichment", {})
+            print(f"Violation: {enrichment.get('enriched_reason')}")
 
     client.end_stream()
 ```
@@ -399,7 +423,8 @@ with AletheiaClient() as client:
     for timestamp, can_id, dlc, data in can_trace:
         response = client.send_frame(timestamp, can_id, dlc, data)
         if response.get("status") == "fails":
-            print(f"Violation: {response.get('enriched_reason')}")
+            enrichment = response.get("enrichment", {})
+            print(f"Violation: {enrichment.get('enriched_reason')}")
 
     client.end_stream()
 ```

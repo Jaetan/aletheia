@@ -13,6 +13,12 @@ endif()
 # aletheia-cpp below is still the authoritative statement of our *own* C++23
 # requirement — the global is purely a yaml-cpp workaround and should be
 # removed once we upgrade to a yaml-cpp that includes <cstdint> explicitly.
+#
+# TODO(R12-M3): Remove this `set(CMAKE_CXX_STANDARD 20)` line when yaml-cpp
+# ≥ 0.8.1 (or whatever release follows 0.8.0) is published with the
+# <cstdint> include on its main branch and we bump the FetchContent_Declare
+# URL above. The fix is already merged upstream; this workaround is purely
+# waiting on the tagged release.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -116,6 +122,13 @@ install(TARGETS aletheia-cpp
     ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+# include/aletheia/detail/cache_keys.hpp is intentionally exported even though
+# it lives under detail/. The <aletheia/client.hpp> facade includes it directly
+# and uses the concrete types (FrameKey, FrameKeyLess, SignalKey, MessageKey)
+# in AletheiaClient's private member layout, so stripping it from the install
+# would leave the installed facade uncompilable. The header is marked
+# `IWYU pragma: private, include "aletheia/client.hpp"` and documents that
+# its layout is not part of the supported API.
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 install(EXPORT aletheia-cpp-targets
@@ -156,8 +169,18 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(static_tests PRIVATE aletheia-cpp)
     add_test(NAME static_tests COMMAND static_tests)
 
-    # Layer 2: Unit tests (mock backend, Catch2)
-    add_executable(unit_tests tests/unit_tests.cpp)
+    # Layer 2: Unit tests (mock backend, Catch2). Split across multiple
+    # translation units by concern (see tests/test_helpers.hpp for the shared
+    # fixture). Catch2::Catch2WithMain provides main(), so all sources link
+    # into a single executable registered as one ctest name.
+    add_executable(unit_tests
+        tests/unit_tests_json.cpp
+        tests/unit_tests_client.cpp
+        tests/unit_tests_enrich.cpp
+        tests/unit_tests_validation.cpp
+        tests/unit_tests_check.cpp
+        tests/unit_tests_dbc.cpp
+        tests/unit_tests_log.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
@@ -182,7 +205,13 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
 
-    # Benchmark (uses real FFI backend — requires libaletheia-ffi.so)
+    # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
+    # loaded via dlopen. The CMake build will succeed without the .so, but the
+    # resulting binary will fail at startup with a dlopen error. Build the
+    # Haskell shim first with `cabal run shake -- build` from the repo root.)
     add_executable(benchmark benchmarks/benchmark.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
+    message(STATUS
+        "benchmark target requires libaletheia-ffi.so at runtime — "
+        "build the Haskell shim first with `cabal run shake -- build`")
 endif()

@@ -230,8 +230,13 @@ class TestDBCToText:
 
     def test_example_dbc_roundtrip_text(self) -> None:
         """dbc_to_json -> dbc_to_text produces valid DBC text."""
+        # ``example.dbc`` is checked into the repo; treat its absence as a
+        # test failure, not a silent skip.  A stale path would otherwise let
+        # the Agda ↔ Python roundtrip regress without surfacing the problem.
         if not EXAMPLE_DBC.exists():
-            pytest.skip("example.dbc not found")
+            pytest.fail(
+                f"example.dbc required for this test but not found at {EXAMPLE_DBC}"
+            )
         dbc_json = dbc_to_json(EXAMPLE_DBC)
         text = dbc_to_text(dbc_json)
         assert "BO_ 256 EngineStatus:" in text
@@ -287,8 +292,13 @@ class TestFormatDBC:
 
     def test_roundtrip_example_dbc(self) -> None:
         """Roundtrip example.dbc through Agda and verify key fields match."""
+        # ``example.dbc`` is checked into the repo; treat its absence as a
+        # test failure, not a silent skip.  A stale path would otherwise let
+        # the Agda ↔ Python roundtrip regress without surfacing the problem.
         if not EXAMPLE_DBC.exists():
-            pytest.skip("example.dbc not found")
+            pytest.fail(
+                f"example.dbc required for this test but not found at {EXAMPLE_DBC}"
+            )
 
         dbc_json = dbc_to_json(EXAMPLE_DBC)
 

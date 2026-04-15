@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
@@ -49,28 +48,6 @@ func findFFILib() string {
 		}
 	}
 	return ""
-}
-
-// captureSlog swaps the default slog.Logger with one writing JSON into a
-// bytes.Buffer, runs fn, and returns the captured log bytes. The original
-// default logger is restored on exit.
-//
-// slog's default logger is a package-level global, so tests that use this
-// helper must not run in parallel with other tests that log.
-var captureSlogMu sync.Mutex
-
-func captureSlog(fn func()) string {
-	captureSlogMu.Lock()
-	defer captureSlogMu.Unlock()
-
-	var buf bytes.Buffer
-	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
-	oldLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	defer slog.SetDefault(oldLogger)
-
-	fn()
-	return buf.String()
 }
 
 func TestFFIBackend_RTSCoresMismatchWarns(t *testing.T) {
@@ -124,19 +101,23 @@ func TestFFIBackend_RTSCoresMatchingSilent(t *testing.T) {
 	}
 	_ = b1
 
-	// Matching rts_cores=1 must not emit a warning.
-	output := captureSlog(func() {
-		b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(1))
-		if err != nil {
-			t.Fatalf("second NewFFIBackend: %v", err)
-		}
-		_ = b2
-	})
-
-	if strings.Contains(output, "already initialized") {
-		t.Errorf("expected no warning, got: %s", output)
+	// Matching rts_cores=1 must not emit a warning via WithFFILogger.
+	// Note: the mismatch warning is emitted to the FFIBackend's logger
+	// (set by WithFFILogger), not the Client logger (WithLogger); capturing
+	// the wrong logger in this test historically made it vacuously pass.
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	b2, err := aletheia.NewFFIBackend(lib, aletheia.WithRTSCores(1), aletheia.WithFFILogger(logger))
+	if err != nil {
+		t.Fatalf("second NewFFIBackend: %v", err)
 	}
-	if strings.Contains(output, "WARN") {
+	_ = b2
+	output := buf.String()
+
+	if strings.Contains(output, "rts.cores_mismatch") {
+		t.Errorf("expected no rts.cores_mismatch record, got: %s", output)
+	}
+	if strings.Contains(output, `"level":"WARN"`) {
 		t.Errorf("expected no WARN-level record, got: %s", output)
 	}
 }

@@ -4,8 +4,6 @@ Defines TypedDict classes, Literal types, and Enums for well-known structures.
 This provides better type safety and IDE support.
 """
 
-from __future__ import annotations
-
 from enum import Enum
 from fractions import Fraction
 from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
@@ -82,6 +80,7 @@ class ErrorCode(str, Enum):
     FRAME_SIGNALS_OVERLAP = "frame_signals_overlap"
     FRAME_CAN_ID_NOT_FOUND = "frame_can_id_not_found"
     FRAME_CAN_ID_MISMATCH = "frame_can_id_mismatch"
+    FRAME_SIGNAL_VALUE_OUT_OF_BOUNDS = "frame_signal_value_out_of_bounds"
     # Route errors
     ROUTE_MISSING_FIELD = "route_missing_field"
     ROUTE_MISSING_ARRAY = "route_missing_array"
@@ -108,6 +107,12 @@ class ErrorCode(str, Enum):
     DISPATCH_UNKNOWN_MESSAGE_TYPE = "dispatch_unknown_message_type"
     DISPATCH_INVALID_JSON = "dispatch_invalid_json"
     DISPATCH_REQUEST_NOT_OBJECT = "dispatch_request_not_object"
+    # Extraction errors
+    EXTRACTION_MUX_VALUE_MISMATCH = "extraction_mux_value_mismatch"
+    EXTRACTION_MUX_SIGNAL_NOT_FOUND = "extraction_mux_signal_not_found"
+    EXTRACTION_MUX_CHAIN_CYCLE = "extraction_mux_chain_cycle"
+    EXTRACTION_MUX_EXTRACTION_FAILED = "extraction_mux_extraction_failed"
+    EXTRACTION_BIT_EXTRACTION_FAILED = "extraction_bit_extraction_failed"
 
 
 class PredicateType(str, Enum):
@@ -557,3 +562,78 @@ Response = (
     FormatDBCResponse |
     ValidationResponse
 )
+
+
+# Explicit public surface — mirrors the imports in ``_client.py``, ``cli.py``,
+# and the top-level ``aletheia/__init__.py`` facade.  Keeping this list
+# explicit (rather than relying on ``*`` re-export) means a private helper
+# added below does not accidentally leak into the binding API surface, and
+# consumers get a stable grep target for the cross-binding protocol vocabulary.
+__all__ = [
+    # Type guards
+    "is_str_dict",
+    "is_object_list",
+    # Literals
+    "ByteOrder",
+    "SignalPresence",
+    # Enums
+    "IssueSeverity",
+    "IssueCode",
+    "ErrorCode",
+    "PredicateType",
+    # DBC types
+    "DBCSignal",
+    "DBCSignalAlways",
+    "DBCSignalMultiplexed",
+    "DBCMessage",
+    "DBCDefinition",
+    # Signal predicates
+    "SignalPredicate",
+    "EqualsPredicate",
+    "LessThanPredicate",
+    "GreaterThanPredicate",
+    "LessThanOrEqualPredicate",
+    "GreaterThanOrEqualPredicate",
+    "BetweenPredicate",
+    "ChangedByPredicate",
+    "StableWithinPredicate",
+    # LTL formulas
+    "LTLFormula",
+    "AtomicFormula",
+    "AndFormula",
+    "OrFormula",
+    "NotFormula",
+    "AlwaysFormula",
+    "EventuallyFormula",
+    "NextFormula",
+    "MetricEventuallyFormula",
+    "MetricAlwaysFormula",
+    "UntilFormula",
+    "ReleaseFormula",
+    "MetricUntilFormula",
+    "MetricReleaseFormula",
+    # Rational / signal values
+    "RationalNumber",
+    "SignalValue",
+    "SignalError",
+    # Commands
+    "Command",
+    "ParseDBCCommand",
+    "SetPropertiesCommand",
+    "ValidateDBCCommand",
+    # Responses
+    "Response",
+    "SuccessResponse",
+    "ErrorResponse",
+    "AckResponse",
+    "ViolationEnrichment",
+    "PropertyViolationResponse",
+    "PropertyResultEntry",
+    "CompleteResponse",
+    "BuildFrameResponse",
+    "ExtractSignalsResponse",
+    "UpdateFrameResponse",
+    "FormatDBCResponse",
+    "ValidationIssue",
+    "ValidationResponse",
+]

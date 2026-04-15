@@ -1,5 +1,6 @@
 // AletheiaClient — orchestrates backend + JSON serialization/parsing.
 #include <aletheia/client.hpp>
+#include <aletheia/detail/cache_keys.hpp>
 #include <aletheia/enrich.hpp>
 
 #include "detail/json.hpp"
@@ -12,12 +13,12 @@
 #include <exception>
 #include <expected>
 #include <format>
-#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <variant>
@@ -65,15 +66,37 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , default_checks_(std::move(default_checks)) {
     if (!state_)
         throw std::runtime_error("backend init() returned null state");
-    if (auto w = backend_->pending_warning(); !w.empty() && logger_)
-        logger_.warn("backend.init", {{"warning", w}});
+    if (!logger_)
+        return;
+    // Structured emission first — parity with Go's
+    // `rts.cores_mismatch` (ffi.go:336) and Python's `rts.cores_mismatch`
+    // (client/_ffi.py:77-82), both of which carry `active_cores` and
+    // `requested_cores` integer fields.
+    if (auto rts = backend_->rts_mismatch_info(); rts) {
+        const auto active = static_cast<std::int64_t>(rts->first);
+        const auto requested = static_cast<std::int64_t>(rts->second);
+        logger_.warn("rts.cores_mismatch",
+                     {{"active_cores", active}, {"requested_cores", requested}});
+        return;
+    }
+    // Fallback path for any unstructured pending_warning() diagnostic a
+    // future backend might produce (none today). Kept so that new warning
+    // categories don't silently drop while their structured counterparts
+    // are being designed.
+    if (auto w = backend_->pending_warning(); !w.empty())
+        logger_.warn("backend.warning", {{"warning", w}});
 }
 
 AletheiaClient::~AletheiaClient() {
     if (backend_ != nullptr && state_ != nullptr) {
         try {
             backend_->close(state_);
-        } catch (...) {}
+        } catch (...) {
+            // Destructors must not propagate exceptions — doing so during stack
+            // unwinding terminates the program. The FFI close() path allocates
+            // nothing, but backend implementations (e.g. a mock) may throw; we
+            // intentionally swallow those to satisfy the noexcept contract.
+        }
     }
 }
 
@@ -94,7 +117,11 @@ AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
         if (backend_ != nullptr && state_ != nullptr) {
             try {
                 backend_->close(state_);
-            } catch (...) {}
+            } catch (...) {
+                // noexcept move-assignment must not propagate exceptions. Same
+                // rationale as ~AletheiaClient: a throwing backend close is
+                // swallowed so the move can complete without std::terminate.
+            }
         }
         backend_ = std::move(other.backend_);
         state_ = std::exchange(other.state_, nullptr);

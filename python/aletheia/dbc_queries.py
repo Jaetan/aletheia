@@ -5,8 +5,6 @@ from :mod:`aletheia.protocols` and provide the same functionality as the
 Go ``DbcMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
 """
 
-from __future__ import annotations
-
 from typing import cast
 
 from .protocols import DBCDefinition, DBCMessage, DBCSignal, DBCSignalMultiplexed

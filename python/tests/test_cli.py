@@ -11,7 +11,6 @@ Tests cover:
 - Error handling: missing files, bad arguments, exit codes
 """
 
-from __future__ import annotations
 
 import json
 from pathlib import Path

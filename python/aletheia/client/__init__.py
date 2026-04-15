@@ -32,6 +32,7 @@ Example:
 """
 
 from ._client import AletheiaClient
+from ._helpers import dump_json, to_signal_fraction
 from ._types import (
     AletheiaError,
     BatchError,
@@ -44,8 +45,14 @@ from ._types import (
     dlc_to_bytes,
 )
 
+# Public symbols — other first-party modules (``cli``, ``dbc_converter``,
+# ``excel_loader``) go through this facade rather than reaching into
+# ``aletheia.client._helpers`` / ``aletheia.client._types`` directly, so
+# the private-module naming stays honest.  Every name here is covered by
+# basedpyright at ``strict`` level.
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
-    "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "ProcessError",
-    "ProtocolError", "SignalExtractionResult",
+    "CANFrameTuple", "dlc_to_bytes", "dump_json", "FrameResponse",
+    "ProcessError", "ProtocolError", "SignalExtractionResult",
+    "to_signal_fraction",
 ]
