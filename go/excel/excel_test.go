@@ -1,19 +1,37 @@
-//go:build aletheia_excel
-
-package aletheia
+package excel
 
 import (
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/aletheia-automotive/aletheia-go/aletheia"
 	"github.com/xuri/excelize/v2"
 )
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
+
+// requireErrorContains asserts err is a non-nil *aletheia.Error whose message
+// contains substr. Duplicated from the main aletheia helpers because the excel
+// module is a separate Go module with its own test tree.
+func requireErrorContains(t *testing.T, err error, substr string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var e *aletheia.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *aletheia.Error, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), substr) {
+		t.Errorf("expected error containing %q, got: %v", substr, err)
+	}
+}
 
 func makeChecksWorkbook(t *testing.T, rows [][]interface{}) string {
 	t.Helper()
@@ -104,15 +122,15 @@ func TestLoadExcelNeverExceeds(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Speed").NeverExceeds(220).Formula())
-	got := FormatFormula(checks[0].Formula())
+	want := aletheia.FormatFormula(aletheia.CheckSignal("Speed").NeverExceeds(220).Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -122,15 +140,15 @@ func TestLoadExcelNeverBelow(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Voltage", "never_below", 11.5, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Voltage").NeverBelow(11.5).Formula())
-	got := FormatFormula(checks[0].Formula())
+	want := aletheia.FormatFormula(aletheia.CheckSignal("Voltage").NeverBelow(11.5).Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -140,19 +158,19 @@ func TestLoadExcelStaysBetween(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	reference, err := CheckSignal("Voltage").StaysBetween(11.5, 14.5)
+	reference, err := aletheia.CheckSignal("Voltage").StaysBetween(11.5, 14.5)
 	if err != nil {
 		t.Fatalf("StaysBetween: %v", err)
 	}
-	want := FormatFormula(reference.Formula())
-	got := FormatFormula(checks[0].Formula())
+	want := aletheia.FormatFormula(reference.Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -162,15 +180,15 @@ func TestLoadExcelNeverEquals(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "ErrorCode", "never_equals", 255, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("ErrorCode").NeverEquals(255).Formula())
-	got := FormatFormula(checks[0].Formula())
+	want := aletheia.FormatFormula(aletheia.CheckSignal("ErrorCode").NeverEquals(255).Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -180,15 +198,15 @@ func TestLoadExcelEqualsAlways(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Gear", "equals", 0, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	want := FormatFormula(CheckSignal("Gear").Equals(0).Always().Formula())
-	got := FormatFormula(checks[0].Formula())
+	want := aletheia.FormatFormula(aletheia.CheckSignal("Gear").Equals(0).Always().Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -198,16 +216,16 @@ func TestLoadExcelSettlesBetween(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5000, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckSignal("CoolantTemp").SettlesBetween(80, 100).Within(5000)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
+	expected, _ := aletheia.CheckSignal("CoolantTemp").SettlesBetween(80, 100).Within(5000)
+	want := aletheia.FormatFormula(expected.Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -218,7 +236,7 @@ func TestLoadExcelMultipleChecks(t *testing.T) {
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 		{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -236,16 +254,16 @@ func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(checks) != 1 {
 		t.Fatalf("expected 1 check, got %d", len(checks))
 	}
-	expected, _ := CheckWhen("BrakePedal").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
+	expected, _ := aletheia.CheckWhen("BrakePedal").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	want := aletheia.FormatFormula(expected.Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -255,13 +273,13 @@ func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2000, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected, _ := CheckWhen("Ignition").Equals(1).Then("RPM").Exceeds(500).Within(2000)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
+	expected, _ := aletheia.CheckWhen("Ignition").Equals(1).Then("RPM").Exceeds(500).Within(2000)
+	want := aletheia.FormatFormula(expected.Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -271,13 +289,13 @@ func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected, _ := CheckWhen("FuelLevel").DropsBelow(10).Then("FuelWarning").StaysBetween(1, 1).Within(50)
-	want := FormatFormula(expected.Formula())
-	got := FormatFormula(checks[0].Formula())
+	expected, _ := aletheia.CheckWhen("FuelLevel").DropsBelow(10).Then("FuelWarning").StaysBetween(1, 1).Within(50)
+	want := aletheia.FormatFormula(expected.Formula())
+	got := aletheia.FormatFormula(checks[0].Formula())
 	if got != want {
 		t.Errorf("formula mismatch: got %q, want %q", got, want)
 	}
@@ -291,7 +309,7 @@ func TestLoadExcelNameSet(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,7 +322,7 @@ func TestLoadExcelSeveritySet(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, "critical"},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -317,7 +335,7 @@ func TestLoadExcelNameAndSeverity(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, "warning"},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -333,7 +351,7 @@ func TestLoadExcelDefaultsEmpty(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -349,7 +367,7 @@ func TestLoadExcelWhenThenMetadata(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, "safety"},
 	})
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -370,7 +388,7 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -400,7 +418,7 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 	if sig.BitLength != 16 {
 		t.Errorf("BitLength: got %d", sig.BitLength)
 	}
-	if sig.ByteOrder != LittleEndian {
+	if sig.ByteOrder != aletheia.LittleEndian {
 		t.Errorf("ByteOrder: got %d", sig.ByteOrder)
 	}
 	if sig.IsSigned {
@@ -415,7 +433,7 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 	if string(sig.Unit) != "rpm" {
 		t.Errorf("Unit: got %q", sig.Unit)
 	}
-	if _, ok := sig.Presence.(AlwaysPresent); !ok {
+	if _, ok := sig.Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("Presence: expected AlwaysPresent, got %T", sig.Presence)
 	}
 }
@@ -426,7 +444,7 @@ func TestLoadExcelDbcMessageGrouping(t *testing.T) {
 		{256, "EngineData", "FALSE", 8, "Temp", 16, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C"},
 		{512, "BrakeData", "FALSE", 4, "BrakePressure", 0, 16, "big_endian", "FALSE", 0.1, 0, 0, 6553.5, "bar"},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -457,7 +475,7 @@ func TestLoadExcelDbcHexID(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -470,7 +488,7 @@ func TestLoadExcelDbcSignedTrue(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -483,7 +501,7 @@ func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -496,7 +514,7 @@ func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -509,7 +527,7 @@ func TestLoadExcelDbcMissingUnit(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -526,12 +544,12 @@ func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	sig := dbc.Messages[0].Signals[0]
-	if _, ok := sig.Presence.(AlwaysPresent); !ok {
+	if _, ok := sig.Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("expected AlwaysPresent, got %T", sig.Presence)
 	}
 }
@@ -540,12 +558,12 @@ func TestLoadExcelDbcMultiplexed(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "MuxSignal", 8, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", "Selector", 3},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	sig := dbc.Messages[0].Signals[0]
-	mux, ok := sig.Presence.(Multiplexed)
+	mux, ok := sig.Presence.(aletheia.Multiplexed)
 	if !ok {
 		t.Fatalf("expected Multiplexed, got %T", sig.Presence)
 	}
@@ -563,7 +581,7 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 		{256, "Msg", "FALSE", 8, "TempA", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 0},
 		{256, "Msg", "FALSE", 8, "TempB", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 1},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -571,13 +589,13 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 	if len(msg.Signals) != 3 {
 		t.Fatalf("expected 3 signals, got %d", len(msg.Signals))
 	}
-	if _, ok := msg.Signals[0].Presence.(AlwaysPresent); !ok {
+	if _, ok := msg.Signals[0].Presence.(aletheia.AlwaysPresent); !ok {
 		t.Errorf("sig[0] expected AlwaysPresent, got %T", msg.Signals[0].Presence)
 	}
-	if mux, ok := msg.Signals[1].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !containsMuxValue(mux.MuxValues, 0) {
+	if mux, ok := msg.Signals[1].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 0) {
 		t.Errorf("sig[1] expected Multiplexed(Selector, [0]), got %v", msg.Signals[1].Presence)
 	}
-	if mux, ok := msg.Signals[2].Presence.(Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !containsMuxValue(mux.MuxValues, 1) {
+	if mux, ok := msg.Signals[2].Presence.(aletheia.Multiplexed); !ok || string(mux.Multiplexor) != "Selector" || !aletheia.ContainsMuxValue(mux.MuxValues, 1) {
 		t.Errorf("sig[2] expected Multiplexed(Selector, [1]), got %v", msg.Signals[2].Presence)
 	}
 }
@@ -586,7 +604,7 @@ func TestLoadExcelDbcPartialMuxError(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
 	})
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "must both be provided or both be empty")
 }
 
@@ -594,7 +612,7 @@ func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
 	})
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "must both be provided or both be empty")
 }
 
@@ -605,7 +623,7 @@ func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
 func TestCreateExcelTemplateCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -616,7 +634,7 @@ func TestCreateExcelTemplateCreatesFile(t *testing.T) {
 func TestCreateExcelTemplateSheetNames(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
 	f, err := excelize.OpenFile(path)
@@ -636,7 +654,7 @@ func TestCreateExcelTemplateSheetNames(t *testing.T) {
 func TestCreateExcelTemplateDbcHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
 	f, err := excelize.OpenFile(path)
@@ -662,7 +680,7 @@ func TestCreateExcelTemplateDbcHeaders(t *testing.T) {
 func TestCreateExcelTemplateChecksHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
 	f, err := excelize.OpenFile(path)
@@ -688,7 +706,7 @@ func TestCreateExcelTemplateChecksHeaders(t *testing.T) {
 func TestCreateExcelTemplateWhenThenHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
 	f, err := excelize.OpenFile(path)
@@ -714,7 +732,7 @@ func TestCreateExcelTemplateWhenThenHeaders(t *testing.T) {
 func TestCreateExcelTemplateHeadersBold(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
 	f, err := excelize.OpenFile(path)
@@ -744,10 +762,10 @@ func TestCreateExcelTemplateHeadersBold(t *testing.T) {
 func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "template.xlsx")
-	if err := CreateExcelTemplate(path); err != nil {
+	if err := CreateTemplate(path); err != nil {
 		t.Fatal(err)
 	}
-	err := CreateExcelTemplate(path)
+	err := CreateTemplate(path)
 	requireErrorContains(t, err, "file already exists")
 }
 
@@ -756,12 +774,12 @@ func TestCreateExcelTemplateNoOverwrite(t *testing.T) {
 // ===========================================================================
 
 func TestLoadExcelFileNotFound(t *testing.T) {
-	_, err := LoadChecksFromExcel("/nonexistent/path/checks.xlsx")
+	_, err := LoadChecks("/nonexistent/path/checks.xlsx")
 	requireErrorContains(t, err, "excel file not found")
 }
 
 func TestLoadExcelDbcFileNotFound(t *testing.T) {
-	_, err := LoadDbcFromExcel("/nonexistent/path/dbc.xlsx")
+	_, err := LoadDbc("/nonexistent/path/dbc.xlsx")
 	requireErrorContains(t, err, "excel file not found")
 }
 
@@ -773,7 +791,7 @@ func TestLoadExcelNoChecksOrWhenThenSheet(t *testing.T) {
 	path := filepath.Join(dir, "bad.xlsx")
 	_ = f.SaveAs(path)
 
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "no 'Checks' or 'When-Then' sheet")
 }
 
@@ -785,7 +803,7 @@ func TestLoadExcelNoDbcSheet(t *testing.T) {
 	path := filepath.Join(dir, "bad.xlsx")
 	_ = f.SaveAs(path)
 
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "no 'DBC' sheet")
 }
 
@@ -793,7 +811,7 @@ func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Speed", "bogus", 100, nil, nil, nil, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "unknown condition 'bogus'")
 }
 
@@ -801,7 +819,7 @@ func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Speed", "never_exceeds", nil, nil, nil, nil, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "missing or invalid 'Value'")
 }
 
@@ -809,7 +827,7 @@ func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "requires 'Min' and 'Max'")
 }
 
@@ -817,7 +835,7 @@ func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
 	path := makeChecksWorkbook(t, [][]interface{}{
 		{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "requires 'Time (ms)'")
 }
 
@@ -825,7 +843,7 @@ func TestLoadExcelUnknownWhenCondition(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "unknown when condition 'bogus'")
 }
 
@@ -833,7 +851,7 @@ func TestLoadExcelUnknownThenCondition(t *testing.T) {
 	path := makeWhenThenWorkbook(t, [][]interface{}{
 		{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
 	})
-	_, err := LoadChecksFromExcel(path)
+	_, err := LoadChecks(path)
 	requireErrorContains(t, err, "unknown then condition 'bogus'")
 }
 
@@ -841,7 +859,7 @@ func TestLoadExcelInvalidByteOrder(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "Byte Order")
 }
 
@@ -849,7 +867,7 @@ func TestLoadExcelInvalidMessageID(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	requireErrorContains(t, err, "invalid 'Message ID'")
 }
 
@@ -865,7 +883,7 @@ func TestLoadExcelDbcEmptyData(t *testing.T) {
 	path := filepath.Join(dir, "empty.xlsx")
 	_ = f.SaveAs(path)
 
-	_, err := LoadDbcFromExcel(path)
+	_, err := LoadDbc(path)
 	// The error could be "at least one data row" or "no data rows" depending
 	// on how excelize reports the sheet rows.
 	requireErrorContains(t, err, "data row")
@@ -897,7 +915,7 @@ func TestLoadExcelEmptyRowSkipped(t *testing.T) {
 	path := filepath.Join(dir, "gaps.xlsx")
 	_ = f.SaveAs(path)
 
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -942,7 +960,7 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 	path := filepath.Join(dir, "combined.xlsx")
 	_ = f.SaveAs(path)
 
-	checks, err := LoadChecksFromExcel(path)
+	checks, err := LoadChecks(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -950,14 +968,14 @@ func TestLoadExcelCombinedSheets(t *testing.T) {
 		t.Fatalf("expected 2 checks, got %d", len(checks))
 	}
 	// First is simple check, second is when/then.
-	want0 := FormatFormula(CheckSignal("Speed").NeverExceeds(220).Formula())
-	got0 := FormatFormula(checks[0].Formula())
+	want0 := aletheia.FormatFormula(aletheia.CheckSignal("Speed").NeverExceeds(220).Formula())
+	got0 := aletheia.FormatFormula(checks[0].Formula())
 	if got0 != want0 {
 		t.Errorf("check[0] formula mismatch: got %q, want %q", got0, want0)
 	}
-	expected1, _ := CheckWhen("Brake").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
-	want1 := FormatFormula(expected1.Formula())
-	got1 := FormatFormula(checks[1].Formula())
+	expected1, _ := aletheia.CheckWhen("Brake").Exceeds(50).Then("BrakeLight").Equals(1).Within(100)
+	want1 := aletheia.FormatFormula(expected1.Formula())
+	got1 := aletheia.FormatFormula(checks[1].Formula())
 	if got1 != want1 {
 		t.Errorf("check[1] formula mismatch: got %q, want %q", got1, want1)
 	}
@@ -1041,7 +1059,7 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 	path := filepath.Join(dir, "custom.xlsx")
 	_ = f.SaveAs(path)
 
-	checks, err := LoadChecksFromExcel(path, WithChecksSheet("MyChecks"))
+	checks, err := LoadChecks(path, WithChecksSheet("MyChecks"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1059,7 +1077,7 @@ func TestLoadExcelDbcExtendedID(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{0x18FEF100, "J1939Msg", "TRUE", 8, "EngineSpeed", 0, 16, "little_endian", "FALSE", 0.125, 0, 0, 8031.875, "rpm"},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1084,7 +1102,7 @@ func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
 		{256, "StdMsg", "FALSE", 4, "Sig1", 0, 16, "little_endian", "FALSE", 1, 0, 0, 65535, ""},
 		{0x18FF0100, "ExtMsg", "TRUE", 8, "Sig2", 0, 16, "big_endian", "FALSE", 1, 0, 0, 65535, ""},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1107,7 +1125,7 @@ func TestLoadExcelDbcLowIDExtended(t *testing.T) {
 	path := makeDbcWorkbook(t, [][]interface{}{
 		{100, "LowExtMsg", "TRUE", 8, "Sig", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, ""},
 	})
-	dbc, err := LoadDbcFromExcel(path)
+	dbc, err := LoadDbc(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

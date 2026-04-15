@@ -16,13 +16,14 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import json
 import sys
+from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
 
 from .checks import CheckResult
 from .client import AletheiaClient, AletheiaError, SignalExtractionResult
+from .client._helpers import dump_json
 from .protocols import (
     DBCDefinition,
     DBCMessage,
@@ -93,7 +94,7 @@ class _Violation(TypedDict):
     timestamp_us: int
     reason: str
     signal_name: str
-    actual_value: float | None
+    actual_value: Fraction | None
     condition: str
 
 
@@ -243,13 +244,13 @@ def _format_signal_line(sig: DBCSignal) -> str:
     minimum = sig["minimum"]
     maximum = sig["maximum"]
 
-    offset_str = f"+{offset}" if offset >= 0 else str(offset)
-    range_str = f"[{minimum}, {maximum}]" if minimum != 0 or maximum != 0 else ""
+    offset_str = f"+{offset:g}" if offset >= 0 else f"{offset:g}"
+    range_str = f"[{minimum:g}, {maximum:g}]" if minimum != 0 or maximum != 0 else ""
 
     return (
         f"  {name:<20s} bits[{start}:{length}]"
         + f"   {order}  {sign:<10s}"
-        + f"  x{factor} {offset_str}"
+        + f"  x{factor:g} {offset_str}"
         + f"  {unit:>6s}  {range_str}"
     )
 
@@ -278,7 +279,7 @@ def _cmd_signals(args: argparse.Namespace) -> int:
     dbc = _load_dbc(args)
 
     if getattr(args, "json", False):
-        print(json.dumps(dbc, indent=2))
+        print(dump_json(dbc, indent=2))
     else:
         _print_signals_text(dbc)
 
@@ -330,7 +331,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             "total_issues": len(issues),
             "issues": issues,
         }
-        print(json.dumps(out, indent=2))
+        print(dump_json(out, indent=2))
     else:
         _print_validation_text(issues, has_errors)
 
@@ -356,7 +357,7 @@ def _print_extract_text(
         for name, value in result.values.items():
             unit = units.get(name, "")
             unit_part = f" {unit}" if unit else ""
-            print(f"  {name:<20s} = {value}{unit_part}")
+            print(f"  {name:<20s} = {value:g}{unit_part}")
     else:
         print("  (no signals)")
 
@@ -413,7 +414,7 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             "errors": dict(result.errors),
             "absent": result.absent,
         }
-        print(json.dumps(out, indent=2))
+        print(dump_json(out, indent=2))
     else:
         _print_extract_text(can_id, dbc, result)
 
@@ -442,11 +443,18 @@ def _build_violation(
     prop_index = rational_to_int(response["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
 
-    reason = response.get("enriched_reason", response.get("reason", ""))
-    signals = response.get("signals", {})
+    enrichment = response.get("enrichment")
+    if enrichment is not None:
+        reason = enrichment["enriched_reason"]
+        signals = enrichment["signals"]
+        condition = enrichment["formula_desc"]
+    else:
+        reason = response.get("reason", "")
+        signals = {}
+        condition = ""
     # Pick first signal for single-line violation display
     signal_name = ""
-    actual_value: float | None = None
+    actual_value: Fraction | None = None
     if signals:
         sig = next(iter(signals))
         signal_name = sig
@@ -460,7 +468,7 @@ def _build_violation(
         "reason": reason,
         "signal_name": signal_name,
         "actual_value": actual_value,
-        "condition": response.get("formula", ""),
+        "condition": condition,
     }
 
 
@@ -471,7 +479,13 @@ def _build_eos_violation(
     prop_index = rational_to_int(result["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
 
-    reason = result.get("enriched_reason", result.get("reason", "end-of-stream violation"))
+    enrichment = result.get("enrichment")
+    if enrichment is not None:
+        reason = enrichment["enriched_reason"] or "end-of-stream violation"
+        condition = enrichment["formula_desc"]
+    else:
+        reason = result.get("reason", "end-of-stream violation")
+        condition = ""
 
     return {
         "check_index": prop_index,
@@ -481,7 +495,7 @@ def _build_eos_violation(
         "reason": reason,
         "signal_name": "",
         "actual_value": None,
-        "condition": result.get("formula", ""),
+        "condition": condition,
     }
 
 
@@ -621,7 +635,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
             "violations": violations,
             "unresolved": unresolved,
         }
-        print(json.dumps(out, indent=2))
+        print(dump_json(out, indent=2))
     else:
         dbc_label = getattr(args, "dbc", None) or getattr(args, "excel", None) or "?"
         checks_label = getattr(args, "checks", None) or getattr(args, "excel", None) or "?"

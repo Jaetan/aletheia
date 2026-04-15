@@ -296,7 +296,21 @@ auto parse_success(std::string_view input) -> Result<void> {
     try {
         auto j = Json::parse(input);
         auto status = j.value("status", "");
-        if (status == "success" || status == "ack")
+        if (status == "success")
+            return {};
+        if (status == "error")
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
+        return std::unexpected(make_error(ErrorKind::Protocol, "Unexpected status: " + status));
+    } catch (const std::exception& e) {
+        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
+    }
+}
+
+auto parse_event_ack(std::string_view input) -> Result<void> {
+    try {
+        auto j = Json::parse(input);
+        auto status = j.value("status", "");
+        if (status == "ack" || status == "success")
             return {};
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));

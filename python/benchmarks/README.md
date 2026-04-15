@@ -62,13 +62,11 @@ python3 throughput.py && python3 latency.py && python3 violations.py && python3 
 
 ## Current Performance
 
-Achieved after FFI optimization and Rosu tree-growth fix:
-
-| Benchmark | Throughput | Latency |
-|-----------|-----------|---------|
-| Streaming LTL (3 properties) | 9,704 fps | 103 us/frame |
-| Signal Extraction | 8,058 fps | 124 us/frame |
-| Frame Building | 5,913 fps | 169 us/frame |
+The canonical benchmark table (all three bindings, CAN 2.0B and CAN-FD, dated
+runs) lives in [`PROJECT_STATUS.md`](../../PROJECT_STATUS.md#key-metrics) —
+this README does not duplicate those numbers to avoid drift. The scripts in
+this directory are Python-only and exercise the Python binding against the
+FFI shared library.
 
 ## Profiling
 

@@ -386,9 +386,9 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 **Testing**:
 - Python tests: 598 passing (via FFI)
-- C++ tests: 142 unit + 14 integration + 33 YAML + 47 Excel TEST_CASEs (236 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
-- Go tests: 251 passing (mock backend, `-race` clean)
-- Total: 1085+ tests
+- C++ tests: 151 unit + 33 integration + 33 YAML + 47 Excel TEST_CASEs (264 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
+- Go tests: 276 passing (218 in `go/aletheia` + 58 in `go/excel`; mock backend, `-race` clean)
+- Total: 1138 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 

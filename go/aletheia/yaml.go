@@ -140,25 +140,25 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
 	condition := entry.Condition
 
-	if !allSimpleConditions[condition] {
+	if !AllSimpleConditions[condition] {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
 	}
 
-	if simpleValueConditions[condition] {
+	if SimpleValueConditions[condition] {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'value'", name, condition))
 		}
-		return dispatchSimple(entry.Signal, condition, PhysicalValue(*entry.Value))
+		return DispatchSimple(entry.Signal, condition, PhysicalValue(*entry.Value))
 	}
 
-	if simpleRangeConditions[condition] {
+	if SimpleRangeConditions[condition] {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
 		}
 		return CheckSignal(entry.Signal).StaysBetween(PhysicalValue(*entry.Min), PhysicalValue(*entry.Max))
 	}
 
-	if simpleSettlesConditions[condition] {
+	if SimpleSettlesConditions[condition] {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'min' and 'max'", name))
 		}
@@ -171,7 +171,7 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		).Within(*entry.WithinMs)
 	}
 
-	if simpleEqualsConditions[condition] {
+	if SimpleEqualsConditions[condition] {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
 		}
@@ -195,20 +195,20 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	then := entry.Then
 
 	// Validate when clause.
-	if !whenConditions[when.Condition] {
+	if !WhenConditions[when.Condition] {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown when condition '%s'", name, when.Condition))
 	}
 	if when.Value == nil {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': when condition '%s' requires 'value'", name, when.Condition))
 	}
 
-	whenResult, err := dispatchWhen(CheckWhen(when.Signal), when.Condition, PhysicalValue(*when.Value))
+	whenResult, err := DispatchWhen(CheckWhen(when.Signal), when.Condition, PhysicalValue(*when.Value))
 	if err != nil {
 		return CheckResult{}, err
 	}
 
 	// Validate then clause.
-	if !allThenConditions[then.Condition] {
+	if !AllThenConditions[then.Condition] {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
 

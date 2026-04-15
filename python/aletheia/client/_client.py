@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import ctypes
-import json
 import logging
+from collections.abc import Mapping
+from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
@@ -35,7 +36,8 @@ from ._ffi import (
     configure_ffi_signatures,
 )
 from ._helpers import (
-    float_to_rational,
+    coerce_to_rational,
+    dump_json,
     normalize_dbc,
     parse_absent_list,
     parse_errors_list,
@@ -150,7 +152,7 @@ class AletheiaClient:
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
 
-        json_bytes = json.dumps(command).encode("utf-8")
+        json_bytes = dump_json(command).encode("utf-8")
         result_ptr = self._lib.aletheia_process(self._state, json_bytes)
 
         try:
@@ -177,9 +179,14 @@ class AletheiaClient:
         return cast(Response, parse_json_object(result_str))
 
     def _resolve_signal_indices(
-        self, signals: dict[str, float], can_id: int, extended: bool, cmd_name: str,
+        self, signals: Mapping[str, float | Fraction],
+        can_id: int, extended: bool, cmd_name: str,
     ) -> SignalValues:
-        """Resolve signal names to indices and convert values to rationals."""
+        """Resolve signal names to indices and convert values to rationals.
+
+        Accepts float or Fraction inputs — Fraction flows through losslessly
+        via ``coerce_to_rational``, matching the Agda core's ℚ arithmetic.
+        """
         lookup = self._signal_lookup.get((can_id, extended))
         if lookup is None:
             if not self._signal_lookup:
@@ -192,7 +199,7 @@ class AletheiaClient:
             idx = lookup.indices.get(name)
             if idx is None:
                 raise ProcessError(f"{cmd_name}: unknown signal '{name}'")
-            n, d = float_to_rational(value)
+            n, d = coerce_to_rational(value)
             indices.append(idx)
             nums.append(n)
             dens.append(d)
@@ -290,8 +297,8 @@ class AletheiaClient:
         """Export the currently-loaded DBC as a JSON dict.
 
         The DBC must have been loaded via ``parse_dbc()`` first.
-        Numeric fields are normalized to ``float`` so the result
-        matches the ``DBCDefinition`` schema exactly.
+        Numeric fields are normalized to ``Fraction`` so the result
+        preserves the Agda core's exact rational precision end-to-end.
 
         Returns:
             DBC definition dict matching the ``DBCDefinition`` schema.
@@ -427,17 +434,20 @@ class AletheiaClient:
         else:
             _logger.debug("cache.hit canId=%d dlc=%d", frame_id.can_id, frame_id.dlc)
 
-        values: dict[str, float | None] = {}
+        values: dict[str, Fraction | None] = {}
         if extraction is not None:
             for sig in diag.signals:
                 val = extraction.values.get(sig)
                 if val is not None:
                     values[sig] = val
 
-        result["signals"] = values
-        result["formula"] = diag.formula_desc
         core_reason = result.get("reason", "")
-        result["enriched_reason"] = format_enriched_reason(diag, values, core_reason)
+        result["enrichment"] = {
+            "signals": values,
+            "formula_desc": diag.formula_desc,
+            "enriched_reason": format_enriched_reason(diag, values, core_reason),
+            "core_reason": core_reason,
+        }
 
     # Pre-encoded ack response bytes for fast-path comparison.
     # _ACK_BYTES is the compact form produced by the binary FFI path;
@@ -460,8 +470,9 @@ class AletheiaClient:
         """Send a CAN frame for incremental LTL checking.
 
         If properties have been set via ``set_properties()``, violation
-        responses are automatically enriched with ``signals``, ``formula``,
-        and ``enriched_reason``.
+        responses are automatically enriched with an ``enrichment`` field
+        containing ``signals``, ``formula_desc``, ``enriched_reason``, and
+        ``core_reason``.
 
         Args:
             timestamp: Timestamp in microseconds
@@ -679,9 +690,9 @@ class AletheiaClient:
         - ``status="unresolved"`` if the property's verdict is Unknown
           (e.g., signal never observed — Kleene three-valued semantics)
 
-        Failed and unresolved results are enriched with ``signals``,
-        ``formula``, and ``enriched_reason`` when checks have been
-        registered.
+        Failed and unresolved results are enriched with an ``enrichment``
+        field containing ``signals``, ``formula_desc``, ``enriched_reason``,
+        and ``core_reason`` when checks have been registered.
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
@@ -712,12 +723,12 @@ class AletheiaClient:
 
     def _extract_last_known_values(
         self, diag: PropertyDiagnostic,
-    ) -> dict[str, float | None]:
+    ) -> dict[str, Fraction | None]:
         """Extract signal values from last-seen frames for EOS enrichment."""
         if not self._caches.last_frames or not diag.signals:
             return {}
         wanted = set(diag.signals)
-        values: dict[str, float | None] = {}
+        values: dict[str, Fraction | None] = {}
         # Sort by (canID, extended) for deterministic enrichment output,
         # matching Go's explicit sort and C++'s std::map ordering.
         for (lf_id, lf_ext), (lf_dlc, lf_data) in sorted(
@@ -759,10 +770,13 @@ class AletheiaClient:
             )
             return
         values = self._extract_last_known_values(diag)
-        result["signals"] = values
-        result["formula"] = diag.formula_desc
         core_reason = result.get("reason", "")
-        result["enriched_reason"] = format_enriched_reason(diag, values, core_reason)
+        result["enrichment"] = {
+            "signals": values,
+            "formula_desc": diag.formula_desc,
+            "enriched_reason": format_enriched_reason(diag, values, core_reason),
+            "core_reason": core_reason,
+        }
 
     # =========================================================================
     # Signal Operations (available anytime after DBC loaded)
@@ -850,7 +864,7 @@ class AletheiaClient:
         can_id: int,
         dlc: int,
         frame: bytearray,
-        signals: dict[str, float],
+        signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,
     ) -> bytearray:
@@ -894,7 +908,7 @@ class AletheiaClient:
         )
 
     def build_frame(
-        self, can_id: int, dlc: int, signals: dict[str, float], *,
+        self, can_id: int, dlc: int, signals: Mapping[str, float | Fraction], *,
         extended: bool = False,
     ) -> bytearray:
         """Build a CAN frame from signal values.

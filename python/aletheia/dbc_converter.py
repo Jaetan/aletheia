@@ -9,12 +9,14 @@ Convert between .dbc files, JSON, and DBC text format.
 from __future__ import annotations
 
 import json
+from fractions import Fraction
 from pathlib import Path
 from typing import cast
 
 import cantools
 import cantools.database.can
 
+from .client._helpers import to_signal_fraction
 from .protocols import (
     DBCSignal,
     DBCMessage,
@@ -43,17 +45,20 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     min_value = signal.minimum if signal.minimum is not None else 0.0
     max_value = signal.maximum if signal.maximum is not None else 0.0
 
-    # Base signal fields common to all signal types
+    # Base signal fields common to all signal types. Numeric fields are
+    # converted to Fraction to match DBCSignal's typed contract — the Agda
+    # core works in ℚ and to_signal_fraction preserves decimal intent
+    # (0.1 → 1/10) rather than the IEEE-754 binary approximation.
     base_fields = {
         "name": signal.name,
         "startBit": signal.start,
         "length": signal.length,
         "byteOrder": byte_order,
         "signed": is_signed,
-        "factor": signal.scale,
-        "offset": signal.offset,
-        "minimum": min_value,
-        "maximum": max_value,
+        "factor": to_signal_fraction(signal.scale),
+        "offset": to_signal_fraction(signal.offset),
+        "minimum": to_signal_fraction(min_value),
+        "maximum": to_signal_fraction(max_value),
         "unit": signal.unit if signal.unit else "",
     }
 
@@ -120,8 +125,18 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     return dbc_def
 
 
-def _format_number(value: float) -> str:
-    """Format a float for DBC output, using integer form when possible."""
+def _format_number(value: float | Fraction) -> str:
+    """Format a numeric signal field for DBC output.
+
+    Fractions exactly representable as integers emit as ``"int"``; other
+    Fractions emit as a 15-digit decimal via float conversion (DBC's text
+    format is decimal-only, so exact rational preservation is impossible
+    at this layer — this matches cantools' .dbc output convention).
+    """
+    if isinstance(value, Fraction):
+        if value.denominator == 1:
+            return str(value.numerator)
+        return f"{float(value):.15g}"
     if value.is_integer():
         return str(int(value))
     return f"{value:.15g}"

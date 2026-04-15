@@ -105,12 +105,15 @@ func (b ByteOrder) String() string {
 // Valid domain is 0-511 (64 bytes × 8 bits). Use [NewBitPosition] to create one.
 type BitPosition uint16
 
-const maxBitPosition = 511 // 64 bytes × 8 bits − 1
+// MaxBitPosition is the largest valid start-bit position within a CAN-FD frame
+// (64 bytes × 8 bits − 1). Consumers building signals from external data can
+// use it as the validation boundary before calling [NewBitPosition].
+const MaxBitPosition = 511
 
 // NewBitPosition creates a validated BitPosition. Returns an error if v > 511.
 func NewBitPosition(v uint16) (BitPosition, error) {
-	if v > maxBitPosition {
-		return 0, validationError(fmt.Sprintf("bit position %d exceeds maximum %d", v, maxBitPosition))
+	if v > MaxBitPosition {
+		return 0, validationError(fmt.Sprintf("bit position %d exceeds maximum %d", v, MaxBitPosition))
 	}
 	return BitPosition(v), nil
 }
@@ -118,12 +121,14 @@ func NewBitPosition(v uint16) (BitPosition, error) {
 // BitLength is a signal length in bits (1-64). Use [NewBitLength] to create one.
 type BitLength uint8
 
-const maxBitLength = 64 // max signal bits in a CAN frame
+// MaxBitLength is the largest valid signal length in bits for a CAN-FD frame.
+// Use it to validate external data before calling [NewBitLength].
+const MaxBitLength = 64
 
 // NewBitLength creates a validated BitLength. Returns an error if v < 1 or v > 64.
 func NewBitLength(v uint8) (BitLength, error) {
-	if v < 1 || v > maxBitLength {
-		return 0, validationError(fmt.Sprintf("bit length %d out of range [1, %d]", v, maxBitLength))
+	if v < 1 || v > MaxBitLength {
+		return 0, validationError(fmt.Sprintf("bit length %d out of range [1, %d]", v, MaxBitLength))
 	}
 	return BitLength(v), nil
 }
@@ -137,10 +142,14 @@ type CanID interface {
 	IsExtended() bool
 }
 
-const (
-	maxStandardID = 1<<11 - 1 // 11-bit CAN ID
-	maxExtendedID = 1<<29 - 1 // 29-bit CAN ID
-)
+// MaxStandardID is the largest 11-bit CAN identifier value. Consumers
+// validating external data can compare against this before calling
+// [NewStandardID].
+const MaxStandardID = 1<<11 - 1
+
+// MaxExtendedID is the largest 29-bit CAN identifier value. Use it to
+// validate external data before calling [NewExtendedID].
+const MaxExtendedID = 1<<29 - 1
 
 // StandardID is an 11-bit CAN identifier (0-2047).
 type StandardID struct{ value uint16 }
@@ -152,8 +161,8 @@ func (id StandardID) String() string   { return fmt.Sprintf("0x%03X", id.value) 
 
 // NewStandardID creates a standard 11-bit CAN ID. Returns an error if v > 2047.
 func NewStandardID(v uint16) (StandardID, error) {
-	if v > maxStandardID {
-		return StandardID{}, validationError(fmt.Sprintf("standard CAN ID %d exceeds 11-bit range (0-%d)", v, maxStandardID))
+	if v > MaxStandardID {
+		return StandardID{}, validationError(fmt.Sprintf("standard CAN ID %d exceeds 11-bit range (0-%d)", v, MaxStandardID))
 	}
 	return StandardID{value: v}, nil
 }
@@ -168,8 +177,8 @@ func (id ExtendedID) String() string   { return fmt.Sprintf("0x%08X", id.value) 
 
 // NewExtendedID creates an extended 29-bit CAN ID. Returns an error if v > 536870911.
 func NewExtendedID(v uint32) (ExtendedID, error) {
-	if v > maxExtendedID {
-		return ExtendedID{}, validationError(fmt.Sprintf("extended CAN ID %d exceeds 29-bit range (0-%d)", v, maxExtendedID))
+	if v > MaxExtendedID {
+		return ExtendedID{}, validationError(fmt.Sprintf("extended CAN ID %d exceeds 29-bit range (0-%d)", v, MaxExtendedID))
 	}
 	return ExtendedID{value: v}, nil
 }

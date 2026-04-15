@@ -7,6 +7,7 @@ This provides better type safety and IDE support.
 from __future__ import annotations
 
 from enum import Enum
+from fractions import Fraction
 from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
 
 
@@ -126,31 +127,39 @@ class PredicateType(str, Enum):
 # ============================================================================
 
 class DBCSignalAlways(TypedDict):
-    """DBC signal that is always present"""
+    """DBC signal that is always present.
+
+    Numeric fields (factor/offset/minimum/maximum) use ``Fraction`` to
+    preserve the Agda core's exact rational representation end-to-end.
+    """
     name: str
     startBit: int
     length: int
     byteOrder: ByteOrder
     signed: bool
-    factor: float
-    offset: float
-    minimum: float
-    maximum: float
+    factor: Fraction
+    offset: Fraction
+    minimum: Fraction
+    maximum: Fraction
     unit: str
     presence: SignalPresence
 
 
 class DBCSignalMultiplexed(TypedDict):
-    """DBC signal that is conditionally present (multiplexed)"""
+    """DBC signal that is conditionally present (multiplexed).
+
+    Numeric fields (factor/offset/minimum/maximum) use ``Fraction`` to
+    preserve the Agda core's exact rational representation end-to-end.
+    """
     name: str
     startBit: int
     length: int
     byteOrder: ByteOrder
     signed: bool
-    factor: float
-    offset: float
-    minimum: float
-    maximum: float
+    factor: Fraction
+    offset: Fraction
+    minimum: Fraction
+    maximum: Fraction
     unit: str
     multiplexor: str
     multiplex_values: list[int]
@@ -384,9 +393,14 @@ class RationalNumber(TypedDict):
 
 
 class SignalValue(TypedDict):
-    """Signal name-value pair for encoding"""
+    """Signal name-value pair from signal extraction (output from Agda).
+
+    ``value`` is a ``Fraction`` to preserve the Agda core's exact rational
+    representation — extraction responses encode non-integer values as
+    ``{"numerator": n, "denominator": d}`` on the wire.
+    """
     name: str
-    value: float
+    value: Fraction
 
 
 class SignalError(TypedDict):
@@ -442,6 +456,20 @@ class AckResponse(TypedDict):
     status: Literal["ack"]
 
 
+class ViolationEnrichment(TypedDict):
+    """Human-readable context attached to property violations.
+
+    Mirrors Go's ``ViolationEnrichment`` and C++'s ``ViolationEnrichment``
+    structs. ``enriched_reason`` is computed by the Python enrichment layer
+    from signal values and formula structure; ``core_reason`` is the raw
+    reason from the Agda core (may be empty).
+    """
+    signals: dict[str, Fraction | None]
+    formula_desc: str
+    enriched_reason: str
+    core_reason: str
+
+
 class PropertyViolationResponse(TypedDict):
     """Property violation response"""
     status: Literal["fails"]
@@ -449,9 +477,7 @@ class PropertyViolationResponse(TypedDict):
     property_index: RationalNumber
     timestamp: RationalNumber
     reason: NotRequired[str]  # Optional reason field from binary
-    signals: NotRequired[dict[str, float | None]]  # Enriched: signal values
-    formula: NotRequired[str]  # Enriched: human-readable formula
-    enriched_reason: NotRequired[str]  # Enriched: counter-example string
+    enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
 
 
 class PropertyResultEntry(TypedDict):
@@ -469,9 +495,7 @@ class PropertyResultEntry(TypedDict):
     property_index: RationalNumber
     timestamp: NotRequired[RationalNumber]  # Only for violations
     reason: NotRequired[str]  # Only for violations and unresolved
-    signals: NotRequired[dict[str, float | None]]  # Enriched: signal values
-    formula: NotRequired[str]  # Enriched: human-readable formula
-    enriched_reason: NotRequired[str]  # Enriched: counter-example string
+    enrichment: NotRequired[ViolationEnrichment]  # Auto-derived diagnostic
 
 
 class CompleteResponse(TypedDict):

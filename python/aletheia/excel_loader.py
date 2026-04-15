@@ -83,6 +83,7 @@ from ._loader_utils import (
     get_int,
     get_bool,
 )
+from .client._helpers import to_signal_fraction
 
 # Excel cell values: str, numbers, booleans, or None (empty)
 CellValue: TypeAlias = str | int | float | bool | None
@@ -462,10 +463,10 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
             "length": get_int(row, "Length", ctx),
             "byteOrder": byte_order,
             "signed": get_bool(row, "Signed", ctx),
-            "factor": get_number(row, "Factor", ctx),
-            "offset": get_number(row, "Offset", ctx),
-            "minimum": get_number(row, "Min", ctx),
-            "maximum": get_number(row, "Max", ctx),
+            "factor": to_signal_fraction(get_number(row, "Factor", ctx)),
+            "offset": to_signal_fraction(get_number(row, "Offset", ctx)),
+            "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
+            "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
             "unit": unit_str,
             "multiplexor": get_str(row, "Multiplexor", ctx),
             "multiplex_values": [get_int(row, "Multiplex Value", ctx)],
@@ -478,10 +479,10 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
         "length": get_int(row, "Length", ctx),
         "byteOrder": byte_order,
         "signed": get_bool(row, "Signed", ctx),
-        "factor": get_number(row, "Factor", ctx),
-        "offset": get_number(row, "Offset", ctx),
-        "minimum": get_number(row, "Min", ctx),
-        "maximum": get_number(row, "Max", ctx),
+        "factor": to_signal_fraction(get_number(row, "Factor", ctx)),
+        "offset": to_signal_fraction(get_number(row, "Offset", ctx)),
+        "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
+        "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
         "unit": unit_str,
         "presence": "always",
     }

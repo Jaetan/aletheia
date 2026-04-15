@@ -21,13 +21,12 @@ record CachedSignal : Set where
   constructor mkCachedSignal
   field
     value        : ℚ
-    -- Deferred refinement (§10.1): should be `Timestamp μs` for
-    -- dimensional type-safety, matching TimedFrame.timestamp. Left as ℕ
-    -- because CachedSignal is internal bookkeeping — not part of the
-    -- public TimedFrame/TraceEvent API that the Timestamp phantom was
-    -- introduced to protect. MAlonzo cost: zero (Timestamp μs erases
-    -- to the same Integer newtype). Refactor when Cache gains a public
-    -- API or if a unit mismatch bug motivates the change.
+    -- Kept as ℕ: CachedSignal is internal bookkeeping, not part of the
+    -- public TimedFrame/TraceEvent API that the `Timestamp μs` phantom
+    -- was introduced to protect. Raw ℕ avoids an unwrap at every cache
+    -- lookup / update while losing no type-level safety (no consumer
+    -- passes a non-μs value into the cache). Refactor to `Timestamp μs`
+    -- only if Cache gains a public API.
     lastObserved : ℕ
 
 -- Bare list of cache entries (exported for proof use).

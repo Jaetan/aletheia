@@ -434,7 +434,7 @@ auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_error_binary(state_, ts);
-    auto r = detail::parse_success(resp);
+    auto r = detail::parse_event_ack(resp);
     if (r.has_value() && logger_) {
         logger_.debug("error_event.sent", {{"ts", static_cast<std::int64_t>(ts.count())},
                                            {"response", std::string_view{"ack"}}});
@@ -447,7 +447,7 @@ auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
     auto resp = backend_->send_remote_binary(state_, ts, id);
-    auto r = detail::parse_success(resp);
+    auto r = detail::parse_event_ack(resp);
     if (r.has_value() && logger_) {
         logger_.debug(
             "remote_event.sent",

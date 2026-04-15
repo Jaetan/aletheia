@@ -14,6 +14,7 @@ import ctypes
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import NoReturn
 
 from ._types import ProcessError, SignalExtractionResult
@@ -69,19 +70,24 @@ def _decode_and_raise(
 
 def _parse_values_segment(
     buf: bytes, off: int, count: int, names: Sequence[str],
-) -> tuple[dict[str, float], int]:
-    """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each)."""
+) -> tuple[dict[str, Fraction], int]:
+    """Parse the values segment: ``count`` × ``<Hqq`` (18 bytes each).
+
+    Returns Fraction values to preserve exact rational precision from the
+    Agda core — the wire format already carries int64 numerator/denominator
+    pairs, so no quantization is needed.
+    """
     needed = off + count * 18
     if len(buf) < needed:
         raise ProcessError(
             f"Truncated values segment: need {needed} bytes, have {len(buf)}"
         )
-    values: dict[str, float] = {}
+    values: dict[str, Fraction] = {}
     for _ in range(count):
         idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
         off += 18
         name = names[idx] if idx < len(names) else f"signal_{idx}"
-        values[name] = num / den if den != 0 else 0.0
+        values[name] = Fraction(num, den) if den != 0 else Fraction(0)
     return values, off
 
 
@@ -180,12 +186,14 @@ class BinaryFFI:
         )
         if status != 0:
             _decode_and_raise(self._lib, out_err, "extract_signals failed")
-        buf = bytes(
-            ctypes.cast(
-                out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value),
-            ).contents
-        )
-        self._lib.aletheia_free_buf(out_buf)
+        try:
+            buf = bytes(
+                ctypes.cast(
+                    out_buf, ctypes.POINTER(ctypes.c_uint8 * out_size.value),
+                ).contents
+            )
+        finally:
+            self._lib.aletheia_free_buf(out_buf)
         return parse_extraction_buffer(buf, names)
 
     def update_frame(

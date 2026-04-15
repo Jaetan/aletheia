@@ -6,6 +6,7 @@ Module-level functions, testable without an AletheiaClient instance.
 from __future__ import annotations
 
 from collections.abc import Callable
+from fractions import Fraction
 from typing import cast
 
 from ..protocols import LTLFormula
@@ -234,7 +235,7 @@ def build_diagnostic(formula: LTLFormula) -> PropertyDiagnostic:
 
 
 def format_enriched_reason(
-    diag: PropertyDiagnostic, values: dict[str, float | None],
+    diag: PropertyDiagnostic, values: dict[str, Fraction | None],
     core_reason: str = "",
 ) -> str:
     """Build the enriched reason string.

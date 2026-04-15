@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Sequence
-from typing import cast
+from fractions import Fraction
+from typing import cast, override
 
 from ..protocols import (
     DBCDefinition,
@@ -18,6 +20,26 @@ from ._types import ProtocolError
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
+
+
+class FractionJSONEncoder(json.JSONEncoder):
+    """JSONEncoder that serializes Fraction as {"numerator": n, "denominator": d}.
+
+    Matches Agda's rational wire format — parseRational accepts integer
+    literals, rational dicts, and decimal floats, so this preserves exact
+    precision on any DBCDefinition round-trip path.
+    """
+
+    @override
+    def default(self, o: object) -> object:
+        if isinstance(o, Fraction):
+            return {"numerator": o.numerator, "denominator": o.denominator}
+        return super().default(o)
+
+
+def dump_json(value: object, *, indent: int | None = None) -> str:
+    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder."""
+    return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
 
 
 def float_to_rational(value: float) -> tuple[int, int]:
@@ -38,6 +60,54 @@ def float_to_rational(value: float) -> tuple[int, int]:
             f"signal value {value!r} too large for rational representation"
         )
     return (numerator, 1_000_000_000)
+
+
+_INT64_MAX = (1 << 63) - 1
+_INT64_MIN = -(1 << 63)
+
+
+def fraction_to_rational(value: Fraction) -> tuple[int, int]:
+    """Convert a Fraction to (numerator, denominator) for binary FFI, lossless.
+
+    Unlike float_to_rational this preserves exact precision — the Agda core
+    works in ℚ and the wire format carries int64 numerator/denominator pairs,
+    so Fractions flow through without the 10^9 quantization step.
+
+    Raises:
+        ValueError: If either component overflows int64.
+    """
+    n, d = value.numerator, value.denominator
+    if not _INT64_MIN <= n <= _INT64_MAX or not _INT64_MIN <= d <= _INT64_MAX:
+        raise ValueError(
+            f"Fraction {value!r} components exceed int64 range"
+        )
+    return (n, d)
+
+
+def coerce_to_rational(value: float | Fraction) -> tuple[int, int]:
+    """Convert a numeric signal input to (numerator, denominator).
+
+    Uses Fraction's exact representation when the caller already has one;
+    falls back to float_to_rational's 10^9 scaling for float inputs.
+    """
+    if isinstance(value, Fraction):
+        return fraction_to_rational(value)
+    return float_to_rational(value)
+
+
+def to_signal_fraction(value: float | int | Fraction) -> Fraction:
+    """Convert a decimal-intent numeric input to a Fraction for DBCSignal fields.
+
+    Floats are bounded via ``limit_denominator(1_000_000_000)`` so that
+    decimal inputs like ``0.1`` become ``1/10`` exactly rather than the
+    IEEE-754 approximation's monstrous denominator.  Int and existing
+    Fraction inputs flow through unchanged.
+    """
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return Fraction(value)
+    return Fraction(value).limit_denominator(1_000_000_000)
 
 
 def extract_rational_from_dict(
@@ -70,13 +140,32 @@ def validate_rational(field_name: str, raw_value: object) -> RationalNumber:
     return {"numerator": n, "denominator": d}
 
 
-def parse_rational(value_raw: object) -> float:
-    """Parse a value that may be a number, rational dict, or rational string."""
-    if isinstance(value_raw, (int, float)):
-        return float(value_raw)
+def parse_rational(value_raw: object) -> Fraction:
+    """Parse a value that may be a number, rational dict, or rational string.
+
+    Returns a Fraction to preserve the Agda core's exact rational precision
+    end-to-end — JSON rational dicts {"numerator": n, "denominator": d}
+    become Fraction(n, d) with no float quantization.
+
+    For legacy float inputs (rare — Agda's formatRational emits integers as
+    ints and non-integers as rational dicts) we still go through Fraction,
+    using its float-from-string heuristic to avoid binary float artifacts.
+    """
+    if isinstance(value_raw, bool):
+        # bool is a subclass of int; reject explicitly to avoid True → Fraction(1)
+        raise ProtocolError(
+            "Expected signal value to be number, rational dict, "
+            + "or rational string, got bool"
+        )
+    if isinstance(value_raw, int):
+        return Fraction(value_raw)
+    if isinstance(value_raw, float):
+        if math.isnan(value_raw) or math.isinf(value_raw):
+            raise ProtocolError(f"Cannot convert {value_raw!r} to rational")
+        return Fraction(value_raw).limit_denominator(1_000_000_000)
     if is_str_dict(value_raw):
         n, d = extract_rational_from_dict(value_raw, "rational")
-        return n / d
+        return Fraction(n, d)
     if isinstance(value_raw, str):
         if "/" in value_raw:
             parts = value_raw.split("/")
@@ -91,10 +180,10 @@ def parse_rational(value_raw: object) -> float:
                         raise ProtocolError(
                             f"Division by zero in rational string: {value_raw!r}"
                         )
-                    return numerator_s / denominator_s
+                    return Fraction(numerator_s, denominator_s)
         try:
-            return float(value_raw)
-        except ValueError:
+            return Fraction(value_raw)
+        except (ValueError, ZeroDivisionError):
             pass
     raise ProtocolError(
         "Expected signal value to be number, rational dict, "
@@ -116,8 +205,9 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
 
     Agda's ``formatRational`` encodes non-integer rationals as
     ``{"numerator": n, "denominator": d}`` dicts. This method
-    converts those to ``float`` so the result matches the
-    ``DBCDefinition`` TypedDict (where numeric fields are ``float``).
+    converts those to ``Fraction`` so the result matches the
+    ``DBCDefinition`` TypedDict and preserves the core's exact
+    rational precision end-to-end.
     """
     raw_messages = raw.get("messages")
     if not is_object_list(raw_messages):
@@ -143,9 +233,9 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     }
 
 
-def parse_values_list(values_data: Sequence[object]) -> dict[str, float]:
+def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:
     """Parse signal values list from response."""
-    values: dict[str, float] = {}
+    values: dict[str, Fraction] = {}
     for item in values_data:
         if not is_str_dict(item):
             raise ProtocolError(f"Expected signal value to be dict, got {type(item)}")

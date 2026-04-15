@@ -112,8 +112,8 @@ def parse_finalization_results(
     """Parse end-of-stream property finalization results.
 
     ``enrich`` is invoked once per ``fails``/``unresolved`` entry so the
-    client can attach ``signals``/``formula``/``enriched_reason`` using
-    its own diagnostic and cache state.
+    client can attach an ``enrichment`` field (signals, formula_desc,
+    enriched_reason, core_reason) using its own diagnostic and cache state.
     """
     results_raw = response.get("results")
     if not isinstance(results_raw, list):

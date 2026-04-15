@@ -10,6 +10,7 @@ Tests cover:
 
 import json
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
@@ -57,10 +58,10 @@ class TestSignalConversion:
         assert result["length"] == 16
         assert result["byteOrder"] == "little_endian"
         assert result["signed"] is False
-        assert result["factor"] == 0.01
+        assert result["factor"] == Fraction(1, 100)
         assert result["offset"] == 0
         assert result["minimum"] == 0
-        assert result["maximum"] == 655.35
+        assert result["maximum"] == Fraction(65535, 100)
         assert result["unit"] == "kph"
         assert result["presence"] == "always"
 
@@ -207,7 +208,7 @@ class TestSignalConversion:
 
         result = signal_to_json(signal)
 
-        assert result["factor"] == 0.001
+        assert result["factor"] == Fraction(1, 1000)
 
 
 # ============================================================================
@@ -600,10 +601,10 @@ class TestIntegrationStyle:
         assert sig["length"] == 16
         assert sig["byteOrder"] == "little_endian"
         assert sig["signed"] is False
-        assert sig["factor"] == 0.01
+        assert sig["factor"] == Fraction(1, 100)
         assert sig["offset"] == 0
         assert sig["minimum"] == 0
-        assert sig["maximum"] == 655.35
+        assert sig["maximum"] == Fraction(65535, 100)
         assert sig["unit"] == "kph"
         assert sig["presence"] == "always"
 

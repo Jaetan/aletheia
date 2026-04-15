@@ -38,7 +38,7 @@ module Aletheia.LTL.SignalPredicate.Evaluation.Properties where
 open import Aletheia.Prelude
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (∃-syntax; _,_)
-open import Data.Maybe using (just; nothing) renaming (map to mapₘ)
+open import Data.Maybe using (just; nothing)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; trans; cong; cong₂)
 
@@ -90,21 +90,24 @@ private
   ... | nothing = refl
 
   -- Pointwise unfolding for the delta case: currVal comes from getTruthValue,
-  -- prevVal from `mapₘ CachedSignal.value ∘ lookupCache` (as it appears
-  -- literally inside evalDeltaPredicateTV's body). We nest the two `with`
-  -- clauses — outer on `getTruthValue`, inner on `lookupCache` — because
-  -- Agda's abstraction doesn't descend into the body of a non-applied case
-  -- lambda. The outer `with` commits the outer `case currVal of …` to its
+  -- prevVal from `lookupCacheValue`, which unfolds to `cachedSignalValue ∘
+  -- lookupCache` (see Evaluation.agda). We nest the two `with` clauses —
+  -- outer on `getTruthValue`, inner on `lookupCache` — because Agda's
+  -- abstraction doesn't descend into the body of a non-applied case lambda.
+  -- The outer `with` commits the outer `case currVal of …` to its
   -- `(just cv)` branch, which fully applies the outer lambda; only then is
   -- the inner `lookupCache …` reachable by the inner `with` abstraction.
   -- (A flat `with … | …` fails here because the inner occurrence stays
-  -- hidden inside the unapplied outer lambda.)
+  -- hidden inside the unapplied outer lambda.) The inner `with lookupCache`
+  -- works because `lookupCacheValue sig cache` reduces to `cachedSignalValue
+  -- (lookupCache sig cache)`, exposing `lookupCache` syntactically on the
+  -- equation's RHS too.
   evalDeltaPredicateTV-unfold :
     ∀ {n} dbc cache dp (frame : CANFrame n)
     → evalDeltaPredicateTV dbc cache dp frame
       ≡ deltaAt dp
           (getTruthValue (deltaPredicateSignal dp) dbc cache frame)
-          (mapₘ CachedSignal.value (lookupCache (deltaPredicateSignal dp) cache))
+          (lookupCacheValue (deltaPredicateSignal dp) cache)
   evalDeltaPredicateTV-unfold dbc cache dp frame
     with getTruthValue (deltaPredicateSignal dp) dbc cache frame
   ... | nothing = refl
@@ -136,7 +139,7 @@ getTruthValue-cache-just : ∀ {n} sigName dbc cache (frame : CANFrame n) cs
 getTruthValue-cache-just sigName dbc cache frame cs hit
   with extractTruthValue sigName dbc frame
 ... | just v  = v , refl
-... | nothing = CachedSignal.value cs , cong (mapₘ CachedSignal.value) hit
+... | nothing = CachedSignal.value cs , cong cachedSignalValue hit
 
 -- If the value predicate's signal is cached, evaluation yields a definite
 -- verdict (never `Unknown`). We compose the unfolding lemma with a
@@ -161,7 +164,7 @@ evalValue-cache-definite dbc cache vp frame cs hit
 -- If the delta predicate's signal is cached, evaluation yields a definite
 -- verdict (never `Unknown` or `Pending`). Same technique as the value case,
 -- but with `cong₂ (deltaAt dp)` transporting both `currVal` (via `gtv≡jv`)
--- and `prevVal` (via `cong (mapₘ CachedSignal.value) hit`).
+-- and `prevVal` (via `cong cachedSignalValue hit`).
 evalDelta-cache-definite : ∀ {n} dbc cache dp (frame : CANFrame n) cs
   → lookupCache (deltaPredicateSignal dp) cache ≡ just cs
   → (evalDeltaPredicateTV dbc cache dp frame ≡ True)
@@ -173,9 +176,9 @@ evalDelta-cache-definite dbc cache dp frame cs hit
     (fromBool-definite (evalDeltaPredicate dp (CachedSignal.value cs) v))
   where
     prev-eq :
-      mapₘ CachedSignal.value (lookupCache (deltaPredicateSignal dp) cache)
+      lookupCacheValue (deltaPredicateSignal dp) cache
       ≡ just (CachedSignal.value cs)
-    prev-eq = cong (mapₘ CachedSignal.value) hit
+    prev-eq = cong cachedSignalValue hit
 
     combined :
       evalDeltaPredicateTV dbc cache dp frame

@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from fractions import Fraction
 from types import MappingProxyType
 from typing import NamedTuple, override
 
@@ -66,18 +67,19 @@ class SignalExtractionResult:
     """Rich result object for signal extraction.
 
     Partitions extraction results into three categories:
-    - values: Successfully extracted signal values
+    - values: Successfully extracted signal values (Fraction preserves exact
+      rational precision from the Agda core)
     - errors: Extraction errors with reasons
     - absent: Multiplexed signals not present in this frame
     """
 
-    values: Mapping[str, float]
+    values: Mapping[str, Fraction]
     errors: Mapping[str, str]
     absent: tuple[str, ...]
 
     def __init__(
         self,
-        values: dict[str, float],
+        values: dict[str, Fraction],
         errors: dict[str, str],
         absent: tuple[str, ...],
     ) -> None:
@@ -85,7 +87,7 @@ class SignalExtractionResult:
         self.errors = MappingProxyType(errors)
         self.absent = absent
 
-    def get(self, signal_name: str, default: float = 0.0) -> float:
+    def get(self, signal_name: str, default: Fraction = Fraction(0)) -> Fraction:
         """Get signal value with default fallback."""
         return self.values.get(signal_name, default)
 

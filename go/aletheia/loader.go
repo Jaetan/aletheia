@@ -2,18 +2,25 @@ package aletheia
 
 import "fmt"
 
-// Condition keyword sets for YAML and Excel loaders.
-// Both loaders accept the same set of condition keywords and dispatch them
-// through the same Check API builders.
+// Condition keyword sets shared by YAML, Excel, and any external loaders.
+// Each loader dispatches condition keywords through the same builders, so the
+// vocabulary lives here rather than being duplicated per file.
 
 var (
-	simpleValueConditions   = map[string]bool{"never_exceeds": true, "never_below": true, "never_equals": true}
-	simpleRangeConditions   = map[string]bool{"stays_between": true}
-	simpleSettlesConditions = map[string]bool{"settles_between": true}
-	simpleEqualsConditions  = map[string]bool{"equals": true}
-	allSimpleConditions     = mergeConditions(simpleValueConditions, simpleRangeConditions, simpleSettlesConditions, simpleEqualsConditions)
-	whenConditions          = map[string]bool{"exceeds": true, "equals": true, "drops_below": true}
-	allThenConditions       = map[string]bool{"equals": true, "exceeds": true, "stays_between": true}
+	// SimpleValueConditions lists condition keywords that take a single numeric value.
+	SimpleValueConditions = map[string]bool{"never_exceeds": true, "never_below": true, "never_equals": true}
+	// SimpleRangeConditions lists condition keywords that take min/max bounds.
+	SimpleRangeConditions = map[string]bool{"stays_between": true}
+	// SimpleSettlesConditions lists condition keywords that take min/max bounds plus a settle window.
+	SimpleSettlesConditions = map[string]bool{"settles_between": true}
+	// SimpleEqualsConditions lists condition keywords that assert equality with a single value.
+	SimpleEqualsConditions = map[string]bool{"equals": true}
+	// AllSimpleConditions is the union of the four simple-condition sets above.
+	AllSimpleConditions = mergeConditions(SimpleValueConditions, SimpleRangeConditions, SimpleSettlesConditions, SimpleEqualsConditions)
+	// WhenConditions lists condition keywords valid for the "when" leg of a when/then check.
+	WhenConditions = map[string]bool{"exceeds": true, "equals": true, "drops_below": true}
+	// AllThenConditions lists condition keywords valid for the "then" leg of a when/then check.
+	AllThenConditions = map[string]bool{"equals": true, "exceeds": true, "stays_between": true}
 )
 
 // mergeConditions returns the union of one or more condition sets.
@@ -27,9 +34,12 @@ func mergeConditions(sets ...map[string]bool) map[string]bool {
 	return result
 }
 
-// dispatchSimple maps a simple single-value condition keyword to a Check API builder call.
-// Handles: never_exceeds, never_below, never_equals.
-func dispatchSimple(signal, condition string, value PhysicalValue) (CheckResult, error) {
+// DispatchSimple maps a simple single-value condition keyword to a Check API
+// builder call. Handles never_exceeds, never_below, never_equals. Other simple
+// conditions (stays_between, settles_between, equals) have their own shapes
+// and are not dispatched through this helper. Exported for the Excel loader
+// subpackage and any external plug-ins that accept the same vocabulary.
+func DispatchSimple(signal, condition string, value PhysicalValue) (CheckResult, error) {
 	switch condition {
 	case "never_exceeds":
 		return CheckSignal(signal).NeverExceeds(value), nil
@@ -42,8 +52,10 @@ func dispatchSimple(signal, condition string, value PhysicalValue) (CheckResult,
 	}
 }
 
-// dispatchWhen maps a when-condition keyword to a WhenCondition.
-func dispatchWhen(builder WhenSignalBuilder, condition string, value PhysicalValue) (WhenCondition, error) {
+// DispatchWhen maps a when-condition keyword to a WhenCondition. Exported
+// alongside [DispatchSimple] for the same reason — the Excel subpackage and
+// external loaders share the vocabulary.
+func DispatchWhen(builder WhenSignalBuilder, condition string, value PhysicalValue) (WhenCondition, error) {
 	switch condition {
 	case "exceeds":
 		return builder.Exceeds(value), nil

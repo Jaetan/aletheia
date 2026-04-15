@@ -1,5 +1,6 @@
 """Tests for DBC pretty-printer (format_dbc + dbc_to_text)."""
 
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -147,13 +148,14 @@ class TestDBCToText:
         with AletheiaClient() as client:
             client.parse_dbc(dbc)
             formatted = client.format_dbc()
-            # Agda returns rationals; format_dbc normalizes to float
+            # Agda returns rationals; format_dbc preserves them as Fraction
+            # so signal values retain exact precision end-to-end.
             sig = formatted["messages"][0]["signals"][0]
-            assert isinstance(sig["factor"], float)
-            assert sig["factor"] == pytest.approx(0.25)
-            assert isinstance(sig["offset"], float)
-            assert sig["offset"] == pytest.approx(-1.5)
-            # dbc_to_text works on the normalized output
+            assert isinstance(sig["factor"], Fraction)
+            assert sig["factor"] == Fraction(1, 4)
+            assert isinstance(sig["offset"], Fraction)
+            assert sig["offset"] == Fraction(-3, 2)
+            # dbc_to_text converts to decimal for .dbc text output
             text = dbc_to_text(formatted)
             assert "(0.25,-1.5)" in text
             assert "[0|100]" in text

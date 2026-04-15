@@ -43,6 +43,22 @@ type DbcMessage struct {
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
 
+// NewDbcMessage creates a [DbcMessage] with its signal-name lookup index
+// populated. External loaders must use this constructor — directly populating
+// the struct leaves signalIndex nil and forces [DbcMessage.SignalByName] onto
+// its linear fallback path.
+func NewDbcMessage(id CanID, name MessageName, dlc DLC, sender NodeName, signals []DbcSignal) DbcMessage {
+	m := DbcMessage{
+		ID:      id,
+		Name:    name,
+		DLC:     dlc,
+		Sender:  sender,
+		Signals: signals,
+	}
+	m.buildSignalIndex()
+	return m
+}
+
 // buildSignalIndex populates the signal name lookup index.
 func (m *DbcMessage) buildSignalIndex() {
 	m.signalIndex = make(map[string]int, len(m.Signals))
@@ -133,7 +149,7 @@ func (m DbcMessage) SignalsForMuxValue(multiplexor SignalName, value MultiplexVa
 		case AlwaysPresent:
 			out = append(out, s)
 		case Multiplexed:
-			if p.Multiplexor == multiplexor && containsMuxValue(p.MuxValues, value) {
+			if p.Multiplexor == multiplexor && ContainsMuxValue(p.MuxValues, value) {
 				out = append(out, s)
 			}
 		}
@@ -141,7 +157,9 @@ func (m DbcMessage) SignalsForMuxValue(multiplexor SignalName, value MultiplexVa
 	return out
 }
 
-func containsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
+// ContainsMuxValue reports whether vals contains v. Exposed for external loader
+// subpackages (e.g. the separate excel module) that inspect Multiplexed presence.
+func ContainsMuxValue(vals []MultiplexValue, v MultiplexValue) bool {
 	for _, mv := range vals {
 		if mv == v {
 			return true
@@ -180,6 +198,17 @@ type DbcDefinition struct {
 	Messages  []DbcMessage
 	nameIndex map[string]int // maps message name -> index
 	idIndex   map[uint64]int // maps composite CAN ID key -> index
+}
+
+// NewDbcDefinition creates a [DbcDefinition] with its message-name and
+// CAN-ID lookup indexes populated. External loaders must use this
+// constructor — directly populating the struct leaves the indexes nil and
+// forces [DbcDefinition.MessageByID] and [DbcDefinition.MessageByName] onto
+// their linear fallback paths.
+func NewDbcDefinition(version string, messages []DbcMessage) *DbcDefinition {
+	d := &DbcDefinition{Version: version, Messages: messages}
+	d.buildIndexes()
+	return d
 }
 
 // buildIndexes populates the message name and ID lookup indexes.

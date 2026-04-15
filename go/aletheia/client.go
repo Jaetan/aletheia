@@ -2,6 +2,7 @@ package aletheia
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -246,14 +247,19 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 		return nil, stateError("client is closed")
 	}
 
-	// Use binary path when signal name cache is populated.
+	// Use binary path when signal name cache is populated. Only
+	// ErrBinaryPathUnsupported (e.g. MockBackend) triggers the JSON
+	// fallback — any other error (decode / truncation / real FFI
+	// failure) propagates, matching Python's commit-to-binary contract.
 	key := canIDKey(id)
 	if names, ok := c.signalNames[key]; ok {
 		buf, err := c.backend.ExtractSignalsBin(c.state, id, dlc, []byte(data))
 		if err == nil {
 			return parseExtractionBin(buf, names)
 		}
-		// Binary path unavailable (e.g. MockBackend); fall through to JSON.
+		if !errors.Is(err, ErrBinaryPathUnsupported) {
+			return nil, err
+		}
 	}
 
 	// Fallback: JSON path.
@@ -571,7 +577,7 @@ func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayl
 	if idx >= len(c.diags) {
 		if c.logger != nil {
 			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
-					slog.Int("index", idx), slog.Int("count", len(c.diags)))
+				slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
@@ -593,7 +599,7 @@ func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 	if idx >= len(c.diags) {
 		if c.logger != nil {
 			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
-					slog.Int("index", idx), slog.Int("count", len(c.diags)))
+				slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
@@ -634,7 +640,7 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 		if result == nil {
 			if c.logger != nil {
 				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.extraction_failed",
-						slog.Uint64("canId", uint64(lf.id.Value())))
+					slog.Uint64("canId", uint64(lf.id.Value())))
 			}
 			continue
 		}
@@ -728,7 +734,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 	if err != nil {
 		if c.logger != nil {
 			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
-					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
+				slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
 	}
@@ -736,7 +742,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 	if err != nil {
 		if c.logger != nil {
 			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
-					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
+				slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
 	}

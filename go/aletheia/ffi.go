@@ -316,6 +316,7 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		return nil, validationError(fmt.Sprintf("rtsCores %d exceeds C int range (max %d)", cfg.rtsCores, math.MaxInt32))
 	}
 	hsInitMu.Lock()
+	defer hsInitMu.Unlock()
 	if !hsInitDone {
 		if cfg.rtsCores > 1 {
 			C.call_hs_init_rts(hsInit, C.int(cfg.rtsCores))
@@ -329,7 +330,6 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 			slog.Int("active_cores", hsInitCores),
 			slog.Int("requested_cores", cfg.rtsCores))
 	}
-	hsInitMu.Unlock()
 
 	closeOnErr = false
 	return &FFIBackend{

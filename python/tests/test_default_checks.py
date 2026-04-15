@@ -156,8 +156,10 @@ class TestAddChecks:
             # Speed = 100 raw * 0.1 = 10.0 kph — violation
             result = client.send_frame(0, 0x100, 8, _make_frame(100, 1200))
             assert result["status"] == "fails"
-            assert result.get("formula") == "always(Speed < 5)"
-            signals = result.get("signals", {})
+            enrichment = result.get("enrichment")
+            assert enrichment is not None
+            assert enrichment["formula_desc"] == "always(Speed < 5)"
+            signals = enrichment["signals"]
             assert "Speed" in signals
             assert signals["Speed"] == pytest.approx(10.0)
             client.end_stream()

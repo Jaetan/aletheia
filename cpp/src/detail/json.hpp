@@ -44,7 +44,12 @@ auto serialize_end_stream() -> std::string;
 // Parsing (JSON response strings → C++ types)
 // ---------------------------------------------------------------------------
 
+// Strict: accepts only `"success"` (for parse_dbc, set_properties, start_stream).
 auto parse_success(std::string_view input) -> Result<void>;
+// Event ack: accepts `"ack"` (authoritative for send_error / send_remote per
+// `Aletheia/Protocol/StreamState.agda`); also accepts `"success"` for mock/test
+// forward-compat across bindings.
+auto parse_event_ack(std::string_view input) -> Result<void>;
 auto parse_validation(std::string_view input) -> Result<ValidationResult>;
 auto parse_extraction(std::string_view input) -> Result<ExtractionResult>;
 auto parse_frame_data(std::string_view input) -> Result<FramePayload>;

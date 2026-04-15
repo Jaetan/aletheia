@@ -1,6 +1,16 @@
 package aletheia
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrBinaryPathUnsupported is returned by a Backend whose concrete
+// implementation cannot service the binary extraction path (e.g.
+// MockBackend has no real FFI to call aletheia_extract_signals_bin).
+// Client.ExtractSignals falls through to the JSON path ONLY on this
+// sentinel — any other error from ExtractSignalsBin propagates.
+var ErrBinaryPathUnsupported = errors.New("binary path not supported by this backend")
 
 // ErrorKind classifies the source of an error.
 type ErrorKind int
@@ -124,3 +134,16 @@ func validationError(msg string) *Error           { return newError(ErrValidatio
 func stateError(msg string) *Error                { return newError(ErrState, msg) }
 func ffiError(msg string) *Error                  { return newError(ErrFFI, msg) }
 func wrapProtocol(msg string, cause error) *Error { return wrapError(ErrProtocol, msg, cause) }
+
+// NewValidationError returns an [ErrValidation] error with the given message.
+// Exported so external loaders (the Excel subpackage, custom plug-ins) report
+// failures with the same kind/Code shape as the built-in YAML loader.
+func NewValidationError(msg string) *Error { return validationError(msg) }
+
+// WrapValidationError wraps an underlying cause as an [ErrValidation] error
+// with the given message. Kept public for the same reason as
+// [NewValidationError] — external loaders should reuse this instead of
+// constructing *Error directly.
+func WrapValidationError(msg string, cause error) *Error {
+	return wrapError(ErrValidation, msg, cause)
+}

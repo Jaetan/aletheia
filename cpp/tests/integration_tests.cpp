@@ -1310,3 +1310,51 @@ TEST_CASE("make_ffi_backend rejects rts_cores < 1", "[integration][ffi_backend]"
     CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/0), std::invalid_argument);
     CHECK_THROWS_AS(make_ffi_backend(lib, /*rts_cores=*/-1), std::invalid_argument);
 }
+
+// ---------------------------------------------------------------------------
+// Event ack wire-contract tests (closes SC.22.3 from R11 review).
+//
+// send_error and send_remote go through `parse_event_ack`, which is
+// authoritative for the `{"status":"ack"}` wire returned by the real FFI
+// (see Aletheia/Protocol/StreamState.agda:81-82). MockBackend's default
+// happens to return `"success"` — these tests exercise the real `"ack"`
+// path end-to-end, catching regressions where parse_success and
+// parse_event_ack drift or the Agda handler stops emitting `"ack"`.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.set_properties({}).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    // send_error carries only a timestamp; the real FFI must return
+    // {"status":"ack"} and the Client must accept it.
+    auto r = client.send_error(Timestamp{1'000});
+    REQUIRE(r.has_value());
+
+    auto end = client.end_stream();
+    REQUIRE(end.has_value());
+}
+
+TEST_CASE("send_remote returns ack via real FFI", "[integration][event_ack]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.set_properties({}).has_value());
+    REQUIRE(client.start_stream().has_value());
+
+    // send_remote carries a timestamp + CAN id; the real FFI must return
+    // {"status":"ack"} and the Client must accept it.
+    auto id = CanId{StandardId::create(0x100).value()};
+    auto r = client.send_remote(Timestamp{1'000}, id);
+    REQUIRE(r.has_value());
+
+    auto end = client.end_stream();
+    REQUIRE(end.has_value());
+}

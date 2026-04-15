@@ -216,13 +216,15 @@ func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, da
 	return parseFrameDataResponse(resp)
 }
 
-// ExtractSignalsBin is not supported by MockBackend — returns an error.
-// The binary extraction path requires the real FFI shared library to call
-// aletheia_extract_signals_bin; MockBackend cannot provide this. When the
-// Client receives this error, it falls back to the JSON extraction path
-// via ExtractSignalsBinary -> Process, which the mock can handle.
+// ExtractSignalsBin is not supported by MockBackend — returns
+// [ErrBinaryPathUnsupported]. The binary extraction path needs the real
+// FFI shared library to call aletheia_extract_signals_bin; MockBackend
+// cannot provide this. Client.ExtractSignals recognises the sentinel
+// and falls through to the JSON path via ExtractSignalsBinary -> Process,
+// which the mock can service. Any other error (decode / truncation /
+// FFI failure) propagates instead of triggering silent JSON fallback.
 func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
-	return nil, protocolError("extract_signals_bin requires FFI backend")
+	return nil, ErrBinaryPathUnsupported
 }
 
 // Close is a no-op for the mock backend.

@@ -1,6 +1,9 @@
-//go:build aletheia_excel
-
-package aletheia
+// Package excel provides optional Excel-based loaders for Aletheia check
+// definitions and DBC signal tables. It lives in its own module so the heavy
+// excelize dependency (and its transitive crypto / net / text chain) stays
+// off the critical path for consumers who drive the engine from YAML, code,
+// or the Python/C++ bindings.
+package excel
 
 import (
 	"fmt"
@@ -10,20 +13,21 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aletheia-automotive/aletheia-go/aletheia"
 	"github.com/xuri/excelize/v2"
 )
 
-// ExcelOption configures Excel loading behavior.
-type ExcelOption func(*excelConfig)
+// Option configures Excel loading behavior.
+type Option func(*config)
 
-type excelConfig struct {
+type config struct {
 	checksSheet   string
 	whenThenSheet string
 	dbcSheet      string
 }
 
-func defaultExcelConfig() excelConfig {
-	return excelConfig{
+func defaultConfig() config {
+	return config{
 		checksSheet:   "Checks",
 		whenThenSheet: "When-Then",
 		dbcSheet:      "DBC",
@@ -31,18 +35,18 @@ func defaultExcelConfig() excelConfig {
 }
 
 // WithChecksSheet sets the name of the simple-checks sheet.
-func WithChecksSheet(name string) ExcelOption {
-	return func(c *excelConfig) { c.checksSheet = name }
+func WithChecksSheet(name string) Option {
+	return func(c *config) { c.checksSheet = name }
 }
 
 // WithWhenThenSheet sets the name of the when/then-checks sheet.
-func WithWhenThenSheet(name string) ExcelOption {
-	return func(c *excelConfig) { c.whenThenSheet = name }
+func WithWhenThenSheet(name string) Option {
+	return func(c *config) { c.whenThenSheet = name }
 }
 
 // WithDbcSheet sets the name of the DBC definition sheet.
-func WithDbcSheet(name string) ExcelOption {
-	return func(c *excelConfig) { c.dbcSheet = name }
+func WithDbcSheet(name string) Option {
+	return func(c *config) { c.dbcSheet = name }
 }
 
 // ---------------------------------------------------------------------------
@@ -70,22 +74,22 @@ var (
 // Public API
 // ---------------------------------------------------------------------------
 
-// LoadChecksFromExcel loads signal checks from an Excel workbook.
+// LoadChecks loads signal checks from an Excel workbook.
 // Reads the Checks and When-Then sheets. Either or both may be present.
-func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error) {
+func LoadChecks(path string, opts ...Option) ([]aletheia.CheckResult, error) {
 	path = filepath.Clean(path)
-	cfg := defaultExcelConfig()
+	cfg := defaultConfig()
 	for _, o := range opts {
 		o(&cfg)
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, validationError(fmt.Sprintf("excel file not found: %s", path))
+		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
 	}
 
 	f, err := excelize.OpenFile(path)
 	if err != nil {
-		return nil, wrapError(ErrValidation, "opening Excel file", err)
+		return nil, aletheia.WrapValidationError("opening Excel file", err)
 	}
 	defer f.Close()
 
@@ -94,10 +98,10 @@ func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error
 	hasWhenThen := containsString(sheets, cfg.whenThenSheet)
 
 	if !hasChecks && !hasWhenThen {
-		return nil, validationError(fmt.Sprintf("workbook has no '%s' or '%s' sheet", cfg.checksSheet, cfg.whenThenSheet))
+		return nil, aletheia.NewValidationError(fmt.Sprintf("workbook has no '%s' or '%s' sheet", cfg.checksSheet, cfg.whenThenSheet))
 	}
 
-	var results []CheckResult
+	var results []aletheia.CheckResult
 
 	if hasChecks {
 		simple, err := loadSimpleChecks(f, cfg.checksSheet)
@@ -118,27 +122,27 @@ func LoadChecksFromExcel(path string, opts ...ExcelOption) ([]CheckResult, error
 	return results, nil
 }
 
-// LoadDbcFromExcel loads a DBC definition from the DBC sheet of an Excel workbook.
-func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) {
+// LoadDbc loads a DBC definition from the DBC sheet of an Excel workbook.
+func LoadDbc(path string, opts ...Option) (*aletheia.DbcDefinition, error) {
 	path = filepath.Clean(path)
-	cfg := defaultExcelConfig()
+	cfg := defaultConfig()
 	for _, o := range opts {
 		o(&cfg)
 	}
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, validationError(fmt.Sprintf("excel file not found: %s", path))
+		return nil, aletheia.NewValidationError(fmt.Sprintf("excel file not found: %s", path))
 	}
 
 	f, err := excelize.OpenFile(path)
 	if err != nil {
-		return nil, wrapError(ErrValidation, "opening Excel file", err)
+		return nil, aletheia.WrapValidationError("opening Excel file", err)
 	}
 	defer f.Close()
 
 	sheets := f.GetSheetList()
 	if !containsString(sheets, cfg.dbcSheet) {
-		return nil, validationError(fmt.Sprintf("workbook has no '%s' sheet", cfg.dbcSheet))
+		return nil, aletheia.NewValidationError(fmt.Sprintf("workbook has no '%s' sheet", cfg.dbcSheet))
 	}
 
 	rows, err := readSheetRows(f, cfg.dbcSheet)
@@ -147,7 +151,7 @@ func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) 
 	}
 
 	if len(rows) < 2 {
-		return nil, validationError("dbc sheet must have a header row and at least one data row")
+		return nil, aletheia.NewValidationError("dbc sheet must have a header row and at least one data row")
 	}
 
 	headers := rows[0]
@@ -161,17 +165,17 @@ func LoadDbcFromExcel(path string, opts ...ExcelOption) (*DbcDefinition, error) 
 	}
 
 	if len(dataRows) == 0 {
-		return nil, validationError("dbc sheet has no data rows")
+		return nil, aletheia.NewValidationError("dbc sheet has no data rows")
 	}
 
 	return parseDbcRows(dataRows)
 }
 
-// CreateExcelTemplate creates a blank Excel template with headers and formatting.
+// CreateTemplate creates a blank Excel template with headers and formatting.
 // Does not overwrite existing files.
-func CreateExcelTemplate(path string) error {
+func CreateTemplate(path string) error {
 	if _, err := os.Stat(path); err == nil {
-		return validationError(fmt.Sprintf("file already exists: %s", path))
+		return aletheia.NewValidationError(fmt.Sprintf("file already exists: %s", path))
 	}
 
 	f := excelize.NewFile()
@@ -179,26 +183,26 @@ func CreateExcelTemplate(path string) error {
 
 	style, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
 	if err != nil {
-		return wrapError(ErrValidation, "creating style", err)
+		return aletheia.WrapValidationError("creating style", err)
 	}
 
 	// Default sheet is "Sheet1", rename to "DBC".
 	if err := f.SetSheetName("Sheet1", "DBC"); err != nil {
-		return wrapError(ErrValidation, "renaming sheet", err)
+		return aletheia.WrapValidationError("renaming sheet", err)
 	}
 	if err := writeHeaderRow(f, "DBC", dbcHeaders, style); err != nil {
 		return err
 	}
 
 	if _, err := f.NewSheet("Checks"); err != nil {
-		return wrapError(ErrValidation, "creating Checks sheet", err)
+		return aletheia.WrapValidationError("creating Checks sheet", err)
 	}
 	if err := writeHeaderRow(f, "Checks", checksHeaders, style); err != nil {
 		return err
 	}
 
 	if _, err := f.NewSheet("When-Then"); err != nil {
-		return wrapError(ErrValidation, "creating When-Then sheet", err)
+		return aletheia.WrapValidationError("creating When-Then sheet", err)
 	}
 	if err := writeHeaderRow(f, "When-Then", whenThenHeaders, style); err != nil {
 		return err
@@ -214,7 +218,7 @@ func CreateExcelTemplate(path string) error {
 func readSheetRows(f *excelize.File, sheet string) ([][]string, error) {
 	rows, err := f.GetRows(sheet)
 	if err != nil {
-		return nil, wrapError(ErrValidation, fmt.Sprintf("reading sheet %q", sheet), err)
+		return nil, aletheia.WrapValidationError(fmt.Sprintf("reading sheet %q", sheet), err)
 	}
 	return rows, nil
 }
@@ -233,13 +237,13 @@ func writeHeaderRow(f *excelize.File, sheet string, headers []string, style int)
 	for i, h := range headers {
 		cell, err := excelize.CoordinatesToCellName(i+1, 1)
 		if err != nil {
-			return wrapError(ErrValidation, "cell name", err)
+			return aletheia.WrapValidationError("cell name", err)
 		}
 		if err := f.SetCellValue(sheet, cell, h); err != nil {
-			return wrapError(ErrValidation, "writing header", err)
+			return aletheia.WrapValidationError("writing header", err)
 		}
 		if err := f.SetCellStyle(sheet, cell, cell, style); err != nil {
-			return wrapError(ErrValidation, "setting style", err)
+			return aletheia.WrapValidationError("setting style", err)
 		}
 	}
 	return nil
@@ -258,7 +262,7 @@ func containsString(ss []string, target string) bool {
 // Internal: simple checks
 // ---------------------------------------------------------------------------
 
-func loadSimpleChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
+func loadSimpleChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
 	rows, err := readSheetRows(f, sheet)
 	if err != nil {
 		return nil, err
@@ -268,7 +272,7 @@ func loadSimpleChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
 	}
 
 	headers := rows[0]
-	var results []CheckResult
+	var results []aletheia.CheckResult
 	for rowIdx, row := range rows[1:] {
 		rowNum := rowIdx + 2 // 1-indexed, skip header
 		d := zipRow(headers, row)
@@ -284,99 +288,99 @@ func loadSimpleChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
 	return results, nil
 }
 
-func parseSimpleRow(d map[string]string, rowNum int) (CheckResult, error) {
+func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, error) {
 	signal, err := xlsxStr(d, "Signal", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 	condition, err := xlsxStr(d, "Condition", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 
-	if !allSimpleConditions[condition] {
-		return CheckResult{}, validationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
+	if !aletheia.AllSimpleConditions[condition] {
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
 	}
 
-	var result CheckResult
+	var result aletheia.CheckResult
 
 	switch {
-	case simpleValueConditions[condition]:
+	case aletheia.SimpleValueConditions[condition]:
 		v, err := xlsxNumber(d, "Value", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = dispatchSimple(signal, condition, PhysicalValue(v))
+		result, err = aletheia.DispatchSimple(signal, condition, aletheia.PhysicalValue(v))
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 
-	case simpleRangeConditions[condition]:
+	case aletheia.SimpleRangeConditions[condition]:
 		if _, ok := d["Min"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
 		}
 		if _, ok := d["Max"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
 		}
 		lo, err := xlsxNumber(d, "Min", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 		hi, err := xlsxNumber(d, "Max", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = CheckSignal(signal).StaysBetween(PhysicalValue(lo), PhysicalValue(hi))
+		result, err = aletheia.CheckSignal(signal).StaysBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi))
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 
-	case simpleSettlesConditions[condition]:
+	case aletheia.SimpleSettlesConditions[condition]:
 		if _, ok := d["Min"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
 		}
 		if _, ok := d["Max"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
 		}
 		if _, ok := d["Time (ms)"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Time (ms)'", rowNum))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Time (ms)'", rowNum))
 		}
 		lo, err := xlsxNumber(d, "Min", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 		hi, err := xlsxNumber(d, "Max", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 		ms, err := xlsxInt(d, "Time (ms)", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = CheckSignal(signal).SettlesBetween(PhysicalValue(lo), PhysicalValue(hi)).Within(ms)
+		result, err = aletheia.CheckSignal(signal).SettlesBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi)).Within(ms)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 
-	case simpleEqualsConditions[condition]:
+	case aletheia.SimpleEqualsConditions[condition]:
 		v, err := xlsxNumber(d, "Value", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result = CheckSignal(signal).Equals(PhysicalValue(v)).Always()
+		result = aletheia.CheckSignal(signal).Equals(aletheia.PhysicalValue(v)).Always()
 
 	default:
-		return CheckResult{}, validationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
 	}
 
-	return applyExcelMetadata(result, d), nil
+	return applyMetadata(result, d), nil
 }
 
 // ---------------------------------------------------------------------------
 // Internal: when/then checks
 // ---------------------------------------------------------------------------
 
-func loadWhenThenChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
+func loadWhenThenChecks(f *excelize.File, sheet string) ([]aletheia.CheckResult, error) {
 	rows, err := readSheetRows(f, sheet)
 	if err != nil {
 		return nil, err
@@ -386,7 +390,7 @@ func loadWhenThenChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
 	}
 
 	headers := rows[0]
-	var results []CheckResult
+	var results []aletheia.CheckResult
 	for rowIdx, row := range rows[1:] {
 		rowNum := rowIdx + 2
 		d := zipRow(headers, row)
@@ -402,95 +406,95 @@ func loadWhenThenChecks(f *excelize.File, sheet string) ([]CheckResult, error) {
 	return results, nil
 }
 
-func parseWhenThenRow(d map[string]string, rowNum int) (CheckResult, error) {
+func parseWhenThenRow(d map[string]string, rowNum int) (aletheia.CheckResult, error) {
 	// When clause.
 	whenSignal, err := xlsxStr(d, "When Signal", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 	whenCond, err := xlsxStr(d, "When Condition", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 	whenValue, err := xlsxNumber(d, "When Value", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 
-	if !whenConditions[whenCond] {
-		return CheckResult{}, validationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
+	if !aletheia.WhenConditions[whenCond] {
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
 	}
 
-	whenResult, err := dispatchWhen(CheckWhen(whenSignal), whenCond, PhysicalValue(whenValue))
+	whenResult, err := aletheia.DispatchWhen(aletheia.CheckWhen(whenSignal), whenCond, aletheia.PhysicalValue(whenValue))
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 
 	// Then clause.
 	thenSignal, err := xlsxStr(d, "Then Signal", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 	thenCond, err := xlsxStr(d, "Then Condition", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 
-	if !allThenConditions[thenCond] {
-		return CheckResult{}, validationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
+	if !aletheia.AllThenConditions[thenCond] {
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
 
 	withinMs, err := xlsxInt(d, "Within (ms)", rowNum)
 	if err != nil {
-		return CheckResult{}, err
+		return aletheia.CheckResult{}, err
 	}
 
 	thenBuilder := whenResult.Then(thenSignal)
 
-	var result CheckResult
+	var result aletheia.CheckResult
 	switch thenCond {
 	case "equals":
 		v, err := xlsxNumber(d, "Then Value", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.Equals(PhysicalValue(v)).Within(withinMs)
+		result, err = thenBuilder.Equals(aletheia.PhysicalValue(v)).Within(withinMs)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 	case "exceeds":
 		v, err := xlsxNumber(d, "Then Value", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.Exceeds(PhysicalValue(v)).Within(withinMs)
+		result, err = thenBuilder.Exceeds(aletheia.PhysicalValue(v)).Within(withinMs)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 	case "stays_between":
 		if _, ok := d["Then Min"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
 		}
 		if _, ok := d["Then Max"]; !ok {
-			return CheckResult{}, validationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
+			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: then condition 'stays_between' requires 'Then Min' and 'Then Max'", rowNum))
 		}
 		lo, err := xlsxNumber(d, "Then Min", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 		hi, err := xlsxNumber(d, "Then Max", rowNum)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
-		result, err = thenBuilder.StaysBetween(PhysicalValue(lo), PhysicalValue(hi)).Within(withinMs)
+		result, err = thenBuilder.StaysBetween(aletheia.PhysicalValue(lo), aletheia.PhysicalValue(hi)).Within(withinMs)
 		if err != nil {
-			return CheckResult{}, err
+			return aletheia.CheckResult{}, err
 		}
 	default:
-		return CheckResult{}, validationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
+		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
 
-	return applyExcelMetadata(result, d), nil
+	return applyMetadata(result, d), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -504,7 +508,7 @@ type messageKey struct {
 	dlc      int64
 }
 
-func parseDbcRows(rows []map[string]string) (*DbcDefinition, error) {
+func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
 	type groupEntry struct {
 		key     messageKey
 		indices []int
@@ -518,7 +522,7 @@ func parseDbcRows(rows []map[string]string) (*DbcDefinition, error) {
 
 		msgIDRaw, ok := row["Message ID"]
 		if !ok {
-			return nil, validationError(fmt.Sprintf("row %d: missing or invalid 'Message ID'", rowNum))
+			return nil, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid 'Message ID'", rowNum))
 		}
 		msgID, err := parseMessageID(msgIDRaw, rowNum)
 		if err != nil {
@@ -546,10 +550,10 @@ func parseDbcRows(rows []map[string]string) (*DbcDefinition, error) {
 		}
 	}
 
-	messages := make([]DbcMessage, 0, len(insertionOrder))
+	messages := make([]aletheia.DbcMessage, 0, len(insertionOrder))
 	for _, key := range insertionOrder {
 		g := groups[key]
-		signals := make([]DbcSignal, 0, len(g.indices))
+		signals := make([]aletheia.DbcSignal, 0, len(g.indices))
 		for _, i := range g.indices {
 			sig, err := xlsxDbcSignal(rows[i], i+2)
 			if err != nil {
@@ -559,21 +563,21 @@ func parseDbcRows(rows []map[string]string) (*DbcDefinition, error) {
 		}
 
 		// Create the CAN ID based on the "Extended" column.
-		var canID CanID
+		var canID aletheia.CanID
 		if key.extended {
-			if key.id < 0 || key.id > maxExtendedID {
-				return nil, validationError(fmt.Sprintf("extended CAN ID %d out of range [0, %d]", key.id, maxExtendedID))
+			if key.id < 0 || key.id > aletheia.MaxExtendedID {
+				return nil, aletheia.NewValidationError(fmt.Sprintf("extended CAN ID %d out of range [0, %d]", key.id, aletheia.MaxExtendedID))
 			}
-			eid, err := NewExtendedID(uint32(key.id))
+			eid, err := aletheia.NewExtendedID(uint32(key.id))
 			if err != nil {
 				return nil, err
 			}
 			canID = eid
 		} else {
-			if key.id < 0 || key.id > maxStandardID {
-				return nil, validationError(fmt.Sprintf("standard CAN ID %d out of range [0, %d]", key.id, maxStandardID))
+			if key.id < 0 || key.id > aletheia.MaxStandardID {
+				return nil, aletheia.NewValidationError(fmt.Sprintf("standard CAN ID %d out of range [0, %d]", key.id, aletheia.MaxStandardID))
 			}
-			sid, err := NewStandardID(uint16(key.id))
+			sid, err := aletheia.NewStandardID(uint16(key.id))
 			if err != nil {
 				return nil, err
 			}
@@ -581,90 +585,83 @@ func parseDbcRows(rows []map[string]string) (*DbcDefinition, error) {
 		}
 
 		if key.dlc < 0 || key.dlc > 15 {
-			return nil, validationError(fmt.Sprintf("DLC %d out of range [0, 15]", key.dlc))
+			return nil, aletheia.NewValidationError(fmt.Sprintf("DLC %d out of range [0, 15]", key.dlc))
 		}
-		dlcVal, err := NewDLC(uint8(key.dlc))
+		dlcVal, err := aletheia.NewDLC(uint8(key.dlc))
 		if err != nil {
 			return nil, err
 		}
 
-		msg := DbcMessage{
-			ID:      canID,
-			Name:    MessageName(key.name),
-			DLC:     dlcVal,
-			Sender:  "",
-			Signals: signals,
-		}
-		msg.buildSignalIndex()
-		messages = append(messages, msg)
+		messages = append(messages, aletheia.NewDbcMessage(
+			canID,
+			aletheia.MessageName(key.name),
+			dlcVal,
+			"",
+			signals,
+		))
 	}
 
-	def := &DbcDefinition{
-		Version:  "",
-		Messages: messages,
-	}
-	def.buildIndexes()
-	return def, nil
+	return aletheia.NewDbcDefinition("", messages), nil
 }
 
-func xlsxDbcSignal(row map[string]string, rowNum int) (DbcSignal, error) {
+func xlsxDbcSignal(row map[string]string, rowNum int) (aletheia.DbcSignal, error) {
 	name, err := xlsxStr(row, "Signal", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 
 	startBit, err := xlsxInt(row, "Start Bit", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
-	if startBit < 0 || startBit > int64(maxBitPosition) {
-		return DbcSignal{}, validationError(fmt.Sprintf(
-			"row %d: 'Start Bit' %d out of range [0, %d]", rowNum, startBit, maxBitPosition))
+	if startBit < 0 || startBit > int64(aletheia.MaxBitPosition) {
+		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: 'Start Bit' %d out of range [0, %d]", rowNum, startBit, aletheia.MaxBitPosition))
 	}
 
 	length, err := xlsxInt(row, "Length", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
-	if length < 1 || length > int64(maxBitLength) {
-		return DbcSignal{}, validationError(fmt.Sprintf(
-			"row %d: 'Length' %d out of range [1, %d]", rowNum, length, maxBitLength))
+	if length < 1 || length > int64(aletheia.MaxBitLength) {
+		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
+			"row %d: 'Length' %d out of range [1, %d]", rowNum, length, aletheia.MaxBitLength))
 	}
 
 	byteOrderStr, err := xlsxStr(row, "Byte Order", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
-	var byteOrder ByteOrder
+	var byteOrder aletheia.ByteOrder
 	switch byteOrderStr {
 	case "little_endian":
-		byteOrder = LittleEndian
+		byteOrder = aletheia.LittleEndian
 	case "big_endian":
-		byteOrder = BigEndian
+		byteOrder = aletheia.BigEndian
 	default:
-		return DbcSignal{}, validationError(fmt.Sprintf("row %d: 'Byte Order' must be 'little_endian' or 'big_endian'", rowNum))
+		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf("row %d: 'Byte Order' must be 'little_endian' or 'big_endian'", rowNum))
 	}
 
 	signed, err := xlsxBool(row, "Signed", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 
 	factor, err := xlsxRational(row, "Factor", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 	offset, err := xlsxRational(row, "Offset", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 	minimum, err := xlsxRational(row, "Min", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 	maximum, err := xlsxRational(row, "Max", rowNum)
 	if err != nil {
-		return DbcSignal{}, err
+		return aletheia.DbcSignal{}, err
 	}
 
 	unit := ""
@@ -677,45 +674,45 @@ func xlsxDbcSignal(row map[string]string, rowNum int) (DbcSignal, error) {
 	_, hasMuxVal := row["Multiplex Value"]
 
 	if hasMuxor != hasMuxVal {
-		return DbcSignal{}, validationError(fmt.Sprintf(
+		return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: 'Multiplexor' and 'Multiplex Value' must both be provided or both be empty",
 			rowNum,
 		))
 	}
 
-	var presence SignalPresence
+	var presence aletheia.SignalPresence
 	if hasMuxor {
 		muxor, err := xlsxStr(row, "Multiplexor", rowNum)
 		if err != nil {
-			return DbcSignal{}, err
+			return aletheia.DbcSignal{}, err
 		}
 		muxVal, err := xlsxInt(row, "Multiplex Value", rowNum)
 		if err != nil {
-			return DbcSignal{}, err
+			return aletheia.DbcSignal{}, err
 		}
 		if muxVal < 0 {
-			return DbcSignal{}, validationError(fmt.Sprintf(
+			return aletheia.DbcSignal{}, aletheia.NewValidationError(fmt.Sprintf(
 				"row %d: 'Multiplex Value' must be non-negative, got %d", rowNum, muxVal))
 		}
-		presence = Multiplexed{
-			Multiplexor: SignalName(muxor),
-			MuxValues:   []MultiplexValue{MultiplexValue(muxVal)},
+		presence = aletheia.Multiplexed{
+			Multiplexor: aletheia.SignalName(muxor),
+			MuxValues:   []aletheia.MultiplexValue{aletheia.MultiplexValue(muxVal)},
 		}
 	} else {
-		presence = AlwaysPresent{}
+		presence = aletheia.AlwaysPresent{}
 	}
 
-	return DbcSignal{
-		Name:      SignalName(name),
-		StartBit:  BitPosition(startBit),
-		BitLength: BitLength(length),
+	return aletheia.DbcSignal{
+		Name:      aletheia.SignalName(name),
+		StartBit:  aletheia.BitPosition(startBit),
+		BitLength: aletheia.BitLength(length),
 		ByteOrder: byteOrder,
 		IsSigned:  signed,
 		Factor:    factor,
 		Offset:    offset,
 		Minimum:   minimum,
 		Maximum:   maximum,
-		Unit:      Unit(unit),
+		Unit:      aletheia.Unit(unit),
 		Presence:  presence,
 	}, nil
 }
@@ -725,14 +722,14 @@ func parseMessageID(val string, rowNum int) (int64, error) {
 	if strings.HasPrefix(strings.ToLower(stripped), "0x") {
 		n, err := strconv.ParseInt(stripped[2:], 16, 64)
 		if err != nil {
-			return 0, validationError(fmt.Sprintf(
+			return 0, aletheia.NewValidationError(fmt.Sprintf(
 				"row %d: invalid 'Message ID' -- expected integer or hex string (e.g. 0x100)", rowNum))
 		}
 		return n, nil
 	}
 	n, err := strconv.ParseInt(stripped, 10, 64)
 	if err != nil {
-		return 0, validationError(fmt.Sprintf(
+		return 0, aletheia.NewValidationError(fmt.Sprintf(
 			"row %d: invalid 'Message ID' -- expected integer or hex string (e.g. 0x100)", rowNum))
 	}
 	return n, nil
@@ -745,7 +742,7 @@ func parseMessageID(val string, rowNum int) (int64, error) {
 func xlsxStr(d map[string]string, key string, rowNum int) (string, error) {
 	v, ok := d[key]
 	if !ok || v == "" {
-		return "", validationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return "", aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	return v, nil
 }
@@ -753,11 +750,11 @@ func xlsxStr(d map[string]string, key string, rowNum int) (string, error) {
 func xlsxNumber(d map[string]string, key string, rowNum int) (float64, error) {
 	v, ok := d[key]
 	if !ok || v == "" {
-		return 0, validationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	n, err := strconv.ParseFloat(v, 64)
 	if err != nil {
-		return 0, validationError(fmt.Sprintf("row %d: '%s' must be a number, got %q", rowNum, key, v))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be a number, got %q", rowNum, key, v))
 	}
 	return n, nil
 }
@@ -765,7 +762,7 @@ func xlsxNumber(d map[string]string, key string, rowNum int) (float64, error) {
 func xlsxInt(d map[string]string, key string, rowNum int) (int64, error) {
 	v, ok := d[key]
 	if !ok || v == "" {
-		return 0, validationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	// Excel may serialize integers as "5000" or as "5000.0".
 	// Try int first, then float.
@@ -775,10 +772,10 @@ func xlsxInt(d map[string]string, key string, rowNum int) (int64, error) {
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
-		return 0, validationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
 	}
 	if f != math.Floor(f) {
-		return 0, validationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
+		return 0, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be an integer, got %q", rowNum, key, v))
 	}
 	return int64(f), nil
 }
@@ -786,7 +783,7 @@ func xlsxInt(d map[string]string, key string, rowNum int) (int64, error) {
 func xlsxBool(d map[string]string, key string, rowNum int) (bool, error) {
 	v, ok := d[key]
 	if !ok || v == "" {
-		return false, validationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
+		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: missing or invalid '%s'", rowNum, key))
 	}
 	lower := strings.ToLower(strings.TrimSpace(v))
 	switch lower {
@@ -795,14 +792,14 @@ func xlsxBool(d map[string]string, key string, rowNum int) (bool, error) {
 	case "false", "0":
 		return false, nil
 	default:
-		return false, validationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, v))
+		return false, aletheia.NewValidationError(fmt.Sprintf("row %d: '%s' must be TRUE/FALSE or 1/0, got %q", rowNum, key, v))
 	}
 }
 
-func xlsxRational(d map[string]string, key string, rowNum int) (Rational, error) {
+func xlsxRational(d map[string]string, key string, rowNum int) (aletheia.Rational, error) {
 	v, err := xlsxNumber(d, key, rowNum)
 	if err != nil {
-		return Rational{}, err
+		return aletheia.Rational{}, err
 	}
 	return doubleToRational(v)
 }
@@ -811,18 +808,18 @@ func xlsxRational(d map[string]string, key string, rowNum int) (Rational, error)
 // If the value is an exact integer, it uses denominator 1.
 // Otherwise, it uses fixed precision (multiply by 10^6, simplify by GCD).
 // Precision: 6 decimal digits (~1 ppm). Sufficient for DBC signal factors/offsets.
-func doubleToRational(v float64) (Rational, error) {
+func doubleToRational(v float64) (aletheia.Rational, error) {
 	if v == math.Floor(v) && math.Abs(v) < 1e15 {
-		return Rational{Numerator: int64(v), Denominator: 1}, nil
+		return aletheia.Rational{Numerator: int64(v), Denominator: 1}, nil
 	}
 	const scale = 1_000_000
 	scaled := v * scale
 	if scaled > math.MaxInt64 || scaled < math.MinInt64 || math.IsInf(scaled, 0) || math.IsNaN(scaled) {
-		return Rational{}, validationError(fmt.Sprintf("value %g overflows rational conversion", v))
+		return aletheia.Rational{}, aletheia.NewValidationError(fmt.Sprintf("value %g overflows rational conversion", v))
 	}
 	num := int64(math.Round(scaled))
 	g := gcd64(abs64(num), scale)
-	return Rational{Numerator: num / g, Denominator: scale / g}, nil
+	return aletheia.Rational{Numerator: num / g, Denominator: scale / g}, nil
 }
 
 func gcd64(a, b int64) int64 {
@@ -839,8 +836,8 @@ func abs64(x int64) int64 {
 	return x
 }
 
-// applyExcelMetadata sets optional name and severity from Excel row data.
-func applyExcelMetadata(r CheckResult, d map[string]string) CheckResult {
+// applyMetadata sets optional name and severity from Excel row data.
+func applyMetadata(r aletheia.CheckResult, d map[string]string) aletheia.CheckResult {
 	if name, ok := d["Check Name"]; ok && name != "" {
 		r = r.Named(name)
 	}

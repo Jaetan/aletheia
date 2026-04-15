@@ -56,12 +56,18 @@ x ≥ℚ y = y ≤ℚ x
 extractTruthValue : ∀ {n} → String → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
--- Direct pattern match on cache lookup, avoiding the per-call closure that
--- `Data.Maybe.map CachedSignal.value` would allocate via MAlonzo.
+-- Project a cached signal entry to its rational value, or `nothing` on miss.
+-- Top-level (not a `with`-introduced closure) so MAlonzo compiles it to a
+-- direct pattern match without the per-call closure `Data.Maybe.map
+-- CachedSignal.value` would allocate. Standalone form also lets proofs bridge
+-- `lookupCache sig cache ≡ just cs` to `lookupCacheValue sig cache ≡ just
+-- (CachedSignal.value cs)` via a single `cong cachedSignalValue`.
+cachedSignalValue : Maybe CachedSignal → Maybe ℚ
+cachedSignalValue nothing   = nothing
+cachedSignalValue (just cs) = just (CachedSignal.value cs)
+
 lookupCacheValue : String → SignalCache → Maybe ℚ
-lookupCacheValue sigName cache with lookupCache sigName cache
-... | nothing = nothing
-... | just cs = just (CachedSignal.value cs)
+lookupCacheValue sigName cache = cachedSignalValue (lookupCache sigName cache)
 
 -- ============================================================================
 -- PURE PREDICATE EVALUATION

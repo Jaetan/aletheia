@@ -293,7 +293,7 @@ data Error : Set where
   RouteErr       : RouteError → Error
   HandlerErr     : HandlerError → Error
   DispatchErr    : DispatchError → Error
-  WithContext     : String → Error → Error
+  WithContext    : String → Error → Error
 
 formatError : Error → String
 formatError (ParseErr pe)         = formatParseError pe
