@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-14 (Review Round 10 complete — commit `f227d88`)
+**Last Updated**: 2026-04-15 (Review Round 11 complete — commits `bf238b3` + `222b662`)
 
 ---
 

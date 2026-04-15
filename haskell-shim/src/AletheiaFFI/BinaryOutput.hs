@@ -85,7 +85,7 @@ writeExtrErrors :: Ptr Word8 -> [AgdaSigma.T_Σ_14] -> IO (Ptr Word8)
 writeExtrErrors ptr [] = return ptr
 writeExtrErrors ptr (pair:rest) = do
     let idx = unsafeCoerce (AgdaSigma.d_fst_28 pair) :: Integer
-    let code = AgdaBatch.d_extractionErrorCodeToℕ_144
+    let code = AgdaBatch.d_extractionErrorCodeToℕ_148
                  (unsafeCoerce (AgdaSigma.d_snd_30 pair))
     poke (castPtr ptr :: Ptr Word16) (fromIntegral idx)
     poke (ptr `plusPtr` 2) (fromIntegral code :: Word8)

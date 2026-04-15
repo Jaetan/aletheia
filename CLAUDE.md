@@ -412,7 +412,9 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-14):** AGENTS.md review round 10 — 68 findings: Agda (13), Go (7), C++ (12), Python (13), Docs (20). Hot-path +10.8% Stream LTL. Commit `f227d88`. Python 598/598, pyright clean, pylint 10.00.
+**Latest (2026-04-15):** AGENTS.md review round 11 — 6 batches across Agda/Go/C++/Python/Docs. Commits `bf238b3` (batches 1-5) + `222b662` (batch 6). Benchmarks vs 2026-04-11 baseline: Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python; other hot paths within ±3% noise. 598 Python tests pass, pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda Main.agda clean.
+
+**Prior (2026-04-14):** R10 — 68 findings: Agda (13), Go (7), C++ (12), Python (13), Docs (20). Hot-path +10.8% Stream LTL. Commit `f227d88`.
 
 **Prior (2026-04-14):** R9 — 56 findings, commit `7203d9f`. R8 partial (`6ab5639`). Squash-merged phase-5.1→main as `a8ba94c`.
 
