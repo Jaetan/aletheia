@@ -2,8 +2,20 @@
 
 Get to a working CAN verification in 5 minutes.
 
-**Prerequisites**: Built library and Python venv active.
-See [Building Guide](../development/BUILDING.md) if you haven't built yet.
+## 0. Prerequisites & first build
+
+Before the five-minute walkthrough below, the Agda → Haskell shared library needs to exist and the Python package needs to be importable:
+
+1. **Toolchain**: GHC ≥ 9.4, cabal ≥ 3.10, Agda ≥ 2.7.0, Python ≥ 3.12, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform.
+2. **First build** (~60s the first time, cached after):
+   ```bash
+   cabal run shake -- build        # builds libaletheia-ffi.so from Agda
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -e python           # editable install of the Python binding
+   ```
+3. **Verify**: `python3 -c "from aletheia import AletheiaClient"` — no output means the `.so` was found and the binding loaded.
+
+If any of those steps fail, the [Building Guide](../development/BUILDING.md) has a dedicated Troubleshooting section; the commands on this page assume a successful build.
 
 ---
 

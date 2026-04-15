@@ -21,6 +21,7 @@
 ```python
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.can_log import iter_can_log   # `pip install aletheia[can]`
 
 # Load DBC file (converts .dbc to JSON automatically)
 dbc_json = dbc_to_json("vehicle.dbc")
@@ -28,13 +29,21 @@ dbc_json = dbc_to_json("vehicle.dbc")
 # Define property using fluent DSL: "Speed must always be less than 250 km/h"
 property = Signal("Speed").less_than(250).always()
 
-# Check CAN frames against property
+# `data` must be a `bytes` / `bytearray` of the correct length for the DLC.
+# Three common ways to produce it:
+#   1. From a recorded trace file (.blf / .asc / .log / .mf4):
+#        for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+#   2. From a hex string (useful for hand-written test cases):
+#        ts, can_id, dlc, data = 0, 0x100, 8, bytes.fromhex("E803000000000000")
+#   3. From a literal byte sequence:
+#        ts, can_id, dlc, data = 0, 0x100, 8, bytes([0xE8, 0x03, 0, 0, 0, 0, 0, 0])
+
 with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for ts, can_id, dlc, data in can_trace:
+    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -904,6 +913,37 @@ When checks are registered via `set_properties()` (or `add_checks()`), violation
 
 Access the enriched fields via `response["enrichment"]["enriched_reason"]`, etc.
 Without registered checks, only `property_index`, `timestamp`, and `reason` are present (no `enrichment` field).
+
+---
+
+## Structured Logging
+
+The Python binding emits structured log records on the standard `logging.getLogger("aletheia")` logger — attach a handler to that name (or any ancestor) to capture them. No `WithLogger` constructor hook is needed; the binding simply follows Python's `logging` conventions.
+
+Every record carries:
+
+- `record.msg` — a short event name like `stream.started` or `cache.miss` (human-greppable).
+- `record.event` — the same name as a structured attribute, so JSON/OTel handlers can parse it.
+- Additional `LogRecord` attributes for the event's fields (e.g. `frames`, `properties`, `reason`).
+
+The event set is the source of truth in `aletheia.client._log.LogEvent` (15 values) and is kept identical across Python, C++ (`aletheia::Logger`), and Go (`slog`) so a single log pipeline can consume all three bindings.
+
+```python
+import logging
+
+# Capture Aletheia events — route to stdout in this example.
+aletheia_logger = logging.getLogger("aletheia")
+aletheia_logger.setLevel(logging.INFO)
+aletheia_logger.addHandler(logging.StreamHandler())
+
+# Now AletheiaClient lifecycle events (dbc.parsed, properties.set, stream.started,
+# stream.ended) appear at INFO. Per-frame events (frame.processed, cache.hit /
+# cache.miss) are at DEBUG and stay silent unless the level is lowered.
+```
+
+**Performance note**: `log_event` short-circuits on `logger.isEnabledFor(level)` before allocating the `extra` dict, so the default (no DEBUG handler attached) costs a single method call per frame. A missing guard here was the root cause of the R12 Stream LTL regression, fixed in commit `1e40b4d`.
+
+For the full event vocabulary and field list, see the `LogEvent` enum and its docstring in `aletheia/client/_log.py`.
 
 ---
 

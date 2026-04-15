@@ -1,15 +1,18 @@
 """Command-line interface for Aletheia CAN signal verification
 
 Subcommands:
-    check    — run LTL checks against a CAN log file
-    extract  — decode signals from a single CAN frame
-    signals  — list all signals defined in a DBC file
-    validate — validate a DBC definition for structural issues
+    check     — run LTL checks against a CAN log file
+    extract   — decode signals from a single CAN frame
+    signals   — list all signals defined in a DBC file
+    validate  — validate a DBC definition for structural issues
+    mux-query — inspect multiplexor structure of a DBC message
 
 Usage:
     python -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.blf
     python -m aletheia extract --dbc vehicle.dbc 0x100 401F7D0000000000
     python -m aletheia signals --dbc vehicle.dbc
+    python -m aletheia mux-query --dbc vehicle.dbc 0x100
+    python -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
 """
 
 from __future__ import annotations
@@ -27,6 +30,14 @@ from .client import (
     AletheiaError,
     SignalExtractionResult,
     dump_json,
+)
+from .dbc_queries import (
+    is_multiplexed,
+    message_by_id,
+    message_by_name,
+    multiplexor_names,
+    mux_values,
+    signals_for_mux_value,
 )
 from .protocols import (
     DBCDefinition,
@@ -662,6 +673,132 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 # ============================================================================
+# Subcommand: mux-query
+# ============================================================================
+
+def _resolve_mux_message(args: argparse.Namespace, dbc: DBCDefinition) -> DBCMessage:
+    """Resolve the target DBC message for ``mux-query`` from positional args.
+
+    The positional argument accepts either a numeric CAN ID (hex ``0x100`` or
+    decimal ``256``) or a message name. Hex is tried first, then decimal, and
+    finally a name lookup, so plain hex like ``0x100`` never collides with a
+    message that happens to be named ``0x100``.
+    """
+    ident: str = args.message
+    extended: bool = getattr(args, "extended", False)
+
+    try:
+        can_id = parse_can_id(ident)
+    except ValueError:
+        msg = message_by_name(dbc, ident)
+        if msg is None:
+            _die(f"message not found by id or name: {ident!r}")
+        return msg
+
+    by_id = message_by_id(dbc, can_id, extended=extended)
+    if by_id is not None:
+        return by_id
+
+    id_kind = "extended" if extended else "standard"
+    _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
+
+
+def _print_mux_summary_text(msg: DBCMessage) -> None:
+    """Print the multiplex structure of a message in human-readable form."""
+    print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
+    print()
+
+    if not is_multiplexed(msg):
+        print("  Not multiplexed — all signals are always present.")
+        total = len(msg["signals"])
+        print(f"  Signals: {total}")
+        return
+
+    names = multiplexor_names(msg)
+    print(f"  Multiplexors: {', '.join(names) if names else '(none)'}")
+    print()
+
+    for mux_name in names:
+        values = mux_values(msg, mux_name)
+        print(f"  {mux_name}:")
+        for v in values:
+            sigs = [s["name"] for s in signals_for_mux_value(msg, mux_name, v)]
+            print(f"    value {v}: {len(sigs)} signals ({', '.join(sigs)})")
+        print()
+
+
+def _print_mux_selection_text(
+    msg: DBCMessage, mux_name: str, value: int, sigs: list[DBCSignal],
+) -> None:
+    """Print signals active for a specific ``(multiplexor, value)`` selector."""
+    print(f"Message 0x{msg['id']:X} {msg['name']} (DLC {msg['dlc']})")
+    print(f"Multiplexor {mux_name} = {value}: {len(sigs)} signals present")
+    print()
+    for sig in sigs:
+        print(_format_signal_line(sig))
+
+
+def _cmd_mux_query(args: argparse.Namespace) -> int:
+    """Inspect multiplexor structure of a DBC message."""
+    dbc = _load_dbc(args)
+    msg = _resolve_mux_message(args, dbc)
+
+    mux_name: str | None = getattr(args, "mux", None)
+    value: int | None = getattr(args, "value", None)
+    as_json: bool = getattr(args, "json", False)
+
+    if (mux_name is None) != (value is None):
+        _die("--mux and --value must be provided together")
+
+    if mux_name is not None and value is not None:
+        if mux_name not in multiplexor_names(msg):
+            _die(
+                f"multiplexor {mux_name!r} not found in message "
+                + f"{msg['name']!r} (have: {', '.join(multiplexor_names(msg)) or 'none'})"
+            )
+        sigs = signals_for_mux_value(msg, mux_name, value)
+        if as_json:
+            out = {
+                "message_id": msg["id"],
+                "message_name": msg["name"],
+                "multiplexor": mux_name,
+                "value": value,
+                "signals": [s["name"] for s in sigs],
+            }
+            print(dump_json(out, indent=2))
+        else:
+            _print_mux_selection_text(msg, mux_name, value, sigs)
+        return _EXIT_OK
+
+    if as_json:
+        out = {
+            "message_id": msg["id"],
+            "message_name": msg["name"],
+            "is_multiplexed": is_multiplexed(msg),
+            "multiplexors": [
+                {
+                    "name": name,
+                    "values": [
+                        {
+                            "value": v,
+                            "signals": [
+                                s["name"]
+                                for s in signals_for_mux_value(msg, name, v)
+                            ],
+                        }
+                        for v in mux_values(msg, name)
+                    ],
+                }
+                for name in multiplexor_names(msg)
+            ],
+        }
+        print(dump_json(out, indent=2))
+    else:
+        _print_mux_summary_text(msg)
+    return _EXIT_OK
+
+
+# ============================================================================
 # Argument parser
 # ============================================================================
 
@@ -718,6 +855,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p_signals.add_argument("--excel", help=".xlsx workbook with DBC sheet")
     p_signals.add_argument("--json", action="store_true", help="output as JSON")
 
+    # -- mux-query -----------------------------------------------------------
+    p_mux = subparsers.add_parser(
+        "mux-query",
+        help="inspect multiplexor structure of a DBC message",
+    )
+    p_mux.add_argument(
+        "message",
+        help="message CAN ID (hex 0x100 or decimal 256) or message name",
+    )
+    p_mux.add_argument("--dbc", help=".dbc file")
+    p_mux.add_argument("--excel", help=".xlsx workbook with DBC sheet")
+    p_mux.add_argument(
+        "--extended",
+        action="store_true",
+        help="treat CAN ID as 29-bit extended (default: 11-bit standard)",
+    )
+    p_mux.add_argument(
+        "--mux",
+        help="multiplexor signal name (used with --value to list active signals)",
+    )
+    p_mux.add_argument(
+        "--value",
+        type=int,
+        help="multiplexor value (used with --mux to list active signals)",
+    )
+    p_mux.add_argument("--json", action="store_true", help="output as JSON")
+
     return parser
 
 
@@ -728,6 +892,7 @@ def _build_parser() -> argparse.ArgumentParser:
 _COMMANDS = {
     "check": _cmd_check,
     "extract": _cmd_extract,
+    "mux-query": _cmd_mux_query,
     "signals": _cmd_signals,
     "validate": _cmd_validate,
 }

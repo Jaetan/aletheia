@@ -467,3 +467,130 @@ class TestErrorCases:
         checks.write_text(_CHECKS_YAML, encoding="utf-8")
         code = main(["check", "--checks", str(checks), str(asc)])
         assert code == 2
+
+
+# ============================================================================
+# mux-query subcommand
+# ============================================================================
+
+_DBC_MUX_MSG = (
+    "BO_ 768 DiagStatus: 8 ECU1\n"
+    + ' SG_ Mode M : 0|8@1+ (1,0) [0|255] "" Vector__XXX\n'
+    + ' SG_ Always1 : 56|8@1+ (1,0) [0|255] "" Vector__XXX\n'
+    + ' SG_ RpmMux m0 : 8|16@1+ (1,0) [0|65535] "rpm" Vector__XXX\n'
+    + ' SG_ TempMux m1 : 8|16@1+ (1,-40) [-40|215] "celsius" Vector__XXX\n'
+)
+
+
+class TestMuxQueryCommand:
+    """Test 'aletheia mux-query' -- pure DBC traversal, no FFI needed."""
+
+    @pytest.fixture()
+    def dbc_file(self, tmp_path: Path) -> Path:
+        """Create a .dbc file with one multiplexed and one plain message."""
+        p = tmp_path / "mux.dbc"
+        _write_dbc(p, _DBC_ENGINE_MSG, _DBC_MUX_MSG)
+        return p
+
+    def test_summary_text_plain_message(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "0x100"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "EngineStatus" in out
+        assert "Not multiplexed" in out
+
+    def test_summary_text_multiplexed(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "0x300"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "DiagStatus" in out
+        assert "Multiplexors: Mode" in out
+        assert "value 0" in out
+        assert "RpmMux" in out
+        assert "value 1" in out
+        assert "TempMux" in out
+
+    def test_summary_json(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "0x300", "--json"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["message_id"] == 0x300
+        assert data["message_name"] == "DiagStatus"
+        assert data["is_multiplexed"] is True
+        mux_names = [m["name"] for m in data["multiplexors"]]
+        assert mux_names == ["Mode"]
+        values = {v["value"]: v["signals"] for v in data["multiplexors"][0]["values"]}
+        assert set(values.keys()) == {0, 1}
+        assert "RpmMux" in values[0]
+        assert "TempMux" in values[1]
+
+    def test_selection_by_mux_and_value_text(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main([
+            "mux-query", "--dbc", str(dbc_file), "0x300",
+            "--mux", "Mode", "--value", "0",
+        ])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "Mode = 0" in out
+        assert "RpmMux" in out
+        assert "Always1" in out
+        assert "TempMux" not in out
+
+    def test_selection_by_mux_and_value_json(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main([
+            "mux-query", "--dbc", str(dbc_file), "0x300",
+            "--mux", "Mode", "--value", "1", "--json",
+        ])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["multiplexor"] == "Mode"
+        assert data["value"] == 1
+        assert "TempMux" in data["signals"]
+        assert "Always1" in data["signals"]
+        assert "RpmMux" not in data["signals"]
+
+    def test_message_by_name(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "DiagStatus"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "DiagStatus" in out
+        assert "Multiplexors: Mode" in out
+
+    def test_unknown_message(self, dbc_file: Path) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "0x999"])
+        assert code == 2
+
+    def test_unknown_message_name(self, dbc_file: Path) -> None:
+        code = main(["mux-query", "--dbc", str(dbc_file), "NoSuchMessage"])
+        assert code == 2
+
+    def test_unknown_multiplexor(self, dbc_file: Path) -> None:
+        code = main([
+            "mux-query", "--dbc", str(dbc_file), "0x300",
+            "--mux", "NoSuch", "--value", "0",
+        ])
+        assert code == 2
+
+    def test_mux_without_value_rejected(self, dbc_file: Path) -> None:
+        code = main([
+            "mux-query", "--dbc", str(dbc_file), "0x300", "--mux", "Mode",
+        ])
+        assert code == 2
+
+    def test_value_without_mux_rejected(self, dbc_file: Path) -> None:
+        code = main([
+            "mux-query", "--dbc", str(dbc_file), "0x300", "--value", "0",
+        ])
+        assert code == 2

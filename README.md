@@ -8,7 +8,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
 - **CAN Frame Processing**: Proven correct encoding/decoding guarantees roundtrip correctness for valid DBC specifications
-- **LTL Verification**: Streaming model checker with constant memory — scales to gigabyte-size traces without slowdown (see [PROJECT_STATUS.md](PROJECT_STATUS.md) for throughput benchmarks)
+- **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Sustained ~109k frames/s on the C++ JSON path (CAN 2.0B, Ryzen 9 5950X); a 1 GB trace at ~200 bytes/frame processes in roughly 50s in that configuration. See [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the full throughput table and methodology.
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
 - **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
@@ -31,6 +31,7 @@ For complete build instructions, troubleshooting, and development workflow, see 
 ```python
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.can_log import iter_can_log  # installed via `pip install aletheia[can]`
 
 # Load DBC specification (converts .dbc to JSON)
 dbc_json = dbc_to_json("vehicle.dbc")
@@ -39,13 +40,13 @@ dbc_json = dbc_to_json("vehicle.dbc")
 speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
-# Stream CAN frames and check properties
+# Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties
 with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in can_trace:
+    for timestamp, can_id, dlc, data in iter_can_log("drive.blf"):
         response = client.send_frame(timestamp, can_id, dlc, data)
         if response.get("status") == "fails":
             ts = response['timestamp']['numerator']

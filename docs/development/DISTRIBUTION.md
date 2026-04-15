@@ -195,6 +195,9 @@ target_link_libraries(my_app PRIVATE aletheia::aletheia-cpp)
 #### Usage
 
 ```cpp
+// Functional equivalent of Go's NewFFIBackend + NewClient and Python's
+// AletheiaClient(ffi_path=...). All three load the same libaletheia-ffi.so
+// via dlopen and hand off to the same verified Agda core.
 #include <aletheia/client.hpp>
 #include <aletheia/backend.hpp>
 
@@ -220,6 +223,9 @@ go get github.com/aletheia-automotive/aletheia-go/aletheia
 #### Usage
 
 ```go
+// Functional equivalent of C++'s make_ffi_backend + AletheiaClient and
+// Python's AletheiaClient(ffi_path=...). All three load the same
+// libaletheia-ffi.so via dlopen and hand off to the same verified Agda core.
 package main
 
 import "github.com/aletheia-automotive/aletheia-go/aletheia"

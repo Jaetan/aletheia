@@ -51,9 +51,18 @@ Use the fluent Signal interface to build properties:
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 # pylint: disable=cyclic-import
-# __init__.py re-exports from submodules; client.py lazily imports
-# `from . import _install_config` which technically creates a cycle
-# through this file. It is a deferred import with no runtime issue.
+# __init__.py re-exports from submodules; ``client/_ffi.py`` lazily imports
+# ``from .. import _install_config`` (an install-time-generated module) which
+# technically creates a cycle through this file. The cycle is benign because
+# the import is **deferred inside a function body** (see
+# ``client/_ffi.py:find_ffi_library``), so this file finishes executing before
+# the import is attempted.
+#
+# Boundary constraint: do NOT add a top-level ``from .client import ...`` name
+# that is reached during ``_install_config`` resolution, and do NOT make
+# ``_install_config`` import anything from ``aletheia`` or its submodules.
+# Either change breaks the deferred-import contract and will turn this benign
+# technical cycle into an ``ImportError`` at install-detection time.
 from .client import (
     AletheiaClient,
     AletheiaError,

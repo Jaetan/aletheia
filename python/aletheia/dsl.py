@@ -58,7 +58,25 @@ def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormul
 
 
 class Signal:
-    """Reference to a CAN signal for use in temporal properties"""
+    """Reference to a CAN signal for use in temporal properties.
+
+    Adding a new signal predicate is a **three-point coupling**. The
+    following sites must all change together, and the Agda layer is the
+    source of truth:
+
+      1. ``src/Aletheia/Protocol/ResponseFormat.agda`` — add the constructor
+         to the ``SignalPredicate`` ADT and extend ``encodeSignalPredicate``
+         so the JSON wire format recognises the new tag.
+      2. ``python/aletheia/protocols.py`` — add the matching member to
+         ``PredicateType`` (Python mirror of the wire-format tag).
+      3. This module — expose it as a method on ``Signal`` (or ``Predicate``)
+         that emits ``{'predicate': PredicateType.NEW_KIND.value, ...}``.
+
+    A registry / plugin design would decouple points (2) and (3) but would
+    not help point (1) — CAN signal predicates are fixed by the Agda spec,
+    so the closed-domain coupling is intentional. Don't refactor to a
+    registry without first changing the Agda surface.
+    """
 
     def __init__(self, name: str) -> None:
         """Create a signal reference
@@ -227,10 +245,21 @@ class Signal:
 
 
 class Predicate:
-    """Atomic predicate over CAN signals
+    """Atomic predicate over CAN signals.
 
     Created by Signal comparison methods. Can be composed into
     temporal properties using temporal operators.
+
+    **Recommended temporal operators** (robust on CAN networks):
+        ``always``, ``eventually``, ``never``, ``within``, ``for_at_least``
+
+    **Boolean / logical combinators**:
+        ``and_``, ``or_``, ``not_``, ``implies``
+
+    **Discouraged** (see the "Discouraged in CAN analysis" section at the
+    bottom of this class): ``next`` — use ``within(time_ms)`` instead. Left
+    in the API for completeness with standard LTLf; CAN timing jitter makes
+    frame-exact semantics unreliable.
     """
 
     def __init__(self, formula: LTLFormula) -> None:
@@ -292,43 +321,6 @@ class Predicate:
                 'operator': 'not',
                 'formula': self._data
             }
-        }
-        return Property(formula)
-
-    def next(self) -> 'Property':
-        """Property must hold in the next frame (X operator)
-
-        WARNING: The Next operator is rarely useful in CAN analysis due to:
-        - Timing uncertainty: CAN frames don't arrive at fixed intervals
-        - ECU jitter: Processing delays vary unpredictably (1-10ms typical)
-        - Network effects: Retransmissions, priority inversion, bus contention
-        - Ambiguous semantics: "Next frame" from which ECU?
-
-        For time-bounded checks, use .within(time_ms) instead:
-        - More robust: Tolerates jitter and timing variations
-        - Explicit bounds: Clearly states acceptable time window
-        - Better semantics: "Within 100ms" is clearer than "next frame"
-
-        Returns:
-            Temporal property (LTL Next formula)
-
-        Example (discouraged):
-            # Anti-pattern: Assumes next frame arrives immediately
-            Signal("Brake").equals(1).next()
-
-        Better alternatives:
-            # Time-bounded check (recommended)
-            Signal("Brake").equals(1).within(10)  # Within 10ms
-
-            # Eventually (if timing doesn't matter)
-            Signal("Brake").equals(1).eventually()
-
-            # Metric until for state transitions
-            state_a.metric_until(100, state_b)  # Transition within 100ms
-        """
-        formula: NextFormula = {
-            'operator': 'next',
-            'formula': self._data
         }
         return Property(formula)
 
@@ -449,12 +441,65 @@ class Predicate:
         """
         return Property(_implies_formula(self._data, other.to_formula()))
 
+    # ------------------------------------------------------------------
+    # Discouraged in CAN analysis — kept for standard-LTLf completeness.
+    # Prefer ``within(time_ms)`` / ``for_at_least(time_ms)`` on real CAN
+    # traces, where inter-frame timing is jittery and "the next frame"
+    # is not a stable notion. See individual method docstrings.
+    # ------------------------------------------------------------------
+
+    def next(self) -> 'Property':
+        """Property must hold in the next frame (X operator).
+
+        **DISCOURAGED on CAN networks.** The Next operator is rarely useful
+        in CAN analysis because:
+
+        - Timing uncertainty: CAN frames don't arrive at fixed intervals
+        - ECU jitter: Processing delays vary unpredictably (1–10 ms typical)
+        - Network effects: Retransmissions, priority inversion, bus contention
+        - Ambiguous semantics: "Next frame" from which ECU?
+
+        Prefer ``within(time_ms)`` for time-bounded checks:
+        - More robust: Tolerates jitter and timing variations
+        - Explicit bounds: Clearly states the acceptable time window
+        - Better semantics: "Within 100 ms" is clearer than "next frame"
+
+        Kept in the API because Next is a standard LTLf operator and some
+        deterministic replay workflows (fixed-rate simulators, recorded
+        traces with known sample period) can use it safely.
+
+        Returns:
+            Temporal property (LTL Next formula)
+
+        Example (discouraged on real traces):
+            # Anti-pattern: assumes next frame arrives immediately
+            Signal("Brake").equals(1).next()
+
+        Better alternatives:
+            Signal("Brake").equals(1).within(10)         # within 10 ms
+            Signal("Brake").equals(1).eventually()       # if timing doesn't matter
+            state_a.metric_until(100, state_b)            # transition within 100 ms
+        """
+        formula: NextFormula = {
+            'operator': 'next',
+            'formula': self._data
+        }
+        return Property(formula)
+
 
 class Property:
-    """Temporal property (LTL formula)
+    """Temporal property (LTL formula).
 
     Created by Predicate temporal methods. Can be composed with
     other properties using logical operators.
+
+    **Recommended combinators**:
+        ``and_``, ``or_``, ``not_``, ``implies``, ``until``, ``release``,
+        ``metric_until``, ``metric_release``, ``always``, ``eventually``
+
+    **Discouraged** (see the "Discouraged in CAN analysis" section at the
+    bottom of this class): ``next`` — use ``metric_until`` /
+    ``Predicate.within`` instead on real CAN traces.
     """
 
     def __init__(self, formula: LTLFormula) -> None:
@@ -662,27 +707,6 @@ class Property:
         }
         return Property(formula)
 
-    def next(self) -> 'Property':
-        """Apply Next operator to nested formula
-
-        WARNING: Next is rarely useful for CAN analysis.
-        See Predicate.next() docstring for warnings and better alternatives.
-
-        Use this for nested temporal operators like X(G(phi)) - "next, then always".
-
-        Returns:
-            Nested temporal property (X(nested))
-
-        Example:
-            # X(G(p)) - next frame, then always
-            Signal("State").equals(1).always().next()
-        """
-        formula: NextFormula = {
-            'operator': 'next',
-            'formula': self._data
-        }
-        return Property(formula)
-
     def to_dict(self) -> LTLFormula:
         """Convert to dictionary for use with AletheiaClient
 
@@ -694,6 +718,34 @@ class Property:
             client.set_properties([property.to_dict()])
         """
         return self._data
+
+    # ------------------------------------------------------------------
+    # Discouraged in CAN analysis — kept for standard-LTLf completeness.
+    # See ``Predicate.next`` for the full rationale.
+    # ------------------------------------------------------------------
+
+    def next(self) -> 'Property':
+        """Apply Next operator to nested formula.
+
+        **DISCOURAGED on CAN networks.** See :meth:`Predicate.next` for the
+        full rationale; prefer ``.within(time_ms)`` in practice.
+
+        Use this for nested temporal operators like X(G(phi)) — "next, then
+        always" — when working on deterministic replay traces where the
+        next-frame notion is well-defined.
+
+        Returns:
+            Nested temporal property (X(nested))
+
+        Example:
+            # X(G(p)) — next frame, then always
+            Signal("State").equals(1).always().next()
+        """
+        formula: NextFormula = {
+            'operator': 'next',
+            'formula': self._data
+        }
+        return Property(formula)
 
 
 # ============================================================================

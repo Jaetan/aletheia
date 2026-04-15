@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-15 (Review Round 12 complete — commits `60661a1` + `1e40b4d`)
+**Last Updated**: 2026-04-16 (Review Round 13 complete — working tree dirty, not yet committed)
 
 ---
 
@@ -67,7 +67,7 @@ Phases 1-5.1 complete. Phase 5 delivered optional extensions driven by user feed
 - Incremental LTL evaluation (O(1) memory)
 - Coinductive streaming interface
 - Frame modification mid-stream
-- Throughput: 9,229 fps (108 us/frame via FFI; improved to 9,704 fps after Rosu simplification)
+- Throughput: 9,229 fps (108 us/frame via FFI; improved to 9,704 fps after Roșu simplification — the bottom-up LTLf simplification rules from Roșu's runtime verification work). C++, JSON path, single-threaded, Ryzen 9 5950X baseline
 
 **Phase 2B.3 - Polish**:
 - Counterexample generation with violation details
@@ -116,7 +116,7 @@ Phases 1-5.1 complete. Phase 5 delivered optional extensions driven by user feed
    - Key improvement: No frame filtering needed - Unknown signals continue monitoring
 6. ✅ Performance optimization - COMPLETE
    - Target: 8,000 fps (125 us/frame for 1 Mbps CAN bus)
-   - Achieved: 9,704 fps (103 us/frame, JSON path) — 3.03x speedup (initially 9,229 fps; improved after Rosu simplification)
+   - Achieved: 9,704 fps (103 us/frame, C++ single-threaded JSON path, CAN 2.0B Stream LTL with 2 properties, Ryzen 9 5950X, 10k frames × 5 runs) — 3.03x speedup (initially 9,229 fps; improved after Roșu simplification)
    - Steps: GHC compiler flags, Fin→ℕ elimination, FFI shared library (eliminated IPC)
 
 **Status**: Complete (started 2025-12-17)
@@ -377,37 +377,41 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 **Post-R12 perf fix `1e40b4d`** — Benchmark on 10k×5 frames vs R11 post-commit state found Python CAN 2.0B Stream LTL at −16.1% (real regression, well outside ±2-4% machine noise). Root cause: R12's new `log_event()` helper built `extra` dict + f-string + called `logger.log()` unconditionally, even at DEBUG with no handler — hit on every hot-path `send_frame`. Pre-R12 `_logger.debug("%s …", …)` deferred formatting until after `isEnabledFor`. Fix: early-return on `isEnabledFor(level)` (stdlib-standard pattern). Post-fix Python Stream LTL recovered +10.9% (63,173 → 70,056 fps). Remaining R12-vs-R11 spread (C++ −2.9% / Go −7.8% / Python −7.0% on Stream LTL) is within inter-run machine noise on this WSL host (stdev ~2–4% of mean, Go Δ has no code change to explain it).
 
-**Status**: Complete (14/14 items + post-implementation review round + post-commit regression fix + Path G three-valued finalisation + review rounds 6-12, all spec observations resolved or deferred with memory)
+**AGENTS.md review round 13 (2026-04-16)** — Docs-dominant round, 18 files modified (pending commit). Section A count drift: PROJECT_STATUS C++ 40 files / Python 22 modules / Go 16+15 tests; CLAUDE.md C++/Go binding blocks demoted to cross-references with design-only prose. Section C Python architecture: shallow-copy docstring in `client/_client.py`, lazy-import boundary comment in `aletheia/__init__.py`, three-point coupling block in `dsl.py`, pyproject gate-mapping + re-evaluation trigger comments, CLI `mux-query` subcommand + 11 tests. `Predicate.next()` / `Property.next()` **kept but relocated** to end-of-class under a "Discouraged in CAN analysis" banner — user correction: "discouraged ≠ deprecated". Section D (28 items): PROTOCOL.md Common Error Codes table (50 codes across 6 domains), DESIGN.md "Why Agda/Haskell/JSON" rationale, QUICKSTART.md "Prerequisites & first build", CLAUDE.md "Common newcomer mistakes", README/PITCH qualified throughput numbers, PROJECT_STATUS Key Metrics with Measured column, INTERFACES side-by-side parity code + Structured Logging section, PYTHON_API `data` construction examples, DISTRIBUTION equivalence comments. Phase 6 added toolchain upgrade item (basedpyright / pylint upper-pin refresh). Verification: 617 Python tests (was 606; +11 from mux-query suite), pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda full build green. Benchmarks vs R12 post-fix baseline (Python Stream LTL 70,056 fps): R13 75,914 fps = **+8.4%**; no regression gate crossed. Other lanes within WSL2 variance.
+
+**Status**: Complete (14/14 items + post-implementation review round + post-commit regression fix + Path G three-valued finalisation + review rounds 6-13, all spec observations resolved or deferred with memory)
 
 ---
 
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 120 (all `--safe --without-K`)
-- Python modules: 21 (13 top-level + 8 in `aletheia/client/` subpackage)
-- C++ files: 33 (14 public headers + 1 public detail header + 10 source + 3 internal detail headers + 5 test files)
-- Go files: 16 source + 14 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
+- Agda modules: 120 (all `--safe --without-K`) — evolution: 92 (R7, 2026-04-07) → 95 (R8 post-commit + `Timestamp μs` refinement) → 103 (R9, 2026-04-14) → 120 (R11 split of large `Properties` files behind facade re-exports, 2026-04-15). See the "Prior" entries in [CLAUDE.md § Current Session Progress](../CLAUDE.md#current-session-progress) for per-round detail.
+- Python modules: 22 (13 top-level + 9 in `aletheia/client/` subpackage)
+- C++ files: 40 (14 public headers + 1 public detail header + 10 source + 3 internal detail headers + 11 test `.cpp` + 1 `test_helpers.hpp`)
+- Go files: 16 source + 15 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 606 passing (via FFI)
-- C++ tests: 151 unit + 33 integration + 33 YAML + 47 Excel TEST_CASEs (264 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
-- Go tests: 276 passing (218 in `go/aletheia` + 58 in `go/excel`; mock backend, `-race` clean)
-- Total: 1138 tests
+- Python tests: 617 passing (via FFI)
+- C++ tests: 151 unit + 33 integration + 33 YAML + 47 Excel TEST_CASEs (264 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
+- Go tests: 276 passing (218 in `go/aletheia` across 15 test files + 58 in `go/excel`; mock backend, `-race` clean)
+- Total: 1149 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
-*Benchmarks: 10,000 frames × 5 runs, AMD Ryzen 9 5950X, Linux 6.6 (WSL2). C++ g++-15 -O3, Go 1.26.1, Python 3.13.12. 2026-04-06.*
+*Benchmarks: 10,000 frames × 5 runs, AMD Ryzen 9 5950X, Linux 6.6 (WSL2). C++ g++-15 -O3, Go 1.26.1, Python 3.13.12.*
 
-| Benchmark | C++ (fps) | Go (fps) | Python (fps) |
-|---|---:|---:|---:|
-| CAN 2.0B: Stream LTL (2 props) | **109,345** | 97,082 | 70,917 |
-| CAN 2.0B: Signal Extraction | **212,857** | 166,527 | 87,424 |
-| CAN 2.0B: Frame Building | **76,469** | 71,692 | 55,093 |
-| CAN-FD: Stream LTL (3 props) | **48,248** | 47,516 | 34,737 |
-| CAN-FD: Signal Extraction | **14,930** | 14,493 | 12,143 |
-| CAN-FD: Frame Building | **20,567** | 20,052 | 17,830 |
+| Benchmark | C++ (fps) | Go (fps) | Python (fps) | Measured |
+|---|---:|---:|---:|---|
+| CAN 2.0B: Stream LTL (2 props) | **109,345** | 97,082 | 70,917 | 2026-04-06 |
+| CAN 2.0B: Signal Extraction | **212,857** | 166,527 | 87,424 | 2026-04-06 |
+| CAN 2.0B: Frame Building† | **76,469** | 71,692 | 55,093 | 2026-04-06 |
+| CAN-FD: Stream LTL (3 props) | **48,248** | 47,516 | 34,737 | 2026-04-06 |
+| CAN-FD: Signal Extraction | **14,930** | 14,493 | 12,143 | 2026-04-06 |
+| CAN-FD: Frame Building† | **20,567** | 20,052 | 17,830 | 2026-04-06 |
+
+† Frame Building rows have an additional post-fix 2026-04-08 measurement documented in the note immediately below the table; those numbers are not the canonical ones and are deliberately not substituted here.
 
 > **Frame Building regression resolved (2026-04-08).** An earlier 30–65% regression on Frame Building rows (commit `5aa345e`, introduced by the `physicallyDisjoint?` Dec-valued check in `BatchFrameBuilding.hasOverlaps`) was traced via `git worktree` bisection and fixed by a Bool-valued fast path with formal equivalence proofs in `DBC/Properties.agda` (`signalsPhysicallyOverlapᵇ`, `physicallyOverlapᵇ-sound`, `physicallyOverlapᵇ-complete`). Per-signal physical bit lists are precomputed once in `hasOverlaps` and the O(m²) pair loop runs over cached lists with primitive ℕ equality — no `Dec` allocations on the hot path. See `project_frame_building_regression_2026_04_07.md` and AGENTS.md Category 16 for the cost-model lesson. The canonical numbers above still reflect the 2026-04-06 steady state; post-fix measurements (10000 frames × 5 runs, 2026-04-08) show Frame Building at C++ 58,712 / Go 65,106 / Python 47,789 (CAN 2.0B) and C++ 15,226 / Go 17,181 / Python 14,858 (CAN-FD) — a full +107–147% recovery on CAN-FD vs the regression state. The remaining gap (~10–25%) vs canonical reflects system noise plus residual list-representation overhead; further optimization is not blocked.
 
@@ -425,7 +429,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state, metric operator window bounds)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`
-- **All verification suites green**: Python (basedpyright 0 errors, pylint 10.00/10), C++ (clang-format clean, clang-tidy clean, ctest 5/5), Go (go test -race, go vet, gofmt all clean)
+- **All verification suites green**: Python (basedpyright 0 errors, pylint 10.00/10), C++ (clang-format clean, clang-tidy clean, all ctest suites pass), Go (go test -race, go vet, gofmt all clean)
 
 ---
 
@@ -436,6 +440,9 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 **Binding feature gaps**:
 - DBC `.dbc` text file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
 - Go multiplexing query helpers (expose queryable mux relationships)
+
+**Toolchain upgrades**:
+- Upgrade `basedpyright` and `pylint` to the latest stable releases, re-verify the 0/0/0 + 10.00/10 gates on the updated versions, and bump the upper pins in `python/pyproject.toml` (`basedpyright>=1.0,<2`, `pylint>=3.0,<4`) accordingly.
 
 **LGPL contingency**:
 - ~500 lines to eliminate cantools/python-can/libgmp if needed

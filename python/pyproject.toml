@@ -35,6 +35,10 @@ classifiers = [
 #   pip install aletheia[yaml]         # + YAML rule loader
 #   pip install aletheia[excel]        # + Excel rule/DBC loader
 #   pip install aletheia[all]          # everything
+# Re-evaluation trigger: if a lighter full-DBC parser (no numpy/matplotlib
+# closure) becomes available, reconsider whether ``cantools`` should still
+# be the default ``[dbc]`` backend. Until then the closure cost is accepted
+# in exchange for round-trip fidelity.
 dependencies = []
 
 [project.scripts]
@@ -47,6 +51,12 @@ aletheia = "aletheia.cli:main"
 include = ["aletheia", "aletheia.*"]
 
 [tool.setuptools.package-data]
+# Only ``py.typed`` today (PEP 561 type-disclosure marker). Rule for future
+# additions: any non-``.py`` resource shipped inside the wheel (JSON schemas,
+# DBC templates, example config) MUST be listed here explicitly — setuptools
+# does NOT pick up data files automatically under
+# ``[tool.setuptools.packages.find]``. Add the pattern here AND verify the
+# file appears inside ``dist/aletheia-*.whl`` via ``python -m zipfile -l``.
 aletheia = ["py.typed"]
 
 [project.optional-dependencies]
@@ -64,6 +74,12 @@ dev = [
     # review cycle on pylint 10.00/10 and basedpyright 0/0/0, so a breaking
     # major release would silently regress CI.  Bump the upper bound
     # (and re-verify the gates) on a new major rather than floating.
+    #
+    # Gate mapping (which upper bound protects which CI check):
+    #   pylint<4       — protects the ``pylint aletheia/`` 10.00/10 gate
+    #   basedpyright<2 — protects the ``basedpyright aletheia/`` 0/0/0 gate
+    #   pytest<9       — protects the ``pytest tests/`` exit code
+    #   pytest-cov<7   — protects coverage report shape (used by AGENTS.md R/N)
     "pytest>=7.0,<9",
     "pytest-cov>=4.0,<7",
     "pylint>=3.0,<4",
@@ -93,6 +109,8 @@ max-line-length = 100
 ignore = ["tests", "benchmarks", "stubs", ".venv", "build"]
 # ctypes and cantools lack full stubs; pyright handles the real type checks,
 # so silence pylint's redundant no-member/import-error noise for them.
+# Revisit if either upstream gains complete type stubs — at that point
+# pylint can infer members directly and this allow-list becomes dead weight.
 extension-pkg-allow-list = ["ctypes"]
 
 [tool.pylint.format]

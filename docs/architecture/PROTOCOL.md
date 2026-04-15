@@ -972,6 +972,92 @@ Used in responses for exact representation.
 <<< {"status": "error", "message": "Message ID 999 not found in DBC"}
 ```
 
+### Error Code Reference
+
+Every error response carries a stable `code` field (in addition to the human-readable `message`) drawn from the Agda source of truth `src/Aletheia/Error.agda`. Tooling should switch on `code`, not `message` — the message text is localised/expanded over time, the code is not.
+
+Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signal extraction), `frame_*` (frame building/update), `route_*` (command dispatch), `handler_*` (stream state machine), `dispatch_*` (top-level request routing). When an error is wrapped (e.g., a `ParseError` surfaces through `WrappedParse` inside a `HandlerError`), the emitted `code` is the innermost code, not the wrapping layer — so `parse_missing_field` during `parseDBC` and during `setProperties` both surface as `parse_missing_field`.
+
+#### Parse errors — malformed DBC or property JSON
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `parse_missing_field` | Required JSON field absent | Check the schema in the relevant Command section above |
+| `parse_invalid_byte_order` | Byte order string not `little_endian` or `big_endian` | Fix the signal `byteOrder` value |
+| `parse_invalid_presence` | Presence string not `always` | Use `always` or switch to `multiplexor`/`multiplex_values` |
+| `parse_missing_signed` | Signal `signed` field absent | Add `"signed": true` or `"signed": false` |
+| `parse_invalid_signed` | `signed` value not `signed` or `unsigned` (legacy string form) | Use boolean `true`/`false` |
+| `parse_not_an_object` | Array element expected to be an object | Messages/signals must be JSON objects |
+| `parse_ext_can_id_out_of_range` | Extended CAN ID above 29-bit max | Must be `≤ 536870911` |
+| `parse_std_can_id_out_of_range` | Standard CAN ID above 11-bit max | Must be `≤ 2047` |
+| `parse_default_can_id_out_of_range` | CAN ID exceeds standard range, `extended` not set | Set `"extended": true` |
+| `parse_invalid_dlc_bytes` | DLC byte count is not a valid CAN/CAN-FD length | DLC `0-15` only; values map to {0..8,12,16,20,24,32,48,64} |
+| `parse_root_not_object` | Top-level JSON is not an object | Wrap the request in `{...}` |
+| `parse_missing_signal_name` | Signal object has no `name` | Add `"name": "..."` |
+| `parse_signal_bit_length_zero` | Signal `length` is zero | Must be `≥ 1` |
+| `parse_signal_overflows_frame` | Signal's bit range exceeds frame size | Check `startBit + length` against `dlcToBytes(dlc) * 8` |
+| `parse_signal_msb_below_bit_length` | Big-endian signal's MSB position below `length − 1` | Big-endian `startBit` is the MSB; must be `≥ length − 1` |
+
+#### Extraction errors — signal extraction on a data frame
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `extraction_mux_value_mismatch` | Multiplexor value in frame does not select this signal | Not an error in `extractAllSignals` — the signal appears in `absent`, not `errors` |
+| `extraction_mux_signal_not_found` | Named multiplexor signal missing from message definition | DBC inconsistency — fix the DBC |
+| `extraction_mux_chain_cycle` | Multiplexor chain exceeded recursion depth (cycle?) | Simplify or break the multiplexor chain |
+| `extraction_mux_extraction_failed` | Failed to read the multiplexor signal's own bits | Check the multiplexor signal's `startBit`/`length` |
+| `extraction_bit_extraction_failed` | Bit-level read or scaling failed | Usually a DBC/frame-size mismatch |
+
+#### Frame errors — `buildFrame` / `updateFrame`
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `frame_signal_not_found` | Named signal not in the target message | Check the signal name against the DBC |
+| `frame_signal_index_oob` | Internal signal index out of range | Indicates a DBC/runtime mismatch — rebuild |
+| `frame_injection_failed` | Bit-packing failed for a signal | Usually means the value exceeds the signal's bit width |
+| `frame_signals_overlap` | Two requested signals occupy overlapping bits | Edit only one signal per bit range, or fix the DBC |
+| `frame_can_id_not_found` | `canId` not present in loaded DBC | Re-check the CAN ID against the DBC |
+| `frame_can_id_mismatch` | Request `canId` does not match the frame being updated | For `updateFrame`, the existing frame's ID must match |
+| `frame_signal_value_out_of_bounds` | Physical value outside the signal's `[minimum, maximum]` | Clip at the caller, or loosen the DBC bounds |
+
+#### Route errors — command dispatch
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `route_missing_field` | Command-level required field missing | See the specific command's fields |
+| `route_missing_array` | Command expects an array field | Provide an array, even if empty |
+| `route_unknown_command` | `command` value not recognised | See the Commands section for the nine valid commands |
+| `route_missing_command_field` | Request has no `command` field | Add `"command": "..."` |
+| `route_dlc_exceeds_max` | `dlc > 15` | Must be `0-15` |
+| `route_byte_array_parse_failed` | `data` array could not be parsed as bytes | Each element must be an integer `0-255` |
+| `route_byte_count_mismatch` | `data` length does not match `dlcToBytes(dlc)` | Resize `data` to match the DLC |
+| `route_missing_dbc_field` | `parseDBC`/`validateDBC` missing `dbc` field | Add the `dbc` object |
+| `route_missing_props_field` | `setProperties` missing `properties` field | Add `"properties": [...]` |
+
+#### Handler errors — stream state machine
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `handler_no_dbc` | Operation requires a loaded DBC | Call `parseDBC` first |
+| `handler_already_streaming` | `startStream` while already streaming | Call `endStream` before restarting |
+| `handler_not_streaming` | Frame submitted outside streaming mode | Call `startStream` before `aletheia_send_frame` |
+| `handler_stream_not_started` | `endStream` before `startStream` | Streaming must be active to end it |
+| `handler_stream_active` | Operation forbidden while streaming | End the stream first (e.g., to reload DBC) |
+| `handler_signal_list_parse_failed` | Signal list for a command failed to parse | Check the JSON against the command's schema |
+| `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
+| `handler_invalid_dlc_code` | DLC not in the CAN/CAN-FD table | See `parse_invalid_dlc_bytes` |
+| `handler_validation_failed` | DBC validation surfaced an error when loading | Run `validateDBC` to see the issue list |
+| `handler_non_monotonic_timestamp` | Current frame's timestamp is below the previous frame's | Sort frames by timestamp before streaming — metric LTL operators require monotonicity |
+
+#### Dispatch errors — top-level request routing
+
+| Code | Meaning | Likely cause / fix |
+|---|---|---|
+| `dispatch_missing_type_field` | Request has no `type` field | Add `"type": "command"` |
+| `dispatch_unknown_message_type` | `type` value not recognised | Only `command` is supported |
+| `dispatch_invalid_json` | Request was not valid JSON | Validate the JSON before sending |
+| `dispatch_request_not_object` | Top-level value is not an object | Wrap in `{...}` |
+
 ---
 
 ## Implementation Notes

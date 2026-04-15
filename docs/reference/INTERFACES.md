@@ -42,6 +42,66 @@ following table summarizes feature availability per binding:
 | DBC text (`.dbc`) parsing | ✅ (via `cantools`) | ❌ (use Python to convert) | ❌ (use Python to convert) |
 | Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
 
+The same call, side by side across the three bindings:
+
+**Check API** — "Speed must never exceed 220":
+```python
+Check.signal("Speed").never_exceeds(220)
+```
+```cpp
+aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{220});
+```
+```go
+check.Signal("Speed").NeverExceeds(220)
+```
+
+**Raw DSL** — the same property built directly in LTL:
+```python
+Signal("Speed").less_than(220).always()
+```
+```cpp
+aletheia::ltl::always(aletheia::ltl::less_than("Speed", aletheia::PhysicalValue{220}));
+```
+```go
+ltl.Always(ltl.LessThan("Speed", 220))
+```
+
+**YAML loader** — load a check file:
+```python
+checks = load_checks("checks.yaml")
+```
+```cpp
+auto checks = aletheia::yaml::load_checks("checks.yaml");
+```
+```go
+checks, err := yaml.LoadChecks("checks.yaml")
+```
+
+**Excel loader** — load checks from a workbook:
+```python
+checks = load_checks_from_excel("checks.xlsx")
+```
+```cpp
+auto checks = aletheia::excel::load_checks("checks.xlsx");
+```
+```go
+// requires the separate go/excel/ module
+checks, err := excel.LoadChecks("checks.xlsx")
+```
+
+**Streaming** — feed a frame to the verified core:
+```python
+response = client.send_frame(ts, can_id, dlc, data)
+```
+```cpp
+auto response = client.send_frame(ts, can_id, dlc, data);
+```
+```go
+response, err := client.SendFrame(ts, canID, dlc, data)
+```
+
+These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.
+
 For language-specific entry points, see:
 
 - **Python**: [`docs/reference/PYTHON_API.md`](PYTHON_API.md) for the full DSL reference and `AletheiaClient` usage.
@@ -57,8 +117,10 @@ The Check API wraps the DSL with industry vocabulary. Each method returns a
 same JSON that the verified Agda core processes.
 
 ```python
-from aletheia import Check
+from aletheia import Check            # re-exported from aletheia.checks
 ```
+
+Each `Check.…` call returns a `CheckResult` object; in real programs, collect the results into a list and pass them to `client.add_checks(...)`. The snippets below show one call per line so the fluent API surface is obvious; see the end-to-end example in the next section for how to wire them together.
 
 ### Simple Signal Checks
 
@@ -575,6 +637,47 @@ All produce:
   }
 }
 ```
+
+---
+
+## Structured Logging
+
+Every binding emits the **same 15-event vocabulary** so a single downstream log pipeline can consume all three:
+
+| Category | Events |
+|---|---|
+| Lifecycle (INFO) | `dbc.parsed`, `properties.set`, `stream.started`, `stream.ended` |
+| Frame processing (DEBUG) | `frame.processed`, `error_event.sent`, `remote_event.sent` |
+| Enrichment diagnostics (WARNING) | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
+| Extraction cache (DEBUG/WARNING) | `cache.hit`, `cache.miss`, `cache.full` |
+| Extraction errors (WARNING) | `extraction.process_failed`, `extraction.parse_failed` |
+| RTS boot (WARNING) | `rts.cores_mismatch` |
+
+Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). How to capture them:
+
+**Python** — attach a handler to the `aletheia` logger:
+```python
+import logging
+logging.getLogger("aletheia").setLevel(logging.INFO)
+logging.getLogger("aletheia").addHandler(logging.StreamHandler())
+```
+
+**C++** — pass a `Logger` to `AletheiaClient`'s constructor (callback-based, zero-cost when absent):
+```cpp
+auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
+    std::cerr << r.event;
+    for (const auto& f : r.fields) std::cerr << ' ' << f.key << '=' << f.value;
+    std::cerr << '\n';
+}};
+auto client = aletheia::AletheiaClient{std::move(backend), std::move(logger)};
+```
+
+**Go** — pass a `*slog.Logger` via the `WithLogger` option:
+```go
+client, _ := aletheia.NewClient(backend, aletheia.WithLogger(slog.Default()))
+```
+
+The event set is the authoritative source of truth — adding a new event requires adding it to the enum in all three bindings. See `python/aletheia/client/_log.py`, `cpp/include/aletheia/log.hpp`, and `go/aletheia/client.go` for the per-binding definition.
 
 ---
 

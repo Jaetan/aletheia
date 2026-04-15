@@ -48,7 +48,7 @@ Aletheia provides:
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
-3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory
+3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase; ~109k fps on the C++ JSON path — CAN 2.0B, Ryzen 9 5950X, 10k frames × 5 runs — see [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics))
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
@@ -65,6 +65,15 @@ Aletheia provides:
 | Unit tests | Examples of correct behavior | Edge cases, unexpected inputs |
 | Property-based testing | Random exploration | Exhaustive coverage guarantees |
 | **Formal verification** | **Mathematical proof of correctness** | **Nothing (within specified properties)** |
+
+**What the proofs don't cover** (important to set expectations):
+
+- **Specification errors**: The proofs guarantee the implementation matches the stated properties, not that the properties are the right ones. "Speed extraction returns the value encoded by the DBC" is proven; whether that DBC is correct for your vehicle is an engineering question.
+- **Hardware, bus layer, and OS behaviour**: Bit-stuffing errors on the physical CAN bus, ECU faults, timestamp skew from the logger hardware, and kernel scheduling all sit below Aletheia's abstraction boundary.
+- **Integration and operator error**: Wiring the wrong log file, missing a property, misreading a YAML threshold — these are normal human-process risks and must be covered by the surrounding tooling and review practices.
+- **Third-party components**: Agda's `--safe` kernel, GHC, and the Haskell `base` + `aeson` used in the shim are trusted rather than verified. Compiler and runtime bugs at that level propagate through.
+
+In other words: Aletheia eliminates the class of bugs where "the signal extraction code was wrong" or "the LTL evaluator drifted over a long trace" — not bugs elsewhere in the system.
 
 **Example**:
 - Test: "Speed extraction works for 100 km/h" ✓

@@ -32,6 +32,12 @@ Example:
 """
 
 from ._client import AletheiaClient
+# Re-exported for first-party consumers (``aletheia.cli``, ``dbc_converter``,
+# ``excel_loader``). These are intentionally NOT documented in the user-facing
+# API — ``AletheiaClient`` methods, DSL builders, and loader functions cover
+# the supported surface. Kept in ``__all__`` purely so basedpyright at strict
+# level recognises the re-export as deliberate; the `.client` path is fine
+# for first-party imports but not part of the stable public contract.
 from ._helpers import dump_json, to_signal_fraction
 from ._types import (
     AletheiaError,
@@ -45,11 +51,11 @@ from ._types import (
     dlc_to_bytes,
 )
 
-# Public symbols — other first-party modules (``cli``, ``dbc_converter``,
-# ``excel_loader``) go through this facade rather than reaching into
-# ``aletheia.client._helpers`` / ``aletheia.client._types`` directly, so
-# the private-module naming stays honest.  Every name here is covered by
-# basedpyright at ``strict`` level.
+# Public symbols — every name here is covered by basedpyright at ``strict``
+# level. User-facing API is ``AletheiaClient`` and the names below it; the
+# ``dump_json``/``to_signal_fraction`` entries exist because first-party
+# loader modules import them via the ``aletheia.client`` path and basedpyright
+# otherwise flags them as unused. Treat them as package-internal.
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
     "CANFrameTuple", "dlc_to_bytes", "dump_json", "FrameResponse",

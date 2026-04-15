@@ -167,7 +167,7 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 
 ## Key Files
 
-- **aletheia.agda-lib**: Agda library configuration (depends on standard-library-2.3)
+- **aletheia.agda-lib**: Agda library configuration (see the file itself for the pinned stdlib version)
 - **Shakefile.hs**: Custom build system orchestrating Agda → Haskell → shared library
 - **haskell-shim/aletheia.cabal**: Haskell package definition (includes `foreign-library aletheia-ffi`)
 - **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++ and Go dlopen)
@@ -212,12 +212,9 @@ Quick reference: Create with `python3 -m venv .venv`, activate with `source .ven
 
 ### C++ Binding
 
-> **Canonical metrics**: file/test counts and Phase 5.1 deliverable inventory live in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). The summary below is for quick orientation; if it ever disagrees with PROJECT_STATUS.md, PROJECT_STATUS.md wins.
+File/test inventory and phase deliverables live in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). This section covers design only.
 
 The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **14 public headers** in `include/aletheia/`: `aletheia.hpp`, `backend.hpp`, `check.hpp`, `client.hpp`, `dbc.hpp`, `enrich.hpp`, `error.hpp`, `excel.hpp`, `log.hpp`, `ltl.hpp`, `response.hpp`, `types.hpp`, `validation.hpp`, `yaml.hpp`
-- **10 source files** in `src/`: `backend.cpp`, `client.cpp`, `dbc.cpp`, `enrich.cpp`, `excel.cpp`, `ffi_backend.cpp`, `json_parse.cpp`, `json_serialize.cpp`, `mock_backend.cpp`, `yaml.cpp`
-- **5 test files**: `static_tests.cpp` (compile-time), `unit_tests.cpp` (mock backend + Catch2), `integration_tests.cpp` (threads + Catch2), `yaml_tests.cpp`, `excel_tests.cpp`
 - **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
 - **Observability**: Custom `Logger` class (`log.hpp`, ~90 lines) — callback-based structured logging with 12 event types matching Go's slog; zero-cost when null (default)
 - **RTS cores**: `make_ffi_backend(path, rts_cores)` — default 1; once-per-process with mismatch warning
@@ -226,11 +223,9 @@ The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
 
 ### Go Binding
 
-> **Canonical metrics**: see [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) (same single source of truth as the C++ Binding section above).
+File/test inventory lives in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). This section covers design only.
 
 The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **16 source files** in `go/aletheia/`: `backend.go`, `check.go`, `client.go`, `dbc.go`, `doc.go`, `enrich.go`, `error.go`, `ffi.go`, `ffi_nocgo.go`, `json.go`, `loader.go`, `ltl.go`, `mock.go`, `result.go`, `types.go`, `yaml.go`
-- **14 test files**: `batch_test.go`, `check_test.go`, `dbc_test.go`, `enrich_test.go`, `error_test.go`, `ffi_backend_test.go`, `helpers_test.go`, `internal_test_helpers_test.go`, `mux_test.go`, `nested_mux_test.go`, `options_test.go`, `stream_test.go`, `types_test.go`, `yaml_test.go` (mock backend)
 - **Optional Excel package**: `go/excel/` is a separate Go module (separate `go.mod`) that pulls in the heavy `xuri/excelize` dependency chain; depend on it only if you need the Excel loader.
 - **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
 - **Observability**: `slog` structured logging via `WithLogger` option (12 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
@@ -284,6 +279,8 @@ combined = list1 ++ₗ list2
 
 ## Troubleshooting
 
+_Build-time issues beyond this table are collected in [BUILDING.md § Troubleshooting](docs/development/BUILDING.md#troubleshooting)._
+
 **Build failures**: `cabal run shake -- clean && cabal run shake -- build`
 
 **Python issues**: Verify venv active (`which python3` → should show `.../.venv/bin/python3`)
@@ -293,6 +290,16 @@ combined = list1 ++ₗ list2
 **MAlonzo name mismatch**: Build provides exact sed command - just run it
 
 **Type-checking timeout**: Always use `agda +RTS -N32 -RTS` for parallel GHC
+
+**`hs_init` failure at first client start**: Symptom is `aletheia_init() returned null` from Python/C++/Go. Usually means the `.so` was built against a different GHC runtime than what's present at load time. Rebuild the shared library (`cabal run shake -- build` — the Shakefile rebuilds `libaletheia-ffi.so`) and make sure no stale copy is shadowing it in `$LD_LIBRARY_PATH`.
+
+**`.so` load failure (`OSError: cannot open shared object file`)**: The FFI loader looks at `_install_config.LIBRARY_PATH` first, then `LD_LIBRARY_PATH`, then `/usr/local/lib`. If you moved the shared library, regenerate `_install_config.py` via `cabal run shake -- install` or point `ALETHEIA_FFI_PATH` at the new location.
+
+**ctypes signature mismatch (Python)**: Symptoms are segfaults, garbage return codes, or `TypeError` on the first FFI call. Usually means `libaletheia-ffi.so` and `aletheia` package versions have drifted. Confirm both were built from the same commit (`python -m aletheia --version`, `strings libaletheia-ffi.so | grep aletheia-ffi-`), and reinstall the Python package if they differ.
+
+**DBC validation rejects a seemingly valid message**: Check the `ValidationIssue.code` enum — common culprits are `signal_overlaps_another`, `signal_exceeds_message_size`, and `multiplexor_value_conflict`. The human-readable table is in [PROTOCOL.md § Common Error Codes](docs/architecture/PROTOCOL.md#common-error-codes). Run `aletheia validate --dbc <file>` to see every issue, not just the first.
+
+**Property formula parse error**: The JSON schema is strict — `"operator"` must be the exact lowercase tag and predicates must live under `{"operator": "atomic", "predicate": {...}}`. If you hand-wrote a formula, compare against `Signal("X").equals(1).to_dict()` output.
 
 ## Performance Considerations
 
@@ -364,6 +371,18 @@ Types can depend on values:
 - [Standard Library](https://agda.github.io/agda-stdlib/)
 - [Agda Tutorial](https://agda.readthedocs.io/en/latest/getting-started/tutorial-list.html)
 
+### Common newcomer mistakes
+
+Concrete failure modes the first-time Aletheia contributor tends to hit, and the one-line fix for each:
+
+- **Forgetting `--safe --without-K` on a new module**. The top-of-file pragma is enforced by the build system — a new module without it breaks CI. Copy the header from a neighbour.
+- **Using `with x` where the proof needs to remember what `x` was**. The bare `with` form drops the equation; use `with x in eq` so you can `rewrite eq` (or `subst`) in the branches. Symptom: you can prove the goal in a hole but Agda won't accept the refined LHS.
+- **Using `Dec`-valued predicates on the streaming hot path**. MAlonzo allocates a proof term per call for `Dec`; replace with a `Bool`-valued fast path plus an equivalence lemma. Missing this is what caused the R12 bench regression — see `extractSignalCoreFast` for the pattern.
+- **Editing generated MAlonzo Haskell in `build/`**. The `build/` tree is overwritten on every build; changes must land in the Agda source. If you see a name-mangling mismatch, update `haskell-shim/src/AletheiaFFI.hs` using the exact `sed` command the build emits — don't edit the generated file.
+- **Writing Agda parser combinators that recurse on "fuel" instead of decreasing input length**. Structural recursion on `length input` is what keeps the termination checker happy and the typechecker fast; see `Parser/Combinators.agda`. A fuel argument will either fail termination or blow up typechecking time.
+- **Type-checking without `+RTS -N32 -RTS`**. Large modules (`Protocol/StreamState.agda`, `Main.agda`) time out past 120s without parallel GHC. Always use `agda +RTS -N32 -RTS`.
+- **Running `pytest` / `basedpyright` / `pylint` from the repo root instead of `python/`**. The tools pick up config from the nearest `pyproject.toml`; outside `python/` they either find no tests or the wrong rules. `cd python && ...` before running any of them.
+
 ### Code Style
 
 **Agda:**
@@ -417,7 +436,9 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-15):** AGENTS.md review round 12 — 92 files touched in single commit. Agda AGDA-25 polymorphic `collectAtomsAcc`, Shakefile `check-erasure` phony, C++ test split (7 focused TUs + `test_helpers.hpp`), Go `go.work` + `concurrent_test.go`, Python structured `client/_log.py` + `benchmarks/_common.py` + `tests/test_error_code_sync.py`, Docs D1-D6. Commits `60661a1` (R12) + `1e40b4d` (post-bench `log_event` `isEnabledFor` fast-path fix). First-run Python Stream LTL regressed −16.1%; root-caused to `log_event` allocating unconditionally on hot path; post-fix Python Stream LTL +10.9% (63,173→70,056 fps). 606 Python tests, pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda full build + 3 check-* phonies green.
+**Latest (2026-04-16):** AGENTS.md review round 13 — docs-dominant round. Section A: count drift (PROJECT_STATUS C++ 40 files / Python 22 modules / Go 16+15 tests; CLAUDE.md C++/Go blocks demoted to cross-references with design-only prose). Section C: Python architecture (shallow-copy docstring in `client/_client.py`, lazy-import boundary in `aletheia/__init__.py`, 3-point coupling block in `dsl.py`, pyproject gate-mapping + re-evaluation trigger comments, CLI `mux-query` subcommand + 11 tests). `Predicate.next()` / `Property.next()` **kept but relocated** to end-of-class under a "Discouraged in CAN analysis" banner — user correction: "discouraged ≠ deprecated". Section D (28 items): PROTOCOL.md Common Error Codes table (50 codes, 6 domains), DESIGN.md "Why Agda/Haskell/JSON" rationale, QUICKSTART.md "Prerequisites & first build", CLAUDE.md "Common newcomer mistakes", README/PITCH qualified throughput numbers, PROJECT_STATUS Key Metrics with Measured column, INTERFACES side-by-side parity code + Structured Logging section, PYTHON_API `data` construction examples, DISTRIBUTION equivalence comments. Phase 6 added toolchain upgrade item (basedpyright / pylint upper-pin refresh). 617 Python tests (was 606, +11 from mux-query suite), pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda full build green. Benchmarks vs R12 post-fix baseline (Python Stream LTL 70,056 fps): R13 75,914 fps = **+8.4%**; no regression gate crossed. Other lanes within WSL2 variance.
+
+**Prior (2026-04-15):** AGENTS.md review round 12 — 92 files touched in single commit. Agda AGDA-25 polymorphic `collectAtomsAcc`, Shakefile `check-erasure` phony, C++ test split (7 focused TUs + `test_helpers.hpp`), Go `go.work` + `concurrent_test.go`, Python structured `client/_log.py` + `benchmarks/_common.py` + `tests/test_error_code_sync.py`, Docs D1-D6. Commits `60661a1` (R12) + `1e40b4d` (post-bench `log_event` `isEnabledFor` fast-path fix). First-run Python Stream LTL regressed −16.1%; root-caused to `log_event` allocating unconditionally on hot path; post-fix Python Stream LTL +10.9% (63,173→70,056 fps). 606 Python tests, pyright 0/0/0, pylint 10.00, all ctest suites pass, go -race clean, Agda full build + 3 check-* phonies green.
 
 **Prior (2026-04-15):** R11 — 6 batches (`bf238b3` + `222b662`). Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python vs 2026-04-11 baseline.
 

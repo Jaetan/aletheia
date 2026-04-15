@@ -488,6 +488,57 @@ cabal run shake -- build
 # Subsequent builds are much faster (only recompile changed files)
 ```
 
+### Missing libgmp (`ld: cannot find -lgmp`)
+
+**Error**: Linker error at the end of `cabal build` or `cabal run shake -- build`, typically `ld: cannot find -lgmp`.
+
+**Solution**: Haskell uses GMP for arbitrary-precision integers, which the Agda rationals lean on heavily.
+
+- Debian/Ubuntu: `sudo apt-get install libgmp-dev`
+- Fedora/RHEL: `sudo dnf install gmp-devel`
+- Arch: `sudo pacman -S gmp`
+- macOS (homebrew): `brew install gmp`
+
+After install, run `cabal run shake -- clean && cabal run shake -- build`.
+
+### Clang / GCC Version Mismatch for C++ Binding
+
+**Error**: `std::expected` / `std::format` / spaceship operator not found when building `cpp/`, or `error: no member named 'byte' in namespace 'std'`.
+
+**Solution**: The C++ binding targets g++ ≥ 14 and clang ≥ 21 (C++23). Older toolchains compile Aletheia up to the `-std=c++20` cutoff but trip over `<expected>` / `<format>`. Check with:
+
+```bash
+g++ --version     # expect 14.x or newer
+clang++ --version # expect 21.x or newer
+cmake -B cpp/build -DCMAKE_CXX_COMPILER=g++-14  # pin explicitly if needed
+```
+
+### Python Venv Version Drift (`ImportError` on Known-Good Code)
+
+**Error**: Imports that worked yesterday start failing, or `basedpyright` runs against the system Python instead of your venv.
+
+**Solution**: Re-activate the venv and confirm it hasn't been invalidated by a system Python upgrade:
+
+```bash
+deactivate  # if already active
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e 'python[all,dev]'
+```
+
+### Go Build With `CGO_ENABLED=0`
+
+**Error**: `go build -tags netgo` or a distroless container fails with `undefined: C.dlopen`.
+
+**Solution**: The Go binding REQUIRES cgo — `FFIBackend` uses `dlopen`/`dlsym` via C trampolines. There is no pure-Go fallback. Use `CGO_ENABLED=1` (the default) and include `libaletheia-ffi.so` in the final image. For test runs that don't need the FFI backend, `MockBackend` is pure Go and can be used under `CGO_ENABLED=0`.
+
+### MAlonzo Symbol Not Found at FFI Load Time
+
+**Error**: `aletheia_send_frame` or `aletheia_process_json` resolves, but the first call crashes with `Prelude.undefined` or a missing symbol like `_d_processJSONLine_*`.
+
+**Solution**: MAlonzo mangles Agda names on every build. If you added or removed a top-level Agda definition before `processJSONLine` in `Main.agda`, the mangled suffix changed. `cabal run shake -- build` prints the exact `sed` command to update `haskell-shim/src/AletheiaFFI.hs` — apply it, rebuild, and the FFI surface converges again.
+
 ## Development Build Tips
 
 ### Incremental Builds

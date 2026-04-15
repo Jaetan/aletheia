@@ -102,11 +102,22 @@ class AletheiaClient:
         default_checks: list[CheckResult] | None = None,
         rts_cores: int = 1,
     ) -> None:
+        """Initialize a client.
+
+        Args:
+            default_checks: Optional list of pre-built ``CheckResult`` objects
+                applied on every ``start_stream`` call. The list is
+                shallow-copied — callers **must not** mutate the ``CheckResult``
+                objects after passing them, as the client holds references to
+                the originals.
+            rts_cores: Number of GHC RTS capabilities to request on first
+                client start (default 1). Subsequent clients that pass a
+                different value will log a mismatch warning.
+        """
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
         self._diags: dict[int, PropertyDiagnostic] = {}
         self._caches = StreamCaches()
-        # Shallow copy — callers must not mutate CheckResult objects after passing.
         self._default_checks: list[CheckResult] = list(default_checks) if default_checks else []
         self._rts_cores: int = rts_cores
         # Per-message signal name/index lookup, populated by ``parse_dbc``.
