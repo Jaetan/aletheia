@@ -96,6 +96,13 @@ def log_event(
         event:   A member of :class:`LogEvent` — the event name.
         **fields: Key/value pairs to attach to the record.
     """
+    # Short-circuit before any allocation when the target level is disabled
+    # (the default at DEBUG on the streaming hot path). Mirrors the stdlib
+    # ``Logger.debug``/``info`` fast path: without this guard a no-handler
+    # DEBUG call still built the ``extra`` dict, formatted the message, and
+    # walked ``Logger.log`` — a measurable regression on Stream LTL.
+    if not logger.isEnabledFor(level):
+        return
     # ``event`` is the canonical key structured collectors look for; match
     # Go's ``slog`` attribute name so cross-binding log pipelines can parse
     # both streams with the same code.
