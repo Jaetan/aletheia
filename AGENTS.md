@@ -507,7 +507,7 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 
 ### Observability & Diagnostics (2)
 
-28. **Logging discipline** -- structured logging parity with Go `slog` and C++ `Logger` (same 12 event names, same fields); lazy log message formatting (`%`-style, not f-strings); `exc_info=True` on error paths; level usage matches severity (DEBUG/INFO/WARNING/ERROR); no `print()` in library code.
+28. **Logging discipline** -- structured logging parity with Go `slog` and C++ `Logger` (same 12 event names, same fields); lazy log message formatting (`%`-style, not f-strings); `exc_info=True` on error paths; level usage matches severity (DEBUG/INFO/WARNING/ERROR); no `print()` in library code. Any helper that wraps `logger.log(...)` on a hot path MUST check `logger.isEnabledFor(level)` and early-return before building `extra` dicts / f-strings — R12's `log_event` missed this and regressed Python Stream LTL by −16.1% until `1e40b4d` restored the guard.
 29. **Exception chaining & context** -- `raise X from Y` to preserve `__cause__`, never `except ... as e: raise RuntimeError(str(e))` (loses traceback), no bare `except:` (use `except Exception:` minimum), re-raises preserve original context, error messages are actionable.
 
 ### Packaging & Reproducibility (3)

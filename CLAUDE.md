@@ -417,7 +417,9 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-15):** AGENTS.md review round 11 — 6 batches across Agda/Go/C++/Python/Docs. Commits `bf238b3` (batches 1-5) + `222b662` (batch 6). Benchmarks vs 2026-04-11 baseline: Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python; other hot paths within ±3% noise. 598 Python tests pass, pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda Main.agda clean.
+**Latest (2026-04-15):** AGENTS.md review round 12 — 92 files touched in single commit. Agda AGDA-25 polymorphic `collectAtomsAcc`, Shakefile `check-erasure` phony, C++ test split (7 focused TUs + `test_helpers.hpp`), Go `go.work` + `concurrent_test.go`, Python structured `client/_log.py` + `benchmarks/_common.py` + `tests/test_error_code_sync.py`, Docs D1-D6. Commits `60661a1` (R12) + `1e40b4d` (post-bench `log_event` `isEnabledFor` fast-path fix). First-run Python Stream LTL regressed −16.1%; root-caused to `log_event` allocating unconditionally on hot path; post-fix Python Stream LTL +10.9% (63,173→70,056 fps). 606 Python tests, pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, Agda full build + 3 check-* phonies green.
+
+**Prior (2026-04-15):** R11 — 6 batches (`bf238b3` + `222b662`). Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python vs 2026-04-11 baseline.
 
 **Prior (2026-04-14):** R10 — 68 findings: Agda (13), Go (7), C++ (12), Python (13), Docs (20). Hot-path +10.8% Stream LTL. Commit `f227d88`.
 

@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-15 (Review Round 11 complete — commits `bf238b3` + `222b662`)
+**Last Updated**: 2026-04-15 (Review Round 12 complete — commits `60661a1` + `1e40b4d`)
 
 ---
 
@@ -371,7 +371,13 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 
 **AGENTS.md review rounds 7-10 (2026-04-11 → 2026-04-14)** — Four consecutive full AGENTS.md review rounds. R7: 51 findings (commit `cdd5821`). R8: partial (commit `6ab5639`). R9: 56 findings (commit `7203d9f`). R10: 68 findings across Agda (13), Go (7), C++ (12), Python (13), Docs (20) (commit `f227d88`). Cumulative: hot-path `mapₘ` → pattern match (+10.8% Stream LTL), `to_rational` returns `Result` not throw, INT64_MAX conservative bound, `float_to_rational` NaN/Inf/overflow guards, JSON error key fix, struct.error size checks, build_frame signature in 5 docs, PITCH fabricated API removal, --erasure flag documented. 6 false positives confirmed across rounds (type tightness, CATCHALL, domain model, MAlonzo assumptions, Python raw ints, eval-then-update ordering).
 
-**Status**: Complete (14/14 items + post-implementation review round + post-commit regression fix + Path G three-valued finalisation + review rounds 6-10, all spec observations resolved or deferred with memory)
+**AGENTS.md review round 11 (2026-04-15)** — 6 batches in two commits: `bf238b3` (Batches 1-5: mechanical, cross-binding parity with Go `excel` extracted to separate module, structural, SA.19.3 `streaming-warms-cache` proof + new `Protocol/Adequacy/StreamingWarm.agda`, docs) + `222b662` (Batch 6 hygiene: Go FFI symbol-list drift, C++ byte-order doc, C++ OOM leak guard, `pyproject.toml` `all` self-reference). Bench verification commit `38839eb` refreshed `d_extractionErrorCodeToℕ_144 → _148`. Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python vs 2026-04-11 baseline.
+
+**AGENTS.md review round 12 (2026-04-15)** — Single consolidated commit `60661a1` (92 files, +4,642 / −3,405). Agda AGDA-25 polymorphic `collectAtomsAcc` signature (`∀ {α} → LTL α → List α → List α`; erased type param, zero MAlonzo impact). Shakefile `check-erasure` phony greps MAlonzo for `C_Standard_12 Integer AgdaAny`, `C_Extended_16 Integer AgdaAny`, `newtype T_Timestamp_18`; fixed `check-invariants` + `check-no-properties-in-runtime` grep-shellout bugs (Exit/Stdout tuple + `[String]` argv). C++ H2/M1/M6: 1,800-line `unit_tests.cpp` split into 7 focused TUs + `test_helpers.hpp` with 40+ include-cleaner headers. Go `go.work` + `concurrent_test.go` for Client mutex surface. Python new `client/_log.py` (15-value `LogEvent` schema ↔ Go slog + C++ Logger), `benchmarks/_common.py` (shared bench boilerplate), `tests/test_error_code_sync.py` (Python↔Go error code parity). `__init__.py` reverted dynamic `__all__` attempt after basedpyright rejected it — static literal `__all__` + non-aliased re-exports is the only pattern pylint + basedpyright both accept without suppressions. Docs D1-D6 cross-ref refresh across 12 files.
+
+**Post-R12 perf fix `1e40b4d`** — Benchmark on 10k×5 frames vs R11 post-commit state found Python CAN 2.0B Stream LTL at −16.1% (real regression, well outside ±2-4% machine noise). Root cause: R12's new `log_event()` helper built `extra` dict + f-string + called `logger.log()` unconditionally, even at DEBUG with no handler — hit on every hot-path `send_frame`. Pre-R12 `_logger.debug("%s …", …)` deferred formatting until after `isEnabledFor`. Fix: early-return on `isEnabledFor(level)` (stdlib-standard pattern). Post-fix Python Stream LTL recovered +10.9% (63,173 → 70,056 fps). Remaining R12-vs-R11 spread (C++ −2.9% / Go −7.8% / Python −7.0% on Stream LTL) is within inter-run machine noise on this WSL host (stdev ~2–4% of mean, Go Δ has no code change to explain it).
+
+**Status**: Complete (14/14 items + post-implementation review round + post-commit regression fix + Path G three-valued finalisation + review rounds 6-12, all spec observations resolved or deferred with memory)
 
 ---
 
@@ -385,7 +391,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 598 passing (via FFI)
+- Python tests: 606 passing (via FFI)
 - C++ tests: 151 unit + 33 integration + 33 YAML + 47 Excel TEST_CASEs (264 total) across 4 runtime test suites + static_asserts in a 5th compile-time suite (mock backend + Catch2)
 - Go tests: 276 passing (218 in `go/aletheia` + 58 in `go/excel`; mock backend, `-race` clean)
 - Total: 1138 tests
