@@ -49,7 +49,10 @@ dbc = ["cantools>=39.0"]
 can = ["python-can>=4.0"]
 yaml = ["pyyaml>=6.0"]
 excel = ["openpyxl>=3.1"]
-all = ["cantools>=39.0", "python-can>=4.0", "pyyaml>=6.0", "openpyxl>=3.1"]
+# Self-reference the individual extras so version pins live in exactly one
+# place (SSOT). Editing dbc/can/yaml/excel above automatically flows through
+# to ``aletheia[all]`` without manual string duplication.
+all = ["aletheia[dbc,can,yaml,excel]"]
 dev = [
     "aletheia[all]",
     "pytest>=7.0",

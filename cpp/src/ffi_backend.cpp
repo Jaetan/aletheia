@@ -444,10 +444,12 @@ public:
                 free_str_fn_(err_str);
             return std::unexpected(AletheiaError{ErrorKind::Protocol, msg});
         }
+        // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
+        // copy) still frees the Haskell-allocated buffer. A bare free call
+        // after the copy would leak on that path.
+        std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out_buf, free_buf_fn_);
         const std::span<const std::byte> out_bytes(as_byte(out_buf), out_size);
-        std::vector<std::byte> result(out_bytes.begin(), out_bytes.end());
-        free_buf_fn_(out_buf);
-        return result;
+        return std::vector<std::byte>(out_bytes.begin(), out_bytes.end());
     }
 };
 

@@ -216,19 +216,26 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		}
 	}()
 
-	// Required symbols from libaletheia-ffi.so:
-	//   hs_init                   — GHC RTS initialization (called once per process)
-	//   aletheia_init             — create a new session (returns StablePtr)
-	//   aletheia_process          — send JSON command, receive JSON response
-	//   aletheia_send_frame       — binary CAN frame (streaming LTL hot path)
-	//   aletheia_start_stream     — begin streaming (no JSON input)
-	//   aletheia_end_stream       — finalize streaming (no JSON input)
-	//   aletheia_format_dbc       — export loaded DBC (no JSON input)
-	//   aletheia_extract_signals  — signal extraction (no JSON input)
-	//   aletheia_build_frame      — frame building from signal indices (no JSON input)
-	//   aletheia_update_frame     — frame update from signal indices (no JSON input)
-	//   aletheia_free_str         — free Haskell-allocated response strings
-	//   aletheia_close            — finalize and free session state
+	// Required symbols from libaletheia-ffi.so (keep in sync with the
+	// loadSym calls below — a drifted comment is a finding):
+	//   hs_init                       — GHC RTS initialization (called once per process)
+	//   aletheia_init                 — create a new session (returns StablePtr)
+	//   aletheia_process              — send JSON command, receive JSON response
+	//   aletheia_send_frame           — binary CAN frame (streaming LTL hot path)
+	//   aletheia_send_error           — CAN error frame event
+	//   aletheia_send_remote          — CAN remote frame event
+	//   aletheia_start_stream         — begin streaming (no JSON input)
+	//   aletheia_end_stream           — finalize streaming (no JSON input)
+	//   aletheia_format_dbc           — export loaded DBC (no JSON input)
+	//   aletheia_extract_signals      — signal extraction, JSON response
+	//   aletheia_build_frame          — frame building from signal indices, JSON response
+	//   aletheia_update_frame         — frame update from signal indices, JSON response
+	//   aletheia_build_frame_bin      — frame building, binary response (hot path)
+	//   aletheia_update_frame_bin     — frame update, binary response (hot path)
+	//   aletheia_extract_signals_bin  — signal extraction, binary response (hot path)
+	//   aletheia_free_buf             — free Haskell-allocated binary buffers
+	//   aletheia_free_str             — free Haskell-allocated response strings
+	//   aletheia_close                — finalize and free session state
 	hsInit, err := loadSym(handle, "hs_init")
 	if err != nil {
 		return nil, err

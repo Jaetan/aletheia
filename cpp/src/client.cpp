@@ -167,6 +167,11 @@ constexpr std::array extraction_error_messages = {
     std::string_view{"Extraction failed"},       // 2
 };
 
+// Parses the binary extraction layout emitted by `aletheia_extract_signals_bin`.
+// Layout and byte-order (native; little-endian on all supported platforms) are
+// documented at haskell-shim/src/AletheiaFFI.hs:235 — "Header(3×u16) +
+// Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order." Cross-arch
+// deployment would require byteswapping on the reader side.
 auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std::string>& names)
     -> ExtractionResult {
     auto read_u16 = [&](std::size_t off) -> std::uint16_t {
