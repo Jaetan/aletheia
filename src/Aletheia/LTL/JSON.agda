@@ -139,6 +139,7 @@ mutual
     else if ⌊ op ≟ "and" ⌋ then parseBinaryOp LTL.And obj
     else if ⌊ op ≟ "or" ⌋ then parseBinaryOp LTL.Or obj
     else if ⌊ op ≟ "next" ⌋ then parseUnaryOp LTL.Next obj
+    else if ⌊ op ≟ "weakNext" ⌋ then parseUnaryOp LTL.WNext obj
     else if ⌊ op ≟ "always" ⌋ then parseUnaryOp LTL.Always obj
     else if ⌊ op ≟ "eventually" ⌋ then parseUnaryOp LTL.Eventually obj
     else if ⌊ op ≟ "until" ⌋ then parseBinaryOp LTL.Until obj

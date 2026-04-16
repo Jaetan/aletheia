@@ -13,6 +13,7 @@ from ..protocols import (
     LTLFormula,
     Command,
     Response,
+    RationalNumber,
     ParseDBCCommand,
     SetPropertiesCommand,
     ValidateDBCCommand,
@@ -71,6 +72,13 @@ if TYPE_CHECKING:
 _logger = logging.getLogger("aletheia")
 
 
+def _rational_index(r: RationalNumber, context: str) -> int:
+    """Convert a rational property_index to int, raising on zero denominator."""
+    if r["denominator"] == 0:
+        raise ProtocolError(f"Zero denominator in {context} property_index")
+    return r["numerator"] // r["denominator"]
+
+
 class AletheiaClient:
     """Client for streaming LTL checking and signal operations.
 
@@ -105,14 +113,10 @@ class AletheiaClient:
         """Initialize a client.
 
         Args:
-            default_checks: Optional list of pre-built ``CheckResult`` objects
-                applied on every ``start_stream`` call. The list is
-                shallow-copied — callers **must not** mutate the ``CheckResult``
-                objects after passing them, as the client holds references to
-                the originals.
-            rts_cores: Number of GHC RTS capabilities to request on first
-                client start (default 1). Subsequent clients that pass a
-                different value will log a mismatch warning.
+            default_checks: Pre-built checks applied on every ``start_stream``
+                call. Shallow-copied; **do not** mutate originals after passing.
+            rts_cores: GHC RTS capabilities (default 1). Mismatch across
+                clients logs a warning.
         """
         self._lib: ctypes.CDLL | None = None
         self._state: ctypes.c_void_p | None = None
@@ -215,7 +219,9 @@ class AletheiaClient:
             indices.append(idx)
             nums.append(n)
             dens.append(d)
-        return SignalValues(indices=indices, numerators=nums, denominators=dens)
+        return SignalValues(
+            indices=tuple(indices), numerators=tuple(nums), denominators=tuple(dens),
+        )
 
     def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
         """Parse a response that should be success or error."""
@@ -418,8 +424,7 @@ class AletheiaClient:
         """Enrich a violation response with signal diagnostics (in-place)."""
         if not self._diags:
             return
-        prop_index_r = result["property_index"]
-        idx = prop_index_r["numerator"] // prop_index_r["denominator"]
+        idx = _rational_index(result["property_index"], "violation")
         diag = self._diags.get(idx)
         if diag is None:
             log_event(
@@ -803,8 +808,7 @@ class AletheiaClient:
         """Enrich an end-of-stream violation with signal diagnostics."""
         if not self._diags:
             return
-        prop_index_r = result["property_index"]
-        idx = prop_index_r["numerator"] // prop_index_r["denominator"]
+        idx = _rational_index(result["property_index"], "finalization")
         diag = self._diags.get(idx)
         if diag is None:
             log_event(
@@ -963,10 +967,7 @@ class AletheiaClient:
         self, can_id: int, dlc: int, signals: Mapping[str, float | Fraction], *,
         extended: bool = False,
     ) -> bytearray:
-        """Build a CAN frame from signal values.
-
-        Works both inside and outside streaming mode.
-        Starts with a zero-filled frame and encodes the given signals.
+        """Build a CAN frame from signal values (zero-filled base).
 
         Args:
             can_id: CAN message ID

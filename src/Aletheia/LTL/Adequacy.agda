@@ -37,7 +37,7 @@ open import Aletheia.LTL.TruthVal.Properties using
   (∧TV-false-r; ∨TV-true-r; ∨TV-false-r; ∧TV-true-l; ∧TV-true-r; ∨TV-false-l)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL; denot; metricElapsed)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails; Unsure)
@@ -518,6 +518,10 @@ adequacy table (Or φ ψ) σ rewrite runL-or-decomp table φ ψ σ = sound-or (a
 -- Next: empty → sound-ff; non-empty → IH on tail
 adequacy table (Next φ) [] = sound-ff
 adequacy table (Next φ) (x ∷ rest) = adequacy table φ rest
+
+-- WNext: empty → sound-tt (vacuously holds); non-empty → IH on tail (same as Next)
+adequacy table (WNext φ) [] = sound-tt
+adequacy table (WNext φ) (x ∷ rest) = adequacy table φ rest
 
 -- Always: empty → sound-tt (vacuous); non-empty → decompose + sound-and + IH
 -- Uses subst (not rewrite) to avoid with-generated auxiliary that confuses termination checker.

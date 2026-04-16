@@ -18,7 +18,7 @@ open import Data.Nat using (ℕ; zero; suc)
 open import Data.Product using (_×_; _,_)
 open import Function using (case_of_)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; TruthVal; True; False; Unknown; SignalCache; updateCache; evalPredicateTV; extractTruthValue)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL)
@@ -45,6 +45,7 @@ collectAtomsAcc (Not φ)                    acc = collectAtomsAcc φ acc
 collectAtomsAcc (And φ ψ)                  acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
 collectAtomsAcc (Or φ ψ)                   acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
 collectAtomsAcc (Next φ)                   acc = collectAtomsAcc φ acc
+collectAtomsAcc (WNext φ)                  acc = collectAtomsAcc φ acc
 collectAtomsAcc (Always φ)                 acc = collectAtomsAcc φ acc
 collectAtomsAcc (Eventually φ)             acc = collectAtomsAcc φ acc
 collectAtomsAcc (Until φ ψ)                acc = collectAtomsAcc φ (collectAtomsAcc ψ acc)
@@ -65,6 +66,7 @@ indexHelper (Not φ) n               = let (φ' , n') = indexHelper φ n in (Not
 indexHelper (And φ ψ) n             = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (And φ' ψ' , n'')
 indexHelper (Or φ ψ) n              = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Or φ' ψ' , n'')
 indexHelper (Next φ) n              = let (φ' , n') = indexHelper φ n in (Next φ' , n')
+indexHelper (WNext φ) n             = let (φ' , n') = indexHelper φ n in (WNext φ' , n')
 indexHelper (Always φ) n            = let (φ' , n') = indexHelper φ n in (Always φ' , n')
 indexHelper (Eventually φ) n        = let (φ' , n') = indexHelper φ n in (Eventually φ' , n')
 indexHelper (Until φ ψ) n           = let (φ' , n') = indexHelper φ n ; (ψ' , n'') = indexHelper ψ n' in (Until φ' ψ' , n'')
@@ -175,6 +177,13 @@ lookupAtom xs n = listIndex n xs
 -- This ensures that delta predicates (ChangedBy, StableWithin) see the
 -- correct previous value (from cache) and current value (from frame),
 -- without the cache update interfering with the current frame's evaluation.
+--
+-- A formal proof of this ordering invariant (R14 finding A9) would require
+-- a foundational lemma `updateEntries-self-lookup : lookupEntries name
+-- (updateEntries name val ts es) ≡ just (mkCachedSignal val ts)` in
+-- Cache/Properties.agda, which does not exist yet.  The proof would then
+-- show that for delta predicates, evaluate-before-update preserves distinct
+-- old/new values while update-before-evaluate collapses them (2026-04-16).
 -- ====================================================================
 
 mkPredTable : DBC → SignalCache → List SignalPredicate → PredTable

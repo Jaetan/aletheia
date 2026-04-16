@@ -15,7 +15,7 @@ module Aletheia.LTL.Simplify where
 
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Data.Nat using (_≡ᵇ_)
@@ -65,6 +65,7 @@ Not φ                 ≡ᵇ-proc Not ψ                 = φ ≡ᵇ-proc ψ
 And φ₁ ψ₁             ≡ᵇ-proc And φ₂ ψ₂             = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 Or φ₁ ψ₁              ≡ᵇ-proc Or φ₂ ψ₂              = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)
 Next φ                ≡ᵇ-proc Next ψ                = φ ≡ᵇ-proc ψ
+WNext φ               ≡ᵇ-proc WNext ψ               = φ ≡ᵇ-proc ψ
 Always φ              ≡ᵇ-proc Always ψ              = φ ≡ᵇ-proc ψ
 Eventually φ          ≡ᵇ-proc Eventually ψ          = φ ≡ᵇ-proc ψ
 Until φ₁ ψ₁           ≡ᵇ-proc Until φ₂ ψ₂           = (φ₁ ≡ᵇ-proc φ₂) ∧ (ψ₁ ≡ᵇ-proc ψ₂)

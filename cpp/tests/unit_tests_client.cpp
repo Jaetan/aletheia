@@ -81,7 +81,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1);
     CHECK(result->values[0].name == SignalName{"Speed"});
-    CHECK(result->values[0].value == PhysicalValue{120.0});
+    CHECK(result->values[0].value == PhysicalValue{Rational{120, 1}});
 
     auto j = json::parse(mock_ptr->last_captured());
     CHECK(j["command"] == "extractAllSignals");
@@ -94,7 +94,7 @@ TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     AletheiaClient client(std::move(mock));
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{100.0}},
+        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}},
     };
     auto result = client.build_frame(id, Dlc::create(8).value(), signals);
 
@@ -121,7 +121,7 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     AletheiaClient client(std::move(mock));
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -335,7 +335,7 @@ TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     std::vector<SignalValue> signals{
-        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
     };
 
     auto result = client.update_frame(id, dlc, data, signals);
@@ -356,7 +356,7 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
     backend->queue_response(R"({"status":"ack"})");     // frame 2
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -383,7 +383,7 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
     // frame 2 has mismatched DLC/payload — validation error before backend call
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -410,14 +410,14 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // start_stream
     backend->queue_response(R"({"status":"ack"})");     // frame 1
     backend->queue_response(
-        R"({"status":"fails","property_index":0,"timestamp":2000,"reason":"test"})"); // frame 2
+        R"({"status":"fails","type":"property","property_index":0,"timestamp":2000,"reason":"test"})"); // frame 2
     // Enrichment triggers extract_signals for the violating frame:
     backend->queue_response(
         R"({"status":"success","values":[{"name":"Speed","value":350}],"errors":[],"absent":[]})");
     backend->queue_response(R"({"status":"ack"})"); // frame 3
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -445,7 +445,7 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
     backend->queue_response(R"({"status":"ack"})");     // frame 1
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -471,7 +471,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
     backend->queue_response(R"({"status":"ack"})");     // frame 0
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -501,7 +501,7 @@ TEST_CASE("send_frames empty", "[client][batch]") {
     backend->queue_response(R"({"status":"success"})"); // start_stream
     AletheiaClient client(std::move(backend));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)client.set_properties(std::span{&prop, 1});
     (void)client.start_stream();
 
@@ -522,7 +522,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     backend_a->queue_response(R"({"status":"ack"})");     // send_frame
     AletheiaClient a(std::move(backend_a));
 
-    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{300})));
+    auto prop = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     (void)a.set_properties(std::span{&prop, 1});
     (void)a.start_stream();
 
@@ -559,7 +559,7 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -580,4 +580,26 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
         REQUIRE(result.has_value());
         CHECK(std::holds_alternative<Ack>(*result));
     }
+}
+
+TEST_CASE("MockBackend default response path", "[client][mock]") {
+    MockBackend mock;
+    auto* state = mock.init();
+
+    // Fire-and-forget command (no queued response) → ack
+    auto ack = mock.process(state, R"({"command":"sendFrame","data":{}})");
+    CHECK(ack == R"({"status": "ack"})");
+
+    // Binary-path fire-and-forget → ack
+    auto ack_bin = mock.process(state, R"({"type":"data","ts":0})");
+    CHECK(ack_bin == R"({"status": "ack"})");
+
+    // Non-fire-and-forget command → success
+    auto ok = mock.process(state, R"({"command":"setProperties","formulas":[]})");
+    CHECK(ok == R"({"status": "success"})");
+
+    // Queued response takes priority over defaults
+    mock.queue_response(R"({"custom": true})");
+    auto custom = mock.process(state, R"({"command":"sendFrame","data":{}})");
+    CHECK(custom == R"({"custom": true})");
 }

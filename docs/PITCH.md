@@ -48,7 +48,7 @@ Aletheia provides:
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
-3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase; ~109k fps on the C++ JSON path — CAN 2.0B, Ryzen 9 5950X, 10k frames × 5 runs — see [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics))
+3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase; ~109k fps on the C++ binary FFI path — CAN 2.0B, Ryzen 9 5950X, 10k frames × 5 runs — see [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics))
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 

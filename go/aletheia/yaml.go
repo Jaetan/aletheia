@@ -84,7 +84,7 @@ type yamlClause struct {
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	// First try to unmarshal into the expected structure.
 	// We need to verify the top-level structure manually to give good errors.
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, wrapValidation("invalid YAML", err)
 	}
@@ -95,7 +95,7 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	}
 
 	// Verify it's a list.
-	if _, isList := checksRaw.([]interface{}); !isList {
+	if _, isList := checksRaw.([]any); !isList {
 		return nil, validationError("YAML 'checks' field must be a list")
 	}
 
@@ -140,25 +140,25 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
 	condition := entry.Condition
 
-	if !AllSimpleConditions[condition] {
+	if !IsSimpleCondition(condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
 	}
 
-	if SimpleValueConditions[condition] {
+	if IsSimpleValueCondition(condition) {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'value'", name, condition))
 		}
 		return DispatchSimple(entry.Signal, condition, PhysicalValue(*entry.Value))
 	}
 
-	if SimpleRangeConditions[condition] {
+	if IsSimpleRangeCondition(condition) {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition '%s' requires 'min' and 'max'", name, condition))
 		}
 		return CheckSignal(entry.Signal).StaysBetween(PhysicalValue(*entry.Min), PhysicalValue(*entry.Max))
 	}
 
-	if SimpleSettlesConditions[condition] {
+	if IsSimpleSettlesCondition(condition) {
 		if entry.Min == nil || entry.Max == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'settles_between' requires 'min' and 'max'", name))
 		}
@@ -171,7 +171,7 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 		).Within(*entry.WithinMs)
 	}
 
-	if SimpleEqualsConditions[condition] {
+	if IsSimpleEqualsCondition(condition) {
 		if entry.Value == nil {
 			return CheckResult{}, validationError(fmt.Sprintf("check '%s': condition 'equals' requires 'value'", name))
 		}
@@ -195,7 +195,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	then := entry.Then
 
 	// Validate when clause.
-	if !WhenConditions[when.Condition] {
+	if !IsWhenCondition(when.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown when condition '%s'", name, when.Condition))
 	}
 	if when.Value == nil {
@@ -208,7 +208,7 @@ func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	}
 
 	// Validate then clause.
-	if !AllThenConditions[then.Condition] {
+	if !IsThenCondition(then.Condition) {
 		return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown then condition '%s'", name, then.Condition))
 	}
 

@@ -559,6 +559,10 @@ func (b *FFIBackend) BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, n
 	var numsPtr *C.int64_t
 	var densPtr *C.int64_t
 	if numSignals > 0 {
+		n := int(numSignals)
+		if len(indices) < n || len(nums) < n || len(dens) < n {
+			return "", validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+		}
 		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
 		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
 		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
@@ -604,6 +608,10 @@ func (b *FFIBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, 
 	var numsPtr *C.int64_t
 	var densPtr *C.int64_t
 	if numSignals > 0 {
+		n := int(numSignals)
+		if len(indices) < n || len(nums) < n || len(dens) < n {
+			return "", validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+		}
 		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
 		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
 		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
@@ -642,6 +650,10 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numS
 	var numsPtr *C.int64_t
 	var densPtr *C.int64_t
 	if numSignals > 0 {
+		n := int(numSignals)
+		if len(indices) < n || len(nums) < n || len(dens) < n {
+			return nil, validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+		}
 		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
 		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
 		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
@@ -706,6 +718,10 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 	var numsPtr *C.int64_t
 	var densPtr *C.int64_t
 	if numSignals > 0 {
+		n := int(numSignals)
+		if len(indices) < n || len(nums) < n || len(dens) < n {
+			return nil, validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
+		}
 		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
 		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
 		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))

@@ -266,7 +266,26 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "a newtype. Trace/Time.agda uses `record ... no-eta-equality` "
                ++ "intentionally so MAlonzo compiles Timestamp comparisons "
                ++ "without a wrapper allocation on the hot path."
-        putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype."
+        -- Stdlib constructor names used by BinaryOutput.hs.
+        -- These are mangled from stdlib's Vec/Sum modules; a stdlib version
+        -- bump can silently rename them, breaking pattern matches at runtime.
+        vecBase <- liftIO $ readFile "build/MAlonzo/Code/Data/Vec/Base.hs"
+        sumBase <- liftIO $ readFile "build/MAlonzo/Code/Data/Sum/Base.hs"
+        let vecCtors =
+              "C_'91''93'_32"   `isInfixOf` vecBase &&
+              "C__'8759'__38"   `isInfixOf` vecBase
+        unless vecCtors $
+          error $ "check-erasure failed: Vec stdlib constructor names changed. "
+               ++ "BinaryOutput.hs pattern-matches on C_'91''93'_32 (nil) and "
+               ++ "C__'8759'__38 (cons) — update to match current MAlonzo output."
+        let sumCtors =
+              "C_inj'8321'_38"  `isInfixOf` sumBase &&
+              "C_inj'8322'_42"  `isInfixOf` sumBase
+        unless sumCtors $
+          error $ "check-erasure failed: Sum stdlib constructor names changed. "
+               ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
+               ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
+        putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype + stdlib constructors."
 
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]

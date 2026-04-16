@@ -157,10 +157,9 @@ def parse_finalization_results(
             "property_index": prop_index,
         }
         if entry_status in ("fails", "unresolved"):
-            if entry_status == "fails":
-                ts = raw.get("timestamp")
-                if ts is not None:
-                    result_entry["timestamp"] = validate_rational("timestamp", ts)
+            ts = raw.get("timestamp")
+            if ts is not None:
+                result_entry["timestamp"] = validate_rational("timestamp", ts)
             reason = raw.get("reason")
             if isinstance(reason, str):
                 result_entry["reason"] = reason

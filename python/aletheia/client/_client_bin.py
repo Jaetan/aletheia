@@ -71,10 +71,10 @@ class FrameIdentity:
 
 @dataclass(frozen=True, slots=True)
 class SignalValues:
-    """Parallel lists of signal indices and rational values (num/den)."""
-    indices: list[int]
-    numerators: list[int]
-    denominators: list[int]
+    """Parallel tuples of signal indices and rational values (num/den)."""
+    indices: tuple[int, ...]
+    numerators: tuple[int, ...]
+    denominators: tuple[int, ...]
 
 
 def _decode_and_raise(
@@ -116,7 +116,11 @@ def _parse_values_segment(
         idx, num, den = map(int, struct.unpack_from("<Hqq", buf, off))
         off += 18
         name = names[idx] if idx < len(names) else f"signal_{idx}"
-        values[name] = Fraction(num, den) if den != 0 else Fraction(0)
+        if den == 0:
+            raise ProcessError(
+                f"Zero denominator in extraction value for {name!r}"
+            )
+        values[name] = Fraction(num, den)
     return values, off
 
 

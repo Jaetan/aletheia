@@ -298,14 +298,14 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 		return aletheia.CheckResult{}, err
 	}
 
-	if !aletheia.AllSimpleConditions[condition] {
+	if !aletheia.IsSimpleCondition(condition) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown condition '%s'", rowNum, condition))
 	}
 
 	var result aletheia.CheckResult
 
 	switch {
-	case aletheia.SimpleValueConditions[condition]:
+	case aletheia.IsSimpleValueCondition(condition):
 		v, err := xlsxNumber(d, "Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
@@ -315,7 +315,7 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 			return aletheia.CheckResult{}, err
 		}
 
-	case aletheia.SimpleRangeConditions[condition]:
+	case aletheia.IsSimpleRangeCondition(condition):
 		if _, ok := d["Min"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition '%s' requires 'Min' and 'Max'", rowNum, condition))
 		}
@@ -335,7 +335,7 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 			return aletheia.CheckResult{}, err
 		}
 
-	case aletheia.SimpleSettlesConditions[condition]:
+	case aletheia.IsSimpleSettlesCondition(condition):
 		if _, ok := d["Min"]; !ok {
 			return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: condition 'settles_between' requires 'Min' and 'Max'", rowNum))
 		}
@@ -362,7 +362,7 @@ func parseSimpleRow(d map[string]string, rowNum int) (aletheia.CheckResult, erro
 			return aletheia.CheckResult{}, err
 		}
 
-	case aletheia.SimpleEqualsConditions[condition]:
+	case aletheia.IsSimpleEqualsCondition(condition):
 		v, err := xlsxNumber(d, "Value", rowNum)
 		if err != nil {
 			return aletheia.CheckResult{}, err
@@ -421,7 +421,7 @@ func parseWhenThenRow(d map[string]string, rowNum int) (aletheia.CheckResult, er
 		return aletheia.CheckResult{}, err
 	}
 
-	if !aletheia.WhenConditions[whenCond] {
+	if !aletheia.IsWhenCondition(whenCond) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown when condition '%s'", rowNum, whenCond))
 	}
 
@@ -440,7 +440,7 @@ func parseWhenThenRow(d map[string]string, rowNum int) (aletheia.CheckResult, er
 		return aletheia.CheckResult{}, err
 	}
 
-	if !aletheia.AllThenConditions[thenCond] {
+	if !aletheia.IsThenCondition(thenCond) {
 		return aletheia.CheckResult{}, aletheia.NewValidationError(fmt.Sprintf("row %d: unknown then condition '%s'", rowNum, thenCond))
 	}
 

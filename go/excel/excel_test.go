@@ -33,7 +33,7 @@ func requireErrorContains(t *testing.T, err error, substr string) {
 	}
 }
 
-func makeChecksWorkbook(t *testing.T, rows [][]interface{}) string {
+func makeChecksWorkbook(t *testing.T, rows [][]any) string {
 	t.Helper()
 	f := excelize.NewFile()
 	defer f.Close()
@@ -60,7 +60,7 @@ func makeChecksWorkbook(t *testing.T, rows [][]interface{}) string {
 	return path
 }
 
-func makeWhenThenWorkbook(t *testing.T, rows [][]interface{}) string {
+func makeWhenThenWorkbook(t *testing.T, rows [][]any) string {
 	t.Helper()
 	f := excelize.NewFile()
 	defer f.Close()
@@ -87,7 +87,7 @@ func makeWhenThenWorkbook(t *testing.T, rows [][]interface{}) string {
 	return path
 }
 
-func makeDbcWorkbook(t *testing.T, rows [][]interface{}) string {
+func makeDbcWorkbook(t *testing.T, rows [][]any) string {
 	t.Helper()
 	f := excelize.NewFile()
 	defer f.Close()
@@ -119,7 +119,7 @@ func makeDbcWorkbook(t *testing.T, rows [][]interface{}) string {
 // ===========================================================================
 
 func TestLoadExcelNeverExceeds(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -137,7 +137,7 @@ func TestLoadExcelNeverExceeds(t *testing.T) {
 }
 
 func TestLoadExcelNeverBelow(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Voltage", "never_below", 11.5, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -155,7 +155,7 @@ func TestLoadExcelNeverBelow(t *testing.T) {
 }
 
 func TestLoadExcelStaysBetween(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -177,7 +177,7 @@ func TestLoadExcelStaysBetween(t *testing.T) {
 }
 
 func TestLoadExcelNeverEquals(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "ErrorCode", "never_equals", 255, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -195,7 +195,7 @@ func TestLoadExcelNeverEquals(t *testing.T) {
 }
 
 func TestLoadExcelEqualsAlways(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Gear", "equals", 0, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -213,7 +213,7 @@ func TestLoadExcelEqualsAlways(t *testing.T) {
 }
 
 func TestLoadExcelSettlesBetween(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "CoolantTemp", "settles_between", nil, 80, 100, 5000, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -232,7 +232,7 @@ func TestLoadExcelSettlesBetween(t *testing.T) {
 }
 
 func TestLoadExcelMultipleChecks(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 		{nil, "Voltage", "stays_between", nil, 11.5, 14.5, nil, nil},
 	})
@@ -251,7 +251,7 @@ func TestLoadExcelMultipleChecks(t *testing.T) {
 
 func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
 	// name, when_sig, when_cond, when_val, then_sig, then_cond, then_val, then_min, then_max, within, sev
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -270,7 +270,7 @@ func TestLoadExcelWhenExceedsThenEquals(t *testing.T) {
 }
 
 func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{nil, "Ignition", "equals", 1, "RPM", "exceeds", 500, nil, nil, 2000, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -286,7 +286,7 @@ func TestLoadExcelWhenEqualsThenExceeds(t *testing.T) {
 }
 
 func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{nil, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", nil, 1, 1, 50, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -306,7 +306,7 @@ func TestLoadExcelWhenDropsBelowThenStaysBetween(t *testing.T) {
 // ===========================================================================
 
 func TestLoadExcelNameSet(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -319,7 +319,7 @@ func TestLoadExcelNameSet(t *testing.T) {
 }
 
 func TestLoadExcelSeveritySet(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, "critical"},
 	})
 	checks, err := LoadChecks(path)
@@ -332,7 +332,7 @@ func TestLoadExcelSeveritySet(t *testing.T) {
 }
 
 func TestLoadExcelNameAndSeverity(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{"Speed limit", "Speed", "never_exceeds", 220, nil, nil, nil, "warning"},
 	})
 	checks, err := LoadChecks(path)
@@ -348,7 +348,7 @@ func TestLoadExcelNameAndSeverity(t *testing.T) {
 }
 
 func TestLoadExcelDefaultsEmpty(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "never_exceeds", 220, nil, nil, nil, nil},
 	})
 	checks, err := LoadChecks(path)
@@ -364,7 +364,7 @@ func TestLoadExcelDefaultsEmpty(t *testing.T) {
 }
 
 func TestLoadExcelWhenThenMetadata(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{"Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, nil, nil, 100, "safety"},
 	})
 	checks, err := LoadChecks(path)
@@ -385,7 +385,7 @@ func TestLoadExcelWhenThenMetadata(t *testing.T) {
 
 func TestLoadExcelDbcSingleSignal(t *testing.T) {
 	// id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -439,7 +439,7 @@ func TestLoadExcelDbcSingleSignal(t *testing.T) {
 }
 
 func TestLoadExcelDbcMessageGrouping(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 		{256, "EngineData", "FALSE", 8, "Temp", 16, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C"},
 		{512, "BrakeData", "FALSE", 4, "BrakePressure", 0, 16, "big_endian", "FALSE", 0.1, 0, 0, 6553.5, "bar"},
@@ -472,7 +472,7 @@ func TestLoadExcelDbcMessageGrouping(t *testing.T) {
 }
 
 func TestLoadExcelDbcHexID(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{"0x100", "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -485,7 +485,7 @@ func TestLoadExcelDbcHexID(t *testing.T) {
 }
 
 func TestLoadExcelDbcSignedTrue(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "Temp", 0, 8, "little_endian", "TRUE", 1, -40, -40, 215, "C"},
 	})
 	dbc, err := LoadDbc(path)
@@ -498,7 +498,7 @@ func TestLoadExcelDbcSignedTrue(t *testing.T) {
 }
 
 func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 1, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)
@@ -511,7 +511,7 @@ func TestLoadExcelDbcSignedIntegerOne(t *testing.T) {
 }
 
 func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 8, "little_endian", 0, 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)
@@ -524,7 +524,7 @@ func TestLoadExcelDbcSignedIntegerZero(t *testing.T) {
 }
 
 func TestLoadExcelDbcMissingUnit(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "EngineData", "FALSE", 8, "RPM", 0, 16, "little_endian", "FALSE", 0.25, 0, 0, 16383.75, nil},
 	})
 	dbc, err := LoadDbc(path)
@@ -541,7 +541,7 @@ func TestLoadExcelDbcMissingUnit(t *testing.T) {
 // ===========================================================================
 
 func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, nil},
 	})
 	dbc, err := LoadDbc(path)
@@ -555,7 +555,7 @@ func TestLoadExcelDbcAlwaysPresent(t *testing.T) {
 }
 
 func TestLoadExcelDbcMultiplexed(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "MuxSignal", 8, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", "Selector", 3},
 	})
 	dbc, err := LoadDbc(path)
@@ -576,7 +576,7 @@ func TestLoadExcelDbcMultiplexed(t *testing.T) {
 }
 
 func TestLoadExcelDbcMixedPresence(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Selector", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, "", nil, nil},
 		{256, "Msg", "FALSE", 8, "TempA", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 0},
 		{256, "Msg", "FALSE", 8, "TempB", 8, 8, "little_endian", "FALSE", 1, -40, -40, 215, "C", "Selector", 1},
@@ -601,7 +601,7 @@ func TestLoadExcelDbcMixedPresence(t *testing.T) {
 }
 
 func TestLoadExcelDbcPartialMuxError(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", "Selector", nil},
 	})
 	_, err := LoadDbc(path)
@@ -609,7 +609,7 @@ func TestLoadExcelDbcPartialMuxError(t *testing.T) {
 }
 
 func TestLoadExcelDbcPartialMuxValueOnlyError(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, "", nil, 3},
 	})
 	_, err := LoadDbc(path)
@@ -808,7 +808,7 @@ func TestLoadExcelNoDbcSheet(t *testing.T) {
 }
 
 func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "bogus", 100, nil, nil, nil, nil},
 	})
 	_, err := LoadChecks(path)
@@ -816,7 +816,7 @@ func TestLoadExcelUnknownSimpleCondition(t *testing.T) {
 }
 
 func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Speed", "never_exceeds", nil, nil, nil, nil, nil},
 	})
 	_, err := LoadChecks(path)
@@ -824,7 +824,7 @@ func TestLoadExcelMissingValueForNeverExceeds(t *testing.T) {
 }
 
 func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Voltage", "stays_between", nil, nil, 14.5, nil, nil},
 	})
 	_, err := LoadChecks(path)
@@ -832,7 +832,7 @@ func TestLoadExcelStaysBetweenMissingMin(t *testing.T) {
 }
 
 func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
-	path := makeChecksWorkbook(t, [][]interface{}{
+	path := makeChecksWorkbook(t, [][]any{
 		{nil, "Temp", "settles_between", nil, 80, 100, nil, nil},
 	})
 	_, err := LoadChecks(path)
@@ -840,7 +840,7 @@ func TestLoadExcelSettlesBetweenMissingTime(t *testing.T) {
 }
 
 func TestLoadExcelUnknownWhenCondition(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{nil, "Brake", "bogus", 50, "BrakeLight", "equals", 1, nil, nil, 100, nil},
 	})
 	_, err := LoadChecks(path)
@@ -848,7 +848,7 @@ func TestLoadExcelUnknownWhenCondition(t *testing.T) {
 }
 
 func TestLoadExcelUnknownThenCondition(t *testing.T) {
-	path := makeWhenThenWorkbook(t, [][]interface{}{
+	path := makeWhenThenWorkbook(t, [][]any{
 		{nil, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, nil, nil, 100, nil},
 	})
 	_, err := LoadChecks(path)
@@ -856,7 +856,7 @@ func TestLoadExcelUnknownThenCondition(t *testing.T) {
 }
 
 func TestLoadExcelInvalidByteOrder(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "Msg", "FALSE", 8, "Sig", 0, 16, "mixed_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbc(path)
@@ -864,7 +864,7 @@ func TestLoadExcelInvalidByteOrder(t *testing.T) {
 }
 
 func TestLoadExcelInvalidMessageID(t *testing.T) {
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{"not_a_number", "Msg", "FALSE", 8, "Sig", 0, 16, "little_endian", "FALSE", 1, 0, 0, 100, ""},
 	})
 	_, err := LoadDbc(path)
@@ -1074,7 +1074,7 @@ func TestLoadExcelCustomSheetNames(t *testing.T) {
 
 func TestLoadExcelDbcExtendedID(t *testing.T) {
 	// Extended ID > 2047: must be marked Extended=TRUE.
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{0x18FEF100, "J1939Msg", "TRUE", 8, "EngineSpeed", 0, 16, "little_endian", "FALSE", 0.125, 0, 0, 8031.875, "rpm"},
 	})
 	dbc, err := LoadDbc(path)
@@ -1098,7 +1098,7 @@ func TestLoadExcelDbcExtendedID(t *testing.T) {
 
 func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
 	// Mix of standard (Extended=FALSE) and extended (Extended=TRUE) messages.
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{256, "StdMsg", "FALSE", 4, "Sig1", 0, 16, "little_endian", "FALSE", 1, 0, 0, 65535, ""},
 		{0x18FF0100, "ExtMsg", "TRUE", 8, "Sig2", 0, 16, "big_endian", "FALSE", 1, 0, 0, 65535, ""},
 	})
@@ -1122,7 +1122,7 @@ func TestLoadExcelDbcStandardAndExtendedMixed(t *testing.T) {
 
 func TestLoadExcelDbcLowIDExtended(t *testing.T) {
 	// A low ID (< 2048) can still be extended if the column says so.
-	path := makeDbcWorkbook(t, [][]interface{}{
+	path := makeDbcWorkbook(t, [][]any{
 		{100, "LowExtMsg", "TRUE", 8, "Sig", 0, 8, "little_endian", "FALSE", 1, 0, 0, 255, ""},
 	})
 	dbc, err := LoadDbc(path)

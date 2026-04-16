@@ -229,6 +229,12 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 			return nil, err
 		}
 		return map[string]any{"operator": "next", "formula": inner}, nil
+	case WeakNext:
+		inner, err := serializeFormulaDepth(f.Inner, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"operator": "weakNext", "formula": inner}, nil
 	case Always:
 		inner, err := serializeFormulaDepth(f.Inner, depth+1)
 		if err != nil {

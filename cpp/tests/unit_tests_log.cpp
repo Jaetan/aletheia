@@ -42,7 +42,7 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     AletheiaClient client(std::move(mock), logger);
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -88,7 +88,7 @@ TEST_CASE("null logger has zero overhead", "[client][log]") {
     AletheiaClient client(std::move(mock));
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 

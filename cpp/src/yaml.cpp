@@ -98,7 +98,7 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
         if (!entry["value"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'value'");
-        auto value = PhysicalValue{get_number(entry, "value", ctx(name))};
+        auto value = PhysicalValue{Rational::from_double(get_number(entry, "value", ctx(name)))};
         return detail::dispatch_simple(signal, condition, value);
     }
 
@@ -106,8 +106,8 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
         if (!entry["min"] || !entry["max"])
             throw std::runtime_error(ctx(name) + ": condition '" + condition +
                                      "' requires 'min' and 'max'");
-        auto lo = PhysicalValue{get_number(entry, "min", ctx(name))};
-        auto hi = PhysicalValue{get_number(entry, "max", ctx(name))};
+        auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
+        auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
         return Check::signal(signal).stays_between(lo, hi);
     }
 
@@ -118,8 +118,8 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
         if (!entry["within_ms"])
             throw std::runtime_error(ctx(name) +
                                      ": condition 'settles_between' requires 'within_ms'");
-        auto lo = PhysicalValue{get_number(entry, "min", ctx(name))};
-        auto hi = PhysicalValue{get_number(entry, "max", ctx(name))};
+        auto lo = PhysicalValue{Rational::from_double(get_number(entry, "min", ctx(name)))};
+        auto hi = PhysicalValue{Rational::from_double(get_number(entry, "max", ctx(name)))};
         auto ms = std::chrono::milliseconds{get_int(entry, "within_ms", ctx(name))};
         return Check::signal(signal).settles_between(lo, hi).within(ms);
     }
@@ -127,7 +127,7 @@ auto parse_simple_check(const YAML::Node& entry, const std::string& name) -> Che
     // equals
     if (!entry["value"])
         throw std::runtime_error(ctx(name) + ": condition 'equals' requires 'value'");
-    auto value = PhysicalValue{get_number(entry, "value", ctx(name))};
+    auto value = PhysicalValue{Rational::from_double(get_number(entry, "value", ctx(name)))};
     return Check::signal(signal).equals(value).always();
 }
 
@@ -151,7 +151,7 @@ auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> 
         throw std::runtime_error(ctx(name) + ": unknown when condition '" + when_cond + "'");
 
     auto when_signal = get_str(when, "signal", ctx(name));
-    auto when_value = PhysicalValue{get_number(when, "value", ctx(name))};
+    auto when_value = PhysicalValue{Rational::from_double(get_number(when, "value", ctx(name)))};
     auto when_builder = Check::when(when_signal);
     auto when_result = detail::dispatch_when(when_builder, when_cond, when_value);
 
@@ -164,19 +164,19 @@ auto parse_when_then_check(const YAML::Node& entry, const std::string& name) -> 
     auto then_builder = when_result.then(then_signal);
 
     if (then_cond == "equals") {
-        auto val = PhysicalValue{get_number(then, "value", ctx(name))};
+        auto val = PhysicalValue{Rational::from_double(get_number(then, "value", ctx(name)))};
         return then_builder.equals(val).within(within_ms);
     }
     if (then_cond == "exceeds") {
-        auto val = PhysicalValue{get_number(then, "value", ctx(name))};
+        auto val = PhysicalValue{Rational::from_double(get_number(then, "value", ctx(name)))};
         return then_builder.exceeds(val).within(within_ms);
     }
     // stays_between
     if (!then["min"] || !then["max"])
         throw std::runtime_error(ctx(name) +
                                  ": then condition 'stays_between' requires 'min' and 'max'");
-    auto lo = PhysicalValue{get_number(then, "min", ctx(name))};
-    auto hi = PhysicalValue{get_number(then, "max", ctx(name))};
+    auto lo = PhysicalValue{Rational::from_double(get_number(then, "min", ctx(name)))};
+    auto hi = PhysicalValue{Rational::from_double(get_number(then, "max", ctx(name)))};
     return then_builder.stays_between(lo, hi).within(within_ms);
 }
 

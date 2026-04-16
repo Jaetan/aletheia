@@ -39,12 +39,12 @@ class TestParseExtractionBuffer:
         result = parse_extraction_buffer(header + vals, NAMES)
         assert result.values == {"Speed": 220.0, "RPM": 3500.0, "Temp": 42.5}
 
-    def test_denominator_zero(self) -> None:
-        """Denominator zero yields 0.0 (no crash)."""
+    def test_denominator_zero_raises(self) -> None:
+        """Denominator zero raises ProcessError (not silent coercion)."""
         header = struct.pack("<HHH", 1, 0, 0)
         values = struct.pack("<Hqq", 0, 999, 0)
-        result = parse_extraction_buffer(header + values, NAMES)
-        assert result.values == {"Speed": 0.0}
+        with pytest.raises(ProcessError, match="Zero denominator"):
+            parse_extraction_buffer(header + values, NAMES)
 
     def test_signal_index_out_of_range(self) -> None:
         """Index beyond names list uses fallback name."""
@@ -105,6 +105,20 @@ class TestParseExtractionBuffer:
         assert result.values == {}
         assert result.errors == {}
         assert result.absent == ()
+
+    def test_fraction_exact_roundtrip(self) -> None:
+        """Extraction preserves exact rationals (no float quantization)."""
+        from fractions import Fraction
+
+        header = struct.pack("<HHH", 1, 0, 0)
+        # 1/3 is not representable as IEEE 754 double
+        values = struct.pack("<Hqq", 0, 1, 3)
+        result = parse_extraction_buffer(header + values, NAMES)
+        assert result.values["Speed"] == Fraction(1, 3)
+        # Verify it's an exact Fraction, not a float approximation
+        assert isinstance(result.values["Speed"], Fraction)
+        assert result.values["Speed"].numerator == 1
+        assert result.values["Speed"].denominator == 3
 
 
 class TestExtractionErrorCodeSync:

@@ -5,7 +5,7 @@
 -- Purpose: Define LTL/MTL formula types parameterized by atomic predicate type.
 -- Operators:
 --   Propositional: Atomic, Not, And, Or
---   Unbounded temporal: Next, Always, Eventually, Until, Release
+--   Unbounded temporal: Next, WNext, Always, Eventually, Until, Release
 --   Bounded temporal (MTL): MetricEventually, MetricAlways, MetricUntil, MetricRelease
 -- Role: Core LTL/MTL syntax used by Coalgebra, Semantics, and JSON parser.
 --
@@ -22,6 +22,7 @@ data LTL (Atom : Set) : Set where
 
   -- Unbounded temporal operators
   Next : LTL Atom → LTL Atom
+  WNext : LTL Atom → LTL Atom  -- Weak Next: like Next, but holds vacuously at end of trace
   Always Eventually : LTL Atom → LTL Atom
   Until : LTL Atom → LTL Atom → LTL Atom
   Release : LTL Atom → LTL Atom → LTL Atom  -- Dual of Until: ψ holds until φ releases it
@@ -54,6 +55,7 @@ mapLTL f (Not φ)                 = Not (mapLTL f φ)
 mapLTL f (And φ ψ)              = And (mapLTL f φ) (mapLTL f ψ)
 mapLTL f (Or φ ψ)               = Or (mapLTL f φ) (mapLTL f ψ)
 mapLTL f (Next φ)                = Next (mapLTL f φ)
+mapLTL f (WNext φ)               = WNext (mapLTL f φ)
 mapLTL f (Always φ)              = Always (mapLTL f φ)
 mapLTL f (Eventually φ)          = Eventually (mapLTL f φ)
 mapLTL f (Until φ ψ)            = Until (mapLTL f φ) (mapLTL f ψ)

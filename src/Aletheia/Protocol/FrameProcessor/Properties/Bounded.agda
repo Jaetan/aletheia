@@ -29,7 +29,7 @@ open import Aletheia.Protocol.StreamState.Internals
     using (mkPredTable; collectAtoms; indexFormula; collectAtomsAcc; indexHelper; lookupAtom)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; combineAnd; combineOr)
 open import Aletheia.LTL.Simplify using (simplify; absorb; _≡ᵇ-proc_; finalizesHolds; finalizesFails)
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually;
     Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease;
     decodeStart)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied)
@@ -63,6 +63,7 @@ flattenAtoms (Not φ)                  = flattenAtoms φ
 flattenAtoms (And φ ψ)               = flattenAtoms φ ++ₗ flattenAtoms ψ
 flattenAtoms (Or φ ψ)                = flattenAtoms φ ++ₗ flattenAtoms ψ
 flattenAtoms (Next φ)                 = flattenAtoms φ
+flattenAtoms (WNext φ)                = flattenAtoms φ
 flattenAtoms (Always φ)               = flattenAtoms φ
 flattenAtoms (Eventually φ)           = flattenAtoms φ
 flattenAtoms (Until φ ψ)             = flattenAtoms φ ++ₗ flattenAtoms ψ
@@ -121,6 +122,7 @@ indexHelper-counter (Or φ ψ) n
   | length-++ (flattenAtoms φ) {flattenAtoms ψ}
   = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
 indexHelper-counter (Next φ) n              = indexHelper-counter φ n
+indexHelper-counter (WNext φ) n             = indexHelper-counter φ n
 indexHelper-counter (Always φ) n            = indexHelper-counter φ n
 indexHelper-counter (Eventually φ) n        = indexHelper-counter φ n
 indexHelper-counter (Until φ ψ) n
@@ -155,6 +157,7 @@ Faithful atoms (Not φ) n                  = Faithful atoms φ n
 Faithful atoms (And φ ψ) n               = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
 Faithful atoms (Or φ ψ) n                = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
 Faithful atoms (Next φ) n                 = Faithful atoms φ n
+Faithful atoms (WNext φ) n                = Faithful atoms φ n
 Faithful atoms (Always φ) n               = Faithful atoms φ n
 Faithful atoms (Eventually φ) n           = Faithful atoms φ n
 Faithful atoms (Until φ ψ) n             = Faithful atoms φ n × Faithful atoms ψ (proj₂ (indexHelper φ n))
@@ -199,6 +202,7 @@ faithful-gen ga (Or φ ψ) n hyp =
   faithful-gen ga φ n (mk-φ-hyp ga φ ψ hyp) ,
   faithful-gen ga ψ _ (mk-ψ-hyp ga φ ψ n hyp)
 faithful-gen ga (Next φ) n hyp               = faithful-gen ga φ n hyp
+faithful-gen ga (WNext φ) n hyp              = faithful-gen ga φ n hyp
 faithful-gen ga (Always φ) n hyp             = faithful-gen ga φ n hyp
 faithful-gen ga (Eventually φ) n hyp         = faithful-gen ga φ n hyp
 faithful-gen ga (Until φ ψ) n hyp =
@@ -229,6 +233,7 @@ collectAtomsAcc-spec (Or φ ψ) acc
   | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
   = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
 collectAtomsAcc-spec (Next φ) acc             = collectAtomsAcc-spec φ acc
+collectAtomsAcc-spec (WNext φ) acc            = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (Always φ) acc           = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (Eventually φ) acc       = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (Until φ ψ) acc
@@ -291,6 +296,7 @@ AllBelow b (Not φ)                     = AllBelow b φ
 AllBelow b (And φ ψ)                   = AllBelow b φ × AllBelow b ψ
 AllBelow b (Or φ ψ)                    = AllBelow b φ × AllBelow b ψ
 AllBelow b (Next φ)                    = AllBelow b φ
+AllBelow b (WNext φ)                   = AllBelow b φ
 AllBelow b (Always φ)                  = AllBelow b φ
 AllBelow b (Eventually φ)              = AllBelow b φ
 AllBelow b (Until φ ψ)                 = AllBelow b φ × AllBelow b ψ
@@ -309,6 +315,7 @@ AllBelow-mono (And φ ψ) b₁≤b₂ (pφ , pψ)              =
 AllBelow-mono (Or φ ψ) b₁≤b₂ (pφ , pψ)               =
   AllBelow-mono φ b₁≤b₂ pφ , AllBelow-mono ψ b₁≤b₂ pψ
 AllBelow-mono (Next φ) b₁≤b₂ p                       = AllBelow-mono φ b₁≤b₂ p
+AllBelow-mono (WNext φ) b₁≤b₂ p                      = AllBelow-mono φ b₁≤b₂ p
 AllBelow-mono (Always φ) b₁≤b₂ p                     = AllBelow-mono φ b₁≤b₂ p
 AllBelow-mono (Eventually φ) b₁≤b₂ p                 = AllBelow-mono φ b₁≤b₂ p
 AllBelow-mono (Until φ ψ) b₁≤b₂ (pφ , pψ)            =
@@ -333,6 +340,7 @@ indexHelper-mono (Or φ ψ) start                      =
   ≤-trans (indexHelper-mono φ start)
           (indexHelper-mono ψ (proj₂ (indexHelper φ start)))
 indexHelper-mono (Next φ) start                      = indexHelper-mono φ start
+indexHelper-mono (WNext φ) start                     = indexHelper-mono φ start
 indexHelper-mono (Always φ) start                    = indexHelper-mono φ start
 indexHelper-mono (Eventually φ) start                = indexHelper-mono φ start
 indexHelper-mono (Until φ ψ) start                   =
@@ -366,6 +374,7 @@ indexHelper-bound (Or φ ψ) start                     =
     (indexHelper-bound φ start)
   , indexHelper-bound ψ (proj₂ (indexHelper φ start))
 indexHelper-bound (Next φ) start                     = indexHelper-bound φ start
+indexHelper-bound (WNext φ) start                    = indexHelper-bound φ start
 indexHelper-bound (Always φ) start                   = indexHelper-bound φ start
 indexHelper-bound (Eventually φ) start               = indexHelper-bound φ start
 indexHelper-bound (Until φ ψ) start                  =
@@ -448,6 +457,7 @@ private
   ... | false = (pφ , (pb , pc))
   absorb-And-bound φ (Or _ _)                p          = p
   absorb-And-bound φ (Next _)                p          = p
+  absorb-And-bound φ (WNext _)               p          = p
   absorb-And-bound φ (Always ψ') (pφ , pψ') with φ ≡ᵇ-proc ψ' | finalizesHolds φ
   ... | true  | true  = pψ'
   ... | true  | false = (pφ , pψ')
@@ -469,6 +479,7 @@ private
   ... | true  = (pφ , pc)
   ... | false = (pφ , (pb , pc))
   absorb-Or-bound φ (Next _)                 p          = p
+  absorb-Or-bound φ (WNext _)                p          = p
   absorb-Or-bound φ (Always _)               p          = p
   absorb-Or-bound φ (Eventually ψ') (pφ , pψ') with φ ≡ᵇ-proc ψ' | finalizesFails φ
   ... | true  | true  = pψ'
@@ -488,6 +499,7 @@ absorb-bound (Or φ ψ) p                      = absorb-Or-bound φ ψ p
 absorb-bound (Atomic _) p                    = p
 absorb-bound (Not _) p                       = p
 absorb-bound (Next _) p                      = p
+absorb-bound (WNext _) p                     = p
 absorb-bound (Always _) p                    = p
 absorb-bound (Eventually _) p                = p
 absorb-bound (Until _ _) p                   = p
@@ -506,6 +518,7 @@ simplify-bound (Or a b) (pa , pb)            =
 simplify-bound (Atomic _) p                  = p
 simplify-bound (Not _) p                     = p
 simplify-bound (Next _) p                    = p
+simplify-bound (WNext _) p                   = p
 simplify-bound (Always _) p                  = p
 simplify-bound (Eventually _) p              = p
 simplify-bound (Until _ _) p                 = p
@@ -538,6 +551,7 @@ stepL-bound (Or φ ψ) table frame (pφ , pψ) =
     (stepL-bound φ table frame pφ)
     (stepL-bound ψ table frame pψ)
 stepL-bound (Next φ) table frame p = p
+stepL-bound (WNext φ) table frame p = p
 stepL-bound (Always φ) table frame p =
   combineAnd-bound (stepL table φ frame) (Continue 0 (Always φ))
     (stepL-bound φ table frame p)

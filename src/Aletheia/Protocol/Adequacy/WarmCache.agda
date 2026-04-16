@@ -56,7 +56,7 @@ open import Aletheia.LTL.SignalPredicate.Evaluation.Properties
 
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; denot)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 import Aletheia.LTL.Syntax as Syntax
 open import Aletheia.LTL.Semantics using (⟦_⟧)
@@ -176,6 +176,10 @@ agreement-bounded table (Not φ) σ b btv bp
 
 agreement-bounded table (Next φ) [] b btv bp = refl
 agreement-bounded table (Next φ) (x ∷ rest) b btv bp =
+  agreement-bounded table φ rest b btv bp
+
+agreement-bounded table (WNext φ) [] b btv bp = refl
+agreement-bounded table (WNext φ) (x ∷ rest) b btv bp =
   agreement-bounded table φ rest b btv bp
 
 agreement-bounded table (Always φ) [] b btv bp = refl

@@ -86,6 +86,10 @@ type Or struct{ Left, Right Formula }
 // Next holds if the inner formula holds at the next time step.
 type Next struct{ Inner Formula }
 
+// WeakNext holds if the inner formula holds at the next time step, or
+// vacuously at the end of the trace (no successor frame).
+type WeakNext struct{ Inner Formula }
+
 // Always holds if the inner formula holds at every future time step.
 type Always struct{ Inner Formula }
 
@@ -129,6 +133,7 @@ func (Not) formula()              {}
 func (And) formula()              {}
 func (Or) formula()               {}
 func (Next) formula()             {}
+func (WeakNext) formula()         {}
 func (Always) formula()           {}
 func (Eventually) formula()       {}
 func (Until) formula()            {}

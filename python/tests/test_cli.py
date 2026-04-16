@@ -178,6 +178,10 @@ class TestRationalToInt:
     def test_large_value(self) -> None:
         assert rational_to_int({"numerator": 1234500, "denominator": 1}) == 1234500
 
+    def test_zero_denominator_raises(self) -> None:
+        with pytest.raises(ValueError, match="denominator is zero"):
+            rational_to_int({"numerator": 42, "denominator": 0})
+
 
 # ============================================================================
 # Signals subcommand

@@ -106,10 +106,8 @@ struct DbcMessage {
 
     // Lazily populated by signal_by_name(). Mutable so const methods can
     // populate the cache on first access. Public because DbcDefinition
-    // holds DbcMessage by value, so downstream aggregate construction still
-    // works — the trailing underscore matches the data-member convention
-    // used by name_index_cache_ / id_index_cache_ on DbcDefinition.
-    mutable detail::LazyIndex<std::string> signal_index_cache_;
+    // holds DbcMessage by value, so downstream aggregate construction works.
+    mutable detail::LazyIndex<std::string> signal_index_cache;
 };
 
 // ---------------------------------------------------------------------------
@@ -126,8 +124,8 @@ struct DbcDefinition {
     [[nodiscard]] auto message_by_name(const MessageName& name) const -> const DbcMessage*;
 
     // Implementation detail — lazily populated by message_by_id/name().
-    mutable detail::LazyIndex<std::string> name_index_cache_;
-    mutable detail::LazyIndex<std::uint64_t> id_index_cache_;
+    mutable detail::LazyIndex<std::string> name_index_cache;
+    mutable detail::LazyIndex<std::uint64_t> id_index_cache;
 };
 
 } // namespace aletheia

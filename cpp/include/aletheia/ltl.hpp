@@ -75,6 +75,9 @@ struct Or {
 struct Next {
     std::unique_ptr<LtlFormula> formula;
 };
+struct WeakNext {
+    std::unique_ptr<LtlFormula> formula;
+};
 struct Always {
     std::unique_ptr<LtlFormula> formula;
 };
@@ -104,8 +107,8 @@ struct MetricRelease {
     std::unique_ptr<LtlFormula> left, right;
 };
 
-struct LtlFormula : std::variant<Atomic, Not, And, Or, Next, Always, Eventually, Until, Release,
-                                 MetricAlways, MetricEventually, MetricUntil, MetricRelease> {
+struct LtlFormula : std::variant<Atomic, Not, And, Or, Next, WeakNext, Always, Eventually, Until,
+                                 Release, MetricAlways, MetricEventually, MetricUntil, MetricRelease> {
     using variant::variant;
 };
 
@@ -137,6 +140,10 @@ inline auto either(LtlFormula left, LtlFormula right) -> LtlFormula {
 
 inline auto next(LtlFormula f) -> LtlFormula {
     return Next{std::make_unique<LtlFormula>(std::move(f))};
+}
+
+inline auto weak_next(LtlFormula f) -> LtlFormula {
+    return WeakNext{std::make_unique<LtlFormula>(std::move(f))};
 }
 
 inline auto always(LtlFormula f) -> LtlFormula {
@@ -221,6 +228,8 @@ inline auto clone(const LtlFormula& f) -> LtlFormula {
                 return Or{cp(v.left), cp(v.right)};
             else if constexpr (std::is_same_v<T, Next>)
                 return Next{cp(v.formula)};
+            else if constexpr (std::is_same_v<T, WeakNext>)
+                return WeakNext{cp(v.formula)};
             else if constexpr (std::is_same_v<T, Always>)
                 return Always{cp(v.formula)};
             else if constexpr (std::is_same_v<T, Eventually>)

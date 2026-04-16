@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // IBackend default implementations — fall back to JSON via process().
 // MockBackend and other test doubles inherit these defaults.
 #include <aletheia/backend.hpp>

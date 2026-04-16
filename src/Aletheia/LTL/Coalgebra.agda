@@ -22,7 +22,7 @@
 module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Syntax using (decodeStart; mapLTL)
 open import Aletheia.LTL.Incremental using
   ( StepResult; Continue; Violated; Satisfied
@@ -156,6 +156,9 @@ stepL table (Or φ ψ) curr = combineOr (stepL table φ curr) (stepL table ψ cu
 -- Skip current frame, inner formula evaluates on remaining trace
 stepL table (Next φ) curr = Continue 0 φ
 
+-- WNext: identical to Next mid-stream; differs only at finalization (Holds, not Fails)
+stepL table (WNext φ) curr = Continue 0 φ
+
 -- Always: Rosu prog(Gφ, e) = prog(φ,e) ∧ Gφ
 stepL table (Always φ) curr = combineAnd (stepL table φ curr) (Continue 0 (Always φ))
 
@@ -262,6 +265,9 @@ finalizeL (Or φ ψ) | Unsure r with finalizeL ψ
 
 -- Next: unresolved at end-of-stream → violated (next frame never arrived)
 finalizeL (Next _) = Fails NextNoFrame
+
+-- WNext: vacuously holds at end-of-stream (weak obligation — no successor required)
+finalizeL (WNext _) = Holds
 
 -- Always (SAFETY): vacuously true per standard LTLf
 finalizeL (Always _) = Holds

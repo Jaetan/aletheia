@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // Configurable mock backend for testing.
 // Tests include this header directly to queue responses and inspect requests.
 #pragma once
@@ -52,7 +53,10 @@ public:
         const bool is_fire_and_forget =
             input.find(R"("command":"sendFrame")") != std::string_view::npos ||
             input.find(R"("command":"sendError")") != std::string_view::npos ||
-            input.find(R"("command":"sendRemote")") != std::string_view::npos;
+            input.find(R"("command":"sendRemote")") != std::string_view::npos ||
+            input.find(R"("type":"data")") != std::string_view::npos ||
+            input.find(R"("type":"error")") != std::string_view::npos ||
+            input.find(R"("type":"remote")") != std::string_view::npos;
         if (is_fire_and_forget)
             return R"({"status": "ack"})";
         return R"({"status": "success"})";

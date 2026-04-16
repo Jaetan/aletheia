@@ -7,21 +7,35 @@ import "fmt"
 // vocabulary lives here rather than being duplicated per file.
 
 var (
-	// SimpleValueConditions lists condition keywords that take a single numeric value.
-	SimpleValueConditions = map[string]bool{"never_exceeds": true, "never_below": true, "never_equals": true}
-	// SimpleRangeConditions lists condition keywords that take min/max bounds.
-	SimpleRangeConditions = map[string]bool{"stays_between": true}
-	// SimpleSettlesConditions lists condition keywords that take min/max bounds plus a settle window.
-	SimpleSettlesConditions = map[string]bool{"settles_between": true}
-	// SimpleEqualsConditions lists condition keywords that assert equality with a single value.
-	SimpleEqualsConditions = map[string]bool{"equals": true}
-	// AllSimpleConditions is the union of the four simple-condition sets above.
-	AllSimpleConditions = mergeConditions(SimpleValueConditions, SimpleRangeConditions, SimpleSettlesConditions, SimpleEqualsConditions)
-	// WhenConditions lists condition keywords valid for the "when" leg of a when/then check.
-	WhenConditions = map[string]bool{"exceeds": true, "equals": true, "drops_below": true}
-	// AllThenConditions lists condition keywords valid for the "then" leg of a when/then check.
-	AllThenConditions = map[string]bool{"equals": true, "exceeds": true, "stays_between": true}
+	simpleValueConditions   = map[string]bool{"never_exceeds": true, "never_below": true, "never_equals": true}
+	simpleRangeConditions   = map[string]bool{"stays_between": true}
+	simpleSettlesConditions = map[string]bool{"settles_between": true}
+	simpleEqualsConditions  = map[string]bool{"equals": true}
+	allSimpleConditions     = mergeConditions(simpleValueConditions, simpleRangeConditions, simpleSettlesConditions, simpleEqualsConditions)
+	whenConditions          = map[string]bool{"exceeds": true, "equals": true, "drops_below": true}
+	allThenConditions       = map[string]bool{"equals": true, "exceeds": true, "stays_between": true}
 )
+
+// IsSimpleValueCondition reports whether s is a single-value condition keyword.
+func IsSimpleValueCondition(s string) bool { return simpleValueConditions[s] }
+
+// IsSimpleRangeCondition reports whether s is a range condition keyword.
+func IsSimpleRangeCondition(s string) bool { return simpleRangeConditions[s] }
+
+// IsSimpleSettlesCondition reports whether s is a settles condition keyword.
+func IsSimpleSettlesCondition(s string) bool { return simpleSettlesConditions[s] }
+
+// IsSimpleEqualsCondition reports whether s is an equals condition keyword.
+func IsSimpleEqualsCondition(s string) bool { return simpleEqualsConditions[s] }
+
+// IsSimpleCondition reports whether s is any simple condition keyword.
+func IsSimpleCondition(s string) bool { return allSimpleConditions[s] }
+
+// IsWhenCondition reports whether s is valid for the "when" leg of a when/then check.
+func IsWhenCondition(s string) bool { return whenConditions[s] }
+
+// IsThenCondition reports whether s is valid for the "then" leg of a when/then check.
+func IsThenCondition(s string) bool { return allThenConditions[s] }
 
 // mergeConditions returns the union of one or more condition sets.
 func mergeConditions(sets ...map[string]bool) map[string]bool {

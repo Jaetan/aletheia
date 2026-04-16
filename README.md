@@ -8,7 +8,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
 - **CAN Frame Processing**: Proven correct encoding/decoding guarantees roundtrip correctness for valid DBC specifications
-- **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Sustained ~109k frames/s on the C++ JSON path (CAN 2.0B, Ryzen 9 5950X); a 1 GB trace at ~200 bytes/frame processes in roughly 50s in that configuration. See [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the full throughput table and methodology.
+- **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Sustained ~109k frames/s on the C++ binary FFI path (CAN 2.0B, Ryzen 9 5950X); a 1 GB trace at ~200 bytes/frame processes in roughly 50s in that configuration. See [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the full throughput table and methodology.
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
 - **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings

@@ -45,7 +45,7 @@ static_assert(!std::is_same_v<BitLength, MultiplexValue>);
 static_assert(!std::is_same_v<PropertyIndex, MultiplexValue>);
 
 // Cross-category: strong types don't alias raw types
-static_assert(!std::is_same_v<PhysicalValue, double>);
+static_assert(!std::is_same_v<PhysicalValue, Rational>);
 static_assert(!std::is_same_v<BitPosition, std::uint16_t>);
 static_assert(!std::is_same_v<BitLength, std::uint8_t>);
 
@@ -104,14 +104,11 @@ static_assert(dlc_to_bytes(Dlc::create(15).value()) == 64);
 // Strong type accessors (constexpr)
 // ===========================================================================
 
-static_assert(PhysicalValue{42.0}.get() == 42.0);
-static_assert(PhysicalValue{-1.5}.get() == -1.5);
-static_assert(RationalFactor{Rational{.numerator = 1, .denominator = 4}}.get() ==
-              Rational{.numerator = 1, .denominator = 4});
-static_assert(RationalOffset{Rational{.numerator = -40, .denominator = 1}}.get() ==
-              Rational{.numerator = -40, .denominator = 1});
-static_assert(RationalBound{Rational{.numerator = 0, .denominator = 1}}.get() ==
-              Rational{.numerator = 0, .denominator = 1});
+static_assert(PhysicalValue{Rational{42, 1}}.get() == Rational{42, 1});
+static_assert(PhysicalValue{Rational{-3, 2}}.get() == Rational{-3, 2});
+static_assert(RationalFactor{Rational{1, 4}}.get() == Rational{1, 4});
+static_assert(RationalOffset{Rational{-40, 1}}.get() == Rational{-40, 1});
+static_assert(RationalBound{Rational{0, 1}}.get() == Rational{0, 1});
 static_assert(Delta{100.0}.get() == 100.0);
 
 static_assert(BitPosition{0}.get() == 0);
@@ -125,12 +122,12 @@ static_assert(MultiplexValue{42}.get() == 42);
 // Strong type comparison operators (constexpr)
 // ===========================================================================
 
-static_assert(PhysicalValue{1.0} == PhysicalValue{1.0});
-static_assert(PhysicalValue{1.0} != PhysicalValue{2.0});
-static_assert(PhysicalValue{1.0} < PhysicalValue{2.0});
-static_assert(PhysicalValue{2.0} > PhysicalValue{1.0});
-static_assert(PhysicalValue{1.0} <= PhysicalValue{1.0});
-static_assert(PhysicalValue{1.0} >= PhysicalValue{1.0});
+static_assert(PhysicalValue{Rational{1, 1}} == PhysicalValue{Rational{1, 1}});
+static_assert(PhysicalValue{Rational{1, 1}} != PhysicalValue{Rational{2, 1}});
+static_assert(PhysicalValue{Rational{1, 1}} < PhysicalValue{Rational{2, 1}});
+static_assert(PhysicalValue{Rational{2, 1}} > PhysicalValue{Rational{1, 1}});
+static_assert(PhysicalValue{Rational{1, 1}} <= PhysicalValue{Rational{1, 1}});
+static_assert(PhysicalValue{Rational{1, 1}} >= PhysicalValue{Rational{1, 1}});
 
 static_assert(BitPosition{0} < BitPosition{1});
 static_assert(BitLength{8} == BitLength{8});
@@ -184,7 +181,7 @@ static_assert(static_cast<int>(ErrorKind::Ffi) == 3);
 // ===========================================================================
 
 // LtlFormula inherits from variant — check the base
-static_assert(std::variant_size_v<LtlFormula::variant> == 13);
+static_assert(std::variant_size_v<LtlFormula::variant> == 14);
 static_assert(std::variant_size_v<Predicate> == 8);
 
 // ===========================================================================
@@ -246,7 +243,7 @@ static_assert(!std::is_convertible_v<NodeName, std::string_view>);
 static_assert(!std::is_convertible_v<Unit, std::string_view>);
 
 // Strong<> does NOT convert implicitly
-static_assert(!std::is_convertible_v<PhysicalValue, double>);
+static_assert(!std::is_convertible_v<PhysicalValue, Rational>);
 static_assert(!std::is_convertible_v<BitPosition, std::uint16_t>);
 
 // ===========================================================================

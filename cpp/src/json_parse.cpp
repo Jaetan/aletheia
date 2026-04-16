@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // JSON parsing: Agda core response strings → C++ types.
 #include "detail/json.hpp"
 
@@ -24,9 +25,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 49-entry table on a cold parse path.
+// for the 50-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 49> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 50> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -50,6 +51,7 @@ constexpr std::array<ErrorCodeEntry, 49> error_code_table{{
     {"frame_signals_overlap", ErrorCode::FrameSignalsOverlap},
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
+    {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_missing_array", ErrorCode::RouteMissingArray},
@@ -112,17 +114,26 @@ static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
     return make_error(kind, j.value("message", "Unknown error"), code);
 }
 
-// Agda emits numbers as int, float, or {"numerator": n, "denominator": d}.
+// Agda emits signal values as int or {"numerator": n, "denominator": d}.
+// Returns Rational for exact precision (no double truncation).
 // Throws on unrecognized formats; callers catch at the public API boundary.
-static auto parse_number(const Json& j) -> double {
+static auto parse_signal_value(const Json& j) -> Rational {
+    if (j.is_number_integer())
+        return Rational{j.get<std::int64_t>(), 1};
     if (j.is_number())
-        return j.get<double>();
+        return Rational::from_double(j.get<double>());
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
-        auto num = j.at("numerator").get<double>();
-        auto den = j.at("denominator").get<double>();
-        if (den == 0.0)
+        auto num = j.at("numerator").get<std::int64_t>();
+        auto den = j.at("denominator").get<std::int64_t>();
+        if (den == 0)
             throw std::runtime_error("Zero denominator in rational: " + j.dump());
-        return num / den;
+        if (den < 0) {
+            if (num == std::numeric_limits<std::int64_t>::min())
+                throw std::runtime_error("Integer overflow normalizing rational: " + j.dump());
+            num = -num;
+            den = -den;
+        }
+        return Rational{num, den};
     }
     throw std::runtime_error("Expected number or {numerator, denominator}, got: " + j.dump());
 }
@@ -167,7 +178,7 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
 // Accepts plain integers or {numerator, denominator} dicts.
 static auto parse_rational(const Json& j) -> Rational {
     if (j.is_number_integer())
-        return {.numerator = j.get<std::int64_t>(), .denominator = 1};
+        return Rational{j.get<std::int64_t>(), 1};
     if (j.is_object() && j.contains("numerator") && j.contains("denominator")) {
         auto num = j.at("numerator").get<std::int64_t>();
         auto den = j.at("denominator").get<std::int64_t>();
@@ -180,7 +191,7 @@ static auto parse_rational(const Json& j) -> Rational {
             num = -num;
             den = -den;
         }
-        return {.numerator = num, .denominator = den};
+        return Rational{num, den};
     }
     throw std::runtime_error("Expected integer or {numerator, denominator}, got: " + j.dump());
 }
@@ -367,7 +378,7 @@ auto parse_extraction(std::string_view input) -> Result<ExtractionResult> {
         std::vector<SignalValue> values;
         for (const auto& v : j.value("values", Json::array()))
             values.push_back({SignalName{v.at("name").get<std::string>()},
-                              PhysicalValue{parse_number(v.at("value"))}});
+                              PhysicalValue{parse_signal_value(v.at("value"))}});
 
         std::vector<std::pair<SignalName, std::string>> errors;
         for (const auto& e : j.value("errors", Json::array()))
@@ -424,6 +435,8 @@ auto parse_frame_response(std::string_view input) -> Result<FrameResponse> {
             return FrameResponse{Ack{}};
 
         if (status == "fails") {
+            if (j.value("type", "") != "property")
+                throw std::runtime_error("Expected type \"property\" in violation response");
             auto idx = parse_rational_as_int(j.at("property_index"));
             if (idx < 0)
                 throw std::runtime_error("Negative property_index: " + std::to_string(idx));

@@ -85,8 +85,8 @@ TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]"
 TEST_CASE("serialize_build_frame produces correct JSON", "[json][serialize]") {
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{120.0}},
-        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+        {SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}},
+        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
     };
     auto str = detail::serialize_build_frame(id, Dlc::create(8).value(), signals);
     auto j = json::parse(str);
@@ -102,7 +102,7 @@ TEST_CASE("serialize_build_frame produces correct JSON", "[json][serialize]") {
 
 TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]") {
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     auto str = detail::serialize_set_properties(props);
@@ -195,7 +195,7 @@ TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {
 }
 
 TEST_CASE("serialize metric temporal operators", "[json][serialize]") {
-    auto inner = ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0}));
+    auto inner = ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}}));
     auto formula = ltl::always_within(Timestamp{2'000'000}, std::move(inner));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
@@ -216,12 +216,12 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
         CHECK(j["properties"][0]["predicate"]["predicate"] == expected);
     };
 
-    check(ltl::equals(SignalName{"S"}, PhysicalValue{0}), "equals");
-    check(ltl::less_than(SignalName{"S"}, PhysicalValue{0}), "lessThan");
-    check(ltl::greater_than(SignalName{"S"}, PhysicalValue{0}), "greaterThan");
-    check(ltl::at_most(SignalName{"S"}, PhysicalValue{0}), "lessThanOrEqual");
-    check(ltl::at_least(SignalName{"S"}, PhysicalValue{0}), "greaterThanOrEqual");
-    check(ltl::between(SignalName{"S"}, PhysicalValue{0}, PhysicalValue{100}), "between");
+    check(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{}}), "equals");
+    check(ltl::less_than(SignalName{"S"}, PhysicalValue{Rational{}}), "lessThan");
+    check(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{}}), "greaterThan");
+    check(ltl::at_most(SignalName{"S"}, PhysicalValue{Rational{}}), "lessThanOrEqual");
+    check(ltl::at_least(SignalName{"S"}, PhysicalValue{Rational{}}), "greaterThanOrEqual");
+    check(ltl::between(SignalName{"S"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{100, 1}}), "between");
     check(ltl::changed_by(SignalName{"S"}, Delta{10.0}), "changedBy");
     check(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}), "stableWithin");
 }
@@ -232,7 +232,7 @@ TEST_CASE("serialize_update_frame produces correct JSON", "[json][serialize]") {
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
     std::vector<SignalValue> signals{
-        {SignalName{"RPM"}, PhysicalValue{3000.0}},
+        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
     };
     auto str = detail::serialize_update_frame(id, dlc, data, signals);
     auto j = json::parse(str);
@@ -297,8 +297,8 @@ TEST_CASE("parse_extraction response", "[json][parse]") {
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
     CHECK(result->values[0].name == SignalName{"Speed"});
-    CHECK(result->values[0].value == PhysicalValue{120.5});
-    CHECK(result->values[1].value == PhysicalValue{3000.0});
+    CHECK(result->values[0].value == PhysicalValue{Rational{241, 2}});
+    CHECK(result->values[1].value == PhysicalValue{Rational{3000, 1}});
     CHECK(result->errors.size() == 1);
     CHECK(result->errors[0].first == SignalName{"BadSig"});
     CHECK(result->absent.size() == 1);
@@ -315,7 +315,7 @@ TEST_CASE("parse_extraction with rational values", "[json][parse]") {
         "absent": []
     })");
     REQUIRE(result.has_value());
-    CHECK(result->values[0].value.get() == Catch::Approx(1.0 / 3.0));
+    CHECK(result->values[0].value == PhysicalValue{Rational{1, 3}});
 }
 
 TEST_CASE("parse_frame_data response", "[json][parse]") {
@@ -596,6 +596,7 @@ TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse
 TEST_CASE("parse_frame_response rejects zero denominator in timestamp", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
+        "type": "property",
         "property_index": 0,
         "timestamp": {"numerator": 1000, "denominator": 0}
     })");
@@ -618,6 +619,7 @@ TEST_CASE("parse_stream_result rejects missing results field", "[json][parse][er
 TEST_CASE("parse_frame_response rejects negative property_index", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
+        "type": "property",
         "property_index": -1,
         "timestamp": 100
     })");
@@ -639,6 +641,7 @@ TEST_CASE("parse_stream_result rejects negative property_index", "[json][parse][
 TEST_CASE("parse_frame_response rejects fails with missing timestamp", "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
+        "type": "property",
         "property_index": 0
     })");
     CHECK_FALSE(result.has_value());
@@ -649,6 +652,7 @@ TEST_CASE("parse_frame_response rejects fails with missing property_index",
           "[json][parse][error]") {
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
+        "type": "property",
         "timestamp": 100
     })");
     CHECK_FALSE(result.has_value());
@@ -669,12 +673,25 @@ TEST_CASE("parse_rational_as_int rejects non-exact rational", "[json][parse][err
     // {"numerator": 3, "denominator": 2} → 1.5, not an integer
     auto result = detail::parse_frame_response(R"({
         "status": "fails",
+        "type": "property",
         "property_index": {"numerator": 3, "denominator": 2},
         "timestamp": 100
     })");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("Non-exact rational"));
+}
+
+TEST_CASE("parse_frame_response rejects fails without type property", "[json][parse][error]") {
+    auto result = detail::parse_frame_response(R"({
+        "status": "fails",
+        "property_index": 0,
+        "timestamp": 100
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()},
+               ContainsSubstring("Expected type \"property\""));
 }
 
 TEST_CASE("parse_rational rejects float input", "[json][parse][error]") {
@@ -744,17 +761,17 @@ TEST_CASE("ExtractionResult::get helper", "[response]") {
     ExtractionResult result{
         .values =
             {
-                {SignalName{"Speed"}, PhysicalValue{120.0}},
-                {SignalName{"RPM"}, PhysicalValue{3000.0}},
+                {SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}},
+                {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
             },
         .errors = {},
         .absent = {},
     };
 
-    CHECK(result.get(SignalName{"Speed"}) == PhysicalValue{120.0});
-    CHECK(result.get(SignalName{"RPM"}) == PhysicalValue{3000.0});
-    CHECK(result.get(SignalName{"Missing"}) == PhysicalValue{0.0});
-    CHECK(result.get(SignalName{"Missing"}, PhysicalValue{-1.0}) == PhysicalValue{-1.0});
+    CHECK(result.get(SignalName{"Speed"}) == PhysicalValue{Rational{120, 1}});
+    CHECK(result.get(SignalName{"RPM"}) == PhysicalValue{Rational{3000, 1}});
+    CHECK(result.get(SignalName{"Missing"}) == PhysicalValue{Rational{}});
+    CHECK(result.get(SignalName{"Missing"}, PhysicalValue{Rational{-1, 1}}) == PhysicalValue{Rational{-1, 1}});
     CHECK_FALSE(result.has_errors());
 }
 
@@ -763,79 +780,79 @@ TEST_CASE("ExtractionResult::get helper", "[response]") {
 // ===========================================================================
 
 TEST_CASE("format_formula always less than", "[enrich]") {
-    auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "always(Speed < 220)");
 }
 
 TEST_CASE("format_formula never pattern", "[enrich]") {
-    auto f = ltl::never(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{100.0}));
+    auto f = ltl::never(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}));
     CHECK(format_formula(f) == "never Speed > 100");
 }
 
 TEST_CASE("format_formula eventually", "[enrich]") {
-    auto f = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+    auto f = ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "eventually(Mode = 1)");
 }
 
 TEST_CASE("format_formula metric always", "[enrich]") {
     auto f =
         ltl::always_within(Timestamp{5'000'000},
-                           ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+                           ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "always within 5s (Speed < 220)");
 }
 
 TEST_CASE("format_formula metric eventually", "[enrich]") {
     auto f = ltl::within(Timestamp{2'000'000},
-                         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+                         ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "eventually within 2s (Mode = 1)");
 }
 
 TEST_CASE("format_formula next", "[enrich]") {
-    auto f = ltl::next(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+    auto f = ltl::next(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     CHECK(format_formula(f) == "next(Speed < 220)");
 }
 
 TEST_CASE("format_formula and", "[enrich]") {
-    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
     CHECK(format_formula(f) == "Speed < 220 and RPM > 500");
 }
 
 TEST_CASE("format_formula or", "[enrich]") {
-    auto f = ltl::either(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    auto f = ltl::either(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                         ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
     CHECK(format_formula(f) == "Speed < 220 or RPM > 500");
 }
 
 TEST_CASE("format_formula until", "[enrich]") {
-    auto f = ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{50.0})),
-                        ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{1.0})));
+    auto f = ltl::until(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}})),
+                        ltl::atomic(ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})));
     CHECK(format_formula(f) == "Speed < 50 until Brake = 1");
 }
 
 TEST_CASE("format_formula release", "[enrich]") {
-    auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1.0})),
-                          ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0.0})));
+    auto f = ltl::release(ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{Rational{1, 1}})),
+                          ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})));
     CHECK(format_formula(f) == "A = 1 release B = 0");
 }
 
 TEST_CASE("format_formula all predicate types", "[enrich]") {
-    auto eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{42.0}));
+    auto eq = ltl::atomic(ltl::equals(SignalName{"S"}, PhysicalValue{Rational{42, 1}}));
     CHECK(format_formula(eq) == "S = 42");
 
-    auto lt = ltl::atomic(ltl::less_than(SignalName{"S"}, PhysicalValue{10.0}));
+    auto lt = ltl::atomic(ltl::less_than(SignalName{"S"}, PhysicalValue{Rational{10, 1}}));
     CHECK(format_formula(lt) == "S < 10");
 
-    auto gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{5.0}));
+    auto gt = ltl::atomic(ltl::greater_than(SignalName{"S"}, PhysicalValue{Rational{5, 1}}));
     CHECK(format_formula(gt) == "S > 5");
 
-    auto le = ltl::atomic(ltl::at_most(SignalName{"S"}, PhysicalValue{100.0}));
+    auto le = ltl::atomic(ltl::at_most(SignalName{"S"}, PhysicalValue{Rational{100, 1}}));
     CHECK(format_formula(le) == "S <= 100");
 
-    auto ge = ltl::atomic(ltl::at_least(SignalName{"S"}, PhysicalValue{0.0}));
+    auto ge = ltl::atomic(ltl::at_least(SignalName{"S"}, PhysicalValue{Rational{}}));
     CHECK(format_formula(ge) == "S >= 0");
 
-    auto bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{10.0}, PhysicalValue{14.5}));
+    auto bw = ltl::atomic(ltl::between(SignalName{"S"}, PhysicalValue{Rational{10, 1}}, PhysicalValue{Rational{29, 2}}));
     CHECK(format_formula(bw) == "10 <= S <= 14.5");
 
     auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{5.0}));
@@ -852,9 +869,9 @@ TEST_CASE("format_formula metric until", "[enrich]") {
     using namespace std::chrono_literals;
     auto f = LtlFormula{MetricUntil{.bound = Timestamp{3'000'000},
                                     .left = std::make_unique<LtlFormula>(ltl::atomic(
-                                        ltl::less_than(SignalName{"Speed"}, PhysicalValue{50}))),
+                                        ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{50, 1}}))),
                                     .right = std::make_unique<LtlFormula>(ltl::atomic(
-                                        ltl::equals(SignalName{"Brake"}, PhysicalValue{1})))}};
+                                        ltl::equals(SignalName{"Brake"}, PhysicalValue{Rational{1, 1}})))}};
     CHECK(format_formula(f) == "Speed < 50 until within 3s Brake = 1");
 }
 
@@ -863,8 +880,8 @@ TEST_CASE("format_formula metric release", "[enrich]") {
     auto f =
         LtlFormula{MetricRelease{.bound = Timestamp{500'000},
                                  .left = std::make_unique<LtlFormula>(
-                                     ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{1}))),
+                                     ltl::atomic(ltl::equals(SignalName{"A"}, PhysicalValue{Rational{1, 1}}))),
                                  .right = std::make_unique<LtlFormula>(
-                                     ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{0})))}};
+                                     ltl::atomic(ltl::equals(SignalName{"B"}, PhysicalValue{Rational{}})))}};
     CHECK(format_formula(f) == "A = 1 release within 500ms B = 0");
 }

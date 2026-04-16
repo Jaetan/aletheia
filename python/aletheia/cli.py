@@ -24,11 +24,13 @@ from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, TypedDict, cast
 
+from . import __version__
 from .checks import CheckResult
 from .client import (
     AletheiaClient,
     AletheiaError,
     SignalExtractionResult,
+    dlc_to_bytes,
     dump_json,
 )
 from .dbc_queries import (
@@ -230,11 +232,11 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 def _find_message(
     dbc: DBCDefinition, can_id: int, extended: bool = False,
 ) -> DBCMessage | None:
-    """Find a message by CAN ID + extended flag in a DBC definition."""
-    for msg in dbc["messages"]:
-        if msg["id"] == can_id and bool(msg.get("extended", False)) == extended:
-            return msg
-    return None
+    """Find a message by CAN ID + extended flag in a DBC definition.
+
+    Delegates to ``message_by_id`` from ``dbc_queries``.
+    """
+    return message_by_id(dbc, can_id, extended=extended)
 
 
 def _signal_units(msg: DBCMessage) -> dict[str, str]:
@@ -407,10 +409,11 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     if msg is None:
         id_kind = "extended" if extended else "standard"
         _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
-    if len(data) != msg["dlc"]:
+    expected_bytes = dlc_to_bytes(msg["dlc"])
+    if len(data) != expected_bytes:
         _die(
             f"data length ({len(data)} bytes) does not match "
-            + f"DBC message DLC ({msg['dlc']} bytes)"
+            + f"DBC message DLC ({msg['dlc']} → {expected_bytes} bytes)"
         )
 
     with AletheiaClient() as client:
@@ -807,6 +810,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aletheia",
         description="Formally verified CAN signal analysis",
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

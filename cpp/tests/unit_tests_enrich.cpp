@@ -32,8 +32,8 @@ using Catch::Matchers::ContainsSubstring;
 // ===========================================================================
 
 TEST_CASE("collect_signals multi-signal", "[enrich]") {
-    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0})));
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                       ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}})));
     auto signals = collect_signals(f);
     REQUIRE(signals.size() == 2);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -41,8 +41,8 @@ TEST_CASE("collect_signals multi-signal", "[enrich]") {
 }
 
 TEST_CASE("collect_signals dedup", "[enrich]") {
-    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                       ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{0.0})));
+    auto f = ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                       ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{}})));
     auto signals = collect_signals(f);
     CHECK(signals.size() == 1);
     CHECK(signals[0] == SignalName{"Speed"});
@@ -50,8 +50,8 @@ TEST_CASE("collect_signals dedup", "[enrich]") {
 
 TEST_CASE("build_diagnostic always succeeds", "[enrich]") {
     auto f = ltl::always(
-        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
     auto diag = build_diagnostic(f);
     CHECK(diag.signals.size() == 2);
     CHECK_FALSE(diag.formula_desc.empty());
@@ -72,7 +72,7 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -105,7 +105,7 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
     CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("Speed = 245"));
     CHECK_THAT(v.enrichment->enriched_reason, ContainsSubstring("formula:"));
     CHECK(v.enrichment->signals.size() == 1);
-    CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK(v.enrichment->signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{245, 1}});
     CHECK(v.enrichment->core_reason == "Atomic: predicate failed");
     CHECK_THAT(v.enrichment->enriched_reason,
                ContainsSubstring("[core: Atomic: predicate failed]"));
@@ -129,8 +129,8 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto formula = ltl::always(
-        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})),
-                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{500.0}))));
+        ltl::both(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})),
+                  ltl::atomic(ltl::greater_than(SignalName{"RPM"}, PhysicalValue{Rational{500, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -173,7 +173,7 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -225,7 +225,7 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{1.0})));
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Mode"}, PhysicalValue{Rational{1, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -283,7 +283,7 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -353,7 +353,7 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -413,7 +413,7 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -435,7 +435,7 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
 
     // Last-known values from last-frame tracking (populated by send_frame)
     CHECK_FALSE(enrichment.signals.empty());
-    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{245.0});
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{245, 1}});
     CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 245"));
     CHECK(enrichment.core_reason == "MetricEventually: window expired");
     CHECK_THAT(enrichment.enriched_reason,
@@ -471,7 +471,7 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
 
     AletheiaClient client(std::move(mock));
     auto formula =
-        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{300.0})));
+        ltl::eventually(ltl::atomic(ltl::equals(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -494,7 +494,7 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
 
     // Signal values came from last-frame tracking, not the extraction cache
     CHECK_FALSE(enrichment.signals.empty());
-    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{150.0});
+    CHECK(enrichment.signals.at(SignalName{"Speed"}) == PhysicalValue{Rational{150, 1}});
     CHECK_THAT(enrichment.enriched_reason, ContainsSubstring("Speed = 150"));
 }
 
@@ -517,7 +517,7 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     AletheiaClient client(std::move(mock));
     // Set only 1 property — index 999 is out of bounds
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 

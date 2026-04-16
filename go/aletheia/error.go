@@ -63,7 +63,7 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching Agda Error ADT (49 codes).
+// Machine-readable error codes matching Agda Error ADT (50 codes).
 // Each maps 1:1 to an Agda error constructor via errorCode.
 const (
 	// Parse errors.
@@ -83,12 +83,13 @@ const (
 	CodeParseSignalOverflowsFrame    = "parse_signal_overflows_frame"
 	CodeParseSignalMSBBelowBitLength = "parse_signal_msb_below_bit_length"
 	// Frame errors.
-	CodeFrameSignalNotFound  = "frame_signal_not_found"
-	CodeFrameSignalIndexOOB  = "frame_signal_index_oob"
-	CodeFrameInjectionFailed = "frame_injection_failed"
-	CodeFrameSignalsOverlap  = "frame_signals_overlap"
-	CodeFrameCanIDNotFound   = "frame_can_id_not_found"
-	CodeFrameCanIDMismatch   = "frame_can_id_mismatch"
+	CodeFrameSignalNotFound         = "frame_signal_not_found"
+	CodeFrameSignalIndexOOB         = "frame_signal_index_oob"
+	CodeFrameInjectionFailed        = "frame_injection_failed"
+	CodeFrameSignalsOverlap         = "frame_signals_overlap"
+	CodeFrameCanIDNotFound          = "frame_can_id_not_found"
+	CodeFrameCanIDMismatch          = "frame_can_id_mismatch"
+	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
 	// Route errors.
 	CodeRouteMissingField         = "route_missing_field"
 	CodeRouteMissingArray         = "route_missing_array"
@@ -141,8 +142,6 @@ func stateError(msg string) *Error                  { return newError(ErrState, 
 func ffiError(msg string) *Error                    { return newError(ErrFFI, msg) }
 func wrapProtocol(msg string, cause error) *Error   { return wrapError(ErrProtocol, msg, cause) }
 func wrapValidation(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
-func wrapState(msg string, cause error) *Error      { return wrapError(ErrState, msg, cause) }
-func wrapFFI(msg string, cause error) *Error        { return wrapError(ErrFFI, msg, cause) }
 
 // NewValidationError returns an [ErrValidation] error with the given message.
 // Exported so external loaders (the Excel subpackage, custom plug-ins) report

@@ -243,15 +243,15 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 
     CheckResult result = [&]() -> CheckResult {
         if (detail::is_simple_value_condition(condition)) {
-            auto value = PhysicalValue{get_number(cells, "Value", row_ctx(row_num))};
+            auto value = PhysicalValue{Rational::from_double(get_number(cells, "Value", row_ctx(row_num)))};
             return detail::dispatch_simple(signal, condition, value);
         }
         if (detail::is_simple_range_condition(condition)) {
             if (!has_key(cells, "Min") || !has_key(cells, "Max"))
                 throw std::runtime_error(row_ctx(row_num) + ": condition '" + condition +
                                          "' requires 'Min' and 'Max'");
-            auto lo = PhysicalValue{get_number(cells, "Min", row_ctx(row_num))};
-            auto hi = PhysicalValue{get_number(cells, "Max", row_ctx(row_num))};
+            auto lo = PhysicalValue{Rational::from_double(get_number(cells, "Min", row_ctx(row_num)))};
+            auto hi = PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
             return Check::signal(signal).stays_between(lo, hi);
         }
         if (detail::is_simple_settles_condition(condition)) {
@@ -261,13 +261,13 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
             if (!has_key(cells, "Time (ms)"))
                 throw std::runtime_error(row_ctx(row_num) +
                                          ": condition 'settles_between' requires 'Time (ms)'");
-            auto lo = PhysicalValue{get_number(cells, "Min", row_ctx(row_num))};
-            auto hi = PhysicalValue{get_number(cells, "Max", row_ctx(row_num))};
+            auto lo = PhysicalValue{Rational::from_double(get_number(cells, "Min", row_ctx(row_num)))};
+            auto hi = PhysicalValue{Rational::from_double(get_number(cells, "Max", row_ctx(row_num)))};
             auto ms = std::chrono::milliseconds{get_int(cells, "Time (ms)", row_ctx(row_num))};
             return Check::signal(signal).settles_between(lo, hi).within(ms);
         }
         // equals
-        auto value = PhysicalValue{get_number(cells, "Value", row_ctx(row_num))};
+        auto value = PhysicalValue{Rational::from_double(get_number(cells, "Value", row_ctx(row_num)))};
         return Check::signal(signal).equals(value).always();
     }();
 
@@ -287,7 +287,7 @@ auto parse_simple_row(const CellMap& cells, int row_num) -> CheckResult {
 auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
     auto when_signal = get_str(cells, "When Signal", row_ctx(row_num));
     auto when_cond = get_str(cells, "When Condition", row_ctx(row_num));
-    auto when_value = PhysicalValue{get_number(cells, "When Value", row_ctx(row_num))};
+    auto when_value = PhysicalValue{Rational::from_double(get_number(cells, "When Value", row_ctx(row_num)))};
 
     if (!detail::is_when_condition(when_cond))
         throw std::runtime_error(row_ctx(row_num) + ": unknown when condition '" + when_cond + "'");
@@ -306,11 +306,11 @@ auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
 
     CheckResult result = [&]() -> CheckResult {
         if (then_cond == "equals") {
-            auto val = PhysicalValue{get_number(cells, "Then Value", row_ctx(row_num))};
+            auto val = PhysicalValue{Rational::from_double(get_number(cells, "Then Value", row_ctx(row_num)))};
             return then_builder.equals(val).within(within_ms);
         }
         if (then_cond == "exceeds") {
-            auto val = PhysicalValue{get_number(cells, "Then Value", row_ctx(row_num))};
+            auto val = PhysicalValue{Rational::from_double(get_number(cells, "Then Value", row_ctx(row_num)))};
             return then_builder.exceeds(val).within(within_ms);
         }
         // stays_between
@@ -318,8 +318,8 @@ auto parse_when_then_row(const CellMap& cells, int row_num) -> CheckResult {
             throw std::runtime_error(
                 row_ctx(row_num) +
                 ": then condition 'stays_between' requires 'Then Min' and 'Then Max'");
-        auto lo = PhysicalValue{get_number(cells, "Then Min", row_ctx(row_num))};
-        auto hi = PhysicalValue{get_number(cells, "Then Max", row_ctx(row_num))};
+        auto lo = PhysicalValue{Rational::from_double(get_number(cells, "Then Min", row_ctx(row_num)))};
+        auto hi = PhysicalValue{Rational::from_double(get_number(cells, "Then Max", row_ctx(row_num)))};
         return then_builder.stays_between(lo, hi).within(within_ms);
     }();
 
@@ -393,10 +393,10 @@ auto parse_dbc_signal(const CellMap& cells, int row_num) -> DbcSignal {
         .bit_length = BitLength{static_cast<std::uint8_t>(bit_length_val)},
         .byte_order = byte_order,
         .is_signed = get_bool(cells, "Signed", ctx_str),
-        .factor = RationalFactor{detail::double_to_rational(get_number(cells, "Factor", ctx_str))},
-        .offset = RationalOffset{detail::double_to_rational(get_number(cells, "Offset", ctx_str))},
-        .minimum = RationalBound{detail::double_to_rational(get_number(cells, "Min", ctx_str))},
-        .maximum = RationalBound{detail::double_to_rational(get_number(cells, "Max", ctx_str))},
+        .factor = RationalFactor{Rational::from_double(get_number(cells, "Factor", ctx_str))},
+        .offset = RationalOffset{Rational::from_double(get_number(cells, "Offset", ctx_str))},
+        .minimum = RationalBound{Rational::from_double(get_number(cells, "Min", ctx_str))},
+        .maximum = RationalBound{Rational::from_double(get_number(cells, "Max", ctx_str))},
         .unit = Unit{unit_str},
         .presence = presence,
     };

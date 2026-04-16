@@ -325,6 +325,12 @@ class NextFormula(TypedDict):
     formula: 'LTLFormula'
 
 
+class WeakNextFormula(TypedDict):
+    """Weak Next: WX(formula) — holds vacuously at end of stream"""
+    operator: Literal["weakNext"]
+    formula: 'LTLFormula'
+
+
 class MetricEventuallyFormula(TypedDict):
     """Metric Eventually: F_{<=t}(formula)"""
     operator: Literal["metricEventually"]
@@ -378,6 +384,7 @@ LTLFormula = (
     AlwaysFormula |
     EventuallyFormula |
     NextFormula |
+    WeakNextFormula |
     MetricEventuallyFormula |
     MetricAlwaysFormula |
     UntilFormula |
@@ -606,6 +613,7 @@ __all__ = [
     "AlwaysFormula",
     "EventuallyFormula",
     "NextFormula",
+    "WeakNextFormula",
     "MetricEventuallyFormula",
     "MetricAlwaysFormula",
     "UntilFormula",

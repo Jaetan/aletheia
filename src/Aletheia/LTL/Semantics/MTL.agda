@@ -30,7 +30,7 @@ open import Data.Unit using (⊤; tt)
 open import Induction.WellFounded using (Acc; acc)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; cong₂; subst)
 
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually;
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually;
   Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ; Monotonic)
@@ -65,6 +65,8 @@ met-re-ref : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → Truth
 ⟦ Or φ ψ ⟧ₘ σ             = ⟦ φ ⟧ₘ σ ∨TV ⟦ ψ ⟧ₘ σ
 ⟦ Next φ ⟧ₘ []            = False
 ⟦ Next φ ⟧ₘ (_ ∷ rest)    = ⟦ φ ⟧ₘ rest
+⟦ WNext φ ⟧ₘ []           = True
+⟦ WNext φ ⟧ₘ (_ ∷ rest)   = ⟦ φ ⟧ₘ rest
 
 -- Unbounded temporal — identical to ⟦_⟧
 ⟦ Always φ ⟧ₘ []          = True
@@ -294,6 +296,11 @@ mtl-equiv (Or φ ψ) σ mono = cong₂ _∨TV_ (mtl-equiv φ σ mono) (mtl-equiv
 mtl-equiv (Next φ) [] _ = refl
 mtl-equiv (Next φ) (x ∷ []) _ = mtl-equiv φ [] tt
 mtl-equiv (Next φ) (x ∷ x₂ ∷ rs) (_ , mr) = mtl-equiv φ (x₂ ∷ rs) mr
+
+-- WNext
+mtl-equiv (WNext φ) [] _ = refl
+mtl-equiv (WNext φ) (x ∷ []) _ = mtl-equiv φ [] tt
+mtl-equiv (WNext φ) (x ∷ x₂ ∷ rs) (_ , mr) = mtl-equiv φ (x₂ ∷ rs) mr
 
 -- Unbounded temporal
 mtl-equiv (Always φ) [] _ = refl

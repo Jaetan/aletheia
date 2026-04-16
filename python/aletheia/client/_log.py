@@ -32,7 +32,7 @@ from typing import Final
 class LogEvent(str, Enum):
     """Structured log event names shared with Go (``slog``) and C++ (``Logger``).
 
-    Exactly 15 values — the set must stay identical across bindings.  Every
+    Exactly 16 values — the set must stay identical across bindings.  Every
     ``Client``/``AletheiaClient`` observability call site uses one of these;
     any new event must be added here first.
     """
@@ -61,8 +61,9 @@ class LogEvent(str, Enum):
     EXTRACTION_PROCESS_FAILED = "extraction.process_failed"
     EXTRACTION_PARSE_FAILED = "extraction.parse_failed"
 
-    # --- RTS boot (WARNING) ---
+    # --- Backend diagnostics (WARNING) ---
     RTS_CORES_MISMATCH = "rts.cores_mismatch"
+    BACKEND_WARNING = "backend.warning"
 
 
 # Exposed as ``Final[frozenset[str]]`` so the test suite can assert that

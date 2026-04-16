@@ -11,9 +11,6 @@
 #include <aletheia/check.hpp>
 #include <aletheia/types.hpp>
 
-#include <cmath>
-#include <cstdint>
-#include <numeric>
 #include <string>
 
 namespace aletheia::detail {
@@ -74,23 +71,6 @@ inline auto is_when_condition(const std::string& c) -> bool {
 
 inline auto is_then_condition(const std::string& c) -> bool {
     return c == "equals" || c == "exceeds" || c == "stays_between";
-}
-
-// ---------------------------------------------------------------------------
-// double -> Rational conversion (for Excel-sourced numeric values)
-// ---------------------------------------------------------------------------
-
-/// Convert a double to an exact Rational.
-///
-/// If the value is an exact integer, returns {int_val, 1}.
-/// Otherwise, uses fixed 6-decimal precision with GCD simplification.
-inline auto double_to_rational(double value) -> Rational {
-    if (value == std::floor(value) && std::abs(value) < 1e15)
-        return {.numerator = static_cast<std::int64_t>(value), .denominator = 1};
-    constexpr std::int64_t scale = 1'000'000;
-    auto num = static_cast<std::int64_t>(std::round(value * scale));
-    auto divisor = std::gcd(std::abs(num), scale);
-    return {.numerator = num / divisor, .denominator = scale / divisor};
 }
 
 } // namespace aletheia::detail

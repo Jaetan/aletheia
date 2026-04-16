@@ -30,7 +30,7 @@ Complete API documentation:
 
 - **[Interface Guide](reference/INTERFACES.md)** - Check API, YAML loader, Excel loader (start here)
 - **[Python API Guide](reference/PYTHON_API.md)** - Raw DSL (Signal, Predicate, Property) and AletheiaClient
-- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals
+- **[CLI Reference](reference/CLI.md)** - `python3 -m aletheia` subcommands: check, validate, extract, signals, mux-query
 - **[JSON Protocol](architecture/PROTOCOL.md)** - Low-level protocol specification (advanced)
 
 ---

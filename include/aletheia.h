@@ -85,10 +85,37 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
                           unsigned char data_len);
 
 /*
- * Free a string returned by aletheia_process() or aletheia_send_frame().
+ * Send a binary CAN error frame (no payload) for LTL analysis.
  *
- * @param ptr   String pointer returned by aletheia_process() or
- *              aletheia_send_frame(). Passing NULL is safe (no-op).
+ * Error frames carry only a timestamp — there is no ID, DLC, or payload.
+ * Used for bus-error events in the streaming hot path.
+ *
+ * @param state     Handle from aletheia_init(). Must not be NULL.
+ * @param timestamp Error frame timestamp in microseconds.
+ * @return          Same contract as aletheia_send_frame().
+ */
+char *aletheia_send_error(void *state, unsigned long long timestamp);
+
+/*
+ * Send a binary CAN remote frame for LTL analysis.
+ *
+ * Remote frames carry an ID but no payload data (ISO 11898).
+ *
+ * @param state     Handle from aletheia_init(). Must not be NULL.
+ * @param timestamp Remote frame timestamp in microseconds.
+ * @param can_id    CAN ID value (11-bit standard or 29-bit extended).
+ * @param extended  0 for standard 11-bit ID, 1 for extended 29-bit ID.
+ * @return          Same contract as aletheia_send_frame().
+ */
+char *aletheia_send_remote(void *state, unsigned long long timestamp,
+                           unsigned int can_id, unsigned char extended);
+
+/*
+ * Free a string returned by any aletheia_* function that returns char*.
+ *
+ * @param ptr   Pointer returned by aletheia_process(), aletheia_send_frame(),
+ *              aletheia_send_error(), or aletheia_send_remote().
+ *              Passing NULL is safe (no-op).
  */
 void aletheia_free_str(char *ptr);
 

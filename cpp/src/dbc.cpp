@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // DbcMessage / DbcDefinition out-of-line query helpers.
 #include <aletheia/dbc.hpp>
 
@@ -83,12 +84,12 @@ auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexV
 }
 
 auto DbcMessage::signal_by_name(const SignalName& target) const -> const DbcSignal* {
-    signal_index_cache_.ensure([this](auto& map) {
+    signal_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < signals.size(); ++i) {
             map.emplace(signals[i].name.get(), i);
         }
     });
-    auto idx = signal_index_cache_.find(target.get());
+    auto idx = signal_index_cache.find(target.get());
     if (!idx) {
         return nullptr;
     }
@@ -100,7 +101,7 @@ auto DbcMessage::signal_by_name(const SignalName& target) const -> const DbcSign
 // ---------------------------------------------------------------------------
 
 auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
-    id_index_cache_.ensure([this](auto& map) {
+    id_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
             auto val = std::visit([](const auto& v) -> std::uint32_t { return v.value(); },
                                   messages[i].id);
@@ -112,7 +113,7 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
     auto ext = std::holds_alternative<ExtendedId>(id);
     const std::uint64_t key = static_cast<std::uint64_t>(id_value) | (ext ? (1ULL << 32U) : 0);
-    auto idx = id_index_cache_.find(key);
+    auto idx = id_index_cache.find(key);
     if (!idx) {
         return nullptr;
     }
@@ -120,12 +121,12 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
 }
 
 auto DbcDefinition::message_by_name(const MessageName& target) const -> const DbcMessage* {
-    name_index_cache_.ensure([this](auto& map) {
+    name_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
             map.emplace(messages[i].name.get(), i);
         }
     });
-    auto idx = name_index_cache_.find(target.get());
+    auto idx = name_index_cache.find(target.get());
     if (!idx) {
         return nullptr;
     }

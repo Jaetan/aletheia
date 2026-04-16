@@ -24,9 +24,11 @@ This document is for:
 Aletheia uses a JSON protocol for communication between language bindings (Python, C++, Go) and the Agda/Haskell core. Each message is a single JSON object passed as a string via FFI (Foreign Function Interface) function calls.
 
 **Communication Model**:
-- Two FFI entry points, both returning JSON response strings:
+- Four FFI entry points, all returning JSON response strings:
   - `aletheia_process()`: JSON string in — handles all commands (parseDBC, setProperties, startStream, etc.)
   - `aletheia_send_frame()`: Binary data in — streaming hot path for CAN data frames (no JSON parsing on input)
+  - `aletheia_send_error()`: Binary error frame (timestamp only, no payload)
+  - `aletheia_send_remote()`: Binary remote frame (timestamp + CAN ID, no payload)
 - One call per response (request-response)
 - Sequential processing (no threading or queuing)
 - No subprocess or IPC — everything runs in-process via `libaletheia-ffi.so`
@@ -622,7 +624,7 @@ Used for data frames when no violation is detected.
 ```
 
 **Fields**:
-- `status`: `"fails"` or `"holds"`
+- `status`: `"fails"`, `"holds"`, or `"unresolved"`
 - `property_index`: Index of the property (rational)
 - `timestamp`: Timestamp of the violation (rational, only present when `status` is `"fails"`)
 - `reason`: Human-readable explanation (only present when `status` is `"fails"`)
@@ -769,7 +771,18 @@ Magnitude tolerance: `|curr - prev| <= tolerance`. Tests that a signal's value s
   "formula": {...}
 }
 ```
-Property must hold in the next frame.
+Property must hold in the next frame. Fails at end of stream (no successor).
+
+#### Weak Next
+```json
+{
+  "operator": "weakNext",
+  "formula": {...}
+}
+```
+Property must hold in the next frame, or holds vacuously at end of stream
+(no successor). Use for "if X then next Y" patterns where X may be true on
+the final frame — strong Next would produce a spurious violation there.
 
 #### Always (Globally)
 ```json
@@ -1065,7 +1078,9 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 ### FFI Entry Points
 - **Commands**: JSON string via `aletheia_process(state, json_string)` — all non-data-frame operations
 - **Data frames**: Binary via `aletheia_send_frame(state, timestamp, can_id, ...)` — streaming hot path
-- Both return a JSON response string (freed with `aletheia_free_str`)
+- **Error frames**: Binary via `aletheia_send_error(state, timestamp)` — bus-error events
+- **Remote frames**: Binary via `aletheia_send_remote(state, timestamp, can_id, extended)` — remote frames
+- All four return a JSON response string (freed with `aletheia_free_str`)
 - No newline delimiters needed — each FFI call is one complete message
 - State is managed via `StablePtr (IORef StreamState)` on the Haskell side
 

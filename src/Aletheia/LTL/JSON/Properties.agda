@@ -39,6 +39,7 @@ resetStart (LTL.Not f) = LTL.Not (resetStart f)
 resetStart (LTL.And f g) = LTL.And (resetStart f) (resetStart g)
 resetStart (LTL.Or f g) = LTL.Or (resetStart f) (resetStart g)
 resetStart (LTL.Next f) = LTL.Next (resetStart f)
+resetStart (LTL.WNext f) = LTL.WNext (resetStart f)
 resetStart (LTL.Always f) = LTL.Always (resetStart f)
 resetStart (LTL.Eventually f) = LTL.Eventually (resetStart f)
 resetStart (LTL.Until f g) = LTL.Until (resetStart f) (resetStart g)
@@ -82,6 +83,9 @@ roundtrip (LTL.Not f)
   rewrite roundtrip f = refl
 
 roundtrip (LTL.Next f)
+  rewrite roundtrip f = refl
+
+roundtrip (LTL.WNext f)
   rewrite roundtrip f = refl
 
 roundtrip (LTL.Always f)

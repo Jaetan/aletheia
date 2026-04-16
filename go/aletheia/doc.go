@@ -41,6 +41,7 @@
 // Python logger adapter — any drift here is a finding.
 //
 //	rts.cores_mismatch              (FFIBackend, Warn)
+//	backend.warning                 (Client, Warn)
 //	dbc.parsed                      (Client, Info)
 //	properties.set                  (Client, Info)
 //	stream.started                  (Client, Info)

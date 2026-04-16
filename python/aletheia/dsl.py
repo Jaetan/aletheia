@@ -36,6 +36,7 @@ from .protocols import (
     MetricUntilFormula,
     MetricReleaseFormula,
     NextFormula,
+    WeakNextFormula,
     SignalPredicate,
 )
 
@@ -486,6 +487,28 @@ class Predicate:
         }
         return Property(formula)
 
+    def weak_next(self) -> 'Property':
+        """Property must hold in the next frame, or hold vacuously at end of stream (WX operator).
+
+        Like ``next()``, but satisfied when no successor frame exists (end of
+        trace). Use for "if X then next Y" patterns where X may be true on the
+        final frame — strong Next would produce a spurious violation there.
+
+        **DISCOURAGED on CAN networks** for the same timing-uncertainty
+        reasons as ``next()``. Prefer ``within(time_ms)`` in practice.
+
+        Returns:
+            Temporal property (LTL Weak Next formula)
+
+        Example:
+            Signal("Brake").equals(1).weak_next()
+        """
+        formula: WeakNextFormula = {
+            'operator': 'weakNext',
+            'formula': self._data
+        }
+        return Property(formula)
+
 
 class Property:
     """Temporal property (LTL formula).
@@ -743,6 +766,25 @@ class Property:
         """
         formula: NextFormula = {
             'operator': 'next',
+            'formula': self._data
+        }
+        return Property(formula)
+
+    def weak_next(self) -> 'Property':
+        """Apply Weak Next operator to nested formula.
+
+        Like ``next()``, but satisfied at end of stream. See
+        :meth:`Predicate.weak_next` for the full rationale.
+
+        Returns:
+            Nested temporal property (WX(nested))
+
+        Example:
+            # WX(G(p)) — weak next frame, then always
+            Signal("State").equals(1).always().weak_next()
+        """
+        formula: WeakNextFormula = {
+            'operator': 'weakNext',
             'formula': self._data
         }
         return Property(formula)

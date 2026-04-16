@@ -29,7 +29,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong)
 
 open import Aletheia.LTL.Syntax using (LTL; mapLTL; decodeStart;
-  Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
   MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Coalgebra using (PredTable; LTLProc; initProc; denot; stepL; finalizeL; metricElapsed)
 open import Aletheia.LTL.Incremental using (Counterexample; Continue; Violated; Satisfied;
@@ -336,6 +336,7 @@ finalize-empty-equiv table (Or φ ψ) | Unsure _ | ih₁
 ...   | Fails _  | ih₂ rewrite sym ih₁ | sym ih₂ = refl
 ...   | Unsure _ | ih₂ rewrite sym ih₁ | sym ih₂ = refl
 finalize-empty-equiv table (Next _) = refl
+finalize-empty-equiv table (WNext _) = refl
 finalize-empty-equiv table (Always _) = refl
 finalize-empty-equiv table (Eventually _) = refl
 finalize-empty-equiv table (Until _ _) = refl

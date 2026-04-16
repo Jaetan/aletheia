@@ -22,7 +22,7 @@ open import Relation.Binary.PropositionalEquality using (subst)
 
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; finalizeL)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Simplify using (finalizesHolds; finalizesFails; absorb; simplify; _≡ᵇ-proc_)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
@@ -105,6 +105,7 @@ absorb-runL table (And _ (Atomic _)) σ = refl
 absorb-runL table (And _ (Not _)) σ = refl
 absorb-runL table (And _ (Or _ _)) σ = refl
 absorb-runL table (And _ (Next _)) σ = refl
+absorb-runL table (And _ (WNext _)) σ = refl
 absorb-runL table (And _ (Eventually _)) σ = refl
 absorb-runL table (And _ (Until _ _)) σ = refl
 absorb-runL table (And _ (Release _ _)) σ = refl
@@ -117,6 +118,7 @@ absorb-runL table (Or _ (Atomic _)) σ = refl
 absorb-runL table (Or _ (Not _)) σ = refl
 absorb-runL table (Or _ (And _ _)) σ = refl
 absorb-runL table (Or _ (Next _)) σ = refl
+absorb-runL table (Or _ (WNext _)) σ = refl
 absorb-runL table (Or _ (Always _)) σ = refl
 absorb-runL table (Or _ (Until _ _)) σ = refl
 absorb-runL table (Or _ (Release _ _)) σ = refl
@@ -128,6 +130,7 @@ absorb-runL table (Or _ (MetricRelease _ _ _ _)) σ = refl
 absorb-runL table (Atomic _) σ = refl
 absorb-runL table (Not _) σ = refl
 absorb-runL table (Next _) σ = refl
+absorb-runL table (WNext _) σ = refl
 absorb-runL table (Always _) σ = refl
 absorb-runL table (Eventually _) σ = refl
 absorb-runL table (Until _ _) σ = refl
@@ -151,6 +154,7 @@ simplify-runL table (Or a b) σ =
 simplify-runL table (Atomic _) σ = refl
 simplify-runL table (Not _) σ = refl
 simplify-runL table (Next _) σ = refl
+simplify-runL table (WNext _) σ = refl
 simplify-runL table (Always _) σ = refl
 simplify-runL table (Eventually _) σ = refl
 simplify-runL table (Until _ _) σ = refl

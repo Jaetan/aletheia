@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // Enrichment logic: formula pretty-printer, signal collector, diagnostics.
 #include <aletheia/enrich.hpp>
 
@@ -15,6 +16,10 @@ namespace {
 
 auto format_value(double v) -> std::string {
     return std::format("{:g}", v);
+}
+
+auto format_value(const Rational& r) -> std::string {
+    return std::format("{:g}", r.to_double());
 }
 
 constexpr std::int64_t us_per_second = 1'000'000;
@@ -80,8 +85,8 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
                 if (std::ranges::find(signals, name) == signals.end())
                     signals.push_back(name);
             } else if constexpr (std::is_same_v<T, Not> || std::is_same_v<T, Next> ||
-                                 std::is_same_v<T, Always> || std::is_same_v<T, Eventually> ||
-                                 std::is_same_v<T, MetricAlways> ||
+                                 std::is_same_v<T, WeakNext> || std::is_same_v<T, Always> ||
+                                 std::is_same_v<T, Eventually> || std::is_same_v<T, MetricAlways> ||
                                  std::is_same_v<T, MetricEventually>) {
                 collect_signals_into(*v.formula, signals);
             } else if constexpr (std::is_same_v<T, And> || std::is_same_v<T, Or> ||
@@ -117,6 +122,8 @@ auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std:
                 return parenthesize_binary ? "(" + s + ")" : s;
             } else if constexpr (std::is_same_v<T, Next>)
                 return "next(" + format_formula_inner(*v.formula, false) + ")";
+            else if constexpr (std::is_same_v<T, WeakNext>)
+                return "weak_next(" + format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, Always>) {
                 // Detect Never pattern: Always{Not{Atomic{p}}}
                 if (auto* n = std::get_if<Not>(v.formula.get()))

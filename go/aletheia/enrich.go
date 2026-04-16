@@ -57,6 +57,8 @@ func formatFormulaInner(f Formula, parenthesizeBinary bool) string {
 		return s
 	case Next:
 		return "next(" + formatFormulaInner(v.Inner, false) + ")"
+	case WeakNext:
+		return "weak_next(" + formatFormulaInner(v.Inner, false) + ")"
 	case Always:
 		// Detect Never pattern: Always{Not{Atomic{p}}}
 		if n, ok := v.Inner.(Not); ok {
@@ -173,6 +175,8 @@ func collectSignalsInto(f Formula, signals *[]SignalName, seen map[SignalName]bo
 		collectSignalsInto(v.Left, signals, seen)
 		collectSignalsInto(v.Right, signals, seen)
 	case Next:
+		collectSignalsInto(v.Inner, signals, seen)
+	case WeakNext:
 		collectSignalsInto(v.Inner, signals, seen)
 	case Always:
 		collectSignalsInto(v.Inner, signals, seen)

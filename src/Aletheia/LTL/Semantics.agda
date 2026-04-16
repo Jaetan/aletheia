@@ -28,7 +28,7 @@ module Aletheia.LTL.Semantics where
 open import Aletheia.Prelude
 open import Data.Nat using (_≤ᵇ_)
 
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; notTV; _∧TV_; _∨TV_)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 
@@ -78,6 +78,10 @@ met-re-go : ℕ → LTL (TimedFrame → TruthVal) → LTL (TimedFrame → TruthV
 -- Strong next: requires at least one more frame after current
 ⟦ Next φ ⟧ []            = False
 ⟦ Next φ ⟧ (_ ∷ rest)    = ⟦ φ ⟧ rest
+
+-- Weak next: holds vacuously when no successor exists
+⟦ WNext φ ⟧ []           = True
+⟦ WNext φ ⟧ (_ ∷ rest)   = ⟦ φ ⟧ rest
 
 -- Always (G): vacuously true on empty suffix
 ⟦ Always φ ⟧ []          = True

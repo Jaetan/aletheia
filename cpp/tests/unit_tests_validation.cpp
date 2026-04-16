@@ -60,7 +60,7 @@ TEST_CASE("update_frame rejects payload length mismatch", "[client][validation]"
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload bad_data(5, std::byte{0});
-    std::vector<SignalValue> signals{{SignalName{"S"}, PhysicalValue{1.0}}};
+    std::vector<SignalValue> signals{{SignalName{"S"}, PhysicalValue{Rational{1, 1}}}};
     auto result = client.update_frame(id, dlc, bad_data, signals);
 
     CHECK_FALSE(result.has_value());

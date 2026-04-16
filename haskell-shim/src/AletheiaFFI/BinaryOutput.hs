@@ -24,6 +24,11 @@ import qualified MAlonzo.Code.Data.Rational.Base as AgdaRational
 import qualified MAlonzo.Code.Data.Sum.Base as AgdaSum
 import qualified MAlonzo.Code.Data.Vec.Base as AgdaVec
 
+-- Stdlib-dependent MAlonzo constructor names used in this module:
+--   Vec:  C_'91''93'_32 (nil), C__'8759'__38 (cons)
+--   Sum:  C_inj'8321'_38 (inj₁), C_inj'8322'_42 (inj₂)
+-- The Shakefile's check-erasure phony verifies these against MAlonzo output.
+
 -- | Walk MAlonzo Vec Byte, writing each byte to a contiguous buffer.
 agdaVecToBuffer :: AgdaVec.T_Vec_28 -> Ptr Word8 -> IO ()
 agdaVecToBuffer AgdaVec.C_'91''93'_32 _ = return ()

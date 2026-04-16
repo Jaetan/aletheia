@@ -34,7 +34,7 @@ open import Function.Bundles using (Equivalence)
 
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; finalizeL)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Simplify using (_≡ᵇ-proc_)
 open import Aletheia.LTL.Incremental using (
@@ -72,6 +72,8 @@ private
   in cong₂ Or (≡ᵇ-proc-correct φ₁ φ₂ p₁) (≡ᵇ-proc-correct ψ₁ ψ₂ p₂)
 ≡ᵇ-proc-correct (Next φ) (Next ψ) p =
   cong Next (≡ᵇ-proc-correct φ ψ p)
+≡ᵇ-proc-correct (WNext φ) (WNext ψ) p =
+  cong WNext (≡ᵇ-proc-correct φ ψ p)
 ≡ᵇ-proc-correct (Always φ) (Always ψ) p =
   cong Always (≡ᵇ-proc-correct φ ψ p)
 ≡ᵇ-proc-correct (Eventually φ) (Eventually ψ) p =

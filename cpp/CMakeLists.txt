@@ -84,6 +84,7 @@ add_library(aletheia-cpp
     src/mock_backend.cpp
     src/json_serialize.cpp
     src/json_parse.cpp
+    src/types.cpp
     src/yaml.cpp)
 
 target_include_directories(aletheia-cpp

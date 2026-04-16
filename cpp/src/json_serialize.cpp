@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // JSON serialization: C++ types → JSON command strings for the Agda core.
 #include "detail/json.hpp"
 
@@ -36,8 +37,14 @@ static auto data_to_json(std::span<const std::byte> data) -> Json {
     return arr;
 }
 
+static auto rational_to_json(const Rational& r) -> Json {
+    if (r.denominator == 1)
+        return r.numerator;
+    return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+}
+
 static auto signal_value_to_json(const SignalValue& sv) -> Json {
-    return {{"name", sv.name.get()}, {"value", sv.value.get()}};
+    return {{"name", sv.name.get()}, {"value", rational_to_json(sv.value.get())}};
 }
 
 static auto signals_to_json(std::span<const SignalValue> signals) -> Json {
@@ -45,12 +52,6 @@ static auto signals_to_json(std::span<const SignalValue> signals) -> Json {
     for (const auto& sv : signals)
         arr.push_back(signal_value_to_json(sv));
     return arr;
-}
-
-static auto rational_to_json(const Rational& r) -> Json {
-    if (r.denominator == 1)
-        return r.numerator;
-    return {{"numerator", r.numerator}, {"denominator", r.denominator}};
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
@@ -114,29 +115,30 @@ static auto predicate_to_json(const Predicate& p) -> Json {
         [](auto&& v) -> Json {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, Equals>)
-                return {
-                    {"predicate", "equals"}, {"signal", v.signal.get()}, {"value", v.value.get()}};
+                return {{"predicate", "equals"},
+                        {"signal", v.signal.get()},
+                        {"value", rational_to_json(v.value.get())}};
             else if constexpr (std::is_same_v<T, LessThan>)
                 return {{"predicate", "lessThan"},
                         {"signal", v.signal.get()},
-                        {"value", v.value.get()}};
+                        {"value", rational_to_json(v.value.get())}};
             else if constexpr (std::is_same_v<T, GreaterThan>)
                 return {{"predicate", "greaterThan"},
                         {"signal", v.signal.get()},
-                        {"value", v.value.get()}};
+                        {"value", rational_to_json(v.value.get())}};
             else if constexpr (std::is_same_v<T, LessThanOrEqual>)
                 return {{"predicate", "lessThanOrEqual"},
                         {"signal", v.signal.get()},
-                        {"value", v.value.get()}};
+                        {"value", rational_to_json(v.value.get())}};
             else if constexpr (std::is_same_v<T, GreaterThanOrEqual>)
                 return {{"predicate", "greaterThanOrEqual"},
                         {"signal", v.signal.get()},
-                        {"value", v.value.get()}};
+                        {"value", rational_to_json(v.value.get())}};
             else if constexpr (std::is_same_v<T, Between>)
                 return {{"predicate", "between"},
                         {"signal", v.signal.get()},
-                        {"min", v.min.get()},
-                        {"max", v.max.get()}};
+                        {"min", rational_to_json(v.min.get())},
+                        {"max", rational_to_json(v.max.get())}};
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 return {{"predicate", "changedBy"},
                         {"signal", v.signal.get()},
@@ -175,6 +177,9 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
                         {"right", formula_to_json(*v.right, depth + 1)}};
             else if constexpr (std::is_same_v<T, Next>)
                 return {{"operator", "next"}, {"formula", formula_to_json(*v.formula, depth + 1)}};
+            else if constexpr (std::is_same_v<T, WeakNext>)
+                return {{"operator", "weakNext"},
+                        {"formula", formula_to_json(*v.formula, depth + 1)}};
             else if constexpr (std::is_same_v<T, Always>)
                 return {{"operator", "always"},
                         {"formula", formula_to_json(*v.formula, depth + 1)}};

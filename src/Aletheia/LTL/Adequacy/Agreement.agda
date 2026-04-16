@@ -62,7 +62,7 @@ open import Aletheia.LTL.TruthVal.Properties using
   (∨TV-false-l; ∨TV-false-r; ∧TV-false-l; ∧TV-true-l; ∧TV-true-r)
 open import Aletheia.LTL.Coalgebra using (LTLProc; PredTable; stepL; denot; metricElapsed)
 open import Aletheia.LTL.Syntax using
-  (Atomic; Not; And; Or; Next; Always; Eventually; Until; Release;
+  (Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release;
    MetricEventually; MetricAlways; MetricUntil; MetricRelease)
 open import Aletheia.LTL.Incremental using (Continue; Violated; Satisfied)
 open import Aletheia.LTL.Semantics using (⟦_⟧; met-ev-go; met-al-go; met-un-go; met-re-go)
@@ -261,6 +261,9 @@ agreement table (Not φ) σ tv
 
 agreement table (Next φ) [] tv = refl
 agreement table (Next φ) (x ∷ rest) tv = agreement table φ rest tv
+
+agreement table (WNext φ) [] tv = refl
+agreement table (WNext φ) (x ∷ rest) tv = agreement table φ rest tv
 
 agreement table (Always φ) [] tv = refl
 agreement table (Always φ) (x ∷ rest) tv =

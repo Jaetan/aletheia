@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: BSD-2-Clause
 // AletheiaClient — orchestrates backend + JSON serialization/parsing.
 #include <aletheia/client.hpp>
 #include <aletheia/detail/cache_keys.hpp>
@@ -6,7 +7,6 @@
 #include "detail/json.hpp"
 
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -36,24 +36,6 @@ auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> 
                           std::format("payload length {} does not match DLC {} (expected {} bytes)",
                                       data.size(), dlc.value(), expected)});
     return {};
-}
-
-// Convert a double signal value to an exact rational (numerator/denominator).
-// Uses 10^9 scaling: round(value * 1e9) as numerator, 1'000'000'000 as denominator.
-constexpr std::int64_t rational_denominator = 1'000'000'000;
-
-// Conservative int64 bounds for double comparison. static_cast<double>(INT64_MAX)
-// rounds up to 2^63, which exceeds INT64_MAX. Using 2^53 (the largest exact
-// integer representable in double) ensures the comparison is safe.
-constexpr double safe_int64_max = 9007199254740992.0;  // 2^53
-constexpr double safe_int64_min = -9007199254740992.0; // -2^53
-
-auto to_rational_numerator(double value) -> std::expected<std::int64_t, AletheiaError> {
-    auto scaled = value * static_cast<double>(rational_denominator);
-    if (scaled < safe_int64_min || scaled > safe_int64_max)
-        return std::unexpected(AletheiaError{ErrorKind::Validation,
-                                             "signal value too large for rational representation"});
-    return static_cast<std::int64_t>(std::llround(scaled));
 }
 
 } // namespace
@@ -200,7 +182,7 @@ constexpr std::array extraction_error_messages = {
 // Values(×18B) + Errors(×3B) + Absent(×2B). Native byte order." Cross-arch
 // deployment would require byteswapping on the reader side.
 auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std::string>& names)
-    -> ExtractionResult {
+    -> Result<ExtractionResult> {
     auto read_u16 = [&](std::size_t off) -> std::uint16_t {
         std::uint16_t v = 0;
         std::memcpy(&v, buf.data() + off, sizeof(v));
@@ -237,8 +219,11 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
         off += 18;
         auto name =
             idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        auto value = den != 0 ? PhysicalValue{static_cast<double>(num) / static_cast<double>(den)}
-                              : PhysicalValue{0.0};
+        if (den == 0)
+            return std::unexpected(AletheiaError{
+                ErrorKind::Protocol,
+                std::format("Zero denominator in extraction value for {}", std::string_view{name})});
+        auto value = PhysicalValue{Rational{num, den}};
         result.values.push_back(SignalValue{.name = std::move(name), .value = value});
     }
     result.errors.reserve(nerrs);
@@ -288,7 +273,7 @@ auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byt
 
     // Fallback: JSON path.
     auto resp = backend_->extract_signals_binary(state_, id, dlc, data);
-    return detail::parse_extraction(resp);
+    return detail::parse_extraction(std::move(resp));
 }
 
 auto AletheiaClient::ResolvedSignals::injection() const -> SignalInjection {
@@ -317,11 +302,9 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
                                                    std::string_view{sv.name}, id_value)});
         }
         resolved.indices.push_back(it->second);
-        auto num = to_rational_numerator(sv.value.get());
-        if (!num.has_value())
-            return std::unexpected(num.error());
-        resolved.numerators.push_back(*num);
-        resolved.denominators.push_back(rational_denominator);
+        const auto& r = sv.value.get();
+        resolved.numerators.push_back(r.numerator);
+        resolved.denominators.push_back(r.denominator);
     }
     return resolved;
 }
@@ -381,17 +364,24 @@ auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void>
     try {
         std::vector<LtlFormula> formulas;
         formulas.reserve(default_checks_.size() + checks.size());
+        auto push_check = [&](const CheckResult& c, std::string_view origin) -> Result<void> {
+            const auto& f = c.formula();
+            if (!f)
+                return std::unexpected(AletheiaError{
+                    ErrorKind::Validation,
+                    std::string(origin) + " check has no formula"});
+            formulas.push_back(ltl::clone(*f));
+            return {};
+        };
         for (const auto& dc : default_checks_) {
-            const auto& f = dc.formula();
-            if (f)
-                formulas.push_back(ltl::clone(*f));
+            auto r = push_check(dc, "default");
+            if (!r)
+                return r;
         }
         for (const auto& check : checks) {
-            const auto& f = check.formula();
-            if (!f)
-                return std::unexpected(
-                    AletheiaError{ErrorKind::Validation, "check has no formula"});
-            formulas.push_back(ltl::clone(*f));
+            auto r = push_check(check, "user");
+            if (!r)
+                return r;
         }
         return set_properties(formulas);
     } catch (const std::exception& e) {
@@ -426,7 +416,7 @@ auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const
         // Track last frame per CAN ID for end-of-stream enrichment (skip when no diagnostics).
         if (!diags_.empty())
             last_frames_.insert_or_assign(
-                LastFrameKey{id_value, is_extended},
+                detail::MessageKey{id_value, is_extended},
                 LastFrame{.id = id, .dlc = dlc, .data = FramePayload(data.begin(), data.end())});
         if (auto* v = std::get_if<Violation>(&*result); v != nullptr && !diags_.empty()) {
             enrich_violation(*v, id, dlc, data, id_value, is_extended);
@@ -553,7 +543,7 @@ auto format_enriched_reason(const PropertyDiagnostic& diag,
             if (auto it = values.find(sig); it != values.end()) {
                 if (!first)
                     reason += ", ";
-                reason += std::format("{} = {:g}", std::string_view{sig}, it->second.get());
+                reason += std::format("{} = {:g}", std::string_view{sig}, it->second.get().to_double());
                 first = false;
             }
         }
@@ -693,7 +683,15 @@ auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const
                               {"error", buf.error().message()}});
             return std::nullopt;
         }
-        return parse_extraction_bin(*buf, names_it->second);
+        auto bin_result = parse_extraction_bin(*buf, names_it->second);
+        if (!bin_result) {
+            if (logger_)
+                logger_.warn("extraction.parse_failed",
+                             {{"canId", static_cast<std::uint64_t>(id_value)},
+                              {"error", bin_result.error().message()}});
+            return std::nullopt;
+        }
+        return std::move(*bin_result);
     }
 
     // Fallback: JSON path.

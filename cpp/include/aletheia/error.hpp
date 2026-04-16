@@ -51,6 +51,7 @@ enum class ErrorCode {
     FrameSignalsOverlap,
     FrameCanIdNotFound,
     FrameCanIdMismatch,
+    FrameSignalValueOutOfBounds,
     // Route errors
     RouteMissingField,
     RouteMissingArray,

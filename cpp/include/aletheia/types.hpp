@@ -2,6 +2,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <compare>
 #include <cstddef>
@@ -56,24 +57,18 @@ using NodeName = StrongString<struct NodeNameTag>;
 using Unit = StrongString<struct UnitTag>;
 
 // ---------------------------------------------------------------------------
-// Numeric physical types (double underneath, distinct)
+// Rational: exact numerator/denominator
 // ---------------------------------------------------------------------------
 
-// Physical measurement domain (signal readouts, thresholds)
-using PhysicalValue = Strong<struct PhysicalValueTag, double>;
-// Signed change threshold for ChangedBy predicates (sign determines direction)
-using Delta = Strong<struct DeltaTag, double>;
-// Absolute tolerance for StableWithin predicates
-using Tolerance = Strong<struct ToleranceTag, double>;
-
-// ---------------------------------------------------------------------------
-// Rational: exact numerator/denominator (for DBC signal parameters)
-// ---------------------------------------------------------------------------
-
-// Invariant: denominator must be > 0; enforced by parse_rational, not by construction.
+// Invariant: denominator must be > 0; enforced by the constructor.
 struct Rational {
     std::int64_t numerator = 0;
     std::int64_t denominator = 1;
+
+    constexpr Rational() = default;
+    constexpr Rational(std::int64_t n, std::int64_t d) : numerator(n), denominator(d) {
+        assert(d > 0 && "Rational: denominator must be positive");
+    }
 
     [[nodiscard]] constexpr auto to_double() const -> double {
         return static_cast<double>(numerator) / static_cast<double>(denominator);
@@ -97,18 +92,33 @@ struct Rational {
     }
 
     // Validated factory: returns an error if denominator is not positive.
-    // Use aggregate construction for internal paths where the denominator is
-    // already validated (e.g., from the Agda JSON parser).
+    // Use for untrusted input; direct construction asserts in debug mode.
     static constexpr auto make(std::int64_t num, std::int64_t den)
         -> std::expected<Rational, std::string> {
         if (den <= 0)
             return std::unexpected("Rational denominator must be positive");
-        return Rational{.numerator = num, .denominator = den};
+        return Rational{num, den};
     }
+
+    // Convert a double to an exact Rational. Integer-valued doubles use
+    // denominator 1; others use 10^9 fixed-point scaling then GCD-reduced.
+    static auto from_double(double d) -> Rational;
 };
 
+// ---------------------------------------------------------------------------
+// Numeric physical types
+// ---------------------------------------------------------------------------
+
+// Physical measurement domain (signal readouts, thresholds).
+// Uses Rational for exact precision — Agda sends signal values as
+// {numerator, denominator} pairs; double would lose precision on 1/3, 1/7 etc.
+using PhysicalValue = Strong<struct PhysicalValueTag, Rational>;
+// Signed change threshold for ChangedBy predicates (sign determines direction)
+using Delta = Strong<struct DeltaTag, double>;
+// Absolute tolerance for StableWithin predicates
+using Tolerance = Strong<struct ToleranceTag, double>;
+
 // DBC signal scaling parameters — stored as exact rationals.
-// PhysicalValue (double) remains for predicate thresholds and extraction results.
 using RationalFactor = Strong<struct RationalFactorTag, Rational>;
 using RationalOffset = Strong<struct RationalOffsetTag, Rational>;
 using RationalBound = Strong<struct RationalBoundTag, Rational>;
@@ -237,7 +247,7 @@ enum class ByteOrder { LittleEndian, BigEndian };
 
 struct SignalValue {
     SignalName name;
-    PhysicalValue value{0.0};
+    PhysicalValue value{Rational{}};
 };
 
 // ---------------------------------------------------------------------------

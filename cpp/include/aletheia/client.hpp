@@ -141,13 +141,12 @@ private:
     // Last frame seen per CAN ID, for end-of-stream enrichment.
     // Populated by send_frame() (guarded by !diags_.empty()); cleared by start_stream().
     // Cost: one FramePayload copy per unique CAN ID (not per frame), via insert_or_assign.
-    using LastFrameKey = std::pair<std::uint32_t, bool>; // {id_value, is_extended}
     struct LastFrame {
         CanId id;
         Dlc dlc;
         FramePayload data;
     };
-    std::map<LastFrameKey, LastFrame> last_frames_;
+    std::map<detail::MessageKey, LastFrame> last_frames_;
 
     // Signal name → 0-based index within the DBC message's signal list.
     // Populated by parse_dbc(); cleared by parse_dbc().

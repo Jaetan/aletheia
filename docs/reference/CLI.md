@@ -12,7 +12,7 @@
 python3 -m aletheia <subcommand> [options]
 ```
 
-Four subcommands: `check`, `validate`, `extract`, `signals`.
+Five subcommands: `check`, `validate`, `extract`, `signals`, `mux-query`.
 
 **Exit codes** (all subcommands):
 - `0` — success (or all checks passed)
@@ -236,6 +236,50 @@ Supported via [python-can](https://python-can.readthedocs.io/):
 | `.log` | candump log |
 | `.mf4` | ASAM MDF4 |
 | `.trc` | PEAK TRC |
+
+---
+
+## mux-query
+
+Inspect the multiplexor structure of a DBC message.
+
+```
+python3 -m aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NAME --value N] [--json] MESSAGE
+```
+
+`MESSAGE` is a CAN ID (hex `0x100` or decimal `256`) or a message name.
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--dbc FILE` | `.dbc` file |
+| `--excel FILE` | `.xlsx` workbook with DBC sheet |
+| `--extended` | Treat CAN ID as 29-bit extended (default: 11-bit standard) |
+| `--mux NAME` | Multiplexor signal name (requires `--value`) |
+| `--value N` | Multiplexor value (requires `--mux`) |
+| `--json` | Output as JSON |
+
+**Without `--mux`/`--value`**: prints a summary of all multiplexors and their values for the message.
+
+**With `--mux`/`--value`**: lists the signals active when the named multiplexor has the given value.
+
+**Examples**:
+
+```bash
+# Show multiplexor structure for message 0x100
+python3 -m aletheia mux-query --dbc vehicle.dbc 0x100
+
+# List signals when multiplexor "Mode" has value 5
+python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+
+# JSON output
+python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --json
+```
+
+---
+
+## Common Options
 
 Error frames and remote frames are skipped by default. Frame data is normalized to match the DLC byte count (padded or truncated as needed).
 

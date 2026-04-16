@@ -78,6 +78,9 @@ formatLTL (LTL.Or f g) =
 formatLTL (LTL.Next f) =
   JObject (("operator" , JString "next") ∷
            ("formula" , formatLTL f) ∷ [])
+formatLTL (LTL.WNext f) =
+  JObject (("operator" , JString "weakNext") ∷
+           ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.Always f) =
   JObject (("operator" , JString "always") ∷
            ("formula" , formatLTL f) ∷ [])

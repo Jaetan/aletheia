@@ -108,7 +108,7 @@ public:
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
         return {std::move(f), signal_name_,
-                std::format("between {:g} and {:g} within {}ms", lo_.get(), hi_.get(), ms.count())};
+                std::format("between {:g} and {:g} within {}ms", lo_.get().to_double(), hi_.get().to_double(), ms.count())};
     }
 
 private:
@@ -123,29 +123,29 @@ public:
 
     [[nodiscard]] auto never_exceeds(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format("< {:g}", value.get())};
+        return {std::move(f), name_, std::format("< {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto never_below(PhysicalValue value) const -> CheckResult {
         auto f = ltl::always(ltl::atomic(ltl::at_least(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format(">= {:g}", value.get())};
+        return {std::move(f), name_, std::format(">= {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> CheckResult {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
-        return {std::move(f), name_, std::format("between {:g} and {:g}", lo.get(), hi.get())};
+        return {std::move(f), name_, std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {
         auto f = ltl::never(ltl::equals(SignalName{name_}, value));
-        return {std::move(f), name_, std::format("!= {:g}", value.get())};
+        return {std::move(f), name_, std::format("!= {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> CheckSignalPredicate {
         auto f = ltl::always(ltl::atomic(ltl::equals(SignalName{name_}, value)));
-        return {std::move(f), name_, std::format("= {:g}", value.get())};
+        return {std::move(f), name_, std::format("= {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto settles_between(PhysicalValue lo, PhysicalValue hi) const -> SettlesBuilder {
@@ -198,19 +198,19 @@ public:
 
     [[nodiscard]] auto equals(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::equals(SignalName{then_name_}, value), then_name_,
-                std::format("= {:g}", value.get())};
+                std::format("= {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto exceeds(PhysicalValue value) const -> ThenCondition {
         return {trigger_, ltl::greater_than(SignalName{then_name_}, value), then_name_,
-                std::format("> {:g}", value.get())};
+                std::format("> {:g}", value.get().to_double())};
     }
 
     [[nodiscard]] auto stays_between(PhysicalValue lo, PhysicalValue hi) const -> ThenCondition {
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         return {trigger_, ltl::between(SignalName{then_name_}, lo, hi), then_name_,
-                std::format("between {:g} and {:g}", lo.get(), hi.get())};
+                std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
     }
 
 private:

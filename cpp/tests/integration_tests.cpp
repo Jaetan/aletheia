@@ -126,8 +126,8 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     auto result = client.extract_signals(id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
-    CHECK(result->get(SignalName{"Speed"}).get() == Catch::Approx(100.0));
-    CHECK(result->get(SignalName{"RPM"}).get() == Catch::Approx(3000.0));
+    CHECK(result->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(100.0));
+    CHECK(result->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(3000.0));
 }
 
 TEST_CASE("build frame via real FFI", "[integration]") {
@@ -139,8 +139,8 @@ TEST_CASE("build frame via real FFI", "[integration]") {
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{100.0}}, // raw = 1000
-        {SignalName{"RPM"}, PhysicalValue{3000.0}},  // raw = 3000
+        {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}}, // raw = 1000
+        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},  // raw = 3000
     };
 
     auto result = client.build_frame(id, Dlc::create(8).value(), signals);
@@ -162,8 +162,8 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{42.5}},
-        {SignalName{"RPM"}, PhysicalValue{1500.0}},
+        {SignalName{"Speed"}, PhysicalValue{Rational{85, 2}}},
+        {SignalName{"RPM"}, PhysicalValue{Rational{1500, 1}}},
     };
 
     auto built = client.build_frame(id, Dlc::create(8).value(), signals);
@@ -172,8 +172,8 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     auto extracted = client.extract_signals(id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     // Round-trip: values should match (within quantization)
-    CHECK(extracted->get(SignalName{"Speed"}).get() == Catch::Approx(42.5).margin(0.1));
-    CHECK(extracted->get(SignalName{"RPM"}).get() == Catch::Approx(1500.0));
+    CHECK(extracted->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(42.5).margin(0.1));
+    CHECK(extracted->get(SignalName{"RPM"}).get().to_double() == Catch::Approx(1500.0));
 }
 
 TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]") {
@@ -185,7 +185,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
 
     // Property: always(Speed < 200)
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{200.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{200, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -226,7 +226,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
 
     // Property: always(Speed < 120) — will be violated by Speed=150
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{120.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{120, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -273,7 +273,7 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{500.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -428,8 +428,8 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
     ThreadResult result_lenient; // threshold = 200: Speed 150 < 200 → Holds
     ThreadResult result_strict;  // threshold = 100: Speed 150 >= 100 → Fails
 
-    std::thread thread_a(run_client, PhysicalValue{200.0}, std::ref(result_lenient));
-    std::thread thread_b(run_client, PhysicalValue{100.0}, std::ref(result_strict));
+    std::thread thread_a(run_client, PhysicalValue{Rational{200, 1}}, std::ref(result_lenient));
+    std::thread thread_b(run_client, PhysicalValue{Rational{100, 1}}, std::ref(result_strict));
 
     thread_a.join();
     thread_b.join();
@@ -552,9 +552,9 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 3);
     CHECK(result->absent.empty());
-    CHECK(result->get(SignalName{"Mode"}).get() == Catch::Approx(3.0));
-    CHECK(result->get(SignalName{"SubMode"}).get() == Catch::Approx(7.0));
-    CHECK(result->get(SignalName{"Detail"}).get() == Catch::Approx(43981.0));
+    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(3.0));
+    CHECK(result->get(SignalName{"SubMode"}).get().to_double() == Catch::Approx(7.0));
+    CHECK(result->get(SignalName{"Detail"}).get().to_double() == Catch::Approx(43981.0));
 }
 
 TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integration][nested_mux]") {
@@ -575,8 +575,8 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
     CHECK(result->values.size() == 2); // Mode and SubMode extracted
     CHECK(result->absent.size() == 1);
     CHECK(contains_signal(result->absent, "Detail"));
-    CHECK(result->get(SignalName{"Mode"}).get() == Catch::Approx(3.0));
-    CHECK(result->get(SignalName{"SubMode"}).get() == Catch::Approx(5.0));
+    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(3.0));
+    CHECK(result->get(SignalName{"SubMode"}).get().to_double() == Catch::Approx(5.0));
 }
 
 TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
@@ -599,7 +599,7 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
     CHECK(result->absent.size() == 2);
     CHECK(contains_signal(result->absent, "SubMode"));
     CHECK(contains_signal(result->absent, "Detail"));
-    CHECK(result->get(SignalName{"Mode"}).get() == Catch::Approx(2.0));
+    CHECK(result->get(SignalName{"Mode"}).get().to_double() == Catch::Approx(2.0));
 }
 
 TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_mux]") {
@@ -758,7 +758,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -788,7 +788,7 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -850,7 +850,7 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved (regre
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{10.0})));
+        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -881,7 +881,7 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{10.0})));
+        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -906,7 +906,7 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -930,7 +930,7 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -968,8 +968,8 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
-    auto rhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{100.0})));
+    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto rhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::both(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(props).has_value());
@@ -1014,9 +1014,9 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     auto rhs =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{999999.0})));
+        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::either(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(props).has_value());
@@ -1047,7 +1047,7 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{100.0})));
+        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
