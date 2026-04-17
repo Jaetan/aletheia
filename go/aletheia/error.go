@@ -124,23 +124,40 @@ const (
 	CodeExtractionBitExtractionFailed = "extraction_bit_extraction_failed"
 )
 
+// newError builds a typed *Error without a wire code or inner cause.
 func newError(kind ErrorKind, msg string) *Error {
 	return &Error{Kind: kind, Message: msg}
 }
 
+// newCodedError builds a typed *Error carrying an Agda-side Code (one
+// of the Code* constants above) so callers can discriminate cleanly
+// with errors.Is / matching on Code.
 func newCodedError(kind ErrorKind, code, msg string) *Error {
 	return &Error{Kind: kind, Code: code, Message: msg}
 }
 
+// wrapError attaches an inner cause to a typed *Error; the Unwrap
+// method returns the cause for use with errors.Is / errors.As.
 func wrapError(kind ErrorKind, msg string, cause error) *Error {
 	return &Error{Kind: kind, Message: msg, Cause: cause}
 }
 
-func protocolError(msg string) *Error               { return newError(ErrProtocol, msg) }
-func validationError(msg string) *Error             { return newError(ErrValidation, msg) }
-func stateError(msg string) *Error                  { return newError(ErrState, msg) }
-func ffiError(msg string) *Error                    { return newError(ErrFFI, msg) }
-func wrapProtocol(msg string, cause error) *Error   { return wrapError(ErrProtocol, msg, cause) }
+// protocolError reports a wire-level mismatch between Go and the Agda core.
+func protocolError(msg string) *Error { return newError(ErrProtocol, msg) }
+
+// validationError reports user-supplied input that failed local validation.
+func validationError(msg string) *Error { return newError(ErrValidation, msg) }
+
+// stateError reports a lifecycle violation (closed client, double close, …).
+func stateError(msg string) *Error { return newError(ErrState, msg) }
+
+// ffiError reports failures inside the dlopen/dlsym/hs_init path.
+func ffiError(msg string) *Error { return newError(ErrFFI, msg) }
+
+// wrapProtocol is the wrap variant of protocolError for JSON decode / I/O failures.
+func wrapProtocol(msg string, cause error) *Error { return wrapError(ErrProtocol, msg, cause) }
+
+// wrapValidation is the wrap variant of validationError for nested parse failures.
 func wrapValidation(msg string, cause error) *Error { return wrapError(ErrValidation, msg, cause) }
 
 // NewValidationError returns an [ErrValidation] error with the given message.

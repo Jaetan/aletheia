@@ -277,6 +277,9 @@ type extractCache struct {
 	entries map[frameKey]*ExtractionResult
 }
 
+// newExtractCache returns an empty extract cache. Use it once per
+// Client; the cache is not safe for concurrent use and the Client holds
+// Client.mu whenever it reads or writes entries.
 func newExtractCache() *extractCache {
 	return &extractCache{entries: make(map[frameKey]*ExtractionResult)}
 }

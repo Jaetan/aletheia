@@ -434,6 +434,53 @@ func TestSendError_AfterClose(t *testing.T) {
 	requireErrorContains(t, err, "closed")
 }
 
+func TestSendError_RejectsSuccessStatus(t *testing.T) {
+	// Trace events always resolve to Response.Ack in Agda, so "success" must
+	// not be accepted for send_error.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"success"}`), // SendError — wrong status
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.SetProperties(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+	err = c.SendError(aletheia.Timestamp{Microseconds: 1000})
+	requireErrorContains(t, err, `unexpected status: "success"`)
+}
+
+func TestSendRemote_RejectsSuccessStatus(t *testing.T) {
+	// Trace events always resolve to Response.Ack in Agda, so "success" must
+	// not be accepted for send_remote.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{"status":"success"}`), // SetProperties
+		aletheia.Respond(`{"status":"success"}`), // StartStream
+		aletheia.Respond(`{"status":"success"}`), // SendRemote — wrong status
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.SetProperties(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.StartStream(); err != nil {
+		t.Fatal(err)
+	}
+	sid, _ := aletheia.NewStandardID(0x100)
+	err = c.SendRemote(aletheia.Timestamp{Microseconds: 1000}, sid)
+	requireErrorContains(t, err, `unexpected status: "success"`)
+}
+
 func TestConcurrentSendFrame(t *testing.T) {
 	const n = 10
 	responses := make([]aletheia.MockResponse, 0, n+2)

@@ -866,6 +866,35 @@ Bounded dual of Until: `right` must hold until `left` releases it, within `timeb
 
 ---
 
+### Streaming Semantics: Soundness vs. Completeness
+
+Aletheia's incremental evaluator is **sound** but not **complete** for liveness
+operators (`Eventually`, `Until`, and their metric variants). The distinction
+matters when interpreting a `"complete"` response:
+
+- **Sound** — every definite verdict is correct. If the stream ends with a
+  property reported as `Satisfied` or `Violated`, that verdict is
+  provably correct relative to the observed trace. This is formally proven
+  in `LTL/Adequacy.agda`.
+- **Not complete** — some verdicts may remain `Unknown` at end-of-stream
+  even when the prefix already determined the truth value. Example:
+  `Eventually Speed > 0` reports `Unknown` if the stream ends before the
+  condition is seen, but could theoretically be proven `Violated` with more
+  sophisticated lookahead. Aletheia does not perform such lookahead —
+  it reports `Unknown` and leaves the interpretation to the caller.
+
+**Operators with bounded completeness** — `MetricEventually`, `MetricUntil`
+and their `MetricAlways`/`MetricRelease` duals resolve to a definite verdict
+once their `timebound` window has fully elapsed. Unbounded `Eventually`/
+`Until` can only resolve definitely when the witness is observed; otherwise
+they remain `Unknown`.
+
+**Practical guidance** — prefer metric operators with explicit timebounds
+when you need a guaranteed definite verdict. Use unbounded `Eventually`/
+`Until` only when `Unknown` at end-of-stream is an acceptable outcome.
+
+---
+
 ### Complete Example
 
 **Property**: "Speed must always be less than 250 km/h"

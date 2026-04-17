@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <format>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -124,11 +123,10 @@ class FfiBackend : public IBackend {
     AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
     AletheiaFreeBufFn free_buf_fn_ = nullptr;
-    std::string pending_warning_;
-    // Populated alongside `pending_warning_` when the backend detects that the
-    // GHC RTS was already initialised with a different -N value than the
-    // caller requested. Structured counterpart to the warning string, used by
-    // Client::rts.cores_mismatch logging for parity with Go/Python.
+    // Populated when the backend detects that the GHC RTS was already
+    // initialised with a different -N value than the caller requested.
+    // Emitted by Client as the `rts.cores_mismatch` structured log event
+    // with `active_cores` / `requested_cores` fields (Go + Python parity).
     std::optional<std::pair<int, int>> rts_mismatch_;
 
     template<typename Fn>
@@ -195,10 +193,6 @@ public:
                 rts.cores = rts_cores;
                 rts.initialized = true;
             } else if (rts_cores != rts.cores) {
-                pending_warning_ = std::format("GHC RTS already initialized with {} core(s); "
-                                               "ignoring rts_cores={}. Set rts_cores on the first "
-                                               "make_ffi_backend() call in the process.",
-                                               rts.cores, rts_cores);
                 rts_mismatch_ = std::make_pair(rts.cores, rts_cores);
             }
         } catch (...) {
@@ -216,8 +210,6 @@ public:
     FfiBackend& operator=(const FfiBackend&) = delete;
     FfiBackend(FfiBackend&&) = delete;
     FfiBackend& operator=(FfiBackend&&) = delete;
-
-    [[nodiscard]] auto pending_warning() const -> std::string override { return pending_warning_; }
 
     [[nodiscard]] auto rts_mismatch_info() const -> std::optional<std::pair<int, int>> override {
         return rts_mismatch_;

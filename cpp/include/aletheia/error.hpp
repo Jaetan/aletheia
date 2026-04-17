@@ -9,10 +9,12 @@
 namespace aletheia {
 
 enum class ErrorKind {
-    Protocol,   // JSON protocol error from Agda core
-    Validation, // DBC structural issues
-    State,      // Wrong state (e.g., send_frame when not streaming)
-    Ffi         // Library load / RTS initialization failure
+    Protocol,         // JSON protocol error from Agda core
+    Validation,       // DBC structural issues
+    State,            // Wrong state (e.g., send_frame when not streaming)
+    Ffi,              // Library load / RTS initialization failure
+    BinaryUnsupported // Backend cannot service the binary-path call (use JSON
+                      // fallback); mirrors Go's ErrBinaryPathUnsupported sentinel.
 };
 
 /// Machine-readable error codes mirroring the Agda `Error` ADT.

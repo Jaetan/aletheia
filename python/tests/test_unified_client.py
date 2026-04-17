@@ -1031,6 +1031,16 @@ class TestSendErrorRemote:
             )
         assert exc_info.value.code == "handler_err"
 
+    def test_send_error_success_status_rejected(self) -> None:
+        """parse_event_response rejects "success" — trace events must emit "ack"."""
+        with pytest.raises(ProtocolError, match="Unexpected error_event response status"):
+            parse_event_response({"status": "success"}, "error_event", 1000)
+
+    def test_send_remote_success_status_rejected(self) -> None:
+        """parse_event_response rejects "success" — trace events must emit "ack"."""
+        with pytest.raises(ProtocolError, match="Unexpected remote_event response status"):
+            parse_event_response({"status": "success"}, "remote_event", 1000)
+
     def test_send_remote_extended(self, simple_dbc: DBCDefinition) -> None:
         """send_remote with extended=True accepts 29-bit IDs."""
         with AletheiaClient() as client:

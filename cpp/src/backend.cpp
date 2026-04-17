@@ -7,11 +7,17 @@
 
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace aletheia {
+
+auto IBackend::rts_mismatch_info() const -> std::optional<std::pair<int, int>> {
+    return std::nullopt;
+}
 
 auto IBackend::send_error_binary(void* state, Timestamp ts) -> std::string {
     return process(state, detail::serialize_send_error(ts));
@@ -53,33 +59,32 @@ auto IBackend::update_frame_binary(void* /*state*/, const CanId& /*id*/, Dlc /*d
     return R"({"status":"error","message":"update_frame_binary requires FFI backend"})";
 }
 
-auto IBackend::build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
-                               std::size_t /*expected_bytes*/)
+auto IBackend::build_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                               SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
-    // Default: fall back to JSON path and parse the response.
-    auto resp = build_frame_binary(state, id, dlc, signals);
-    auto parsed = detail::parse_frame_data(resp);
-    if (!parsed)
-        return std::unexpected(parsed.error());
-    return std::vector<std::byte>(parsed->begin(), parsed->end());
+    // build_frame uses signal indices, which cannot be reconstructed into
+    // JSON without the DBC context. Non-FFI backends (MockBackend) cannot
+    // service this path — return the BinaryUnsupported sentinel so callers
+    // can detect the limitation; Client does not JSON-fall-through here.
+    return std::unexpected(
+        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
 }
 
-auto IBackend::update_frame_bin(void* state, const CanId& id, Dlc dlc,
-                                std::span<const std::byte> data, SignalInjection signals,
+auto IBackend::update_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
+                                std::span<const std::byte> /*data*/, SignalInjection /*signals*/,
                                 std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
-    auto resp = update_frame_binary(state, id, dlc, data, signals);
-    auto parsed = detail::parse_frame_data(resp);
-    if (!parsed)
-        return std::unexpected(parsed.error());
-    return std::vector<std::byte>(parsed->begin(), parsed->end());
+    return std::unexpected(
+        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
 }
 
 auto IBackend::extract_signals_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                    std::span<const std::byte> /*data*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {
+    // Sentinel: Client falls through to the JSON path on this kind,
+    // mirroring Go's ErrBinaryPathUnsupported contract.
     return std::unexpected(
-        AletheiaError{ErrorKind::Protocol, "extract_signals_bin requires FFI backend"});
+        AletheiaError{ErrorKind::BinaryUnsupported, "binary path not supported by this backend"});
 }
 
 } // namespace aletheia

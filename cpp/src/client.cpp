@@ -50,23 +50,15 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
         throw std::runtime_error("backend init() returned null state");
     if (!logger_)
         return;
-    // Structured emission first — parity with Go's
-    // `rts.cores_mismatch` (ffi.go:336) and Python's `rts.cores_mismatch`
-    // (client/_ffi.py:77-82), both of which carry `active_cores` and
-    // `requested_cores` integer fields.
+    // Parity with Go's `rts.cores_mismatch` (ffi.go:336) and Python's
+    // `rts.cores_mismatch` (client/_ffi.py:77-82), both of which carry
+    // `active_cores` and `requested_cores` integer fields.
     if (auto rts = backend_->rts_mismatch_info(); rts) {
         const auto active = static_cast<std::int64_t>(rts->first);
         const auto requested = static_cast<std::int64_t>(rts->second);
         logger_.warn("rts.cores_mismatch",
                      {{"active_cores", active}, {"requested_cores", requested}});
-        return;
     }
-    // Fallback path for any unstructured pending_warning() diagnostic a
-    // future backend might produce (none today). Kept so that new warning
-    // categories don't silently drop while their structured counterparts
-    // are being designed.
-    if (auto w = backend_->pending_warning(); !w.empty())
-        logger_.warn("backend.warning", {{"warning", w}});
 }
 
 AletheiaClient::~AletheiaClient() {
@@ -199,6 +191,8 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
     const auto nvals = read_u16(0);
     const auto nerrs = read_u16(2);
     const auto nabss = read_u16(4);
+    // nvals/nerrs/nabss are u16 (max 65535), so the max expected_size is
+    // ~1.5 MB — far below SIZE_MAX on any supported platform.
     const auto expected_size =
         std::size_t{6} + std::size_t{nvals} * 18 + std::size_t{nerrs} * 3 + std::size_t{nabss} * 2;
     if (buf.size() < expected_size)
@@ -221,8 +215,8 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
             idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
         if (den == 0)
             return std::unexpected(AletheiaError{
-                ErrorKind::Protocol,
-                std::format("Zero denominator in extraction value for {}", std::string_view{name})});
+                ErrorKind::Protocol, std::format("Zero denominator in extraction value for {}",
+                                                 std::string_view{name})});
         auto value = PhysicalValue{Rational{num, den}};
         result.values.push_back(SignalValue{.name = std::move(name), .value = value});
     }
@@ -260,15 +254,20 @@ auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byt
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
 
-    // Use binary path when signal name cache is populated.
+    // Use binary path when signal name cache is populated. Only
+    // ErrorKind::BinaryUnsupported (e.g. MockBackend) triggers the JSON
+    // fallback — any other error (decode / truncation / real FFI failure)
+    // propagates, matching Go's ErrBinaryPathUnsupported contract.
     auto id_value = std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
     auto is_extended = std::holds_alternative<ExtendedId>(id);
     auto names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
-        if (!buf)
+        if (buf)
+            return parse_extraction_bin(*buf, names_it->second);
+        if (buf.error().kind() != ErrorKind::BinaryUnsupported)
             return std::unexpected(buf.error());
-        return parse_extraction_bin(*buf, names_it->second);
+        // BinaryUnsupported: fall through to JSON path.
     }
 
     // Fallback: JSON path.
@@ -368,8 +367,7 @@ auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void>
             const auto& f = c.formula();
             if (!f)
                 return std::unexpected(AletheiaError{
-                    ErrorKind::Validation,
-                    std::string(origin) + " check has no formula"});
+                    ErrorKind::Validation, std::string(origin) + " check has no formula"});
             formulas.push_back(ltl::clone(*f));
             return {};
         };
@@ -543,7 +541,8 @@ auto format_enriched_reason(const PropertyDiagnostic& diag,
             if (auto it = values.find(sig); it != values.end()) {
                 if (!first)
                     reason += ", ";
-                reason += std::format("{} = {:g}", std::string_view{sig}, it->second.get().to_double());
+                reason +=
+                    std::format("{} = {:g}", std::string_view{sig}, it->second.get().to_double());
                 first = false;
             }
         }
@@ -672,26 +671,33 @@ auto AletheiaClient::extract_last_known_values(const PropertyDiagnostic& diag)
 auto AletheiaClient::extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
                                               std::uint32_t id_value, bool is_extended)
     -> std::optional<ExtractionResult> {
-    // Use binary path when signal name cache is populated.
+    // Use binary path when signal name cache is populated. Mirrors the
+    // ErrorKind::BinaryUnsupported fallback contract in extract_signals:
+    // only that kind triggers the JSON fallback; any other error is a real
+    // failure (decode / truncation / genuine FFI error) logged + surfaced
+    // as std::nullopt.
     auto names_it = signal_names_.find(detail::MessageKey{id_value, is_extended});
     if (names_it != signal_names_.end()) {
         auto buf = backend_->extract_signals_bin(state_, id, dlc, data);
-        if (!buf) {
+        if (buf) {
+            auto bin_result = parse_extraction_bin(*buf, names_it->second);
+            if (!bin_result) {
+                if (logger_)
+                    logger_.warn("extraction.parse_failed",
+                                 {{"canId", static_cast<std::uint64_t>(id_value)},
+                                  {"error", bin_result.error().message()}});
+                return std::nullopt;
+            }
+            return std::move(*bin_result);
+        }
+        if (buf.error().kind() != ErrorKind::BinaryUnsupported) {
             if (logger_)
                 logger_.warn("extraction.process_failed",
                              {{"canId", static_cast<std::uint64_t>(id_value)},
                               {"error", buf.error().message()}});
             return std::nullopt;
         }
-        auto bin_result = parse_extraction_bin(*buf, names_it->second);
-        if (!bin_result) {
-            if (logger_)
-                logger_.warn("extraction.parse_failed",
-                             {{"canId", static_cast<std::uint64_t>(id_value)},
-                              {"error", bin_result.error().message()}});
-            return std::nullopt;
-        }
-        return std::move(*bin_result);
+        // BinaryUnsupported: fall through to JSON path.
     }
 
     // Fallback: JSON path.

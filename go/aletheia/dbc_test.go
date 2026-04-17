@@ -93,6 +93,32 @@ func TestValidateDBC_WithIssues(t *testing.T) {
 	}
 }
 
+func TestValidateDBC_UnknownSeverityRejected(t *testing.T) {
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status":"validation",
+			"has_errors":false,
+			"issues":[
+				{"severity":"info","code":"empty_message","detail":"x"}
+			]
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.ValidateDBC(testDBC())
+	if err == nil {
+		t.Fatal("expected error for unknown severity, got nil")
+	}
+	var aerr *aletheia.Error
+	if !errors.As(err, &aerr) || aerr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %v", err)
+	}
+}
+
 func TestFormatDBC(t *testing.T) {
 	mock := aletheia.NewMockBackend(
 		aletheia.Respond(`{

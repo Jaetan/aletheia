@@ -134,7 +134,23 @@ cd "$PROJECT_DIR"
 
 # --- C++ ---
 CPP_BIN="$PROJECT_DIR/cpp/build/benchmark"
+CPP_CACHE="$PROJECT_DIR/cpp/build/CMakeCache.txt"
 if [[ -f "$CPP_BIN" ]]; then
+    # Refuse to run a Debug-mode C++ tree — an -O0 benchmark silently looks
+    # like a 20%+ regression (see R15 investigation). CMakeLists.txt defaults
+    # to Release when the cache is empty, but an explicit
+    # -DCMAKE_BUILD_TYPE=Debug from a prior session persists in the cache.
+    if [[ -f "$CPP_CACHE" ]]; then
+        CPP_BUILD_TYPE="$(awk -F= '/^CMAKE_BUILD_TYPE:/{print $2}' "$CPP_CACHE")"
+        if [[ "$CPP_BUILD_TYPE" == "Debug" ]]; then
+            echo "ERROR: cpp/build is configured with CMAKE_BUILD_TYPE=Debug." >&2
+            echo "       Debug builds produce unoptimized benchmarks." >&2
+            echo "       Reconfigure with:" >&2
+            echo "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release && cmake --build cpp/build" >&2
+            exit 1
+        fi
+    fi
+
     CPP_ARGS=("$BENCH" --json)
     case $BENCH in
         throughput|latency) CPP_ARGS+=( --frames "$FRAMES" --runs "$RUNS") ;;

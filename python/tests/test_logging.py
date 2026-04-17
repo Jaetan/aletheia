@@ -229,9 +229,9 @@ class TestLoggingSchema:
     """
 
     def test_known_events_matches_enum(self) -> None:
-        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 16 names."""
+        """``KNOWN_EVENTS`` is derived from ``LogEvent`` and has 15 names."""
         assert KNOWN_EVENTS == {event.value for event in LogEvent}
-        assert len(KNOWN_EVENTS) == 16
+        assert len(KNOWN_EVENTS) == 15
 
     def test_event_names_follow_namespace_dot_action(self) -> None:
         """All events are of the form ``namespace.action`` for grep-ability."""

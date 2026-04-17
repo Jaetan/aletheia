@@ -83,11 +83,33 @@ static auto get_cpu_model() -> std::string {
     return "unknown";
 }
 
+// NDEBUG is defined by CMake's Release/RelWithDebInfo/MinSizeRel build types.
+// An absent NDEBUG means an unoptimized build — a silent 20%+ regression (see
+// R15 investigation). We expose the build type via get_system_info() and fail
+// loudly at startup in check_release_build() below.
+#ifdef NDEBUG
+constexpr auto k_build_type = "Release";
+#else
+constexpr auto k_build_type = "Debug";
+#endif
+
+static void check_release_build() {
+#ifndef NDEBUG
+    std::fputs("ERROR: C++ benchmark built without NDEBUG (Debug build).\n"
+               "       Reconfigure with -DCMAKE_BUILD_TYPE=Release:\n"
+               "         rm -rf cpp/build && cmake -B cpp/build -DCMAKE_BUILD_TYPE=Release \\\n"
+               "           && cmake --build cpp/build\n",
+               stderr);
+    std::exit(1);
+#endif
+}
+
 static auto get_system_info() -> json {
     return {
         {"cpu", get_cpu_model()},
         {"cores", static_cast<int>(std::thread::hardware_concurrency())},
         {"platform", "Linux"},
+        {"build_type", k_build_type},
     };
 }
 
@@ -989,6 +1011,7 @@ static auto parse_args(int argc, char* argv[]) -> Args {
 // ---------------------------------------------------------------------------
 
 int main(int argc, char* argv[]) {
+    check_release_build();
     auto args = parse_args(argc, argv);
 
     // When --json is set, human-readable output goes to stderr.

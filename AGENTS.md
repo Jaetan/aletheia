@@ -163,7 +163,7 @@ Implement all approved fixes, then run the verification suite **in this canonica
 1. **Agda**: `cabal run shake -- build` (includes `check-invariants`, `check-no-properties-in-runtime`, `check-erasure`).
 2. **Language-specific unit tests**: `python -m pytest`, `go test ./aletheia/ -race`, `ctest --test-dir cpp/build`.
 3. **Lint gates**: `basedpyright`, `pylint`, `go vet`, `gofmt -l`, `clang-format --dry-run -Werror`, `clang-tidy -p build`.
-4. **Cross-language benchmarks** (mandatory for runtime-affecting changes — see Universal Rules): `bash benchmarks/run_all.sh --frames 10000 --runs 5 --bench throughput`, compared against the most recent baseline. Regression gate: no benchmark may regress > 3% vs the baseline after accounting for run-to-run variance (±2–4% on WSL2).
+4. **Cross-language benchmarks** (mandatory for runtime-affecting changes — see Universal Rules): `bash benchmarks/run_all.sh --frames 10000 --runs 5 --bench throughput`, compared against the most recent baseline. Regression gate: no benchmark may regress > 3% vs the baseline after accounting for run-to-run variance (±2–4% on WSL2). Before trusting a C++-only regression, verify `cpp/build/CMakeCache.txt` has `CMAKE_BUILD_TYPE:STRING=Release` — a Debug-pinned cache silently produces −20%+ (R15). The runner and binary now both refuse Debug trees, and each bench JSON records `system.build_type`; if a stored baseline predates R15 it has no `build_type` field, so double-check before comparing.
 
 Changes to docs-only files may skip step 4 (benchmarks) after confirming no code changed.
 
@@ -381,7 +381,7 @@ Scope: ALL Go source files and test files in `go/aletheia/`.
 
 ### Observability & Diagnostics (1)
 
-30. **Logging discipline (`slog` parity)** -- `slog` is the established logging path; same 16 event names, same field names, same field types as C++ `Logger` and Python logger. Use `slog.LogAttrs` in hot paths (skips the `any...` variadic allocation). Level discipline matches severity (Debug/Info/Warn/Error). No `log.Printf` or `fmt.Println` in library code. `slog.With` for scoped loggers at entry points, not per-call. Per-`Client` logger passed in, not pulled from `slog.Default()`.
+30. **Logging discipline (`slog` parity)** -- `slog` is the established logging path; same 15 event names, same field names, same field types as C++ `Logger` and Python logger. Use `slog.LogAttrs` in hot paths (skips the `any...` variadic allocation). Level discipline matches severity (Debug/Info/Warn/Error). No `log.Printf` or `fmt.Println` in library code. `slog.With` for scoped loggers at entry points, not per-call. Per-`Client` logger passed in, not pulled from `slog.Default()`.
 
 ### Build & Reproducibility (2)
 
@@ -468,7 +468,7 @@ Scope: ALL source files, headers, and test files in `cpp/`.
 
 ### Observability & Diagnostics (1)
 
-30. **Logging discipline** -- `Logger` class usage matches Go `slog` and Python parity (same 16 event names, same field names), lazy formatting (no string construction unless logger present), log level discipline (DEBUG/INFO/WARN/ERROR matches actual severity), `std::println(stderr, ...)` reserved for documented startup warnings (rts_cores mismatch), no `std::cout`/`std::cerr` in library code outside documented warning paths, no eager concatenation in disabled log calls.
+30. **Logging discipline** -- `Logger` class usage matches Go `slog` and Python parity (same 15 event names, same field names), lazy formatting (no string construction unless logger present), log level discipline (DEBUG/INFO/WARN/ERROR matches actual severity), `std::println(stderr, ...)` reserved for documented startup warnings (rts_cores mismatch), no `std::cout`/`std::cerr` in library code outside documented warning paths, no eager concatenation in disabled log calls.
 
 ### Build & Packaging (2)
 
@@ -549,7 +549,7 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 
 ### Observability & Diagnostics (2)
 
-28. **Logging discipline** -- structured logging parity with Go `slog` and C++ `Logger` (same 16 event names, same fields); lazy log message formatting (`%`-style, not f-strings); `exc_info=True` on error paths; level usage matches severity (DEBUG/INFO/WARNING/ERROR); no `print()` in library code. Any helper that wraps `logger.log(...)` on a hot path MUST check `logger.isEnabledFor(level)` and early-return before building `extra` dicts / f-strings — R12's `log_event` missed this and regressed Python Stream LTL by −16.1% until `1e40b4d` restored the guard.
+28. **Logging discipline** -- structured logging parity with Go `slog` and C++ `Logger` (same 15 event names, same fields); lazy log message formatting (`%`-style, not f-strings); `exc_info=True` on error paths; level usage matches severity (DEBUG/INFO/WARNING/ERROR); no `print()` in library code. Any helper that wraps `logger.log(...)` on a hot path MUST check `logger.isEnabledFor(level)` and early-return before building `extra` dicts / f-strings — R12's `log_event` missed this and regressed Python Stream LTL by −16.1% until `1e40b4d` restored the guard.
 29. **Exception chaining & context** -- `raise X from Y` to preserve `__cause__`, never `except ... as e: raise RuntimeError(str(e))` (loses traceback), no bare `except:` (use `except Exception:` minimum), re-raises preserve original context, error messages are actionable.
 
 ### Packaging & Reproducibility (3)

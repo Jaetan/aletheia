@@ -177,6 +177,10 @@ type FFIBackend struct {
 
 func (*FFIBackend) backend() {}
 
+// loadSym looks up a symbol inside an already-dlopened library handle,
+// returning a structured error (with dlerror text) if the symbol is
+// missing. Callers cast the resulting void* to the expected C function
+// pointer type before invoking it.
 func loadSym(handle unsafe.Pointer, name string) (unsafe.Pointer, error) {
 	cName := C.CString(name)
 	defer C.free(unsafe.Pointer(cName))

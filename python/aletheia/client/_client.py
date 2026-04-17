@@ -23,7 +23,6 @@ from ..protocols import (
     PropertyResultEntry,
     CompleteResponse,
     ErrorResponse,
-    ValidationIssue,
     ValidationResponse,
     is_str_dict,
     is_object_list,
@@ -50,6 +49,7 @@ from ._response_parsers import (
     parse_event_response,
     parse_finalization_results,
     parse_frame_response,
+    validate_issue_severities,
 )
 from ._types import (
     AletheiaError,
@@ -299,11 +299,10 @@ class AletheiaClient:
 
         if status == "validation":
             vresp = cast(ValidationResponse, response)
-            issues: list[ValidationIssue] = list(vresp["issues"])
             return {
                 "status": "validation",
                 "has_errors": vresp["has_errors"],
-                "issues": issues,
+                "issues": validate_issue_severities(list(vresp["issues"])),
             }
 
         if status == "error":

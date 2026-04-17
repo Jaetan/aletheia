@@ -28,7 +28,7 @@ open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
   ( RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
   ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
-  ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParseError
+  ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParse
   )
 
 -- ============================================================================
@@ -56,7 +56,7 @@ private
   parseCANIdField : String → String → List (String × JSON) → RouteError ⊎ CANId
   parseCANIdField ctx key obj =
     requireNat ctx key obj >>=ₑ λ rawId →
-    mapₑ WrappedParseError (parseCANId ctx rawId obj)
+    mapₑ WrappedParse (parseCANId ctx rawId obj)
 
   -- Parse a JSON array as a list of bytes
   parseByteArray : List JSON → Maybe (List ℕ)

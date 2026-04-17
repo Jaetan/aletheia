@@ -140,9 +140,9 @@ data FrameError : Set where
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
 
 formatFrameError : FrameError → String
-formatFrameError (SignalNotFound name)          = "signal not found in message: " ++ₛ name
+formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
 formatFrameError (SignalIndexOOB idx)           = "signal index " ++ₛ showℕ idx ++ₛ " out of range"
-formatFrameError (InjectionFailed n)            = "injection failed for signal: " ++ₛ n
+formatFrameError (InjectionFailed n)            = "injection failed for signal '" ++ₛ n ++ₛ "'"
 formatFrameError SignalsOverlap                 = "signals overlap"
 formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
 formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
@@ -171,7 +171,7 @@ data RouteError : Set where
   ByteCountMismatch    : String → RouteError
   MissingDBCField      : String → RouteError
   MissingPropsField    : RouteError
-  WrappedParseError    : ParseError → RouteError
+  WrappedParse    : ParseError → RouteError
 
 formatRouteError : RouteError → String
 formatRouteError (RouteMissingField cmd f) =
@@ -192,7 +192,7 @@ formatRouteError (MissingDBCField cmd) =
   cmd ++ₛ ": missing 'dbc' field"
 formatRouteError MissingPropsField =
   "missing 'properties' field"
-formatRouteError (WrappedParseError pe) =
+formatRouteError (WrappedParse pe) =
   "parse error: " ++ₛ formatParseError pe
 
 routeErrorCode : RouteError → String
@@ -205,7 +205,7 @@ routeErrorCode (ByteArrayParseFailed _) = "route_byte_array_parse_failed"
 routeErrorCode (ByteCountMismatch _)   = "route_byte_count_mismatch"
 routeErrorCode (MissingDBCField _)     = "route_missing_dbc_field"
 routeErrorCode MissingPropsField       = "route_missing_props_field"
-routeErrorCode (WrappedParseError pe)  = parseErrorCode pe
+routeErrorCode (WrappedParse pe)  = parseErrorCode pe
 
 -- ============================================================================
 -- HANDLER/STATE ERRORS (Protocol/Handlers.agda, StreamState.agda)

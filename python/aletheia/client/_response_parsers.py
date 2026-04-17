@@ -18,12 +18,27 @@ from ..protocols import (
     PropertyResultEntry,
     PropertyViolationResponse,
     Response,
+    ValidationIssue,
 )
 from ._helpers import validate_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
 _logger = logging.getLogger("aletheia")
+
+
+def validate_issue_severities(issues: list[ValidationIssue]) -> list[ValidationIssue]:
+    """Validate issue severities and return the list unchanged, for chaining.
+
+    The canonical wire values are ``"error"`` and ``"warning"`` — see
+    ``Protocol/ResponseFormat.agda::formatIssueSeverity``. Anything else is a
+    protocol violation and raises ``ProtocolError``.
+    """
+    for issue in issues:
+        sev = issue.get("severity")
+        if sev not in ("error", "warning"):
+            raise ProtocolError(f"Unknown validation severity: {sev!r}")
+    return issues
 
 
 def build_error_response(response: Response) -> ErrorResponse:
@@ -95,12 +110,14 @@ def parse_event_response(
         raise ProtocolError(f"Unknown event_kind {event_kind!r}")
 
     status = response.get("status")
-    # Accept both "ack" (real FFI) and "success" (mock backends) — matches
-    # C++ parse_success and Go parseEventAck cross-binding parity.
-    if status in ("ack", "success"):
+    # Trace events (Error/Remote) always resolve to `Response.Ack` in Agda
+    # (see Protocol/StreamState.agda handleTraceEvent), so the wire status is
+    # always "ack". Tightened to match the Agda protocol exactly — Go
+    # parseEventAck and C++ parse_event_ack enforce the same.
+    if status == "ack":
         log_event(
             _logger, logging.DEBUG, event,
-            ts=timestamp, response=str(status),
+            ts=timestamp, response="ack",
         )
         return {"status": "ack"}
     if status == "error":
@@ -115,7 +132,7 @@ def parse_event_response(
         )
     raise ProtocolError(
         f"Unexpected {event_kind} response status: {status!r}"
-        + " (expected 'ack', 'success', or 'error')"
+        + " (expected 'ack' or 'error')"
     )
 
 

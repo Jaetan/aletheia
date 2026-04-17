@@ -454,7 +454,7 @@ func (c *Client) SendError(ts Timestamp) error {
 	}
 	if c.logger != nil {
 		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "error_event.sent",
-			slog.Int64("ts", ts.Microseconds), slog.String("response", resp))
+			slog.Int64("ts", ts.Microseconds), slog.String("response", "ack"))
 	}
 	return nil
 }
@@ -481,7 +481,7 @@ func (c *Client) SendRemote(ts Timestamp, id CanID) error {
 	if c.logger != nil {
 		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "remote_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
-			slog.Bool("extended", id.IsExtended()), slog.String("response", resp))
+			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
 	}
 	return nil
 }

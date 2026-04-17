@@ -184,8 +184,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
 
     // Property: always(Speed < 200)
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{200, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{200, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -225,8 +225,8 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
 
     // Property: always(Speed < 120) — will be violated by Speed=150
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{120, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{120, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -272,8 +272,8 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
 
     REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -757,8 +757,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -787,8 +787,8 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -849,8 +849,8 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved (regre
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    auto formula = ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -880,8 +880,8 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
+    auto formula = ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -905,8 +905,8 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -929,8 +929,8 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -968,8 +968,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
-    auto rhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}})));
+    auto lhs = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto rhs = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::both(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(props).has_value());
@@ -1014,9 +1016,10 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto lhs = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
-    auto rhs =
-        ltl::eventually(ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}})));
+    auto lhs = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto rhs = ltl::eventually(
+        ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::either(std::move(lhs), std::move(rhs)));
     REQUIRE(client.set_properties(props).has_value());
@@ -1046,8 +1049,8 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
 
     REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(props).has_value());
@@ -1278,14 +1281,14 @@ TEST_CASE("make_ffi_backend warns on mismatched rts_cores", "[integration][ffi_b
         REQUIRE(backend != nullptr);
     }
 
-    // Second call with rts_cores != 1 must trigger the warning path.
+    // Second call with rts_cores != 1 must populate the structured mismatch.
     auto backend = make_ffi_backend(lib, /*rts_cores=*/8);
     REQUIRE(backend != nullptr);
-    auto warning = backend->pending_warning();
+    auto mismatch = backend->rts_mismatch_info();
 
-    CHECK(warning.find("already initialized") != std::string::npos);
-    CHECK(warning.find("rts_cores=8") != std::string::npos);
-    CHECK(warning.find("1 core") != std::string::npos);
+    REQUIRE(mismatch.has_value());
+    CHECK(mismatch->first == 1);
+    CHECK(mismatch->second == 8);
 }
 
 TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi_backend]") {
@@ -1302,7 +1305,6 @@ TEST_CASE("make_ffi_backend is silent on matching rts_cores", "[integration][ffi
     auto backend = make_ffi_backend(lib, /*rts_cores=*/1);
     REQUIRE(backend != nullptr);
 
-    CHECK(backend->pending_warning().empty());
     CHECK_FALSE(backend->rts_mismatch_info().has_value());
 }
 

@@ -81,6 +81,9 @@ type yamlClause struct {
 // Parse logic
 // ---------------------------------------------------------------------------
 
+// parseYAMLChecks decodes a YAML document into a list of CheckResults,
+// validating the top-level "checks:" key before unmarshaling into
+// typed structs so malformed documents yield actionable errors.
 func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	// First try to unmarshal into the expected structure.
 	// We need to verify the top-level structure manually to give good errors.
@@ -116,6 +119,9 @@ func parseYAMLChecks(data []byte) ([]CheckResult, error) {
 	return results, nil
 }
 
+// parseYAMLCheck dispatches a single YAML check entry to the
+// simple-form or when/then parser, then applies shared metadata
+// (name, severity) before returning the CheckResult.
 func parseYAMLCheck(entry yamlCheck) (CheckResult, error) {
 	var result CheckResult
 	var err error
@@ -136,6 +142,9 @@ func parseYAMLCheck(entry yamlCheck) (CheckResult, error) {
 	return result, nil
 }
 
+// parseYAMLSimple handles the "simple" YAML shape (signal + condition
+// + value/min/max/within_ms fields); see INTERFACES.md for the full
+// condition vocabulary.
 func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
 	condition := entry.Condition
@@ -181,6 +190,9 @@ func parseYAMLSimple(entry yamlCheck) (CheckResult, error) {
 	return CheckResult{}, validationError(fmt.Sprintf("check '%s': unknown condition '%s'", name, condition))
 }
 
+// parseYAMLWhenThen handles the "when/then" YAML shape (trigger
+// predicate + obligation with a bounded response window); delegates to
+// the simple parsers for the two sub-conditions.
 func parseYAMLWhenThen(entry yamlCheck) (CheckResult, error) {
 	name := checkName(entry.Name)
 

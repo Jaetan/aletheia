@@ -22,6 +22,10 @@ func bytesToIntSlice(data []byte) []int {
 
 // --- Serialization (Go → JSON for Agda core) ---
 
+// serializeCommand builds the JSON envelope sent to the Agda core for
+// control-plane commands (parseDBC, setProperties, validateDBC, …).
+// Go's encoding/json marshals map keys in lexical order, so the wire
+// output is deterministic across runs.
 func serializeCommand(command string, fields map[string]any) (string, error) {
 	m := map[string]any{"type": "command", "command": command}
 	for k, v := range fields {
@@ -94,6 +98,8 @@ func serializeRemoteEvent(ts Timestamp, id CanID) string {
 	return buf.String()
 }
 
+// serializeDBC converts a DbcDefinition into the map shape Agda expects
+// under the "dbc" field of the parseDBC / validateDBC command envelopes.
 func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
@@ -146,6 +152,8 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 	}, nil
 }
 
+// serializePredicate encodes a Predicate into the JSON tag/field shape
+// consumed by the Agda LTL parser (SignalPredicate.JSON).
 func serializePredicate(p Predicate) (map[string]any, error) {
 	switch p := p.(type) {
 	case Equals:
@@ -175,6 +183,8 @@ func serializePredicate(p Predicate) (map[string]any, error) {
 	}
 }
 
+// validateTimeBound rejects TimeBounds the Agda core cannot represent
+// (negative microseconds or overflow past int64 in the wire payload).
 func validateTimeBound(t TimeBound) error {
 	if t.Microseconds < 0 {
 		return validationError(fmt.Sprintf("negative time bound: %d microseconds", t.Microseconds))
@@ -182,10 +192,15 @@ func validateTimeBound(t TimeBound) error {
 	return nil
 }
 
+// serializeFormula encodes an LTL formula AST for Agda, bounded in depth
+// to prevent unbounded recursion on pathological user input.
 func serializeFormula(f Formula) (map[string]any, error) {
 	return serializeFormulaDepth(f, 0)
 }
 
+// serializeFormulaDepth is the recursive core of serializeFormula. It
+// carries the remaining depth budget so deeply nested user input fails
+// fast instead of blowing the Go stack.
 func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 	if depth > maxFormulaDepth {
 		return nil, validationError(fmt.Sprintf("formula nesting depth exceeds %d", maxFormulaDepth))
@@ -318,6 +333,9 @@ func serializeFormulaDepth(f Formula, depth int) (map[string]any, error) {
 
 // --- Rational helpers ---
 
+// parseRational reads a Rational from a JSON scalar (number) or the
+// {"numerator","denominator"} object shape, matching Python's Fraction
+// decoding path.
 func parseRational(v any) (Rational, error) {
 	switch n := v.(type) {
 	case float64:
@@ -347,6 +365,8 @@ func parseRational(v any) (Rational, error) {
 	}
 }
 
+// serializeRational emits a Rational as {"numerator","denominator"} so
+// the wire form preserves exact precision (no float rounding).
 func serializeRational(r Rational) any {
 	if r.Denominator == 1 {
 		return r.Numerator
@@ -455,6 +475,8 @@ func getObject(m map[string]any, key string) map[string]any {
 	return nil
 }
 
+// parseResponse unmarshals an Agda core response into a generic map
+// before typed parsers narrow it to a concrete response variant.
 func parseResponse(raw string) (map[string]any, error) {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
@@ -463,6 +485,8 @@ func parseResponse(raw string) (map[string]any, error) {
 	return m, nil
 }
 
+// checkErrorStatus converts a parsed response with status="error" into
+// a typed error carrying the Agda-side code and message.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status == "error" {
@@ -476,6 +500,9 @@ func checkErrorStatus(m map[string]any) error {
 	return nil
 }
 
+// parseSuccessResponse validates an Agda command response for control-
+// plane commands (parseDBC, setProperties, …) and returns nil iff
+// status=="success".
 func parseSuccessResponse(raw string) error {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -491,9 +518,10 @@ func parseSuccessResponse(raw string) error {
 	return protocolError(fmt.Sprintf("unexpected status: %q", status))
 }
 
-// parseEventAck parses a response that should be either "ack" or "success".
-// Used for send_error and send_remote responses where the Agda core returns
-// "ack" (real FFI) but the base IBackend default returns "success".
+// parseEventAck parses a send_error / send_remote response. Trace events
+// (Error / Remote) always resolve to Response.Ack in the Agda core — see
+// Protocol/StreamState.agda handleTraceEvent — so the wire status is "ack".
+// Python parse_event_response and C++ parse_event_ack enforce the same.
 func parseEventAck(raw string) error {
 	// Fast path: byte-level check before JSON parsing (~99% of real traffic).
 	if raw == ackCompact || raw == ackSpaced {
@@ -507,12 +535,14 @@ func parseEventAck(raw string) error {
 		return err
 	}
 	status := getString(m, "status")
-	if status == "ack" || status == "success" {
+	if status == "ack" {
 		return nil
 	}
 	return protocolError(fmt.Sprintf("unexpected status: %q", status))
 }
 
+// parseValidationResponse decodes a validateDBC response into typed
+// ValidationIssues, preserving severity and the Agda error code.
 func parseValidationResponse(raw string) (*ValidationResult, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -532,9 +562,14 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 		if !ok {
 			return nil, protocolError("expected object in issues array")
 		}
-		sev := SeverityError
-		if getString(issue, "severity") == "warning" {
+		var sev IssueSeverity
+		switch s := getString(issue, "severity"); s {
+		case "error":
+			sev = SeverityError
+		case "warning":
 			sev = SeverityWarning
+		default:
+			return nil, protocolError(fmt.Sprintf("unknown validation severity: %q", s))
 		}
 		code := IssueCode(getString(issue, "code"))
 		if code == "" {
@@ -552,6 +587,8 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 	}, nil
 }
 
+// parseExtractionResponse decodes an extractAllSignals JSON response.
+// Binary-extraction responses use parseExtractionBin instead.
 func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -611,6 +648,8 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 	return result, nil
 }
 
+// parseFrameDataResponse decodes a buildFrame/updateFrame JSON response
+// into the raw CAN payload bytes.
 func parseFrameDataResponse(raw string) (FramePayload, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -715,6 +754,8 @@ func parseExtractionBin(buf []byte, names []string) (*ExtractionResult, error) {
 	return result, nil
 }
 
+// signalNameByIndex resolves a DBC signal index into its name using the
+// caller-supplied lookup table. Returns an empty SignalName on OOB.
 func signalNameByIndex(names []string, idx uint16) SignalName {
 	if int(idx) < len(names) {
 		return SignalName(names[idx])
@@ -731,6 +772,8 @@ const (
 	ackSpaced       = `{"status": "ack"}`
 )
 
+// parseFrameResponse decodes the per-frame LTL verdict returned by
+// sendFrame: Ack (no violation) or Violation (with property index).
 func parseFrameResponse(raw string) (FrameResponse, error) {
 	// Fast path: byte-level check before JSON parsing.
 	if raw == ackCompact || raw == ackSpaced {
@@ -782,6 +825,8 @@ func parseFrameResponse(raw string) (FrameResponse, error) {
 	}
 }
 
+// parseStreamResponse decodes an endStream response — a list of final
+// property verdicts (Satisfaction / Violation / Unresolved).
 func parseStreamResponse(raw string) (*StreamResult, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -811,6 +856,8 @@ func parseStreamResponse(raw string) (*StreamResult, error) {
 	return &StreamResult{Results: results}, nil
 }
 
+// parsePropertyResult decodes a single endStream verdict object into
+// the typed PropertyResult sum (Satisfaction / Violation / Unresolved).
 func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	var zero PropertyResult
 	entryStatus := getString(r, "status")
@@ -855,6 +902,7 @@ func parsePropertyResult(r map[string]any) (PropertyResult, error) {
 	return pr, nil
 }
 
+// parseDbcResponse decodes a formatDBC response into a DbcDefinition.
 func parseDbcResponse(raw string) (*DbcDefinition, error) {
 	m, err := parseResponse(raw)
 	if err != nil {
@@ -875,6 +923,8 @@ func parseDbcResponse(raw string) (*DbcDefinition, error) {
 	return parseDbcDefinition(dbcRaw)
 }
 
+// parseDbcDefinition decodes the "dbc" sub-object of a formatDBC
+// response into its typed DbcDefinition form.
 func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 	var messages []DbcMessage
 	for _, item := range getArray(j, "messages") {
@@ -896,6 +946,8 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 	return def, nil
 }
 
+// parseDbcMessage decodes a single message from a DbcDefinition JSON
+// object, including its signals and multiplexing metadata.
 func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 	idVal, err := parseNumberAsInt64(j["id"])
 	if err != nil {
@@ -962,6 +1014,7 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 	return msg, nil
 }
 
+// parseDbcSignal decodes one signal definition from a DBC JSON object.
 func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 	var zero DbcSignal
 	var bo ByteOrder
@@ -1041,6 +1094,9 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 	}, nil
 }
 
+// parseSignalPresence decodes the multiplexor "presence" object that
+// names the multiplexor signal plus the mux values under which a
+// multiplexed signal is active.
 func parseSignalPresence(j map[string]any) (SignalPresence, error) {
 	muxName := getString(j, "multiplexor")
 	if muxName == "" {

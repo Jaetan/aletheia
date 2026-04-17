@@ -646,3 +646,30 @@ class TestParseDBC_DualLayerValidation:
             response = client.parse_dbc(dbc)
 
         assert response["status"] == "success"
+
+
+class TestValidateDBC_UnknownSeverityRejected:
+    """validate_dbc must reject wire responses with unknown severity strings.
+
+    Agda only emits "error" or "warning". A different value means the wire
+    protocol has drifted — treat it as a ProtocolError for cross-binding
+    parity with C++ and Go.
+    """
+
+    def test_unknown_severity_raises_protocol_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dbc = _make_dbc([_make_message(0x100, "Msg1", [_make_signal("Sig1")])])
+        with AletheiaClient() as client:
+            def fake_send(_cmd: object) -> dict:
+                return {
+                    "status": "validation",
+                    "has_errors": False,
+                    "issues": [
+                        {"severity": "info", "code": "empty_message", "detail": "x"}
+                    ],
+                }
+
+            monkeypatch.setattr(client, "_send_command", fake_send)
+            with pytest.raises(ProtocolError, match="severity"):
+                client.validate_dbc(dbc)

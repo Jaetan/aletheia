@@ -299,6 +299,10 @@ func TestMessageByName_CopyIndependence(t *testing.T) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// mustStdID builds a standard-frame CanID from a raw 11-bit value in
+// tests; panics on out-of-range input because test fixtures should
+// never produce one and the panic message is more useful than a
+// silently-propagated error.
 func mustStdID(v uint16) aletheia.CanID {
 	id, err := aletheia.NewStandardID(v)
 	if err != nil {
@@ -307,6 +311,8 @@ func mustStdID(v uint16) aletheia.CanID {
 	return id
 }
 
+// mustDLC builds a DLC newtype in tests; panics on out-of-range input
+// for the same reason as mustStdID.
 func mustDLC(v uint8) aletheia.DLC {
 	d, err := aletheia.NewDLC(v)
 	if err != nil {

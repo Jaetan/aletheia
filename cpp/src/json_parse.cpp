@@ -327,7 +327,7 @@ auto parse_event_ack(std::string_view input) -> Result<void> {
     try {
         auto j = Json::parse(input);
         auto status = j.value("status", "");
-        if (status == "ack" || status == "success")
+        if (status == "ack")
             return {};
         if (status == "error")
             return std::unexpected(make_json_error(ErrorKind::Protocol, j));
@@ -348,8 +348,16 @@ auto parse_validation(std::string_view input) -> Result<ValidationResult> {
 
         std::vector<ValidationIssue> issues;
         for (const auto& issue : j.at("issues")) {
-            auto sev_str = issue.value("severity", "error");
-            auto severity = (sev_str == "warning") ? IssueSeverity::Warning : IssueSeverity::Error;
+            auto sev_str = issue.value("severity", "");
+            IssueSeverity severity{};
+            if (sev_str == "error") {
+                severity = IssueSeverity::Error;
+            } else if (sev_str == "warning") {
+                severity = IssueSeverity::Warning;
+            } else {
+                return std::unexpected(
+                    make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
+            }
             issues.push_back({
                 .severity = severity,
                 .code = parse_issue_code(issue.value("code", "")),

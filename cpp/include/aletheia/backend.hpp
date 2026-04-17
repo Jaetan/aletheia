@@ -107,18 +107,13 @@ public:
                                                    std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
-    // Return a non-empty string if the backend produced a startup diagnostic
-    // (e.g., RTS core mismatch).  The Client logs this on construction.
-    [[nodiscard]] virtual auto pending_warning() const -> std::string { return {}; }
-
-    // Structured companion to pending_warning() for the GHC RTS cores-mismatch
-    // case — emitted by the Client as the `rts.cores_mismatch` log event.
-    // Returns `std::nullopt` when the warning (if any) is unrelated to the RTS
-    // cores count, keeping the structured log schema stable across bindings
-    // (Go + Python both emit `active_cores` / `requested_cores` fields).
-    [[nodiscard]] virtual auto rts_mismatch_info() const -> std::optional<std::pair<int, int>> {
-        return std::nullopt;
-    }
+    // Startup diagnostic for the GHC RTS cores-mismatch case — emitted by
+    // the Client as the `rts.cores_mismatch` log event. Returns
+    // `std::nullopt` when no mismatch occurred, keeping the structured log
+    // schema stable across bindings (Go + Python both emit `active_cores` /
+    // `requested_cores` fields). Out-of-line default in backend.cpp keeps
+    // the ABI stable across binding builds.
+    [[nodiscard]] virtual auto rts_mismatch_info() const -> std::optional<std::pair<int, int>>;
 
 protected:
     IBackend() = default;

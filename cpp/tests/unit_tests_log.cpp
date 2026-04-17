@@ -41,8 +41,8 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
 
     AletheiaClient client(std::move(mock), logger);
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -87,8 +87,8 @@ TEST_CASE("null logger has zero overhead", "[client][log]") {
     // Default-constructed logger — no callback
     AletheiaClient client(std::move(mock));
 
-    auto formula =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto formula = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
@@ -102,9 +102,6 @@ namespace {
 
 class MockBackendWithRtsMismatch : public MockBackend {
 public:
-    [[nodiscard]] auto pending_warning() const -> std::string override {
-        return "synthetic rts mismatch for testing";
-    }
     [[nodiscard]] auto rts_mismatch_info() const -> std::optional<std::pair<int, int>> override {
         return std::make_pair(1, 4);
     }
