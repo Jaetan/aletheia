@@ -186,7 +186,7 @@ frames = load_can_log("drive.blf")
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, dlc, data in iter_can_log("highway.asc"):
+for ts, can_id, dlc, data, _extended in iter_can_log("highway.asc"):
     response = client.send_frame(ts, can_id, dlc, data)
 ```
 
@@ -203,9 +203,30 @@ frames = load_can_log("drive.blf", skip_error_frames=False, skip_remote_frames=F
 frames = load_can_log("drive.blf", on_error="raise")
 ```
 
+### Capture CAN traffic on Linux (candump)
+
+For simulations running on Linux with a SocketCAN interface (real `canN` or virtual `vcanN`), `candump` from `can-utils` writes the `.log` format Aletheia reads natively — no conversion step.
+
+> **Prerequisites.** `candump` ships in the `can-utils` package (`sudo apt install can-utils` on Debian/Ubuntu, or the equivalent for your distro). The `vcan` kernel module is in-tree on every supported Linux kernel; `modprobe vcan` is enough on a fresh system. Real CAN hardware does not need `vcan` — replace `vcan0` with the interface name your driver exposes (`can0`, etc.).
+
+```bash
+# One-time: set up a virtual CAN interface (skip if using real CAN hardware)
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set up vcan0
+
+# Capture
+candump -L vcan0 > drive.log
+
+# Replay through Aletheia
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+```
+
+See [CLI Reference § Capturing CAN traffic on Linux](../reference/CLI.md#capturing-can-traffic-on-linux) for rotating captures and the `vcan` setup details.
+
 ### Supported CAN log formats
 
-See [CLI Reference](../reference/CLI.md#input-formats) for the full list of supported CAN log formats (via python-can).
+See [CLI Reference § Input Formats](../reference/CLI.md#input-formats) for the full list of supported CAN log formats, their typical sources, and which commercial toolchains produce them natively.
 
 ---
 
@@ -243,6 +264,51 @@ python3 -m aletheia signals --dbc vehicle.dbc --json
 
 ---
 
+## Validating a DBC
+
+### Check a DBC for structural issues (CLI)
+
+```bash
+python3 -m aletheia validate --dbc vehicle.dbc
+```
+
+The CLI exits **non-zero** when the DBC contains at least one `error`-severity
+issue, **zero** when only `warning`-severity issues are present, and zero when
+the DBC is clean. This makes `aletheia validate` safe to drop into CI as a
+gating step.
+
+### Interpret validation errors
+
+```bash
+python3 -m aletheia validate --dbc vehicle.dbc --json | jq '.issues[]'
+```
+
+```json
+{
+  "code": "signal_overlaps_another",
+  "severity": "error",
+  "message": "EngineSpeed [bits 0:16] overlaps Throttle [bits 8:8] in EngineCmd",
+  "context": {"message": "EngineCmd", "signals": ["EngineSpeed", "Throttle"]}
+}
+```
+
+The most common codes you'll see:
+
+| Code | Meaning | Severity |
+|---|---|---|
+| `signal_overlaps_another` | Two signals share at least one bit. | error |
+| `signal_exceeds_message_size` | Signal's bit range extends past `DLC` bytes. | error |
+| `multiplexor_value_conflict` | Multiplexor value claimed by two distinct signals. | error |
+| `signal_factor_zero` | `factor=0` makes physical-value extraction undefined. | error |
+| `duplicate_message_id` | Two messages share the same CAN ID. | error |
+| `unused_signal` | Signal defined but no message references it. | warning |
+
+The full list lives in [`PROTOCOL.md`](../architecture/PROTOCOL.md#common-error-codes). The structured `code` field
+is the stable contract — `message` text is for humans and may change between
+releases.
+
+---
+
 ## Signal Operations
 
 ### Extract all signals from a frame
@@ -274,7 +340,7 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 
 ```python
 client.start_stream()
-for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
     # Modify speed to test property with altered values
     modified = client.update_frame(
         can_id=can_id, dlc=dlc, frame=data, signals={"VehicleSpeed": 130.0}
@@ -350,7 +416,7 @@ if response.get("status") == "fails":
 from aletheia import iter_can_log
 
 violations = []
-for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
     response = client.send_frame(ts, can_id, dlc, data)
     if response.get("status") == "fails":
         violations.append(response)
@@ -362,6 +428,57 @@ for v in violations:
     reason = v.get("enrichment", {}).get("enriched_reason", "?")
     print(f"[{ts_ms:.1f}ms] {name}: {reason}")
 ```
+
+### Debug a single violation end-to-end
+
+When a check fires unexpectedly, the goal is usually: which frame, which
+signals, which sub-formula? The enriched response carries all three.
+
+```python
+import logging
+from aletheia import AletheiaClient, Check, iter_can_log
+from aletheia.dbc_converter import dbc_to_json
+
+# Surface backend lifecycle + violation events. The `aletheia` logger emits
+# 15 structured event types — see PROTOCOL.md § Structured Logging.
+logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
+
+dbc = dbc_to_json("vehicle.dbc")
+checks = [Check.signal("Speed").never_exceeds(220).named("speed_limit")]
+
+with AletheiaClient() as client:
+    client.parse_dbc(dbc)
+    client.add_checks(checks)
+    client.start_stream()
+
+    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+        response = client.send_frame(ts, can_id, dlc, data)
+        if response.get("status") != "fails":
+            continue
+
+        # Three things to look at, in order:
+        e = response["enrichment"]
+
+        # 1. Which signals contributed (their decoded physical values).
+        print("signals at violation:", e["signals"])
+
+        # 2. Which sub-formula tripped (human-readable reconstruction).
+        print("formula:", e["formula_desc"])
+
+        # 3. The enriched_reason combines (1) + (2) into one sentence,
+        #    typically the right thing to surface in a CI report.
+        print("reason:", e["enriched_reason"])
+
+        # Stop on first violation if you only want the smoking gun.
+        break
+
+    client.end_stream()
+```
+
+The `enrichment` block is only populated for checks registered via
+`add_checks(...)`; the lower-level `set_properties(...)` path returns the
+verdict but not the human-readable signal/formula context. If `enrichment` is
+missing on a `fails` response, that's the cause.
 
 ---
 

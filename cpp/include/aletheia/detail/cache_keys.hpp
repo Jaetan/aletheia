@@ -1,23 +1,34 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #pragma once
 
-// Internal cache key types for AletheiaClient.
+// =====================================================================
+// WARNING: PRIVATE IMPLEMENTATION HEADER — DO NOT INCLUDE DIRECTLY.
+// Use #include <aletheia/client.hpp> instead.
+// =====================================================================
 //
-// These types exist under `aletheia::detail::` and are **not part of the
-// supported public API**. They appear in the layout of non-public member
-// variables inside `AletheiaClient`, which is why this header must be
-// installed alongside `<aletheia/client.hpp>` (the facade #includes it and
-// uses the concrete types in private member declarations). The
-// `IWYU pragma: private, include "aletheia/client.hpp"` line on the client
-// facade directs IWYU-style tools to never suggest this file directly, and
-// downstream consumers should not include it directly either — its layout
-// may change in any minor release without notice.
+// Internal cache key types for AletheiaClient. Lives under
+// `aletheia::detail::` and is **not part of the supported public API**:
+//   * Names, layouts, and signatures may change in any minor release
+//     without notice or migration path.
+//   * No source-level or ABI compatibility guarantees apply.
+//   * Out-of-scope of semver — patch releases may break consumers that
+//     touched these types directly.
 //
-// Moving this content into `src/detail/` and hiding it behind a pImpl would
-// be cleaner, but doing so turns every `AletheiaClient` method into a
-// cross-TU call and blocks the small-function inlining that keeps the hot
-// extraction path competitive with Go/Python. The tradeoff chosen here is:
-// the types are exposed at compile time but documented as off-limits.
+// Why is the header installed at all?
+//   `<aletheia/client.hpp>` includes this file and uses the concrete
+//   types (FrameKey, FrameKeyLess, SignalKey, MessageKey) in
+//   AletheiaClient's *private* member declarations, so stripping it from
+//   the install would leave the installed facade uncompilable. The
+//   `IWYU pragma: private, include "aletheia/client.hpp"` line on the
+//   facade directs IWYU-style tools to never suggest this file directly.
+//
+// Why not pImpl this away?
+//   pImpl would let us hide everything in `src/detail/`, but it turns
+//   every AletheiaClient method into a cross-TU call and blocks the
+//   small-function inlining that keeps the hot extraction path
+//   competitive with Go/Python (~109k fps Stream LTL). The tradeoff
+//   chosen here: expose the types at compile time, document them as
+//   off-limits, and rely on the WARNING above to deter direct use.
 
 #include <aletheia/types.hpp>
 

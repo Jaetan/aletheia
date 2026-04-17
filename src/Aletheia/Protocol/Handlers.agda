@@ -123,7 +123,7 @@ handleParseDBC : JSON → StreamState → StreamState × Response
 handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
   let issues = validateDBCFull dbc
   in if hasAnyError issues
-     then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed ("validation failed: " ++ₛ formatIssuesText (errorIssues issues))))))
+     then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
      else (ReadyToStream dbc [] emptyCache , Response.Success "DBC parsed and validated successfully")
 
 -- Parse property list (extracted from where-block for proof access)

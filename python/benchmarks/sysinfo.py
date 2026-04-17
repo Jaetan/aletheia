@@ -43,68 +43,67 @@ def main() -> int:
 
     # --- Memory: after hs_init ---
     dbc = load_dbc()
-    client = AletheiaClient()
-    client.__enter__()
-    rss_after_init = get_rss_mb()
+    with AletheiaClient() as client:
+        rss_after_init = get_rss_mb()
 
-    # --- Memory: after parse_dbc ---
-    client.parse_dbc(dbc)
-    rss_after_dbc = get_rss_mb()
+        # --- Memory: after parse_dbc ---
+        client.parse_dbc(dbc)
+        rss_after_dbc = get_rss_mb()
 
-    # --- Throughput: streaming LTL ---
-    properties = [
-        Signal("EngineSpeed").between(0, 8000).always(),
-        Signal("EngineTemp").between(-40, 215).always(),
-        Signal("BrakePressure").less_than(6553.5).always(),
-    ]
-    client.set_properties([p.to_dict() for p in properties])
-    client.start_stream()
+        # --- Throughput: streaming LTL ---
+        properties = [
+            Signal("EngineSpeed").between(0, 8000).always(),
+            Signal("EngineTemp").between(-40, 215).always(),
+            Signal("BrakePressure").less_than(6553.5).always(),
+        ]
+        client.set_properties([p.to_dict() for p in properties])
+        client.start_stream()
 
-    # Warmup (100 frames)
-    for i in range(100):
-        client.send_frame(timestamp=i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
+        # Warmup (100 frames)
+        for i in range(100):
+            client.send_frame(timestamp=i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
 
-    start = time.perf_counter()
-    for i in range(NUM_FRAMES):
-        client.send_frame(
-            timestamp=100 + i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME,
-        )
-    streaming_elapsed = time.perf_counter() - start
-    streaming_fps = NUM_FRAMES / streaming_elapsed
+        start = time.perf_counter()
+        for i in range(NUM_FRAMES):
+            client.send_frame(
+                timestamp=100 + i, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME,
+            )
+        streaming_elapsed = time.perf_counter() - start
+        streaming_fps = NUM_FRAMES / streaming_elapsed
 
-    client.end_stream()
-    rss_after_streaming = get_rss_mb()
+        client.end_stream()
+        rss_after_streaming = get_rss_mb()
 
-    # --- Throughput: signal extraction ---
-    # Warmup
-    for _ in range(100):
-        client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
+        # --- Throughput: signal extraction ---
+        # Warmup
+        for _ in range(100):
+            client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
 
-    start = time.perf_counter()
-    for _ in range(NUM_FRAMES):
-        client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
-    extraction_elapsed = time.perf_counter() - start
-    extraction_fps = NUM_FRAMES / extraction_elapsed
+        start = time.perf_counter()
+        for _ in range(NUM_FRAMES):
+            client.extract_signals(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, data=CAN20_FRAME)
+        extraction_elapsed = time.perf_counter() - start
+        extraction_fps = NUM_FRAMES / extraction_elapsed
 
-    # --- Throughput: frame building ---
-    signals = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
+        # --- Throughput: frame building ---
+        signals = {"EngineSpeed": 2000.0, "EngineTemp": 90.0}
 
-    # Warmup
-    for _ in range(100):
-        client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
+        # Warmup
+        for _ in range(100):
+            client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
 
-    start = time.perf_counter()
-    for _ in range(NUM_FRAMES):
-        client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
-    building_elapsed = time.perf_counter() - start
-    building_fps = NUM_FRAMES / building_elapsed
+        start = time.perf_counter()
+        for _ in range(NUM_FRAMES):
+            client.build_frame(can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=signals)
+        building_elapsed = time.perf_counter() - start
+        building_fps = NUM_FRAMES / building_elapsed
 
-    client.close()
-
-    rss_peak = get_rss_mb()
+        # Capture peak RSS while resources are still alive (before __exit__).
+        rss_peak = get_rss_mb()
 
     # --- Report ---
     print(f"\n{'Memory (max RSS)':-<60}")
+    print(f"  Baseline:         {rss_baseline:6.1f} MB")
     print(f"  After hs_init:    {rss_after_init:6.1f} MB")
     print(f"  After parse_dbc:  {rss_after_dbc:6.1f} MB")
     print(f"  After streaming:  {rss_after_streaming:6.1f} MB")

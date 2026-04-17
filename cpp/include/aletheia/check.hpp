@@ -108,7 +108,8 @@ public:
         auto f =
             ltl::always_within(us, ltl::atomic(ltl::between(SignalName{signal_name_}, lo_, hi_)));
         return {std::move(f), signal_name_,
-                std::format("between {:g} and {:g} within {}ms", lo_.get().to_double(), hi_.get().to_double(), ms.count())};
+                std::format("between {:g} and {:g} within {}ms", lo_.get().to_double(),
+                            hi_.get().to_double(), ms.count())};
     }
 
 private:
@@ -135,7 +136,8 @@ public:
         if (lo.get() > hi.get())
             throw std::invalid_argument("stays_between: lo must be <= hi");
         auto f = ltl::always(ltl::atomic(ltl::between(SignalName{name_}, lo, hi)));
-        return {std::move(f), name_, std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
+        return {std::move(f), name_,
+                std::format("between {:g} and {:g}", lo.get().to_double(), hi.get().to_double())};
     }
 
     [[nodiscard]] auto never_equals(PhysicalValue value) const -> CheckResult {

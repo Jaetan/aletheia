@@ -64,9 +64,13 @@ FetchContent_Declare(yaml-cpp
 set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 
+# OpenXLSX is pinned to a master commit (2025-07-14) because the latest tagged
+# release is v0.3.2 from 2021, which the upstream README explicitly flags as
+# "severely outdated" and predates the <cstdint> include fix needed for GCC 15.
+# Re-evaluate when troldal/OpenXLSX cuts a new release tag past v0.3.2.
 FetchContent_Declare(OpenXLSX
     URL https://github.com/troldal/OpenXLSX/archive/5723411d47643ce3b5b9994064c26ca8cd841f13.tar.gz
-    URL_HASH SHA256=86bdb7aa594a0b2bea31cae9e4603832844be2095d7e281e9d7e74003bc16b98)  # Post-v0.4.1: includes <cstdint> fix for GCC 15
+    URL_HASH SHA256=86bdb7aa594a0b2bea31cae9e4603832844be2095d7e281e9d7e74003bc16b98)
 
 FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
 

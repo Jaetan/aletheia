@@ -1,7 +1,6 @@
 """Shared test fixtures for all test modules"""
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
@@ -47,6 +46,42 @@ def _sample_dbc() -> DBCDefinition:
                 ]
             }
         ]
+    }
+
+
+@pytest.fixture
+def simple_dbc() -> DBCDefinition:
+    """Minimal DBC with one 16-bit unsigned signal at message ID 256.
+
+    Distinct from ``sample_dbc`` (ID 0x100, sender "TestECU"); ``simple_dbc``
+    lives at the canonical ID 256 used by the streaming/lifecycle tests.
+    Kept as a separate fixture so tests can advertise which shape they need.
+    """
+    return {
+        "version": "1.0",
+        "messages": [
+            {
+                "id": 256,
+                "name": "TestMessage",
+                "dlc": 8,
+                "sender": "ECU",
+                "signals": [
+                    {
+                        "name": "TestSignal",
+                        "startBit": 0,
+                        "length": 16,
+                        "byteOrder": "little_endian",
+                        "signed": False,
+                        "factor": 1.0,
+                        "offset": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 65535.0,
+                        "unit": "",
+                        "presence": "always",
+                    }
+                ],
+            }
+        ],
     }
 
 

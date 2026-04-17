@@ -366,6 +366,15 @@ Types can depend on values:
 - Signal extraction bugs can cause safety issues
 - LTL properties prove temporal safety constraints
 
+**Key terms used elsewhere in this file:**
+- **MAlonzo**: Agda's Haskell backend. `agda --compile` produces a `MAlonzo/` directory of generated `.hs` files; the Cabal package and FFI shared library are built on top of those. Function names get mangled (e.g., `processJSONLine` → `d_processJSONLine_4`).
+- **stdlib / agda-stdlib**: The Agda standard library (`agda-stdlib`). Pinned to v2.3 in `aletheia.agda-lib`. Provides `Data.Nat`, `Data.List`, `Relation.Binary.PropositionalEquality`, etc.
+- **HoTT (Homotopy Type Theory)**: A foundational framework where types correspond to topological spaces and equalities are paths. `--without-K` makes the codebase compatible with HoTT-style reasoning by forbidding the K axiom (uniqueness of identity proofs).
+- **`Dec A`**: A type expressing decidability: `Dec A = yes (a : A) ⊎ no (¬ A)`. Carries a *proof object* at runtime, which is why `Dec`-valued predicates allocate per call on hot paths — see "Common newcomer mistakes" below for the `Bool` workaround.
+- **Kleene three-valued logic**: A logic with three truth values — true, false, and unknown — used for `FinalVerdict` (`Holds`, `Violated`, `Unsure`) when streaming truncates before a liveness property resolves.
+- **`@0` / erased modality**: Enabled by the library-level `--erasure` flag. Arguments marked `@0` are erased at compile time (zero runtime cost), used for phantom type parameters like `Timestamp μs`.
+- **`hs_init`**: GHC RTS startup function. The FFI shared library calls it once at first client construction; failures usually mean the `.so` was built against a different GHC than is loaded at runtime.
+
 **Resources:**
 - [Agda Documentation](https://agda.readthedocs.io/)
 - [Standard Library](https://agda.github.io/agda-stdlib/)
@@ -421,12 +430,17 @@ docs(BUILDING): Add macOS-specific notes
 ```
 
 **Before Committing:**
+
+The minimal pre-commit check (sufficient for documentation-only changes):
+
 1. Ensure code type-checks: `agda +RTS -N32 -RTS src/Aletheia/Main.agda`
 2. Build succeeds: `cabal run shake -- build`
 3. Tests pass:
    - Python: `cd python && python3 -m pytest tests/ -v`
    - C++: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
    - Go: `cd go && go test ./aletheia/ -v -count=1 -race`
+
+For code changes, [AGENTS.md § Step 4: Implement and verify](AGENTS.md#step-4-implement-and-verify) defines the **canonical 4-gate verification sequence** (Agda build → unit tests → lint gates → benchmarks) — that is the authoritative source. The 3-step list above is a doc-only shortcut; do not let it drift from AGENTS.md.
 
 ---
 
@@ -436,7 +450,19 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-17):** AGENTS.md review round 15 — cross-binding parity + strict protocol validation. Commit `2853644` (38 files, +617/−207). Section Agda: Error formatting (quoted signal names in FrameError), `WrappedParseError` → `WrappedParse` rename in RouteError. Section C++ (CX1-CX10): CX3 strict IssueSeverity parsing — Agda wire vocabulary is {"error","warning"} only, reject others as ProtocolError; CX8 `ErrorKind::BinaryUnsupported` sentinel for Go `ErrBinaryPathUnsupported` parity; CX10 `IBackend::rts_mismatch_info` out-of-line default for ABI stability; clang-format applied to 11 touched files; 4 new unit tests incl. MockBackend BinaryUnsupported fallthrough. Section Go (GO1/GO2/GO4/GO6/GO7/GO8): GO1 removed `backend.warning` event (documented but never emitted; Python/C++/Go all now at 15 events); severity validation rejects unknown wire values; CX3 parity via switch default returning protocol error. Section Python (14.4): `validate_issue_severities` helper extracted to `_response_parsers.py`; monkeypatch-based fake-FFI test for unknown severity; `_client.py` held below 1000-line pylint cap via helper extraction + unused `ValidationIssue` import removed. Section Docs (DO4-DO8): DO5 README 50s→46s (5M frames / 109,345 fps = 45.7s); DO8 PROTOCOL.md new "Streaming Semantics: Soundness vs. Completeness" section explaining K5 limitation on Eventually/Until. Benchmark Debug-build guard: `benchmarks/run_all.sh` reads `cpp/build/CMakeCache.txt` and refuses Debug trees; `cpp/benchmarks/benchmark.cpp` adds `check_release_build()` (aborts at startup without NDEBUG) and exposes `build_type` in the JSON `system` block — prevents the silent −20% Signal Extraction regression seen when a cache was pinned to Debug. 622 Python tests (+3), 275 C++ tests (+7), 223 Go tests. pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, clang-format clean on R15-touched files, Agda full build green.
+**Latest (2026-04-17):** AGENTS.md review round 15 — cross-binding parity + strict protocol validation. Commit `2853644` (38 files, +617/−207).
+
+- **Agda:** Error formatting (quoted signal names in `FrameError`); `WrappedParseError` → `WrappedParse` rename in `RouteError`.
+- **C++ (CX1-CX10):**
+  - CX3 — strict `IssueSeverity` parsing; Agda wire vocabulary is `{"error","warning"}` only, reject others as `ProtocolError`.
+  - CX8 — `ErrorKind::BinaryUnsupported` sentinel for Go `ErrBinaryPathUnsupported` parity.
+  - CX10 — `IBackend::rts_mismatch_info` out-of-line default for ABI stability.
+  - clang-format applied to 11 touched files; 4 new unit tests incl. `MockBackend` `BinaryUnsupported` fallthrough.
+- **Go (GO1/GO2/GO4/GO6/GO7/GO8):** GO1 removed `backend.warning` event (documented but never emitted; Python/C++/Go all now at 15 events); severity validation rejects unknown wire values; CX3 parity via switch default returning protocol error.
+- **Python (14.4):** `validate_issue_severities` helper extracted to `_response_parsers.py`; monkeypatch-based fake-FFI test for unknown severity; `_client.py` held below 1000-line pylint cap via helper extraction + unused `ValidationIssue` import removed.
+- **Docs (DO4-DO8):** DO5 — README 50s→46s (5M frames / 109,345 fps = 45.7s); DO8 — PROTOCOL.md new "Streaming Semantics: Soundness vs. Completeness" section explaining K5 limitation on Eventually/Until.
+- **Benchmark Debug-build guard:** `benchmarks/run_all.sh` reads `cpp/build/CMakeCache.txt` and refuses Debug trees; `cpp/benchmarks/benchmark.cpp` adds `check_release_build()` (aborts at startup without `NDEBUG`) and exposes `build_type` in the JSON `system` block — prevents the silent −20% Signal Extraction regression seen when a cache was pinned to Debug.
+- **Verification:** Test suites green; pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean, clang-format clean on R15-touched files, Agda full build green.
 
 **Prior (2026-04-16):** AGENTS.md review round 14 — cross-binding correctness + PhysicalValue precision. Commit `a3208aa` (80 files, +934/−529). Section A HIGH (9): C++ `parse_frame_response` type check (A1), Python binary zero-denom raise (A2), `FRAME_SIGNAL_VALUE_OUT_OF_BOUNDS` error code added to C++/Go (A3), Python CLI DLC-vs-bytes CAN-FD fix (A4), Shakefile stdlib-mismatch (A5), Python enrichment zero-denom guard (A6), **C++ PhysicalValue double→Rational** across 19 files (A7 — exact precision matching Python's `Fraction`), WNext operator across 22 Agda files + all bindings (A8), evaluate-before-update formal proof (A9). Section B MEDIUM (13): Go cgo bounds checks (B1), Go mutable maps→accessor functions (B2), C++ MockBackend binary heuristic (B3), C++ symmetric validation (B4), backend.warning cross-binding vocab (B5), Python finalization parsing (B6), Agda ValidationFailed structured (B7), docs JSON→binary-FFI qualifier (B8), PROTOCOL.md unresolved status (B9), aletheia.h send_error/send_remote (B10), CLI.md mux-query (B11), test count fix (B12), Agda version + 16 log events (B13). Section C LOW (23): Go dead code + interface{}→any + naming (C1-C3), C++ SPDX headers + naming + Rational validation + unified MessageKey + MockBackend default test (C4-C8), Python immutability + naming + --version + test gaps (C9-C12), Agda dedup + patterns + combinators (C13-C17), Docs cross-ref consolidation (C18). 619 Python tests (+2), 268 C++ tests (+4), 276 Go tests, 1163 total. pyright 0/0/0, pylint 10.00, ctest 5/5, go -race clean. Benchmarks within WSL2 variance of R13.
 
@@ -456,6 +482,6 @@ See [.session-state.md](.session-state.md) for session recovery, next steps, and
 
 **Prior (2026-04-09):** Path G — three-valued Kleene `FinalVerdict` with `Unsure` constructor.
 
-**Prior (2026-04-08):** Closed deferred items, frame-building regression fixed. 95 Agda modules.
+**Prior (2026-04-08):** Closed deferred items, frame-building regression fixed.
 
-**Prior (2026-04-07):** Phase 5.1 complete (14/14). 92 Agda modules.
+**Prior (2026-04-07):** Phase 5.1 complete (14/14).

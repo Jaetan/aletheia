@@ -31,7 +31,7 @@ import can
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
+from aletheia import AletheiaClient
 from aletheia.checks import Check, CheckResult
 from aletheia.cli import _run_checks
 from aletheia.dbc_converter import dbc_to_json
@@ -112,8 +112,6 @@ def bench_client(
 
     Returns frames per second.
     """
-    properties = [c.to_dict() for c in checks]
-
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         client.add_checks(checks)

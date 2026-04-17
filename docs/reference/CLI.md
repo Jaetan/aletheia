@@ -227,15 +227,54 @@ Message 0x200 BrakeStatus (DLC 8, sender ECU)
 
 Supported via [python-can](https://python-can.readthedocs.io/):
 
-| Extension | Format |
-|-----------|--------|
-| `.asc` | Vector ASCII |
-| `.blf` | Vector Binary Logging Format |
-| `.csv` | Comma-separated values |
-| `.db` | SQLite database |
-| `.log` | candump log |
-| `.mf4` | ASAM MDF4 |
-| `.trc` | PEAK TRC |
+| Extension | Format                       | Typical source                               |
+|-----------|------------------------------|----------------------------------------------|
+| `.asc`    | Vector ASCII                 | Vector CANoe, CANalyzer                      |
+| `.blf`    | Vector Binary Logging Format | Vector CANoe, CANalyzer (preferred)          |
+| `.csv`    | Comma-separated values       | python-can logger, custom scripts            |
+| `.db`     | SQLite database              | python-can logger                            |
+| `.log`    | candump log                  | `can-utils` candump on Linux (SocketCAN)     |
+| `.mf4`    | ASAM MDF4                    | dSPACE, ETAS, Vector, Silver                 |
+| `.trc`    | PEAK TRC                     | PEAK-System PCAN-View / PCAN-Explorer        |
+
+All formats carry per-frame timestamps (µs precision or better), arbitration ID, DLC, payload, and the extended-ID flag. `.gz`-compressed variants of any of these load transparently.
+
+### Capturing CAN traffic on Linux
+
+When a simulation exposes CAN on a SocketCAN interface (real `canN` or virtual `vcanN`), capture with `candump` from [`can-utils`](https://github.com/linux-can/can-utils) — the resulting `.log` is a native Aletheia input, so no conversion step is needed.
+
+```bash
+# One-time: bring up a virtual CAN interface
+sudo modprobe vcan
+sudo ip link add dev vcan0 type vcan
+sudo ip link set up vcan0
+
+# Capture to a single file (candump .log format)
+candump -L vcan0 > drive.log
+
+# Or rotate into timestamped files in the current directory
+candump -l vcan0   # writes candump-YYYY-MM-DD_hhmmss.log
+```
+
+Feed the capture straight into Aletheia:
+
+```bash
+python3 -m aletheia check --dbc vehicle.dbc --checks checks.yaml drive.log
+```
+
+Wireshark can also capture from SocketCAN, but it writes `pcap`, which is **not** a supported Aletheia input. Use `candump` when Aletheia is the target.
+
+### Other simulation and logging toolchains
+
+If your simulation is already running inside a commercial toolchain, prefer its native log format over re-capturing:
+
+- **Vector CANoe / CANalyzer** — writes `.blf` (preferred, 10 ns timestamp precision) or `.asc`
+- **dSPACE ControlDesk / SCALEXIO** — writes `.mf4`
+- **ETAS INCA / ASCMO** — writes `.mf4`
+- **Silver (QTronic)** — writes `.mf4` or `.asc`
+- **PEAK-System PCAN-View / PCAN-Explorer** — writes `.trc`
+
+All formats in the table above carry the timing and metadata Aletheia needs, so replay is lossless regardless of which toolchain produced the file.
 
 ---
 
@@ -268,13 +307,48 @@ python3 -m aletheia mux-query [--dbc FILE] [--excel FILE] [--extended] [--mux NA
 
 ```bash
 # Show multiplexor structure for message 0x100
-python3 -m aletheia mux-query --dbc vehicle.dbc 0x100
+$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100
+Message 0x100 EngineCmd (DLC 8)
+
+  Multiplexors: Mode
+
+  Mode:
+    value 0: 2 signals (Idle_RPM, Idle_TargetTemp)
+    value 1: 3 signals (Run_RPM, Run_TargetTemp, Run_Throttle)
+    value 5: 2 signals (Diag_FaultCode, Diag_FaultData)
 
 # List signals when multiplexor "Mode" has value 5
-python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --mux Mode --value 5
+Message 0x100 EngineCmd (DLC 8)
+Multiplexor Mode = 5: 2 signals present
 
-# JSON output
-python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --json
+  Diag_FaultCode       bits[16:8]    LE  unsigned    x1 +0           [0, 255]
+  Diag_FaultData       bits[24:32]   LE  unsigned    x1 +0           [0, 4294967295]
+
+# JSON output (summary)
+$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x100 --json
+{
+  "message_id": 256,
+  "message_name": "EngineCmd",
+  "is_multiplexed": true,
+  "multiplexors": [
+    {
+      "name": "Mode",
+      "values": [
+        {"value": 0, "signals": ["Idle_RPM", "Idle_TargetTemp"]},
+        {"value": 1, "signals": ["Run_RPM", "Run_TargetTemp", "Run_Throttle"]},
+        {"value": 5, "signals": ["Diag_FaultCode", "Diag_FaultData"]}
+      ]
+    }
+  ]
+}
+
+# Non-multiplexed message
+$ python3 -m aletheia mux-query --dbc vehicle.dbc 0x200
+Message 0x200 EngineStatus (DLC 8)
+
+  Not multiplexed — all signals are always present.
+  Signals: 4
 ```
 
 ---

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.checks import Check, CheckResult
+from aletheia.checks import Check
 from aletheia.yaml_loader import load_checks
 
 

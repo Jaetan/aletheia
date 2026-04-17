@@ -14,7 +14,10 @@ module Aletheia.Error where
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Nat using (ℕ; _∸_)
 open import Data.Nat.Show using () renaming (show to showℕ)
+open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.DBC.Types using (ValidationIssue)
+open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda)
@@ -220,7 +223,12 @@ data HandlerError : Set where
   SignalListParseFailed  : HandlerError
   PropertyParseFailed    : ℕ → HandlerError
   InvalidDLCCode         : HandlerError
-  ValidationFailed       : String → HandlerError
+  -- Carries the structured list of validation issues produced by
+  -- DBC.Validator.validateDBCFull (errorIssues only).  formatHandlerError
+  -- flattens to a single human-readable string for the wire `message`
+  -- field; the structured info is preserved in the Agda-side error value
+  -- in case future wire revisions want to surface it directly.
+  ValidationFailed       : List ValidationIssue → HandlerError
   -- Non-monotonic timestamp: current < previous (carries both for diagnostics).
   -- Metric LTL operators (MetricEventually, MetricAlways) compute elapsed time
   -- via natural subtraction (∸), which clamps at 0 on backward timestamps and
@@ -239,7 +247,8 @@ formatHandlerError SignalListParseFailed = "signal list parse failure"
 formatHandlerError (PropertyParseFailed idx) =
   "property parse failure at index " ++ₛ showℕ idx
 formatHandlerError InvalidDLCCode        = "invalid DLC code"
-formatHandlerError (ValidationFailed msg) = msg
+formatHandlerError (ValidationFailed issues) =
+  "validation failed: " ++ₛ formatIssuesText issues
 formatHandlerError (NonMonotonicTimestamp curr prev) =
   "non-monotonic timestamp: " ++ₛ showℕ curr ++ₛ " μs < previous " ++ₛ showℕ prev ++ₛ
   " μs (metric LTL operators require monotonic timestamps)"

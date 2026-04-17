@@ -397,10 +397,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 621 passing (via FFI)
-- C++ tests: 158 unit + 34 integration + 33 YAML + 47 Excel TEST_CASEs (272 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
-- Go tests: 278 passing (220 in `go/aletheia` across 15 test files + 58 in `go/excel`; mock backend, `-race` clean)
-- Total: 1171 tests
+- Python tests: 622 passing (via FFI)
+- C++ tests: 161 unit + 34 integration + 33 YAML + 47 Excel TEST_CASEs (275 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
+- Go tests: 223 passing in `go/aletheia` across 15 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total
+- Total: 1120 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 

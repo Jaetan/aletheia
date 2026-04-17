@@ -41,7 +41,8 @@ struct ExtractionResult {
     std::vector<SignalName> absent;
 
     [[nodiscard]] auto get(const SignalName& name,
-                           PhysicalValue fallback = PhysicalValue{Rational{}}) const -> PhysicalValue {
+                           PhysicalValue fallback = PhysicalValue{Rational{}}) const
+        -> PhysicalValue {
         for (const auto& sv : values)
             if (sv.name == name)
                 return sv.value;

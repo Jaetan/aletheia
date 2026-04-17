@@ -10,7 +10,7 @@ import pytest
 
 from aletheia import AletheiaClient
 from aletheia.client._types import ProtocolError
-from aletheia.protocols import DBCDefinition, ValidationResponse
+from aletheia.protocols import DBCDefinition
 
 
 def _make_dbc(messages: list[dict]) -> DBCDefinition:

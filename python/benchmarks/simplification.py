@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
-from aletheia.dsl import Property, infinitely_often, eventually_always
+from aletheia.dsl import infinitely_often, eventually_always
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from ._common import (
     CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
@@ -99,8 +99,6 @@ def until_atomic() -> list[dict]:
     """(speed < 8000) U (temp < 50) — Until with atomic predicates.
     LHS True (2000<8000), RHS False (90≮50). Until stays active.
     Atomic predicates resolve immediately → no tree growth."""
-    lhs = Signal("EngineSpeed").less_than(8000).always()  # wrap for Property type
-    rhs = Signal("EngineTemp").less_than(50).always()
     # Build Until directly via JSON (Until of raw predicates)
     p: dict = {
         "operator": "until",

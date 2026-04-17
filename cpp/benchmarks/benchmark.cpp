@@ -335,21 +335,23 @@ static const std::vector<SignalValue> canfd_signals = {
 
 static auto make_can20_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(ltl::atomic(
-        ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{8000, 1}}))));
-    props.push_back(ltl::always(ltl::atomic(
-        ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}}, PhysicalValue{Rational{215, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(ltl::between(
+        SignalName{"EngineSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{8000, 1}}))));
+    props.push_back(ltl::always(
+        ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
+                                 PhysicalValue{Rational{215, 1}}))));
     return props;
 }
 
 static auto make_canfd_properties() -> std::vector<LtlFormula> {
     std::vector<LtlFormula> props;
-    props.push_back(ltl::always(ltl::atomic(
-        ltl::between(SignalName{"GPSSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
-    props.push_back(ltl::always(ltl::atomic(
-        ltl::between(SignalName{"YawRate"}, PhysicalValue{Rational{-327, 1}}, PhysicalValue{Rational{327, 1}}))));
-    props.push_back(ltl::always(ltl::atomic(
-        ltl::between(SignalName{"WheelSpeedFL"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(ltl::between(
+        SignalName{"GPSSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
+    props.push_back(ltl::always(
+        ltl::atomic(ltl::between(SignalName{"YawRate"}, PhysicalValue{Rational{-327, 1}},
+                                 PhysicalValue{Rational{327, 1}}))));
+    props.push_back(ltl::always(ltl::atomic(ltl::between(
+        SignalName{"WheelSpeedFL"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{655, 1}}))));
     return props;
 }
 
@@ -358,35 +360,40 @@ static auto make_scaling_property(int index) -> LtlFormula {
     // Rotate through different property definitions
     switch (index % 10) {
     case 0:
-        return ltl::always(ltl::atomic(
-            ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{8000, 1}})));
+        return ltl::always(
+            ltl::atomic(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{}},
+                                     PhysicalValue{Rational{8000, 1}})));
     case 1:
-        return ltl::always(ltl::atomic(
-            ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}}, PhysicalValue{Rational{215, 1}})));
+        return ltl::always(
+            ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-40, 1}},
+                                     PhysicalValue{Rational{215, 1}})));
     case 2:
-        return ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{13107, 2}})));
+        return ltl::always(ltl::atomic(
+            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{13107, 2}})));
     case 3:
-        return ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{7000, 1}})));
+        return ltl::always(ltl::atomic(
+            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{7000, 1}})));
     case 4:
         return ltl::always(
             ltl::atomic(ltl::less_than(SignalName{"EngineTemp"}, PhysicalValue{Rational{200, 1}})));
     case 5:
-        return ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{5000, 1}})));
+        return ltl::always(ltl::atomic(
+            ltl::less_than(SignalName{"BrakePressure"}, PhysicalValue{Rational{5000, 1}})));
     case 6:
-        return ltl::always(ltl::atomic(
-            ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{500, 1}}, PhysicalValue{Rational{7500, 1}})));
-    case 7:
-        return ltl::always(ltl::atomic(
-            ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-20, 1}}, PhysicalValue{Rational{180, 1}})));
-    case 8:
-        return ltl::always(ltl::atomic(
-            ltl::between(SignalName{"BrakePressure"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{4000, 1}})));
-    default:
         return ltl::always(
-            ltl::atomic(ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{6000, 1}})));
+            ltl::atomic(ltl::between(SignalName{"EngineSpeed"}, PhysicalValue{Rational{500, 1}},
+                                     PhysicalValue{Rational{7500, 1}})));
+    case 7:
+        return ltl::always(
+            ltl::atomic(ltl::between(SignalName{"EngineTemp"}, PhysicalValue{Rational{-20, 1}},
+                                     PhysicalValue{Rational{180, 1}})));
+    case 8:
+        return ltl::always(
+            ltl::atomic(ltl::between(SignalName{"BrakePressure"}, PhysicalValue{Rational{}},
+                                     PhysicalValue{Rational{4000, 1}})));
+    default:
+        return ltl::always(ltl::atomic(
+            ltl::less_than(SignalName{"EngineSpeed"}, PhysicalValue{Rational{6000, 1}})));
     }
 }
 

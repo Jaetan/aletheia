@@ -8,6 +8,16 @@
 
 This document provides step-by-step instructions for building Aletheia from source.
 
+> **Note on version pins.** The toolchain versions called out below (GHC 9.6.7,
+> Cabal 3.12.1.0, Agda 2.8.0, agda-stdlib 2.3) are the *tested* combination, not
+> the *only* combination that works. We pin them in CI and refresh them
+> deliberately during AGENTS.md review rounds — see PROJECT_STATUS.md for the
+> currently active phase, and the **Last Updated** stamp at the top of this file
+> for when these versions were last revalidated. If you hit a build failure
+> after a long gap, first check whether your local toolchain has drifted past
+> the listed versions, then check whether this document has been updated more
+> recently than your last build.
+
 ## Prerequisites
 
 ### System Requirements

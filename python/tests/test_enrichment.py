@@ -7,7 +7,7 @@ from aletheia.client._enrichment import (
     format_formula,
 )
 from aletheia.client._types import PropertyDiagnostic
-from aletheia.dsl import Signal, Property
+from aletheia.dsl import Signal
 
 
 # ===========================================================================

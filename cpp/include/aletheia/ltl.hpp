@@ -107,8 +107,9 @@ struct MetricRelease {
     std::unique_ptr<LtlFormula> left, right;
 };
 
-struct LtlFormula : std::variant<Atomic, Not, And, Or, Next, WeakNext, Always, Eventually, Until,
-                                 Release, MetricAlways, MetricEventually, MetricUntil, MetricRelease> {
+struct LtlFormula
+    : std::variant<Atomic, Not, And, Or, Next, WeakNext, Always, Eventually, Until, Release,
+                   MetricAlways, MetricEventually, MetricUntil, MetricRelease> {
     using variant::variant;
 };
 

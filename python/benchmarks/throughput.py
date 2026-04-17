@@ -108,7 +108,7 @@ def run_benchmark(
 
     # Actual runs
     results = []
-    for run in range(num_runs):
+    for _ in range(num_runs):
         fps = func(num_frames)
         results.append(fps)
 

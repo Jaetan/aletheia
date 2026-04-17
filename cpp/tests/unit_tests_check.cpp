@@ -37,7 +37,8 @@ TEST_CASE("Check::signal never_below", "[check]") {
 }
 
 TEST_CASE("Check::signal stays_between", "[check]") {
-    auto result = Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}});
+    auto result = Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
+                                                         PhysicalValue{Rational{29, 2}});
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always(11.5 <= Voltage <= 14.5)");
@@ -64,7 +65,9 @@ TEST_CASE("Check::signal equals always", "[check]") {
 TEST_CASE("Check::signal settles_between within", "[check]") {
     using namespace std::chrono_literals;
     auto result =
-        Check::signal("Temp").settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}}).within(500ms);
+        Check::signal("Temp")
+            .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
+            .within(500ms);
     auto f = result.to_formula();
     REQUIRE(f);
     CHECK(format_formula(*f) == "always within 500ms (60 <= Temp <= 80)");
@@ -178,13 +181,17 @@ TEST_CASE("Check to_formula non-consuming", "[check]") {
 
 TEST_CASE("Check settles_between negative time throws", "[check]") {
     using namespace std::chrono_literals;
-    auto builder = Check::signal("T").settles_between(PhysicalValue{Rational{}}, PhysicalValue{Rational{100, 1}});
+    auto builder = Check::signal("T").settles_between(PhysicalValue{Rational{}},
+                                                      PhysicalValue{Rational{100, 1}});
     CHECK_THROWS_AS(builder.within(-1ms), std::invalid_argument);
 }
 
 TEST_CASE("Check when/then negative time throws", "[check]") {
     using namespace std::chrono_literals;
-    auto cond = Check::when("A").exceeds(PhysicalValue{Rational{}}).then("B").equals(PhysicalValue{Rational{1, 1}});
+    auto cond = Check::when("A")
+                    .exceeds(PhysicalValue{Rational{}})
+                    .then("B")
+                    .equals(PhysicalValue{Rational{1, 1}});
     CHECK_THROWS_AS(cond.within(-1ms), std::invalid_argument);
 }
 
@@ -193,18 +200,21 @@ TEST_CASE("Check when/then negative time throws", "[check]") {
 // ===========================================================================
 
 TEST_CASE("Check never_exceeds matches manual ltl", "[check]") {
-    auto check_f = Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
-    auto manual_f =
-        ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
+    auto check_f =
+        Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}).to_formula();
+    auto manual_f = ltl::always(
+        ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }
 
 TEST_CASE("Check stays_between matches manual ltl", "[check]") {
     auto check_f =
-        Check::signal("V").stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}}).to_formula();
-    auto manual_f = ltl::always(
-        ltl::atomic(ltl::between(SignalName{"V"}, PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})));
+        Check::signal("V")
+            .stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})
+            .to_formula();
+    auto manual_f = ltl::always(ltl::atomic(ltl::between(
+        SignalName{"V"}, PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }
@@ -218,13 +228,15 @@ TEST_CASE("Check never_equals matches manual ltl", "[check]") {
 
 TEST_CASE("Check settles matches manual ltl", "[check]") {
     using namespace std::chrono_literals;
-    auto check_f = Check::signal("T")
-                       .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
-                       .within(500ms)
-                       .to_formula();
-    auto manual_f = ltl::always_within(
-        Timestamp{500'000},
-        ltl::atomic(ltl::between(SignalName{"T"}, PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})));
+    auto check_f =
+        Check::signal("T")
+            .settles_between(PhysicalValue{Rational{60, 1}}, PhysicalValue{Rational{80, 1}})
+            .within(500ms)
+            .to_formula();
+    auto manual_f =
+        ltl::always_within(Timestamp{500'000},
+                           ltl::atomic(ltl::between(SignalName{"T"}, PhysicalValue{Rational{60, 1}},
+                                                    PhysicalValue{Rational{80, 1}})));
     REQUIRE(check_f);
     CHECK(format_formula(*check_f) == format_formula(manual_f));
 }
@@ -240,8 +252,8 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
 
     std::vector<CheckResult> checks;
     checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
-    checks.push_back(
-        Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}}));
+    checks.push_back(Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
+                                                            PhysicalValue{Rational{29, 2}}));
     auto result = client.add_checks(std::move(checks));
     REQUIRE(result.has_value());
 }
@@ -251,8 +263,8 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
     mock->queue_response(R"({"status": "success"})");
 
     std::vector<CheckResult> defaults;
-    defaults.push_back(
-        Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}}, PhysicalValue{Rational{29, 2}}));
+    defaults.push_back(Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
+                                                              PhysicalValue{Rational{29, 2}}));
 
     AletheiaClient client(std::move(mock), {}, std::move(defaults));
 

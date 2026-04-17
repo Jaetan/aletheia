@@ -21,9 +21,12 @@ formulas — only the syntax differs.
 | **Check API** | Python scripter | `Check.signal("Speed").never_exceeds(220)` |
 | **DSL** | Developer | Full LTL: `Signal("Speed").less_than(220).always()` |
 
-Choose the simplest tier that covers your needs. You can mix tiers freely —
-load DBC from Excel, checks from YAML, and additional checks from the
-Check API, all in the same session.
+Choose the simplest tier that covers your needs. The tiers compose without
+restriction within a single session — for example, you can load DBC from an
+Excel workbook, load a baseline check set from YAML, and append per-test
+properties built with the Check API or raw DSL, all against the same
+`AletheiaClient`. The bindings do not enforce any preferred ordering, and a
+property loaded from one source is indistinguishable from one built in code.
 
 ### Binding parity
 
@@ -39,7 +42,7 @@ following table summarizes feature availability per binding:
 | YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
 | DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
-| DBC text (`.dbc`) parsing | ✅ (via `cantools`) | ❌ (use Python to convert) | ❌ (use Python to convert) |
+| DBC text (`.dbc`) parsing | ✅ (via `cantools`) | ❌ (see workaround below) | ❌ (see workaround below) |
 | Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
 
 The same call, side by side across the three bindings:
@@ -101,6 +104,18 @@ response, err := client.SendFrame(ts, canID, dlc, data)
 ```
 
 These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.
+
+**`.dbc` text-format workaround for C++/Go.** Only Python parses `.dbc` text directly (via the `cantools` library). C++ and Go consume DBC content as a JSON document instead. Two routes are supported:
+
+1. **Convert ahead of time with Python**:
+   ```bash
+   python3 -m aletheia signals --dbc vehicle.dbc --json > vehicle.json
+   ```
+   then load `vehicle.json` from C++ or Go and pass the parsed object to `parse_dbc(...)`.
+
+2. **Use the Excel loader** (`.xlsx` workbook with a DBC sheet) — supported natively by all three bindings, no Python detour required.
+
+Native `.dbc` parsing in C++ and Go is on the roadmap; until then, route through one of the above.
 
 For language-specific entry points, see:
 
@@ -651,7 +666,7 @@ Every binding emits the **same 15-event vocabulary** so a single downstream log 
 | Enrichment diagnostics (WARNING) | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
 | Extraction cache (DEBUG/WARNING) | `cache.hit`, `cache.miss`, `cache.full` |
 | Extraction errors (WARNING) | `extraction.process_failed`, `extraction.parse_failed` |
-| RTS boot (WARNING) | `rts.cores_mismatch` |
+| RTS boot (WARNING) | `rts.cores_mismatch` (see emission-point note below) |
 
 Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). How to capture them:
 
@@ -672,10 +687,19 @@ auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
 auto client = aletheia::AletheiaClient{std::move(backend), std::move(logger)};
 ```
 
-**Go** — pass a `*slog.Logger` via the `WithLogger` option:
+**Go** — `WithLogger` on `NewClient` for stream events; `WithFFILogger` on `NewFFIBackend` for FFI/RTS events:
 ```go
-client, _ := aletheia.NewClient(backend, aletheia.WithLogger(slog.Default()))
+backend, _ := aletheia.NewFFIBackend(libPath, aletheia.WithFFILogger(slog.Default()))
+client, _  := aletheia.NewClient(backend,  aletheia.WithLogger(slog.Default()))
 ```
+
+**Emission point of `rts.cores_mismatch`.**  All three bindings emit the warning the second (and subsequent) time a process initialises the GHC RTS with a different `-N` value than the first call.  The exact moment differs by binding:
+
+- **Go** — emitted from `NewFFIBackend` via the `WithFFILogger` slog handler.  Fires before any `Client` exists.
+- **Python** — emitted from `LibraryHandle.acquire`, which runs during `AletheiaClient.__init__` (the FFI is acquired lazily on first client construction).  Goes through the module-level `aletheia` logger, so a Python application sees it via the standard `logging` configuration without per-client wiring.
+- **C++** — captured at `make_ffi_backend()` time but emitted from the `AletheiaClient` constructor through the `Logger` passed to that constructor (the FFI backend has no logger of its own).  Wire one up to the client to observe it.
+
+The wire format (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.
 
 The event set is the authoritative source of truth — adding a new event requires adding it to the enum in all three bindings. See `python/aletheia/client/_log.py`, `cpp/include/aletheia/log.hpp`, and `go/aletheia/client.go` for the per-binding definition.
 

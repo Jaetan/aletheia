@@ -8,13 +8,11 @@ the opt-in design.
 """
 
 import logging
-from pathlib import Path
 
 import pytest
 
 from aletheia import AletheiaClient, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
-from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition
 
 
@@ -29,39 +27,8 @@ class _Capture(logging.Handler):
         self.records.append(record)
 
 
-@pytest.fixture
-def simple_dbc() -> DBCDefinition:
-    """Create a simple DBC for testing."""
-    return {
-        "version": "1.0",
-        "messages": [
-            {
-                "id": 256,
-                "name": "TestMessage",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "TestSignal",
-                        "startBit": 0,
-                        "length": 16,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 65535.0,
-                        "unit": "",
-                        "presence": "always",
-                    }
-                ],
-            }
-        ],
-    }
-
-
-@pytest.fixture
-def capture() -> _Capture:
+@pytest.fixture(name="capture")
+def _capture() -> _Capture:
     """Install a capturing handler on the ``aletheia`` logger."""
     logger = logging.getLogger("aletheia")
     handler = _Capture()

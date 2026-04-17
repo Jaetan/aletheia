@@ -584,6 +584,68 @@ char *aletheia_send_frame(void *state, unsigned long long timestamp,
 
 **Why binary?** Eliminates JSON serialization/parsing overhead for the streaming hot path. Result: 4.3x throughput for CAN 2.0B, 9.1x for CAN-FD compared to the JSON path (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md#key-metrics) for benchmark methodology and per-language numbers). All language bindings (Python, C++, Go) use this entry point for `send_frame()`.
 
+### aletheia_send_error and aletheia_send_remote
+
+Error frames and remote frames are non-data trace events. Both are exposed
+as their own binary entry points in `aletheia.h`, alongside `aletheia_send_frame`:
+
+```c
+char *aletheia_send_error(void *state, unsigned long long timestamp);
+char *aletheia_send_remote(void *state, unsigned long long timestamp,
+                           unsigned int can_id, unsigned char extended);
+```
+
+#### Trace event taxonomy
+
+The Agda kernel models a CAN trace as a sequence of `TraceEvent` values
+(see `Aletheia/Trace/CANTrace.agda`):
+
+| Constructor | Carries | FFI entry point | Purpose |
+|---|---|---|---|
+| `Frame ts canId dlc data ...` | timestamp + ID + DLC + payload + flags | `aletheia_send_frame` | Normal data frame, drives signal extraction. |
+| `Error ts` | timestamp only | `aletheia_send_error` | Bus-error event (CAN error frame on the wire). |
+| `Remote ts canId` | timestamp + ID, no payload | `aletheia_send_remote` | Remote transmission request (RTR). |
+
+#### State machine — what each event does
+
+All three entry points share the same **streaming-state precondition** and
+the same **monotonic-timestamp precondition**:
+
+1. The session must already be in `Streaming` (after `startStream`); calling
+   any of these in `Idle` or `DBCLoaded` returns a `HandlerError` with code
+   `not_streaming`. The state machine is enforced in
+   `Aletheia/Protocol/StreamState.agda`.
+2. Timestamps must be **strictly monotonic across all three event kinds** —
+   the kernel rejects a backward `ts` regardless of which entry point
+   delivered the previous event. Mixing `aletheia_send_frame` and
+   `aletheia_send_error` does not reset the clock.
+
+What differs:
+
+| Step | `send_frame` | `send_error` | `send_remote` |
+|---|---|---|---|
+| 1. Validate DLC and payload length | ✅ (`dlcToBytes(dlc)`) | — | — |
+| 2. Validate CAN ID range | ✅ (11- or 29-bit) | — | ✅ (11- or 29-bit) |
+| 3. Extract signals from payload | ✅ | — | — |
+| 4. Update signal cache | ✅ | — | — |
+| 5. Advance LTL clock by `ts` | ✅ | ✅ | ✅ |
+| 6. Re-evaluate active properties | ✅ | ✅ (no signal change, but metric windows may expire) | ✅ |
+| 7. Emit verdict if a property terminates | ✅ | ✅ | ✅ |
+
+The key consequence of step 6: **error and remote frames can finalize a
+metric `eventually` window or trigger a `between(...)` deadline expiry**,
+even though they carry no signal updates. This matches LTLf semantics — the
+clock advances, so any property whose window closes between events
+resolves on the next timestamp regardless of the event kind.
+
+#### Response shape
+
+The response shape is identical to `aletheia_send_frame`: an `ack` if no
+property terminated, or a `property` response (`status: "holds"` / `"fails"`)
+if one did. There is no error- or remote-specific response variant — the
+binding-layer wrappers `send_error()` / `send_remote()` (Python, C++, Go)
+parse the same response types they use for data frames.
+
 ---
 
 ## Response Types

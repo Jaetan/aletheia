@@ -1,61 +1,38 @@
-"""Tests for the unified AletheiaClient.
+"""Core tests for the unified AletheiaClient.
 
-Tests that the unified client can:
-1. Parse DBC and extract signals
-2. Build frames from signal values
-3. Update frames with new signal values
-4. Stream frames with LTL property checking
-5. Mix signal operations while streaming
+Covers basic operations, streaming, mixed signal/streaming flows, the
+client lifecycle (close, restart, threading), and state-machine error
+paths.  Sibling files split out:
+
+* ``test_unified_client_canfd_mux.py`` — CAN-FD frames and nested mux
+* ``test_unified_client_events_rts.py`` — error/remote events, format_dbc, RTS
+
+Fixtures:
+
+* ``simple_dbc`` — comes from ``conftest.py`` (shared with sibling files)
+* ``demo_dbc`` — local, only used by ``TestAletheiaClientWithDemoDBC``
 """
 
 import json
+import subprocess
+import sys
+import textwrap
+import threading
 from pathlib import Path
 
 import pytest
 
-from aletheia import AletheiaClient, Signal, dlc_to_bytes
-from aletheia.client._response_parsers import parse_event_response
-from aletheia.client._types import ProcessError, ProtocolError
+from aletheia import AletheiaClient, Signal
+from aletheia.client._types import ProcessError
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition
 
 
-@pytest.fixture
-def demo_dbc() -> DBCDefinition:
+@pytest.fixture(name="demo_dbc")
+def _demo_dbc() -> DBCDefinition:
     """Load the demo vehicle DBC."""
     dbc_path = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle.dbc"
     return dbc_to_json(str(dbc_path))
-
-
-@pytest.fixture
-def simple_dbc() -> DBCDefinition:
-    """Create a simple DBC for testing."""
-    return {
-        "version": "1.0",
-        "messages": [
-            {
-                "id": 256,
-                "name": "TestMessage",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "TestSignal",
-                        "startBit": 0,
-                        "length": 16,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 65535.0,
-                        "unit": "",
-                        "presence": "always"
-                    }
-                ]
-            }
-        ]
-    }
 
 
 class TestAletheiaClientBasics:
@@ -71,7 +48,9 @@ class TestAletheiaClientBasics:
         """Test signal extraction."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            result = client.extract_signals(can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
+            result = client.extract_signals(
+                can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+            )
             assert result.get("TestSignal") == 100.0
 
     def test_build_frame(self, simple_dbc: DBCDefinition) -> None:
@@ -89,7 +68,9 @@ class TestAletheiaClientBasics:
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
-            updated = client.update_frame(can_id=256, dlc=8, frame=original, signals={"TestSignal": 200.0})
+            updated = client.update_frame(
+                can_id=256, dlc=8, frame=original, signals={"TestSignal": 200.0},
+            )
             assert len(updated) == 8
             # Verify
             result = client.extract_signals(can_id=256, dlc=8, data=updated)
@@ -155,14 +136,22 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Send a frame
-            client.send_frame(timestamp=1000, can_id=256, dlc=8, data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(
+                timestamp=1000, can_id=256, dlc=8,
+                data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]),
+            )
 
             # Extract signals while streaming (should work!)
-            result = client.extract_signals(can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]))
+            result = client.extract_signals(
+                can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+            )
             assert result.get("TestSignal") == 100.0
 
             # Continue streaming
-            client.send_frame(timestamp=2000, can_id=256, dlc=8, data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(
+                timestamp=2000, can_id=256, dlc=8,
+                data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]),
+            )
 
             client.end_stream()
 
@@ -177,7 +166,9 @@ class TestAletheiaClientMixedOperations:
 
             # Update a frame while streaming
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
-            updated = client.update_frame(can_id=256, dlc=8, frame=original, signals={"TestSignal": 75.0})
+            updated = client.update_frame(
+                can_id=256, dlc=8, frame=original, signals={"TestSignal": 75.0},
+            )
 
             # Send the updated frame
             response = client.send_frame(timestamp=1000, can_id=256, dlc=8, data=updated)
@@ -221,15 +212,13 @@ class TestAletheiaClientLifecycle:
         and guards on ``None``. A double-close should not crash or double-free
         the FFI state pointer. Mirrors Go's ``TestDoubleClose``.
         """
-        client = AletheiaClient()
-        client.__enter__()
-        response = client.parse_dbc(simple_dbc)
-        assert response.get("status") == "success"
+        with AletheiaClient() as client:
+            response = client.parse_dbc(simple_dbc)
+            assert response.get("status") == "success"
 
-        client.close()
-        client.close()  # Second close must be safe.
-        assert client._state is None
-        assert client._lib is None
+            client.close()
+            client.close()  # Second close must be safe.
+        # __exit__ calls close() a third time — also must be safe.
 
     def test_use_after_close_raises(self, simple_dbc: DBCDefinition) -> None:
         """Operations on a closed client must raise, not crash.
@@ -240,13 +229,12 @@ class TestAletheiaClientLifecycle:
         a dangling state pointer) would be a serious safety bug.
         Mirrors Go's ``TestUseAfterClose``.
         """
-        client = AletheiaClient()
-        client.__enter__()
-        client.parse_dbc(simple_dbc)
-        client.close()
-
-        with pytest.raises(ProcessError, match="not initialized"):
+        with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
+            client.close()
+
+            with pytest.raises(ProcessError, match="not initialized"):
+                client.parse_dbc(simple_dbc)
 
     def test_exit_then_reenter_raises(self, simple_dbc: DBCDefinition) -> None:
         """After ``__exit__`` via ``with`` block, the client must not be reusable.
@@ -281,7 +269,7 @@ class TestAletheiaClientLifecycle:
         (``TestSignal = 200``) but with different LTL thresholds:
 
         * **Thread A** — ``TestSignal < 100`` → expected ``fails`` (200 ≥ 100)
-        * **Thread B** — ``TestSignal < 500`` → expected ``fails`` (200 ≥ ... wait no, 200 < 500 → holds)
+        * **Thread B** — ``TestSignal < 500`` → expected ``holds`` (200 < 500)
         * **Thread C** — ``TestSignal < 1000`` → expected ``complete`` (clean)
 
         The threads synchronise through a ``threading.Barrier`` so they're
@@ -290,8 +278,6 @@ class TestAletheiaClientLifecycle:
         leaks state into another (shared global, stale cache, unprotected
         mutation), the verdicts will be wrong.
         """
-        import threading
-
         # Rewrite threshold inside the property for each thread.
         def make_property(threshold: int) -> dict:
             return Signal("TestSignal").less_than(threshold).always().to_dict()
@@ -352,12 +338,18 @@ class TestAletheiaClientLifecycle:
 
             # First stream
             client.start_stream()
-            client.send_frame(timestamp=0, can_id=256, dlc=8, data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(
+                timestamp=0, can_id=256, dlc=8,
+                data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]),
+            )
             client.end_stream()
 
             # Second stream (same client, same DBC)
             client.start_stream()
-            resp = client.send_frame(timestamp=1, can_id=256, dlc=8, data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]))
+            resp = client.send_frame(
+                timestamp=1, can_id=256, dlc=8,
+                data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]),
+            )
             assert resp.get("status") == "ack"
             client.end_stream()
 
@@ -372,10 +364,6 @@ class TestAletheiaClientLifecycle:
         A Barrier ensures both threads are inside the send_frame loop
         simultaneously, so the GHC RTS genuinely runs in parallel.
         """
-        import subprocess
-        import sys
-        import textwrap
-
         script = textwrap.dedent("""\
             import json, sys, threading
             from aletheia import AletheiaClient, Signal
@@ -435,7 +423,7 @@ class TestAletheiaClientLifecycle:
         """)
         result = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=15, check=False,
         )
         assert result.returncode == 0, (
             f"Subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -596,557 +584,3 @@ class TestStateMachineErrors:
             assert fwd.get("status") == "ack"
 
             client.end_stream()
-
-
-class TestCANFDFrames:
-    """CAN-FD frame tests: DLC 9-15, payloads 12-64 bytes."""
-
-    CANFD_DBC_12 = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x200,
-            "name": "CANFDMessage12",
-            "dlc": 12,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "BaseSignal",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "WideSignal",
-                    "startBit": 64,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "", "presence": "always",
-                },
-            ],
-        }],
-    }
-
-    CANFD_DBC_64 = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x300,
-            "name": "CANFDMessage64",
-            "dlc": 64,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "FirstByte",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "LastWord",
-                    "startBit": 496,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "", "presence": "always",
-                },
-            ],
-        }],
-    }
-
-    def test_canfd_extract_12_byte_frame(self):
-        """Extract signals from a 12-byte CAN-FD frame (DLC code 9)."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_12)
-            data = bytearray(12)
-            data[0] = 42          # BaseSignal = 42
-            data[8] = 0xCD        # WideSignal low byte
-            data[9] = 0xAB        # WideSignal high byte -> 0xABCD = 43981
-            result = client.extract_signals(can_id=0x200, dlc=9, data=data)
-            assert result.values["BaseSignal"] == 42.0
-            assert result.values["WideSignal"] == 43981.0
-            assert not result.errors
-
-    def test_canfd_extract_64_byte_frame(self):
-        """Extract signals from a 64-byte CAN-FD frame (DLC code 15)."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_64)
-            data = bytearray(64)
-            data[0] = 99          # FirstByte = 99
-            data[62] = 0x34       # LastWord low byte
-            data[63] = 0x12       # LastWord high byte -> 0x1234 = 4660
-            result = client.extract_signals(can_id=0x300, dlc=15, data=data)
-            assert result.values["FirstByte"] == 99.0
-            assert result.values["LastWord"] == 4660.0
-            assert not result.errors
-
-    def test_canfd_build_12_byte_frame(self):
-        """Build a 12-byte CAN-FD frame from signal values."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_12)
-            frame = client.build_frame(
-                can_id=0x200, dlc=9,
-                signals={"BaseSignal": 42.0, "WideSignal": 1000.0},
-            )
-            assert len(frame) == 12
-            # Round-trip: extract back
-            result = client.extract_signals(can_id=0x200, dlc=9, data=frame)
-            assert result.values["BaseSignal"] == 42.0
-            assert result.values["WideSignal"] == 1000.0
-
-    def test_canfd_build_64_byte_frame(self):
-        """Build a 64-byte CAN-FD frame from signal values."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_64)
-            frame = client.build_frame(
-                can_id=0x300, dlc=15,
-                signals={"FirstByte": 200.0, "LastWord": 5000.0},
-            )
-            assert len(frame) == 64
-            result = client.extract_signals(can_id=0x300, dlc=15, data=frame)
-            assert result.values["FirstByte"] == 200.0
-            assert result.values["LastWord"] == 5000.0
-
-    def test_canfd_update_frame(self):
-        """Update signals in a CAN-FD frame."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_12)
-            original = client.build_frame(
-                can_id=0x200, dlc=9,
-                signals={"BaseSignal": 10.0, "WideSignal": 500.0},
-            )
-            updated = client.update_frame(
-                can_id=0x200, dlc=9, frame=original,
-                signals={"WideSignal": 9999.0},
-            )
-            assert len(updated) == 12
-            result = client.extract_signals(can_id=0x200, dlc=9, data=updated)
-            assert result.values["BaseSignal"] == 10.0  # unchanged
-            assert result.values["WideSignal"] == 9999.0  # updated
-
-    def test_canfd_all_valid_dlc_codes(self):
-        """All DLC codes 0-15 produce valid frames with correct byte counts."""
-        dbc = {
-            "version": "1.0",
-            "messages": [{
-                "id": 0x400,
-                "name": "GenericMsg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [{
-                    "name": "Sig",
-                    "startBit": 0,
-                    "length": 8,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                }],
-            }],
-        }
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(dbc)
-            for dlc_code in range(16):
-                nbytes = dlc_to_bytes(dlc_code)
-                data = bytearray(nbytes)
-                if nbytes > 0:
-                    data[0] = dlc_code  # encode DLC code as signal value
-                result = client.extract_signals(
-                    can_id=0x400, dlc=dlc_code, data=data,
-                )
-                expected = float(dlc_code) if nbytes > 0 else 0.0
-                assert result.values["Sig"] == expected, (
-                    f"DLC {dlc_code} ({nbytes} bytes): expected {expected}, "
-                    f"got {result.values.get('Sig')}"
-                )
-
-    def test_canfd_invalid_dlc_rejected(self):
-        """DLC > 15 is rejected by the Python layer."""
-        with pytest.raises(ValueError, match="Invalid DLC code"):
-            dlc_to_bytes(16)
-        with pytest.raises(ValueError, match="Invalid DLC code"):
-            dlc_to_bytes(255)
-
-    def test_canfd_byte_count_mismatch(self):
-        """Payload byte count must match DLC."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_12)
-            # DLC 9 expects 12 bytes, send 11 — backend rejects the mismatch
-            data = bytearray(11)
-            with pytest.raises(ProcessError, match="payload length .* does not match DLC"):
-                client.extract_signals(can_id=0x200, dlc=9, data=data)
-
-    def test_canfd_ltl_streaming(self):
-        """Stream CAN-FD frames with LTL property checking."""
-        with AletheiaClient(rts_cores=2) as client:
-            client.parse_dbc(self.CANFD_DBC_12)
-            client.set_properties([
-                Signal("WideSignal").less_than(50000).always().to_dict()
-            ])
-            client.start_stream()
-
-            # Send frames with WideSignal < 50000 — should pass
-            for i in range(5):
-                data = bytearray(12)
-                data[8] = i  # WideSignal = i (small value)
-                resp = client.send_frame(
-                    timestamp=i * 1000, can_id=0x200, dlc=9, data=data,
-                )
-                assert resp["status"] == "ack", f"Frame {i}: {resp}"
-
-            # Send frame with WideSignal = 60000 > 50000 — should violate
-            data = bytearray(12)
-            data[8] = 0x60  # 0xEA60 = 60000
-            data[9] = 0xEA
-            resp = client.send_frame(
-                timestamp=5000, can_id=0x200, dlc=9, data=data,
-            )
-            assert resp["status"] == "fails"
-
-            client.end_stream()
-
-
-class TestNestedMultiplexing:
-    """Nested multiplexing: a multiplexor signal that is itself multiplexed.
-
-    DBC layout:
-      - Mode: top-level signal, always present (8 bits @ 0)
-      - SubMode: present only when Mode == 3 (8 bits @ 8)
-      - Detail: present only when SubMode == 7 (16 bits @ 16)
-
-    Detail is two levels deep — its presence requires both Mode == 3 AND
-    SubMode == 7. This DBC was rejected by the previous validator
-    (MultiplexorNotAlwaysPresent) because SubMode is itself conditional;
-    nested-mux support means it's now accepted, and extraction walks the
-    chain bottom-up.
-    """
-
-    NESTED_DBC = {
-        "version": "1.0",
-        "messages": [{
-            "id": 0x400,
-            "name": "Diagnostic",
-            "dlc": 8,
-            "sender": "ECU",
-            "signals": [
-                {
-                    "name": "Mode",
-                    "startBit": 0, "length": 8,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "", "presence": "always",
-                },
-                {
-                    "name": "SubMode",
-                    "startBit": 8, "length": 8,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 255.0,
-                    "unit": "",
-                    "multiplexor": "Mode", "multiplex_values": [3],
-                },
-                {
-                    "name": "Detail",
-                    "startBit": 16, "length": 16,
-                    "byteOrder": "little_endian", "signed": False,
-                    "factor": 1.0, "offset": 0.0,
-                    "minimum": 0.0, "maximum": 65535.0,
-                    "unit": "",
-                    "multiplexor": "SubMode", "multiplex_values": [7],
-                },
-            ],
-        }],
-    }
-
-    def test_nested_mux_dbc_validates_clean(self) -> None:
-        """Nested mux is no longer rejected by validation."""
-        with AletheiaClient() as client:
-            result = client.validate_dbc(self.NESTED_DBC)
-            assert result["has_errors"] is False
-            assert result["issues"] == []
-
-    def test_full_chain_match_extracts_leaf(self) -> None:
-        """Mode==3 and SubMode==7 → Detail extracts."""
-        with AletheiaClient() as client:
-            client.parse_dbc(self.NESTED_DBC)
-            data = bytearray([3, 7, 0xCD, 0xAB, 0, 0, 0, 0])  # Detail = 0xABCD = 43981
-            result = client.extract_signals(can_id=0x400, dlc=8, data=data)
-            assert result.values["Mode"] == 3.0
-            assert result.values["SubMode"] == 7.0
-            assert result.values["Detail"] == 43981.0
-            assert result.absent == ()
-            assert result.errors == {}
-
-    def test_inner_mismatch_marks_leaf_absent(self) -> None:
-        """Mode==3 but SubMode==5 → SubMode extracts, Detail absent."""
-        with AletheiaClient() as client:
-            client.parse_dbc(self.NESTED_DBC)
-            data = bytearray([3, 5, 0xCD, 0xAB, 0, 0, 0, 0])
-            result = client.extract_signals(can_id=0x400, dlc=8, data=data)
-            assert result.values["Mode"] == 3.0
-            assert result.values["SubMode"] == 5.0
-            assert "Detail" in result.absent
-            assert "Detail" not in result.values
-
-    def test_outer_mismatch_marks_inner_and_leaf_absent(self) -> None:
-        """Mode==2 → both SubMode and Detail are absent."""
-        with AletheiaClient() as client:
-            client.parse_dbc(self.NESTED_DBC)
-            data = bytearray([2, 7, 0xCD, 0xAB, 0, 0, 0, 0])
-            result = client.extract_signals(can_id=0x400, dlc=8, data=data)
-            assert result.values["Mode"] == 2.0
-            assert "SubMode" in result.absent
-            assert "Detail" in result.absent
-            assert "SubMode" not in result.values
-            assert "Detail" not in result.values
-
-    def test_mux_cycle_rejected_by_validator(self) -> None:
-        """A self-referential mux chain is rejected as multiplexor_cycle."""
-        cyclic = {
-            "version": "1.0",
-            "messages": [{
-                "id": 0x500,
-                "name": "Cyclic",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "A",
-                        "startBit": 0, "length": 8,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": 1.0, "offset": 0.0,
-                        "minimum": 0.0, "maximum": 255.0,
-                        "unit": "",
-                        "multiplexor": "B", "multiplex_values": [1],
-                    },
-                    {
-                        "name": "B",
-                        "startBit": 8, "length": 8,
-                        "byteOrder": "little_endian", "signed": False,
-                        "factor": 1.0, "offset": 0.0,
-                        "minimum": 0.0, "maximum": 255.0,
-                        "unit": "",
-                        "multiplexor": "A", "multiplex_values": [1],
-                    },
-                ],
-            }],
-        }
-        with AletheiaClient() as client:
-            result = client.validate_dbc(cyclic)
-            assert result["has_errors"] is True
-            codes = [i["code"] for i in result["issues"]]
-            assert "multiplexor_cycle" in codes
-
-
-class TestSendErrorRemote:
-    """Tests for send_error() and send_remote() response parsing."""
-
-    def test_send_error_ack_during_stream(self, simple_dbc: DBCDefinition) -> None:
-        """send_error returns ack when streaming."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([])
-            client.start_stream()
-            response = client.send_error(timestamp=1000)
-            assert response["status"] == "ack"
-            client.end_stream()
-
-    def test_send_error_outside_stream_acks(self, simple_dbc: DBCDefinition) -> None:
-        """send_error outside streaming still acks (no LTL to evaluate)."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            response = client.send_error(timestamp=1000)
-            assert response["status"] == "ack"
-
-    def test_send_remote_ack_during_stream(self, simple_dbc: DBCDefinition) -> None:
-        """send_remote returns ack when streaming."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([])
-            client.start_stream()
-            response = client.send_remote(timestamp=1000, can_id=256)
-            assert response["status"] == "ack"
-            client.end_stream()
-
-    def test_send_remote_outside_stream_acks(self, simple_dbc: DBCDefinition) -> None:
-        """send_remote outside streaming still acks (no LTL to evaluate)."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            response = client.send_remote(timestamp=1000, can_id=256)
-            assert response["status"] == "ack"
-
-    def test_send_error_negative_timestamp_rejected(self) -> None:
-        """send_error rejects negative timestamps."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="non-negative"):
-                client.send_error(timestamp=-1)
-
-    def test_send_remote_negative_timestamp_rejected(self) -> None:
-        """send_remote rejects negative timestamps."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="non-negative"):
-                client.send_remote(timestamp=-1, can_id=256)
-
-    def test_send_remote_invalid_can_id_rejected(self) -> None:
-        """send_remote rejects out-of-range standard CAN IDs."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="Invalid"):
-                client.send_remote(timestamp=1000, can_id=0x800)
-
-    def test_send_remote_extended_invalid_can_id_rejected(self) -> None:
-        """send_remote rejects out-of-range extended CAN IDs."""
-        with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="Invalid"):
-                client.send_remote(timestamp=1000, can_id=0x20000000, extended=True)
-
-    def test_send_error_error_response_raises_protocol_error(self) -> None:
-        """parse_event_response raises ProtocolError for error_event errors."""
-        with pytest.raises(ProtocolError, match="error_event failed"):
-            parse_event_response(
-                {"status": "error", "message": "test error", "code": "test_code"},
-                "error_event",
-                1000,
-            )
-
-    def test_send_remote_error_response_raises_protocol_error(self) -> None:
-        """parse_event_response raises ProtocolError for remote_event errors."""
-        with pytest.raises(ProtocolError, match="remote_event failed") as exc_info:
-            parse_event_response(
-                {"status": "error", "message": "remote rejected", "code": "handler_err"},
-                "remote_event",
-                1000,
-            )
-        assert exc_info.value.code == "handler_err"
-
-    def test_send_error_success_status_rejected(self) -> None:
-        """parse_event_response rejects "success" — trace events must emit "ack"."""
-        with pytest.raises(ProtocolError, match="Unexpected error_event response status"):
-            parse_event_response({"status": "success"}, "error_event", 1000)
-
-    def test_send_remote_success_status_rejected(self) -> None:
-        """parse_event_response rejects "success" — trace events must emit "ack"."""
-        with pytest.raises(ProtocolError, match="Unexpected remote_event response status"):
-            parse_event_response({"status": "success"}, "remote_event", 1000)
-
-    def test_send_remote_extended(self, simple_dbc: DBCDefinition) -> None:
-        """send_remote with extended=True accepts 29-bit IDs."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([])
-            client.start_stream()
-            response = client.send_remote(
-                timestamp=1000, can_id=0x1FFFFFFF, extended=True,
-            )
-            assert response["status"] == "ack"
-            client.end_stream()
-
-    def test_send_error_backward_timestamp_accepted(self, simple_dbc: DBCDefinition) -> None:
-        """send_error with a backward timestamp is accepted.
-
-        Error frames carry no payload and do not advance the monotonicity
-        anchor in the Agda core.  This verifies that the ack path works
-        and that XB5 (ProtocolError on non-ack) does not fire for
-        legitimate ack responses.
-        """
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
-            client.start_stream()
-            client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
-                data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
-            )
-            # Error events don't participate in data-frame monotonicity.
-            resp = client.send_error(timestamp=4000)
-            assert resp["status"] == "ack"
-            client.end_stream()
-
-    def test_send_remote_backward_timestamp_accepted(self, simple_dbc: DBCDefinition) -> None:
-        """send_remote with a backward timestamp is accepted.
-
-        Remote frames carry no payload and do not advance the monotonicity
-        anchor in the Agda core.  This verifies that the ack path works
-        and that XB5 (ProtocolError on non-ack) does not fire for
-        legitimate ack responses.
-        """
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
-            client.start_stream()
-            client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
-                data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
-            )
-            # Remote events don't participate in data-frame monotonicity.
-            resp = client.send_remote(timestamp=4000, can_id=256)
-            assert resp["status"] == "ack"
-            client.end_stream()
-
-
-class TestFormatDBC:
-    """Tests for format_dbc() round-trip."""
-
-    def test_format_dbc_round_trip(self, simple_dbc: DBCDefinition) -> None:
-        """Parsing then formatting a DBC preserves message structure."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            result = client.format_dbc()
-            assert "messages" in result
-            msgs = result["messages"]
-            assert len(msgs) == 1
-            assert msgs[0]["name"] == "TestMessage"
-            assert msgs[0]["id"] == 256
-            assert len(msgs[0]["signals"]) == 1
-            assert msgs[0]["signals"][0]["name"] == "TestSignal"
-
-    def test_format_dbc_without_parse_raises(self) -> None:
-        """format_dbc before parse_dbc returns an error."""
-        with AletheiaClient() as client:
-            with pytest.raises(ProtocolError):
-                client.format_dbc()
-
-
-class TestRTSState:
-    """Unit tests for GHC RTS reference counting."""
-
-    def test_refcount_increments_on_enter(self) -> None:
-        """Each client increments the RTS reference count."""
-        from aletheia.client._ffi import RTSState
-        initial = RTSState.refcount
-        with AletheiaClient():
-            assert RTSState.refcount == initial + 1
-        assert RTSState.refcount == initial
-
-    def test_release_does_not_go_negative(self) -> None:
-        """release() when refcount is 0 stays at 0."""
-        from aletheia.client._ffi import RTSState
-        saved = RTSState.refcount
-        RTSState.refcount = 0
-        RTSState.release()
-        assert RTSState.refcount == 0
-        RTSState.refcount = saved
-
-    def test_rts_cores_mismatch_warns(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Second client with different rts_cores logs a warning."""
-        with AletheiaClient(rts_cores=1):
-            with caplog.at_level("WARNING", logger="aletheia"):
-                with AletheiaClient(rts_cores=4):
-                    pass
-            assert "rts.cores_mismatch" in caplog.text

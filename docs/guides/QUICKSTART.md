@@ -6,7 +6,14 @@ Get to a working CAN verification in 5 minutes.
 
 Before the five-minute walkthrough below, the Agda → Haskell shared library needs to exist and the Python package needs to be importable:
 
-1. **Toolchain**: GHC ≥ 9.4, cabal ≥ 3.12, Agda 2.8.0, Python ≥ 3.12, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform.
+1. **Toolchain**: GHC ≥ 9.4, cabal ≥ 3.12, Agda 2.8.0, Python ≥ 3.12, `libgmp-dev`. See [Building Guide §1 Prerequisites](../development/BUILDING.md#prerequisites) for the exact versions and the install command for your platform. Quick check that the right versions are on `PATH`:
+   ```bash
+   ghc --version       # expect: The Glorious Glasgow Haskell Compilation System, version 9.4 or newer
+   cabal --version     # expect: cabal-install version 3.12 or newer
+   agda --version      # expect: Agda version 2.8.0
+   python3 --version   # expect: Python 3.12 or newer
+   ```
+   If any of these are missing or older, install the recommended version before continuing — older toolchains have produced library-mismatch failures at FFI load time.
 2. **First build** (~60s the first time, cached after):
    ```bash
    cabal run shake -- build        # builds libaletheia-ffi.so from Agda

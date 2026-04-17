@@ -6,8 +6,7 @@ and that property indices are consistent across defaults + session checks.
 
 import pytest
 
-from aletheia import AletheiaClient, Check, Signal
-from aletheia.checks import CheckResult
+from aletheia import AletheiaClient, Check
 
 
 # Simple DBC for testing

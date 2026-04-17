@@ -8,7 +8,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 
 - **Formally Verified**: Core logic implemented in Agda with correctness proofs — eliminates signal extraction bugs entirely, not just for tested inputs
 - **CAN Frame Processing**: Proven correct encoding/decoding guarantees roundtrip correctness for valid DBC specifications
-- **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Sustained ~109k frames/s on the C++ binary FFI path (CAN 2.0B, Ryzen 9 5950X); a 1 GB trace at ~200 bytes/frame (~5M frames) processes in roughly 46 seconds in that configuration. See [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the full throughput table and methodology.
+- **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Sustained ~109k frames/s on the **Stream LTL** lane of the C++ binary FFI path (CAN 2.0B, 2 always-true range properties, Ryzen 9 5950X, 10k frames × 5 runs); a 1 GB trace at ~200 bytes/frame (~5M frames) processes in roughly 46 seconds in that configuration. The number reflects this exact scope — mixing different property shapes (e.g. liveness, metric `eventually`) or different binding tiers (Python ~76k fps, Go ~95k fps in the same configuration) gives different numbers; see [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the full throughput table and methodology.
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
 - **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
 - **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
@@ -40,14 +40,19 @@ dbc_json = dbc_to_json("vehicle.dbc")
 speed_limit = Signal("Speed").less_than(220).always()
 brake_check = Signal("BrakePressed").equals(1).eventually()
 
-# Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties
+# Stream CAN frames from a .blf / .asc / .log / .mf4 trace and check properties.
+# iter_can_log() yields CANFrameTuple(timestamp_us, can_id, dlc, data, extended)
+# — five fields. timestamp_us is microseconds (int), can_id is the raw 11- or
+# 29-bit arbitration ID, dlc is the DLC code (0–8 for CAN 2.0B, 0–15 for CAN-FD),
+# data is bytes/bytearray of length dlc_to_bytes(dlc), extended is True for
+# 29-bit IDs. The unpack below ignores the extended flag for brevity.
 with AletheiaClient() as client:
     client.parse_dbc(dbc_json)
     client.set_properties([speed_limit.to_dict(), brake_check.to_dict()])
     client.start_stream()
 
-    for timestamp, can_id, dlc, data in iter_can_log("drive.blf"):
-        response = client.send_frame(timestamp, can_id, dlc, data)
+    for timestamp_us, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
+        response = client.send_frame(timestamp_us, can_id, dlc, data)
         if response.get("status") == "fails":
             ts = response['timestamp']['numerator']
             print(f"Violation at {ts}us")

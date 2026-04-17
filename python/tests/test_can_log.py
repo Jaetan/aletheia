@@ -308,7 +308,7 @@ class TestLoadCanLog:
 
         frames = load_can_log(asc_file)
         assert len(frames) == 5
-        for i, (ts, can_id, dlc, data, _ext) in enumerate(frames):
+        for i, (_ts, can_id, _dlc, data, _ext) in enumerate(frames):
             assert can_id == 0x100 + i
             assert data[0] == i
 

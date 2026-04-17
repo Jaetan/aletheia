@@ -179,8 +179,12 @@ class TestLoadWhenThenChecks:
 
     def test_when_exceeds_then_equals(self, tmp_path: Path) -> None:
         p = _make_when_then_workbook(tmp_path, [
-            # name, when_sig, when_cond, when_val, then_sig, then_cond, then_val, then_min, then_max, within, sev
-            ["Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None],
+            # Columns: name, when_sig, when_cond, when_val, then_sig, then_cond,
+            #          then_val, then_min, then_max, within, sev
+            [
+                "Brake response", "BrakePedal", "exceeds", 50,
+                "BrakeLight", "equals", 1, None, None, 100, None,
+            ],
         ])
         checks = load_checks_from_excel(p)
         assert len(checks) == 1
@@ -194,7 +198,10 @@ class TestLoadWhenThenChecks:
 
     def test_when_equals_then_exceeds(self, tmp_path: Path) -> None:
         p = _make_when_then_workbook(tmp_path, [
-            [None, "Ignition", "equals", 1, "RPM", "exceeds", 500, None, None, 2000, None],
+            [
+                None, "Ignition", "equals", 1, "RPM", "exceeds",
+                500, None, None, 2000, None,
+            ],
         ])
         checks = load_checks_from_excel(p)
         expected = (
@@ -207,7 +214,10 @@ class TestLoadWhenThenChecks:
 
     def test_when_drops_below_then_stays_between(self, tmp_path: Path) -> None:
         p = _make_when_then_workbook(tmp_path, [
-            [None, "FuelLevel", "drops_below", 10, "FuelWarning", "stays_between", None, 1, 1, 50, None],
+            [
+                None, "FuelLevel", "drops_below", 10,
+                "FuelWarning", "stays_between", None, 1, 1, 50, None,
+            ],
         ])
         checks = load_checks_from_excel(p)
         expected = (
@@ -258,7 +268,10 @@ class TestLoadMetadata:
 
     def test_when_then_metadata(self, tmp_path: Path) -> None:
         p = _make_when_then_workbook(tmp_path, [
-            ["Brake response", "BrakePedal", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, "safety"],
+            [
+                "Brake response", "BrakePedal", "exceeds", 50,
+                "BrakeLight", "equals", 1, None, None, 100, "safety",
+            ],
         ])
         checks = load_checks_from_excel(p)
         assert checks[0].name == "Brake response"
@@ -274,8 +287,12 @@ class TestLoadDBCFromExcel:
 
     def test_single_signal(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            # id, name, extended, dlc, signal, startbit, length, byteorder, signed, factor, offset, min, max, unit
-            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            # Columns: id, name, extended, dlc, signal, startbit, length, byteorder,
+            #          signed, factor, offset, min, max, unit
+            [
+                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
+                False, 0.25, 0, 0, 16383.75, "rpm",
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["version"] == ""
@@ -301,9 +318,18 @@ class TestLoadDBCFromExcel:
     def test_message_grouping(self, tmp_path: Path) -> None:
         """Multiple rows with same message ID are grouped."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
-            [256, "EngineData", None, 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
-            [512, "BrakeData", None, 4, "BrakePressure", 0, 16, "big_endian", False, 0.1, 0, 0, 6553.5, "bar"],
+            [
+                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
+                False, 0.25, 0, 0, 16383.75, "rpm",
+            ],
+            [
+                256, "EngineData", None, 8, "Temp", 16, 8, "little_endian",
+                False, 1, -40, -40, 215, "C",
+            ],
+            [
+                512, "BrakeData", None, 4, "BrakePressure", 0, 16, "big_endian",
+                False, 0.1, 0, 0, 6553.5, "bar",
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 2
@@ -317,14 +343,20 @@ class TestLoadDBCFromExcel:
     def test_hex_message_id(self, tmp_path: Path) -> None:
         """Message IDs can be hex strings."""
         p = _make_dbc_workbook(tmp_path, [
-            ["0x100", "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
+            [
+                "0x100", "EngineData", None, 8, "RPM", 0, 16, "little_endian",
+                False, 0.25, 0, 0, 16383.75, "rpm",
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["id"] == 0x100
 
     def test_signed_true(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", None, 8, "Temp", 0, 8, "little_endian", True, 1, -40, -40, 215, "C"],
+            [
+                256, "EngineData", None, 8, "Temp", 0, 8, "little_endian",
+                True, 1, -40, -40, 215, "C",
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["signed"] is True
@@ -347,7 +379,10 @@ class TestLoadDBCFromExcel:
 
     def test_missing_unit_defaults_empty(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, None],
+            [
+                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
+                False, 0.25, 0, 0, 16383.75, None,
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert dbc["messages"][0]["signals"][0]["unit"] == ""
@@ -363,7 +398,10 @@ class TestLoadDBCMultiplexed:
     def test_multiplexed_signal(self, tmp_path: Path) -> None:
         """Signal with both Multiplexor and Multiplex Value produces DBCSignalMultiplexed."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "MuxSignal", 8, 8, "little_endian", False, 1, 0, 0, 255, "", "Selector", 3],
+            [
+                256, "Msg", None, 8, "MuxSignal", 8, 8, "little_endian",
+                False, 1, 0, 0, 255, "", "Selector", 3,
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         sig = dbc["messages"][0]["signals"][0]
@@ -375,7 +413,10 @@ class TestLoadDBCMultiplexed:
     def test_always_signal_no_mux_columns(self, tmp_path: Path) -> None:
         """Signal without Multiplexor/Multiplex Value columns is always-present."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, None],
+            [
+                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
+                False, 1, 0, 0, 100, "", None, None,
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         sig = dbc["messages"][0]["signals"][0]
@@ -385,9 +426,18 @@ class TestLoadDBCMultiplexed:
     def test_mixed_always_and_multiplexed(self, tmp_path: Path) -> None:
         """Same message can have both always-present and multiplexed signals."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Selector", 0, 8, "little_endian", False, 1, 0, 0, 255, "", None, None],
-            [256, "Msg", None, 8, "TempA", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 0],
-            [256, "Msg", None, 8, "TempB", 8, 8, "little_endian", False, 1, -40, -40, 215, "C", "Selector", 1],
+            [
+                256, "Msg", None, 8, "Selector", 0, 8, "little_endian",
+                False, 1, 0, 0, 255, "", None, None,
+            ],
+            [
+                256, "Msg", None, 8, "TempA", 8, 8, "little_endian",
+                False, 1, -40, -40, 215, "C", "Selector", 0,
+            ],
+            [
+                256, "Msg", None, 8, "TempB", 8, 8, "little_endian",
+                False, 1, -40, -40, 215, "C", "Selector", 1,
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         msg = dbc["messages"][0]
@@ -401,7 +451,10 @@ class TestLoadDBCMultiplexed:
     def test_partial_mux_raises(self, tmp_path: Path) -> None:
         """Only Multiplexor without Multiplex Value raises ValueError."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", "Selector", None],
+            [
+                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
+                False, 1, 0, 0, 100, "", "Selector", None,
+            ],
         ])
         with pytest.raises(ValueError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
@@ -409,7 +462,10 @@ class TestLoadDBCMultiplexed:
     def test_partial_mux_value_only_raises(self, tmp_path: Path) -> None:
         """Only Multiplex Value without Multiplexor raises ValueError."""
         p = _make_dbc_workbook(tmp_path, [
-            [256, "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, "", None, 3],
+            [
+                256, "Msg", None, 8, "Sig", 0, 16, "little_endian",
+                False, 1, 0, 0, 100, "", None, 3,
+            ],
         ])
         with pytest.raises(ValueError, match="must both be provided or both be empty"):
             load_dbc_from_excel(p)
@@ -562,7 +618,10 @@ class TestLoadErrors:
 
     def test_invalid_message_id(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            ["not_a_number", "Msg", None, 8, "Sig", 0, 16, "little_endian", False, 1, 0, 0, 100, ""],
+            [
+                "not_a_number", "Msg", None, 8, "Sig", 0, 16, "little_endian",
+                False, 1, 0, 0, 100, "",
+            ],
         ])
         with pytest.raises(ValueError, match="invalid 'Message ID'"):
             load_dbc_from_excel(p)
@@ -602,11 +661,16 @@ class TestLoadFromFile:
         ws_checks = wb.active
         ws_checks.title = "Checks"  # type: ignore[union-attr]
         ws_checks.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
-        ws_checks.append([None, "Speed", "never_exceeds", 220, None, None, None, None])  # type: ignore[union-attr]
+        ws_checks.append(  # type: ignore[union-attr]
+            [None, "Speed", "never_exceeds", 220, None, None, None, None],
+        )
 
         ws_wt = wb.create_sheet("When-Then")
         ws_wt.append(_WHEN_THEN_HEADERS)
-        ws_wt.append([None, "Brake", "exceeds", 50, "BrakeLight", "equals", 1, None, None, 100, None])
+        ws_wt.append(
+            [None, "Brake", "exceeds", 50, "BrakeLight", "equals",
+             1, None, None, 100, None],
+        )
 
         p = tmp_path / "combined.xlsx"
         wb.save(str(p))
@@ -625,8 +689,14 @@ class TestLoadFromFile:
 
     def test_dbc_round_trip(self, tmp_path: Path) -> None:
         p = _make_dbc_workbook(tmp_path, [
-            [256, "EngineData", None, 8, "RPM", 0, 16, "little_endian", False, 0.25, 0, 0, 16383.75, "rpm"],
-            [256, "EngineData", None, 8, "Temp", 16, 8, "little_endian", False, 1, -40, -40, 215, "C"],
+            [
+                256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
+                False, 0.25, 0, 0, 16383.75, "rpm",
+            ],
+            [
+                256, "EngineData", None, 8, "Temp", 16, 8, "little_endian",
+                False, 1, -40, -40, 215, "C",
+            ],
         ])
         dbc = load_dbc_from_excel(p)
         assert len(dbc["messages"]) == 1
@@ -649,9 +719,15 @@ class TestEmptyRows:
         ws = wb.active
         ws.title = "Checks"  # type: ignore[union-attr]
         ws.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
-        ws.append([None, "Speed", "never_exceeds", 220, None, None, None, None])  # type: ignore[union-attr]
-        ws.append([None, None, None, None, None, None, None, None])  # empty row  # type: ignore[union-attr]
-        ws.append([None, "Voltage", "never_below", 11.5, None, None, None, None])  # type: ignore[union-attr]
+        ws.append(  # type: ignore[union-attr]
+            [None, "Speed", "never_exceeds", 220, None, None, None, None],
+        )
+        ws.append(  # type: ignore[union-attr]  # empty row
+            [None, None, None, None, None, None, None, None],
+        )
+        ws.append(  # type: ignore[union-attr]
+            [None, "Voltage", "never_below", 11.5, None, None, None, None],
+        )
         p = tmp_path / "gaps.xlsx"
         wb.save(str(p))
         checks = load_checks_from_excel(p)
