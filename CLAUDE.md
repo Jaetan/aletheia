@@ -450,7 +450,16 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
 
 See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
 
-**Latest (2026-04-17):** AGENTS.md review round 15 — cross-binding parity + strict protocol validation. Commit `2853644` (38 files, +617/−207).
+**Latest (2026-04-17):** AGENTS.md review round 16 — test split, doc SSOT, validator types. Commit `eae36aa` (37 files, +1536/−901).
+
+- **Agda (M1):** `ValidationFailed : String → HandlerError` refactored to `ValidationFailed : List ValidationIssue → HandlerError`. Wire format unchanged (`formatHandlerError` flattens to single message string); structured info now preserved in the Agda value for future wire revisions.
+- **C++ (H2/M14/M15/M16):** clang-format on 6 violating files (also picks up an R15 leftover in `cpp/benchmarks/benchmark.cpp` lines 386-389 — out of R16 scope, surfaced in the commit message for the audit trail). CMakeLists yaml-cpp C++20/C++23 conflict comment; OpenXLSX commit hash → release tag; `detail/cache_keys.hpp` off-limits documentation strengthened.
+- **Go (M2):** Harmonized `rts.cores_mismatch` event scope.
+- **Python (H4/M4-M5/M9/M12/M13):** **H4** `tests/test_unified_client.py` split (1171 > 1000-line cap) into core (591) + CAN-FD/mux (370) + events/RTS (223), shared `simple_dbc` fixture lifted to `conftest.py`; **M13** new `test_lazy_import_boundary.py` structurally guards the `aletheia/__init__.py` ↔ `client/_ffi.py` ↔ `_install_config.py` cycle; M4-M5 unused imports/vars + >100-char lines + check= cleanup; M9 COOKBOOK debug-violation + validation-errors recipes.
+- **Docs (H1/H5/H6/H7/M6-M11/M17/L1):** H1 PROJECT_STATUS test counts refreshed (Python 624 / C++ 275 / Go 223 / total 1122); H5 CLAUDE.md historical session log stripped of stale module counts; H6/H7 COOKBOOK candump prereq + QUICKSTART version checks; M6 doc SSOT — confirmed remaining cross-doc references serve distinct purposes (rule definition vs status indicator vs review check) and don't constitute drift; M7 throughput qualifier scope labels (README + PITCH); M8 CLI mux-query example output; M10 PROTOCOL error/remote frame state machine; M11 broke this section's R15 dense paragraph into bullets; M17 INTERFACES.md "freely" vagueness sharpened + C++/Go DBC text workaround documented; L1 BUILDING.md install-version drift note.
+- **Verification:** 624 Python tests, 275 C++ tests, 223 Go tests, 1122 total. pyright 0/0/0, pylint `aletheia/` 10.00, pylint test files 9.95 (only R0801 cross-file fixture similarity remains; refactoring would harm test clarity), ctest 5/5, go -race clean, Agda full build green. Benchmarks within ±10% inter-run variance of R15 baseline (steady-state noise floor ~2–4%; transient swings beyond ±10% trigger investigation, per R12 protocol that caught the −16.1% `log_event` regression).
+
+**Prior (2026-04-17):** AGENTS.md review round 15 — cross-binding parity + strict protocol validation. Commit `2853644` (38 files, +617/−207).
 
 - **Agda:** Error formatting (quoted signal names in `FrameError`); `WrappedParseError` → `WrappedParse` rename in `RouteError`.
 - **C++ (CX1-CX10):**
