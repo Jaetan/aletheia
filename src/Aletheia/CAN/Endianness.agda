@@ -22,6 +22,14 @@
 -- extractCore-extractBits, lookupSafe-dropVec, extractCore-dropVec) are in
 -- a private block and not exported. All downstream open-import statements
 -- use explicit `using` lists.
+--
+-- DEFER-stdlib-mandate (Cat 29): this module transitively relies on
+-- `shiftR-mod-pow2` from `Aletheia.Data.BitVec.Conversion`, whose signature
+-- carries a `.{{_ : NonZero (2 ^ n)}}` instance argument mandated by the
+-- stdlib `_%_` on ℕ. The witness is supplied explicitly at every call site
+-- (`{{m^n≢0 2 8}}` at line 154), so instance resolution is trivial. This is
+-- the DEFER recorded against Cat 29 per the universal rules' in-source
+-- exception path.
 module Aletheia.CAN.Endianness where
 
 open import Aletheia.CAN.Frame using (Byte)

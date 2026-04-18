@@ -101,7 +101,7 @@ injectSignal value signalDef byteOrder frame =
     -- but the proof files `Encoding/Properties/Roundtrip.agda` (via the
     -- `fits-check` / `dec-yes-irr` / `inject-reduces` lemmas) and
     -- `Encoding/Properties/Disjoint.agda` (via `with … <? … | yes bounded`
-    -- patterns at lines 68 and 138) structurally pattern-match on this
+    -- patterns at lines 70 and 140) structurally pattern-match on this
     -- `Dec`. Switching the guard requires rewriting those proofs to use
     -- `with … <ᵇ … in eq` plus a `<ᵇ⇒<` bridge in every lemma, which
     -- is a larger proof refactor than the marginal `removeScaling`-dominated

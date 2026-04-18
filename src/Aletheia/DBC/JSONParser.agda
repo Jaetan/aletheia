@@ -48,12 +48,21 @@ parseByteOrder s =
   else if ⌊ s ≟ₛ"big_endian" ⌋ then inj₂ BigEndian
   else inj₁ (InvalidByteOrder s)
 
--- Parse a JSON array of naturals into a List ℕ
+-- Parse a JSON array of naturals into a List ℕ (helper for parseNatList⁺)
 parseNatList : List JSON → ParseError ⊎ List ℕ
 parseNatList [] = inj₂ []
 parseNatList (j ∷ rest) with getNat j
 ... | nothing = inj₁ (InvalidPresence "non-integer in multiplex_values")
 ... | just n  = parseNatList rest >>=ₑ λ ns → inj₂ (n ∷ ns)
+
+-- Parse a non-empty JSON array of naturals into a List⁺ ℕ.
+-- Produces a List⁺ directly so callers that require non-emptiness (e.g.
+-- SignalPresence's `When` constructor) don't need a `λ where` with a dead
+-- empty-list branch; the type system rules out the empty result.
+parseNatList⁺ : List⁺ JSON → ParseError ⊎ List⁺ ℕ
+parseNatList⁺ (j List⁺.∷ rest) with getNat j
+... | nothing = inj₁ (InvalidPresence "non-integer in multiplex_values")
+... | just n  = parseNatList rest >>=ₑ λ ns → inj₂ (n List⁺.∷ ns)
 
 -- Parse SignalPresence from JSON object
 -- Can be: {"presence": "always"} or {"multiplexor": "...", "multiplex_values": [N, ...]}
@@ -75,17 +84,8 @@ parseSignalPresence obj = tryMux
     ... | just muxName with lookupArray "multiplex_values" obj
     ...   | nothing = tryPresence  -- Have multiplexor but no values, fall back
     ...   | just [] = tryPresence  -- Empty array, treat as always-present
-    ...   | just (v ∷ rest) = parseNatList (v ∷ rest) >>=ₑ λ where
-            (n ∷ ns) → inj₂ (When muxName (n List⁺.∷ ns))
-            -- Dead branch: `parseNatList` is length-preserving on the success
-            -- path — inspect its definition at line 53: the base case `[]` maps
-            -- to `inj₂ []`, and the `_∷_` case threads the head through the
-            -- recursive call. On a non-empty input `(v ∷ rest)` the only `inj₂`
-            -- return is `inj₂ (n ∷ ns)` with `n` drawn from `v`. The only way
-            -- to reach `inj₂ []` is through an empty input, which is already
-            -- handled by the `just []` clause above. Retained purely so the
-            -- `λ where` is total. `tryPresence` is a no-op fallback here.
-            []       → tryPresence
+    ...   | just (v ∷ rest) = parseNatList⁺ (v List⁺.∷ rest) >>=ₑ λ ns →
+                                inj₂ (When muxName ns)
 
 -- Parse signed field (can be boolean or string "signed"/"unsigned")
 parseSigned : List (String × JSON) → ParseError ⊎ Bool

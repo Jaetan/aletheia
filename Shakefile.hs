@@ -6,10 +6,10 @@ import System.Directory (createDirectoryLink, removePathForcibly,
 import System.Info (os)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
-import Data.List (isInfixOf, isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf, stripPrefix, nub)
 import Data.Maybe (listToMaybe)
-import Data.Char (isSpace)
-import Control.Monad (when, unless, forM_)
+import Data.Char (isSpace, isDigit)
+import Control.Monad (when, unless, forM, forM_)
 import GHC.Conc (getNumProcessors)
 
 -- | Trim whitespace from both ends of a string
@@ -76,33 +76,64 @@ checkOneFFIName qualifier funcName malonzoContent ffiContent =
         (_, Nothing) ->
             putWarn $ "Could not extract " ++ funcName ++ " name from FFI wrapper"
 
--- | Check that the FFI wrapper uses the correct mangled names for all exported functions.
--- After Main.agda split: processJSONLine is in Main/JSON.hs, all others in Main/Binary.hs.
--- StreamState type/initialState are in Protocol/StreamState/Types.hs.
+-- | FFI export specification. Single source of truth for both
+-- `checkFFINames` (verifies AletheiaFFI.hs matches MAlonzo output) and
+-- the `check-ffi-exports`/`regen-ffi-exports` phonies (maintain a
+-- checked-in snapshot of mangled names to catch silent drift).
+data FFIExport = FFIExport
+    { ffiQualifier :: String  -- ^ qualifier used in AletheiaFFI.hs ("AgdaJSON", "AgdaBin", "AgdaState")
+    , ffiFuncName  :: String  -- ^ function name as written in Agda
+    , ffiModule    :: String  -- ^ MAlonzo output path relative to `build/MAlonzo/Code/`, no .hs suffix
+    }
+
+-- | Every FFI-exported Agda definition that the Haskell shim calls.
+-- Keep ordered so the regenerated snapshot has a stable diff.
+ffiExports :: [FFIExport]
+ffiExports =
+    [ FFIExport "AgdaJSON"  "processJSONLine"          "Aletheia/Main/JSON"
+    , FFIExport "AgdaBin"   "processFrameDirect"       "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processEventDirect"       "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processStartStreamDirect" "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processEndStreamDirect"   "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processFormatDBCDirect"   "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processExtractDirect"     "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processBuildFrameDirect"  "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processUpdateFrameDirect" "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processBuildFrameBin"     "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processUpdateFrameBin"    "Aletheia/Main/Binary"
+    , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
+    , FFIExport "AgdaState" "initialState"             "Aletheia/Protocol/StreamState/Types"
+    ]
+
+-- | Load the MAlonzo module contents needed by `ffiExports`, deduplicating
+-- across entries that share a module.
+loadFFIModuleContents :: Action [(String, String)]
+loadFFIModuleContents = do
+    let modules = nub (map ffiModule ffiExports)
+    liftIO $ forM modules $ \m -> do
+        c <- readFile ("build/MAlonzo/Code" </> m <.> "hs")
+        return (m, c)
+
+-- | Reverse of MAlonzo's name mangling for entries in the FFI snapshot:
+-- strips the "d_" prefix and trailing "_<digits>" suffix. Assumes
+-- function names are alphanumeric (no underscores) — true for every
+-- entry in `ffiExports`.
+inferFuncName :: String -> String
+inferFuncName mangled =
+    case stripPrefix "d_" mangled of
+        Just rest -> reverse (drop 1 (dropWhile isDigit (reverse rest)))
+        Nothing   -> mangled
+
+-- | Check that the FFI wrapper uses the correct mangled names for all
+-- exported functions listed in `ffiExports`.
 checkFFINames :: FilePath -> Action ()
 checkFFINames ffiFile = do
     ffiContent <- liftIO $ readFile ffiFile
-    jsonContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Main/JSON.hs"
-    binaryContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Main/Binary.hs"
-    stateContent <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Protocol/StreamState/Types.hs"
-    -- JSON entry point
-    checkOneFFIName "AgdaJSON" "processJSONLine" jsonContent ffiContent
-    -- Binary entry points (all in Main/Binary.hs)
-    mapM_ (\fn -> checkOneFFIName "AgdaBin" fn binaryContent ffiContent)
-        [ "processFrameDirect"
-        , "processEventDirect"
-        , "processStartStreamDirect"
-        , "processEndStreamDirect"
-        , "processFormatDBCDirect"
-        , "processExtractDirect"
-        , "processBuildFrameDirect"
-        , "processUpdateFrameDirect"
-        , "processBuildFrameBin"
-        , "processUpdateFrameBin"
-        , "processExtractBin"
-        ]
-    -- StreamState type and initialState
-    checkOneFFIName "AgdaState" "initialState" stateContent ffiContent
+    moduleContents <- loadFFIModuleContents
+    forM_ ffiExports $ \e ->
+        case lookup (ffiModule e) moduleContents of
+            Just c  -> checkOneFFIName (ffiQualifier e) (ffiFuncName e) c ffiContent
+            Nothing -> return ()  -- unreachable: loadFFIModuleContents covers every module
 
 -- | Get GHC runtime .so dependencies for a shared library.
 -- Runs ldd and filters for libraries under GHC's lib directory.
@@ -143,12 +174,15 @@ main :: IO ()
 main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=ChangeModtimeAndDigest} $ do
 
     phony "build" $ do
+        need ["check-stdlib-version"]
         need ["build/libaletheia-ffi.so"]
 
     phony "build-agda" $ do
+        need ["check-stdlib-version"]
         need ["build/MAlonzo/Code/Aletheia/Main.hs"]
 
     phony "build-haskell" $ do
+        need ["check-stdlib-version"]
         need ["build/libaletheia-ffi.so"]
 
     phony "check-properties" $ do
@@ -286,6 +320,180 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
         putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype + stdlib constructors."
+
+    phony "check-ffi-exports" $ do
+        -- Diff MAlonzo-mangled FFI export names against the checked-in
+        -- `haskell-shim/ffi-exports.snapshot`. Guards against silent drift
+        -- when Agda definitions are reordered or new definitions are added
+        -- above existing exports. Complements `checkFFINames` (run inline
+        -- during the Main.hs build rule), which keeps AletheiaFFI.hs in
+        -- sync with the mangled names.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
+        let snapshotFile = "haskell-shim/ffi-exports.snapshot"
+        snapshotContent <- liftIO $ readFile snapshotFile
+        let parseSnapshotLine l =
+                let s = strip l
+                in if null s || "#" `isPrefixOf` s
+                   then Nothing
+                   else case break (== ':') s of
+                            (m, ':':n) -> Just (m, n)
+                            _          -> Nothing
+        let expected =
+                [ p
+                | Just p <- map parseSnapshotLine (lines snapshotContent)
+                ]
+        moduleContents <- loadFFIModuleContents
+        let failures =
+              [ (modName, mangled,
+                 extractMangledName (inferFuncName mangled) c)
+              | (modName, mangled) <- expected
+              , Just c <- [lookup modName moduleContents]
+              , not ((mangled ++ " ::") `isInfixOf` c)
+              ]
+        unless (null failures) $ do
+            forM_ failures $ \(m, expected', actual) ->
+                putError $ unlines
+                    [ ""
+                    , "════════════════════════════════════════════════════════════════"
+                    , "ERROR: FFI export snapshot drift in " ++ m
+                    , "════════════════════════════════════════════════════════════════"
+                    , ""
+                    , "  Expected (snapshot): " ++ expected'
+                    , "  Actual (MAlonzo):    " ++ maybe "<not found>" id actual
+                    , ""
+                    , "  Snapshot file: " ++ snapshotFile
+                    , ""
+                    , "  If the drift is intentional, regenerate:"
+                    , "    cabal run shake -- regen-ffi-exports"
+                    , ""
+                    , "════════════════════════════════════════════════════════════════"
+                    , ""
+                    ]
+            error "check-ffi-exports failed: snapshot mismatch"
+        putInfo $ "FFI exports match snapshot: "
+               ++ show (length expected) ++ " entries."
+
+    phony "regen-ffi-exports" $ do
+        -- Rewrite `haskell-shim/ffi-exports.snapshot` from the current
+        -- MAlonzo output. Run after an intentional Agda refactor that
+        -- changes the mangled numbers.
+        need ["build/MAlonzo/Code/Aletheia/Main.hs"]
+        moduleContents <- loadFFIModuleContents
+        let entries =
+              [ ffiModule e ++ ":" ++ n
+              | e <- ffiExports
+              , Just c <- [lookup (ffiModule e) moduleContents]
+              , Just n <- [extractMangledName (ffiFuncName e) c]
+              ]
+        let missing =
+              [ ffiFuncName e ++ " (" ++ ffiModule e ++ ")"
+              | e <- ffiExports
+              , case lookup (ffiModule e) moduleContents of
+                    Just c  -> case extractMangledName (ffiFuncName e) c of
+                                   Just _  -> False
+                                   Nothing -> True
+                    Nothing -> True
+              ]
+        unless (null missing) $
+            error $ "regen-ffi-exports: could not extract mangled name for: "
+                 ++ unwords missing
+        let header =
+                [ "# Frozen list of MAlonzo-mangled FFI export names."
+                , "#"
+                , "# Purpose: guard against silent drift of the mangled names when Agda"
+                , "# definitions are reordered or new definitions are added above existing"
+                , "# ones. The build system (Shakefile phony `check-ffi-exports`) diffs the"
+                , "# fresh MAlonzo output against this file and fails on mismatch."
+                , "#"
+                , "# Format: one \"<module>:<mangled-name>\" per non-blank, non-# line."
+                , "# Modules are the MAlonzo output files under `build/MAlonzo/Code/`."
+                , "#"
+                , "# Regenerate after an intentional refactor with:"
+                , "#   cabal run shake -- regen-ffi-exports"
+                , "#"
+                , "# This snapshot is paired with `checkFFINames` in Shakefile.hs, which"
+                , "# ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names."
+                ]
+        liftIO $ writeFile "haskell-shim/ffi-exports.snapshot"
+                           (unlines (header ++ entries))
+        putInfo $ "Regenerated snapshot with "
+               ++ show (length entries) ++ " entries."
+
+    phony "check-stdlib-version" $ do
+        -- Verify that the globally installed agda-stdlib matches the
+        -- version pinned in `aletheia.agda-lib`. Parses `depend:` from
+        -- aletheia.agda-lib, then scans libraries listed in
+        -- `$HOME/.agda/libraries` and reads each referenced `.agda-lib`
+        -- for its `name:` field. Succeeds iff every required dep matches
+        -- at least one installed library. Multi-line `depend:` blocks
+        -- (indented continuation lines) are not supported — Aletheia
+        -- currently depends only on standard-library on a single line.
+        aletheiaLib <- liftIO $ readFile "aletheia.agda-lib"
+        let requiredDeps =
+              concat [ words rest
+                     | l <- lines aletheiaLib
+                     , Just rest <- [stripPrefix "depend:" l]
+                     ]
+        when (null requiredDeps) $
+            error "aletheia.agda-lib: no `depend:` line or empty value"
+        home <- liftIO getHomeDirectory
+        let librariesFile = home </> ".agda" </> "libraries"
+        libExists <- doesFileExist librariesFile
+        unless libExists $
+            error $ "check-stdlib-version failed: "
+                 ++ librariesFile ++ " not found. "
+                 ++ "Set up Agda libraries config "
+                 ++ "(see docs/development/BUILDING.md)"
+        libContent <- liftIO $ readFile librariesFile
+        let expandHome p = case stripPrefix "~/" p of
+                               Just rest -> home </> rest
+                               Nothing   -> p
+        let paths = [ expandHome s
+                    | l <- lines libContent
+                    , let s = strip l
+                    , not (null s)
+                    ]
+        names <- forM paths $ \p -> do
+            ex <- doesFileExist p
+            if ex then do
+                c <- liftIO $ readFile p
+                let nm = case [ strip w
+                              | l <- lines c
+                              , Just rest <- [stripPrefix "name:" l]
+                              , w <- take 1 (words rest)
+                              ] of
+                           (n:_) -> n
+                           []    -> ""
+                return (p, nm)
+            else return (p, "")
+        let missing =
+              [ required
+              | required <- requiredDeps
+              , null [p | (p, nm) <- names, nm == required]
+              ]
+        unless (null missing) $ do
+            let detail = unlines
+                    [ "  " ++ p ++ ": "
+                       ++ (if null nm then "<missing or unreadable>" else nm)
+                    | (p, nm) <- names
+                    ]
+            error $ unlines
+                [ ""
+                , "════════════════════════════════════════════════════════════════"
+                , "ERROR: stdlib version mismatch"
+                , "════════════════════════════════════════════════════════════════"
+                , ""
+                , "  aletheia.agda-lib requires: " ++ unwords requiredDeps
+                , "  Missing: " ++ unwords missing
+                , "  Installed libraries from " ++ librariesFile ++ ":"
+                , detail
+                , "  Fix: install the missing dependency and register it in "
+                , "  " ++ librariesFile
+                , ""
+                , "════════════════════════════════════════════════════════════════"
+                , ""
+                ]
+        putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]

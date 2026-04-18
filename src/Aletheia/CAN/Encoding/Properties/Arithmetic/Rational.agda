@@ -25,6 +25,16 @@
 --            removeScaling-factor-zero-iff-nothing;
 --            removeScaling-applyScaling-exact; applyScaling-injective
 --   Layer D: applyScaling-removeScaling-bounded
+--
+-- DEFER-stdlib-mandate (Cat 29): this module uses `.{{_ : NonZero q}}` instance
+-- arguments on the stdlib's `_÷_` for ℚ (sites: `toℚᵘ-homo-÷`, `÷-via-ℚᵘ`,
+-- `ℚ-cancel`, `÷-*-cancel`, and the Layer D helpers that thread `>-nonZero` /
+-- `<-nonZero` witnesses through `_÷ᵣ_`). Stdlib mandates the instance arg on
+-- `_÷_`; we cannot remove it without giving up the stdlib division. No instance
+-- search ambiguity is introduced — every call site supplies the witness
+-- explicitly via `{{≢-nonZero …}}` / `{{>-nonZero …}}` / `{{<-nonZero …}}`,
+-- so instance resolution is trivial. This is the DEFER recorded against Cat 29
+-- per the universal rules' in-source exception path.
 module Aletheia.CAN.Encoding.Properties.Arithmetic.Rational where
 
 open import Aletheia.CAN.Encoding.Arithmetic using (applyScaling; removeScaling)

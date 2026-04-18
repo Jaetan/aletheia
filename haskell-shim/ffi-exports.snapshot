@@ -1,0 +1,28 @@
+# Frozen list of MAlonzo-mangled FFI export names.
+#
+# Purpose: guard against silent drift of the mangled names when Agda
+# definitions are reordered or new definitions are added above existing
+# ones. The build system (Shakefile phony `check-ffi-exports`) diffs the
+# fresh MAlonzo output against this file and fails on mismatch.
+#
+# Format: one "<module>:<mangled-name>" per non-blank, non-# line.
+# Modules are the MAlonzo output files under `build/MAlonzo/Code/`.
+#
+# Regenerate after an intentional refactor with:
+#   cabal run shake -- regen-ffi-exports
+#
+# This snapshot is paired with `checkFFINames` in Shakefile.hs, which
+# ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names.
+Aletheia/Main/JSON:d_processJSONLine_58
+Aletheia/Main/Binary:d_processFrameDirect_12
+Aletheia/Main/Binary:d_processEventDirect_18
+Aletheia/Main/Binary:d_processStartStreamDirect_24
+Aletheia/Main/Binary:d_processEndStreamDirect_28
+Aletheia/Main/Binary:d_processFormatDBCDirect_32
+Aletheia/Main/Binary:d_processExtractDirect_38
+Aletheia/Main/Binary:d_processBuildFrameDirect_50
+Aletheia/Main/Binary:d_processUpdateFrameDirect_62
+Aletheia/Main/Binary:d_processBuildFrameBin_98
+Aletheia/Main/Binary:d_processUpdateFrameBin_112
+Aletheia/Main/Binary:d_processExtractBin_128
+Aletheia/Protocol/StreamState/Types:d_initialState_42

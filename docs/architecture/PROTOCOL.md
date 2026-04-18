@@ -937,7 +937,16 @@ matters when interpreting a `"complete"` response:
 - **Sound** — every definite verdict is correct. If the stream ends with a
   property reported as `Satisfied` or `Violated`, that verdict is
   provably correct relative to the observed trace. This is formally proven
-  in `LTL/Adequacy.agda`.
+  in `LTL/Adequacy.agda`, lifted to the production simplify/stepL loop by
+  `LTL/Adequacy/Pipeline.agda` (`pipeline-adequate`), and discharged for
+  the signal-cache premise by `Protocol/Adequacy/StreamingWarm.agda`
+  (`streaming-warms-cache`) **provided** the trace satisfies
+  `AllObserved dbc σ atoms` — i.e., every predicate's target signal is
+  extracted from at least one frame in the trace. The FFI runtime does
+  not check `AllObserved`; it is a user obligation on the input trace.
+  Traces that omit a property's target signal may still report `Unknown`
+  (three-valued finalization) rather than a definite verdict, which
+  remains sound but not complete.
 - **Not complete** — some verdicts may remain `Unknown` at end-of-stream
   even when the prefix already determined the truth value. Example:
   `Eventually Speed > 0` reports `Unknown` if the stream ends before the

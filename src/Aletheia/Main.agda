@@ -30,6 +30,24 @@
 -- `Aletheia.Error`. They are re-exported under renamed names
 -- (`ResponseError` and `TraceError`) to keep all three names in scope
 -- simultaneously from this facade.
+--
+-- Adequacy scope (R17 A.D.2): The production pipeline exposed here has
+-- a formal soundness proof chain composed of two theorems:
+--   * `Aletheia.LTL.Adequacy.Pipeline.pipeline-adequate` — the
+--     simplify/stepL loop preserves the adequacy of the coalgebra (the
+--     simplify pass between steps does not alter verdicts).
+--   * `Aletheia.Protocol.Adequacy.StreamingWarm.streaming-warms-cache` —
+--     on a trace that satisfies `AllObserved dbc σ atoms` (every atom's
+--     target signal is extracted from at least one frame in σ), the
+--     streaming cache-update discharges the `AllCached` premise of
+--     `warm-cache-agreement`.
+-- Together, these yield unconditional soundness for offline traces that
+-- satisfy `AllObserved`. The FFI runtime does NOT check `AllObserved` on
+-- the hot path — it is a user obligation on the trace. Traces that omit a
+-- property's target signal may silently report the property as `Unsure`
+-- rather than `Violated`/`Satisfied` (three-valued Kleene finalization),
+-- which remains sound but not complete (see `PROTOCOL.md § Streaming
+-- Semantics: Soundness vs. Completeness`).
 module Aletheia.Main where
 
 -- ============================================================================

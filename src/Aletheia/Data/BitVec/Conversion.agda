@@ -8,6 +8,16 @@
 --
 -- Philosophy: This is the ONLY module where we prove arithmetic facts about bits.
 -- All other bit reasoning uses the structural BitVec abstraction.
+--
+-- DEFER-stdlib-mandate (Cat 29): this module uses `.{{_ : NonZero n}}`
+-- instance arguments on the stdlib's `_mod_` and `_%_` for ℕ (sites:
+-- `toℕ-mod-≡-%`, `mod-pow2-mod2`, `%-cong`, `mod-pow2-div2`, `shiftR-mod-pow2`,
+-- and their call chains). Stdlib mandates the instance arg on `_mod_`/`_%_`;
+-- we cannot remove it without giving up stdlib modular arithmetic. Every call
+-- site supplies the witness explicitly via `{{m^n≢0 …}}` / `{{m*n≢0 …}}`, so
+-- instance resolution is trivial and introduces no ambiguity. This is the
+-- DEFER recorded against Cat 29 per the universal rules' in-source exception
+-- path.
 module Aletheia.Data.BitVec.Conversion where
 
 open import Aletheia.Data.BitVec using (BitVec)

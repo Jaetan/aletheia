@@ -38,20 +38,22 @@ open import Relation.Nullary using (yes; no)
 -- Object field lookup properties (needed for schema parsing proofs)
 open import Aletheia.Prelude using (lookupByKey)
 
--- Note: These proofs require reasoning about if_then_else with decidable equality
--- When key ≟ key returns yes, ⌊ yes _ ⌋ = true, so if evaluates to then-branch
+-- Note: These proofs require reasoning about if_then_else with decidable equality.
+-- When key ≟ key returns yes, ⌊ yes _ ⌋ = true, so if evaluates to then-branch.
+-- Uses the modern `with ... in eq` idiom (Cat 8) for consistency with the rest
+-- of this module, even though the equation is not needed in the branches.
 lookupByKey-here : ∀ {A : Set} (key : String) (v : A) (rest : List (String × A))
   → lookupByKey key ((key , v) ∷ rest) ≡ just v
-lookupByKey-here {A} key v rest with key ≟ key
-lookupByKey-here {A} key v rest | yes eq = refl
-lookupByKey-here {A} key v rest | no k≢k = ⊥-elim (k≢k refl)
+lookupByKey-here {A} key v rest with key ≟ key in eq
+... | yes _   = refl
+... | no k≢k = ⊥-elim (k≢k refl)
 
 lookupByKey-there : ∀ {A : Set} (key key' : String) (v : A) (rest : List (String × A))
   → key ≢ key'
   → lookupByKey key ((key' , v) ∷ rest) ≡ lookupByKey key rest
-lookupByKey-there {A} key key' v rest key≢key' with key' ≟ key
-lookupByKey-there {A} key key' v rest key≢key' | yes key'≡key = ⊥-elim (key≢key' (sym key'≡key))
-lookupByKey-there {A} key key' v rest key≢key' | no _ = refl
+lookupByKey-there {A} key key' v rest key≢key' with key' ≟ key in eq
+... | yes key'≡key = ⊥-elim (key≢key' (sym key'≡key))
+... | no _         = refl
 
 -- ============================================================================
 -- ℕtoℚ / getNat BRIDGE

@@ -102,6 +102,11 @@ absorb (And a (And b c)) with a ≡ᵇ-proc b
 absorb (Or a (Or b c)) with a ≡ᵇ-proc b
 ... | true  = Or a c
 ... | false = Or a (Or b c)
+-- CATCHALL is the identity default: all LTLProc constructors not matched above
+-- (Atomic, Not, Next, WNext, Until, Release, Metric*, and And/Or with
+-- non-matching subterms) absorb to themselves. Adding a new LTLProc
+-- constructor is safe — it will flow through the identity — but any new
+-- absorption rule MUST be added above this line.
 {-# CATCHALL #-}
 absorb x = x
 
@@ -109,5 +114,9 @@ absorb x = x
 simplify : LTLProc → LTLProc
 simplify (And a b) = absorb (And a (simplify b))
 simplify (Or a b)  = absorb (Or a (simplify b))
+-- CATCHALL is the identity default: all non-And/Or LTLProc constructors
+-- simplify to themselves. Adding a new LTLProc constructor is safe — it
+-- flows through the identity — but any new recursive simplification rule
+-- MUST be added above this line.
 {-# CATCHALL #-}
 simplify x = x

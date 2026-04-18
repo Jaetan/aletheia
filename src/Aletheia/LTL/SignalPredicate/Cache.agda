@@ -53,8 +53,8 @@ record SignalCache : Set where
 --
 -- Deferred Bool fast path (AA-16.3): `⌊ _≟ₛ_ ⌋` allocates a yes/no Dec heap
 -- cell per cache entry per atom evaluation — a hot path on the streaming LTL
--- loop. The blocker is structural: `updateEntries-All-neq` (line 81 below)
--- and `updateEntries-unique` (line 90 below) destructure the same `_≟ₛ_`
+-- loop. The blocker is structural: `updateEntries-All-neq` (line 100 below)
+-- and `updateEntries-unique` (line 111 below) destructure the same `_≟ₛ_`
 -- call via `with name ≟ₛ n ... | yes refl`, relying on the `Dec` to give
 -- back the propositional equality `name ≡ n` so the `All`-preservation
 -- proofs can rewrite `name` for `n` in the head case. A pure `Bool`
