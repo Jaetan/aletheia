@@ -780,7 +780,7 @@ with AletheiaClient() as client:
 
 ### Current Performance
 
-See [benchmarks/README.md](../../python/benchmarks/README.md) for current performance numbers and methodology.
+See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross-language runner + per-binding scripts) and [PROJECT_STATUS.md § Key Metrics](../../PROJECT_STATUS.md#key-metrics) for the canonical throughput numbers.
 
 ---
 

@@ -67,7 +67,7 @@ Learn by example:
 
 ## Benchmarks
 
-- **[Python benchmarks README](../python/benchmarks/README.md)** - Cross-language throughput benchmarks and measurement methodology
+- **[Benchmarks Guide](development/BENCHMARKS.md)** - Cross-language runner, per-binding scripts, and measurement methodology (canonical numbers in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics))
 
 ---
 
@@ -116,20 +116,18 @@ aletheia/
 │   │
 │   ├── development/
 │   │   ├── BUILDING.md                # Build instructions
+│   │   ├── BENCHMARKS.md              # Benchmark suite and methodology
 │   │   └── DISTRIBUTION.md            # Packaging & native integration
 │   │
 │   └── presentation/
 │       └── index.html                 # Slide deck for talks and demos
 │
-├── examples/
-│   ├── README.md                      # Curated index of demo scripts
-│   ├── example.dbc                    # Sample CAN 2.0B DBC file
-│   ├── example_canfd.dbc              # Sample CAN-FD DBC file
-│   ├── simple_verification.py         # Standalone verification example
-│   └── demo/                          # Demo scripts + support files
-│
-└── python/benchmarks/
-    └── README.md                      # Cross-language benchmark methodology
+└── examples/
+    ├── README.md                      # Curated index of demo scripts
+    ├── example.dbc                    # Sample CAN 2.0B DBC file
+    ├── example_canfd.dbc              # Sample CAN-FD DBC file
+    ├── simple_verification.py         # Standalone verification example
+    └── demo/                          # Demo scripts + support files
 ```
 
 ---
