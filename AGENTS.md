@@ -556,7 +556,7 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 
 30. **Determinism & reproducibility** -- no reliance on `dict`/`set` iteration order where output is user-visible, stable sort keys, no timestamp-dependent output in library code, explicit `random.Random(seed)` rather than module-level `random`, no `datetime.now()` in serialization paths.
 31. **Packaging hygiene** -- `pyproject.toml` version pin policy (minimum versions, not exact pins for library code), entry points declared correctly, optional dependency groups (`[project.optional-dependencies]`), wheel/sdist symmetry, `[tool.*]` section consistency (pylint, basedpyright, pytest all configured here).
-32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples.
+32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every ```python fence across the user-facing docs (`README.md`, `docs/PITCH.md`, `docs/guides/{QUICKSTART,COOKBOOK}.md`, `docs/reference/{CLI,PYTHON_API,INTERFACES}.md`, `docs/architecture/{DESIGN,PROTOCOL}.md`, `python/README.md`, `examples/README.md`) must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate test `python/tests/test_doc_examples_harness.py` rejects this tag so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` parametrises over the doc-file list above and fails on any `python notest` fence — this runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the markdown-docs invocation below exercises every live `python` fence against the real FFI. Mirroring this harness to the C++ and Go bindings is tracked as a deferred R17 follow-up (R17-DEF-6); the Python surface is the reference for now.
 
 ### Command-line Interface (1)
 
@@ -568,6 +568,18 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 cd python && python3 -m pytest tests/ -v
 cd python && basedpyright aletheia/
 cd python && pylint aletheia/
+# Cat 32 doc-example harness — runs every ``python`` fence across the
+# user-facing docs against the real FFI. Must be run from the repo root
+# so pytest picks up the repo-root ``conftest.py`` (which provides the
+# harness globals and loader fakes) instead of the ``python/pyproject.toml``
+# rootdir that the ``cd python`` commands above use.
+cd "$(git rev-parse --show-toplevel)" && python3 -m pytest --markdown-docs \
+  --rootdir="$(pwd)" \
+  README.md docs/PITCH.md \
+  docs/guides/QUICKSTART.md docs/guides/COOKBOOK.md \
+  docs/reference/CLI.md docs/reference/PYTHON_API.md docs/reference/INTERFACES.md \
+  docs/architecture/DESIGN.md docs/architecture/PROTOCOL.md \
+  python/README.md examples/README.md
 ```
 
 ---

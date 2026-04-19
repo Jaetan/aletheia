@@ -602,7 +602,7 @@ Send a CAN frame for incremental checking.
 - `extended`: `True` for 29-bit extended CAN IDs (default `False`)
 
 **Returns** (acknowledged):
-```python
+```text
 {"status": "ack"}
 ```
 
@@ -612,7 +612,7 @@ Send a CAN frame for incremental checking.
 
 Send multiple CAN frames in a batch. Processing stops at the first error, raising `BatchError` with `partial_results` and `frame_index`.
 
-```python
+```python continuation
 from aletheia import CANFrameTuple
 
 frames = [
@@ -630,7 +630,7 @@ violations = [r for r in responses if r["status"] == "fails"]
 
 End streaming and get final results.
 
-```python
+```python continuation
 response = client.end_stream()
 assert response["status"] == "complete"
 ```
@@ -788,7 +788,7 @@ See [BENCHMARKS.md](../development/BENCHMARKS.md) for the benchmark suite (cross
 
 ### Signal
 
-```python
+```text
 class Signal:
     def __init__(self, name: str)
 
@@ -809,7 +809,7 @@ class Signal:
 
 ### Predicate
 
-```python
+```text
 class Predicate:
     # Temporal operators
     def always(self) -> Property        # G(p)
@@ -828,7 +828,7 @@ class Predicate:
 
 ### Property
 
-```python
+```text
 class Property:
     # Logical operators
     def and_(self, other: Property) -> Property
@@ -848,6 +848,8 @@ class Property:
     # Serialization
     def to_dict(self) -> LTLFormula
 ```
+<!-- Pseudo-signatures above are intentionally class-body-shape, not runnable Python;
+     see CLAUDE.md § Doc-example harness. -->
 
 ---
 

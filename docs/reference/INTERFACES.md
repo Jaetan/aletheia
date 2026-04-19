@@ -241,7 +241,7 @@ with AletheiaClient() as client:
 
 ### Check API Reference
 
-```python
+```text
 class Check:
     @staticmethod
     def signal(name: str) -> CheckSignal
@@ -568,7 +568,7 @@ Row 7: invalid 'Message ID' — expected integer or hex string (e.g. 0x100)
 
 ### API Reference
 
-```python
+```text
 def load_checks_from_excel(
     path: str | Path,
     *,
