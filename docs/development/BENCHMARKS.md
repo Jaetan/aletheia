@@ -20,7 +20,7 @@ printed by `benchmarks/compare.py`.
 ```bash
 # Prerequisites (one-time)
 cabal run shake -- build                                                # libaletheia-ffi.so
-source .venv/bin/activate && pip install -e python/[dev]                # Python binding
+source .venv/bin/activate && (cd python && pip install -e '.[dev]')      # Python binding
 cmake -B cpp/build && cmake --build cpp/build                            # C++ binary
 (cd go && go build -o benchmarks/benchmark ./benchmarks/)                # Go binary
 
