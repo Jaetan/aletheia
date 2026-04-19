@@ -661,12 +661,11 @@ Every binding emits the **same 15-event vocabulary** so a single downstream log 
 
 | Category | Events |
 |---|---|
-| Lifecycle (INFO) | `dbc.parsed`, `properties.set`, `stream.started`, `stream.ended` |
+| Lifecycle (INFO; `rts.cores_mismatch` is WARNING) | `dbc.parsed`, `properties.set`, `stream.started`, `stream.ended`, `rts.cores_mismatch` (see emission-point note below) |
 | Frame processing (DEBUG) | `frame.processed`, `error_event.sent`, `remote_event.sent` |
 | Enrichment diagnostics (WARNING) | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
 | Extraction cache (DEBUG/WARNING) | `cache.hit`, `cache.miss`, `cache.full` |
 | Extraction errors (WARNING) | `extraction.process_failed`, `extraction.parse_failed` |
-| RTS boot (WARNING) | `rts.cores_mismatch` (see emission-point note below) |
 
 Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). How to capture them:
 

@@ -37,11 +37,16 @@ class LogEvent(str, Enum):
     any new event must be added here first.
     """
 
-    # --- Lifecycle (INFO) ---
+    # --- Lifecycle ---
+    # Normal lifecycle events emit at INFO. `rts.cores_mismatch` is the one
+    # exception: WARN, emitted once per process the second (and subsequent)
+    # time GHC RTS init is requested with a different `-N` value than the
+    # value already burned in by the first call.
     DBC_PARSED = "dbc.parsed"
     PROPERTIES_SET = "properties.set"
     STREAM_STARTED = "stream.started"
     STREAM_ENDED = "stream.ended"
+    RTS_CORES_MISMATCH = "rts.cores_mismatch"
 
     # --- Frame processing (DEBUG) ---
     FRAME_PROCESSED = "frame.processed"
@@ -60,9 +65,6 @@ class LogEvent(str, Enum):
     # --- Extraction errors (WARNING) ---
     EXTRACTION_PROCESS_FAILED = "extraction.process_failed"
     EXTRACTION_PARSE_FAILED = "extraction.parse_failed"
-
-    # --- Backend diagnostics (WARNING) ---
-    RTS_CORES_MISMATCH = "rts.cores_mismatch"
 
 
 # Exposed as ``Final[frozenset[str]]`` so the test suite can assert that
