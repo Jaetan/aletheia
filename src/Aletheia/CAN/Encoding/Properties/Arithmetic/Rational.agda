@@ -182,7 +182,14 @@ private
     x *ᵣ 1ℚ                           ≡⟨ *-identityʳ x ⟩
     x                                 ∎
     where
-      -- Helper: (a + b) - b ≡ a (standard derivation from field laws)
+      -- Helper: (a + b) - b ≡ a (standard derivation from field laws).
+      -- stdlib 2.3 `Data.Rational.Properties` has no lemma of this shape at
+      -- propositional equality; the closest neighbour is `+-minus-telescope`
+      -- in `Data.Rational.Unnormalised.Properties` (`(p - q) + (q - r) ≃ p - r`
+      -- on ℚᵘ setoid equality `≃`), which would require `toℚᵘ`/`fromℚᵘ`
+      -- transport to apply here — strictly more work than the 3-line local
+      -- proof. Retained as a local helper; swap in a stdlib lemma if one
+      -- lands on propositional-ℚ in a future stdlib bump.
       +-assoc-cancelʳ : ∀ a b → (a +ᵣ b) -ᵣ b ≡ a
       +-assoc-cancelʳ a b = begin
         (a +ᵣ b) -ᵣ b      ≡⟨ ℚ-+-assoc a b (-ᵣ b) ⟩

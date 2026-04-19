@@ -111,6 +111,7 @@ data ExtractionError : Set where
   -- Routed through the typed Error sum rather than carrying a raw String at the
   -- ExtractionResult layer, so all errors share a single ADT.
   BitExtractionFailed    : String → ExtractionError
+  InContext              : String → ExtractionError → ExtractionError
 
 formatExtractionError : ExtractionError → String
 formatExtractionError MuxValueMismatch         = "multiplexor value mismatch"
@@ -121,6 +122,8 @@ formatExtractionError (MuxExtractionFailed name) =
   "failed to extract multiplexor signal '" ++ₛ name ++ₛ "'"
 formatExtractionError (BitExtractionFailed reason) =
   "bit extraction failed: " ++ₛ reason
+formatExtractionError (InContext ctx inner) =
+  ctx ++ₛ ": " ++ₛ formatExtractionError inner
 
 extractionErrorCode : ExtractionError → String
 extractionErrorCode MuxValueMismatch         = "extraction_mux_value_mismatch"
@@ -128,6 +131,7 @@ extractionErrorCode (MuxSignalNotFound _)    = "extraction_mux_signal_not_found"
 extractionErrorCode MuxChainCycle            = "extraction_mux_chain_cycle"
 extractionErrorCode (MuxExtractionFailed _)  = "extraction_mux_extraction_failed"
 extractionErrorCode (BitExtractionFailed _)  = "extraction_bit_extraction_failed"
+extractionErrorCode (InContext _ inner)      = extractionErrorCode inner
 
 -- ============================================================================
 -- FRAME BUILDING ERRORS (CAN/BatchFrameBuilding.agda)
@@ -141,6 +145,7 @@ data FrameError : Set where
   CANIdNotFound          : FrameError
   CANIdMismatch          : FrameError
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
+  InContext              : String → FrameError → FrameError
 
 formatFrameError : FrameError → String
 formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
@@ -150,6 +155,7 @@ formatFrameError SignalsOverlap                 = "signals overlap"
 formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
 formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
 formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
+formatFrameError (InContext ctx inner)          = ctx ++ₛ ": " ++ₛ formatFrameError inner
 
 frameErrorCode : FrameError → String
 frameErrorCode (SignalNotFound _)          = "frame_signal_not_found"
@@ -159,56 +165,61 @@ frameErrorCode SignalsOverlap              = "frame_signals_overlap"
 frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
 frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
 frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"
+frameErrorCode (InContext _ inner)         = frameErrorCode inner
 
 -- ============================================================================
 -- ROUTE/COMMAND ERRORS (Protocol/Routing.agda)
 -- ============================================================================
 
 data RouteError : Set where
-  RouteMissingField    : String → String → RouteError
-  RouteMissingArray    : String → String → RouteError
-  UnknownCommand       : String → RouteError
+  RouteMissingField    : String → RouteError           -- field name
+  RouteMissingArray    : String → RouteError           -- field name
+  UnknownCommand       : String → RouteError           -- command name
   MissingCommandField  : RouteError
-  DLCExceedsMax        : String → RouteError
-  ByteArrayParseFailed : String → RouteError
-  ByteCountMismatch    : String → RouteError
-  MissingDBCField      : String → RouteError
+  DLCExceedsMax        : RouteError
+  ByteArrayParseFailed : RouteError
+  ByteCountMismatch    : RouteError
+  MissingDBCField      : RouteError
   MissingPropsField    : RouteError
-  WrappedParse    : ParseError → RouteError
+  WrappedParse         : ParseError → RouteError
+  InContext            : String → RouteError → RouteError
 
 formatRouteError : RouteError → String
-formatRouteError (RouteMissingField cmd f) =
-  cmd ++ₛ ": missing '" ++ₛ f ++ₛ "' field"
-formatRouteError (RouteMissingArray cmd f) =
-  cmd ++ₛ ": missing '" ++ₛ f ++ₛ "' array"
+formatRouteError (RouteMissingField f) =
+  "missing '" ++ₛ f ++ₛ "' field"
+formatRouteError (RouteMissingArray f) =
+  "missing '" ++ₛ f ++ₛ "' array"
 formatRouteError (UnknownCommand s) =
-  "unknown command: " ++ₛ s
+  "unknown command '" ++ₛ s ++ₛ "'"
 formatRouteError MissingCommandField =
   "missing 'command' field"
-formatRouteError (DLCExceedsMax ctx) =
-  ctx ++ₛ ": DLC exceeds maximum value"
-formatRouteError (ByteArrayParseFailed c) =
-  c ++ₛ ": failed to parse byte array"
-formatRouteError (ByteCountMismatch c) =
-  c ++ₛ ": byte count does not match DLC"
-formatRouteError (MissingDBCField cmd) =
-  cmd ++ₛ ": missing 'dbc' field"
+formatRouteError DLCExceedsMax =
+  "DLC exceeds maximum value"
+formatRouteError ByteArrayParseFailed =
+  "failed to parse byte array"
+formatRouteError ByteCountMismatch =
+  "byte count does not match DLC"
+formatRouteError MissingDBCField =
+  "missing 'dbc' field"
 formatRouteError MissingPropsField =
   "missing 'properties' field"
 formatRouteError (WrappedParse pe) =
   "parse error: " ++ₛ formatParseError pe
+formatRouteError (InContext ctx inner) =
+  ctx ++ₛ ": " ++ₛ formatRouteError inner
 
 routeErrorCode : RouteError → String
-routeErrorCode (RouteMissingField _ _) = "route_missing_field"
-routeErrorCode (RouteMissingArray _ _) = "route_missing_array"
-routeErrorCode (UnknownCommand _)      = "route_unknown_command"
-routeErrorCode MissingCommandField     = "route_missing_command_field"
-routeErrorCode (DLCExceedsMax _)       = "route_dlc_exceeds_max"
-routeErrorCode (ByteArrayParseFailed _) = "route_byte_array_parse_failed"
-routeErrorCode (ByteCountMismatch _)   = "route_byte_count_mismatch"
-routeErrorCode (MissingDBCField _)     = "route_missing_dbc_field"
-routeErrorCode MissingPropsField       = "route_missing_props_field"
-routeErrorCode (WrappedParse pe)  = parseErrorCode pe
+routeErrorCode (RouteMissingField _)    = "route_missing_field"
+routeErrorCode (RouteMissingArray _)    = "route_missing_array"
+routeErrorCode (UnknownCommand _)       = "route_unknown_command"
+routeErrorCode MissingCommandField      = "route_missing_command_field"
+routeErrorCode DLCExceedsMax            = "route_dlc_exceeds_max"
+routeErrorCode ByteArrayParseFailed     = "route_byte_array_parse_failed"
+routeErrorCode ByteCountMismatch        = "route_byte_count_mismatch"
+routeErrorCode MissingDBCField          = "route_missing_dbc_field"
+routeErrorCode MissingPropsField        = "route_missing_props_field"
+routeErrorCode (WrappedParse pe)        = parseErrorCode pe
+routeErrorCode (InContext _ inner)      = routeErrorCode inner
 
 -- ============================================================================
 -- HANDLER/STATE ERRORS (Protocol/Handlers.agda, StreamState.agda)
@@ -236,6 +247,7 @@ data HandlerError : Set where
   NonMonotonicTimestamp  : ℕ → ℕ → HandlerError
   WrappedParse           : ParseError → HandlerError
   WrappedFrame           : FrameError → HandlerError
+  InContext              : String → HandlerError → HandlerError
 
 formatHandlerError : HandlerError → String
 formatHandlerError NoDBC                 = "DBC not loaded"
@@ -254,6 +266,7 @@ formatHandlerError (NonMonotonicTimestamp curr prev) =
   " μs (metric LTL operators require monotonic timestamps)"
 formatHandlerError (WrappedParse pe)     = "parse error: " ++ₛ formatParseError pe
 formatHandlerError (WrappedFrame fe)     = "frame error: " ++ₛ formatFrameError fe
+formatHandlerError (InContext ctx inner) = ctx ++ₛ ": " ++ₛ formatHandlerError inner
 
 handlerErrorCode : HandlerError → String
 handlerErrorCode NoDBC                 = "handler_no_dbc"
@@ -268,6 +281,7 @@ handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"
 handlerErrorCode (NonMonotonicTimestamp _ _) = "handler_non_monotonic_timestamp"
 handlerErrorCode (WrappedParse pe)     = parseErrorCode pe
 handlerErrorCode (WrappedFrame fe)     = frameErrorCode fe
+handlerErrorCode (InContext _ inner)   = handlerErrorCode inner
 
 -- ============================================================================
 -- DISPATCH ERRORS (Main.agda)
@@ -281,7 +295,7 @@ data DispatchError : Set where
 
 formatDispatchError : DispatchError → String
 formatDispatchError MissingTypeField       = "missing 'type' field in request"
-formatDispatchError (UnknownMessageType s) = "unknown message type: " ++ₛ s
+formatDispatchError (UnknownMessageType s) = "unknown message type '" ++ₛ s ++ₛ "'"
 formatDispatchError InvalidJSON            = "invalid JSON"
 formatDispatchError RequestNotObject       = "request must be a JSON object"
 

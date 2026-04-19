@@ -29,6 +29,7 @@ open import Aletheia.Error using
   ( RouteError; RouteMissingField; RouteMissingArray; UnknownCommand
   ; MissingCommandField; DLCExceedsMax; ByteArrayParseFailed
   ; ByteCountMismatch; MissingDBCField; MissingPropsField; WrappedParse
+  ; InContext
   )
 
 -- ============================================================================
@@ -41,16 +42,17 @@ private
   byte-bound = 256
 
   -- Require a named field, producing a standardized "missing 'X'" error
+  -- wrapped in the command-level context (`InContext cmd ...`).
   requireNat : String → String → List (String × JSON) → RouteError ⊎ ℕ
-  requireNat cmd name obj = require (RouteMissingField cmd name) (lookupNat name obj)
+  requireNat cmd name obj = require (InContext cmd (RouteMissingField name)) (lookupNat name obj)
 
   requireArray : String → String → List (String × JSON) → RouteError ⊎ List JSON
-  requireArray cmd name obj = require (RouteMissingArray cmd name) (lookupArray name obj)
+  requireArray cmd name obj = require (InContext cmd (RouteMissingArray name)) (lookupArray name obj)
 
   -- Validate DLC code (0–15) and construct validated DLC record.
   requireValidDLC : String → ℕ → RouteError ⊎ DLC
   requireValidDLC ctx n =
-    ifᵀ (n <ᵇ suc maxDLC-FD) then (λ p → inj₂ (mkDLC n p)) else inj₁ (DLCExceedsMax ctx)
+    ifᵀ (n <ᵇ suc maxDLC-FD) then (λ p → inj₂ (mkDLC n p)) else inj₁ (InContext ctx DLCExceedsMax)
 
   -- Parse CAN ID from a named ℕ field and optional "extended" (Bool) field
   parseCANIdField : String → String → List (String × JSON) → RouteError ⊎ CANId
@@ -83,7 +85,7 @@ private
   -- Parse ParseDBC command
   tryParseDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryParseDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ (MissingDBCField "ParseDBC")
+  ... | nothing = inj₁ (InContext "ParseDBC" MissingDBCField)
   ... | just dbc = inj₂ (ParseDBC dbc)
 
   -- Parse SetProperties command
@@ -108,8 +110,8 @@ private
   parseBytePayload : String → (dlc : DLC) → List (String × JSON) → RouteError ⊎ Vec Byte (dlcBytes dlc)
   parseBytePayload ctx dlc obj =
     requireArray ctx "data" obj >>=ₑ λ bytesJSON →
-    require (ByteArrayParseFailed ctx) (parseByteArray bytesJSON) >>=ₑ λ byteList →
-    require (ByteCountMismatch ctx) (listToVec (dlcBytes dlc) byteList)
+    require (InContext ctx ByteArrayParseFailed) (parseByteArray bytesJSON) >>=ₑ λ byteList →
+    require (InContext ctx ByteCountMismatch) (listToVec (dlcBytes dlc) byteList)
 
   -- Parse BuildFrame command
   tryBuildFrame : List (String × JSON) → RouteError ⊎ StreamCommand
@@ -140,7 +142,7 @@ private
   -- Parse ValidateDBC command
   tryValidateDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryValidateDBC obj with lookupByKey "dbc" obj
-  ... | nothing = inj₁ (MissingDBCField "ValidateDBC")
+  ... | nothing = inj₁ (InContext "ValidateDBC" MissingDBCField)
   ... | just dbc = inj₂ (ValidateDBC dbc)
 
   -- Parse FormatDBC command (no arguments needed)

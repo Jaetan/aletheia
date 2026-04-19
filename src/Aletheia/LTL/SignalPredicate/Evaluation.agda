@@ -10,7 +10,7 @@
 module Aletheia.LTL.SignalPredicate.Evaluation where
 
 open import Aletheia.Prelude
-open import Data.Rational as Rat using (_-_; ∣_∣; 0ℚ; _≤ᵇ_)
+open import Data.Rational as Rat using (∣_∣; 0ℚ; _≤ᵇ_)
 open import Data.Maybe using (_<∣>_)
 open import Function using (case_of_)
 
