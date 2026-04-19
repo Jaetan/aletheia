@@ -1,8 +1,6 @@
 # Aletheia Streaming Protocol
 
-**Purpose**: Complete specification of the FFI protocol for CAN frame analysis with LTL checking.
-**Version**: 1.1.1
-**Last Updated**: 2026-04-15
+**Purpose**: Complete specification of the FFI protocol for CAN frame analysis with LTL checking. Version and release metadata live in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
 ---
 
@@ -522,7 +520,7 @@ char *aletheia_send_remote(void *state, unsigned long long timestamp,
 
 #### Trace event taxonomy
 
-The Agda kernel models a CAN trace as a sequence of `TraceEvent` values
+The Agda core models a CAN trace as a sequence of `TraceEvent` values
 (see `Aletheia/Trace/CANTrace.agda`):
 
 | Constructor | Carries | FFI entry point | Purpose |
@@ -1123,6 +1121,26 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 - JSON parsing happens in Agda (fully verified)
 - Malformed JSON is rejected with error message
 - All logic uses Agda's type system (`--safe --without-K`)
+
+---
+
+## Structured Logging
+
+*This section is the single source of truth for the structured-log event taxonomy. Other docs that mention the event count or list events should link back here rather than restate.*
+
+Every binding emits the same 15-event vocabulary so a single downstream log pipeline can consume all three (Python `logging`, C++ `Logger` callback, Go `slog`).
+
+| Category | Level | Events |
+|---|---|---|
+| Lifecycle | INFO (`rts.cores_mismatch` is WARNING) | `dbc.parsed`, `properties.set`, `stream.started`, `stream.ended`, `rts.cores_mismatch` |
+| Frame processing | DEBUG | `frame.processed`, `error_event.sent`, `remote_event.sent` |
+| Enrichment diagnostics | WARNING | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
+| Extraction cache | DEBUG / WARNING | `cache.hit`, `cache.miss`, `cache.full` |
+| Extraction errors | WARNING | `extraction.process_failed`, `extraction.parse_failed` |
+
+Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). Per-binding definitions are `python/aletheia/client/_log.py` (`LogEvent` enum), `cpp/include/aletheia/log.hpp` (string constants), and `go/aletheia/client.go` + `go/aletheia/ffi_backend.go` (slog emission sites). Adding a new event requires adding it to all three bindings and updating this table.
+
+See [INTERFACES.md § Structured Logging](../reference/INTERFACES.md#structured-logging) for per-binding wiring examples.
 
 ---
 

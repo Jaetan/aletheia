@@ -1,9 +1,6 @@
 # Aletheia (Ἀλήθεια) Design Document
 
-**Project**: Formally verified CAN frame analysis with Linear Temporal Logic
-**Version**: 1.1.1
-**Status**: Phase 5.1 complete (see [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for the authoritative status)
-**Last Updated**: 2026-04-15
+**Project**: Formally verified CAN frame analysis with Linear Temporal Logic. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md); status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 ## Project Overview
 
@@ -53,7 +50,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 │ - DBC parser                            │
 │ - LTL model checker                     │
 │ - All correctness proofs                │
-│ - All 120 modules use --safe --without-K│
+│ - All 119 modules use --safe --without-K│
 └─────────────────────────────────────────┘
 ```
 
@@ -63,7 +60,7 @@ Aletheia follows a three-layer architecture that maximizes formal verification w
 
 ## Why Agda / Haskell / JSON
 
-**Why Agda for the core?** Signal-extraction and LTL bugs in an automotive stack can mask real safety issues or raise false ones; both are expensive. Testing narrows the failure space, but only proof rules it out. Agda's dependent types let us state correctness — "signal extraction inverts frame building on well-formed DBCs", "LTLf simplification preserves the Kleene verdict", "parsing round-trips formatting" — as types, and then the typechecker is the verifier. The `--safe` flag forbids postulates, partial functions, and unsafe primitives, so the 120 modules that make up the core cannot hide an unproven step. Proof-of-fit: every DBC-side guarantee currently enforced by runtime checks in peer tooling is instead discharged once at type-check time here.
+**Why Agda for the core?** Signal-extraction and LTL bugs in an automotive stack can mask real safety issues or raise false ones; both are expensive. Testing narrows the failure space, but only proof rules it out. Agda's dependent types let us state correctness — "signal extraction inverts frame building on well-formed DBCs", "LTLf simplification preserves the Kleene verdict", "parsing round-trips formatting" — as types, and then the typechecker is the verifier. The `--safe` flag forbids postulates, partial functions, and unsafe primitives, so the 119 modules that make up the core cannot hide an unproven step. Proof-of-fit: every DBC-side guarantee currently enforced by runtime checks in peer tooling is instead discharged once at type-check time here.
 
 **Why Haskell as the compilation target?** Agda has three production backends (MAlonzo→Haskell, JavaScript, Erasure→Haskell). MAlonzo is the only one that yields a shared library consumable from Python, C++, and Go without a language-specific runtime on the consumer side — GHC's `foreign-library` emits a standard `.so` that `ctypes`, `dlopen`, and `cgo` all load uniformly. GHC also gives us a mature concurrent runtime for the streaming path and a stable C ABI for the FFI boundary. The Haskell shim stays thin (~470 lines across 3 files): it marshals C values into Agda's data constructors and forwards — no business logic lives in Haskell.
 

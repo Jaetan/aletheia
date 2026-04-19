@@ -94,6 +94,7 @@ aletheia/
 ├── AGENTS.md                          # Per-language coding standards / review categories
 ├── DEPENDENCIES.md                    # Third-party dependencies & licenses
 ├── DEFERRALS.md                       # Deliberately deferred items
+├── .session-state.md                  # Session recovery + resume instructions (AI-assisted dev)
 │
 ├── docs/
 │   ├── INDEX.md                       # THIS FILE - Navigation hub
@@ -133,5 +134,4 @@ aletheia/
 
 ---
 
-**Last Updated**: 2026-04-15
 **Maintained By**: Aletheia Team

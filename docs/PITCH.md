@@ -48,7 +48,7 @@ Aletheia provides:
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
 
-3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase; ~109k fps on the **Stream LTL** lane of the C++ binary FFI path — CAN 2.0B, 2 always-true range properties, Ryzen 9 5950X, 10k frames × 5 runs. Other lanes — Signal Extraction, Frame Building — and other property shapes have different numbers; see [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics) for the full table.)
+3. **Streaming architecture**: Process gigabyte-scale CAN traces with O(1) memory (verified 1.08× memory growth across a 100× trace increase). Single-bus streaming throughput per binding / lane / property shape lives in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics) — the canonical table.
 
 4. **DBC integration**: Parse real-world DBC files (tested against OpenDBC corpus)
 
@@ -232,7 +232,7 @@ See CONTRIBUTING.md for guidance on what belongs upstream vs. private.
 A: Sufficient for real-time analysis of 1 Mbps CAN bus traffic (requires ~8,000 fps). See [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current throughput benchmarks.
 
 **Q: Dependencies?**
-A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-ffi.so` (shared library). Python: 3.12+. No exotic dependencies.
+A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libaletheia-ffi.so` and Python 3.12+. See [Building Guide § Prerequisites](../development/BUILDING.md#prerequisites) for the exact version pins (this is the single source of truth — other docs cross-reference it rather than copying).
 
 ---
 
@@ -296,7 +296,7 @@ A: Build-time: Agda 2.8.0, GHC 9.4.x/9.6.x, Cabal 3.12+. Runtime: `libaletheia-f
 - CLI tool (`python3 -m aletheia check/validate/extract/signals`)
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
-- 1000+ tests across Python, C++, and Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current counts)
+- Per-binding and total test counts tracked in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics)
 - High-throughput streaming via binary FFI across Python/C++/Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
 
 **Phase 5**: CAN-FD, binary FFI, C++/Go bindings, cross-language benchmarks — all delivered. Remaining: SOME/IP exploration, binary FFI for signal extraction. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.

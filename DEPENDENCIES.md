@@ -1,6 +1,6 @@
 # Dependencies and Licenses
 
-**Last Updated**: 2026-04-03
+**Last Updated**: 2026-04-19
 
 This document lists all third-party software Aletheia depends on, their licenses,
 and the resulting obligations when distributing Aletheia.

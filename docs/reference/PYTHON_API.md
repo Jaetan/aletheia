@@ -1,8 +1,6 @@
 # Aletheia Python API Guide
 
-**Purpose**: Reference for Aletheia's Python API — the raw DSL (Signal, Predicate, Property) and `AletheiaClient`.
-**Version**: 1.1.1
-**Last Updated**: 2026-04-15
+**Purpose**: Reference for Aletheia's Python API — the raw DSL (Signal, Predicate, Property) and `AletheiaClient`. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
 > **Higher-level interfaces**: If you don't need full LTL control, see the
 > [Interface Guide](INTERFACES.md) for the Check API, YAML, and Excel loaders.

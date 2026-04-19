@@ -77,15 +77,15 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 120 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 119 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (120 total):
-- **116 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (119 total):
+- **115 modules**: `--safe --without-K` (standard safe modules)
 - **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 
-**All 120 modules use `--safe`**. No modules require `--sized-types`.
+**All 119 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -311,7 +311,7 @@ _Build-time issues beyond this table are collected in [BUILDING.md § Troublesho
 
 See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
 
-**Current**: Phase 5 — Optional Extensions. Binary frame API (4.3x CAN 2.0B, 9.1x CAN-FD), CAN-FD, C++/Go bindings, cross-language benchmarks all complete. Four-tier check interface with full cross-language parity. See PROJECT_STATUS.md for detailed metrics and review history.
+**Current**: Phase 5.1 complete. Binary FFI (4.3x CAN 2.0B, 9.1x CAN-FD), CAN-FD, C++/Go bindings, cross-language benchmarks all complete. Four-tier check interface with full cross-language parity. See PROJECT_STATUS.md for detailed metrics and review history.
 
 ---
 

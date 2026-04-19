@@ -1,8 +1,6 @@
 # CLI Reference
 
-**Purpose**: Command-line interface for Aletheia CAN signal verification.
-**Version**: 1.1.1
-**Last Updated**: 2026-04-15
+**Purpose**: Command-line interface for Aletheia CAN signal verification. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
 ---
 

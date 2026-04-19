@@ -1,8 +1,6 @@
 # Aletheia Interface Guide
 
-**Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces.
-**Version**: 1.1.1
-**Last Updated**: 2026-04-15
+**Purpose**: Guide to defining signal checks using the Check API, YAML, and Excel interfaces. Version in [DISTRIBUTION.md](../development/DISTRIBUTION.md).
 
 > **Full LTL control**: For the raw DSL (Signal, Predicate, Property) and AletheiaClient,
 > see the [Python API Guide](PYTHON_API.md).
@@ -37,8 +35,8 @@ following table summarizes feature availability per binding:
 
 | Feature | Python | C++ | Go |
 |---|---|---|---|
-| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::check::signal(...)`) | ✅ (`check.Signal(...)`) |
-| Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`ltl.Property`) |
+| Check API (`Check.signal(...).never_exceeds(...)`) | ✅ | ✅ (`aletheia::check::signal(...)`) | ✅ (`aletheia.CheckSignal(...)`) |
+| Raw DSL / LTL property construction | ✅ | ✅ (`aletheia::ltl::...`) | ✅ (`aletheia.Always{Inner: ...}` struct literals) |
 | YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
 | DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
@@ -55,7 +53,7 @@ Check.signal("Speed").never_exceeds(220)
 aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{220});
 ```
 ```go
-check.Signal("Speed").NeverExceeds(220)
+aletheia.CheckSignal("Speed").NeverExceeds(220)
 ```
 
 **Raw DSL** — the same property built directly in LTL:
@@ -66,7 +64,7 @@ Signal("Speed").less_than(220).always()
 aletheia::ltl::always(aletheia::ltl::less_than("Speed", aletheia::PhysicalValue{220}));
 ```
 ```go
-ltl.Always(ltl.LessThan("Speed", 220))
+aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
 ```
 
 **YAML loader** — load a check file:
@@ -657,17 +655,7 @@ All produce:
 
 ## Structured Logging
 
-Every binding emits the **same 15-event vocabulary** so a single downstream log pipeline can consume all three:
-
-| Category | Events |
-|---|---|
-| Lifecycle (INFO; `rts.cores_mismatch` is WARNING) | `dbc.parsed`, `properties.set`, `stream.started`, `stream.ended`, `rts.cores_mismatch` (see emission-point note below) |
-| Frame processing (DEBUG) | `frame.processed`, `error_event.sent`, `remote_event.sent` |
-| Enrichment diagnostics (WARNING) | `enrichment.property_index_oob`, `enrichment.extraction_failed` |
-| Extraction cache (DEBUG/WARNING) | `cache.hit`, `cache.miss`, `cache.full` |
-| Extraction errors (WARNING) | `extraction.process_failed`, `extraction.parse_failed` |
-
-Each record carries the event name plus structured key/value fields (frame count, property index, reason string, etc.). How to capture them:
+See [PROTOCOL.md § Structured Logging](../architecture/PROTOCOL.md#structured-logging) for the canonical event taxonomy (category × level × event-name table) — this section covers only the per-binding wiring.
 
 **Python** — attach a handler to the `aletheia` logger:
 ```python
@@ -699,8 +687,6 @@ client, _  := aletheia.NewClient(backend,  aletheia.WithLogger(slog.Default()))
 - **C++** — captured at `make_ffi_backend()` time but emitted from the `AletheiaClient` constructor through the `Logger` passed to that constructor (the FFI backend has no logger of its own).  Wire one up to the client to observe it.
 
 The wire format (`active_cores` and `requested_cores` as integer fields, level `WARNING`) is identical across bindings.  The choice of emission point is a layering trade-off: Go gives the FFI layer its own logger so backend-level events are observable without a client; Python relies on the global logging tree; C++ keeps the backend logger-free and routes everything through the client.
-
-The event set is the authoritative source of truth — adding a new event requires adding it to the enum in all three bindings. See `python/aletheia/client/_log.py`, `cpp/include/aletheia/log.hpp`, and `go/aletheia/client.go` for the per-binding definition.
 
 ---
 

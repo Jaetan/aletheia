@@ -392,17 +392,17 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 ## Key Metrics
 
 **Codebase**:
-- Agda modules: 120 (all `--safe --without-K`) — evolution: 92 (R7, 2026-04-07) → 95 (R8 post-commit + `Timestamp μs` refinement) → 103 (R9, 2026-04-14) → 120 (R11 split of large `Properties` files behind facade re-exports, 2026-04-15). See the "Prior" entries in [CLAUDE.md § Current Session Progress](../CLAUDE.md#current-session-progress) for per-round detail.
+- Agda modules: 119 (all `--safe --without-K`, 4 also `--no-main`) — evolution: 92 (R7, 2026-04-07) → 95 (R8 post-commit + `Timestamp μs` refinement) → 103 (R9, 2026-04-14) → 120 (R11 split of large `Properties` files behind facade re-exports, 2026-04-15) → 119 (R17 C3b removed `BatchFrameBuilding/Properties.agda` as part of JSON-output path removal, 2026-04-19). See the "Prior" entries in [CLAUDE.md § Current Session Progress](../CLAUDE.md#current-session-progress) for per-round detail.
 - Python modules: 22 (13 top-level + 9 in `aletheia/client/` subpackage)
 - C++ files: 41 (14 public headers + 1 public detail header + 11 source + 3 internal detail headers + 11 test `.cpp` + 1 `test_helpers.hpp`)
 - Go files: 16 source + 15 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 622 passing (via FFI)
-- C++ tests: 161 unit + 34 integration + 33 YAML + 47 Excel TEST_CASEs (275 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
+- Python tests: 638 passing (via FFI)
+- C++ tests: 159 unit + 34 integration + 33 YAML + 47 Excel TEST_CASEs (273 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
 - Go tests: 223 passing in `go/aletheia` across 15 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total
-- Total: 1120 tests
+- Total: 1134 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
@@ -431,7 +431,7 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - **Multi-bus scaling**: Each `AletheiaClient` has independent state (`StablePtr`). Multiple Python threads can monitor separate CAN buses in parallel. ctypes releases the GIL during FFI calls. For N buses on N vCPUs, pass `-N` to `hs_init` for parallel GHC capabilities.
 
 **Verification**:
-- All 120 Agda modules use `--safe --without-K` (4 also use `--no-main`)
+- All 119 Agda modules use `--safe --without-K` (4 also use `--no-main`)
 - Zero postulates in production code
 - All provable correctness properties proven (LTL adequacy, DBC validation, signal roundtrip, frame processing, predicate table, signal cache, response formatting, initial state, metric operator window bounds)
 - **Pipeline soundness proven**: 8 unsound absorption rules removed, 4 remaining guarded with `finalizesHolds`, 2 structural idempotency rules added. `absorb-runL`, `simplify-runL`, `pipeline-adequate`, `production-adequate` all proven in `Adequacy/Pipeline.agda`

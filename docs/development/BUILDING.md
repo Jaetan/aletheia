@@ -1,10 +1,6 @@
 # Building Aletheia
 
----
-**Version**: 1.1.1
-**Last Updated**: 2026-04-15
-**Phase**: See [PROJECT_STATUS.md](../../PROJECT_STATUS.md) for current phase
----
+Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 This document provides step-by-step instructions for building Aletheia from source.
 
