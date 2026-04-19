@@ -5,8 +5,10 @@ Tests cover:
 - Predicate logical operators (and_, or_, not_, implies)
 """
 
-import pytest
 from typing import cast
+
+import pytest
+
 from aletheia.dsl import Signal, Predicate, Property
 from aletheia.protocols import (
     AtomicFormula,
@@ -106,16 +108,16 @@ class TestSignalComparison:
 
     def test_between(self) -> None:
         """Signal.between() creates correct predicate"""
-        pred = Signal("Voltage").between(11.5, 14.5)
+        pred = Signal("Temperature").between(-40.0, 125.0)
         formula = cast(AtomicFormula, pred.to_formula())
         assert formula == {
             'operator': 'atomic',
             'predicate': {
                 'predicate': 'between',
-                'signal': 'Voltage',
-                'min': 11.5,
-                'max': 14.5
-            }
+                'signal': 'Temperature',
+                'min': -40.0,
+                'max': 125.0,
+            },
         }
 
     def test_changed_by(self) -> None:

@@ -57,7 +57,7 @@ include = ["aletheia", "aletheia.*"]
 # does NOT pick up data files automatically under
 # ``[tool.setuptools.packages.find]``. Add the pattern here AND verify the
 # file appears inside ``dist/aletheia-*.whl`` via ``python -m zipfile -l``.
-aletheia = ["py.typed"]
+aletheia = ["py.typed", "*.pyi"]
 
 [project.optional-dependencies]
 dbc = ["cantools>=39.0"]
@@ -126,7 +126,29 @@ disable = []
 # Single source of truth for the pytest invocation used in CI / AGENTS.md.
 # ``testpaths`` avoids collecting the generated ``build/`` tree; strict
 # markers/config catches typos in fixtures or xfail reasons at startup.
+# ``minversion`` pins the pytest floor so CI fails loudly at startup rather
+# than producing subtly-different reports when a dev env drifts.
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 xfail_strict = true
+minversion = "7.0"
+
+[tool.coverage.run]
+# Coverage config skeleton — pytest-cov is in the ``dev`` extras so this
+# block is live whenever developers opt into coverage via
+# ``pytest --cov=aletheia``. The release gate in AGENTS.md is test-count-
+# based, not coverage-based; these settings stop the tool from counting
+# generated/FFI boundary code that isn't meaningfully reachable from tests.
+branch = true
+source = ["aletheia"]
+omit = [
+    "aletheia/_install_config.py",
+    "aletheia/client/_ffi.py",
+]
+
+[tool.coverage.report]
+# Show lines that weren't covered so developers can tighten unit tests
+# directly; don't fail the build on a coverage threshold (gate-free).
+show_missing = true
+skip_covered = false

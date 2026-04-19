@@ -70,14 +70,22 @@ from .client import (
     CANFrameTuple,
     FrameResponse,
     ProcessError,
+    PropertyDiagnostic,
     ProtocolError,
+    RTSState,
     SignalExtractionResult,
     bytes_to_dlc,
     dlc_to_bytes,
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
-from .protocols import ErrorCode
+from .protocols import (
+    DBCDefinition,
+    ErrorCode,
+    IssueCode,
+    PropertyResultEntry,
+    ValidationIssue,
+)
 from .dbc_queries import (
     is_multiplexed,
     always_present_signals,
@@ -149,12 +157,18 @@ __all__ = [
     "BatchError",
     "FrameResponse",
     "ProcessError",
+    "PropertyDiagnostic",
     "ProtocolError",
+    "RTSState",
     # Check API
     "Check",
     "CheckResult",
-    # Error codes (consumer API for matching error responses)
+    # Protocol types (consumer API for typed message inspection)
+    "DBCDefinition",
     "ErrorCode",
+    "IssueCode",
+    "PropertyResultEntry",
+    "ValidationIssue",
     # DBC queries (no optional deps)
     "is_multiplexed",
     "always_present_signals",

@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from _dbc_helpers import message, signal
+
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
 from aletheia.dbc_converter import dbc_to_json
 from aletheia.protocols import DBCDefinition
@@ -32,40 +34,14 @@ class TestDBCToText:
         """ByteOrder maps to correct DBC encoding (1=LE, 0=BE)."""
         dbc: DBCDefinition = {
             "version": "",
-            "messages": [{
-                "id": 1,
-                "name": "Msg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "SigLE",
-                        "startBit": 0,
-                        "length": 8,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 255.0,
-                        "unit": "V",
-                        "presence": "always",
-                    },
-                    {
-                        "name": "SigBE",
-                        "startBit": 8,
-                        "length": 8,
-                        "byteOrder": "big_endian",
-                        "signed": True,
-                        "factor": 0.5,
-                        "offset": -10.0,
-                        "minimum": -10.0,
-                        "maximum": 117.5,
-                        "unit": "A",
-                        "presence": "always",
-                    },
-                ],
-            }],
+            "messages": [message(1, "Msg", [
+                signal("SigLE", length=8, maximum=255.0, unit="V"),
+                signal(
+                    "SigBE", start_bit=8, length=8, byte_order="big_endian",
+                    signed=True, factor=0.5, offset=-10.0,
+                    minimum=-10.0, maximum=117.5, unit="A",
+                ),
+            ])],
         }
         text = dbc_to_text(dbc)
         # little_endian -> @1, unsigned -> +
@@ -80,30 +56,13 @@ class TestDBCToText:
 
     def test_multiplexed_signals(self) -> None:
         """Multiplexed signals get m<value> indicator."""
+        mux_sig = signal("MuxSig", length=8, maximum=255.0)
+        mux_sig.pop("presence")
+        mux_sig["multiplexor"] = "Selector"
+        mux_sig["multiplex_values"] = [3]
         dbc: DBCDefinition = {
             "version": "",
-            "messages": [{
-                "id": 1,
-                "name": "Msg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "MuxSig",
-                        "startBit": 0,
-                        "length": 8,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 255.0,
-                        "unit": "",
-                        "multiplexor": "Selector",
-                        "multiplex_values": [3],
-                    },
-                ],
-            }],
+            "messages": [message(1, "Msg", [mux_sig])],
         }
         text = dbc_to_text(dbc)
         assert "SG_ MuxSig m3 :" in text
@@ -125,25 +84,11 @@ class TestDBCToText:
         """Roundtrip a DBC with non-integer factor through Agda and dbc_to_text."""
         dbc: DBCDefinition = {
             "version": "",
-            "messages": [{
-                "id": 1,
-                "name": "Msg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [{
-                    "name": "Sig",
-                    "startBit": 0,
-                    "length": 16,
-                    "byteOrder": "little_endian",
-                    "signed": False,
-                    "factor": 0.25,
-                    "offset": -1.5,
-                    "minimum": 0.0,
-                    "maximum": 100.0,
-                    "unit": "rpm",
-                    "presence": "always",
-                }],
-            }],
+            "messages": [message(1, "Msg", [
+                signal(
+                    "Sig", factor=0.25, offset=-1.5, maximum=100.0, unit="rpm",
+                ),
+            ])],
         }
         with AletheiaClient() as client:
             client.parse_dbc(dbc)
@@ -162,60 +107,25 @@ class TestDBCToText:
 
     def test_extended_frame_bit(self) -> None:
         """Extended frames get bit 31 set in BO_ line."""
-        dbc: DBCDefinition = {
-            "version": "",
-            "messages": [{
-                "id": 0x100,
-                "name": "ExtMsg",
-                "dlc": 8,
-                "sender": "ECU",
-                "extended": True,
-                "signals": [],
-            }],
-        }
+        ext_msg = message(0x100, "ExtMsg", [])
+        ext_msg["extended"] = True
+        dbc: DBCDefinition = {"version": "", "messages": [ext_msg]}
         text = dbc_to_text(dbc)
         expected_id = 0x100 | 0x80000000  # CAN Extended Frame Format flag
         assert f"BO_ {expected_id} ExtMsg:" in text
 
     def test_multiplexor_m_indicator(self) -> None:
         """Multiplexor signal gets M indicator when referenced by multiplexed signals."""
+        muxed = signal("Muxed", start_bit=8, length=8, maximum=255.0)
+        muxed.pop("presence")
+        muxed["multiplexor"] = "Selector"
+        muxed["multiplex_values"] = [0]
         dbc: DBCDefinition = {
             "version": "",
-            "messages": [{
-                "id": 1,
-                "name": "Msg",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "Selector",
-                        "startBit": 0,
-                        "length": 8,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1,
-                        "offset": 0,
-                        "minimum": 0,
-                        "maximum": 255,
-                        "unit": "",
-                        "presence": "always",
-                    },
-                    {
-                        "name": "Muxed",
-                        "startBit": 8,
-                        "length": 8,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1,
-                        "offset": 0,
-                        "minimum": 0,
-                        "maximum": 255,
-                        "unit": "",
-                        "multiplexor": "Selector",
-                        "multiplex_values": [0],
-                    },
-                ],
-            }],
+            "messages": [message(1, "Msg", [
+                signal("Selector", length=8, maximum=255.0),
+                muxed,
+            ])],
         }
         text = dbc_to_text(dbc)
         assert "SG_ Selector M :" in text

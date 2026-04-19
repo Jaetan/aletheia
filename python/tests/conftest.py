@@ -4,9 +4,42 @@ from dataclasses import dataclass
 
 import pytest
 
-from aletheia import Signal
+from aletheia import AletheiaClient, Signal
 from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition
+
+
+def run_one_frame_stream(
+    dbc: DBCDefinition,
+    payload: bytes | bytearray,
+    **overrides: object,
+) -> None:
+    """Drive a complete one-frame streaming session.
+
+    The sequence is: ``parse_dbc → set_properties → start_stream →
+    send_frame → end_stream``. Kept terse on purpose — logging tests
+    want minimal noise in the capture buffer. Recognized overrides:
+    ``timestamp`` (default 1000), ``can_id`` (default 256),
+    ``dlc`` (default 8), and ``property_`` (default
+    ``Signal("TestSignal").less_than(1000).always()`` — matches the
+    ``simple_dbc`` fixture).
+    """
+    prop = overrides.get("property_")
+    chosen: Property = prop if isinstance(prop, Property) else (
+        Signal("TestSignal").less_than(1000).always()
+    )
+    timestamp = int(overrides.get("timestamp", 1000))  # type: ignore[arg-type]
+    can_id = int(overrides.get("can_id", 256))  # type: ignore[arg-type]
+    dlc = int(overrides.get("dlc", 8))  # type: ignore[arg-type]
+    with AletheiaClient() as client:
+        client.parse_dbc(dbc)
+        client.set_properties([chosen.to_dict()])
+        client.start_stream()
+        client.send_frame(
+            timestamp=timestamp, can_id=can_id, dlc=dlc,
+            data=bytearray(payload),
+        )
+        client.end_stream()
 
 
 @dataclass(frozen=True)

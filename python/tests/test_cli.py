@@ -80,34 +80,42 @@ class TestParseHexData:
     """Test parse_hex_data: various hex formats -> bytearray."""
 
     def test_contiguous_hex(self) -> None:
+        """Verify contiguous hex."""
         result = parse_hex_data("401F7D0000000000")
         assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_space_separated(self) -> None:
+        """Verify space separated."""
         result = parse_hex_data("40 1F 7D 00 00 00 00 00")
         assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_colon_separated(self) -> None:
+        """Verify colon separated."""
         result = parse_hex_data("40:1F:7D:00:00:00:00:00")
         assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_with_0x_prefix(self) -> None:
+        """Verify with 0x prefix."""
         result = parse_hex_data("0x401F7D0000000000")
         assert result == bytearray([0x40, 0x1F, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00])
 
     def test_lowercase(self) -> None:
+        """Verify lowercase."""
         result = parse_hex_data("deadbeef")
         assert result == bytearray([0xDE, 0xAD, 0xBE, 0xEF])
 
     def test_empty_string(self) -> None:
+        """Verify empty string."""
         result = parse_hex_data("")
         assert result == bytearray()
 
     def test_odd_length_raises(self) -> None:
+        """Verify odd length raises."""
         with pytest.raises(ValueError, match="odd number"):
             parse_hex_data("ABC")
 
     def test_invalid_hex_raises(self) -> None:
+        """Verify invalid hex raises."""
         with pytest.raises(ValueError, match="Invalid hex data"):
             parse_hex_data("ZZZZ")
 
@@ -120,21 +128,27 @@ class TestParseCanId:
     """Test parse_can_id: hex/decimal parsing, error cases."""
 
     def test_hex_id(self) -> None:
+        """Verify hex id."""
         assert parse_can_id("0x100") == 256
 
     def test_hex_uppercase(self) -> None:
+        """Verify hex uppercase."""
         assert parse_can_id("0X1FF") == 511
 
     def test_decimal_id(self) -> None:
+        """Verify decimal id."""
         assert parse_can_id("256") == 256
 
     def test_zero(self) -> None:
+        """Verify zero."""
         assert parse_can_id("0") == 0
 
     def test_whitespace_stripped(self) -> None:
+        """Verify whitespace stripped."""
         assert parse_can_id("  0x100  ") == 256
 
     def test_invalid_raises(self) -> None:
+        """Verify invalid raises."""
         with pytest.raises(ValueError, match="Invalid CAN ID"):
             parse_can_id("not_a_number")
 
@@ -147,15 +161,19 @@ class TestFormatTimestamp:
     """Test format_timestamp: microseconds -> human-readable string."""
 
     def test_zero(self) -> None:
+        """Verify zero."""
         assert format_timestamp(0) == "0.000ms"
 
     def test_milliseconds(self) -> None:
+        """Verify milliseconds."""
         assert format_timestamp(1234500) == "1234.500ms"
 
     def test_exact_ms(self) -> None:
+        """Verify exact ms."""
         assert format_timestamp(1000) == "1.000ms"
 
     def test_sub_millisecond(self) -> None:
+        """Verify sub millisecond."""
         assert format_timestamp(500) == "0.500ms"
 
 
@@ -167,18 +185,23 @@ class TestRationalToInt:
     """Test rational_to_int: {numerator, denominator} -> int."""
 
     def test_simple(self) -> None:
+        """Verify simple."""
         assert rational_to_int({"numerator": 0, "denominator": 1}) == 0
 
     def test_integer_value(self) -> None:
+        """Verify integer value."""
         assert rational_to_int({"numerator": 42, "denominator": 1}) == 42
 
     def test_floor_division(self) -> None:
+        """Verify floor division."""
         assert rational_to_int({"numerator": 7, "denominator": 2}) == 3
 
     def test_large_value(self) -> None:
+        """Verify large value."""
         assert rational_to_int({"numerator": 1234500, "denominator": 1}) == 1234500
 
     def test_zero_denominator_raises(self) -> None:
+        """Verify zero denominator raises."""
         with pytest.raises(ValueError, match="denominator is zero"):
             rational_to_int({"numerator": 42, "denominator": 0})
 
@@ -198,6 +221,7 @@ class TestSignalsCommand:
         return p
 
     def test_text_output(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """Verify text output."""
         code = main(["signals", "--dbc", str(dbc_file)])
         assert code == 0
         out = capsys.readouterr().out
@@ -207,6 +231,7 @@ class TestSignalsCommand:
         assert "2 messages, 3 signals" in out
 
     def test_json_output(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """Verify json output."""
         code = main(["signals", "--dbc", str(dbc_file), "--json"])
         assert code == 0
         out = capsys.readouterr().out
@@ -214,11 +239,13 @@ class TestSignalsCommand:
         assert "messages" in data
         assert len(data["messages"]) == 2
 
-    def test_missing_dbc_file(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_missing_dbc_file(self) -> None:
+        """Verify missing dbc file."""
         code = main(["signals", "--dbc", "/nonexistent/file.dbc"])
         assert code == 2
 
     def test_no_dbc_specified(self) -> None:
+        """Verify no dbc specified."""
         code = main(["signals"])
         assert code == 2
 
@@ -232,6 +259,7 @@ class TestExtractCommand:
 
     @pytest.fixture()
     def dbc_file(self, tmp_path: Path) -> Path:
+        """Write a DBC fixture and return its path."""
         p = tmp_path / "test.dbc"
         _write_dbc(p, _DBC_ENGINE_MSG)
         return p
@@ -239,6 +267,7 @@ class TestExtractCommand:
     def test_text_output(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
         # EngineSpeed at bits 0:16 LE unsigned, factor=0.25, offset=0
         # Raw value 0x0320 = 800, physical = 800 * 0.25 = 200.0 rpm
+        """Verify text output."""
         code = main(["extract", "--dbc", str(dbc_file), "0x100", "2003000000000000"])
         assert code == 0
         out = capsys.readouterr().out
@@ -247,6 +276,7 @@ class TestExtractCommand:
         assert "Errors: none" in out
 
     def test_json_output(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        """Verify json output."""
         code = main(["extract", "--dbc", str(dbc_file), "0x100", "2003000000000000", "--json"])
         assert code == 0
         out = capsys.readouterr().out
@@ -255,19 +285,23 @@ class TestExtractCommand:
         assert "values" in data
         assert "EngineSpeed" in data["values"]
 
-    def test_decimal_can_id(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_decimal_can_id(self, dbc_file: Path) -> None:
+        """Verify decimal can id."""
         code = main(["extract", "--dbc", str(dbc_file), "256", "0000000000000000"])
         assert code == 0
 
-    def test_space_separated_data(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_space_separated_data(self, dbc_file: Path) -> None:
+        """Verify space separated data."""
         code = main(["extract", "--dbc", str(dbc_file), "0x100", "20 03 00 00 00 00 00 00"])
         assert code == 0
 
-    def test_wrong_data_length(self, dbc_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_wrong_data_length(self, dbc_file: Path) -> None:
+        """Verify wrong data length."""
         code = main(["extract", "--dbc", str(dbc_file), "0x100", "AABB"])
         assert code == 2
 
     def test_missing_dbc(self) -> None:
+        """Verify missing dbc."""
         code = main(["extract", "--dbc", "/nonexistent.dbc", "0x100", "0000000000000000"])
         assert code == 2
 
@@ -281,12 +315,14 @@ class TestCheckCommand:
 
     @pytest.fixture()
     def dbc_file(self, tmp_path: Path) -> Path:
+        """Write a DBC fixture and return its path."""
         p = tmp_path / "test.dbc"
         _write_dbc(p, _DBC_ENGINE_MSG)
         return p
 
     @pytest.fixture()
     def checks_file(self, tmp_path: Path) -> Path:
+        """Write a checks YAML fixture and return its path."""
         p = tmp_path / "checks.yaml"
         p.write_text(_CHECKS_YAML, encoding="utf-8")
         return p
@@ -424,8 +460,8 @@ class TestCheckCommand:
         self,
         dbc_file: Path,
         checks_file: Path,
-        capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify missing log file."""
         code = main([
             "check",
             "--dbc", str(dbc_file),
@@ -439,6 +475,7 @@ class TestCheckCommand:
         dbc_file: Path,
         tmp_path: Path,
     ) -> None:
+        """Verify no checks specified."""
         asc_file = tmp_path / "empty.asc"
         _write_asc(asc_file, [])
         code = main([
@@ -457,14 +494,17 @@ class TestErrorCases:
     """Test error handling and exit codes."""
 
     def test_no_subcommand(self) -> None:
+        """Verify no subcommand."""
         code = main([])
         assert code == 2
 
     def test_unknown_subcommand(self) -> None:
+        """Verify unknown subcommand."""
         code = main(["unknown"])
         assert code == 2
 
     def test_check_missing_dbc(self, tmp_path: Path) -> None:
+        """Verify check missing dbc."""
         asc = tmp_path / "test.asc"
         asc.touch()
         checks = tmp_path / "checks.yaml"
@@ -499,6 +539,7 @@ class TestMuxQueryCommand:
     def test_summary_text_plain_message(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify summary text plain message."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x100"])
         assert code == 0
         out = capsys.readouterr().out
@@ -508,6 +549,7 @@ class TestMuxQueryCommand:
     def test_summary_text_multiplexed(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify summary text multiplexed."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x300"])
         assert code == 0
         out = capsys.readouterr().out
@@ -521,6 +563,7 @@ class TestMuxQueryCommand:
     def test_summary_json(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify summary json."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x300", "--json"])
         assert code == 0
         data = json.loads(capsys.readouterr().out)
@@ -537,6 +580,7 @@ class TestMuxQueryCommand:
     def test_selection_by_mux_and_value_text(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify selection by mux and value text."""
         code = main([
             "mux-query", "--dbc", str(dbc_file), "0x300",
             "--mux", "Mode", "--value", "0",
@@ -551,6 +595,7 @@ class TestMuxQueryCommand:
     def test_selection_by_mux_and_value_json(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify selection by mux and value json."""
         code = main([
             "mux-query", "--dbc", str(dbc_file), "0x300",
             "--mux", "Mode", "--value", "1", "--json",
@@ -566,6 +611,7 @@ class TestMuxQueryCommand:
     def test_message_by_name(
         self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """Verify message by name."""
         code = main(["mux-query", "--dbc", str(dbc_file), "DiagStatus"])
         assert code == 0
         out = capsys.readouterr().out
@@ -573,14 +619,17 @@ class TestMuxQueryCommand:
         assert "Multiplexors: Mode" in out
 
     def test_unknown_message(self, dbc_file: Path) -> None:
+        """Verify unknown message."""
         code = main(["mux-query", "--dbc", str(dbc_file), "0x999"])
         assert code == 2
 
     def test_unknown_message_name(self, dbc_file: Path) -> None:
+        """Verify unknown message name."""
         code = main(["mux-query", "--dbc", str(dbc_file), "NoSuchMessage"])
         assert code == 2
 
     def test_unknown_multiplexor(self, dbc_file: Path) -> None:
+        """Verify unknown multiplexor."""
         code = main([
             "mux-query", "--dbc", str(dbc_file), "0x300",
             "--mux", "NoSuch", "--value", "0",
@@ -588,13 +637,56 @@ class TestMuxQueryCommand:
         assert code == 2
 
     def test_mux_without_value_rejected(self, dbc_file: Path) -> None:
+        """Verify mux without value rejected."""
         code = main([
             "mux-query", "--dbc", str(dbc_file), "0x300", "--mux", "Mode",
         ])
         assert code == 2
 
     def test_value_without_mux_rejected(self, dbc_file: Path) -> None:
+        """Verify value without mux rejected."""
         code = main([
             "mux-query", "--dbc", str(dbc_file), "0x300", "--value", "0",
         ])
         assert code == 2
+
+
+# ============================================================================
+# format-dbc subcommand
+# ============================================================================
+
+class TestFormatDBCCommand:
+    """Test 'aletheia format-dbc' -- DBC roundtrip through the Agda core."""
+
+    @pytest.fixture()
+    def dbc_file(self, tmp_path: Path) -> Path:
+        """Create a .dbc file with one message."""
+        p = tmp_path / "format.dbc"
+        _write_dbc(p, _DBC_ENGINE_MSG)
+        return p
+
+    def test_json_roundtrip(
+        self, dbc_file: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The canonical JSON mirrors the input DBC and is valid JSON."""
+        code = main(["format-dbc", "--dbc", str(dbc_file)])
+        assert code == 0
+        out = capsys.readouterr().out
+        data = json.loads(out)
+        assert "messages" in data
+        msg_names = {m["name"] for m in data["messages"]}
+        assert "EngineStatus" in msg_names
+
+    def test_missing_dbc_file(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Non-existent --dbc argument fails fast with exit 2."""
+        code = main(["format-dbc", "--dbc", "/nonexistent/file.dbc"])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert "not found" in err or "Error" in err
+
+    def test_no_source_specified(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Neither --dbc nor --excel: fail fast."""
+        code = main(["format-dbc"])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert "DBC source" in err or "Error" in err

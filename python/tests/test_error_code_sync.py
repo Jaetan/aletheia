@@ -26,6 +26,12 @@ from aletheia.protocols import ErrorCode
 _AGDA_FILE = (
     Path(__file__).resolve().parents[2] / "src" / "Aletheia" / "Error.agda"
 )
+_AGDA_FILE_MISSING = not _AGDA_FILE.exists()
+_SKIP_REASON = (
+    f"Agda source required for ErrorCode drift test but not at {_AGDA_FILE}"
+    " — skip from installed-wheel test runs; ``pytest.fail`` stays for"
+    " structural parse failures."
+)
 
 # The six ``*ErrorCode`` function families ``errorCode`` dispatches through.
 # Each family emits a string literal on the RHS of ``= "..."``; collecting
@@ -45,10 +51,6 @@ _RHS_STRING_RE = re.compile(r'=\s*"([^"\n]+)"\s*$')
 
 def _collect_agda_error_codes() -> set[str]:
     """Read every literal emitted by the Agda ``*ErrorCode`` families."""
-    if not _AGDA_FILE.exists():
-        pytest.fail(
-            f"Agda source required for ErrorCode drift test but not at {_AGDA_FILE}"
-        )
     text = _AGDA_FILE.read_text(encoding="utf-8")
     # Recursive/wrapper cases (``parseErrorCode (InContext _ inner) = parseErrorCode
     # inner``) don't match _RHS_STRING_RE because the RHS is not a string
@@ -64,6 +66,7 @@ def _collect_agda_error_codes() -> set[str]:
     return codes
 
 
+@pytest.mark.skipif(_AGDA_FILE_MISSING, reason=_SKIP_REASON)
 class TestErrorCodeSync:
     """Python ``ErrorCode`` mirrors Agda's wire-value string set."""
 

@@ -22,10 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from aletheia import AletheiaClient, Signal
-from aletheia.client._types import ProcessError
+from aletheia import AletheiaClient, DBCDefinition, ProcessError, Signal
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition
 
 
 @pytest.fixture(name="demo_dbc")

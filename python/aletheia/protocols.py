@@ -320,13 +320,23 @@ class EventuallyFormula(TypedDict):
 
 
 class NextFormula(TypedDict):
-    """Next: X(formula)"""
+    """Next: X(formula).
+
+    Discouraged in CAN analysis — prefer ``within(time_ms)`` /
+    ``metric_until``. CAN timing jitter makes frame-exact semantics
+    unreliable; kept for standard-LTLf completeness.
+    """
     operator: Literal["next"]
     formula: 'LTLFormula'
 
 
 class WeakNextFormula(TypedDict):
-    """Weak Next: WX(formula) — holds vacuously at end of stream"""
+    """Weak Next: WX(formula) — holds vacuously at end of stream.
+
+    Discouraged in CAN analysis — prefer ``within(time_ms)`` /
+    ``metric_until``. CAN timing jitter makes frame-exact semantics
+    unreliable; kept for standard-LTLf completeness.
+    """
     operator: Literal["weakNext"]
     formula: 'LTLFormula'
 

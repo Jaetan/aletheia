@@ -80,7 +80,7 @@ from ._loader_utils import (
     get_int,
     get_bool,
 )
-from .client import to_signal_fraction
+from .client._helpers import to_signal_fraction
 
 # Excel cell values: str, numbers, booleans, or None (empty)
 # PEP 695 native ``type`` statement — lazy, no ``from __future__ import``
@@ -344,10 +344,10 @@ def _apply_metadata(result: CheckResult, d: dict[str, object]) -> CheckResult:
     """Apply optional name and severity from row data to a CheckResult."""
     name = d.get("Check Name")
     if is_str(name):
-        result.named(name)
+        result = result.named(name)
     sev = d.get("Severity")
     if is_str(sev):
-        result.severity(sev)
+        result = result.severity(sev)
     return result
 
 
@@ -497,7 +497,11 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
     for idx, row in enumerate(rows):
         row_num = idx + 2  # 1-indexed, skip header
         ext_val = row.get("Extended")
-        is_extended = get_bool(row, "Extended", _row_ctx(row_num)) if ext_val is not None else False
+        is_extended = (
+            get_bool(row, "Extended", _row_ctx(row_num))
+            if ext_val is not None
+            else False
+        )
         key = _MessageKey(
             msg_id=_parse_message_id(row.get("Message ID"), _row_ctx(row_num)),
             name=get_str(row, "Message Name", _row_ctx(row_num)),

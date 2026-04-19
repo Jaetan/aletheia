@@ -26,6 +26,7 @@ class TestLoadSimpleChecks:
     """Load each simple condition from a YAML string and verify formula."""
 
     def test_never_exceeds(self) -> None:
+        """Verify never exceeds."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Speed
@@ -36,6 +37,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
 
     def test_never_below(self) -> None:
+        """Verify never below."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Voltage
@@ -46,6 +48,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Voltage").never_below(11.5).to_dict()
 
     def test_stays_between(self) -> None:
+        """Verify stays between."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Voltage
@@ -59,6 +62,7 @@ class TestLoadSimpleChecks:
         )
 
     def test_never_equals(self) -> None:
+        """Verify never equals."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: ErrorCode
@@ -69,6 +73,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("ErrorCode").never_equals(255).to_dict()
 
     def test_equals_always(self) -> None:
+        """Verify equals always."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Gear
@@ -79,6 +84,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Gear").equals(0).always().to_dict()
 
     def test_settles_between(self) -> None:
+        """Verify settles between."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: CoolantTemp
@@ -93,6 +99,7 @@ class TestLoadSimpleChecks:
         )
 
     def test_multiple_checks(self) -> None:
+        """Verify multiple checks."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Speed
@@ -118,6 +125,7 @@ class TestLoadWhenThenChecks:
     """Load when/then causal checks from YAML strings."""
 
     def test_when_exceeds_then_equals(self) -> None:
+        """Verify when exceeds then equals."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - name: "Brake response"
@@ -141,6 +149,7 @@ class TestLoadWhenThenChecks:
         assert checks[0].to_dict() == expected
 
     def test_when_equals_then_exceeds(self) -> None:
+        """Verify when equals then exceeds."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - when:
@@ -162,6 +171,7 @@ class TestLoadWhenThenChecks:
         assert checks[0].to_dict() == expected
 
     def test_when_drops_below_then_stays_between(self) -> None:
+        """Verify when drops below then stays between."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - when:
@@ -192,6 +202,7 @@ class TestLoadMetadata:
     """Verify name and severity are set on CheckResult from YAML."""
 
     def test_name_set(self) -> None:
+        """Verify name set."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - name: "Speed limit"
@@ -202,6 +213,7 @@ class TestLoadMetadata:
         assert checks[0].name == "Speed limit"
 
     def test_severity_set(self) -> None:
+        """Verify severity set."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Speed
@@ -212,6 +224,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == "critical"
 
     def test_name_and_severity(self) -> None:
+        """Verify name and severity."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - name: "Speed limit"
@@ -224,6 +237,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == "warning"
 
     def test_defaults_none(self) -> None:
+        """Verify defaults none."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - signal: Speed
@@ -234,6 +248,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == ""
 
     def test_when_then_metadata(self) -> None:
+        """Verify when then metadata."""
         checks = load_checks(textwrap.dedent("""\
             checks:
               - name: "Brake response"
@@ -260,6 +275,7 @@ class TestLoadFromFile:
     """Load checks from a temporary YAML file."""
 
     def test_load_from_path_object(self, tmp_path: Path) -> None:
+        """Verify load from path object."""
         yaml_file = tmp_path / "checks.yaml"
         yaml_file.write_text(textwrap.dedent("""\
             checks:
@@ -272,6 +288,7 @@ class TestLoadFromFile:
         assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
 
     def test_load_from_path_string(self, tmp_path: Path) -> None:
+        """Verify load from path string."""
         yaml_file = tmp_path / "checks.yml"
         yaml_file.write_text(textwrap.dedent("""\
             checks:
@@ -287,6 +304,7 @@ class TestLoadFromFile:
         )
 
     def test_file_not_found(self) -> None:
+        """Verify file not found."""
         with pytest.raises(FileNotFoundError, match="YAML file not found"):
             load_checks("/nonexistent/path/checks.yaml")
 
@@ -299,14 +317,17 @@ class TestLoadErrors:
     """All validation error cases raise ValueError with useful messages."""
 
     def test_missing_checks_key(self) -> None:
+        """Verify missing checks key."""
         with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
             load_checks("signals:\n  - foo\n")
 
     def test_checks_not_a_list(self) -> None:
+        """Verify checks not a list."""
         with pytest.raises(ValueError, match="YAML must contain a 'checks' list"):
             load_checks("checks: not_a_list\n")
 
     def test_no_signal_or_when(self) -> None:
+        """Verify no signal or when."""
         with pytest.raises(ValueError, match="must have 'signal' or 'when'/'then'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -316,6 +337,7 @@ class TestLoadErrors:
             """))
 
     def test_unknown_simple_condition(self) -> None:
+        """Verify unknown simple condition."""
         with pytest.raises(ValueError, match="unknown condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -325,6 +347,7 @@ class TestLoadErrors:
             """))
 
     def test_never_exceeds_missing_value(self) -> None:
+        """Verify never exceeds missing value."""
         with pytest.raises(ValueError, match="requires 'value'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -333,6 +356,7 @@ class TestLoadErrors:
             """))
 
     def test_stays_between_missing_min(self) -> None:
+        """Verify stays between missing min."""
         with pytest.raises(ValueError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -342,6 +366,7 @@ class TestLoadErrors:
             """))
 
     def test_stays_between_missing_max(self) -> None:
+        """Verify stays between missing max."""
         with pytest.raises(ValueError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -351,6 +376,7 @@ class TestLoadErrors:
             """))
 
     def test_settles_between_missing_within_ms(self) -> None:
+        """Verify settles between missing within ms."""
         with pytest.raises(ValueError, match="requires 'within_ms'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -361,6 +387,7 @@ class TestLoadErrors:
             """))
 
     def test_settles_between_missing_range(self) -> None:
+        """Verify settles between missing range."""
         with pytest.raises(ValueError, match="requires 'min' and 'max'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -370,6 +397,7 @@ class TestLoadErrors:
             """))
 
     def test_equals_missing_value(self) -> None:
+        """Verify equals missing value."""
         with pytest.raises(ValueError, match="requires 'value'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -378,6 +406,7 @@ class TestLoadErrors:
             """))
 
     def test_when_then_missing_then(self) -> None:
+        """Verify when then missing then."""
         with pytest.raises(ValueError, match="must have 'signal' or 'when'/'then'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -390,6 +419,7 @@ class TestLoadErrors:
             """))
 
     def test_when_then_missing_within_ms(self) -> None:
+        """Verify when then missing within ms."""
         with pytest.raises(ValueError, match="require 'within_ms'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -404,6 +434,7 @@ class TestLoadErrors:
             """))
 
     def test_unknown_when_condition(self) -> None:
+        """Verify unknown when condition."""
         with pytest.raises(ValueError, match="unknown when condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:
@@ -419,6 +450,7 @@ class TestLoadErrors:
             """))
 
     def test_unknown_then_condition(self) -> None:
+        """Verify unknown then condition."""
         with pytest.raises(ValueError, match="unknown then condition 'bogus'"):
             load_checks(textwrap.dedent("""\
                 checks:

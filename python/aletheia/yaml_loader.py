@@ -157,13 +157,13 @@ def _parse_check(entry: dict[str, object]) -> CheckResult:
             f"Check '{name}': must have 'signal' or 'when'/'then'"
         )
 
-    # Apply metadata
+    # Apply metadata — CheckResult is immutable so re-bind on each call.
     raw_name = entry.get("name")
     if isinstance(raw_name, str):
-        result.named(raw_name)
+        result = result.named(raw_name)
     raw_sev = entry.get("severity")
     if isinstance(raw_sev, str):
-        result.severity(raw_sev)
+        result = result.severity(raw_sev)
 
     return result
 

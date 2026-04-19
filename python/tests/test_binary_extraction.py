@@ -1,19 +1,32 @@
 """Tests for binary extraction buffer parsing (_client_bin.py)."""
 
 import struct
+from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
+from aletheia import ProcessError
 from aletheia.client._client_bin import (
     EXTRACTION_ERROR_MESSAGES,
     EXTRACTION_ERROR_MESSAGES_BY_CODE,
     ExtractionErrorCode,
     parse_extraction_buffer,
 )
-from aletheia.client._types import ProcessError
 
 
 NAMES = ("Speed", "RPM", "Temp")
+
+_AGDA_EXTRACTION = (
+    Path(__file__).resolve().parents[2]
+    / "src" / "Aletheia" / "CAN" / "BatchExtraction.agda"
+)
+_AGDA_EXTRACTION_MISSING = not _AGDA_EXTRACTION.exists()
+_AGDA_SKIP_REASON = (
+    "Agda source required for ExtractionErrorCode drift test but not at "
+    f"{_AGDA_EXTRACTION} — skip from installed-wheel test runs; "
+    "``pytest.fail`` stays for structural parse failures."
+)
 
 
 class TestParseExtractionBuffer:
@@ -108,8 +121,6 @@ class TestParseExtractionBuffer:
 
     def test_fraction_exact_roundtrip(self) -> None:
         """Extraction preserves exact rationals (no float quantization)."""
-        from fractions import Fraction
-
         header = struct.pack("<HHH", 1, 0, 0)
         # 1/3 is not representable as IEEE 754 double
         values = struct.pack("<Hqq", 0, 1, 3)
@@ -121,6 +132,7 @@ class TestParseExtractionBuffer:
         assert result.values["Speed"].denominator == 3
 
 
+@pytest.mark.skipif(_AGDA_EXTRACTION_MISSING, reason=_AGDA_SKIP_REASON)
 class TestExtractionErrorCodeSync:
     """Guard the Python enum against Agda drift.
 
@@ -134,16 +146,7 @@ class TestExtractionErrorCodeSync:
 
     def _agda_constructors(self) -> list[str]:
         """Parse the Agda source for ``ExtractionErrorCode`` constructors."""
-        from pathlib import Path
-        agda = (
-            Path(__file__).resolve().parents[2]
-            / "src" / "Aletheia" / "CAN" / "BatchExtraction.agda"
-        )
-        if not agda.exists():
-            pytest.fail(
-                f"Agda source required for enum drift test but not at {agda}"
-            )
-        lines = agda.read_text(encoding="utf-8").splitlines()
+        lines = _AGDA_EXTRACTION.read_text(encoding="utf-8").splitlines()
         # Find the data block; constructors follow with 2-space indent until
         # a non-indented line or blank line is reached.
         try:

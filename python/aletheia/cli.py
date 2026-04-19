@@ -31,8 +31,8 @@ from .client import (
     AletheiaError,
     SignalExtractionResult,
     dlc_to_bytes,
-    dump_json,
 )
+from .client._helpers import dump_json
 from .dbc_queries import (
     is_multiplexed,
     message_by_id,
@@ -741,6 +741,23 @@ def _print_mux_selection_text(
         print(_format_signal_line(sig))
 
 
+def _cmd_format_dbc(args: argparse.Namespace) -> int:
+    """Round-trip a DBC through the Agda core and emit the canonical JSON form.
+
+    Equivalent to ``AletheiaClient.format_dbc()``: loads the DBC from the
+    requested source (``--dbc`` or ``--excel``), parses it through the
+    FFI, then re-exports it via ``aletheia_format_dbc``. This produces a
+    normalized DBC JSON where numeric fields are exact rationals
+    matching the Agda core's representation.
+    """
+    dbc = _load_dbc(args)
+    with AletheiaClient() as client:
+        client.parse_dbc(dbc)
+        canonical = client.format_dbc()
+    print(dump_json(canonical, indent=2))
+    return _EXIT_OK
+
+
 def _cmd_mux_query(args: argparse.Namespace) -> int:
     """Inspect multiplexor structure of a DBC message."""
     dbc = _load_dbc(args)
@@ -861,6 +878,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_signals.add_argument("--excel", help=".xlsx workbook with DBC sheet")
     p_signals.add_argument("--json", action="store_true", help="output as JSON")
 
+    # -- format-dbc ----------------------------------------------------------
+    p_format = subparsers.add_parser(
+        "format-dbc",
+        help="re-export a DBC as canonical JSON via the Agda core",
+    )
+    p_format.add_argument("--dbc", help=".dbc file")
+    p_format.add_argument("--excel", help=".xlsx workbook with DBC sheet")
+
     # -- mux-query -----------------------------------------------------------
     p_mux = subparsers.add_parser(
         "mux-query",
@@ -898,6 +923,7 @@ def _build_parser() -> argparse.ArgumentParser:
 _COMMANDS = {
     "check": _cmd_check,
     "extract": _cmd_extract,
+    "format-dbc": _cmd_format_dbc,
     "mux-query": _cmd_mux_query,
     "signals": _cmd_signals,
     "validate": _cmd_validate,

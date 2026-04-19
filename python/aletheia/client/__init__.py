@@ -1,4 +1,13 @@
-"""Aletheia Client
+"""Aletheia Client sub-package — public API.
+
+Names exported here are part of the stable public surface alongside the
+top-level ``aletheia`` package. Both import paths
+(``from aletheia import X`` and ``from aletheia.client import X``) are
+supported; the top-level form is preferred in user code, and the
+``aletheia.client`` form is kept for backward-compat and for consumers
+that want the narrower namespace. Modules prefixed with ``_``
+(``_client``, ``_ffi``, ``_helpers``, ``_types``, etc.) are private
+implementation detail and may break between review rounds.
 
 Provides signal extraction, frame building, and streaming LTL checking
 via a shared library (FFI) that calls the formally verified Agda core.
@@ -32,19 +41,14 @@ Example:
 """
 
 from ._client import AletheiaClient
-# Re-exported for first-party consumers (``aletheia.cli``, ``dbc_converter``,
-# ``excel_loader``). These are intentionally NOT documented in the user-facing
-# API — ``AletheiaClient`` methods, DSL builders, and loader functions cover
-# the supported surface. Kept in ``__all__`` purely so basedpyright at strict
-# level recognises the re-export as deliberate; the `.client` path is fine
-# for first-party imports but not part of the stable public contract.
-from ._helpers import dump_json, to_signal_fraction
+from ._ffi import RTSState
 from ._types import (
     AletheiaError,
     BatchError,
     CANFrameTuple,
     FrameResponse,
     ProcessError,
+    PropertyDiagnostic,
     ProtocolError,
     SignalExtractionResult,
     bytes_to_dlc,
@@ -52,13 +56,11 @@ from ._types import (
 )
 
 # Public symbols — every name here is covered by basedpyright at ``strict``
-# level. User-facing API is ``AletheiaClient`` and the names below it; the
-# ``dump_json``/``to_signal_fraction`` entries exist because first-party
-# loader modules import them via the ``aletheia.client`` path and basedpyright
-# otherwise flags them as unused. Treat them as package-internal.
+# level. User-facing API is ``AletheiaClient``, the exception hierarchy, the
+# response TypedDicts, and the byte/DLC converters.
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
-    "CANFrameTuple", "dlc_to_bytes", "dump_json", "FrameResponse",
-    "ProcessError", "ProtocolError", "SignalExtractionResult",
-    "to_signal_fraction",
+    "CANFrameTuple", "dlc_to_bytes", "FrameResponse",
+    "ProcessError", "PropertyDiagnostic", "ProtocolError",
+    "RTSState", "SignalExtractionResult",
 ]

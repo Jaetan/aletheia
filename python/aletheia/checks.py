@@ -19,36 +19,40 @@ Every check compiles to the same LTL Property used by the DSL layer.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+
 from .dsl import Signal, Predicate, Property
 from .protocols import LTLFormula
 
 
+@dataclass(frozen=True, slots=True)
 class CheckResult:
     """Terminal object wrapping a Property with optional metadata.
 
     Returned by every check-building chain.  Metadata (name, severity)
     is carried alongside the formula but is *not* included in the LTL
     dict produced by ``to_dict()`` — it is for display / reporting only.
+
+    Immutable — ``named()`` / ``severity()`` return new instances rather
+    than mutating in place, so a single check template can be shared
+    across concurrent sessions without one rename bleeding into another.
     """
 
-    def __init__(self, prop: Property) -> None:
-        self._property: Property = prop
-        self.name: str = ""
-        self.check_severity: str = ""
-        self.signal_name: str = ""
-        self.condition_desc: str = ""
+    _property: Property
+    name: str = ""
+    check_severity: str = ""
+    signal_name: str = ""
+    condition_desc: str = ""
 
-    # -- chainable setters ---------------------------------------------------
+    # -- chainable "setters" (return new instance) --------------------------
 
     def named(self, name: str) -> CheckResult:
-        """Assign a human-readable name to this check."""
-        self.name = name
-        return self
+        """Return a copy with the human-readable name set."""
+        return replace(self, name=name)
 
     def severity(self, level: str) -> CheckResult:
-        """Assign a severity level (e.g. "critical", "warning")."""
-        self.check_severity = level
-        return self
+        """Return a copy with the severity level set."""
+        return replace(self, check_severity=level)
 
     # -- output --------------------------------------------------------------
 
@@ -79,10 +83,11 @@ class CheckSignalPredicate:  # pylint: disable=too-few-public-methods
 
     def always(self) -> CheckResult:
         """The predicate must hold at every time step."""
-        result = CheckResult(self._property)
-        result.signal_name = self._signal_name
-        result.condition_desc = self._condition_desc
-        return result
+        return CheckResult(
+            _property=self._property,
+            signal_name=self._signal_name,
+            condition_desc=self._condition_desc,
+        )
 
 
 class SettlesBuilder:  # pylint: disable=too-few-public-methods
@@ -101,10 +106,11 @@ class SettlesBuilder:  # pylint: disable=too-few-public-methods
         if time_ms < 0:
             raise ValueError(f"time_ms must be non-negative, got {time_ms}")
         prop = Signal(self._signal_name).between(self._lo, self._hi).for_at_least(time_ms)
-        result = CheckResult(prop)
-        result.signal_name = self._signal_name
-        result.condition_desc = f"between {self._lo} and {self._hi} within {time_ms}ms"
-        return result
+        return CheckResult(
+            _property=prop,
+            signal_name=self._signal_name,
+            condition_desc=f"between {self._lo} and {self._hi} within {time_ms}ms",
+        )
 
 
 class CheckSignal:
@@ -118,36 +124,40 @@ class CheckSignal:
     def never_exceeds(self, value: float) -> CheckResult:
         """``Signal(s).less_than(value).always()`` — G(s < v)"""
         prop = Signal(self._name).less_than(value).always()
-        result = CheckResult(prop)
-        result.signal_name = self._name
-        result.condition_desc = f"< {value}"
-        return result
+        return CheckResult(
+            _property=prop,
+            signal_name=self._name,
+            condition_desc=f"< {value}",
+        )
 
     def never_below(self, value: float) -> CheckResult:
         """``Signal(s).greater_than_or_equal(value).always()`` — G(s >= v)"""
         prop = Signal(self._name).greater_than_or_equal(value).always()
-        result = CheckResult(prop)
-        result.signal_name = self._name
-        result.condition_desc = f">= {value}"
-        return result
+        return CheckResult(
+            _property=prop,
+            signal_name=self._name,
+            condition_desc=f">= {value}",
+        )
 
     def stays_between(self, lo: float, hi: float) -> CheckResult:
         """``Signal(s).between(lo, hi).always()`` — G(lo <= s <= hi)"""
         if lo > hi:
             raise ValueError("stays_between: lo must be <= hi")
         prop = Signal(self._name).between(lo, hi).always()
-        result = CheckResult(prop)
-        result.signal_name = self._name
-        result.condition_desc = f"between {lo} and {hi}"
-        return result
+        return CheckResult(
+            _property=prop,
+            signal_name=self._name,
+            condition_desc=f"between {lo} and {hi}",
+        )
 
     def never_equals(self, value: float) -> CheckResult:
         """``Signal(s).equals(value).never()`` — G(not(s == v))"""
         prop = Signal(self._name).equals(value).never()
-        result = CheckResult(prop)
-        result.signal_name = self._name
-        result.condition_desc = f"!= {value}"
-        return result
+        return CheckResult(
+            _property=prop,
+            signal_name=self._name,
+            condition_desc=f"!= {value}",
+        )
 
     # -- two-step methods (need another call to finish) ----------------------
 
@@ -186,11 +196,12 @@ class ThenCondition:  # pylint: disable=too-few-public-methods
         prop = self._trigger.implies(
             self._then_pred.within(time_ms)
         ).always()
-        result = CheckResult(prop)
-        result.signal_name = self._then_signal
-        if self._then_desc:
-            result.condition_desc = f"{self._then_desc} within {time_ms}ms"
-        return result
+        desc = f"{self._then_desc} within {time_ms}ms" if self._then_desc else ""
+        return CheckResult(
+            _property=prop,
+            signal_name=self._then_signal,
+            condition_desc=desc,
+        )
 
 
 class ThenSignal:

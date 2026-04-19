@@ -84,10 +84,12 @@ def _plain_dbc() -> DBCDefinition:
 
 
 def test_is_multiplexed_true() -> None:
+    """Verify is multiplexed true."""
     assert is_multiplexed(_mux_dbc()["messages"][0])
 
 
 def test_is_multiplexed_false() -> None:
+    """Verify is multiplexed false."""
     assert not is_multiplexed(_plain_dbc()["messages"][0])
 
 
@@ -97,21 +99,25 @@ def test_is_multiplexed_false() -> None:
 
 
 def test_always_present_signals() -> None:
+    """Verify always present signals."""
     sigs = always_present_signals(_mux_dbc()["messages"][0])
     assert [s["name"] for s in sigs] == ["MuxSelector", "Voltage"]
 
 
 def test_multiplexed_signals() -> None:
+    """Verify multiplexed signals."""
     sigs = multiplexed_signals(_mux_dbc()["messages"][0])
     assert [s["name"] for s in sigs] == ["Temperature", "Pressure"]
 
 
 def test_always_present_no_mux() -> None:
+    """Verify always present no mux."""
     msg = _plain_dbc()["messages"][0]
     assert len(always_present_signals(msg)) == 1
 
 
 def test_multiplexed_no_mux() -> None:
+    """Verify multiplexed no mux."""
     msg = _plain_dbc()["messages"][0]
     assert multiplexed_signals(msg) == []
 
@@ -122,11 +128,13 @@ def test_multiplexed_no_mux() -> None:
 
 
 def test_multiplexor_names() -> None:
+    """Verify multiplexor names."""
     assert multiplexor_names(_mux_dbc()["messages"][0]) == ["MuxSelector"]
 
 
 def test_multiplexor_names_empty() -> None:
-    assert multiplexor_names(_plain_dbc()["messages"][0]) == []
+    """Verify multiplexor names empty."""
+    assert not multiplexor_names(_plain_dbc()["messages"][0])
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +143,13 @@ def test_multiplexor_names_empty() -> None:
 
 
 def test_mux_values() -> None:
+    """Verify mux values."""
     assert mux_values(_mux_dbc()["messages"][0], "MuxSelector") == [0, 1]
 
 
 def test_mux_values_unknown() -> None:
-    assert mux_values(_mux_dbc()["messages"][0], "NonExistent") == []
+    """Verify mux values unknown."""
+    assert not mux_values(_mux_dbc()["messages"][0], "NonExistent")
 
 
 # ---------------------------------------------------------------------------
@@ -148,21 +158,25 @@ def test_mux_values_unknown() -> None:
 
 
 def test_signals_for_mux_value_0() -> None:
+    """Verify signals for mux value 0."""
     sigs = signals_for_mux_value(_mux_dbc()["messages"][0], "MuxSelector", 0)
     assert [s["name"] for s in sigs] == ["MuxSelector", "Temperature", "Voltage"]
 
 
 def test_signals_for_mux_value_1() -> None:
+    """Verify signals for mux value 1."""
     sigs = signals_for_mux_value(_mux_dbc()["messages"][0], "MuxSelector", 1)
     assert [s["name"] for s in sigs] == ["MuxSelector", "Pressure", "Voltage"]
 
 
 def test_signals_for_mux_value_unknown() -> None:
+    """Verify signals for mux value unknown."""
     sigs = signals_for_mux_value(_mux_dbc()["messages"][0], "MuxSelector", 99)
     assert [s["name"] for s in sigs] == ["MuxSelector", "Voltage"]
 
 
 def test_signals_for_mux_value_unknown_multiplexor() -> None:
+    """Verify signals for mux value unknown multiplexor."""
     sigs = signals_for_mux_value(_mux_dbc()["messages"][0], "NonExistent", 0)
     assert [s["name"] for s in sigs] == ["MuxSelector", "Voltage"]
 
@@ -173,27 +187,32 @@ def test_signals_for_mux_value_unknown_multiplexor() -> None:
 
 
 def test_message_by_id() -> None:
+    """Verify message by id."""
     msg = message_by_id(_mux_dbc(), 0x200)
     assert msg is not None
     assert msg["name"] == "MuxMessage"
 
 
 def test_message_by_id_not_found() -> None:
+    """Verify message by id not found."""
     assert message_by_id(_mux_dbc(), 0x999) is None
 
 
 def test_message_by_id_extended_vs_standard() -> None:
     # Standard ID 0x200 exists; extended 0x200 should not match.
+    """Verify message by id extended vs standard."""
     assert message_by_id(_mux_dbc(), 0x200, extended=True) is None
 
 
 def test_message_by_name() -> None:
+    """Verify message by name."""
     msg = message_by_name(_mux_dbc(), "MuxMessage")
     assert msg is not None
     assert msg["id"] == 0x200
 
 
 def test_message_by_name_not_found() -> None:
+    """Verify message by name not found."""
     assert message_by_name(_mux_dbc(), "NoSuch") is None
 
 
@@ -203,12 +222,14 @@ def test_message_by_name_not_found() -> None:
 
 
 def test_signal_by_name() -> None:
+    """Verify signal by name."""
     sig = signal_by_name(_mux_dbc()["messages"][0], "Temperature")
     assert sig is not None
     assert sig["signed"] is True
 
 
 def test_signal_by_name_not_found() -> None:
+    """Verify signal by name not found."""
     assert signal_by_name(_mux_dbc()["messages"][0], "NoSuch") is None
 
 
@@ -233,15 +254,18 @@ def _empty_msg() -> DBCDefinition:
 
 
 def test_empty_signals_is_multiplexed() -> None:
+    """Verify empty signals is multiplexed."""
     assert not is_multiplexed(_empty_msg()["messages"][0])
 
 
 def test_empty_signals_always_present() -> None:
+    """Verify empty signals always present."""
     assert always_present_signals(_empty_msg()["messages"][0]) == []
 
 
 def test_empty_signals_multiplexor_names() -> None:
-    assert multiplexor_names(_empty_msg()["messages"][0]) == []
+    """Verify empty signals multiplexor names."""
+    assert not multiplexor_names(_empty_msg()["messages"][0])
 
 
 # ---------------------------------------------------------------------------
@@ -299,11 +323,13 @@ def _dual_mux_dbc() -> DBCDefinition:
 
 
 def test_multiplexor_names_multiple() -> None:
+    """Verify multiplexor names multiple."""
     names = multiplexor_names(_dual_mux_dbc()["messages"][0])
     assert names == ["MuxA", "MuxB"]
 
 
 def test_mux_values_dual() -> None:
+    """Verify mux values dual."""
     msg = _dual_mux_dbc()["messages"][0]
     assert mux_values(msg, "MuxA") == [0, 1]
     assert mux_values(msg, "MuxB") == [0]
@@ -338,12 +364,14 @@ def _extended_dbc() -> DBCDefinition:
 
 
 def test_message_by_id_extended_positive() -> None:
+    """Verify message by id extended positive."""
     msg = message_by_id(_extended_dbc(), 0x200, extended=True)
     assert msg is not None
     assert msg["name"] == "ExtMsg"
 
 
 def test_message_by_id_standard_in_mixed_dbc() -> None:
+    """Verify message by id standard in mixed dbc."""
     std = message_by_id(_extended_dbc(), 0x200, extended=False)
     assert std is not None
     assert std["name"] == "StdMsg"

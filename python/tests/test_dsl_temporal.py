@@ -8,8 +8,10 @@ Tests cover:
 - Nested temporal operator compositions
 """
 
-import pytest
 from typing import cast
+
+import pytest
+
 from aletheia.dsl import (
     Signal, Property,
     infinitely_often, eventually_always, never

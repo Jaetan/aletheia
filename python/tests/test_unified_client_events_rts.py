@@ -16,11 +16,14 @@ The ``simple_dbc`` fixture comes from ``conftest.py``.
 
 import pytest
 
-from aletheia import AletheiaClient, Signal
-from aletheia.client._ffi import RTSState
+from aletheia import (
+    AletheiaClient,
+    DBCDefinition,
+    ProtocolError,
+    RTSState,
+    Signal,
+)
 from aletheia.client._response_parsers import parse_event_response
-from aletheia.client._types import ProtocolError
-from aletheia.protocols import DBCDefinition
 
 
 class TestSendErrorRemote:

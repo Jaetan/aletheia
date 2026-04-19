@@ -10,6 +10,7 @@ the opt-in design.
 import logging
 
 import pytest
+from conftest import run_one_frame_stream
 
 from aletheia import AletheiaClient, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
@@ -46,33 +47,15 @@ class TestLoggingStreamingEvents:
 
     def test_no_logging_without_handler(self, simple_dbc: DBCDefinition) -> None:
         """Without a handler installed, nothing crashes."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
-            client.start_stream()
-            client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
-                data=bytearray(8),
-            )
-            client.end_stream()
+        run_one_frame_stream(simple_dbc, bytearray(8))
 
     def test_streaming_ack_events(
         self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """properties.set, stream.started, frame.processed(ack), stream.ended."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
-            client.start_stream()
-            client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
-                data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
-            )
-            client.end_stream()
+        run_one_frame_stream(
+            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+        )
 
         messages = [r.getMessage() for r in capture.records]
 
@@ -159,17 +142,9 @@ class TestLoggingStreamingEvents:
         self, simple_dbc: DBCDefinition, capture: _Capture,
     ) -> None:
         """Verify correct log levels for each event type."""
-        with AletheiaClient() as client:
-            client.parse_dbc(simple_dbc)
-            client.set_properties([
-                Signal("TestSignal").less_than(1000).always().to_dict(),
-            ])
-            client.start_stream()
-            client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
-                data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
-            )
-            client.end_stream()
+        run_one_frame_stream(
+            simple_dbc, bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
+        )
 
         for record in capture.records:
             msg = record.getMessage()

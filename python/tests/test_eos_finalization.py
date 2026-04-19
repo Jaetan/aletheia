@@ -3,79 +3,23 @@
 Verifies that properties are correctly finalized when end_stream() is called.
 """
 
+from _dbc_helpers import dbc, message, signal
+
 from aletheia.client import AletheiaClient
 from aletheia.dsl import Signal
 
 
-SIMPLE_DBC = {
-    "version": "1.0",
-    "messages": [{
-        "id": 256,
-        "name": "Test",
-        "dlc": 8,
-        "sender": "ECU",
-        "signals": [{
-            "name": "Speed",
-            "startBit": 0,
-            "length": 16,
-            "byteOrder": "little_endian",
-            "signed": False,
-            "factor": 1.0,
-            "offset": 0.0,
-            "minimum": 0.0,
-            "maximum": 65535.0,
-            "unit": "kph",
-            "presence": "always",
-        }],
-    }],
-}
+SIMPLE_DBC = dbc([
+    message(256, "Test", [signal("Speed", unit="kph")]),
+])
 
 
 # Two-message DBC: the LTL predicate references Speed (from Msg256), but
 # tests below only send frames of Msg512, so Speed is never observed.
-TWO_MESSAGE_DBC = {
-    "version": "1.0",
-    "messages": [
-        {
-            "id": 256,
-            "name": "Msg256",
-            "dlc": 8,
-            "sender": "ECU",
-            "signals": [{
-                "name": "Speed",
-                "startBit": 0,
-                "length": 16,
-                "byteOrder": "little_endian",
-                "signed": False,
-                "factor": 1.0,
-                "offset": 0.0,
-                "minimum": 0.0,
-                "maximum": 65535.0,
-                "unit": "kph",
-                "presence": "always",
-            }],
-        },
-        {
-            "id": 512,
-            "name": "Msg512",
-            "dlc": 8,
-            "sender": "ECU",
-            "signals": [{
-                "name": "Rpm",
-                "startBit": 0,
-                "length": 16,
-                "byteOrder": "little_endian",
-                "signed": False,
-                "factor": 1.0,
-                "offset": 0.0,
-                "minimum": 0.0,
-                "maximum": 65535.0,
-                "unit": "rpm",
-                "presence": "always",
-            }],
-        },
-    ],
-}
+TWO_MESSAGE_DBC = dbc([
+    message(256, "Msg256", [signal("Speed", unit="kph")]),
+    message(512, "Msg512", [signal("Rpm", unit="rpm")]),
+])
 
 
 class TestEndOfStreamFinalization:

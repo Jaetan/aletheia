@@ -13,8 +13,7 @@ Fixtures (``simple_dbc``) come from ``conftest.py``.
 
 import pytest
 
-from aletheia import AletheiaClient, Signal, dlc_to_bytes
-from aletheia.client._types import ProcessError
+from aletheia import AletheiaClient, ProcessError, Signal, dlc_to_bytes
 
 
 class TestCANFDFrames:

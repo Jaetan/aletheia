@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aletheia.client._client import AletheiaClient
-from aletheia.client._types import BatchError, ProcessError
+from aletheia import AletheiaClient, BatchError, ProcessError
 
 
 def _make_client() -> AletheiaClient:
@@ -19,6 +18,7 @@ class TestSendFramesBatch:
     """Tests for the batch frame-sending method."""
 
     def test_all_succeed(self) -> None:
+        """Verify all succeed."""
         client = _make_client()
         responses = [{"status": "ack"}, {"status": "ack"}, {"status": "ack"}]
         client.send_frame = MagicMock(side_effect=responses)
@@ -83,6 +83,7 @@ class TestSendFramesBatch:
         assert client.send_frame.call_count == 2
 
     def test_first_frame_error_empty_partial(self) -> None:
+        """Verify first frame error empty partial."""
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("fail"))
 
@@ -94,6 +95,7 @@ class TestSendFramesBatch:
         assert exc_info.value.frame_index == 0
 
     def test_violation_does_not_stop_batch(self) -> None:
+        """Verify violation does not stop batch."""
         client = _make_client()
         violation = {
             "status": "fails", "type": "property",
@@ -116,6 +118,7 @@ class TestSendFramesBatch:
         assert result[2]["status"] == "ack"
 
     def test_cause_chaining(self) -> None:
+        """Verify cause chaining."""
         client = _make_client()
         client.send_frame = MagicMock(side_effect=RuntimeError("boom"))
 
@@ -128,6 +131,7 @@ class TestSendFramesBatch:
         assert isinstance(err.__cause__, RuntimeError)
 
     def test_str_contains_frame_index(self) -> None:
+        """Verify str contains frame index."""
         client = _make_client()
         client.send_frame = MagicMock(side_effect=ValueError("bad data"))
 
@@ -139,9 +143,10 @@ class TestSendFramesBatch:
         assert "bad data" in str(exc_info.value)
 
     def test_empty_batch(self) -> None:
+        """Verify empty batch."""
         client = _make_client()
         client.send_frame = MagicMock()
 
         result = client.send_frames([])
-        assert result == []
+        assert not result
         client.send_frame.assert_not_called()

@@ -2,10 +2,9 @@
 
 import pytest
 
+from aletheia import AletheiaClient, ProcessError, ProtocolError
 from aletheia.client._helpers import float_to_rational, parse_rational
-from aletheia.client._types import (
-    ProcessError, ProtocolError, bytes_to_dlc, dlc_to_bytes, validate_can_id,
-)
+from aletheia.client._types import bytes_to_dlc, dlc_to_bytes, validate_can_id
 from aletheia._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -85,30 +84,38 @@ class TestParseRational:
     """Tests for parse_rational helper function."""
 
     def test_int_value(self) -> None:
+        """Verify int value."""
         assert parse_rational(42) == 42.0
 
     def test_float_value(self) -> None:
+        """Verify float value."""
         assert parse_rational(3.14) == pytest.approx(3.14)
 
     def test_rational_string(self) -> None:
+        """Verify rational string."""
         assert parse_rational("3/4") == pytest.approx(0.75)
 
     def test_rational_string_negative(self) -> None:
+        """Verify rational string negative."""
         assert parse_rational("-1/2") == pytest.approx(-0.5)
 
     def test_numeric_string(self) -> None:
+        """Verify numeric string."""
         assert parse_rational("2.5") == pytest.approx(2.5)
 
     def test_rational_dict(self) -> None:
+        """Verify rational dict."""
         assert parse_rational(
             {"numerator": 1, "denominator": 3}
         ) == pytest.approx(1 / 3)
 
     def test_division_by_zero_string_raises(self) -> None:
+        """Verify division by zero string raises."""
         with pytest.raises(ProtocolError, match="Division by zero"):
             parse_rational("1/0")
 
     def test_invalid_type_raises(self) -> None:
+        """Verify invalid type raises."""
         with pytest.raises(ProtocolError, match="Expected signal value"):
             parse_rational([1, 2])
 
@@ -121,27 +128,32 @@ class TestFloatToRational:
     """Tests for float_to_rational 10^9 scaling."""
 
     def test_integer_value(self) -> None:
+        """Verify integer value."""
         n, d = float_to_rational(42.0)
         assert n == 42_000_000_000
         assert d == 1_000_000_000
 
     def test_fractional_value(self) -> None:
+        """Verify fractional value."""
         n, d = float_to_rational(3.14)
         assert n == 3_140_000_000
         assert d == 1_000_000_000
         assert n / d == pytest.approx(3.14)
 
     def test_zero(self) -> None:
+        """Verify zero."""
         n, d = float_to_rational(0.0)
         assert n == 0
         assert d == 1_000_000_000
 
     def test_negative(self) -> None:
+        """Verify negative."""
         n, d = float_to_rational(-1.5)
         assert n == -1_500_000_000
         assert d == 1_000_000_000
 
     def test_small_value(self) -> None:
+        """Verify small value."""
         n, d = float_to_rational(0.001)
         assert n == 1_000_000
         assert d == 1_000_000_000
@@ -159,11 +171,10 @@ class TestFloatToRational:
 # ============================================================================
 
 class TestSignalIndexCache:
-    """Tests for signal index cache populated by parse_dbc."""
+    """Tests for signal index cache populated by parse_dbc (behavior-level)."""
 
     def test_cache_populated_on_parse_dbc(self) -> None:
-        """parse_dbc populates the signal index cache."""
-        from aletheia import AletheiaClient
+        """After parse_dbc, build_frame resolves signals by name."""
         with AletheiaClient() as client:
             dbc = {
                 "version": "1.0",
@@ -184,15 +195,14 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc)
-            # Cache keyed by (can_id, extended)
-            assert (256, False) in client._signal_lookup
-            idx_map = client._signal_lookup[(256, False)].indices
-            assert idx_map["Sig0"] == 0
-            assert idx_map["Sig1"] == 1
+            # Both signals defined in the DBC must resolve.
+            frame = client.build_frame(
+                can_id=256, dlc=8, signals={"Sig0": 1.0, "Sig1": 2.0},
+            )
+            assert len(frame) == 8
 
     def test_cache_cleared_on_new_dbc(self) -> None:
-        """parse_dbc clears previous cache entries."""
-        from aletheia import AletheiaClient
+        """A second parse_dbc replaces — not extends — the previous cache."""
         with AletheiaClient() as client:
             dbc1 = {
                 "version": "1.0",
@@ -208,7 +218,8 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc1)
-            assert "OldSig" in client._signal_lookup[(256, False)].indices
+            # Sanity: dbc1 is live.
+            client.build_frame(can_id=256, dlc=8, signals={"OldSig": 1.0})
 
             dbc2 = {
                 "version": "1.0",
@@ -224,19 +235,19 @@ class TestSignalIndexCache:
                 }],
             }
             client.parse_dbc(dbc2)
-            assert (256, False) not in client._signal_lookup
-            assert (512, False) in client._signal_lookup
+            # dbc1's 256 key must be gone; dbc2's 512 key must be live.
+            with pytest.raises(ProcessError, match="no DBC message for CAN ID 256"):
+                client.build_frame(can_id=256, dlc=8, signals={"OldSig": 1.0})
+            client.build_frame(can_id=512, dlc=8, signals={"NewSig": 1.0})
 
     def test_build_frame_without_dbc_raises(self) -> None:
         """build_frame before parse_dbc raises with 'DBC not loaded'."""
-        from aletheia import AletheiaClient
         with AletheiaClient() as client:
             with pytest.raises(ProcessError, match="DBC not loaded"):
                 client.build_frame(can_id=256, dlc=8, signals={"Sig": 1.0})
 
     def test_build_frame_unknown_signal_raises(self) -> None:
         """build_frame with unknown signal name raises."""
-        from aletheia import AletheiaClient
         with AletheiaClient() as client:
             dbc = {
                 "version": "1.0",
@@ -257,7 +268,6 @@ class TestSignalIndexCache:
 
     def test_dlc_payload_mismatch_extract(self) -> None:
         """extract_signals rejects payload/DLC size mismatch."""
-        from aletheia import AletheiaClient
         with AletheiaClient() as client:
             dbc = {
                 "version": "1.0",
@@ -285,29 +295,37 @@ class TestValidateCanId:
     """Boundary tests for validate_can_id."""
 
     def test_standard_zero(self) -> None:
+        """Verify standard zero."""
         validate_can_id(0, extended=False)
 
     def test_standard_max(self) -> None:
+        """Verify standard max."""
         validate_can_id(0x7FF, extended=False)
 
     def test_standard_over_max_raises(self) -> None:
+        """Verify standard over max raises."""
         with pytest.raises(ValueError, match="standard CAN ID"):
             validate_can_id(0x800, extended=False)
 
     def test_standard_negative_raises(self) -> None:
+        """Verify standard negative raises."""
         with pytest.raises(ValueError, match="standard CAN ID"):
             validate_can_id(-1, extended=False)
 
     def test_extended_zero(self) -> None:
+        """Verify extended zero."""
         validate_can_id(0, extended=True)
 
     def test_extended_max(self) -> None:
+        """Verify extended max."""
         validate_can_id(0x1FFFFFFF, extended=True)
 
     def test_extended_over_max_raises(self) -> None:
+        """Verify extended over max raises."""
         with pytest.raises(ValueError, match="extended CAN ID"):
             validate_can_id(0x20000000, extended=True)
 
     def test_extended_negative_raises(self) -> None:
+        """Verify extended negative raises."""
         with pytest.raises(ValueError, match="extended CAN ID"):
             validate_can_id(-1, extended=True)

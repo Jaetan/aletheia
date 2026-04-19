@@ -106,6 +106,7 @@ class TestLoadSimpleChecks:
     """Load each simple condition from Excel rows and verify formula."""
 
     def test_never_exceeds(self, tmp_path: Path) -> None:
+        """Verify never exceeds."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         ])
@@ -114,6 +115,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Speed").never_exceeds(220).to_dict()
 
     def test_never_below(self, tmp_path: Path) -> None:
+        """Verify never below."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Voltage", "never_below", 11.5, None, None, None, None],
         ])
@@ -122,6 +124,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Voltage").never_below(11.5).to_dict()
 
     def test_stays_between(self, tmp_path: Path) -> None:
+        """Verify stays between."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
         ])
@@ -132,6 +135,7 @@ class TestLoadSimpleChecks:
         )
 
     def test_never_equals(self, tmp_path: Path) -> None:
+        """Verify never equals."""
         p = _make_checks_workbook(tmp_path, [
             [None, "ErrorCode", "never_equals", 255, None, None, None, None],
         ])
@@ -140,6 +144,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("ErrorCode").never_equals(255).to_dict()
 
     def test_equals_always(self, tmp_path: Path) -> None:
+        """Verify equals always."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Gear", "equals", 0, None, None, None, None],
         ])
@@ -148,6 +153,7 @@ class TestLoadSimpleChecks:
         assert checks[0].to_dict() == Check.signal("Gear").equals(0).always().to_dict()
 
     def test_settles_between(self, tmp_path: Path) -> None:
+        """Verify settles between."""
         p = _make_checks_workbook(tmp_path, [
             [None, "CoolantTemp", "settles_between", None, 80, 100, 5000, None],
         ])
@@ -158,6 +164,7 @@ class TestLoadSimpleChecks:
         )
 
     def test_multiple_checks(self, tmp_path: Path) -> None:
+        """Verify multiple checks."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
             [None, "Voltage", "stays_between", None, 11.5, 14.5, None, None],
@@ -178,6 +185,7 @@ class TestLoadWhenThenChecks:
     """Load when/then causal checks from Excel rows."""
 
     def test_when_exceeds_then_equals(self, tmp_path: Path) -> None:
+        """Verify when exceeds then equals."""
         p = _make_when_then_workbook(tmp_path, [
             # Columns: name, when_sig, when_cond, when_val, then_sig, then_cond,
             #          then_val, then_min, then_max, within, sev
@@ -197,6 +205,7 @@ class TestLoadWhenThenChecks:
         assert checks[0].to_dict() == expected
 
     def test_when_equals_then_exceeds(self, tmp_path: Path) -> None:
+        """Verify when equals then exceeds."""
         p = _make_when_then_workbook(tmp_path, [
             [
                 None, "Ignition", "equals", 1, "RPM", "exceeds",
@@ -213,6 +222,7 @@ class TestLoadWhenThenChecks:
         assert checks[0].to_dict() == expected
 
     def test_when_drops_below_then_stays_between(self, tmp_path: Path) -> None:
+        """Verify when drops below then stays between."""
         p = _make_when_then_workbook(tmp_path, [
             [
                 None, "FuelLevel", "drops_below", 10,
@@ -237,6 +247,7 @@ class TestLoadMetadata:
     """Verify name and severity are set on CheckResult from Excel cells."""
 
     def test_name_set(self, tmp_path: Path) -> None:
+        """Verify name set."""
         p = _make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, None],
         ])
@@ -244,6 +255,7 @@ class TestLoadMetadata:
         assert checks[0].name == "Speed limit"
 
     def test_severity_set(self, tmp_path: Path) -> None:
+        """Verify severity set."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, "critical"],
         ])
@@ -251,6 +263,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == "critical"
 
     def test_name_and_severity(self, tmp_path: Path) -> None:
+        """Verify name and severity."""
         p = _make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, "warning"],
         ])
@@ -259,6 +272,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == "warning"
 
     def test_defaults_none(self, tmp_path: Path) -> None:
+        """Verify defaults none."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         ])
@@ -267,6 +281,7 @@ class TestLoadMetadata:
         assert checks[0].check_severity == ""
 
     def test_when_then_metadata(self, tmp_path: Path) -> None:
+        """Verify when then metadata."""
         p = _make_when_then_workbook(tmp_path, [
             [
                 "Brake response", "BrakePedal", "exceeds", 50,
@@ -286,6 +301,7 @@ class TestLoadDBCFromExcel:
     """Parse DBC sheet, verify DBCDefinition structure."""
 
     def test_single_signal(self, tmp_path: Path) -> None:
+        """Verify single signal."""
         p = _make_dbc_workbook(tmp_path, [
             # Columns: id, name, extended, dlc, signal, startbit, length, byteorder,
             #          signed, factor, offset, min, max, unit
@@ -352,6 +368,7 @@ class TestLoadDBCFromExcel:
         assert dbc["messages"][0]["id"] == 0x100
 
     def test_signed_true(self, tmp_path: Path) -> None:
+        """Verify signed true."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 256, "EngineData", None, 8, "Temp", 0, 8, "little_endian",
@@ -378,6 +395,7 @@ class TestLoadDBCFromExcel:
         assert dbc["messages"][0]["signals"][0]["signed"] is False
 
     def test_missing_unit_defaults_empty(self, tmp_path: Path) -> None:
+        """Verify missing unit defaults empty."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
@@ -479,11 +497,13 @@ class TestCreateTemplate:
     """Verify create_template() creates a correct workbook."""
 
     def test_creates_file(self, tmp_path: Path) -> None:
+        """Verify creates file."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         assert p.exists()
 
     def test_sheet_names(self, tmp_path: Path) -> None:
+        """Verify sheet names."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         wb = openpyxl.load_workbook(p)
@@ -491,6 +511,7 @@ class TestCreateTemplate:
         wb.close()
 
     def test_dbc_headers(self, tmp_path: Path) -> None:
+        """Verify dbc headers."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         wb = openpyxl.load_workbook(p)
@@ -500,6 +521,7 @@ class TestCreateTemplate:
         wb.close()
 
     def test_checks_headers(self, tmp_path: Path) -> None:
+        """Verify checks headers."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         wb = openpyxl.load_workbook(p)
@@ -509,6 +531,7 @@ class TestCreateTemplate:
         wb.close()
 
     def test_when_then_headers(self, tmp_path: Path) -> None:
+        """Verify when then headers."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         wb = openpyxl.load_workbook(p)
@@ -518,6 +541,7 @@ class TestCreateTemplate:
         wb.close()
 
     def test_headers_bold(self, tmp_path: Path) -> None:
+        """Verify headers bold."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         wb = openpyxl.load_workbook(p)
@@ -527,6 +551,7 @@ class TestCreateTemplate:
         wb.close()
 
     def test_no_overwrite(self, tmp_path: Path) -> None:
+        """Verify no overwrite."""
         p = tmp_path / "template.xlsx"
         create_template(p)
         with pytest.raises(FileExistsError, match="File already exists"):
@@ -541,10 +566,12 @@ class TestLoadErrors:
     """All validation error cases raise ValueError or FileNotFoundError."""
 
     def test_file_not_found(self) -> None:
+        """Verify file not found."""
         with pytest.raises(FileNotFoundError, match="Excel file not found"):
             load_checks_from_excel("/nonexistent/path/checks.xlsx")
 
     def test_dbc_file_not_found(self) -> None:
+        """Verify dbc file not found."""
         with pytest.raises(FileNotFoundError, match="Excel file not found"):
             load_dbc_from_excel("/nonexistent/path/dbc.xlsx")
 
@@ -559,6 +586,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_no_dbc_sheet(self, tmp_path: Path) -> None:
+        """Verify no dbc sheet."""
         wb = Workbook()
         ws = wb.active
         ws.title = "Other"  # type: ignore[union-attr]
@@ -568,6 +596,7 @@ class TestLoadErrors:
             load_dbc_from_excel(p)
 
     def test_unknown_simple_condition(self, tmp_path: Path) -> None:
+        """Verify unknown simple condition."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "bogus", 100, None, None, None, None],
         ])
@@ -575,6 +604,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_missing_value_for_never_exceeds(self, tmp_path: Path) -> None:
+        """Verify missing value for never exceeds."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Speed", "never_exceeds", None, None, None, None, None],
         ])
@@ -582,6 +612,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_stays_between_missing_min(self, tmp_path: Path) -> None:
+        """Verify stays between missing min."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Voltage", "stays_between", None, None, 14.5, None, None],
         ])
@@ -589,6 +620,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_settles_between_missing_time(self, tmp_path: Path) -> None:
+        """Verify settles between missing time."""
         p = _make_checks_workbook(tmp_path, [
             [None, "Temp", "settles_between", None, 80, 100, None, None],
         ])
@@ -596,6 +628,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_unknown_when_condition(self, tmp_path: Path) -> None:
+        """Verify unknown when condition."""
         p = _make_when_then_workbook(tmp_path, [
             [None, "Brake", "bogus", 50, "BrakeLight", "equals", 1, None, None, 100, None],
         ])
@@ -603,6 +636,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_unknown_then_condition(self, tmp_path: Path) -> None:
+        """Verify unknown then condition."""
         p = _make_when_then_workbook(tmp_path, [
             [None, "Brake", "exceeds", 50, "BrakeLight", "bogus", 1, None, None, 100, None],
         ])
@@ -610,6 +644,7 @@ class TestLoadErrors:
             load_checks_from_excel(p)
 
     def test_invalid_byte_order(self, tmp_path: Path) -> None:
+        """Verify invalid byte order."""
         p = _make_dbc_workbook(tmp_path, [
             [256, "Msg", None, 8, "Sig", 0, 16, "mixed_endian", False, 1, 0, 0, 100, ""],
         ])
@@ -617,6 +652,7 @@ class TestLoadErrors:
             load_dbc_from_excel(p)
 
     def test_invalid_message_id(self, tmp_path: Path) -> None:
+        """Verify invalid message id."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 "not_a_number", "Msg", None, 8, "Sig", 0, 16, "little_endian",
@@ -646,6 +682,7 @@ class TestLoadFromFile:
     """Write temp .xlsx, load it, verify round-trip."""
 
     def test_checks_round_trip(self, tmp_path: Path) -> None:
+        """Verify checks round trip."""
         p = _make_checks_workbook(tmp_path, [
             ["Speed limit", "Speed", "never_exceeds", 220, None, None, None, "critical"],
         ])
@@ -688,6 +725,7 @@ class TestLoadFromFile:
         assert checks[1].to_dict() == expected_wt
 
     def test_dbc_round_trip(self, tmp_path: Path) -> None:
+        """Verify dbc round trip."""
         p = _make_dbc_workbook(tmp_path, [
             [
                 256, "EngineData", None, 8, "RPM", 0, 16, "little_endian",
@@ -711,24 +749,25 @@ class TestLoadFromFile:
 # Skips empty rows
 # ============================================================================
 
-class TestEmptyRows:
-    """Empty rows in the middle of data are skipped."""
+# Empty rows in the middle of data are skipped.
 
-    def test_empty_row_skipped_in_checks(self, tmp_path: Path) -> None:
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Checks"  # type: ignore[union-attr]
-        ws.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
-        ws.append(  # type: ignore[union-attr]
-            [None, "Speed", "never_exceeds", 220, None, None, None, None],
-        )
-        ws.append(  # type: ignore[union-attr]  # empty row
-            [None, None, None, None, None, None, None, None],
-        )
-        ws.append(  # type: ignore[union-attr]
-            [None, "Voltage", "never_below", 11.5, None, None, None, None],
-        )
-        p = tmp_path / "gaps.xlsx"
-        wb.save(str(p))
-        checks = load_checks_from_excel(p)
-        assert len(checks) == 2
+
+def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
+    """Verify empty row skipped in checks."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Checks"  # type: ignore[union-attr]
+    ws.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
+    ws.append(  # type: ignore[union-attr]
+        [None, "Speed", "never_exceeds", 220, None, None, None, None],
+    )
+    ws.append(  # type: ignore[union-attr]  # empty row
+        [None, None, None, None, None, None, None, None],
+    )
+    ws.append(  # type: ignore[union-attr]
+        [None, "Voltage", "never_below", 11.5, None, None, None, None],
+    )
+    p = tmp_path / "gaps.xlsx"
+    wb.save(str(p))
+    checks = load_checks_from_excel(p)
+    assert len(checks) == 2

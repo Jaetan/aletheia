@@ -13,7 +13,7 @@ from typing import cast
 import cantools
 import cantools.database.can
 
-from .client import dump_json, to_signal_fraction
+from .client._helpers import dump_json, to_signal_fraction
 from .protocols import (
     DBCSignal,
     DBCMessage,
