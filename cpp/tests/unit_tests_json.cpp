@@ -259,7 +259,8 @@ TEST_CASE("parse_success on success response", "[json][parse]") {
 }
 
 TEST_CASE("parse_success on error response", "[json][parse]") {
-    auto result = detail::parse_success(R"({"status": "error", "message": "DBC not loaded"})");
+    auto result = detail::parse_success(
+        R"({"status": "error", "code": "handler_no_dbc", "message": "DBC not loaded"})");
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("DBC not loaded"));

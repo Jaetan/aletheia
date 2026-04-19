@@ -485,19 +485,44 @@ func parseResponse(raw string) (map[string]any, error) {
 	return m, nil
 }
 
+// requireString extracts a string field from a parsed JSON object, returning
+// a protocol error if the field is missing or not a string. Used by error-
+// response parsing where the Agda core guarantees both fields are present;
+// a silent default would paper over FFI drift or a malformed stub (see
+// aletheia-py's “build_error_response“ for the canonical rationale).
+func requireString(m map[string]any, key string) (string, error) {
+	v, ok := m[key]
+	if !ok {
+		return "", protocolError(fmt.Sprintf(
+			"Error response missing or non-string '%s' field; got <absent>", key))
+	}
+	s, ok := v.(string)
+	if !ok {
+		return "", protocolError(fmt.Sprintf(
+			"Error response missing or non-string '%s' field; got %T", key, v))
+	}
+	return s, nil
+}
+
 // checkErrorStatus converts a parsed response with status="error" into
-// a typed error carrying the Agda-side code and message.
+// a typed error carrying the Agda-side code and message. Both “code“
+// and “message“ must be non-null strings — a missing or non-string
+// value surfaces as a protocol error rather than being papered over with
+// a default, matching Python's “build_error_response“ strict contract.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
-	if status == "error" {
-		code := getString(m, "code")
-		msg := getString(m, "message")
-		if code != "" {
-			return newCodedError(ErrProtocol, code, msg)
-		}
-		return protocolError(msg)
+	if status != "error" {
+		return nil
 	}
-	return nil
+	code, err := requireString(m, "code")
+	if err != nil {
+		return err
+	}
+	msg, err := requireString(m, "message")
+	if err != nil {
+		return err
+	}
+	return newCodedError(ErrProtocol, code, msg)
 }
 
 // parseSuccessResponse validates an Agda command response for control-

@@ -6,21 +6,6 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# CMAKE_CXX_STANDARD is set globally because yaml-cpp 0.8.0 has latent bugs
-# around missing <cstdint> / uint16_t that only link cleanly when the parent
-# project defines CMAKE_CXX_STANDARD to a modern-enough standard (C++20 works
-# around the transitive-include path on GCC 15). target_compile_features on
-# aletheia-cpp below is still the authoritative statement of our *own* C++23
-# requirement — the global is purely a yaml-cpp workaround and should be
-# removed once we upgrade to a yaml-cpp that includes <cstdint> explicitly.
-#
-# TODO(R12-M3): Remove this `set(CMAKE_CXX_STANDARD 20)` line when yaml-cpp
-# ≥ 0.8.1 (or whatever release follows 0.8.0) is published with the
-# <cstdint> include on its main branch and we bump the FetchContent_Declare
-# URL above. The fix is already merged upstream; this workaround is purely
-# waiting on the tagged release.
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------------------------------------------------------------------
@@ -53,11 +38,6 @@ FetchContent_Declare(json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
     URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d)
 
-# yaml-cpp 0.8.0 and OpenXLSX use old cmake_minimum_required; allow with CMake 4.x.
-# Regular variable (not CACHE FORCE) — visible to FetchContent subdirectories
-# via scope inheritance but does not persist in the cache.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-
 FetchContent_Declare(yaml-cpp
     URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
     URL_HASH SHA256=fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16)
@@ -72,7 +52,25 @@ FetchContent_Declare(OpenXLSX
     URL https://github.com/troldal/OpenXLSX/archive/5723411d47643ce3b5b9994064c26ca8cd841f13.tar.gz
     URL_HASH SHA256=86bdb7aa594a0b2bea31cae9e4603832844be2095d7e281e9d7e74003bc16b98)
 
-FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
+# yaml-cpp 0.8.0 has a latent bug around missing <cstdint> / uint16_t that
+# only links cleanly when the parent project defines CMAKE_CXX_STANDARD to at
+# least C++20 (works around the transitive-include path on GCC 15). Scope the
+# workaround to the FetchContent configure step with block(SCOPE_FOR VARIABLES)
+# instead of a global set() — the project's own C++23 requirement (on
+# aletheia-cpp, via target_compile_features below) is then not polluted.
+# CMAKE_POLICY_VERSION_MINIMUM 3.5 also belongs here: yaml-cpp 0.8.0 and
+# OpenXLSX use an old cmake_minimum_required that CMake 4.x rejects without
+# this nudge.
+#
+# TODO(R12-M3): Drop this block when yaml-cpp ≥ 0.8.1 (or whatever release
+# follows 0.8.0) publishes the upstream-merged <cstdint> include fix and we
+# bump FetchContent_Declare above.
+block(SCOPE_FOR VARIABLES)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    FetchContent_MakeAvailable(json yaml-cpp OpenXLSX)
+endblock()
 
 # ---------------------------------------------------------------------------
 # Library
@@ -148,7 +146,7 @@ configure_package_config_file(
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/aletheia-cpp-config-version.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY ExactVersion)
 
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/aletheia-cpp-config.cmake

@@ -112,6 +112,20 @@ struct DbcMessage {
 
 // ---------------------------------------------------------------------------
 // Complete DBC definition
+//
+// There are three supported ways to obtain a DbcDefinition:
+//   1. Construct it programmatically (messages/signals as aggregate init).
+//   2. `load_dbc_from_excel()` from <aletheia/excel.hpp> — reads the
+//      project-native Excel layout.
+//   3. Hand-deserialize from JSON — the wire format used by the Python
+//      binding and by the Agda core.
+//
+// There is intentionally no `.dbc` text-file parser in the C++ binding.
+// Users with legacy `.dbc` files should run them through the cantools
+// Python CLI once to produce a JSON DBC, then load that JSON from C++.
+// See docs/architecture/INTERFACES.md ("DBC text workaround") and
+// memory item `project_binding_feature_gaps.md` — a native `.dbc` text
+// parser is tracked as a Phase 6 feature request.
 // ---------------------------------------------------------------------------
 
 struct DbcDefinition {

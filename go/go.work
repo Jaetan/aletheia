@@ -9,6 +9,14 @@
 // propagate to the excel submodule without a tagged release. Downstream
 // consumers do not see this file — they resolve the published core module
 // version from excel/go.mod's require directive.
+//
+// The `replace` below pins excel/go.mod's placeholder `v0.0.0` require to
+// this workspace's local copy of the core module. Without it, Go attempts
+// to fetch `github.com/aletheia-automotive/aletheia-go@v0.0.0` remotely
+// (the `use` directive registers the module for the workspace but does not
+// override version resolution — a known wrinkle). Keeping the replace here
+// instead of in excel/go.mod means the published excel module is
+// replace-free and `go get` resolves cleanly once the core is tagged.
 go 1.24.0
 
 toolchain go1.24.6
@@ -17,3 +25,5 @@ use (
 	.
 	./excel
 )
+
+replace github.com/aletheia-automotive/aletheia-go v0.0.0 => ./

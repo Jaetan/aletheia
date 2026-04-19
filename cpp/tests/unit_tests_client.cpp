@@ -52,7 +52,8 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
 
 TEST_CASE("client parse_dbc handles error response", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "error", "message": "Invalid DBC"})");
+    mock->queue_response(
+        R"({"status": "error", "code": "handler_validation_failed", "message": "Invalid DBC"})");
 
     AletheiaClient client(std::move(mock));
     auto result = client.parse_dbc(make_test_dbc());

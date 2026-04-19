@@ -204,6 +204,12 @@ func NewDLC(v uint8) (DLC, error) {
 	return DLC{value: v}, nil
 }
 
+// maxPayloadBytes is the largest CAN-FD payload size in bytes (DLC 15 → 64).
+// Used by the binary FFI path to bound `len(data)` before handing a pointer
+// to cgo; the numeric value coincides with [MaxBitLength] but the two are
+// dimensionally distinct (bytes vs bits).
+const maxPayloadBytes = 64
+
 // dlcTable maps DLC values 0-15 to payload byte counts.
 var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
 

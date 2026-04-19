@@ -148,7 +148,7 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 		// SendFrame → violation
 		aletheia.Respond(`{"status":"fails","type":"property","property_index":0,"timestamp":5000,"reason":"test"}`),
 		// Extraction fails with protocol error
-		aletheia.Respond(`{"status":"error","message":"no DBC loaded"}`),
+		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
 	)
 	c, err := aletheia.NewClient(mock, aletheia.WithLogger(logger))
 	if err != nil {

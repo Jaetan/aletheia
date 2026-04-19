@@ -109,9 +109,22 @@ static auto make_error(ErrorKind kind, std::string msg, ErrorCode code = ErrorCo
 }
 
 /// Extract error from a JSON response with status=="error", parsing the code field.
+///
+/// Both ``code`` and ``message`` must be non-null strings — a missing or
+/// non-string value surfaces as a ``Protocol`` error rather than being
+/// papered over with a default. Matches Python's ``build_error_response``
+/// strict contract; R16 shipped with a silent "unknown error code"
+/// regression in production logs because the old ``j.value("code", "")``
+/// / ``j.value("message", "Unknown error")`` defaults masked malformed
+/// responses.
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {
-    auto code = error_code_from_string(j.value("code", ""));
-    return make_error(kind, j.value("message", "Unknown error"), code);
+    if (!j.contains("code") || !j.at("code").is_string())
+        return make_error(ErrorKind::Protocol, "Error response missing or non-string 'code' field");
+    if (!j.contains("message") || !j.at("message").is_string())
+        return make_error(ErrorKind::Protocol,
+                          "Error response missing or non-string 'message' field");
+    auto code = error_code_from_string(j.at("code").get<std::string>());
+    return make_error(kind, j.at("message").get<std::string>(), code);
 }
 
 // Agda emits signal values as int or {"numerator": n, "denominator": d}.

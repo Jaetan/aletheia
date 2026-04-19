@@ -9,7 +9,7 @@ import (
 
 func TestErrorResponse(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"error","message":"no DBC loaded"}`),
+		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {

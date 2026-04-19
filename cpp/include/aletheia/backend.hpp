@@ -77,16 +77,6 @@ public:
                                                       std::span<const std::byte> data)
         -> std::string;
 
-    // Signal index-value pairs → JSON response (frame building).
-    // `signals` bundles the parallel arrays; see SignalInjection above.
-    [[nodiscard]] virtual auto build_frame_binary(void* state, const CanId& id, Dlc dlc,
-                                                  SignalInjection signals) -> std::string;
-
-    // Frame + signal pairs → JSON response (frame update).
-    [[nodiscard]] virtual auto update_frame_binary(void* state, const CanId& id, Dlc dlc,
-                                                   std::span<const std::byte> data,
-                                                   SignalInjection signals) -> std::string;
-
     // --- Binary output endpoints (no JSON on output either) ---
     // Returns raw payload bytes on success, error string on failure.
     // Default implementations fall back to JSON path for MockBackend compatibility.

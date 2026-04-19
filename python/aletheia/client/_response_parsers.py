@@ -45,13 +45,13 @@ def build_error_response(response: Response) -> ErrorResponse:
     """Build an ``ErrorResponse`` from a raw FFI response dict.
 
     The Agda core always emits both ``code`` and ``message`` as strings
-    on ``status = "error"``. A missing or non-string ``code`` indicates
+    on ``status = "error"``. Either field missing or non-string indicates
     a malformed response (FFI drift, hand-crafted test stub, or
     third-party tooling writing to the same queue) and is surfaced as a
-    ``ProtocolError`` rather than being papered over with an empty
-    string — the latter caused one R16-era bug to appear as a silent
-    "unknown error code" in production logs. ``message`` is still
-    defaulted to the empty string, since it is advisory text only.
+    ``ProtocolError`` rather than being papered over with a default —
+    the defaults (``""`` for Python, ``"Unknown error"`` for C++) used
+    to diverge across bindings, and R16 shipped with a silent "unknown
+    error code" regression in production logs.
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -60,11 +60,12 @@ def build_error_response(response: Response) -> ErrorResponse:
             + f" got {type(code).__name__}"
         )
     message = response.get("message")
-    return {
-        "status": "error",
-        "code": code,
-        "message": message if isinstance(message, str) else "",
-    }
+    if not isinstance(message, str):
+        raise ProtocolError(
+            "Error response missing or non-string 'message' field;"
+            + f" got {type(message).__name__}"
+        )
+    return {"status": "error", "code": code, "message": message}
 
 
 def parse_frame_response(

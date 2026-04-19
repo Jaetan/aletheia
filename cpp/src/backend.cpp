@@ -44,21 +44,6 @@ auto IBackend::extract_signals_binary(void* state, const CanId& id, Dlc dlc,
     return process(state, detail::serialize_extract_signals(id, dlc, data));
 }
 
-auto IBackend::build_frame_binary(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                  SignalInjection /*signals*/) -> std::string {
-    // Cannot reconstruct signal names from indices without DBC context.
-    // The Client falls back to JSON serialization via process() when
-    // the signal index cache is not populated.  This path should never
-    // be reached in normal operation.
-    return R"({"status":"error","message":"build_frame_binary requires FFI backend"})";
-}
-
-auto IBackend::update_frame_binary(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
-                                   std::span<const std::byte> /*data*/, SignalInjection /*signals*/)
-    -> std::string {
-    return R"({"status":"error","message":"update_frame_binary requires FFI backend"})";
-}
-
 auto IBackend::build_frame_bin(void* /*state*/, const CanId& /*id*/, Dlc /*dlc*/,
                                SignalInjection /*signals*/, std::size_t /*expected_bytes*/)
     -> std::expected<std::vector<std::byte>, AletheiaError> {

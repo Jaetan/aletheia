@@ -39,14 +39,14 @@ class TestBuildErrorResponse:
         with pytest.raises(ProtocolError, match="missing or non-string"):
             build_error_response({"status": "error", "code": 42, "message": "m"})
 
-    def test_missing_message_defaults_to_empty(self) -> None:
-        """``message`` is advisory — absent is OK, defaults to ``""``."""
-        out = build_error_response({"status": "error", "code": "some_code"})
-        assert out == {"status": "error", "code": "some_code", "message": ""}
+    def test_missing_message_raises(self) -> None:
+        """Absent ``message`` raises — no invented default."""
+        with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
+            build_error_response({"status": "error", "code": "some_code"})
 
-    def test_non_string_message_defaults_to_empty(self) -> None:
-        """Non-string ``message`` also defaults to ``""`` (still advisory)."""
-        out = build_error_response(
-            {"status": "error", "code": "some_code", "message": 123}
-        )
-        assert out["message"] == ""
+    def test_non_string_message_raises(self) -> None:
+        """Non-string ``message`` is a protocol violation."""
+        with pytest.raises(ProtocolError, match="missing or non-string 'message'"):
+            build_error_response(
+                {"status": "error", "code": "some_code", "message": 123}
+            )

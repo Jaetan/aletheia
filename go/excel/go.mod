@@ -3,13 +3,14 @@
 // want YAML- or code-driven checks can depend on aletheia-go alone; those
 // who want the Excel template workflow add this module on top.
 //
-// Local development uses the `go.work` file at ../go.work, which superseeds
-// any replace directive below when building from inside the monorepo. The
-// replace directive remains for tools that do not honor go.work (e.g. some
-// IDE integrations) and as a safety net for bare `go build ./excel` inside
-// this directory. A published release swaps the require line to a tagged
-// version — the replace directive then becomes a no-op and can be stripped
-// by downstream consumers, per Go multi-module convention.
+// Local development resolves the `github.com/aletheia-automotive/aletheia-go
+// v0.0.0` placeholder below via an explicit `replace` directive in
+// ../go.work. go.work is monorepo-local (never shipped), so this file can
+// ship as-is — a published release rewrites v0.0.0 to a real tagged version
+// and drops the now-unused workspace replace. Replaces in this go.mod are
+// deliberately absent: they would leak a relative path into published
+// modules, breaking `go get github.com/aletheia-automotive/aletheia-go/excel`
+// for downstream consumers.
 module github.com/aletheia-automotive/aletheia-go/excel
 
 go 1.24.0
@@ -32,5 +33,3 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/aletheia-automotive/aletheia-go => ../

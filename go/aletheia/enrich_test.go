@@ -622,7 +622,7 @@ func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
 			"status":"complete",
 			"results":[{"property_index":0,"status":"fails","timestamp":5000,"reason":"test"}]
 		}`), // EndStream
-		aletheia.Respond(`{"status":"error","message":"no DBC loaded"}`), // EOS extraction fails
+		aletheia.Respond(`{"status":"error","code":"handler_no_dbc","message":"no DBC loaded"}`), // EOS extraction fails
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {

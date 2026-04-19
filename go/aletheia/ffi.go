@@ -410,8 +410,8 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 		return "", validationError("timestamp must be non-negative")
 	}
 
-	if len(data) > 64 {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	if len(data) > maxPayloadBytes {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}
 
 	var dataPtr *C.uint8_t
@@ -420,7 +420,7 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CanI
 	}
 
 	// C.uint8_t(len(data)) is safe: the bounds check above guarantees
-	// len(data) <= 64 < 256, so the cast never truncates.
+	// len(data) <= maxPayloadBytes < 256, so the cast never truncates.
 	result := C.call_send_frame(
 		b.sendFrameFn, state,
 		C.uint64_t(ts.Microseconds),
@@ -525,8 +525,8 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DL
 		ext = 1
 	}
 
-	if len(data) > 64 {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	if len(data) > maxPayloadBytes {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}
 
 	var dataPtr *C.uint8_t
@@ -599,8 +599,8 @@ func (b *FFIBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, 
 		ext = 1
 	}
 
-	if len(data) > 64 {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	if len(data) > maxPayloadBytes {
+		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}
 
 	var dataPtr *C.uint8_t
@@ -709,8 +709,8 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 	// Cap at the CAN-FD maximum payload size; every other data-accepting
 	// method (SendFrameBinary, ExtractSignalsBinary, UpdateFrameBinary)
 	// applies the same bound before taking &data[0] into cgo.
-	if len(data) > 64 {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	if len(data) > maxPayloadBytes {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}
 
 	var dataPtr *C.uint8_t
@@ -778,8 +778,8 @@ func (b *FFIBackend) ExtractSignalsBin(state unsafe.Pointer, id CanID, dlc DLC, 
 
 	// Cap at the CAN-FD maximum payload size; every other data-accepting
 	// method applies the same bound before taking &data[0] into cgo.
-	if len(data) > 64 {
-		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (64)", len(data)))
+	if len(data) > maxPayloadBytes {
+		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}
 
 	var dataPtr *C.uint8_t

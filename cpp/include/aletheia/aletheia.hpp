@@ -3,7 +3,26 @@
 // Aletheia C++23 Binding — Umbrella Header
 //
 // Formally verified CAN frame analysis via Linear Temporal Logic.
-// Include this single header to access the full C++ API.
+// Include this single header to access the full C++ API, including the
+// optional Excel and YAML loaders.
+//
+// Two entry points, by audience:
+//
+//   <aletheia/aletheia.hpp>  — umbrella-for-quickstart. Pulls in the core
+//                              API plus the optional loaders (excel.hpp,
+//                              yaml.hpp) and the enrichment helper
+//                              (enrich.hpp). Pick this for tutorials,
+//                              examples, and one-file scripts where
+//                              compile time is not a concern.
+//
+//   <aletheia/client.hpp>    — facade-for-production. Pulls in only the
+//                              core API (Client, Check, DbcDefinition,
+//                              LtlFormula, logging, errors, responses).
+//                              Pick this when you want to avoid the
+//                              OpenXLSX / yaml-cpp transitive cost in
+//                              production code, and include excel.hpp /
+//                              yaml.hpp / enrich.hpp separately only
+//                              where they are actually needed.
 //
 #pragma once
 

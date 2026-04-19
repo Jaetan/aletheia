@@ -46,13 +46,6 @@ using AletheiaSendRemoteFn = char* (*)(void*, std::uint64_t, std::uint32_t, std:
 using AletheiaNoArgFn = char* (*)(void*);
 using AletheiaExtractFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
                                     const std::uint8_t*, std::uint8_t);
-using AletheiaBuildFrameFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                       std::uint32_t, const std::uint32_t*, const std::int64_t*,
-                                       const std::int64_t*);
-using AletheiaUpdateFrameFn = char* (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
-                                        const std::uint8_t*, std::uint8_t, std::uint32_t,
-                                        const std::uint32_t*, const std::int64_t*,
-                                        const std::int64_t*);
 
 // Binary output endpoints (return status code, write bytes to caller buffer).
 using AletheiaBuildFrameBinFn = std::int8_t (*)(void*, std::uint32_t, std::uint8_t, std::uint8_t,
@@ -117,8 +110,6 @@ class FfiBackend : public IBackend {
     AletheiaNoArgFn end_stream_fn_ = nullptr;
     AletheiaNoArgFn format_dbc_fn_ = nullptr;
     AletheiaExtractFn extract_signals_fn_ = nullptr;
-    AletheiaBuildFrameFn build_frame_fn_ = nullptr;
-    AletheiaUpdateFrameFn update_frame_fn_ = nullptr;
     AletheiaBuildFrameBinFn build_frame_bin_fn_ = nullptr;
     AletheiaUpdateFrameBinFn update_frame_bin_fn_ = nullptr;
     AletheiaExtractBinFn extract_signals_bin_fn_ = nullptr;
@@ -161,8 +152,6 @@ public:
             end_stream_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_end_stream");
             format_dbc_fn_ = load_sym<AletheiaNoArgFn>(handle_, "aletheia_format_dbc");
             extract_signals_fn_ = load_sym<AletheiaExtractFn>(handle_, "aletheia_extract_signals");
-            build_frame_fn_ = load_sym<AletheiaBuildFrameFn>(handle_, "aletheia_build_frame");
-            update_frame_fn_ = load_sym<AletheiaUpdateFrameFn>(handle_, "aletheia_update_frame");
             build_frame_bin_fn_ =
                 load_sym<AletheiaBuildFrameBinFn>(handle_, "aletheia_build_frame_bin");
             update_frame_bin_fn_ =
@@ -328,47 +317,6 @@ public:
             extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len);
         if (result == nullptr)
             throw std::runtime_error("aletheia_extract_signals returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
-    }
-
-    auto build_frame_binary(void* state, const CanId& id, Dlc dlc, SignalInjection signals)
-        -> std::string override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
-
-        char* result = build_frame_fn_(state, can_id, extended, dlc.value(), signals.count,
-                                       signals.indices, signals.numerators, signals.denominators);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_build_frame returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
-    }
-
-    auto update_frame_binary(void* state, const CanId& id, Dlc dlc, std::span<const std::byte> data,
-                             SignalInjection signals) -> std::string override {
-        const auto can_id =
-            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
-        const auto extended =
-            static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
-        // CAN-FD's largest payload is 64 bytes; tighten the FFI bound so a
-        // malformed caller cannot smuggle 65–255 byte payloads into the
-        // Haskell core before it does its own length check.
-        if (data.size() > max_can_fd_payload_bytes)
-            throw std::runtime_error("data length exceeds " +
-                                     std::to_string(max_can_fd_payload_bytes) +
-                                     " bytes (CAN-FD max)");
-        const auto data_len = static_cast<std::uint8_t>(data.size());
-
-        char* result = update_frame_fn_(state, can_id, extended, dlc.value(), as_u8(data.data()),
-                                        data_len, signals.count, signals.indices,
-                                        signals.numerators, signals.denominators);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_update_frame returned null");
         auto deleter = [this](char* p) { free_str_fn_(p); };
         const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
         return std::string{result};
