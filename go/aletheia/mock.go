@@ -149,67 +149,24 @@ func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc D
 	return m.Process(state, cmd)
 }
 
-// BuildFrameBinary delegates to Process with a JSON buildFrame command.
-// Signal indices and rationals are serialized back into named signal values
-// for compatibility with the JSON protocol.
-func (m *MockBackend) BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
-	signals := make([]map[string]any, 0, numSignals)
-	for i := uint32(0); i < numSignals; i++ {
-		signals = append(signals, map[string]any{
-			"index":       indices[i],
-			"numerator":   nums[i],
-			"denominator": dens[i],
-		})
-	}
-	cmd, err := serializeCommand("buildFrame", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"signals":  signals,
-	})
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
-}
-
-// UpdateFrameBinary delegates to Process with a JSON updateFrame command.
-// Signal indices and rationals are serialized back into named signal values
-// for compatibility with the JSON protocol.
-func (m *MockBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
-	signals := make([]map[string]any, 0, numSignals)
-	for i := uint32(0); i < numSignals; i++ {
-		signals = append(signals, map[string]any{
-			"index":       indices[i],
-			"numerator":   nums[i],
-			"denominator": dens[i],
-		})
-	}
-	cmd, err := serializeCommand("updateFrame", map[string]any{
-		"canId":    id.Value(),
-		"extended": id.IsExtended(),
-		"dlc":      dlc.Value(),
-		"data":     bytesToIntSlice(data),
-		"signals":  signals,
-	})
-	if err != nil {
-		return "", err
-	}
-	return m.Process(state, cmd)
-}
-
-// BuildFrameBin delegates to BuildFrameBinary and parses the JSON response.
-func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
-	resp, err := m.BuildFrameBinary(state, id, dlc, numSignals, indices, nums, dens)
+// BuildFrameBin delegates to Process with a sentinel input string, then parses
+// the canned JSON response. The real FFI backend bypasses JSON on input via
+// aletheia_build_frame_bin; the mock keeps a Process call so tests can inject
+// canned {"status":"success","data":[...]} responses.
+func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	resp, err := m.Process(state, "<binary-buildFrame>")
 	if err != nil {
 		return nil, err
 	}
 	return parseFrameDataResponse(resp)
 }
 
-// UpdateFrameBin delegates to UpdateFrameBinary and parses the JSON response.
-func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
-	resp, err := m.UpdateFrameBinary(state, id, dlc, data, numSignals, indices, nums, dens)
+// UpdateFrameBin delegates to Process with a sentinel input string, then parses
+// the canned JSON response. The real FFI backend bypasses JSON on input via
+// aletheia_update_frame_bin; the mock keeps a Process call so tests can inject
+// canned {"status":"success","data":[...]} responses.
+func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+	resp, err := m.Process(state, "<binary-updateFrame>")
 	if err != nil {
 		return nil, err
 	}

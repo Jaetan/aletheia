@@ -82,24 +82,6 @@ TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]"
     CHECK(j["data"][1] == 0x03);
 }
 
-TEST_CASE("serialize_build_frame produces correct JSON", "[json][serialize]") {
-    auto id = CanId{StandardId::create(0x100).value()};
-    std::vector<SignalValue> signals{
-        {SignalName{"Speed"}, PhysicalValue{Rational{120, 1}}},
-        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
-    };
-    auto str = detail::serialize_build_frame(id, Dlc::create(8).value(), signals);
-    auto j = json::parse(str);
-
-    CHECK(j["command"] == "buildFrame");
-    CHECK(j["canId"] == 0x100);
-    CHECK(j["dlc"] == 8);
-    CHECK(j["signals"].size() == 2);
-    CHECK(j["signals"][0]["name"] == "Speed");
-    CHECK(j["signals"][0]["value"] == Catch::Approx(120.0));
-    CHECK(j["signals"][1]["name"] == "RPM");
-}
-
 TEST_CASE("serialize_set_properties produces correct JSON", "[json][serialize]") {
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
@@ -225,28 +207,6 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
           "between");
     check(ltl::changed_by(SignalName{"S"}, Delta{10.0}), "changedBy");
     check(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}), "stableWithin");
-}
-
-TEST_CASE("serialize_update_frame produces correct JSON", "[json][serialize]") {
-    auto id = CanId{StandardId::create(0x100).value()};
-    auto dlc = Dlc::create(8).value();
-    FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
-                      std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    std::vector<SignalValue> signals{
-        {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
-    };
-    auto str = detail::serialize_update_frame(id, dlc, data, signals);
-    auto j = json::parse(str);
-
-    CHECK(j["command"] == "updateFrame");
-    CHECK(j["canId"] == 0x100);
-    CHECK(j["dlc"] == 8);
-    CHECK(j["data"].size() == 8);
-    CHECK(j["data"][0] == 0xE8);
-    CHECK(j["data"][1] == 0x03);
-    CHECK(j["signals"].size() == 1);
-    CHECK(j["signals"][0]["name"] == "RPM");
-    CHECK(j["signals"][0]["value"] == Catch::Approx(3000.0));
 }
 
 // ===========================================================================

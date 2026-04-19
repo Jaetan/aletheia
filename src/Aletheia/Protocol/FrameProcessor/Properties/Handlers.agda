@@ -10,10 +10,8 @@
 --                 (composes the Step `handleDataFrame-ack-sound` lemma
 --                  with `formatResponse-ack-unique` to lift the soundness
 --                  guarantee through the FFI shim's JSON serialization).
---   PROPERTIES 19–22 — `handleExtractAllSignals`,
---                       `handleBuildFrameByIndex`,
---                       `handleUpdateFrameByIndex`,
---                       `handleFormatDBC` never modify `StreamState`.
+--   PROPERTIES 19, 22 — `handleExtractAllSignals` and `handleFormatDBC`
+--                       never modify `StreamState`.
 --
 -- The Step lemmas this module composes with come from
 -- `FrameProcessor.Properties.Step`.
@@ -27,14 +25,12 @@ open import Aletheia.Protocol.ResponseFormat.Properties using (formatResponse-ac
 open import Aletheia.Protocol.JSON using (JSON; formatJSON)
 open import Aletheia.Main using (processFrameDirect)
 open import Aletheia.Protocol.Handlers
-    using (handleExtractAllSignals; handleBuildFrameByIndex;
-           handleUpdateFrameByIndex; handleFormatDBC)
+    using (handleExtractAllSignals; handleFormatDBC)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
 open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.CAN.DLC using (DLC)
-open import Aletheia.CAN.BatchFrameBuilding using (buildFrameByIndex)
 open import Aletheia.Protocol.StreamState using (handleDataFrame; checkMonotonic; Streaming)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Product using (_,_; proj₁; proj₂)
@@ -74,32 +70,15 @@ processFrameDirect-ack-sound-json dbc props prev cache tf mono fmt-eq =
     (formatResponse-ack-unique (proj₂ (handleDataFrame (Streaming dbc props prev cache) tf)) fmt-eq)
 
 -- ============================================================================
--- PROPERTIES 19-22: Read-only handler state preservation
+-- PROPERTIES 19, 22: Read-only handler state preservation
 -- ============================================================================
 
--- Extract, build, update, formatDBC handlers never modify StreamState.
--- Each proof case-splits on getDBC (withDBC pattern) and, for
--- build/update, on the Either result.
+-- Extract and formatDBC handlers never modify StreamState.  The proof
+-- case-splits on getDBC (withDBC pattern).
 
 handleExtractAllSignals-preserves-state : ∀ canId dlc bytes state
   → proj₁ (handleExtractAllSignals canId dlc bytes state) ≡ state
 handleExtractAllSignals-preserves-state canId dlc bytes state
-  with getDBC state
-... | nothing = refl
-... | just _  = refl
-
-handleBuildFrameByIndex-preserves-state : ∀ canId dlc signalPairs state
-  → proj₁ (handleBuildFrameByIndex canId dlc signalPairs state) ≡ state
-handleBuildFrameByIndex-preserves-state canId dlc signalPairs state
-  with getDBC state
-... | nothing = refl
-... | just dbc with buildFrameByIndex dbc canId dlc signalPairs
-...   | inj₁ _ = refl
-...   | inj₂ _ = refl
-
-handleUpdateFrameByIndex-preserves-state : ∀ canId dlc bytes signalPairs state
-  → proj₁ (handleUpdateFrameByIndex canId dlc bytes signalPairs state) ≡ state
-handleUpdateFrameByIndex-preserves-state canId dlc bytes signalPairs state
   with getDBC state
 ... | nothing = refl
 ... | just _  = refl

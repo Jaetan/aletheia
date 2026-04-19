@@ -22,7 +22,7 @@ open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; mapₑ; ifᵀ_then_else_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
-open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; BuildFrame; UpdateFrame; ExtractAllSignals; ValidateDBC; FormatDBC)
+open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
@@ -113,27 +113,12 @@ private
     require (InContext ctx ByteArrayParseFailed) (parseByteArray bytesJSON) >>=ₑ λ byteList →
     require (InContext ctx ByteCountMismatch) (listToVec (dlcBytes dlc) byteList)
 
-  -- Parse BuildFrame command
-  tryBuildFrame : List (String × JSON) → RouteError ⊎ StreamCommand
-  tryBuildFrame obj =
-    parseCanIdDlc "BuildFrame" obj >>=ₑ λ (canId , dlc) →
-    requireArray "BuildFrame" "signals" obj >>=ₑ λ signals →
-    inj₂ (BuildFrame canId dlc signals)
-
   -- Parse ExtractAllSignals command
   tryExtractAllSignals : List (String × JSON) → RouteError ⊎ StreamCommand
   tryExtractAllSignals obj =
     parseCanIdDlc "ExtractAllSignals" obj >>=ₑ λ (canId , dlc) →
     parseBytePayload "ExtractAllSignals" dlc obj >>=ₑ λ bytes →
     inj₂ (ExtractAllSignals canId dlc bytes)
-
-  -- Parse UpdateFrame command
-  tryUpdateFrame : List (String × JSON) → RouteError ⊎ StreamCommand
-  tryUpdateFrame obj =
-    parseCanIdDlc "UpdateFrame" obj >>=ₑ λ (canId , dlc) →
-    parseBytePayload "UpdateFrame" dlc obj >>=ₑ λ bytes →
-    requireArray "UpdateFrame" "signals" obj >>=ₑ λ signals →
-    inj₂ (UpdateFrame canId dlc bytes signals)
 
   -- Parse EndStream command
   tryEndStream : List (String × JSON) → RouteError ⊎ StreamCommand
@@ -155,9 +140,7 @@ private
     ("parseDBC" , tryParseDBC) ∷
     ("setProperties" , trySetProperties) ∷
     ("startStream" , tryStartStream) ∷
-    ("buildFrame" , tryBuildFrame) ∷
     ("extractAllSignals" , tryExtractAllSignals) ∷
-    ("updateFrame" , tryUpdateFrame) ∷
     ("endStream" , tryEndStream) ∷
     ("validateDBC" , tryValidateDBC) ∷
     ("formatDBC" , tryFormatDBC) ∷

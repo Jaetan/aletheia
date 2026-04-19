@@ -63,7 +63,7 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching Agda Error ADT (50 codes).
+// Machine-readable error codes matching Agda Error ADT (49 codes).
 // Each maps 1:1 to an Agda error constructor via errorCode.
 const (
 	// Parse errors.
@@ -106,7 +106,6 @@ const (
 	CodeHandlerNotStreaming          = "handler_not_streaming"
 	CodeHandlerStreamNotStarted      = "handler_stream_not_started"
 	CodeHandlerStreamActive          = "handler_stream_active"
-	CodeHandlerSignalListParseFailed = "handler_signal_list_parse_failed"
 	CodeHandlerPropertyParseFailed   = "handler_property_parse_failed"
 	CodeHandlerInvalidDLCCode        = "handler_invalid_dlc_code"
 	CodeHandlerValidationFailed      = "handler_validation_failed"

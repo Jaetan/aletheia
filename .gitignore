@@ -43,6 +43,7 @@ build/
 # Claude Code
 .claude/
 .session-state.md
+.r*-plan.md
 
 # Coverage artifacts
 python/.coverage

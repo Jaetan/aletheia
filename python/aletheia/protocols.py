@@ -97,7 +97,6 @@ class ErrorCode(str, Enum):
     HANDLER_NOT_STREAMING = "handler_not_streaming"
     HANDLER_STREAM_NOT_STARTED = "handler_stream_not_started"
     HANDLER_STREAM_ACTIVE = "handler_stream_active"
-    HANDLER_SIGNAL_LIST_PARSE_FAILED = "handler_signal_list_parse_failed"
     HANDLER_PROPERTY_PARSE_FAILED = "handler_property_parse_failed"
     HANDLER_INVALID_DLC_CODE = "handler_invalid_dlc_code"
     HANDLER_VALIDATION_FAILED = "handler_validation_failed"
@@ -526,24 +525,12 @@ class CompleteResponse(TypedDict):
     results: list[PropertyResultEntry]
 
 
-class BuildFrameResponse(TypedDict):
-    """Response from buildFrame command"""
-    status: Literal["success"]
-    data: list[int]
-
-
 class ExtractSignalsResponse(TypedDict):
     """Response from extractAllSignals command"""
     status: Literal["success"]
     values: list[SignalValue]
     errors: list[SignalError]
     absent: list[str]
-
-
-class UpdateFrameResponse(TypedDict):
-    """Response from updateFrame command"""
-    status: Literal["success"]
-    data: list[int]
 
 
 class FormatDBCResponse(TypedDict):
@@ -573,9 +560,7 @@ Response = (
     AckResponse |
     PropertyViolationResponse |
     CompleteResponse |
-    BuildFrameResponse |
     ExtractSignalsResponse |
-    UpdateFrameResponse |
     FormatDBCResponse |
     ValidationResponse
 )
@@ -648,9 +633,7 @@ __all__ = [
     "PropertyViolationResponse",
     "PropertyResultEntry",
     "CompleteResponse",
-    "BuildFrameResponse",
     "ExtractSignalsResponse",
-    "UpdateFrameResponse",
     "FormatDBCResponse",
     "ValidationIssue",
     "ValidationResponse",

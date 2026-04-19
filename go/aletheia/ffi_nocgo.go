@@ -60,16 +60,6 @@ func (b *FFIBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []
 	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
 }
 
-// BuildFrameBinary is unavailable without cgo.
-func (b *FFIBackend) BuildFrameBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
-
-// UpdateFrameBinary is unavailable without cgo.
-func (b *FFIBackend) UpdateFrameBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) (string, error) {
-	return "", ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")
-}
-
 // BuildFrameBin is unavailable without cgo.
 func (b *FFIBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	return nil, ffiError("ffi backend requires cgo on linux; build with CGO_ENABLED=1")

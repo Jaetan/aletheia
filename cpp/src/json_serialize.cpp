@@ -30,28 +30,10 @@ static auto can_id_extended(const CanId& id) -> bool {
     return std::holds_alternative<ExtendedId>(id);
 }
 
-static auto data_to_json(std::span<const std::byte> data) -> Json {
-    Json arr = Json::array();
-    for (auto b : data)
-        arr.push_back(static_cast<std::uint8_t>(b));
-    return arr;
-}
-
 static auto rational_to_json(const Rational& r) -> Json {
     if (r.denominator == 1)
         return r.numerator;
     return {{"numerator", r.numerator}, {"denominator", r.denominator}};
-}
-
-static auto signal_value_to_json(const SignalValue& sv) -> Json {
-    return {{"name", sv.name.get()}, {"value", rational_to_json(sv.value.get())}};
-}
-
-static auto signals_to_json(std::span<const SignalValue> signals) -> Json {
-    Json arr = Json::array();
-    for (const auto& sv : signals)
-        arr.push_back(signal_value_to_json(sv));
-    return arr;
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
@@ -248,28 +230,6 @@ auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::by
                        R"("canId":{},"extended":{},"dlc":{},"data":[{}]}})",
                        can_id_numeric(id), can_id_extended(id) ? "true" : "false", dlc.value(),
                        data_str);
-}
-
-// Test infrastructure: serialize_build_frame and serialize_update_frame are used
-// by MockBackend and unit tests, not by production FFI paths.
-auto serialize_build_frame(const CanId& id, Dlc dlc, std::span<const SignalValue> signals)
-    -> std::string {
-    return Json{{"type", "command"},           {"command", "buildFrame"},
-                {"canId", can_id_numeric(id)}, {"extended", can_id_extended(id)},
-                {"dlc", dlc.value()},          {"signals", signals_to_json(signals)}}
-        .dump();
-}
-
-auto serialize_update_frame(const CanId& id, Dlc dlc, std::span<const std::byte> data,
-                            std::span<const SignalValue> signals) -> std::string {
-    return Json{{"type", "command"},
-                {"command", "updateFrame"},
-                {"canId", can_id_numeric(id)},
-                {"extended", can_id_extended(id)},
-                {"dlc", dlc.value()},
-                {"data", data_to_json(data)},
-                {"signals", signals_to_json(signals)}}
-        .dump();
 }
 
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string {

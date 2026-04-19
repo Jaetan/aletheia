@@ -134,30 +134,6 @@ def configure_ffi_signatures(lib: ctypes.CDLL) -> None:
         ctypes.c_uint8,                  # data_len
     ]
     lib.aletheia_extract_signals.restype = ctypes.c_void_p
-    lib.aletheia_build_frame.argtypes = [
-        ctypes.c_void_p,                  # state
-        ctypes.c_uint32,                  # can_id
-        ctypes.c_uint8,                   # extended
-        ctypes.c_uint8,                   # dlc
-        ctypes.c_uint32,                  # numSignals
-        ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),   # numerators
-        ctypes.POINTER(ctypes.c_int64),   # denominators
-    ]
-    lib.aletheia_build_frame.restype = ctypes.c_void_p
-    lib.aletheia_update_frame.argtypes = [
-        ctypes.c_void_p,                  # state
-        ctypes.c_uint32,                  # can_id
-        ctypes.c_uint8,                   # extended
-        ctypes.c_uint8,                   # dlc
-        ctypes.POINTER(ctypes.c_uint8),   # data pointer
-        ctypes.c_uint8,                   # data_len
-        ctypes.c_uint32,                  # numSignals
-        ctypes.POINTER(ctypes.c_uint32),  # indices
-        ctypes.POINTER(ctypes.c_int64),   # numerators
-        ctypes.POINTER(ctypes.c_int64),   # denominators
-    ]
-    lib.aletheia_update_frame.restype = ctypes.c_void_p
 
     # CAN error/remote event endpoints (acknowledged without LTL evaluation)
     lib.aletheia_send_error.argtypes = [

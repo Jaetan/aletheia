@@ -60,22 +60,6 @@ package aletheia
 //     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
 //                         uint8_t*, uint8_t))fn)(state, id, ext, dlc, data, len);
 // }
-// static char* call_build_frame(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc,
-//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens) {
-//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
-//                         uint32_t, uint32_t*, int64_t*, int64_t*))fn)(
-//         state, id, ext, dlc, numSignals, indices, nums, dens);
-// }
-// static char* call_update_frame(void *fn, void *state,
-//     uint32_t id, uint8_t ext, uint8_t dlc,
-//     uint8_t *data, uint8_t dataLen,
-//     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens) {
-//     return ((char* (*)(void*, uint32_t, uint8_t, uint8_t,
-//                         uint8_t*, uint8_t,
-//                         uint32_t, uint32_t*, int64_t*, int64_t*))fn)(
-//         state, id, ext, dlc, data, dataLen, numSignals, indices, nums, dens);
-// }
 // static int8_t call_build_frame_bin(void *fn, void *state,
 //     uint32_t id, uint8_t ext, uint8_t dlc,
 //     uint32_t numSignals, uint32_t *indices, int64_t *nums, int64_t *dens,
@@ -165,8 +149,6 @@ type FFIBackend struct {
 	endStreamFn         unsafe.Pointer
 	formatDbcFn         unsafe.Pointer
 	extractSignalsFn    unsafe.Pointer
-	buildFrameFn        unsafe.Pointer
-	updateFrameFn       unsafe.Pointer
 	buildFrameBinFn     unsafe.Pointer
 	updateFrameBinFn    unsafe.Pointer
 	extractSignalsBinFn unsafe.Pointer
@@ -232,8 +214,6 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	//   aletheia_end_stream           — finalize streaming (no JSON input)
 	//   aletheia_format_dbc           — export loaded DBC (no JSON input)
 	//   aletheia_extract_signals      — signal extraction, JSON response
-	//   aletheia_build_frame          — frame building from signal indices, JSON response
-	//   aletheia_update_frame         — frame update from signal indices, JSON response
 	//   aletheia_build_frame_bin      — frame building, binary response (hot path)
 	//   aletheia_update_frame_bin     — frame update, binary response (hot path)
 	//   aletheia_extract_signals_bin  — signal extraction, binary response (hot path)
@@ -277,14 +257,6 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		return nil, err
 	}
 	extractSignalsFn, err := loadSym(handle, "aletheia_extract_signals")
-	if err != nil {
-		return nil, err
-	}
-	buildFrameFn, err := loadSym(handle, "aletheia_build_frame")
-	if err != nil {
-		return nil, err
-	}
-	updateFrameFn, err := loadSym(handle, "aletheia_update_frame")
 	if err != nil {
 		return nil, err
 	}
@@ -354,8 +326,6 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 		endStreamFn:         endStreamFn,
 		formatDbcFn:         formatDbcFn,
 		extractSignalsFn:    extractSignalsFn,
-		buildFrameFn:        buildFrameFn,
-		updateFrameFn:       updateFrameFn,
 		buildFrameBinFn:     buildFrameBinFn,
 		updateFrameBinFn:    updateFrameBinFn,
 		extractSignalsBinFn: extractSignalsBinFn,
@@ -549,97 +519,6 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DL
 	return C.GoString(result), nil
 }
 
-// BuildFrameBinary builds a CAN frame from signal index-value pairs via the binary FFI entry point.
-func (b *FFIBackend) BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
-	}
-
-	var indicesPtr *C.uint32_t
-	var numsPtr *C.int64_t
-	var densPtr *C.int64_t
-	if numSignals > 0 {
-		n := int(numSignals)
-		if len(indices) < n || len(nums) < n || len(dens) < n {
-			return "", validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
-		}
-		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
-		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
-		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
-	}
-
-	result := C.call_build_frame(
-		b.buildFrameFn, state,
-		C.uint32_t(id.Value()),
-		ext,
-		C.uint8_t(dlc.Value()),
-		C.uint32_t(numSignals),
-		indicesPtr,
-		numsPtr,
-		densPtr,
-	)
-	if result == nil {
-		return "", ffiError("aletheia_build_frame returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
-}
-
-// UpdateFrameBinary updates signals in a CAN frame by index via the binary FFI entry point.
-func (b *FFIBackend) UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	var ext C.uint8_t
-	if id.IsExtended() {
-		ext = 1
-	}
-
-	if len(data) > maxPayloadBytes {
-		return "", validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
-	}
-
-	var dataPtr *C.uint8_t
-	if len(data) > 0 {
-		dataPtr = (*C.uint8_t)(unsafe.Pointer(&data[0]))
-	}
-
-	var indicesPtr *C.uint32_t
-	var numsPtr *C.int64_t
-	var densPtr *C.int64_t
-	if numSignals > 0 {
-		n := int(numSignals)
-		if len(indices) < n || len(nums) < n || len(dens) < n {
-			return "", validationError(fmt.Sprintf("parallel arrays too short for numSignals=%d: indices=%d nums=%d dens=%d", n, len(indices), len(nums), len(dens)))
-		}
-		indicesPtr = (*C.uint32_t)(unsafe.Pointer(&indices[0]))
-		numsPtr = (*C.int64_t)(unsafe.Pointer(&nums[0]))
-		densPtr = (*C.int64_t)(unsafe.Pointer(&dens[0]))
-	}
-
-	result := C.call_update_frame(
-		b.updateFrameFn, state,
-		C.uint32_t(id.Value()),
-		ext,
-		C.uint8_t(dlc.Value()),
-		dataPtr,
-		C.uint8_t(len(data)),
-		C.uint32_t(numSignals),
-		indicesPtr,
-		numsPtr,
-		densPtr,
-	)
-	if result == nil {
-		return "", ffiError("aletheia_update_frame returned null")
-	}
-	defer C.call_free_str(b.freeStrFn, result)
-	return C.GoString(result), nil
-}
-
 // BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON entirely.
 func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error) {
 	runtime.LockOSThread()
@@ -707,8 +586,8 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CanID, dlc DLC, dat
 	}
 
 	// Cap at the CAN-FD maximum payload size; every other data-accepting
-	// method (SendFrameBinary, ExtractSignalsBinary, UpdateFrameBinary)
-	// applies the same bound before taking &data[0] into cgo.
+	// method (SendFrameBinary, ExtractSignalsBinary) applies the same bound
+	// before taking &data[0] into cgo.
 	if len(data) > maxPayloadBytes {
 		return nil, validationError(fmt.Sprintf("data length %d exceeds CAN-FD maximum (%d)", len(data), maxPayloadBytes))
 	}

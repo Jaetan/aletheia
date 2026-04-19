@@ -97,8 +97,6 @@ ffiExports =
     , FFIExport "AgdaBin"   "processEndStreamDirect"   "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processFormatDBCDirect"   "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processExtractDirect"     "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processBuildFrameDirect"  "Aletheia/Main/Binary"
-    , FFIExport "AgdaBin"   "processUpdateFrameDirect" "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processBuildFrameBin"     "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processUpdateFrameBin"    "Aletheia/Main/Binary"
     , FFIExport "AgdaBin"   "processExtractBin"        "Aletheia/Main/Binary"
@@ -204,7 +202,6 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/CAN/Batch/Properties.agda"
         agdaWithRTS "Aletheia/CAN/DLC/Properties.agda"
         agdaWithRTS "Aletheia/CAN/SignalExtraction/Properties.agda"
-        agdaWithRTS "Aletheia/CAN/BatchFrameBuilding/Properties.agda"
         agdaWithRTS "Aletheia/CAN/Endianness/Properties.agda"
         -- DBC
         agdaWithRTS "Aletheia/DBC/Properties.agda"

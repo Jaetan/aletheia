@@ -38,22 +38,10 @@ data StreamCommand : Set where
   -- Begin streaming data frames
   StartStream : StreamCommand
 
-  -- BATCH SIGNAL OPERATIONS (Phase 2B.1)
-
-  -- Build CAN frame from signal name-value pairs
-  -- Args: CAN ID, validated DLC, list of {name: string, value: rational} objects
-  -- Returns: frame with all signals encoded (byte count = dlcBytes DLC)
-  BuildFrame : CANId → (dlc : DLC) → List JSON → StreamCommand
-
   -- Extract all signals from a CAN frame
   -- Args: CAN ID, validated DLC, frame data (length = dlcBytes DLC)
   -- Returns: Extraction results (values/errors/absent)
   ExtractAllSignals : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → StreamCommand
-
-  -- Update specific signals in an existing frame
-  -- Args: CAN ID, validated DLC, existing frame bytes, list of signal updates
-  -- Returns: Updated frame
-  UpdateFrame : CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List JSON → StreamCommand
 
   -- End stream and emit final property results
   EndStream : StreamCommand
@@ -76,9 +64,6 @@ data Response : Set where
 
   -- Error with typed error value
   Error : Err.Error → Response
-
-  -- Byte array response (for BuildFrame and UpdateFrame commands)
-  ByteArray : ∀ {n} → Vec Byte n → Response
 
   -- Extraction results (for ExtractAllSignals command)
   -- Args: successfully extracted values, errors, absent signals

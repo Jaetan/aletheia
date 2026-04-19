@@ -1,12 +1,14 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Batch frame building from signal name-value pairs.
+-- Batch frame building from signal index-value pairs.
 --
 -- Purpose: Build CAN frames from multiple signal values at once with validation.
--- Operations: buildFrame (DBC + CAN ID + signals → FrameError ⊎ frame).
--- Role: Batch encoding for language bindings (Python, C++, Go).
+-- Operations: buildFrameByIndex (DBC + CAN ID + index-keyed signals → FrameError ⊎ frame),
+--             updateFrameByIndex (DBC + CAN ID + frame + index-keyed signals → FrameError ⊎ frame).
+-- Role: Batch encoding for the binary FFI path; all language bindings resolve
+-- signal names to indices client-side before calling the `*ByIndex` entry points.
 --
--- Validation: Signal name existence, signal overlap detection, multiplexing consistency.
+-- Validation: Signal index bounds, signal overlap detection, multiplexing consistency.
 -- Guarantees: Signals partition the frame properly (no corruption).
 module Aletheia.CAN.BatchFrameBuilding where
 
@@ -27,7 +29,7 @@ open import Data.Bool using (Bool; true; false; if_then_else_; _∨_; not)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Aletheia.Prelude using (listIndex; _>>=ₑ_)
 open import Aletheia.Error using
-  ( FrameError; SignalNotFound; SignalIndexOOB; InjectionFailed
+  ( FrameError; SignalIndexOOB; InjectionFailed
   ; SignalsOverlap; CANIdNotFound; CANIdMismatch
   )
 
@@ -69,21 +71,17 @@ hasOverlaps n sigs = anyPairOverlap (map (signalPhysicalBits n) sigs)
 -- ============================================================================
 
 -- Import shared DBC lookup utilities
-open import Aletheia.CAN.DBCHelpers using (findSignalByName; findMessageById; canIdEquals)
+open import Aletheia.CAN.DBCHelpers using (findMessageById; canIdEquals)
 
 -- Lookup strategy: how to resolve a key to a DBCSignal, and how to produce errors.
--- Two instances: name-based (String key, findSignalByName) and index-based (ℕ key, listIndex).
+-- Currently only instantiated with `indexStrategy` — the by-name JSON path was
+-- removed in C3b once all bindings switched to resolving names client-side.
+-- The record layer is retained so future strategies (e.g. multi-arena lookup)
+-- can be added without touching the generic machinery below.
 record LookupStrategy (K : Set) : Set where
   field
     resolve : K → DBCMessage → Maybe DBCSignal
     notFoundError : K → FrameError
-
--- Name-based strategy (JSON API path)
-nameStrategy : LookupStrategy String
-nameStrategy = record
-  { resolve       = λ name msg → findSignalByName name msg
-  ; notFoundError = SignalNotFound
-  }
 
 -- Index-based strategy (binary FFI path — no string allocation)
 indexStrategy : LookupStrategy ℕ
@@ -99,11 +97,7 @@ lookupSignalsG strat ((key , value) ∷ rest) msg with LookupStrategy.resolve st
 ... | nothing = inj₁ (LookupStrategy.notFoundError strat key)
 ... | just sig = lookupSignalsG strat rest msg >>=ₑ λ restSigs → inj₂ ((sig , value) ∷ restSigs)
 
--- Name-based lookup (preserves original API)
-lookupSignals : List (String × ℚ) → DBCMessage → FrameError ⊎ List (DBCSignal × ℚ)
-lookupSignals = lookupSignalsG nameStrategy
-
--- Index-based lookup (preserves original API)
+-- Index-based lookup (public API consumed by the binary FFI path)
 lookupSignalsByIndex : List (ℕ × ℚ) → DBCMessage → FrameError ⊎ List (DBCSignal × ℚ)
 lookupSignalsByIndex = lookupSignalsG indexStrategy
 
@@ -158,13 +152,6 @@ updateFrameG strat dbc canId frame signals =
     findAndInject with findMessageById canId dbc
     ... | nothing = inj₁ CANIdNotFound
     ... | just msg = lookupSignalsG strat signals msg >>=ₑ λ signalDefs → injectAll frame signalDefs
-
--- Name-based API (JSON path)
-buildFrame : DBC → CANId → (dlc : DLC) → List (String × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)
-buildFrame = buildFrameG nameStrategy
-
-updateFrame : ∀ {n} → DBC → CANId → CANFrame n → List (String × ℚ) → FrameError ⊎ CANFrame n
-updateFrame = updateFrameG nameStrategy
 
 -- Index-based API (binary FFI path — no string allocation)
 buildFrameByIndex : DBC → CANId → (dlc : DLC) → List (ℕ × ℚ) → FrameError ⊎ Vec Byte (dlcBytes dlc)

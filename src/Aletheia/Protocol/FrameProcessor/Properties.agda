@@ -80,19 +80,17 @@ open import Aletheia.Protocol.FrameProcessor.Properties.Cache public
         )
 
 -- ============================================================================
--- HANDLER + FFI LINK PROPERTIES (P16-P22)
+-- HANDLER + FFI LINK PROPERTIES (P16-P19, P22)
 -- ============================================================================
 -- `processFrameDirect` decomposition (state passes through, response is
 -- formatJSON ∘ formatResponse), end-to-end Ack soundness at the JSON
--- level, and read-only handler state preservation for the four
--- non-mutating handler entry points.
+-- level, and read-only handler state preservation for the two remaining
+-- non-mutating handler entry points (extract and formatDBC).
 open import Aletheia.Protocol.FrameProcessor.Properties.Handlers public
   using ( processFrameDirect-state
         ; processFrameDirect-response
         ; processFrameDirect-ack-sound-json
         ; handleExtractAllSignals-preserves-state
-        ; handleBuildFrameByIndex-preserves-state
-        ; handleUpdateFrameByIndex-preserves-state
         ; handleFormatDBC-preserves-state
         )
 

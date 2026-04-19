@@ -123,40 +123,6 @@ aletheia_extract_signals statePtr canId ext dlc dataPtr dataLen =
         runJSON statePtr (\s -> AgdaBin.d_processExtractDirect_38 s agdaCanId
             (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)))
 
-foreign export ccall aletheia_build_frame
-    :: StateHandle -> Word32 -> Word8 -> Word8
-    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64 -> IO CString
-aletheia_build_frame :: StateHandle -> Word32 -> Word8 -> Word8
-                    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64 -> IO CString
-aletheia_build_frame statePtr canId ext dlc numSignals indicesPtr numsPtr densPtr = do
-    indices <- peekArray (fromIntegral numSignals) indicesPtr
-    nums <- peekArray (fromIntegral numSignals) numsPtr
-    dens <- peekArray (fromIntegral numSignals) densPtr
-    case (,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens of
-      Left err -> errorJSON err
-      Right (agdaCanId, pairs) -> runJSON statePtr (\s ->
-        AgdaBin.d_processBuildFrameDirect_50 s agdaCanId (mkAgdaDLC (toInteger dlc)) pairs)
-
-foreign export ccall aletheia_update_frame
-    :: StateHandle -> Word32 -> Word8 -> Word8
-    -> Ptr Word8 -> Word8
-    -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64 -> IO CString
-aletheia_update_frame :: StateHandle -> Word32 -> Word8 -> Word8
-                     -> Ptr Word8 -> Word8
-                     -> Word32 -> Ptr Word32 -> Ptr Int64 -> Ptr Int64 -> IO CString
-aletheia_update_frame statePtr canId ext dlc dataPtr dataLen
-                     numSignals indicesPtr numsPtr densPtr = do
-    indices <- peekArray (fromIntegral numSignals) indicesPtr
-    nums <- peekArray (fromIntegral numSignals) numsPtr
-    dens <- peekArray (fromIntegral numSignals) densPtr
-    case validateDLCAndLen "aletheia_update_frame" dlc dataLen
-         >> ((,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens) of
-      Left err -> errorJSON err
-      Right (agdaCanId, pairs) -> do
-        bytes <- peekArray (fromIntegral dataLen) dataPtr
-        runJSON statePtr (\s -> AgdaBin.d_processUpdateFrameDirect_62 s agdaCanId
-            (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)) pairs)
-
 foreign export ccall aletheia_start_stream :: StateHandle -> IO CString
 aletheia_start_stream :: StateHandle -> IO CString
 aletheia_start_stream statePtr = runJSON statePtr AgdaBin.d_processStartStreamDirect_24
@@ -204,7 +170,7 @@ aletheia_build_frame_bin statePtr canId ext dlc numSignals indicesPtr numsPtr de
     case (,) <$> mkAgdaCanId canId ext <*> mkSignalPairs indices nums dens of
       Left err -> errorOut err outErr
       Right (agdaCanId, pairs) -> runBinDispatch statePtr
-        (\s -> AgdaBin.d_processBuildFrameBin_98 s agdaCanId (mkAgdaDLC (toInteger dlc)) pairs)
+        (\s -> AgdaBin.d_processBuildFrameBin_72 s agdaCanId (mkAgdaDLC (toInteger dlc)) pairs)
         outBuf outErr
 
 foreign export ccall aletheia_update_frame_bin
@@ -227,7 +193,7 @@ aletheia_update_frame_bin statePtr canId ext dlc dataPtr dataLen
       Right (agdaCanId, pairs) -> do
         bytes <- peekArray (fromIntegral dataLen) dataPtr
         runBinDispatch statePtr
-            (\s -> AgdaBin.d_processUpdateFrameBin_112 s agdaCanId
+            (\s -> AgdaBin.d_processUpdateFrameBin_86 s agdaCanId
                        (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes)) pairs)
             outBuf outErr
 
@@ -247,7 +213,7 @@ aletheia_extract_signals_bin statePtr canId ext dlc dataPtr dataLen outBufPtr ou
         bytes <- peekArray (fromIntegral dataLen) dataPtr
         ref <- deRefStablePtr statePtr
         state <- readIORef ref
-        let result = AgdaBin.d_processExtractBin_128 state agdaCanId
+        let result = AgdaBin.d_processExtractBin_102 state agdaCanId
                          (mkAgdaDLC (toInteger dlc)) (unsafeCoerce (bytesToAgdaVec bytes))
         writeIORef ref (unsafeCoerce (AgdaSigma.d_fst_28 result) :: AgdaState.T_StreamState_28)
         case unsafeCoerce (AgdaSigma.d_snd_30 result) :: AgdaSum.T__'8846'__30 of

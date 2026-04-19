@@ -47,7 +47,7 @@ WaitingForDBC → ParseDBC → ReadyToStream → SetProperties → ReadyToStream
 All messages have a `"type"` field that determines how they are processed.
 
 ### Type Tags
-- `"command"`: Control commands (parseDBC, extractAllSignals, buildFrame, updateFrame, validateDBC, formatDBC, setProperties, startStream, endStream)
+- `"command"`: Control commands (parseDBC, extractAllSignals, validateDBC, formatDBC, setProperties, startStream, endStream). Frame build/update uses the binary FFI path (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`) — no JSON command exists for these operations.
 
 > **Note**: Data frames are sent via the binary `aletheia_send_frame()` entry point, not as JSON. See [Binary Frame Entry Point](#binary-frame-entry-point) below.
 
@@ -263,82 +263,7 @@ Extract all signal values from a CAN frame without streaming.
 
 ---
 
-### 3. BuildFrame
-
-Encode signal values into a new CAN frame (starting from all zeros).
-
-**Request**:
-```json
-{
-  "type": "command",
-  "command": "buildFrame",
-  "canId": 256,
-  "dlc": 8,
-  "extended": false,
-  "signals": [
-    {"name": "Speed", "value": 100.0}
-  ]
-}
-```
-
-**Response** (Success):
-```json
-{
-  "status": "success",
-  "data": [232, 3, 0, 0, 0, 0, 0, 0]
-}
-```
-
-**Fields**:
-- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
-- `dlc`: Data Length Code (0-15)
-- `extended`: Whether to use 29-bit extended CAN ID (boolean)
-- `signals`: Array of {name, value} objects to encode
-- Response `data`: Encoded frame payload (length matches `dlcToBytes(dlc)`)
-
-**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
-
----
-
-### 4. UpdateFrame
-
-Update specific signal values in an existing CAN frame.
-
-**Request**:
-```json
-{
-  "type": "command",
-  "command": "updateFrame",
-  "canId": 256,
-  "dlc": 8,
-  "extended": false,
-  "data": [232, 3, 0, 0, 0, 0, 0, 0],
-  "signals": [
-    {"name": "Speed", "value": 200.0}
-  ]
-}
-```
-
-**Response** (Success):
-```json
-{
-  "status": "success",
-  "data": [208, 7, 0, 0, 0, 0, 0, 0]
-}
-```
-
-**Fields**:
-- `canId`: CAN message ID (integer, must match a message in the loaded DBC)
-- `dlc`: Data Length Code (0-15)
-- `data`: Existing frame to modify (array of bytes, length must match `dlcToBytes(dlc)`)
-- `signals`: Array of {name, value} objects to update
-- Response `data`: Updated frame payload (same length as input)
-
-**State Requirements**: Must have called `parseDBC`. Does NOT require streaming mode.
-
----
-
-### 5. ValidateDBC
+### 3. ValidateDBC
 
 Validate a DBC definition for structural correctness. Returns all issues found (not just the first). Does not modify client state.
 
@@ -376,7 +301,7 @@ Validate a DBC definition for structural correctness. Returns all issues found (
 
 ---
 
-### 6. FormatDBC
+### 4. FormatDBC
 
 Export the currently-loaded DBC as JSON.
 
@@ -415,7 +340,7 @@ Export the currently-loaded DBC as JSON.
 
 ---
 
-### 7. SetProperties
+### 5. SetProperties
 
 Define LTL properties to check against the frame stream.
 
@@ -463,7 +388,7 @@ See [LTL Property Format](#ltl-property-format) section below for complete schem
 
 ---
 
-### 8. StartStream
+### 6. StartStream
 
 Begin streaming mode for processing data frames.
 
@@ -496,7 +421,7 @@ Begin streaming mode for processing data frames.
 
 ---
 
-### 9. EndStream
+### 7. EndStream
 
 End streaming mode and return final results.
 
@@ -1121,7 +1046,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `extraction_mux_extraction_failed` | Failed to read the multiplexor signal's own bits | Check the multiplexor signal's `startBit`/`length` |
 | `extraction_bit_extraction_failed` | Bit-level read or scaling failed | Usually a DBC/frame-size mismatch |
 
-#### Frame errors — `buildFrame` / `updateFrame`
+#### Frame errors — binary build/update paths (`aletheia_build_frame_bin` / `aletheia_update_frame_bin`)
 
 | Code | Meaning | Likely cause / fix |
 |---|---|---|
@@ -1130,7 +1055,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `frame_injection_failed` | Bit-packing failed for a signal | Usually means the value exceeds the signal's bit width |
 | `frame_signals_overlap` | Two requested signals occupy overlapping bits | Edit only one signal per bit range, or fix the DBC |
 | `frame_can_id_not_found` | `canId` not present in loaded DBC | Re-check the CAN ID against the DBC |
-| `frame_can_id_mismatch` | Request `canId` does not match the frame being updated | For `updateFrame`, the existing frame's ID must match |
+| `frame_can_id_mismatch` | Request `canId` does not match the frame being updated | For the binary update path, the existing frame's ID must match |
 | `frame_signal_value_out_of_bounds` | Physical value outside the signal's `[minimum, maximum]` | Clip at the caller, or loosen the DBC bounds |
 
 #### Route errors — command dispatch
@@ -1139,7 +1064,7 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 |---|---|---|
 | `route_missing_field` | Command-level required field missing | See the specific command's fields |
 | `route_missing_array` | Command expects an array field | Provide an array, even if empty |
-| `route_unknown_command` | `command` value not recognised | See the Commands section for the nine valid commands |
+| `route_unknown_command` | `command` value not recognised | See the Commands section for the valid commands |
 | `route_missing_command_field` | Request has no `command` field | Add `"command": "..."` |
 | `route_dlc_exceeds_max` | `dlc > 15` | Must be `0-15` |
 | `route_byte_array_parse_failed` | `data` array could not be parsed as bytes | Each element must be an integer `0-255` |
@@ -1156,7 +1081,6 @@ Codes are grouped by domain: `parse_*` (JSON/DBC parsing), `extraction_*` (signa
 | `handler_not_streaming` | Frame submitted outside streaming mode | Call `startStream` before `aletheia_send_frame` |
 | `handler_stream_not_started` | `endStream` before `startStream` | Streaming must be active to end it |
 | `handler_stream_active` | Operation forbidden while streaming | End the stream first (e.g., to reload DBC) |
-| `handler_signal_list_parse_failed` | Signal list for a command failed to parse | Check the JSON against the command's schema |
 | `handler_property_parse_failed` | LTL property at the indicated index failed to parse | Check the failing property against the LTL Property Format section |
 | `handler_invalid_dlc_code` | DLC not in the CAN/CAN-FD table | See `parse_invalid_dlc_bytes` |
 | `handler_validation_failed` | DBC validation surfaced an error when loading | Run `validateDBC` to see the issue list |

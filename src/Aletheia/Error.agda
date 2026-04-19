@@ -231,7 +231,6 @@ data HandlerError : Set where
   NotStreaming           : HandlerError
   StreamNotStarted       : HandlerError
   StreamActive           : HandlerError
-  SignalListParseFailed  : HandlerError
   PropertyParseFailed    : ℕ → HandlerError
   InvalidDLCCode         : HandlerError
   -- Carries the structured list of validation issues produced by
@@ -255,7 +254,6 @@ formatHandlerError AlreadyStreaming      = "stream already active"
 formatHandlerError NotStreaming          = "stream not active"
 formatHandlerError StreamNotStarted      = "stream not started"
 formatHandlerError StreamActive          = "stream still active"
-formatHandlerError SignalListParseFailed = "signal list parse failure"
 formatHandlerError (PropertyParseFailed idx) =
   "property parse failure at index " ++ₛ showℕ idx
 formatHandlerError InvalidDLCCode        = "invalid DLC code"
@@ -274,7 +272,6 @@ handlerErrorCode AlreadyStreaming      = "handler_already_streaming"
 handlerErrorCode NotStreaming          = "handler_not_streaming"
 handlerErrorCode StreamNotStarted      = "handler_stream_not_started"
 handlerErrorCode StreamActive          = "handler_stream_active"
-handlerErrorCode SignalListParseFailed = "handler_signal_list_parse_failed"
 handlerErrorCode (PropertyParseFailed _) = "handler_property_parse_failed"
 handlerErrorCode InvalidDLCCode        = "handler_invalid_dlc_code"
 handlerErrorCode (ValidationFailed _)  = "handler_validation_failed"

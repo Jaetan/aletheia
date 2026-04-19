@@ -673,8 +673,9 @@ func parseExtractionResponse(raw string) (*ExtractionResult, error) {
 	return result, nil
 }
 
-// parseFrameDataResponse decodes a buildFrame/updateFrame JSON response
-// into the raw CAN payload bytes.
+// parseFrameDataResponse decodes a {"status":"success","data":[...]} response
+// into the raw CAN payload bytes. Used only by MockBackend — the real FFI path
+// returns raw bytes directly via aletheia_build_frame_bin / aletheia_update_frame_bin.
 func parseFrameDataResponse(raw string) (FramePayload, error) {
 	m, err := parseResponse(raw)
 	if err != nil {

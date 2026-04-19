@@ -68,7 +68,6 @@ constexpr std::array<ErrorCodeEntry, 50> error_code_table{{
     {"handler_not_streaming", ErrorCode::HandlerNotStreaming},
     {"handler_stream_not_started", ErrorCode::HandlerStreamNotStarted},
     {"handler_stream_active", ErrorCode::HandlerStreamActive},
-    {"handler_signal_list_parse_failed", ErrorCode::HandlerSignalListParseFailed},
     {"handler_property_parse_failed", ErrorCode::HandlerPropertyParseFailed},
     {"handler_invalid_dlc_code", ErrorCode::HandlerInvalidDlcCode},
     {"handler_validation_failed", ErrorCode::HandlerValidationFailed},

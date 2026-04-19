@@ -8,17 +8,14 @@ module Aletheia.Protocol.ResponseFormat where
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map)
-open import Data.Bool using (Bool)
 open import Data.Rational using (ℚ)
-open import Data.Vec using (Vec; toList)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool)
 open import Aletheia.Prelude using (ℕtoℚ)
-open import Aletheia.Protocol.Message using (Response; Success; Error; ByteArray;
+open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
 import Aletheia.Error as Err
-open import Aletheia.CAN.Frame using (Byte)
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
 open import Aletheia.Trace.Time using (tsValue)
@@ -29,10 +26,6 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   DuplicateMessageName; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling; ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
-
--- Convert Vec Byte n to JSON array
-bytesToJSON : ∀ {n} → Vec Byte n → JSON
-bytesToJSON bytes = JArray (map (λ n → JNumber (ℕtoℚ n)) (toList bytes))
 
 -- Shared header + variant-specific extras for PropertyResult JSON output.
 -- Every PropertyResult variant emits the same `type`/`status`/`property_index`
@@ -70,11 +63,6 @@ formatResponse (Error err) =
     ("status"  , JString "error") ∷
     ("code"    , JString (Err.errorCode err)) ∷
     ("message" , JString (Err.formatError err)) ∷
-    [])
-formatResponse (ByteArray bytes) =
-  JObject (
-    ("status" , JString "success") ∷
-    ("data" , bytesToJSON bytes) ∷
     [])
 formatResponse (ExtractionResultsResponse values errors absent) =
   JObject (

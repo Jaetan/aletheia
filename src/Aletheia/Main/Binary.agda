@@ -55,7 +55,6 @@ open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.Protocol.Handlers using
   ( handleStartStream; handleEndStream; handleFormatDBC
   ; handleExtractAllSignals
-  ; handleBuildFrameByIndex; handleUpdateFrameByIndex
   )
 open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent)
 open import Aletheia.CAN.Frame using (CANId; CANFrame; Byte)
@@ -108,18 +107,6 @@ processExtractDirect : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBy
 {-# NOINLINE processExtractDirect #-}
 processExtractDirect state canId dlc payload =
   wrapJSON (handleExtractAllSignals canId dlc payload state)
-
--- Build CAN frame from signal index-value pairs (no JSON/string parsing)
-processBuildFrameDirect : StreamState → CANId → (dlc : DLC) → List (ℕ × ℚ) → StreamState × String
-{-# NOINLINE processBuildFrameDirect #-}
-processBuildFrameDirect state canId dlc signals =
-  wrapJSON (handleBuildFrameByIndex canId dlc signals state)
-
--- Update CAN frame signals by index (no JSON/string parsing)
-processUpdateFrameDirect : StreamState → CANId → (dlc : DLC) → Vec Byte (dlcBytes dlc) → List (ℕ × ℚ) → StreamState × String
-{-# NOINLINE processUpdateFrameDirect #-}
-processUpdateFrameDirect state canId dlc payload signals =
-  wrapJSON (handleUpdateFrameByIndex canId dlc payload signals state)
 
 -- ============================================================================
 -- BINARY OUTPUT ENTRY POINTS (binary input, binary output)

@@ -70,7 +70,6 @@ enum class ErrorCode {
     HandlerNotStreaming,
     HandlerStreamNotStarted,
     HandlerStreamActive,
-    HandlerSignalListParseFailed,
     HandlerPropertyParseFailed,
     HandlerInvalidDlcCode,
     HandlerValidationFailed,

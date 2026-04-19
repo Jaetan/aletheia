@@ -12,11 +12,11 @@
 --   3. injectSignal-preserves-disjoint-bits-physical — mixed byte orders
 --
 -- These theorems are the structural core of the Batch frame-building
--- correctness proofs in Aletheia.Protocol.BatchFrameBuilding.Properties:
--- they justify that writing signal A then signal B to a frame leaves
--- signal A's bits intact, provided the two signals' bit ranges are
--- disjoint (logically when byte orders match, physically when they
--- differ).
+-- correctness story in Aletheia.CAN.BatchFrameBuilding (validateAndBuild's
+-- overlap check): they justify that writing signal A then signal B to a
+-- frame leaves signal A's bits intact, provided the two signals' bit
+-- ranges are disjoint (logically when byte orders match, physically when
+-- they differ).
 module Aletheia.CAN.Encoding.Properties.Disjoint where
 
 open import Aletheia.CAN.Encoding using (extractionBytes; injectSignal)

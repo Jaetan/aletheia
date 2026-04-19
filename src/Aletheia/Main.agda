@@ -67,8 +67,6 @@ open import Aletheia.Main.Binary public
         ; processEndStreamDirect
         ; processFormatDBCDirect
         ; processExtractDirect
-        ; processBuildFrameDirect
-        ; processUpdateFrameDirect
         ; processBuildFrameBin
         ; processUpdateFrameBin
         ; processExtractBin
@@ -105,15 +103,12 @@ open import Aletheia.Protocol.Message public
         ; ParseDBC
         ; SetProperties
         ; StartStream
-        ; BuildFrame
         ; ExtractAllSignals
-        ; UpdateFrame
         ; EndStream
         ; ValidateDBC
         ; FormatDBC
         ; Response
         ; Success
-        ; ByteArray
         ; ExtractionResultsResponse
         ; PropertyResponse
         ; Ack

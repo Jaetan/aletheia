@@ -20,9 +20,7 @@ Aletheia/Main/Binary:d_processStartStreamDirect_24
 Aletheia/Main/Binary:d_processEndStreamDirect_28
 Aletheia/Main/Binary:d_processFormatDBCDirect_32
 Aletheia/Main/Binary:d_processExtractDirect_38
-Aletheia/Main/Binary:d_processBuildFrameDirect_50
-Aletheia/Main/Binary:d_processUpdateFrameDirect_62
-Aletheia/Main/Binary:d_processBuildFrameBin_98
-Aletheia/Main/Binary:d_processUpdateFrameBin_112
-Aletheia/Main/Binary:d_processExtractBin_128
+Aletheia/Main/Binary:d_processBuildFrameBin_72
+Aletheia/Main/Binary:d_processUpdateFrameBin_86
+Aletheia/Main/Binary:d_processExtractBin_102
 Aletheia/Protocol/StreamState/Types:d_initialState_42

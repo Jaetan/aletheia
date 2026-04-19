@@ -60,14 +60,6 @@ type Backend interface {
 	FormatDbcBinary(state unsafe.Pointer) (string, error)
 	// ExtractSignalsBinary extracts signals from a binary CAN frame without JSON parsing on input.
 	ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error)
-	// BuildFrameBinary builds a CAN frame from signal index-value pairs without JSON parsing on input.
-	// indices are 0-based positions in the DBC message's signal list.
-	// nums and dens are parallel arrays of rational numerator/denominator pairs.
-	BuildFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error)
-	// UpdateFrameBinary updates signals in a CAN frame by index without JSON parsing on input.
-	// indices are 0-based positions in the DBC message's signal list.
-	// nums and dens are parallel arrays of rational numerator/denominator pairs.
-	UpdateFrameBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte, numSignals uint32, indices []uint32, nums []int64, dens []int64) (string, error)
 	// BuildFrameBin builds a CAN frame returning raw payload bytes, bypassing JSON on both input and output.
 	BuildFrameBin(state unsafe.Pointer, id CanID, dlc DLC, numSignals uint32, indices []uint32, nums []int64, dens []int64) ([]byte, error)
 	// UpdateFrameBin updates a CAN frame returning raw payload bytes, bypassing JSON on both input and output.

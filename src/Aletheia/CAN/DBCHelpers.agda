@@ -73,9 +73,9 @@ findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
 --   (b) `Agda.Builtin.String.primStringEquality` is the only path to a true
 --       Bool (compiled directly to Haskell `Text` `==`), but it gives back
 --       neither a `Dec` nor a propositional-equality witness. Routing it
---       through the proof callers (BatchFrameBuilding/Properties.agda:71 and
---       SignalExtraction/Properties.agda) is fine because those proofs match
---       on the `Maybe DBCSignal` *result*, not on the internal Dec; but
+--       through the proof callers (SignalExtraction/Properties.agda) is
+--       fine because those proofs match on the `Maybe DBCSignal` *result*,
+--       not on the internal Dec; but
 --       the `_≟ₛ_` call appears in a `with` whose `yes`/`no` cases are
 --       structurally examined by `findSignalInList`'s own definition, and
 --       a Bool fast path forfeits the propositional-equality bridge that

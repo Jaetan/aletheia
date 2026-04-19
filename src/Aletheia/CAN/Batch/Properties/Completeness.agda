@@ -9,7 +9,7 @@ module Aletheia.CAN.Batch.Properties.Completeness where
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
-open import Aletheia.Error using (MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; BitExtractionFailed)
+open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed; BitExtractionFailed; InContext)
 open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.BatchExtraction using (PartitionedResults; mkPartitionedResults; ExtractionResults; categorizeResult; combinePartitioned; emptyPartitioned; extractAllSignalsFromMessage)
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal)
@@ -65,6 +65,8 @@ extractAll-complete frame msg = go (DBCMessage.signals msg)
     ... | SignalNotPresent (MuxExtractionFailed _) | mkPartitionedResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
     ... | SignalNotPresent (BitExtractionFailed _) | mkPartitionedResults vs es as | ih =
+      trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
+    ... | SignalNotPresent (InContext _ _)         | mkPartitionedResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
     ... | ValueOutOfBounds _ _ _ | mkPartitionedResults vs es as | ih =
       trans (shift-mid (length vs) (length es) (length as)) (cong suc ih)
