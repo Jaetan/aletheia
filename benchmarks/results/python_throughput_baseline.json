@@ -1,0 +1,73 @@
+{
+  "benchmark": "throughput",
+  "language": "python",
+  "timestamp": "2026-04-19T10:01:48.443404+00:00",
+  "system": {
+    "cpu": "x86_64",
+    "cores": 32,
+    "platform": "Linux",
+    "python": "3.13.12"
+  },
+  "results": [
+    {
+      "name": "CAN 2.0B: Stream LTL (2 props)",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 73512.8,
+      "fps_stdev": 815.3,
+      "fps_min": 72186.7,
+      "fps_max": 74322.0,
+      "us_per_frame": 13.6
+    },
+    {
+      "name": "CAN 2.0B: Signal Extraction",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 72524.5,
+      "fps_stdev": 3742.7,
+      "fps_min": 66692.5,
+      "fps_max": 75993.2,
+      "us_per_frame": 13.8
+    },
+    {
+      "name": "CAN 2.0B: Frame Building",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 45585.5,
+      "fps_stdev": 388.2,
+      "fps_min": 45140.1,
+      "fps_max": 45931.1,
+      "us_per_frame": 21.9
+    },
+    {
+      "name": "CAN-FD:   Stream LTL (3 props)",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 33521.2,
+      "fps_stdev": 1507.1,
+      "fps_min": 31859.2,
+      "fps_max": 35198.1,
+      "us_per_frame": 29.8
+    },
+    {
+      "name": "CAN-FD:   Signal Extraction",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 10596.1,
+      "fps_stdev": 192.5,
+      "fps_min": 10302.9,
+      "fps_max": 10757.5,
+      "us_per_frame": 94.4
+    },
+    {
+      "name": "CAN-FD:   Frame Building",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 14322.0,
+      "fps_stdev": 126.4,
+      "fps_min": 14131.9,
+      "fps_max": 14481.4,
+      "us_per_frame": 69.8
+    }
+  ]
+}

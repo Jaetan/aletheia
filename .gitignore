@@ -72,7 +72,8 @@ c.log
 *.hp
 
 # Benchmarks
-benchmarks/results/
+# benchmarks/results/ — directory left un-ignored so the nested .gitignore
+# can track *_baseline.json while still ignoring volatile per-run *.json.
 go/benchmarks/benchmark
 cpp/build/
 

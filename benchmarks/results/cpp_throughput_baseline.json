@@ -1,0 +1,73 @@
+{
+  "benchmark": "throughput",
+  "language": "cpp",
+  "results": [
+    {
+      "fps_max": 121664.1,
+      "fps_mean": 116181.2,
+      "fps_min": 107191.6,
+      "fps_stdev": 5387.6,
+      "frames": 10000,
+      "name": "CAN 2.0B: Stream LTL (2 props)",
+      "runs": 5,
+      "us_per_frame": 8.6
+    },
+    {
+      "fps_max": 224535.6,
+      "fps_mean": 222012.4,
+      "fps_min": 214519.0,
+      "fps_stdev": 4218.1,
+      "frames": 10000,
+      "name": "CAN 2.0B: Signal Extraction",
+      "runs": 5,
+      "us_per_frame": 4.5
+    },
+    {
+      "fps_max": 72715.1,
+      "fps_mean": 72547.6,
+      "fps_min": 72170.6,
+      "fps_stdev": 230.5,
+      "frames": 10000,
+      "name": "CAN 2.0B: Frame Building",
+      "runs": 5,
+      "us_per_frame": 13.8
+    },
+    {
+      "fps_max": 54747.9,
+      "fps_mean": 52502.3,
+      "fps_min": 48429.0,
+      "fps_stdev": 2387.9,
+      "frames": 10000,
+      "name": "CAN-FD:   Stream LTL (3 props)",
+      "runs": 5,
+      "us_per_frame": 19.0
+    },
+    {
+      "fps_max": 16329.9,
+      "fps_mean": 16233.9,
+      "fps_min": 16150.5,
+      "fps_stdev": 67.9,
+      "frames": 10000,
+      "name": "CAN-FD:   Signal Extraction",
+      "runs": 5,
+      "us_per_frame": 61.6
+    },
+    {
+      "fps_max": 17955.4,
+      "fps_mean": 17346.3,
+      "fps_min": 17022.6,
+      "fps_stdev": 358.4,
+      "frames": 10000,
+      "name": "CAN-FD:   Frame Building",
+      "runs": 5,
+      "us_per_frame": 57.6
+    }
+  ],
+  "system": {
+    "build_type": "Release",
+    "cores": 32,
+    "cpu": "AMD Ryzen 9 5950X 16-Core Processor",
+    "platform": "Linux"
+  },
+  "timestamp": "2026-04-19T10:01:59Z"
+}

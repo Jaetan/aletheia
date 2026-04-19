@@ -1,0 +1,73 @@
+{
+  "benchmark": "throughput",
+  "language": "go",
+  "timestamp": "2026-04-19T10:02:12Z",
+  "system": {
+    "cpu": "amd64",
+    "cores": 32,
+    "platform": "linux",
+    "go": "go1.26.1"
+  },
+  "results": [
+    {
+      "name": "CAN 2.0B: Stream LTL (2 props)",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 101172.6,
+      "fps_stdev": 4255.1,
+      "fps_min": 96260.4,
+      "fps_max": 107072.4,
+      "us_per_frame": 9.9
+    },
+    {
+      "name": "CAN 2.0B: Signal Extraction",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 181093.9,
+      "fps_stdev": 4572.6,
+      "fps_min": 174514.9,
+      "fps_max": 185579.3,
+      "us_per_frame": 5.5
+    },
+    {
+      "name": "CAN 2.0B: Frame Building",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 67698.9,
+      "fps_stdev": 1171.6,
+      "fps_min": 66717.7,
+      "fps_max": 69725.5,
+      "us_per_frame": 14.8
+    },
+    {
+      "name": "CAN-FD:   Stream LTL (3 props)",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 48586.5,
+      "fps_stdev": 2646.1,
+      "fps_min": 45321.2,
+      "fps_max": 51464.1,
+      "us_per_frame": 20.6
+    },
+    {
+      "name": "CAN-FD:   Signal Extraction",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 15268.8,
+      "fps_stdev": 206.6,
+      "fps_min": 14957.8,
+      "fps_max": 15480,
+      "us_per_frame": 65.5
+    },
+    {
+      "name": "CAN-FD:   Frame Building",
+      "frames": 10000,
+      "runs": 5,
+      "fps_mean": 16908.1,
+      "fps_stdev": 209,
+      "fps_min": 16659.2,
+      "fps_max": 17156.8,
+      "us_per_frame": 59.1
+    }
+  ]
+}
