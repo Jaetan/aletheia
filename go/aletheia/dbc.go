@@ -189,15 +189,84 @@ func (m DbcMessage) SignalByName(name SignalName) *DbcSignal {
 }
 
 // ---------------------------------------------------------------------------
+// DBC signal group (SIG_GROUP_ keyword)
+//
+// The DBC spec carries a parent-message id and a repetition count on the
+// wire; the Agda core only models the flattened {name, signals} view
+// because signal-name uniqueness is enforced globally by the validator, so
+// reconstructing message context on format_dbc is unnecessary.
+// ---------------------------------------------------------------------------
+
+// DbcSignalGroup is a DBC signal group (SIG_GROUP_ keyword).
+type DbcSignalGroup struct {
+	Name    string
+	Signals []SignalName
+}
+
+// ---------------------------------------------------------------------------
+// DBC environment variable (EV_ keyword)
+//
+// The DBC spec encodes int/float/string as 0/1/2 respectively on the wire;
+// the Agda core preserves that vocabulary directly (varTypeToℕ).
+// ---------------------------------------------------------------------------
+
+// DbcVarType is the integer tag of a DBC environment variable's declared
+// type. Values other than the three listed are rejected by parseDbcDefinition
+// as a protocol error.
+type DbcVarType int
+
+// DBC var type constants (wire tag values).
+const (
+	DbcVarTypeInt    DbcVarType = 0
+	DbcVarTypeFloat  DbcVarType = 1
+	DbcVarTypeString DbcVarType = 2
+)
+
+// DbcEnvironmentVar is a DBC environment variable (EV_ keyword).
+// Numeric fields use [Rational] to preserve exact decimal intent through
+// the wire round-trip, matching the Agda core's ℚ representation.
+type DbcEnvironmentVar struct {
+	Name    string
+	VarType DbcVarType
+	Initial Rational
+	Minimum Rational
+	Maximum Rational
+}
+
+// ---------------------------------------------------------------------------
+// DBC value table (VAL_TABLE_ keyword)
+// ---------------------------------------------------------------------------
+
+// DbcValueEntry is one (value, description) pair in a [DbcValueTable].
+type DbcValueEntry struct {
+	Value       int64
+	Description string
+}
+
+// DbcValueTable is a DBC value table (VAL_TABLE_ keyword).
+type DbcValueTable struct {
+	Name    string
+	Entries []DbcValueEntry
+}
+
+// ---------------------------------------------------------------------------
 // DBC definition and lookup helpers
 // ---------------------------------------------------------------------------
 
 // DbcDefinition is a complete DBC database.
+//
+// The three Tier 1 metadata slices (SignalGroups / EnvironmentVars /
+// ValueTables) mirror the Agda DBC record fields 3-5 and are written on
+// every format_dbc response even when empty, matching the C++ and Python
+// bindings.
 type DbcDefinition struct {
-	Version   string
-	Messages  []DbcMessage
-	nameIndex map[string]int // maps message name -> index
-	idIndex   map[uint64]int // maps composite CAN ID key -> index
+	Version         string
+	Messages        []DbcMessage
+	SignalGroups    []DbcSignalGroup
+	EnvironmentVars []DbcEnvironmentVar
+	ValueTables     []DbcValueTable
+	nameIndex       map[string]int // maps message name -> index
+	idIndex         map[uint64]int // maps composite CAN ID key -> index
 }
 
 // NewDbcDefinition creates a [DbcDefinition] with its message-name and

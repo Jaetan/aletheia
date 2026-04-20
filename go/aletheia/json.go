@@ -146,9 +146,45 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		}
 		msgs = append(msgs, m)
 	}
+
+	groups := make([]map[string]any, 0, len(dbc.SignalGroups))
+	for _, g := range dbc.SignalGroups {
+		sigs := make([]string, len(g.Signals))
+		for i, s := range g.Signals {
+			sigs[i] = string(s)
+		}
+		groups = append(groups, map[string]any{"name": g.Name, "signals": sigs})
+	}
+
+	envVars := make([]map[string]any, 0, len(dbc.EnvironmentVars))
+	for _, ev := range dbc.EnvironmentVars {
+		envVars = append(envVars, map[string]any{
+			"name":    ev.Name,
+			"varType": int(ev.VarType),
+			"initial": serializeRational(ev.Initial),
+			"minimum": serializeRational(ev.Minimum),
+			"maximum": serializeRational(ev.Maximum),
+		})
+	}
+
+	valueTables := make([]map[string]any, 0, len(dbc.ValueTables))
+	for _, vt := range dbc.ValueTables {
+		entries := make([]map[string]any, 0, len(vt.Entries))
+		for _, e := range vt.Entries {
+			entries = append(entries, map[string]any{
+				"value":       e.Value,
+				"description": e.Description,
+			})
+		}
+		valueTables = append(valueTables, map[string]any{"name": vt.Name, "entries": entries})
+	}
+
 	return map[string]any{
-		"version":  dbc.Version,
-		"messages": msgs,
+		"version":         dbc.Version,
+		"messages":        msgs,
+		"signalGroups":    groups,
+		"environmentVars": envVars,
+		"valueTables":     valueTables,
 	}, nil
 }
 
@@ -950,7 +986,9 @@ func parseDbcResponse(raw string) (*DbcDefinition, error) {
 }
 
 // parseDbcDefinition decodes the "dbc" sub-object of a formatDBC
-// response into its typed DbcDefinition form.
+// response into its typed DbcDefinition form. Tier 1 metadata arrays
+// (signalGroups / environmentVars / valueTables) are optional on the
+// wire — absent or null keys become empty slices.
 func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 	var messages []DbcMessage
 	for _, item := range getArray(j, "messages") {
@@ -964,12 +1002,139 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 		}
 		messages = append(messages, *msg)
 	}
+
+	signalGroups, err := parseSignalGroups(j)
+	if err != nil {
+		return nil, err
+	}
+	envVars, err := parseEnvironmentVars(j)
+	if err != nil {
+		return nil, err
+	}
+	valueTables, err := parseValueTables(j)
+	if err != nil {
+		return nil, err
+	}
+
 	def := &DbcDefinition{
-		Version:  getString(j, "version"),
-		Messages: messages,
+		Version:         getString(j, "version"),
+		Messages:        messages,
+		SignalGroups:    signalGroups,
+		EnvironmentVars: envVars,
+		ValueTables:     valueTables,
 	}
 	def.buildIndexes()
 	return def, nil
+}
+
+// parseSignalGroups decodes the optional "signalGroups" array from a
+// formatDBC "dbc" sub-object.
+func parseSignalGroups(j map[string]any) ([]DbcSignalGroup, error) {
+	raw := getArray(j, "signalGroups")
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]DbcSignalGroup, 0, len(raw))
+	for _, item := range raw {
+		gRaw, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in signalGroups array")
+		}
+		name := getString(gRaw, "name")
+		sigsRaw := getArray(gRaw, "signals")
+		sigs := make([]SignalName, 0, len(sigsRaw))
+		for _, sn := range sigsRaw {
+			s, ok := sn.(string)
+			if !ok {
+				return nil, protocolError("signalGroups.signals entry is not a string")
+			}
+			sigs = append(sigs, SignalName(s))
+		}
+		out = append(out, DbcSignalGroup{Name: name, Signals: sigs})
+	}
+	return out, nil
+}
+
+// parseEnvironmentVars decodes the optional "environmentVars" array.
+// The wire-tag “varType“ must be one of 0/1/2 (Int/Float/String); any
+// other value is a protocol error.
+func parseEnvironmentVars(j map[string]any) ([]DbcEnvironmentVar, error) {
+	raw := getArray(j, "environmentVars")
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]DbcEnvironmentVar, 0, len(raw))
+	for _, item := range raw {
+		evRaw, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in environmentVars array")
+		}
+		tagVal, err := parseNumberAsInt64(evRaw["varType"])
+		if err != nil {
+			return nil, wrapProtocol("invalid varType", err)
+		}
+		if tagVal < 0 || tagVal > 2 {
+			return nil, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
+		}
+		initial, err := parseRational(evRaw["initial"])
+		if err != nil {
+			return nil, wrapProtocol("invalid environmentVar initial", err)
+		}
+		minimum, err := parseRational(evRaw["minimum"])
+		if err != nil {
+			return nil, wrapProtocol("invalid environmentVar minimum", err)
+		}
+		maximum, err := parseRational(evRaw["maximum"])
+		if err != nil {
+			return nil, wrapProtocol("invalid environmentVar maximum", err)
+		}
+		out = append(out, DbcEnvironmentVar{
+			Name:    getString(evRaw, "name"),
+			VarType: DbcVarType(tagVal),
+			Initial: initial,
+			Minimum: minimum,
+			Maximum: maximum,
+		})
+	}
+	return out, nil
+}
+
+// parseValueTables decodes the optional "valueTables" array. Each entry's
+// integer value is parsed through [parseNumberAsInt64] to tolerate JSON's
+// float decoder on whole-number values.
+func parseValueTables(j map[string]any) ([]DbcValueTable, error) {
+	raw := getArray(j, "valueTables")
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]DbcValueTable, 0, len(raw))
+	for _, item := range raw {
+		vtRaw, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in valueTables array")
+		}
+		entriesRaw := getArray(vtRaw, "entries")
+		entries := make([]DbcValueEntry, 0, len(entriesRaw))
+		for _, er := range entriesRaw {
+			eRaw, ok := er.(map[string]any)
+			if !ok {
+				return nil, protocolError("expected object in valueTables.entries array")
+			}
+			v, err := parseNumberAsInt64(eRaw["value"])
+			if err != nil {
+				return nil, wrapProtocol("invalid valueTable entry value", err)
+			}
+			entries = append(entries, DbcValueEntry{
+				Value:       v,
+				Description: getString(eRaw, "description"),
+			})
+		}
+		out = append(out, DbcValueTable{
+			Name:    getString(vtRaw, "name"),
+			Entries: entries,
+		})
+	}
+	return out, nil
 }
 
 // parseDbcMessage decodes a single message from a DbcDefinition JSON
