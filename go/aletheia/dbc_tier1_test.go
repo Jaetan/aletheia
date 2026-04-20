@@ -304,11 +304,18 @@ func TestFormatDBC_EnvVarPreservesExactRationals(t *testing.T) {
 		t.Fatalf("EnvironmentVars: got %d, want 1", len(dbc.EnvironmentVars))
 	}
 	ev := dbc.EnvironmentVars[0]
-	// Rational is a float64 alias; 1/3 renders as 0.333... but we verify it
-	// came through the parser without error. The exact-precision guarantee
-	// for Tier 1 env vars is the JSON round-trip (num/denom) not the Rational
-	// representation, which mirrors Python's Fraction-on-the-wire / float-in-memory split.
-	_ = ev
+	// Rational preserves exact numerator/denominator through the wire round-trip.
+	// 1/3 is chosen because it is a non-terminating binary fraction — any
+	// float-based path would lose precision here.
+	if ev.Initial.Numerator != 1 || ev.Initial.Denominator != 3 {
+		t.Errorf("Initial: got %d/%d, want 1/3", ev.Initial.Numerator, ev.Initial.Denominator)
+	}
+	if ev.Minimum.Numerator != 0 || ev.Minimum.Denominator != 1 {
+		t.Errorf("Minimum: got %d/%d, want 0/1", ev.Minimum.Numerator, ev.Minimum.Denominator)
+	}
+	if ev.Maximum.Numerator != 1 || ev.Maximum.Denominator != 1 {
+		t.Errorf("Maximum: got %d/%d, want 1/1", ev.Maximum.Numerator, ev.Maximum.Denominator)
+	}
 }
 
 func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
