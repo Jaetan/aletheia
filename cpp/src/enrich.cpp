@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -102,6 +103,34 @@ void collect_signals_into(const LtlFormula& f, std::vector<SignalName>& signals)
         f);
 }
 
+auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string;
+
+auto wrap_if_binary(std::string s, bool parenthesize) -> std::string {
+    return parenthesize ? "(" + std::move(s) + ")" : std::move(s);
+}
+
+template<typename Node>
+auto format_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
+    return wrap_if_binary(format_formula_inner(*v.left, true) + " " + std::string{op} + " " +
+                              format_formula_inner(*v.right, true),
+                          parenthesize);
+}
+
+template<typename Node>
+auto format_metric_binary(const Node& v, std::string_view op, bool parenthesize) -> std::string {
+    return wrap_if_binary(format_formula_inner(*v.left, true) + " " + std::string{op} + " within " +
+                              format_timebound(v.bound) + format_formula_inner(*v.right, true),
+                          parenthesize);
+}
+
+// Detect Never pattern: Always{Not{Atomic{p}}} — returns empty string if not.
+auto try_format_never(const Always& v) -> std::string {
+    if (auto* n = std::get_if<Not>(v.formula.get()))
+        if (auto* a = std::get_if<Atomic>(n->formula.get()))
+            return "never " + format_predicate(a->predicate);
+    return {};
+}
+
 // Inner formatter: parenthesize_binary wraps binary operators in parens when
 // they appear as children of other binary operators, matching Go's behavior.
 auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std::string {
@@ -112,49 +141,35 @@ auto format_formula_inner(const LtlFormula& f, bool parenthesize_binary) -> std:
                 return format_predicate(v.predicate);
             else if constexpr (std::is_same_v<T, Not>)
                 return "not(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, And>) {
-                auto s = format_formula_inner(*v.left, true) + " and " +
-                         format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else if constexpr (std::is_same_v<T, Or>) {
-                auto s = format_formula_inner(*v.left, true) + " or " +
-                         format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else if constexpr (std::is_same_v<T, Next>)
+            else if constexpr (std::is_same_v<T, And>)
+                return format_binary(v, "and", parenthesize_binary);
+            else if constexpr (std::is_same_v<T, Or>)
+                return format_binary(v, "or", parenthesize_binary);
+            else if constexpr (std::is_same_v<T, Next>)
                 return "next(" + format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, WeakNext>)
                 return "weak_next(" + format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, Always>) {
-                // Detect Never pattern: Always{Not{Atomic{p}}}
-                if (auto* n = std::get_if<Not>(v.formula.get()))
-                    if (auto* a = std::get_if<Atomic>(n->formula.get()))
-                        return "never " + format_predicate(a->predicate);
-                return "always(" + format_formula_inner(*v.formula, false) + ")";
+                auto never = try_format_never(v);
+                return never.empty() ? "always(" + format_formula_inner(*v.formula, false) + ")"
+                                     : never;
             } else if constexpr (std::is_same_v<T, Eventually>)
                 return "eventually(" + format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, Until>) {
-                auto s = format_formula_inner(*v.left, true) + " until " +
-                         format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else if constexpr (std::is_same_v<T, Release>) {
-                auto s = format_formula_inner(*v.left, true) + " release " +
-                         format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else if constexpr (std::is_same_v<T, MetricAlways>)
+            else if constexpr (std::is_same_v<T, Until>)
+                return format_binary(v, "until", parenthesize_binary);
+            else if constexpr (std::is_same_v<T, Release>)
+                return format_binary(v, "release", parenthesize_binary);
+            else if constexpr (std::is_same_v<T, MetricAlways>)
                 return "always within " + format_timebound(v.bound) + "(" +
                        format_formula_inner(*v.formula, false) + ")";
             else if constexpr (std::is_same_v<T, MetricEventually>)
                 return "eventually within " + format_timebound(v.bound) + "(" +
                        format_formula_inner(*v.formula, false) + ")";
-            else if constexpr (std::is_same_v<T, MetricUntil>) {
-                auto s = format_formula_inner(*v.left, true) + " until within " +
-                         format_timebound(v.bound) + format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else if constexpr (std::is_same_v<T, MetricRelease>) {
-                auto s = format_formula_inner(*v.left, true) + " release within " +
-                         format_timebound(v.bound) + format_formula_inner(*v.right, true);
-                return parenthesize_binary ? "(" + s + ")" : s;
-            } else
+            else if constexpr (std::is_same_v<T, MetricUntil>)
+                return format_metric_binary(v, "until", parenthesize_binary);
+            else if constexpr (std::is_same_v<T, MetricRelease>)
+                return format_metric_binary(v, "release", parenthesize_binary);
+            else
                 static_assert(sizeof(T) == 0, "Unhandled formula type in format_formula");
         },
         f);

@@ -46,7 +46,7 @@ AletheiaClient::AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger,
     , state_(backend_->init())
     , logger_(std::move(logger))
     , default_checks_(std::move(default_checks)) {
-    if (!state_)
+    if (state_ == nullptr)
         throw std::runtime_error("backend init() returned null state");
     if (!logger_)
         return;
@@ -70,6 +70,7 @@ AletheiaClient::~AletheiaClient() {
             // unwinding terminates the program. The FFI close() path allocates
             // nothing, but backend implementations (e.g. a mock) may throw; we
             // intentionally swallow those to satisfy the noexcept contract.
+            static_cast<void>(std::current_exception());
         }
     }
 }
@@ -95,6 +96,7 @@ AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
                 // noexcept move-assignment must not propagate exceptions. Same
                 // rationale as ~AletheiaClient: a throwing backend close is
                 // swallowed so the move can complete without std::terminate.
+                static_cast<void>(std::current_exception());
             }
         }
         backend_ = std::move(other.backend_);
@@ -193,8 +195,8 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
     const auto nabss = read_u16(4);
     // nvals/nerrs/nabss are u16 (max 65535), so the max expected_size is
     // ~1.5 MB — far below SIZE_MAX on any supported platform.
-    const auto expected_size =
-        std::size_t{6} + std::size_t{nvals} * 18 + std::size_t{nerrs} * 3 + std::size_t{nabss} * 2;
+    const auto expected_size = std::size_t{6} + (std::size_t{nvals} * 18) +
+                               (std::size_t{nerrs} * 3) + (std::size_t{nabss} * 2);
     if (buf.size() < expected_size)
         return {};
     std::size_t off = 6;

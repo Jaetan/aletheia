@@ -600,6 +600,163 @@ TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]")
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("DLC"));
 }
 
+// ===========================================================================
+// Tier 1 DBC metadata round-trip (Phase B.1)
+// ===========================================================================
+
+TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize][dbc]") {
+    auto dbc = make_test_dbc();
+    dbc.signal_groups.push_back(DbcSignalGroup{.name = "Group1", .signals = {SignalName{"Speed"}}});
+    dbc.environment_vars.push_back(DbcEnvironmentVar{
+        .name = "AmbientTemp",
+        .var_type = DbcVarType::Float,
+        .initial = Rational{22, 1},
+        .minimum = Rational{-40, 1},
+        .maximum = Rational{85, 1},
+    });
+    dbc.value_tables.push_back(DbcValueTable{
+        .name = "GearStates",
+        .entries = {DbcValueEntry{.value = 0, .description = "Park"},
+                    DbcValueEntry{.value = 1, .description = "Drive"}},
+    });
+
+    auto str = detail::serialize_parse_dbc(dbc);
+    auto j = json::parse(str);
+
+    REQUIRE(j["dbc"]["signalGroups"].is_array());
+    REQUIRE(j["dbc"]["signalGroups"].size() == 1);
+    CHECK(j["dbc"]["signalGroups"][0]["name"] == "Group1");
+    CHECK(j["dbc"]["signalGroups"][0]["signals"][0] == "Speed");
+
+    REQUIRE(j["dbc"]["environmentVars"].size() == 1);
+    CHECK(j["dbc"]["environmentVars"][0]["name"] == "AmbientTemp");
+    CHECK(j["dbc"]["environmentVars"][0]["varType"] == 1);
+    CHECK(j["dbc"]["environmentVars"][0]["initial"] == 22);
+    CHECK(j["dbc"]["environmentVars"][0]["minimum"] == -40);
+    CHECK(j["dbc"]["environmentVars"][0]["maximum"] == 85);
+
+    REQUIRE(j["dbc"]["valueTables"].size() == 1);
+    CHECK(j["dbc"]["valueTables"][0]["name"] == "GearStates");
+    CHECK(j["dbc"]["valueTables"][0]["entries"].size() == 2);
+    CHECK(j["dbc"]["valueTables"][0]["entries"][0]["value"] == 0);
+    CHECK(j["dbc"]["valueTables"][0]["entries"][0]["description"] == "Park");
+}
+
+TEST_CASE("serialize_parse_dbc emits empty arrays when metadata absent", "[json][serialize][dbc]") {
+    auto dbc = make_test_dbc();
+    auto str = detail::serialize_parse_dbc(dbc);
+    auto j = json::parse(str);
+    REQUIRE(j["dbc"]["signalGroups"].is_array());
+    CHECK(j["dbc"]["signalGroups"].empty());
+    REQUIRE(j["dbc"]["environmentVars"].is_array());
+    CHECK(j["dbc"]["environmentVars"].empty());
+    REQUIRE(j["dbc"]["valueTables"].is_array());
+    CHECK(j["dbc"]["valueTables"].empty());
+}
+
+TEST_CASE("parse_dbc_response with Tier 1 metadata", "[json][parse][dbc]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [],
+            "signalGroups": [
+                {"name": "Engine", "signals": ["RPM", "Torque"]},
+                {"name": "Chassis", "signals": ["WheelSpeed"]}
+            ],
+            "environmentVars": [
+                {"name": "AmbientTemp",
+                 "varType": 1,
+                 "initial": {"numerator": 22, "denominator": 1},
+                 "minimum": {"numerator": -40, "denominator": 1},
+                 "maximum": {"numerator": 85, "denominator": 1}}
+            ],
+            "valueTables": [
+                {"name": "States",
+                 "entries": [
+                    {"value": 0, "description": "idle"},
+                    {"value": 1, "description": "active"}
+                 ]}
+            ]
+        }
+    })");
+    REQUIRE(result.has_value());
+
+    REQUIRE(result->signal_groups.size() == 2);
+    CHECK(result->signal_groups[0].name == "Engine");
+    REQUIRE(result->signal_groups[0].signals.size() == 2);
+    CHECK(result->signal_groups[0].signals[0] == SignalName{"RPM"});
+    CHECK(result->signal_groups[1].name == "Chassis");
+
+    REQUIRE(result->environment_vars.size() == 1);
+    CHECK(result->environment_vars[0].name == "AmbientTemp");
+    CHECK(result->environment_vars[0].var_type == DbcVarType::Float);
+    CHECK(result->environment_vars[0].initial == Rational{22, 1});
+    CHECK(result->environment_vars[0].minimum == Rational{-40, 1});
+    CHECK(result->environment_vars[0].maximum == Rational{85, 1});
+
+    REQUIRE(result->value_tables.size() == 1);
+    CHECK(result->value_tables[0].name == "States");
+    REQUIRE(result->value_tables[0].entries.size() == 2);
+    CHECK(result->value_tables[0].entries[0].value == 0);
+    CHECK(result->value_tables[0].entries[0].description == "idle");
+    CHECK(result->value_tables[0].entries[1].value == 1);
+    CHECK(result->value_tables[0].entries[1].description == "active");
+}
+
+TEST_CASE("parse_dbc_response accepts missing Tier 1 metadata keys", "[json][parse][dbc]") {
+    // Wire format compatibility — pre-Tier-1 responses omit the new fields;
+    // they should parse as empty vectors, not errors.
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": []}
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->signal_groups.empty());
+    CHECK(result->environment_vars.empty());
+    CHECK(result->value_tables.empty());
+}
+
+TEST_CASE("parse_dbc_response rejects unknown varType", "[json][parse][dbc][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [],
+            "environmentVars": [
+                {"name": "Bad", "varType": 7,
+                 "initial": 0, "minimum": 0, "maximum": 0}
+            ]
+        }
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()},
+               ContainsSubstring("environment variable type"));
+}
+
+TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse][dbc]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "",
+            "messages": [],
+            "environmentVars": [
+                {"name": "Precise", "varType": 1,
+                 "initial": {"numerator": 1, "denominator": 10},
+                 "minimum": {"numerator": -1, "denominator": 3},
+                 "maximum": {"numerator": 22, "denominator": 7}}
+            ]
+        }
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->environment_vars.size() == 1);
+    const auto& ev = result->environment_vars[0];
+    CHECK(ev.initial == Rational{1, 10});
+    CHECK(ev.minimum == Rational{-1, 3});
+    CHECK(ev.maximum == Rational{22, 7});
+}
+
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
     auto result = detail::parse_extraction(R"({
         "status": "success",

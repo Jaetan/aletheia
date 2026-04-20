@@ -83,13 +83,13 @@ auto DbcMessage::signals_for_mux_value(const SignalName& multiplexor, MultiplexV
     return out;
 }
 
-auto DbcMessage::signal_by_name(const SignalName& target) const -> const DbcSignal* {
+auto DbcMessage::signal_by_name(const SignalName& name) const -> const DbcSignal* {
     signal_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < signals.size(); ++i) {
             map.emplace(signals[i].name.get(), i);
         }
     });
-    auto idx = signal_index_cache.find(target.get());
+    auto idx = signal_index_cache.find(name.get());
     if (!idx) {
         return nullptr;
     }
@@ -120,13 +120,13 @@ auto DbcDefinition::message_by_id(const CanId& id) const -> const DbcMessage* {
     return &messages[*idx];
 }
 
-auto DbcDefinition::message_by_name(const MessageName& target) const -> const DbcMessage* {
+auto DbcDefinition::message_by_name(const MessageName& name) const -> const DbcMessage* {
     name_index_cache.ensure([this](auto& map) {
         for (std::size_t i = 0; i < messages.size(); ++i) {
             map.emplace(messages[i].name.get(), i);
         }
     });
-    auto idx = name_index_cache.find(target.get());
+    auto idx = name_index_cache.find(name.get());
     if (!idx) {
         return nullptr;
     }

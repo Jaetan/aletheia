@@ -84,11 +84,50 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     };
 }
 
+static auto signal_group_to_json(const DbcSignalGroup& g) -> Json {
+    Json sigs = Json::array();
+    for (const auto& sn : g.signals)
+        sigs.push_back(sn.get());
+    return {{"name", g.name}, {"signals", std::move(sigs)}};
+}
+
+static auto env_var_to_json(const DbcEnvironmentVar& ev) -> Json {
+    return {
+        {"name", ev.name},
+        {"varType", static_cast<int>(ev.var_type)},
+        {"initial", rational_to_json(ev.initial)},
+        {"minimum", rational_to_json(ev.minimum)},
+        {"maximum", rational_to_json(ev.maximum)},
+    };
+}
+
+static auto value_table_to_json(const DbcValueTable& t) -> Json {
+    Json entries = Json::array();
+    for (const auto& e : t.entries)
+        entries.push_back(Json{{"value", e.value}, {"description", e.description}});
+    return {{"name", t.name}, {"entries", std::move(entries)}};
+}
+
 static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
     Json msgs = Json::array();
     for (const auto& m : dbc.messages)
         msgs.push_back(message_to_json(m));
-    return {{"version", dbc.version}, {"messages", std::move(msgs)}};
+    Json groups = Json::array();
+    for (const auto& g : dbc.signal_groups)
+        groups.push_back(signal_group_to_json(g));
+    Json env_vars = Json::array();
+    for (const auto& ev : dbc.environment_vars)
+        env_vars.push_back(env_var_to_json(ev));
+    Json value_tables = Json::array();
+    for (const auto& vt : dbc.value_tables)
+        value_tables.push_back(value_table_to_json(vt));
+    return {
+        {"version", dbc.version},
+        {"messages", std::move(msgs)},
+        {"signalGroups", std::move(groups)},
+        {"environmentVars", std::move(env_vars)},
+        {"valueTables", std::move(value_tables)},
+    };
 }
 
 // Map each predicate variant to its JSON representation for the Agda core.

@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -33,7 +34,7 @@ public:
         if (cache_)
             return;
         cache_.emplace();
-        build(*cache_);
+        std::forward<Builder>(build)(*cache_);
     }
 
     /// Look up a key; returns std::nullopt if absent or not yet built.
@@ -111,6 +112,58 @@ struct DbcMessage {
 };
 
 // ---------------------------------------------------------------------------
+// DBC signal group (``SIG_GROUP_`` keyword)
+//
+// The DBC spec carries a parent-message id and a repetition count on the
+// wire; the Agda core only models the flattened ``{name, signals}`` view
+// because signal-name uniqueness is enforced globally by the validator,
+// so reconstructing message context on format_dbc is unnecessary.
+// ---------------------------------------------------------------------------
+
+struct DbcSignalGroup {
+    std::string name;
+    std::vector<SignalName> signals;
+};
+
+// ---------------------------------------------------------------------------
+// DBC environment variable (``EV_`` keyword)
+//
+// The DBC spec encodes int/float/string as 0/1/2 respectively on the wire;
+// the Agda core preserves that vocabulary directly (``varTypeToℕ``).
+// ---------------------------------------------------------------------------
+
+enum class DbcVarType : int {
+    Int = 0,
+    Float = 1,
+    String = 2,
+};
+
+struct DbcEnvironmentVar {
+    std::string name;
+    DbcVarType var_type;
+    // Exact rationals — cantools exposes these as int-or-float depending on
+    // var_type; Python uses ``Fraction``, C++ uses ``Rational`` to preserve
+    // decimal intent through the wire round-trip.
+    Rational initial;
+    Rational minimum;
+    Rational maximum;
+};
+
+// ---------------------------------------------------------------------------
+// DBC value table (``VAL_TABLE_`` keyword)
+// ---------------------------------------------------------------------------
+
+struct DbcValueEntry {
+    std::int64_t value;
+    std::string description;
+};
+
+struct DbcValueTable {
+    std::string name;
+    std::vector<DbcValueEntry> entries;
+};
+
+// ---------------------------------------------------------------------------
 // Complete DBC definition
 //
 // There are three supported ways to obtain a DbcDefinition:
@@ -131,6 +184,12 @@ struct DbcMessage {
 struct DbcDefinition {
     std::string version; // plain string (not a domain identifier)
     std::vector<DbcMessage> messages;
+    // Tier 1 DBC metadata (Agda ``DBC`` record fields 3-5). Absent on the
+    // wire equals empty here — format_dbc always emits all three arrays
+    // even when they are empty.
+    std::vector<DbcSignalGroup> signal_groups;
+    std::vector<DbcEnvironmentVar> environment_vars;
+    std::vector<DbcValueTable> value_tables;
 
     // --- Lookup helpers (defined in dbc.cpp) ---
 

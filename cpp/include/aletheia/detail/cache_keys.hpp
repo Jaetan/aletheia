@@ -68,7 +68,7 @@ struct FrameKeyView {
 // FrameKeyView. The is_transparent typedef opts the map into C++14's
 // heterogeneous find().
 struct FrameKeyLess {
-    using is_transparent = void;
+    using is_transparent = void; // NOLINT(readability-identifier-naming) - STL protocol
 
     static auto tie(const FrameKey& k)
         -> std::tuple<std::uint32_t, bool, std::uint8_t, std::span<const std::byte>> {

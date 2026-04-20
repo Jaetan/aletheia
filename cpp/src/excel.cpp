@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -31,6 +32,14 @@
 namespace aletheia {
 
 namespace {
+
+// std::from_chars takes a raw pointer pair [first, last). The canonical idiom
+// `sv.data() + sv.size()` trips cppcoreguidelines-pro-bounds-pointer-arithmetic;
+// `std::to_address(sv.end())` is arithmetic-free and equivalent since C++20
+// string_view::iterator is a contiguous iterator.
+auto sv_end_ptr(std::string_view sv) -> const char* {
+    return std::to_address(sv.end());
+}
 
 // ---------------------------------------------------------------------------
 // Sheet headers
@@ -118,8 +127,9 @@ auto get_number(const CellMap& cells, const std::string& key, const std::string&
     // std::from_chars is locale-independent (unlike std::stod).
     const auto& sv = it->second;
     double result = 0.0;
-    auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
-    if (ec != std::errc{} || ptr != sv.data() + sv.size())
+    const auto* const end = sv_end_ptr(sv);
+    auto [ptr, ec] = std::from_chars(sv.data(), end, result);
+    if (ec != std::errc{} || ptr != end)
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected number)");
     return result;
 }
@@ -140,15 +150,16 @@ auto get_int(const CellMap& cells, const std::string& key, const std::string& ct
     // std::from_chars is locale-independent (unlike std::stod/std::stoll).
     const auto& sv = it->second;
     double dval = 0.0;
-    auto [dptr, dec] = std::from_chars(sv.data(), sv.data() + sv.size(), dval);
-    if (dec != std::errc{} || dptr != sv.data() + sv.size())
+    const auto* const end = sv_end_ptr(sv);
+    auto [dptr, dec] = std::from_chars(sv.data(), end, dval);
+    if (dec != std::errc{} || dptr != end)
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
     if (dval != std::floor(dval))
         throw std::runtime_error(ctx_str + ": '" + key + "' value " + it->second +
                                  " is not an integer (would be silently truncated)");
     std::int64_t result = 0;
-    auto [iptr, iec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
-    if (iec != std::errc{} || iptr != sv.data() + sv.size())
+    auto [iptr, iec] = std::from_chars(sv.data(), end, result);
+    if (iec != std::errc{} || iptr != end)
         throw std::runtime_error(ctx_str + ": missing or invalid '" + key + "' (expected integer)");
     return result;
 }
@@ -209,20 +220,11 @@ auto parse_message_id(const std::string& val, const std::string& ctx_str) -> std
     std::ranges::transform(lower, lower.begin(), [](unsigned char ch) -> char {
         return static_cast<char>(std::tolower(ch));
     });
+    const bool is_hex = lower.starts_with("0x");
+    const std::string digits = is_hex ? val.substr(2) : val;
     std::uint32_t result = 0;
-    const char* begin = val.data();
-    const char* end = val.data() + val.size();
-    std::errc ec{};
-    const char* ptr = nullptr;
-    if (lower.starts_with("0x")) {
-        auto [p, e] = std::from_chars(begin + 2, end, result, 16);
-        ptr = p;
-        ec = e;
-    } else {
-        auto [p, e] = std::from_chars(begin, end, result);
-        ptr = p;
-        ec = e;
-    }
+    const auto* const end = sv_end_ptr(digits);
+    auto [ptr, ec] = std::from_chars(digits.data(), end, result, is_hex ? 16 : 10);
     if (ec != std::errc{} || ptr != end)
         throw std::runtime_error(
             ctx_str +

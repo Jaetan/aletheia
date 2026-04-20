@@ -400,7 +400,7 @@ public:
         // RAII-owned so a throwing std::vector construction (e.g. bad_alloc on
         // copy) still frees the Haskell-allocated buffer. A bare free call
         // after the copy would leak on that path.
-        std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out_buf, free_buf_fn_);
+        const std::unique_ptr<std::uint8_t, AletheiaFreeBufFn> out_guard(out_buf, free_buf_fn_);
         // Guard against the degenerate case where the backend signalled
         // success but produced a null buffer: constructing std::span from a
         // null pointer with non-zero size is undefined behaviour

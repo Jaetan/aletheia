@@ -304,13 +304,79 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     };
 }
 
+static auto parse_signal_group(const Json& j) -> DbcSignalGroup {
+    std::vector<SignalName> sigs;
+    for (const auto& s : j.at("signals"))
+        sigs.emplace_back(s.get<std::string>());
+    return DbcSignalGroup{
+        .name = j.at("name").get<std::string>(),
+        .signals = std::move(sigs),
+    };
+}
+
+static auto parse_env_var_type(int raw, const std::string& name) -> DbcVarType {
+    switch (raw) {
+    case 0:
+        return DbcVarType::Int;
+    case 1:
+        return DbcVarType::Float;
+    case 2:
+        return DbcVarType::String;
+    default:
+        throw std::runtime_error("Unknown environment variable type " + std::to_string(raw) +
+                                 " for '" + name + "'");
+    }
+}
+
+static auto parse_env_var(const Json& j) -> DbcEnvironmentVar {
+    auto name = j.at("name").get<std::string>();
+    const auto raw_type = j.at("varType").get<int>();
+    return DbcEnvironmentVar{
+        .name = name,
+        .var_type = parse_env_var_type(raw_type, name),
+        .initial = parse_rational(j.at("initial")),
+        .minimum = parse_rational(j.at("minimum")),
+        .maximum = parse_rational(j.at("maximum")),
+    };
+}
+
+static auto parse_value_table(const Json& j) -> DbcValueTable {
+    std::vector<DbcValueEntry> entries;
+    for (const auto& e : j.at("entries"))
+        entries.push_back(DbcValueEntry{
+            .value = e.at("value").get<std::int64_t>(),
+            .description = e.at("description").get<std::string>(),
+        });
+    return DbcValueTable{
+        .name = j.at("name").get<std::string>(),
+        .entries = std::move(entries),
+    };
+}
+
 static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
         messages.push_back(parse_message_def(m));
+    // Tier 1 metadata fields are optional on the wire — absent or empty
+    // arrays both map to empty vectors here.
+    std::vector<DbcSignalGroup> signal_groups;
+    if (j.contains("signalGroups"))
+        for (const auto& g : j.at("signalGroups"))
+            signal_groups.push_back(parse_signal_group(g));
+    std::vector<DbcEnvironmentVar> environment_vars;
+    if (j.contains("environmentVars"))
+        for (const auto& ev : j.at("environmentVars"))
+            environment_vars.push_back(parse_env_var(ev));
+    std::vector<DbcValueTable> value_tables;
+    if (j.contains("valueTables"))
+        for (const auto& vt : j.at("valueTables"))
+            value_tables.push_back(parse_value_table(vt));
     return DbcDefinition{
         .version = j.value("version", ""),
         .messages = std::move(messages),
+        .signal_groups = std::move(signal_groups),
+        .environment_vars = std::move(environment_vars),
+        .value_tables = std::move(value_tables),
     };
 }
 

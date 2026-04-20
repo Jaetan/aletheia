@@ -107,6 +107,51 @@ TEST_CASE("parse DBC via real FFI", "[integration]") {
     CHECK(result.has_value());
 }
 
+TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc][metadata]") {
+    // Mirrors python/tests/test_dbc_metadata_tier1.py::test_full_roundtrip.
+    // Proves the Agda core preserves signalGroups, environmentVars, and
+    // valueTables across parse_dbc → format_dbc.
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    auto dbc = make_integration_dbc();
+    dbc.signal_groups.push_back(
+        DbcSignalGroup{.name = "Powertrain", .signals = {SignalName{"Speed"}, SignalName{"RPM"}}});
+    dbc.environment_vars.push_back(DbcEnvironmentVar{
+        .name = "AmbientTemp",
+        .var_type = DbcVarType::Float,
+        .initial = Rational{22, 1},
+        .minimum = Rational{-40, 1},
+        .maximum = Rational{85, 1},
+    });
+    dbc.value_tables.push_back(DbcValueTable{
+        .name = "GearStates",
+        .entries = {DbcValueEntry{.value = 0, .description = "Park"},
+                    DbcValueEntry{.value = 1, .description = "Drive"},
+                    DbcValueEntry{.value = 2, .description = "Reverse"}},
+    });
+
+    REQUIRE(client.parse_dbc(dbc).has_value());
+    auto round_tripped = client.format_dbc();
+    REQUIRE(round_tripped.has_value());
+
+    REQUIRE(round_tripped->signal_groups.size() == 1);
+    CHECK(round_tripped->signal_groups[0].name == "Powertrain");
+    CHECK(round_tripped->signal_groups[0].signals.size() == 2);
+
+    REQUIRE(round_tripped->environment_vars.size() == 1);
+    CHECK(round_tripped->environment_vars[0].name == "AmbientTemp");
+    CHECK(round_tripped->environment_vars[0].var_type == DbcVarType::Float);
+    CHECK(round_tripped->environment_vars[0].initial == Rational{22, 1});
+
+    REQUIRE(round_tripped->value_tables.size() == 1);
+    CHECK(round_tripped->value_tables[0].name == "GearStates");
+    CHECK(round_tripped->value_tables[0].entries.size() == 3);
+    CHECK(round_tripped->value_tables[0].entries[0].description == "Park");
+    CHECK(round_tripped->value_tables[0].entries[2].description == "Reverse");
+}
+
 TEST_CASE("extract signals via real FFI", "[integration]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
