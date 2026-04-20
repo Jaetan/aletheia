@@ -164,6 +164,164 @@ struct DbcValueTable {
 };
 
 // ---------------------------------------------------------------------------
+// Tier 2 DBC metadata: nodes (BU_), comments (CM_), attributes (BA_*)
+//
+// The wire format uses ``"kind"`` as a discriminator on every tagged union
+// so Agda's parseAttribute/parseCommentTarget/... can dispatch without
+// peeking at the rest of the object. Each C++ variant alternative mirrors
+// one Agda constructor; fields after ``kind`` are laid out in the same
+// order Agda's formatter emits.
+// ---------------------------------------------------------------------------
+
+struct DbcNode {
+    std::string name;
+};
+
+// ---- Comment targets (CM_ family) ----
+
+struct DbcCommentTargetNetwork {};
+struct DbcCommentTargetNode {
+    std::string node;
+};
+// Extended flag is emitted on the wire only when true (Agda's formatCANId
+// omits "extended" for 11-bit IDs). Default-false here keeps round-trip
+// byte-identical for the common standard-ID case.
+struct DbcCommentTargetMessage {
+    std::uint32_t id = 0;
+    bool extended = false;
+};
+struct DbcCommentTargetSignal {
+    std::uint32_t id = 0;
+    bool extended = false;
+    std::string signal;
+};
+struct DbcCommentTargetEnvVar {
+    std::string env_var;
+};
+
+using DbcCommentTarget =
+    std::variant<DbcCommentTargetNetwork, DbcCommentTargetNode, DbcCommentTargetMessage,
+                 DbcCommentTargetSignal, DbcCommentTargetEnvVar>;
+
+struct DbcComment {
+    DbcCommentTarget target;
+    std::string text;
+};
+
+// ---- Attribute scope (BA_DEF_ keyword class) ----
+
+enum class DbcAttrScope {
+    Network,
+    Node,
+    Message,
+    Signal,
+    EnvVar,
+    NodeMsg,
+    NodeSig,
+};
+
+// ---- Attribute types (RHS of BA_DEF_) ----
+
+struct DbcAttrTypeInt {
+    std::int64_t min = 0;
+    std::int64_t max = 0;
+};
+// Float bounds use exact Rational (matching Python's Fraction) rather than
+// double — ATFloat carries ℚ in the Agda core, and lossy conversion would
+// break round-trip parity with the Python binding.
+struct DbcAttrTypeFloat {
+    Rational min;
+    Rational max;
+};
+struct DbcAttrTypeString {};
+struct DbcAttrTypeEnum {
+    std::vector<std::string> values;
+};
+struct DbcAttrTypeHex {
+    std::int64_t min = 0;
+    std::int64_t max = 0;
+};
+
+using DbcAttrType = std::variant<DbcAttrTypeInt, DbcAttrTypeFloat, DbcAttrTypeString,
+                                 DbcAttrTypeEnum, DbcAttrTypeHex>;
+
+// ---- Attribute values (BA_, BA_REL_, BA_DEF_DEF_) ----
+
+struct DbcAttrValueInt {
+    std::int64_t value = 0;
+};
+// Same Rational-over-double rationale as DbcAttrTypeFloat above.
+struct DbcAttrValueFloat {
+    Rational value;
+};
+struct DbcAttrValueString {
+    std::string value;
+};
+// Enum value is a ℕ index into the corresponding DbcAttrTypeEnum::values list.
+struct DbcAttrValueEnum {
+    std::int64_t value = 0;
+};
+struct DbcAttrValueHex {
+    std::int64_t value = 0;
+};
+
+using DbcAttrValue = std::variant<DbcAttrValueInt, DbcAttrValueFloat, DbcAttrValueString,
+                                  DbcAttrValueEnum, DbcAttrValueHex>;
+
+// ---- Attribute assignment targets (LHS of BA_ / BA_REL_) ----
+
+struct DbcAttrTargetNetwork {};
+struct DbcAttrTargetNode {
+    std::string node;
+};
+struct DbcAttrTargetMessage {
+    std::uint32_t id = 0;
+    bool extended = false;
+};
+struct DbcAttrTargetSignal {
+    std::uint32_t id = 0;
+    bool extended = false;
+    std::string signal;
+};
+struct DbcAttrTargetEnvVar {
+    std::string env_var;
+};
+struct DbcAttrTargetNodeMsg {
+    std::string node;
+    std::uint32_t id = 0;
+    bool extended = false;
+};
+struct DbcAttrTargetNodeSig {
+    std::string node;
+    std::uint32_t id = 0;
+    bool extended = false;
+    std::string signal;
+};
+
+using DbcAttrTarget =
+    std::variant<DbcAttrTargetNetwork, DbcAttrTargetNode, DbcAttrTargetMessage, DbcAttrTargetSignal,
+                 DbcAttrTargetEnvVar, DbcAttrTargetNodeMsg, DbcAttrTargetNodeSig>;
+
+// ---- Attribute ADT (3 variants: BA_DEF_ / BA_DEF_DEF_ / BA_) ----
+
+struct DbcAttrDef {
+    std::string name;
+    DbcAttrScope scope;
+    DbcAttrType attr_type;
+};
+struct DbcAttrDefault {
+    std::string name;
+    DbcAttrValue value;
+};
+struct DbcAttrAssign {
+    std::string name;
+    DbcAttrTarget target;
+    DbcAttrValue value;
+};
+
+using DbcAttribute = std::variant<DbcAttrDef, DbcAttrDefault, DbcAttrAssign>;
+
+// ---------------------------------------------------------------------------
 // Complete DBC definition
 //
 // There are three supported ways to obtain a DbcDefinition:
@@ -190,6 +348,10 @@ struct DbcDefinition {
     std::vector<DbcSignalGroup> signal_groups;
     std::vector<DbcEnvironmentVar> environment_vars;
     std::vector<DbcValueTable> value_tables;
+    // Tier 2 DBC metadata (Agda ``DBC`` record fields 6-8).
+    std::vector<DbcNode> nodes;
+    std::vector<DbcComment> comments;
+    std::vector<DbcAttribute> attributes;
 
     // --- Lookup helpers (defined in dbc.cpp) ---
 

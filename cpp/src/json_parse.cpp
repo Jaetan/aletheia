@@ -25,9 +25,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 50-entry table on a cold parse path.
+// for the 51-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 50> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -44,6 +44,7 @@ constexpr std::array<ErrorCodeEntry, 50> error_code_table{{
     {"parse_signal_bit_length_zero", ErrorCode::ParseSignalBitLengthZero},
     {"parse_signal_overflows_frame", ErrorCode::ParseSignalOverflowsFrame},
     {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
+    {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
@@ -183,6 +184,12 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
         return IssueCode::BitLengthExcessive;
     if (code == "multiplexor_non_unit_scaling")
         return IssueCode::MultiplexorNonUnitScaling;
+    if (code == "duplicate_attribute_name")
+        return IssueCode::DuplicateAttributeName;
+    if (code == "unknown_comment_target")
+        return IssueCode::UnknownCommentTarget;
+    if (code == "unknown_message_sender")
+        return IssueCode::UnknownMessageSender;
     return IssueCode::Unknown;
 }
 
@@ -353,11 +360,167 @@ static auto parse_value_table(const Json& j) -> DbcValueTable {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Tier 2 parsers (nodes / comments / attributes). Each variant is dispatched
+// on the required ``"kind"`` field; unknown values surface as a protocol
+// error at the public boundary.
+// ---------------------------------------------------------------------------
+
+static auto parse_node(const Json& j) -> DbcNode {
+    return DbcNode{.name = j.at("name").get<std::string>()};
+}
+
+static auto parse_can_id_fields(const Json& j, std::uint32_t& id, bool& extended) -> void {
+    id = j.at("id").get<std::uint32_t>();
+    extended = j.value("extended", false);
+}
+
+static auto parse_comment_target(const Json& j) -> DbcCommentTarget {
+    const auto kind = j.at("kind").get<std::string>();
+    if (kind == "network")
+        return DbcCommentTargetNetwork{};
+    if (kind == "node")
+        return DbcCommentTargetNode{.node = j.at("node").get<std::string>()};
+    if (kind == "message") {
+        DbcCommentTargetMessage v;
+        parse_can_id_fields(j, v.id, v.extended);
+        return v;
+    }
+    if (kind == "signal") {
+        DbcCommentTargetSignal v;
+        parse_can_id_fields(j, v.id, v.extended);
+        v.signal = j.at("signal").get<std::string>();
+        return v;
+    }
+    if (kind == "envVar")
+        return DbcCommentTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
+    throw std::runtime_error("Unknown comment target kind: " + kind);
+}
+
+static auto parse_comment(const Json& j) -> DbcComment {
+    return DbcComment{
+        .target = parse_comment_target(j.at("target")),
+        .text = j.at("text").get<std::string>(),
+    };
+}
+
+static auto parse_attr_scope(const std::string& s) -> DbcAttrScope {
+    if (s == "network")
+        return DbcAttrScope::Network;
+    if (s == "node")
+        return DbcAttrScope::Node;
+    if (s == "message")
+        return DbcAttrScope::Message;
+    if (s == "signal")
+        return DbcAttrScope::Signal;
+    if (s == "envVar")
+        return DbcAttrScope::EnvVar;
+    if (s == "nodeMsg")
+        return DbcAttrScope::NodeMsg;
+    if (s == "nodeSig")
+        return DbcAttrScope::NodeSig;
+    throw std::runtime_error("Unknown attribute scope: " + s);
+}
+
+static auto parse_attr_type(const Json& j) -> DbcAttrType {
+    const auto kind = j.at("kind").get<std::string>();
+    if (kind == "int")
+        return DbcAttrTypeInt{.min = j.at("min").get<std::int64_t>(),
+                              .max = j.at("max").get<std::int64_t>()};
+    if (kind == "float")
+        return DbcAttrTypeFloat{.min = parse_rational(j.at("min")),
+                                .max = parse_rational(j.at("max"))};
+    if (kind == "string")
+        return DbcAttrTypeString{};
+    if (kind == "enum") {
+        std::vector<std::string> values;
+        for (const auto& v : j.at("values"))
+            values.push_back(v.get<std::string>());
+        return DbcAttrTypeEnum{.values = std::move(values)};
+    }
+    if (kind == "hex")
+        return DbcAttrTypeHex{.min = j.at("min").get<std::int64_t>(),
+                              .max = j.at("max").get<std::int64_t>()};
+    throw std::runtime_error("Unknown attribute type kind: " + kind);
+}
+
+static auto parse_attr_value(const Json& j) -> DbcAttrValue {
+    const auto kind = j.at("kind").get<std::string>();
+    if (kind == "int")
+        return DbcAttrValueInt{.value = j.at("value").get<std::int64_t>()};
+    if (kind == "float")
+        return DbcAttrValueFloat{.value = parse_rational(j.at("value"))};
+    if (kind == "string")
+        return DbcAttrValueString{.value = j.at("value").get<std::string>()};
+    if (kind == "enum")
+        return DbcAttrValueEnum{.value = j.at("value").get<std::int64_t>()};
+    if (kind == "hex")
+        return DbcAttrValueHex{.value = j.at("value").get<std::int64_t>()};
+    throw std::runtime_error("Unknown attribute value kind: " + kind);
+}
+
+static auto parse_attr_target(const Json& j) -> DbcAttrTarget {
+    const auto kind = j.at("kind").get<std::string>();
+    if (kind == "network")
+        return DbcAttrTargetNetwork{};
+    if (kind == "node")
+        return DbcAttrTargetNode{.node = j.at("node").get<std::string>()};
+    if (kind == "message") {
+        DbcAttrTargetMessage v;
+        parse_can_id_fields(j, v.id, v.extended);
+        return v;
+    }
+    if (kind == "signal") {
+        DbcAttrTargetSignal v;
+        parse_can_id_fields(j, v.id, v.extended);
+        v.signal = j.at("signal").get<std::string>();
+        return v;
+    }
+    if (kind == "envVar")
+        return DbcAttrTargetEnvVar{.env_var = j.at("envVar").get<std::string>()};
+    if (kind == "nodeMsg") {
+        DbcAttrTargetNodeMsg v;
+        v.node = j.at("node").get<std::string>();
+        parse_can_id_fields(j, v.id, v.extended);
+        return v;
+    }
+    if (kind == "nodeSig") {
+        DbcAttrTargetNodeSig v;
+        v.node = j.at("node").get<std::string>();
+        parse_can_id_fields(j, v.id, v.extended);
+        v.signal = j.at("signal").get<std::string>();
+        return v;
+    }
+    throw std::runtime_error("Unknown attribute target kind: " + kind);
+}
+
+static auto parse_attribute(const Json& j) -> DbcAttribute {
+    const auto kind = j.at("kind").get<std::string>();
+    if (kind == "definition")
+        return DbcAttrDef{
+            .name = j.at("name").get<std::string>(),
+            .scope = parse_attr_scope(j.at("scope").get<std::string>()),
+            .attr_type = parse_attr_type(j.at("attrType")),
+        };
+    if (kind == "default")
+        return DbcAttrDefault{
+            .name = j.at("name").get<std::string>(),
+            .value = parse_attr_value(j.at("value")),
+        };
+    if (kind == "assignment")
+        return DbcAttrAssign{
+            .name = j.at("name").get<std::string>(),
+            .target = parse_attr_target(j.at("target")),
+            .value = parse_attr_value(j.at("value")),
+        };
+    throw std::runtime_error("Unknown attribute kind: " + kind);
+}
+
 static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
         messages.push_back(parse_message_def(m));
-    // Tier 1 metadata fields are optional on the wire — absent or empty
+    // Tier 1/2 metadata fields are optional on the wire — absent or empty
     // arrays both map to empty vectors here.
     std::vector<DbcSignalGroup> signal_groups;
     if (j.contains("signalGroups"))
@@ -371,12 +534,27 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     if (j.contains("valueTables"))
         for (const auto& vt : j.at("valueTables"))
             value_tables.push_back(parse_value_table(vt));
+    std::vector<DbcNode> nodes;
+    if (j.contains("nodes"))
+        for (const auto& n : j.at("nodes"))
+            nodes.push_back(parse_node(n));
+    std::vector<DbcComment> comments;
+    if (j.contains("comments"))
+        for (const auto& c : j.at("comments"))
+            comments.push_back(parse_comment(c));
+    std::vector<DbcAttribute> attributes;
+    if (j.contains("attributes"))
+        for (const auto& a : j.at("attributes"))
+            attributes.push_back(parse_attribute(a));
     return DbcDefinition{
         .version = j.value("version", ""),
         .messages = std::move(messages),
         .signal_groups = std::move(signal_groups),
         .environment_vars = std::move(environment_vars),
         .value_tables = std::move(value_tables),
+        .nodes = std::move(nodes),
+        .comments = std::move(comments),
+        .attributes = std::move(attributes),
     };
 }
 

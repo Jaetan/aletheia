@@ -108,6 +108,174 @@ static auto value_table_to_json(const DbcValueTable& t) -> Json {
     return {{"name", t.name}, {"entries", std::move(entries)}};
 }
 
+// ---------------------------------------------------------------------------
+// Tier 2 serializers (nodes / comments / attributes). Wire format mirrors
+// Agda's formatter in src/Aletheia/DBC/Formatter.agda — every tagged union
+// carries "kind" as the first field, and extended-ID flags are emitted only
+// when true to match formatCANId's omission on 11-bit IDs.
+// ---------------------------------------------------------------------------
+
+static auto node_to_json(const DbcNode& n) -> Json {
+    return {{"name", n.name}};
+}
+
+static auto attach_can_id(Json& obj, std::uint32_t id, bool extended) -> void {
+    obj["id"] = id;
+    if (extended)
+        obj["extended"] = true;
+}
+
+static auto comment_target_to_json(const DbcCommentTarget& t) -> Json {
+    return std::visit(
+        [](auto&& v) -> Json {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, DbcCommentTargetNetwork>)
+                return {{"kind", "network"}};
+            else if constexpr (std::is_same_v<T, DbcCommentTargetNode>)
+                return {{"kind", "node"}, {"node", v.node}};
+            else if constexpr (std::is_same_v<T, DbcCommentTargetMessage>) {
+                Json out = {{"kind", "message"}};
+                attach_can_id(out, v.id, v.extended);
+                return out;
+            } else if constexpr (std::is_same_v<T, DbcCommentTargetSignal>) {
+                Json out = {{"kind", "signal"}};
+                attach_can_id(out, v.id, v.extended);
+                out["signal"] = v.signal;
+                return out;
+            } else if constexpr (std::is_same_v<T, DbcCommentTargetEnvVar>)
+                return {{"kind", "envVar"}, {"envVar", v.env_var}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled DbcCommentTarget variant");
+        },
+        t);
+}
+
+static auto comment_to_json(const DbcComment& c) -> Json {
+    return {{"target", comment_target_to_json(c.target)}, {"text", c.text}};
+}
+
+static auto attr_scope_to_json(DbcAttrScope s) -> std::string {
+    switch (s) {
+    case DbcAttrScope::Network:
+        return "network";
+    case DbcAttrScope::Node:
+        return "node";
+    case DbcAttrScope::Message:
+        return "message";
+    case DbcAttrScope::Signal:
+        return "signal";
+    case DbcAttrScope::EnvVar:
+        return "envVar";
+    case DbcAttrScope::NodeMsg:
+        return "nodeMsg";
+    case DbcAttrScope::NodeSig:
+        return "nodeSig";
+    }
+    throw std::runtime_error("Invalid DbcAttrScope");
+}
+
+static auto attr_type_to_json(const DbcAttrType& t) -> Json {
+    return std::visit(
+        [](auto&& v) -> Json {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, DbcAttrTypeInt>)
+                return {{"kind", "int"}, {"min", v.min}, {"max", v.max}};
+            else if constexpr (std::is_same_v<T, DbcAttrTypeFloat>)
+                return {{"kind", "float"},
+                        {"min", rational_to_json(v.min)},
+                        {"max", rational_to_json(v.max)}};
+            else if constexpr (std::is_same_v<T, DbcAttrTypeString>)
+                return {{"kind", "string"}};
+            else if constexpr (std::is_same_v<T, DbcAttrTypeEnum>) {
+                Json values = Json::array();
+                for (const auto& s : v.values)
+                    values.push_back(s);
+                return {{"kind", "enum"}, {"values", std::move(values)}};
+            } else if constexpr (std::is_same_v<T, DbcAttrTypeHex>)
+                return {{"kind", "hex"}, {"min", v.min}, {"max", v.max}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled DbcAttrType variant");
+        },
+        t);
+}
+
+static auto attr_value_to_json(const DbcAttrValue& v) -> Json {
+    return std::visit(
+        [](auto&& a) -> Json {
+            using T = std::decay_t<decltype(a)>;
+            if constexpr (std::is_same_v<T, DbcAttrValueInt>)
+                return {{"kind", "int"}, {"value", a.value}};
+            else if constexpr (std::is_same_v<T, DbcAttrValueFloat>)
+                return {{"kind", "float"}, {"value", rational_to_json(a.value)}};
+            else if constexpr (std::is_same_v<T, DbcAttrValueString>)
+                return {{"kind", "string"}, {"value", a.value}};
+            else if constexpr (std::is_same_v<T, DbcAttrValueEnum>)
+                return {{"kind", "enum"}, {"value", a.value}};
+            else if constexpr (std::is_same_v<T, DbcAttrValueHex>)
+                return {{"kind", "hex"}, {"value", a.value}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled DbcAttrValue variant");
+        },
+        v);
+}
+
+static auto attr_target_to_json(const DbcAttrTarget& t) -> Json {
+    return std::visit(
+        [](auto&& v) -> Json {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, DbcAttrTargetNetwork>)
+                return {{"kind", "network"}};
+            else if constexpr (std::is_same_v<T, DbcAttrTargetNode>)
+                return {{"kind", "node"}, {"node", v.node}};
+            else if constexpr (std::is_same_v<T, DbcAttrTargetMessage>) {
+                Json out = {{"kind", "message"}};
+                attach_can_id(out, v.id, v.extended);
+                return out;
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetSignal>) {
+                Json out = {{"kind", "signal"}};
+                attach_can_id(out, v.id, v.extended);
+                out["signal"] = v.signal;
+                return out;
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetEnvVar>)
+                return {{"kind", "envVar"}, {"envVar", v.env_var}};
+            else if constexpr (std::is_same_v<T, DbcAttrTargetNodeMsg>) {
+                Json out = {{"kind", "nodeMsg"}, {"node", v.node}};
+                attach_can_id(out, v.id, v.extended);
+                return out;
+            } else if constexpr (std::is_same_v<T, DbcAttrTargetNodeSig>) {
+                Json out = {{"kind", "nodeSig"}, {"node", v.node}};
+                attach_can_id(out, v.id, v.extended);
+                out["signal"] = v.signal;
+                return out;
+            } else
+                static_assert(sizeof(T) == 0, "Unhandled DbcAttrTarget variant");
+        },
+        t);
+}
+
+static auto attribute_to_json(const DbcAttribute& a) -> Json {
+    return std::visit(
+        [](auto&& v) -> Json {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_same_v<T, DbcAttrDef>)
+                return {{"kind", "definition"},
+                        {"name", v.name},
+                        {"scope", attr_scope_to_json(v.scope)},
+                        {"attrType", attr_type_to_json(v.attr_type)}};
+            else if constexpr (std::is_same_v<T, DbcAttrDefault>)
+                return {
+                    {"kind", "default"}, {"name", v.name}, {"value", attr_value_to_json(v.value)}};
+            else if constexpr (std::is_same_v<T, DbcAttrAssign>)
+                return {{"kind", "assignment"},
+                        {"name", v.name},
+                        {"target", attr_target_to_json(v.target)},
+                        {"value", attr_value_to_json(v.value)}};
+            else
+                static_assert(sizeof(T) == 0, "Unhandled DbcAttribute variant");
+        },
+        a);
+}
+
 static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
     Json msgs = Json::array();
     for (const auto& m : dbc.messages)
@@ -121,12 +289,24 @@ static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
     Json value_tables = Json::array();
     for (const auto& vt : dbc.value_tables)
         value_tables.push_back(value_table_to_json(vt));
+    Json nodes = Json::array();
+    for (const auto& n : dbc.nodes)
+        nodes.push_back(node_to_json(n));
+    Json comments = Json::array();
+    for (const auto& c : dbc.comments)
+        comments.push_back(comment_to_json(c));
+    Json attributes = Json::array();
+    for (const auto& a : dbc.attributes)
+        attributes.push_back(attribute_to_json(a));
     return {
         {"version", dbc.version},
         {"messages", std::move(msgs)},
         {"signalGroups", std::move(groups)},
         {"environmentVars", std::move(env_vars)},
         {"valueTables", std::move(value_tables)},
+        {"nodes", std::move(nodes)},
+        {"comments", std::move(comments)},
+        {"attributes", std::move(attributes)},
     };
 }
 

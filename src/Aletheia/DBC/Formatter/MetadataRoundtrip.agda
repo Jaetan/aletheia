@@ -2,32 +2,65 @@
 
 -- Metadata-level roundtrip proofs for the DBC formatter.
 --
--- Purpose: Prove roundtrip for signal groups, environment variables, and value
--- tables. These metadata types have no bounds constraints (unlike signals/messages
--- which need WellFormed/PhysicallyValid), so the proofs are unconditional.
+-- Purpose: Prove roundtrip for signal groups, environment variables, value
+-- tables, nodes, comments, and attributes. These metadata types have no
+-- bounds constraints (unlike signals/messages which need WellFormed /
+-- PhysicallyValid), so the proofs are unconditional.
 -- Role: Middle layer — used by Properties.agda for the top-level roundtrip.
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
 
-open import Data.Nat using (ℕ; suc)
+open import Data.Bool using (T)
+open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₂)
 open import Data.Rational using (ℚ)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Data.Integer using (ℤ)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans)
 
 open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
-  VarType; IntVar; FloatVar; StringVar; varTypeToℕ)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; formatSignalGroup;
-  formatEnvironmentVar; formatValueTable; formatValueEntry)
+  VarType; IntVar; FloatVar; StringVar; varTypeToℕ;
+  Node; mkNode; DBCComment; mkComment;
+  CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
+  AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar; ASNodeMsg; ASNodeSig;
+  AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex;
+  AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
+  AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
+  ATgtNodeMsg; ATgtNodeSig;
+  AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
+open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON;
+  formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
+  formatNode; formatComment; formatCommentTarget;
+  formatAttribute; formatAttrScope; formatAttrType;
+  formatAttrValue; formatAttrTarget;
+  attrDefFields; attrDefaultFields; attrAssignFields)
 open import Aletheia.DBC.JSONParser using (parseStringList; parseVarType;
   parseSignalGroup; parseSignalGroupList;
   parseEnvironmentVar; parseEnvironmentVarList;
   parseValueEntry; parseValueEntryList;
   parseValueTable; parseValueTableList;
-  parseObjectList)
+  parseObjectList;
+  parseNode; parseNodeList;
+  parseComment; parseCommentTarget; parseCommentList;
+  parseAttrScope; parseAttrType; parseAttrValue; parseAttrTarget;
+  parseAttrDef; parseAttrDefault; parseAttrAssign;
+  parseAttribute; parseAttributeList;
+  parseCANId)
 open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JArray)
-open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON)
+open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
+open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
+open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.Prelude using (ifᵀ-witness; _>>=ₑ_)
+
+-- Local bind-cong lemma used throughout. Identical in spirit to
+-- MessageRoundtrip.Base.>>=ₑ-congʳ but kept here to avoid a cross-layer
+-- dependency from MetadataRoundtrip into MessageRoundtrip/*.
+private
+  >>=ₑ-congʳ : ∀ {E A B : Set} {x : E ⊎ A} {a : A} (f : A → E ⊎ B)
+    → x ≡ inj₂ a → (x >>=ₑ f) ≡ f a
+  >>=ₑ-congʳ f refl = refl
 
 -- ============================================================================
 -- STRING LIST ROUNDTRIP
@@ -158,3 +191,216 @@ private
 valueTable-list-roundtrip : ∀ vts
   → parseValueTableList (map formatValueTable vts) ≡ inj₂ vts
 valueTable-list-roundtrip = valueTable-list-go 0
+
+-- ============================================================================
+-- NODE ROUNDTRIP (Tier 2)
+-- ============================================================================
+
+-- Node has a single `name : String` field, so the roundtrip reduces by record
+-- eta (`mkNode (Node.name n) ≡ n` definitionally).
+private
+  nodeFields : Node → List (String × JSON)
+  nodeFields n = ("name" , JString (Node.name n)) ∷ []
+
+node-roundtrip : ∀ n → parseNode (nodeFields n) ≡ inj₂ n
+node-roundtrip _ = refl
+
+-- `rewrite` on `node-roundtrip x` with an abstract `x : Node` fails under
+-- `--without-K`: Node has an explicit `constructor mkNode` declaration, so
+-- the rewrite machinery's internal `refl` match on `inj₂ x ≡ inj₂ x`
+-- decomposes to `x = x` and hits K-elimination on the record. Records
+-- *without* explicit constructors (SignalGroup, ValueTable, EnvironmentVar
+-- above) avoid this via eta alone. Fix: pattern-match on `mkNode _` so
+-- `formatNode`/`parseNode` reduce directly — only the list-tail rewrite
+-- remains, on `List Node`, which is a datatype and unifies cleanly.
+private
+  node-list-go : ∀ n ns
+    → parseObjectList "node" parseNode n (map formatNode ns) ≡ inj₂ ns
+  node-list-go _ [] = refl
+  node-list-go n (mkNode _ ∷ xs)
+    rewrite node-list-go (suc n) xs = refl
+
+node-list-roundtrip : ∀ ns
+  → parseNodeList (map formatNode ns) ≡ inj₂ ns
+node-list-roundtrip = node-list-go 0
+
+-- ============================================================================
+-- COMMENT TARGET ROUNDTRIP (Tier 2)
+-- ============================================================================
+
+-- CommentTarget is a 5-way tagged union keyed on "kind". For the two variants
+-- carrying a CANId (CTMessage, CTSignal), the roundtrip splits further on
+-- Standard/Extended — 7 branches total. Literal string equality reduces
+-- definitionally, so the chained `if_then_else_` collapses to the right case
+-- automatically; the only non-trivial steps are the ℕ-bridge (for id) and the
+-- CANId-ifᵀ-witness (for the bounded proof).
+
+commentTarget-roundtrip : ∀ tgt
+  → parseCommentTarget (formatCommentTarget tgt) ≡ inj₂ tgt
+commentTarget-roundtrip CTNetwork  = refl
+commentTarget-roundtrip (CTNode _) = refl
+commentTarget-roundtrip (CTMessage (Standard rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+commentTarget-roundtrip (CTMessage (Extended rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+commentTarget-roundtrip (CTSignal (Standard rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+commentTarget-roundtrip (CTSignal (Extended rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+commentTarget-roundtrip (CTEnvVar _) = refl
+
+-- ============================================================================
+-- COMMENT ROUNDTRIP (Tier 2)
+-- ============================================================================
+
+private
+  commentFields : DBCComment → List (String × JSON)
+  commentFields c =
+    ("target" , JObject (formatCommentTarget (DBCComment.target c))) ∷
+    ("text"   , JString (DBCComment.text c)) ∷
+    []
+
+comment-roundtrip : ∀ c → parseComment (commentFields c) ≡ inj₂ c
+comment-roundtrip c
+  rewrite commentTarget-roundtrip (DBCComment.target c) = refl
+
+-- Same K-avoidance strategy as node-list-go: pattern-match on `mkComment`
+-- to force field-level reduction, leaving a single datatype-level rewrite.
+private
+  comment-list-go : ∀ n cs
+    → parseObjectList "comment" parseComment n (map formatComment cs) ≡ inj₂ cs
+  comment-list-go _ [] = refl
+  comment-list-go n (mkComment tgt _ ∷ cs)
+    rewrite commentTarget-roundtrip tgt
+          | comment-list-go (suc n) cs = refl
+
+comment-list-roundtrip : ∀ cs
+  → parseCommentList (map formatComment cs) ≡ inj₂ cs
+comment-list-roundtrip = comment-list-go 0
+
+-- ============================================================================
+-- ATTRIBUTE ROUNDTRIPS (Tier 2)
+-- ============================================================================
+
+-- AttrScope: 7 string-keyed variants, each a trivial `refl`.
+attrScope-roundtrip : ∀ s → parseAttrScope (formatAttrScope s) ≡ inj₂ s
+attrScope-roundtrip ASNetwork = refl
+attrScope-roundtrip ASNode    = refl
+attrScope-roundtrip ASMessage = refl
+attrScope-roundtrip ASSignal  = refl
+attrScope-roundtrip ASEnvVar  = refl
+attrScope-roundtrip ASNodeMsg = refl
+attrScope-roundtrip ASNodeSig = refl
+
+-- AttrType: 5 tagged variants. Int uses ℤ bridge, Enum uses parseStringList,
+-- Hex uses ℕ bridge, Float/String are direct `refl` (getRational/getString
+-- on JNumber/JString reduce definitionally).
+attrType-roundtrip : ∀ t → parseAttrType (formatAttrType t) ≡ inj₂ t
+attrType-roundtrip (ATInt mn mx)
+  rewrite getInt-ℤtoJSON mn | getInt-ℤtoJSON mx = refl
+attrType-roundtrip (ATFloat _ _) = refl
+attrType-roundtrip ATString      = refl
+attrType-roundtrip (ATEnum labels)
+  rewrite parseStringList-roundtrip labels = refl
+attrType-roundtrip (ATHex mn mx)
+  rewrite getNat-ℕtoJSON mn | getNat-ℕtoJSON mx = refl
+
+-- AttrValue: 5 tagged variants, same bridge story as AttrType.
+attrValue-roundtrip : ∀ v → parseAttrValue (formatAttrValue v) ≡ inj₂ v
+attrValue-roundtrip (AVInt v)    rewrite getInt-ℤtoJSON v = refl
+attrValue-roundtrip (AVFloat _)  = refl
+attrValue-roundtrip (AVString _) = refl
+attrValue-roundtrip (AVEnum v)   rewrite getNat-ℕtoJSON v = refl
+attrValue-roundtrip (AVHex v)    rewrite getNat-ℕtoJSON v = refl
+
+-- AttrTarget: 10 branches (7 kinds × 2 CANId flavours where applicable).
+-- Mirrors commentTarget-roundtrip with two extra relation variants.
+attrTarget-roundtrip : ∀ t → parseAttrTarget (formatAttrTarget t) ≡ inj₂ t
+attrTarget-roundtrip ATgtNetwork    = refl
+attrTarget-roundtrip (ATgtNode _)   = refl
+attrTarget-roundtrip (ATgtMessage (Standard rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtMessage (Extended rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtSignal (Standard rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtSignal (Extended rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtEnvVar _) = refl
+attrTarget-roundtrip (ATgtNodeMsg _ (Standard rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtNodeMsg _ (Extended rawId pf))
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtNodeSig _ (Standard rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+attrTarget-roundtrip (ATgtNodeSig _ (Extended rawId pf) _)
+  rewrite getNat-ℕtoJSON rawId
+  = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
+
+-- AttrDef/Default/Assign: straightforward field-by-field composition.
+-- Record eta closes the `mk*` equality at the end.
+attrDef-roundtrip : ∀ d → parseAttrDef (attrDefFields d) ≡ inj₂ d
+attrDef-roundtrip d
+  rewrite attrScope-roundtrip (AttrDef.scope d)
+        | attrType-roundtrip (AttrDef.attrType d) = refl
+
+attrDefault-roundtrip : ∀ d → parseAttrDefault (attrDefaultFields d) ≡ inj₂ d
+attrDefault-roundtrip d
+  rewrite attrValue-roundtrip (AttrDefault.value d) = refl
+
+attrAssign-roundtrip : ∀ a → parseAttrAssign (attrAssignFields a) ≡ inj₂ a
+attrAssign-roundtrip a
+  rewrite attrTarget-roundtrip (AttrAssign.target a)
+        | attrValue-roundtrip (AttrAssign.value a) = refl
+
+-- DBCAttribute: 3-way tagged union keyed on "kind". parseAttribute dispatches
+-- then forwards the full object (including the leading "kind" entry) to the
+-- sub-parser; the sub-parsers all look up named fields other than "kind",
+-- so `lookupByKey` skips the leading entry definitionally via literal-string
+-- inequality, reducing `parseAttrX (("kind", …) ∷ attrXFields x)` to
+-- `parseAttrX (attrXFields x)`.
+private
+  attributeFields : DBCAttribute → List (String × JSON)
+  attributeFields (DBCAttrDef d)     = ("kind" , JString "definition") ∷ attrDefFields d
+  attributeFields (DBCAttrDefault d) = ("kind" , JString "default")    ∷ attrDefaultFields d
+  attributeFields (DBCAttrAssign a)  = ("kind" , JString "assignment") ∷ attrAssignFields a
+
+attribute-roundtrip : ∀ a → parseAttribute (attributeFields a) ≡ inj₂ a
+attribute-roundtrip (DBCAttrDef d)     = >>=ₑ-congʳ _ (attrDef-roundtrip d)
+attribute-roundtrip (DBCAttrDefault d) = >>=ₑ-congʳ _ (attrDefault-roundtrip d)
+attribute-roundtrip (DBCAttrAssign a)  = >>=ₑ-congʳ _ (attrAssign-roundtrip a)
+
+-- DBCAttribute: two subtleties here relative to node/comment.
+-- (1) `rewrite` fails because each payload is a record with an explicit
+--     constructor — same K-elimination issue as `node-list-go`.
+-- (2) `formatAttribute` pattern-matches on the DBCAttribute constructor, so
+--     the `JObject _ ∷ _` pattern inside `parseObjectList` does not fire for
+--     an abstract `a`. We split on the sum's constructor to drive reduction.
+private
+  attribute-list-go : ∀ n as
+    → parseObjectList "attribute" parseAttribute n (map formatAttribute as) ≡ inj₂ as
+  attribute-list-go _ [] = refl
+  attribute-list-go n (DBCAttrDef d ∷ as) =
+    trans (>>=ₑ-congʳ _ (attribute-roundtrip (DBCAttrDef d)))
+          (>>=ₑ-congʳ _ (attribute-list-go (suc n) as))
+  attribute-list-go n (DBCAttrDefault d ∷ as) =
+    trans (>>=ₑ-congʳ _ (attribute-roundtrip (DBCAttrDefault d)))
+          (>>=ₑ-congʳ _ (attribute-list-go (suc n) as))
+  attribute-list-go n (DBCAttrAssign a ∷ as) =
+    trans (>>=ₑ-congʳ _ (attribute-roundtrip (DBCAttrAssign a)))
+          (>>=ₑ-congʳ _ (attribute-list-go (suc n) as))
+
+attribute-list-roundtrip : ∀ as
+  → parseAttributeList (map formatAttribute as) ≡ inj₂ as
+attribute-list-roundtrip = attribute-list-go 0

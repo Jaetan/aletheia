@@ -42,6 +42,10 @@ data ParseError : Set where
   SignalBitLengthZero     : ParseError                -- bitLength must be ≥ 1
   SignalOverflowsFrame    : ℕ → ℕ → ℕ → ParseError    -- startBit, bitLength, frameBytes
   SignalMSBBelowBitLength : ℕ → ℕ → ParseError        -- startBit, bitLength
+  -- Unknown discriminator in a kind-tagged wire object. First argument is the
+  -- domain name ("commentTarget", "attrScope", etc.); second is the offending
+  -- value. Used by Tier 2 DBC metadata parsers (nodes / comments / attributes).
+  InvalidKind             : String → String → ParseError
   InContext               : String → ParseError → ParseError
 
 formatParseError : ParseError → String
@@ -77,6 +81,8 @@ formatParseError (SignalOverflowsFrame sb bl fb) =
 formatParseError (SignalMSBBelowBitLength sb bl) =
   "bigEndian signal MSB position " ++ₛ showℕ sb
     ++ₛ " below bitLength " ++ₛ showℕ bl ++ₛ " ∸ 1"
+formatParseError (InvalidKind domain value) =
+  "invalid " ++ₛ domain ++ₛ " kind '" ++ₛ value ++ₛ "'"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -96,6 +102,7 @@ parseErrorCode MissingSignalName          = "parse_missing_signal_name"
 parseErrorCode SignalBitLengthZero        = "parse_signal_bit_length_zero"
 parseErrorCode (SignalOverflowsFrame _ _ _) = "parse_signal_overflows_frame"
 parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_length"
+parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================

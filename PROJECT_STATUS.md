@@ -401,10 +401,10 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 707 passing (via FFI) + 1 expected-skip (`test_lazy_import_boundary.py` skips when `_install_config.py` isn't present — guards the dev-checkout vs installed-wheel boundary); additionally 103 doc-example `python` fences executed end-to-end by `pytest --markdown-docs` via the repo-root `conftest.py` harness (R17 C6). Includes 58 cross-binding parity tests (`tests/test_feature_matrix_parity.py`) that validate `docs/FEATURE_MATRIX.yaml` schema + every Python `implemented` entry
+- Python tests: 728 passing (via FFI) + 1 expected-skip (`test_lazy_import_boundary.py` skips when `_install_config.py` isn't present — guards the dev-checkout vs installed-wheel boundary); additionally 103 doc-example `python` fences executed end-to-end by `pytest --markdown-docs` via the repo-root `conftest.py` harness (R17 C6). Includes 62 cross-binding parity tests (`tests/test_feature_matrix_parity.py`) that validate `docs/FEATURE_MATRIX.yaml` schema (33 rows) + every Python `implemented` entry
 - C++ tests: 159 unit + 34 integration + 33 YAML + 47 Excel + 2 parity TEST_CASEs (275 total) across 5 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`, `feature_matrix_tests`) + 1 compile-time binary (`static_tests`), built from 12 `.cpp` sources; `feature_matrix_tests` reads `docs/FEATURE_MATRIX.yaml` and verifies every C++ `implemented` entry resolves to a header + whole-word symbol under `cpp/include/`
-- Go tests: 225 passing in `go/aletheia` across 16 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total. Includes 2 parity tests (`feature_matrix_test.go`) that validate the matrix schema + every Go `implemented` entry via `go/ast` source parsing (handles `Type.Method` receivers and `excel:<ident>` sub-package references)
-- Total: 1207 tests
+- Go tests: 236 passing in `go/aletheia` across 17 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total. Includes 2 parity tests (`feature_matrix_test.go`) that validate the matrix schema + every Go `implemented` entry via `go/ast` source parsing (handles `Type.Method` receivers and `excel:<ident>` sub-package references)
+- Total: 1239 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 

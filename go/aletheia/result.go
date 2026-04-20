@@ -147,6 +147,9 @@ const (
 	IssueStartBitOutOfRange        IssueCode = "start_bit_out_of_range"       // Signal start bit exceeds frame capacity.
 	IssueBitLengthExcessive        IssueCode = "bit_length_excessive"         // Signal bit length exceeds 64 bits.
 	IssueMultiplexorNonUnitScaling IssueCode = "multiplexor_non_unit_scaling" // Multiplexor signal has non-unit scaling (factor≠1 or offset≠0).
+	IssueDuplicateAttributeName    IssueCode = "duplicate_attribute_name"     // BA_DEF_ declares the same attribute name twice.
+	IssueUnknownCommentTarget      IssueCode = "unknown_comment_target"       // CM_ entry references a node/message/signal/env-var that is not declared.
+	IssueUnknownMessageSender      IssueCode = "unknown_message_sender"       // Message sender node is not listed in BU_.
 	IssueUnknown                   IssueCode = "unknown"                      // Unrecognized issue code from the Agda core.
 )
 

@@ -7,9 +7,20 @@ from fractions import Fraction
 from typing import cast, override
 
 from ..protocols import (
+    AttrScope,
+    DBCAttrDef,
+    DBCAttrDefault,
+    DBCAttrAssign,
+    DBCAttribute,
+    DBCAttrTarget,
+    DBCAttrType,
+    DBCAttrValue,
+    DBCComment,
+    DBCCommentTarget,
     DBCDefinition,
     DBCEnvironmentVar,
     DBCMessage,
+    DBCNode,
     DBCSignal,
     DBCSignalGroup,
     DBCValueEntry,
@@ -285,6 +296,240 @@ def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
     return {"name": name, "entries": entries}
 
 
+# ----------------------------------------------------------------------------
+# Tier 2 metadata normalisation (nodes / comments / attributes)
+# ----------------------------------------------------------------------------
+
+
+def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
+    v = raw.get(field)
+    if not isinstance(v, str):
+        raise ProtocolError(f"Expected {context} {field!r} to be str, got {type(v).__name__}")
+    return v
+
+
+def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
+    v = raw.get(field)
+    if isinstance(v, bool) or not isinstance(v, int):
+        raise ProtocolError(f"Expected {context} {field!r} to be int, got {type(v).__name__}")
+    return v
+
+
+def _optional_extended(raw: dict[str, object]) -> bool:
+    """Accept an optional ``extended`` flag (default ``False``) — Agda emits
+    it only for 29-bit IDs, but the Python side always passes it through to
+    preserve round-trip wire shape."""
+    v = raw.get("extended")
+    if v is None:
+        return False
+    if not isinstance(v, bool):
+        raise ProtocolError(f"Expected 'extended' to be bool, got {type(v).__name__}")
+    return v
+
+
+def _normalize_node(raw: dict[str, object]) -> DBCNode:
+    return {"name": _require_str_field(raw, "name", "node")}
+
+
+def _normalize_comment_target(raw: dict[str, object]) -> DBCCommentTarget:
+    kind = _require_str_field(raw, "kind", "comment target")
+    if kind == "network":
+        return {"kind": "network"}
+    if kind == "node":
+        return {"kind": "node", "node": _require_str_field(raw, "node", "comment target")}
+    if kind == "message":
+        out: dict[str, object] = {
+            "kind": "message",
+            "id": _require_int_field(raw, "id", "comment target"),
+        }
+        if _optional_extended(raw):
+            out["extended"] = True
+        return cast(DBCCommentTarget, out)
+    if kind == "signal":
+        out2: dict[str, object] = {
+            "kind": "signal",
+            "id": _require_int_field(raw, "id", "comment target"),
+            "signal": _require_str_field(raw, "signal", "comment target"),
+        }
+        if _optional_extended(raw):
+            out2["extended"] = True
+        return cast(DBCCommentTarget, out2)
+    if kind == "envVar":
+        return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", "comment target")}
+    raise ProtocolError(f"Unknown comment target kind {kind!r}")
+
+
+def _normalize_comment(raw: dict[str, object]) -> DBCComment:
+    target_raw = raw.get("target")
+    if not is_str_dict(target_raw):
+        raise ProtocolError("Expected comment 'target' to be a dict")
+    return {
+        "target": _normalize_comment_target(target_raw),
+        "text": _require_str_field(raw, "text", "comment"),
+    }
+
+
+_ATTR_SCOPE_WIRE: frozenset[str] = frozenset({
+    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig",
+})
+
+
+def _normalize_attr_scope(value: object) -> AttrScope:
+    if isinstance(value, str) and value in _ATTR_SCOPE_WIRE:
+        return cast(AttrScope, value)
+    raise ProtocolError(f"Unknown attribute scope {value!r}")
+
+
+def _normalize_attr_type(raw: dict[str, object]) -> DBCAttrType:
+    kind = _require_str_field(raw, "kind", "attribute type")
+    if kind == "int":
+        return {
+            "kind": "int",
+            "min": _require_int_field(raw, "min", "attribute type int"),
+            "max": _require_int_field(raw, "max", "attribute type int"),
+        }
+    if kind == "float":
+        if "min" not in raw or "max" not in raw:
+            raise ProtocolError("Expected attribute type float 'min' and 'max'")
+        return {
+            "kind": "float",
+            "min": parse_rational(raw["min"]),
+            "max": parse_rational(raw["max"]),
+        }
+    if kind == "string":
+        return {"kind": "string"}
+    if kind == "enum":
+        raw_values = raw.get("values")
+        if not is_object_list(raw_values):
+            raise ProtocolError("Expected attribute type enum 'values' to be a list")
+        labels: list[str] = []
+        for v in raw_values:
+            if not isinstance(v, str):
+                raise ProtocolError("Expected attribute type enum 'values' entry to be str")
+            labels.append(v)
+        return {"kind": "enum", "values": labels}
+    if kind == "hex":
+        return {
+            "kind": "hex",
+            "min": _require_int_field(raw, "min", "attribute type hex"),
+            "max": _require_int_field(raw, "max", "attribute type hex"),
+        }
+    raise ProtocolError(f"Unknown attribute type kind {kind!r}")
+
+
+def _normalize_attr_value(raw: dict[str, object]) -> DBCAttrValue:
+    kind = _require_str_field(raw, "kind", "attribute value")
+    if kind == "int":
+        return {"kind": "int", "value": _require_int_field(raw, "value", "attribute value int")}
+    if kind == "float":
+        if "value" not in raw:
+            raise ProtocolError("Expected attribute value float 'value'")
+        return {"kind": "float", "value": parse_rational(raw["value"])}
+    if kind == "string":
+        value = _require_str_field(raw, "value", "attribute value string")
+        return {"kind": "string", "value": value}
+    if kind == "enum":
+        return {"kind": "enum", "value": _require_int_field(raw, "value", "attribute value enum")}
+    if kind == "hex":
+        return {"kind": "hex", "value": _require_int_field(raw, "value", "attribute value hex")}
+    raise ProtocolError(f"Unknown attribute value kind {kind!r}")
+
+
+def _with_optional_extended(
+    raw: dict[str, object], base: dict[str, object],
+) -> dict[str, object]:
+    if _optional_extended(raw):
+        base["extended"] = True
+    return base
+
+
+def _normalize_attr_target_msg_id(
+    raw: dict[str, object], kind: str,
+) -> dict[str, object]:
+    return _with_optional_extended(raw, {
+        "kind": kind,
+        "id": _require_int_field(raw, "id", "attribute target"),
+    })
+
+
+_ATTR_TARGET_SIMPLE_KINDS = frozenset({"network", "node", "envVar"})
+_ATTR_TARGET_MSG_KINDS = frozenset({"message", "signal", "nodeMsg", "nodeSig"})
+
+
+def _normalize_attr_target_simple(
+    kind: str, raw: dict[str, object],
+) -> dict[str, object]:
+    ctx = "attribute target"
+    if kind == "network":
+        return {"kind": "network"}
+    if kind == "node":
+        return {"kind": "node", "node": _require_str_field(raw, "node", ctx)}
+    return {"kind": "envVar", "envVar": _require_str_field(raw, "envVar", ctx)}
+
+
+def _normalize_attr_target_msg(
+    kind: str, raw: dict[str, object],
+) -> dict[str, object]:
+    ctx = "attribute target"
+    base = _normalize_attr_target_msg_id(raw, kind)
+    if kind in ("nodeMsg", "nodeSig"):
+        base["node"] = _require_str_field(raw, "node", ctx)
+    if kind in ("signal", "nodeSig"):
+        base["signal"] = _require_str_field(raw, "signal", ctx)
+    return base
+
+
+def _normalize_attr_target(raw: dict[str, object]) -> DBCAttrTarget:
+    kind = _require_str_field(raw, "kind", "attribute target")
+    if kind in _ATTR_TARGET_SIMPLE_KINDS:
+        return cast(DBCAttrTarget, _normalize_attr_target_simple(kind, raw))
+    if kind in _ATTR_TARGET_MSG_KINDS:
+        return cast(DBCAttrTarget, _normalize_attr_target_msg(kind, raw))
+    raise ProtocolError(f"Unknown attribute target kind {kind!r}")
+
+
+def _normalize_attribute(raw: dict[str, object]) -> DBCAttribute:
+    kind = _require_str_field(raw, "kind", "attribute")
+    name = _require_str_field(raw, "name", "attribute")
+    if kind == "definition":
+        scope = _normalize_attr_scope(raw.get("scope"))
+        attr_type_raw = raw.get("attrType")
+        if not is_str_dict(attr_type_raw):
+            raise ProtocolError("Expected attribute 'attrType' to be a dict")
+        result_def: DBCAttrDef = {
+            "kind": "definition",
+            "name": name,
+            "scope": scope,
+            "attrType": _normalize_attr_type(attr_type_raw),
+        }
+        return result_def
+    if kind == "default":
+        value_raw = raw.get("value")
+        if not is_str_dict(value_raw):
+            raise ProtocolError("Expected attribute default 'value' to be a dict")
+        result_default: DBCAttrDefault = {
+            "kind": "default",
+            "name": name,
+            "value": _normalize_attr_value(value_raw),
+        }
+        return result_default
+    if kind == "assignment":
+        target_raw = raw.get("target")
+        if not is_str_dict(target_raw):
+            raise ProtocolError("Expected attribute assignment 'target' to be a dict")
+        value_raw = raw.get("value")
+        if not is_str_dict(value_raw):
+            raise ProtocolError("Expected attribute assignment 'value' to be a dict")
+        result_assign: DBCAttrAssign = {
+            "kind": "assignment",
+            "name": name,
+            "target": _normalize_attr_target(target_raw),
+            "value": _normalize_attr_value(value_raw),
+        }
+        return result_assign
+    raise ProtocolError(f"Unknown attribute kind {kind!r}")
+
+
 def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
 
@@ -329,6 +574,9 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     result["valueTables"] = _normalize_optional_list(
         raw, "valueTables", _normalize_value_table
     )
+    result["nodes"] = _normalize_optional_list(raw, "nodes", _normalize_node)
+    result["comments"] = _normalize_optional_list(raw, "comments", _normalize_comment)
+    result["attributes"] = _normalize_optional_list(raw, "attributes", _normalize_attribute)
     return result
 
 

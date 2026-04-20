@@ -20,7 +20,7 @@ enum class ErrorKind {
 /// Machine-readable error codes mirroring the Agda `Error` ADT.
 ///
 /// Each named constant other than `Unknown` maps 1:1 to a string emitted by
-/// `errorCode` in `Aletheia.Error` — the ADT defines 49 codes across 6
+/// `errorCode` in `Aletheia.Error` — the ADT defines 50 codes across 6
 /// families (Parse / Frame / Route / Handler / Dispatch / Extraction).
 ///
 /// `Unknown` is a forward-compatibility sentinel used by
@@ -46,6 +46,7 @@ enum class ErrorCode {
     ParseSignalBitLengthZero,
     ParseSignalOverflowsFrame,
     ParseSignalMsbBelowBitLength,
+    ParseInvalidKind,
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,

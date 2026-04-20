@@ -250,14 +250,285 @@ type DbcValueTable struct {
 }
 
 // ---------------------------------------------------------------------------
+// Tier 2 DBC metadata: nodes (BU_), comments (CM_), attributes (BA_*)
+//
+// Every tagged wire object uses "kind" as the first-field discriminator;
+// Go has no sum types so each family is modelled as a sealed interface
+// with one concrete struct per variant (matching the SignalPresence
+// pattern already in use for always-vs-multiplexed signals).
+// ---------------------------------------------------------------------------
+
+// DbcNode is a DBC network node (BU_ keyword).
+type DbcNode struct {
+	Name string
+}
+
+// --- Comment targets (CM_ family) ---
+
+// DbcCommentTarget is the sealed sum of the 5 comment-target kinds.
+type DbcCommentTarget interface {
+	commentTarget() // sealed
+}
+
+// DbcCommentTargetNetwork is a network-wide comment.
+type DbcCommentTargetNetwork struct{}
+
+func (DbcCommentTargetNetwork) commentTarget() {}
+
+// DbcCommentTargetNode is a node comment.
+type DbcCommentTargetNode struct {
+	Node string
+}
+
+func (DbcCommentTargetNode) commentTarget() {}
+
+// DbcCommentTargetMessage is a message comment. Extended is emitted on
+// the wire only when true, matching Agda's formatCANId which omits the
+// field for 11-bit standard IDs.
+type DbcCommentTargetMessage struct {
+	ID       uint32
+	Extended bool
+}
+
+func (DbcCommentTargetMessage) commentTarget() {}
+
+// DbcCommentTargetSignal is a signal comment.
+type DbcCommentTargetSignal struct {
+	ID       uint32
+	Extended bool
+	Signal   string
+}
+
+func (DbcCommentTargetSignal) commentTarget() {}
+
+// DbcCommentTargetEnvVar is an environment-variable comment.
+type DbcCommentTargetEnvVar struct {
+	EnvVar string
+}
+
+func (DbcCommentTargetEnvVar) commentTarget() {}
+
+// DbcComment is one CM_ entry with its target and body.
+type DbcComment struct {
+	Target DbcCommentTarget
+	Text   string
+}
+
+// --- Attribute scope (BA_DEF_ keyword class) ---
+
+// DbcAttrScope names the scope of a BA_DEF_ attribute declaration.
+type DbcAttrScope int
+
+// Attribute scope constants matching Agda AttrScope. The nodeMsg /
+// nodeSig entries are the relational scopes introduced by BA_DEF_REL_
+// (BU_BO_REL_ / BU_SG_REL_ in DBC text).
+const (
+	DbcAttrScopeNetwork DbcAttrScope = iota
+	DbcAttrScopeNode
+	DbcAttrScopeMessage
+	DbcAttrScopeSignal
+	DbcAttrScopeEnvVar
+	DbcAttrScopeNodeMsg
+	DbcAttrScopeNodeSig
+)
+
+// --- Attribute types (RHS of BA_DEF_) ---
+
+// DbcAttrType is the sealed sum of the 5 attribute-definition kinds.
+type DbcAttrType interface {
+	attrType() // sealed
+}
+
+// DbcAttrTypeInt is an integer attribute definition.
+type DbcAttrTypeInt struct {
+	Min int64
+	Max int64
+}
+
+func (DbcAttrTypeInt) attrType() {}
+
+// DbcAttrTypeFloat is a float attribute definition. Bounds use Rational
+// to mirror Python's Fraction and preserve ℚ precision end-to-end —
+// float64 would drift when a DBC text input carries a non-terminating
+// binary fraction.
+type DbcAttrTypeFloat struct {
+	Min Rational
+	Max Rational
+}
+
+func (DbcAttrTypeFloat) attrType() {}
+
+// DbcAttrTypeString is a string attribute definition.
+type DbcAttrTypeString struct{}
+
+func (DbcAttrTypeString) attrType() {}
+
+// DbcAttrTypeEnum is an enum attribute definition carrying its label set.
+type DbcAttrTypeEnum struct {
+	Values []string
+}
+
+func (DbcAttrTypeEnum) attrType() {}
+
+// DbcAttrTypeHex is a hex attribute definition (unsigned range).
+type DbcAttrTypeHex struct {
+	Min int64
+	Max int64
+}
+
+func (DbcAttrTypeHex) attrType() {}
+
+// --- Attribute values (BA_, BA_REL_, BA_DEF_DEF_) ---
+
+// DbcAttrValue is the sealed sum of the 5 attribute-value kinds.
+type DbcAttrValue interface {
+	attrValue() // sealed
+}
+
+// DbcAttrValueInt is an integer attribute value.
+type DbcAttrValueInt struct {
+	Value int64
+}
+
+func (DbcAttrValueInt) attrValue() {}
+
+// DbcAttrValueFloat is a float attribute value. Same Rational-over-double
+// rationale as DbcAttrTypeFloat above.
+type DbcAttrValueFloat struct {
+	Value Rational
+}
+
+func (DbcAttrValueFloat) attrValue() {}
+
+// DbcAttrValueString is a string attribute value.
+type DbcAttrValueString struct {
+	Value string
+}
+
+func (DbcAttrValueString) attrValue() {}
+
+// DbcAttrValueEnum is an enum attribute value carrying the ℕ index of
+// the chosen label in the corresponding DbcAttrTypeEnum.Values list.
+type DbcAttrValueEnum struct {
+	Value int64
+}
+
+func (DbcAttrValueEnum) attrValue() {}
+
+// DbcAttrValueHex is a hex attribute value.
+type DbcAttrValueHex struct {
+	Value int64
+}
+
+func (DbcAttrValueHex) attrValue() {}
+
+// --- Attribute assignment targets (LHS of BA_ / BA_REL_) ---
+
+// DbcAttrTarget is the sealed sum of the 7 attribute-target kinds.
+type DbcAttrTarget interface {
+	attrTarget() // sealed
+}
+
+// DbcAttrTargetNetwork is a network-scope assignment.
+type DbcAttrTargetNetwork struct{}
+
+func (DbcAttrTargetNetwork) attrTarget() {}
+
+// DbcAttrTargetNode is a node-scope assignment.
+type DbcAttrTargetNode struct {
+	Node string
+}
+
+func (DbcAttrTargetNode) attrTarget() {}
+
+// DbcAttrTargetMessage is a message-scope assignment.
+type DbcAttrTargetMessage struct {
+	ID       uint32
+	Extended bool
+}
+
+func (DbcAttrTargetMessage) attrTarget() {}
+
+// DbcAttrTargetSignal is a signal-scope assignment.
+type DbcAttrTargetSignal struct {
+	ID       uint32
+	Extended bool
+	Signal   string
+}
+
+func (DbcAttrTargetSignal) attrTarget() {}
+
+// DbcAttrTargetEnvVar is an env-var-scope assignment.
+type DbcAttrTargetEnvVar struct {
+	EnvVar string
+}
+
+func (DbcAttrTargetEnvVar) attrTarget() {}
+
+// DbcAttrTargetNodeMsg is a node-message relational assignment.
+type DbcAttrTargetNodeMsg struct {
+	Node     string
+	ID       uint32
+	Extended bool
+}
+
+func (DbcAttrTargetNodeMsg) attrTarget() {}
+
+// DbcAttrTargetNodeSig is a node-signal relational assignment.
+type DbcAttrTargetNodeSig struct {
+	Node     string
+	ID       uint32
+	Extended bool
+	Signal   string
+}
+
+func (DbcAttrTargetNodeSig) attrTarget() {}
+
+// --- Attribute ADT (3 variants: BA_DEF_ / BA_DEF_DEF_ / BA_) ---
+
+// DbcAttribute is the sealed sum of the 3 BA_* entry kinds. Wire
+// ordering (definition → default → assignment) is preserved because all
+// three variants live in a single flat list.
+type DbcAttribute interface {
+	attribute() // sealed
+}
+
+// DbcAttrDef is an attribute declaration (BA_DEF_ / BA_DEF_REL_).
+type DbcAttrDef struct {
+	Name     string
+	Scope    DbcAttrScope
+	AttrType DbcAttrType
+}
+
+func (DbcAttrDef) attribute() {}
+
+// DbcAttrDefault is an attribute default (BA_DEF_DEF_ / BA_DEF_DEF_REL_).
+type DbcAttrDefault struct {
+	Name  string
+	Value DbcAttrValue
+}
+
+func (DbcAttrDefault) attribute() {}
+
+// DbcAttrAssign is an attribute assignment (BA_ / BA_REL_).
+type DbcAttrAssign struct {
+	Name   string
+	Target DbcAttrTarget
+	Value  DbcAttrValue
+}
+
+func (DbcAttrAssign) attribute() {}
+
+// ---------------------------------------------------------------------------
 // DBC definition and lookup helpers
 // ---------------------------------------------------------------------------
 
 // DbcDefinition is a complete DBC database.
 //
-// The three Tier 1 metadata slices (SignalGroups / EnvironmentVars /
-// ValueTables) mirror the Agda DBC record fields 3-5 and are written on
-// every format_dbc response even when empty, matching the C++ and Python
+// Tier 1 metadata slices (SignalGroups / EnvironmentVars / ValueTables)
+// mirror the Agda DBC record fields 3-5; Tier 2 slices (Nodes / Comments
+// / Attributes) mirror fields 6-8. All six are written on every
+// format_dbc response even when empty, matching the C++ and Python
 // bindings.
 type DbcDefinition struct {
 	Version         string
@@ -265,6 +536,9 @@ type DbcDefinition struct {
 	SignalGroups    []DbcSignalGroup
 	EnvironmentVars []DbcEnvironmentVar
 	ValueTables     []DbcValueTable
+	Nodes           []DbcNode
+	Comments        []DbcComment
+	Attributes      []DbcAttribute
 	nameIndex       map[string]int // maps message name -> index
 	idIndex         map[uint64]int // maps composite CAN ID key -> index
 }

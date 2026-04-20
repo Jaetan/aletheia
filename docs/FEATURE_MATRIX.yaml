@@ -110,20 +110,38 @@ features:
         entry: DbcSignalGroup
         notes: "Tier 1 types (DbcSignalGroup, DbcEnvironmentVar, DbcValueTable) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
 
-  - id: dbc_metadata_full
-    name: Full DBC metadata exposure (Tier 2 — nodes, attributes, comments, receivers)
-    description: Expose DBC nodes, attribute defaults, comments, and signal receivers — fields that the Agda core does not yet carry.
+  - id: dbc_metadata_tier2
+    name: DBC metadata Tier 2 (nodes, comments, attributes)
+    description: Expose DBC nodes (BU_), comments (CM_), and attributes (BA_DEF_/BA_DEF_DEF_/BA_ with their BA_REL_ siblings) — Agda-core fields introduced by B.1.x.
     related: R17-DEF-2, B.1.x
     bindings:
       python:
+        status: implemented
+        entry: aletheia.protocols.DBCNode
+        notes: "Tier 2 TypedDicts (DBCNode, DBCComment, DBCAttribute + tagged AttrType/AttrValue/AttrTarget unions) land as NotRequired fields on DBCDefinition; populated by dbc_to_json and round-tripped via format_dbc."
+      cpp:
+        status: implemented
+        entry: "aletheia/dbc.hpp#DbcNode"
+        notes: "Tier 2 structs (DbcNode, DbcComment, DbcAttribute with tagged variants) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+      go:
+        status: implemented
+        entry: DbcNode
+        notes: "Tier 2 types (DbcNode, DbcComment, DbcAttribute with sealed-interface variants) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+
+  - id: dbc_signal_receivers
+    name: DBC signal receivers (BO_TX_BU_ + per-signal receiver nodes)
+    description: Expose per-message/signal receiver node lists — the ``receivers`` field on DBCSignal (and message-level sender/receiver metadata) that extends the Agda core beyond Tier 2's top-level arrays.
+    related: R17-DEF-2, B.1.x (commit 2)
+    bindings:
+      python:
         status: planned
-        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before the TypedDict can expose Tier 2 fields."
+        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before the TypedDict can surface them."
       cpp:
         status: planned
-        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before DbcDefinition can expose Tier 2 fields."
+        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before DbcSignal can surface them."
       go:
         status: planned
-        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before DbcDefinition can expose Tier 2 fields."
+        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before DbcSignal can surface them."
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers

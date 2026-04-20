@@ -37,7 +37,8 @@ open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Formatter.WellFormed public
 open import Aletheia.DBC.Formatter.MessageRoundtrip using (message-list-roundtrip)
 open import Aletheia.DBC.Formatter.MetadataRoundtrip using
-  (signalGroup-list-roundtrip; environmentVar-list-roundtrip; valueTable-list-roundtrip)
+  (signalGroup-list-roundtrip; environmentVar-list-roundtrip; valueTable-list-roundtrip;
+   node-list-roundtrip; comment-list-roundtrip; attribute-list-roundtrip)
 
 -- ============================================================================
 -- TOP-LEVEL ROUNDTRIP
@@ -55,6 +56,9 @@ format-parse-roundtrip d wf
         | signalGroup-list-roundtrip (DBC.signalGroups d)
         | environmentVar-list-roundtrip (DBC.environmentVars d)
         | valueTable-list-roundtrip (DBC.valueTables d)
+        | node-list-roundtrip (DBC.nodes d)
+        | comment-list-roundtrip (DBC.comments d)
+        | attribute-list-roundtrip (DBC.attributes d)
   = refl
 
 -- ============================================================================

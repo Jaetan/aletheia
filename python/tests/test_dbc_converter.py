@@ -26,6 +26,22 @@ from aletheia.dbc_converter import (
 from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
 
 
+def _apply_tier2_defaults(db: Mock) -> None:
+    """Zero-fill Tier 2 metadata fields on a mocked DBC db and its messages."""
+    db.nodes = []
+    db.buses = []
+    db.dbc.attribute_definitions = {}
+    db.dbc.attribute_definitions_rel = {}
+    db.dbc.attributes = {}
+    db.dbc.attributes_rel = {}
+    for msg in getattr(db, "messages", []):
+        msg.comment = None
+        msg.dbc = None
+        for signal in getattr(msg, "signals", []):
+            signal.comment = None
+            signal.dbc = None
+
+
 # ============================================================================
 # SIGNAL CONVERSION
 # ============================================================================
@@ -382,6 +398,7 @@ class TestDBCConversion:
         db.messages = [message]
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -398,6 +415,7 @@ class TestDBCConversion:
         db.messages = []
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -425,6 +443,7 @@ class TestDBCConversion:
         db.messages = messages
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -441,6 +460,7 @@ class TestDBCConversion:
         db.messages = []
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("empty.dbc")
@@ -464,6 +484,7 @@ class TestFileIO:
         db.messages = []
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = convert_dbc_file("test.dbc")
@@ -481,6 +502,7 @@ class TestFileIO:
         db.messages = []
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
@@ -512,6 +534,7 @@ class TestFileIO:
         db.messages = []
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = convert_dbc_file("test.dbc")
@@ -552,6 +575,7 @@ class TestErrorHandling:
             db.messages = []
             db.dbc.environment_variables = {}
             db.dbc.value_tables = {}
+            _apply_tier2_defaults(db)
             mock_load.return_value = db
 
             path = Path("test.dbc")
@@ -601,6 +625,7 @@ class TestIntegrationStyle:
         db.messages = [message]
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("vehicle.dbc")
@@ -655,6 +680,7 @@ class TestIntegrationStyle:
         db.messages = [std_msg, ext_msg]
         db.dbc.environment_variables = {}
         db.dbc.value_tables = {}
+        _apply_tier2_defaults(db)
         mock_load.return_value = db
 
         result = dbc_to_json("mixed.dbc")

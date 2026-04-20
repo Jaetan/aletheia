@@ -50,6 +50,9 @@ class IssueCode(str, Enum):
     START_BIT_OUT_OF_RANGE = "start_bit_out_of_range"
     BIT_LENGTH_EXCESSIVE = "bit_length_excessive"
     MULTIPLEXOR_NON_UNIT_SCALING = "multiplexor_non_unit_scaling"
+    DUPLICATE_ATTRIBUTE_NAME = "duplicate_attribute_name"
+    UNKNOWN_COMMENT_TARGET = "unknown_comment_target"
+    UNKNOWN_MESSAGE_SENDER = "unknown_message_sender"
 
 
 class ErrorCode(str, Enum):
@@ -73,6 +76,7 @@ class ErrorCode(str, Enum):
     PARSE_SIGNAL_BIT_LENGTH_ZERO = "parse_signal_bit_length_zero"
     PARSE_SIGNAL_OVERFLOWS_FRAME = "parse_signal_overflows_frame"
     PARSE_SIGNAL_MSB_BELOW_BIT_LENGTH = "parse_signal_msb_below_bit_length"
+    PARSE_INVALID_KIND = "parse_invalid_kind"
     # Frame errors
     FRAME_SIGNAL_NOT_FOUND = "frame_signal_not_found"
     FRAME_SIGNAL_INDEX_OOB = "frame_signal_index_oob"
@@ -233,19 +237,276 @@ class DBCValueTable(TypedDict):
     entries: list[DBCValueEntry]
 
 
+# ----------------------------------------------------------------------------
+# Tier 2 DBC metadata: nodes / comments / attributes
+# ----------------------------------------------------------------------------
+# Every tagged wire object (CommentTarget, AttrType, AttrValue, AttrTarget,
+# DBCAttribute) uses ``"kind"`` as the first-field discriminator. This mirrors
+# the Agda formatter exactly (see ``Formatter.agda`` ``formatCommentTarget`` /
+# ``formatAttribute``), so pyright narrows via ``Literal["kind"]``.
+
+class DBCNode(TypedDict):
+    """DBC network node (``BU_`` keyword). Only the declared name is modelled;
+    per-node attributes and comments live in the sibling arrays."""
+    name: str
+
+
+class DBCCommentTargetNetwork(TypedDict):
+    """Network-wide comment (``CM_ "..."``)."""
+    kind: Literal["network"]
+
+
+class DBCCommentTargetNode(TypedDict):
+    """Node comment (``CM_ BU_ <name> "..."``)."""
+    kind: Literal["node"]
+    node: str
+
+
+class DBCCommentTargetMessage(TypedDict):
+    """Message comment (``CM_ BO_ <id> "..."``).
+
+    ``extended`` follows the same convention as ``DBCMessage``: ``true`` for
+    29-bit IDs, absent/``false`` for 11-bit IDs.
+    """
+    kind: Literal["message"]
+    id: int
+    extended: NotRequired[bool]
+
+
+class DBCCommentTargetSignal(TypedDict):
+    """Signal comment (``CM_ SG_ <id> <signal> "..."``)."""
+    kind: Literal["signal"]
+    id: int
+    extended: NotRequired[bool]
+    signal: str
+
+
+class DBCCommentTargetEnvVar(TypedDict):
+    """Environment-variable comment (``CM_ EV_ <name> "..."``)."""
+    kind: Literal["envVar"]
+    envVar: str
+
+
+DBCCommentTarget = (
+    DBCCommentTargetNetwork |
+    DBCCommentTargetNode |
+    DBCCommentTargetMessage |
+    DBCCommentTargetSignal |
+    DBCCommentTargetEnvVar
+)
+
+
+class DBCComment(TypedDict):
+    """A DBC ``CM_`` entry with its target and body."""
+    target: DBCCommentTarget
+    text: str
+
+
+# Attribute scope matches Agda ``AttrScope``. ``nodeMsg`` / ``nodeSig`` are
+# the relational scopes introduced by ``BA_DEF_REL_`` (``BU_BO_REL_`` /
+# ``BU_SG_REL_`` in DBC text).
+AttrScope = Literal[
+    "network", "node", "message", "signal", "envVar", "nodeMsg", "nodeSig"
+]
+
+
+class DBCAttrTypeInt(TypedDict):
+    """Integer attribute definition (``INT min max``).
+
+    ``min`` / ``max`` are encoded as JSON numbers and carry the full ℤ range
+    of the Agda core — handlers that marshal them should use unbounded
+    integers, not fixed-width.
+    """
+    kind: Literal["int"]
+    min: int
+    max: int
+
+
+class DBCAttrTypeFloat(TypedDict):
+    """Float attribute definition (``FLOAT min max``).
+
+    Bounds are ``Fraction`` to preserve ℚ precision across the wire;
+    cantools emits ``float`` literals which the converter widens to
+    ``Fraction`` for lossless round-trip.
+    """
+    kind: Literal["float"]
+    min: Fraction
+    max: Fraction
+
+
+class DBCAttrTypeString(TypedDict):
+    """String attribute definition (``STRING``)."""
+    kind: Literal["string"]
+
+
+class DBCAttrTypeEnum(TypedDict):
+    """Enum attribute definition (``ENUM "a","b",...``)."""
+    kind: Literal["enum"]
+    values: list[str]
+
+
+class DBCAttrTypeHex(TypedDict):
+    """Hex attribute definition (``HEX min max``). Bounds are unsigned ℕ."""
+    kind: Literal["hex"]
+    min: int
+    max: int
+
+
+DBCAttrType = (
+    DBCAttrTypeInt |
+    DBCAttrTypeFloat |
+    DBCAttrTypeString |
+    DBCAttrTypeEnum |
+    DBCAttrTypeHex
+)
+
+
+class DBCAttrValueInt(TypedDict):
+    """Integer attribute value (BA_/BA_DEF_DEF_/BA_REL_ for ``INT``)."""
+    kind: Literal["int"]
+    value: int
+
+
+class DBCAttrValueFloat(TypedDict):
+    """Float attribute value (``FLOAT``). ``Fraction`` mirrors
+    ``DBCAttrTypeFloat.min`` / ``max``."""
+    kind: Literal["float"]
+    value: Fraction
+
+
+class DBCAttrValueString(TypedDict):
+    """String attribute value."""
+    kind: Literal["string"]
+    value: str
+
+
+class DBCAttrValueEnum(TypedDict):
+    """Enum attribute value: ``value`` is a 0-based index into the matching
+    definition's ``values`` list (ℕ on the Agda side), not the label."""
+    kind: Literal["enum"]
+    value: int
+
+
+class DBCAttrValueHex(TypedDict):
+    """Hex attribute value (unsigned ℕ)."""
+    kind: Literal["hex"]
+    value: int
+
+
+DBCAttrValue = (
+    DBCAttrValueInt |
+    DBCAttrValueFloat |
+    DBCAttrValueString |
+    DBCAttrValueEnum |
+    DBCAttrValueHex
+)
+
+
+class DBCAttrTargetNetwork(TypedDict):
+    """Network-scope attribute assignment (``BA_ "attr" value;``)."""
+    kind: Literal["network"]
+
+
+class DBCAttrTargetNode(TypedDict):
+    """Node-scope assignment (``BA_ "attr" BU_ <node> value;``)."""
+    kind: Literal["node"]
+    node: str
+
+
+class DBCAttrTargetMessage(TypedDict):
+    """Message-scope assignment (``BA_ "attr" BO_ <id> value;``)."""
+    kind: Literal["message"]
+    id: int
+    extended: NotRequired[bool]
+
+
+class DBCAttrTargetSignal(TypedDict):
+    """Signal-scope assignment (``BA_ "attr" SG_ <id> <sig> value;``)."""
+    kind: Literal["signal"]
+    id: int
+    extended: NotRequired[bool]
+    signal: str
+
+
+class DBCAttrTargetEnvVar(TypedDict):
+    """EnvVar-scope assignment (``BA_ "attr" EV_ <name> value;``)."""
+    kind: Literal["envVar"]
+    envVar: str
+
+
+class DBCAttrTargetNodeMsg(TypedDict):
+    """Node-message relational assignment (``BA_REL_ ... BU_BO_REL_ ...``)."""
+    kind: Literal["nodeMsg"]
+    node: str
+    id: int
+    extended: NotRequired[bool]
+
+
+class DBCAttrTargetNodeSig(TypedDict):
+    """Node-signal relational assignment (``BA_REL_ ... BU_SG_REL_ ...``)."""
+    kind: Literal["nodeSig"]
+    node: str
+    id: int
+    extended: NotRequired[bool]
+    signal: str
+
+
+DBCAttrTarget = (
+    DBCAttrTargetNetwork |
+    DBCAttrTargetNode |
+    DBCAttrTargetMessage |
+    DBCAttrTargetSignal |
+    DBCAttrTargetEnvVar |
+    DBCAttrTargetNodeMsg |
+    DBCAttrTargetNodeSig
+)
+
+
+class DBCAttrDef(TypedDict):
+    """Attribute declaration (``BA_DEF_`` / ``BA_DEF_REL_``)."""
+    kind: Literal["definition"]
+    name: str
+    scope: AttrScope
+    attrType: DBCAttrType
+
+
+class DBCAttrDefault(TypedDict):
+    """Attribute default (``BA_DEF_DEF_`` / ``BA_DEF_DEF_REL_``)."""
+    kind: Literal["default"]
+    name: str
+    value: DBCAttrValue
+
+
+class DBCAttrAssign(TypedDict):
+    """Attribute assignment (``BA_`` / ``BA_REL_``)."""
+    kind: Literal["assignment"]
+    name: str
+    target: DBCAttrTarget
+    value: DBCAttrValue
+
+
+# The three BA_* sub-records live in a single flat list so wire ordering
+# (definition → default → assignment) is preserved end-to-end; the ``kind``
+# discriminator lets the Agda parser dispatch without separate arrays.
+DBCAttribute = DBCAttrDef | DBCAttrDefault | DBCAttrAssign
+
+
 class DBCDefinition(TypedDict):
     """Complete DBC file structure.
 
-    The three metadata arrays are ``NotRequired`` so that pre-Tier-1
-    wire formats (and hand-written fixtures) remain accepted; absent
-    keys are treated as empty lists by both ``dbc_to_json`` consumers
-    and the Agda parser.
+    Every metadata array is ``NotRequired`` so that pre-Tier-1/2 wire
+    payloads and hand-written fixtures remain accepted; absent keys are
+    treated as empty lists by both ``dbc_to_json`` consumers and the Agda
+    parser.
     """
     version: str
     messages: list[DBCMessage]
     signalGroups: NotRequired[list[DBCSignalGroup]]
     environmentVars: NotRequired[list[DBCEnvironmentVar]]
     valueTables: NotRequired[list[DBCValueTable]]
+    nodes: NotRequired[list[DBCNode]]
+    comments: NotRequired[list[DBCComment]]
+    attributes: NotRequired[list[DBCAttribute]]
 
 
 # ============================================================================
@@ -647,6 +908,40 @@ __all__ = [
     "DBCEnvironmentVar",
     "DBCValueEntry",
     "DBCValueTable",
+    # Tier 2 DBC metadata
+    "DBCNode",
+    "DBCComment",
+    "DBCCommentTarget",
+    "DBCCommentTargetNetwork",
+    "DBCCommentTargetNode",
+    "DBCCommentTargetMessage",
+    "DBCCommentTargetSignal",
+    "DBCCommentTargetEnvVar",
+    "AttrScope",
+    "DBCAttrType",
+    "DBCAttrTypeInt",
+    "DBCAttrTypeFloat",
+    "DBCAttrTypeString",
+    "DBCAttrTypeEnum",
+    "DBCAttrTypeHex",
+    "DBCAttrValue",
+    "DBCAttrValueInt",
+    "DBCAttrValueFloat",
+    "DBCAttrValueString",
+    "DBCAttrValueEnum",
+    "DBCAttrValueHex",
+    "DBCAttrTarget",
+    "DBCAttrTargetNetwork",
+    "DBCAttrTargetNode",
+    "DBCAttrTargetMessage",
+    "DBCAttrTargetSignal",
+    "DBCAttrTargetEnvVar",
+    "DBCAttrTargetNodeMsg",
+    "DBCAttrTargetNodeSig",
+    "DBCAttribute",
+    "DBCAttrDef",
+    "DBCAttrDefault",
+    "DBCAttrAssign",
     # Signal predicates
     "SignalPredicate",
     "EqualsPredicate",

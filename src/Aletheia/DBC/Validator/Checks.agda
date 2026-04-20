@@ -19,7 +19,14 @@ open import Aletheia.DBC.Types using
   ; OffsetScaleRange; EmptyMessage
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
+  ; DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender
+  ; Node; DBCComment
+  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
+  ; EnvironmentVar
+  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign
+  ; AttrDef
   )
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Constants using (max-physical-bits)
 open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
@@ -411,3 +418,91 @@ checkBitLengthExcessive msgName sig =
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
 checkAllBitLengthExcessive = liftPerSignal checkBitLengthExcessive
+
+-- ============================================================================
+-- CHECK 18: DUPLICATE ATTRIBUTE NAME (BA_DEF_ names only)
+-- ============================================================================
+-- Names in BA_DEF_DEF_ and BA_ refer back to BA_DEF_ names, so only BA_DEF_
+-- names need pairwise distinctness; assignments are validated by resolution
+-- separately (not in commit 1 scope).
+
+attrDefNames : List DBCAttribute → List String
+attrDefNames [] = []
+attrDefNames (DBCAttrDef d ∷ rest)     = AttrDef.name d ∷ attrDefNames rest
+attrDefNames (DBCAttrDefault _ ∷ rest) = attrDefNames rest
+attrDefNames (DBCAttrAssign _ ∷ rest)  = attrDefNames rest
+
+checkDuplicateAttrNamePair : String → String → List ValidationIssue
+checkDuplicateAttrNamePair n1 n2 =
+  rejectDec (n1 ≟ₛ n2)
+            (mkIssue IsWarning DuplicateAttributeName
+              ("Duplicate attribute definition name '" ++ₛ n1 ++ₛ "'"))
+
+checkDuplicateAttributeNames : List DBCAttribute → List ValidationIssue
+checkDuplicateAttributeNames attrs = triangularCheck checkDuplicateAttrNamePair (attrDefNames attrs)
+
+-- ============================================================================
+-- CHECK 19: UNKNOWN COMMENT TARGET
+-- ============================================================================
+-- A CM_ line may target a node (BU_), message (BO_), signal (SG_), or
+-- environment variable (EV_). Network-level comments (no keyword) target
+-- the DBC as a whole and require no resolution.
+
+-- Linear CANId lookup in a message list.
+findMessageInList : CANId → List DBCMessage → Maybe DBCMessage
+findMessageInList _   []       = nothing
+findMessageInList cid (m ∷ ms) with cid ≟-CANId DBCMessage.id m
+... | yes _ = just m
+... | no  _ = findMessageInList cid ms
+
+checkCommentTargetExists : List DBCMessage → List Node → List EnvironmentVar
+                         → DBCComment → List ValidationIssue
+checkCommentTargetExists msgs nodes envVars cm with DBCComment.target cm
+... | CTNetwork = []
+... | CTNode nname =
+        requireDec (any? (λ n → Node.name n ≟ₛ nname) nodes)
+          (mkIssue IsWarning UnknownCommentTarget
+            ("Comment references unknown node '" ++ₛ nname ++ₛ "'"))
+... | CTMessage mid with findMessageInList mid msgs
+...   | just _  = []
+...   | nothing = mkIssue IsWarning UnknownCommentTarget
+                    "Comment references unknown message" ∷ []
+checkCommentTargetExists msgs _ _ cm | CTSignal mid sname
+  with findMessageInList mid msgs
+...   | nothing = mkIssue IsWarning UnknownCommentTarget
+                    ("Comment references unknown signal '"
+                     ++ₛ sname ++ₛ "' (message not found)") ∷ []
+...   | just m with findSignalInList sname (DBCMessage.signals m)
+...     | just _  = []
+...     | nothing = mkIssue IsWarning UnknownCommentTarget
+                      ("Comment references unknown signal '" ++ₛ sname
+                       ++ₛ "' in message '" ++ₛ DBCMessage.name m ++ₛ "'") ∷ []
+checkCommentTargetExists _ _ envVars cm | CTEnvVar evname =
+  requireDec (any? (λ ev → EnvironmentVar.name ev ≟ₛ evname) envVars)
+    (mkIssue IsWarning UnknownCommentTarget
+      ("Comment references unknown environment variable '" ++ₛ evname ++ₛ "'"))
+
+checkAllUnknownCommentTargets : List DBCMessage → List Node → List EnvironmentVar
+                              → List DBCComment → List ValidationIssue
+checkAllUnknownCommentTargets msgs nodes envVars =
+  concatMap (checkCommentTargetExists msgs nodes envVars)
+
+-- ============================================================================
+-- CHECK 20: UNKNOWN MESSAGE SENDER
+-- ============================================================================
+-- A message's sender should correspond to a declared node. When the DBC
+-- has no BU_ section (nodes = []), the check is skipped — many DBCs omit
+-- BU_ entirely and the sender field is informational. When BU_ is present,
+-- each sender is validated against it.
+
+checkUnknownSender : List Node → DBCMessage → List ValidationIssue
+checkUnknownSender nodes msg =
+  requireDec (any? (λ n → Node.name n ≟ₛ DBCMessage.sender msg) nodes)
+    (mkIssue IsWarning UnknownMessageSender
+      ("Message '" ++ₛ DBCMessage.name msg
+       ++ₛ "': sender '" ++ₛ DBCMessage.sender msg
+       ++ₛ "' not declared in BU_ (nodes) list"))
+
+checkAllUnknownMessageSenders : List DBCMessage → List Node → List ValidationIssue
+checkAllUnknownMessageSenders _    []             = []
+checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSender nodes) msgs

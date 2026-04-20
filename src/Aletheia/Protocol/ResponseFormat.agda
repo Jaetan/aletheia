@@ -24,7 +24,9 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   MultiplexorNotFound; MultiplexorCycle; GlobalNameCollision;
   MinExceedsMax; SignalExceedsDLC; SignalOverlap; BitLengthZero;
   DuplicateMessageName; OffsetScaleRange; EmptyMessage;
-  StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling; ValidationIssue)
+  StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling;
+  DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender;
+  ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
 -- Shared header + variant-specific extras for PropertyResult JSON output.
@@ -129,6 +131,9 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"
     formatIssueCode BitLengthExcessive          = "bit_length_excessive"
     formatIssueCode MultiplexorNonUnitScaling   = "multiplexor_non_unit_scaling"
+    formatIssueCode DuplicateAttributeName      = "duplicate_attribute_name"
+    formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
+    formatIssueCode UnknownMessageSender        = "unknown_message_sender"
 
     formatValidationIssue : ValidationIssue → JSON
     formatValidationIssue issue =

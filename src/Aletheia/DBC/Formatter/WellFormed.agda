@@ -9,23 +9,27 @@ module Aletheia.DBC.Formatter.WellFormed where
 
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _≤_; z≤n; s≤s; _<ᵇ_; _≤ᵇ_; _/_; _%_)
 open import Data.Nat.DivMod using (m%n<n; m<n⇒m%n≡m)
+open import Data.Nat.Divisibility using (1∣_; _∣?_)
 open import Data.Nat.Properties using (≤-trans; <-≤-trans; ≤-<-trans; *-monoˡ-≤; m∸n≤m; +-comm)
+open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; [])
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Bool using (Bool; true; T)
+open import Data.Empty as Empty using (⊥-elim)
 open import Data.Maybe using (just)
 open import Data.Sum using (_⊎_; inj₂)
+open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong; subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.CAN.DLC using (dlcBytes)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; formatByteOrder)
+open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; formatByteOrder)
 open import Aletheia.DBC.JSONParser using (parseByteOrder)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (physicalBitPos-BE-bounded-any)
-open import Aletheia.JSON using (getNat)
+open import Aletheia.JSON using (getNat; getInt)
 open import Aletheia.JSON.Properties using (getNat-ℕtoℚ)
 open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
 
@@ -95,6 +99,21 @@ record WellFormedDBCRT (d : DBC) : Set where
 -- ℕtoJSON n = JNumber (ℕtoℚ n), so getNat-ℕtoℚ applies directly.
 getNat-ℕtoJSON : ∀ n → getNat (ℕtoJSON n) ≡ just n
 getNat-ℕtoJSON = getNat-ℕtoℚ
+
+-- ℤtoJSON z = JNumber (fromℤ z), where fromℤ puts z in the numerator and 0
+-- in denominator-1 (so toℚᵘ (fromℤ z) = mkℚᵘ z 0). `getInt` then runs its
+-- internal `with (suc 0) ∣? ∣ z ∣` check, which always succeeds (1 divides
+-- everything). The outer `with 1 ∣? ∣ z ∣` shares Agda's abstraction with
+-- `getInt`'s inner `with`, so `refl` closes each `yes`-branch and `1∣_`
+-- refutes each `no`-branch. Case-split on z reveals `∣ z ∣` concretely:
+-- `∣ + n ∣ = n` and `∣ -[1+ n ] ∣ = suc n`.
+getInt-ℤtoJSON : ∀ z → getInt (ℤtoJSON z) ≡ just z
+getInt-ℤtoJSON (+ n) with 1 ∣? n
+... | yes _    = refl
+... | no ¬1∣n  = ⊥-elim (¬1∣n (1∣ n))
+getInt-ℤtoJSON -[1+ n ] with 1 ∣? suc n
+... | yes _    = refl
+... | no ¬1∣sn = ⊥-elim (¬1∣sn (1∣ suc n))
 
 -- Byte order roundtrip: parse ∘ format = id
 byteOrder-roundtrip : ∀ bo → parseByteOrder (formatByteOrder bo) ≡ inj₂ bo

@@ -12,8 +12,17 @@
 module Aletheia.DBC.JSONParser where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
-  SignalGroup; EnvironmentVar; ValueTable; VarType; IntVar; FloatVar; StringVar)
-open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupBool; lookupNat; lookupRational; lookupArray; getNat)
+  SignalGroup; EnvironmentVar; ValueTable; VarType; IntVar; FloatVar; StringVar;
+  Node; mkNode; CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar;
+  DBCComment; mkComment; AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar;
+  ASNodeMsg; ASNodeSig; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex;
+  AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
+  AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
+  ATgtNodeMsg; ATgtNodeSig;
+  AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
+open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupBool; lookupInt;
+  lookupNat; lookupRational; lookupObject; lookupArray; getNat)
 open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
@@ -24,6 +33,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ; suc; _%_; _≤ᵇ_; _+_; _<ᵇ_; _∸_; _*_)
+open import Data.Integer using (ℤ)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
@@ -35,6 +45,7 @@ open import Aletheia.Error using
   ; StdCANIdOutOfRange; DefaultCANIdOutOfRange; InvalidDLCBytes
   ; RootNotObject; MissingSignalName; InContext
   ; SignalBitLengthZero; SignalOverflowsFrame; SignalMSBBelowBitLength
+  ; InvalidKind
   )
 
 -- ============================================================================
@@ -323,6 +334,209 @@ parseValueTable obj =
 parseValueTableList : List JSON → ParseError ⊎ List ValueTable
 parseValueTableList = parseObjectList "valueTable" parseValueTable 0
 
+-- ============================================================================
+-- TIER 2 METADATA PARSERS (nodes, comments, attributes)
+-- ============================================================================
+
+-- ---- Nodes (BU_) ----
+
+parseNode : List (String × JSON) → ParseError ⊎ Node
+parseNode obj =
+  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  inj₂ (mkNode name)
+
+parseNodeList : List JSON → ParseError ⊎ List Node
+parseNodeList = parseObjectList "node" parseNode 0
+
+-- ---- Comments (CM_) ----
+
+-- Parse a CommentTarget from an object keyed on "kind".
+-- Variants:
+--   {"kind": "network"}
+--   {"kind": "node",    "node": String}
+--   {"kind": "message", "id": ℕ, "extended": Bool?}
+--   {"kind": "signal",  "id": ℕ, "extended": Bool?, "signal": String}
+--   {"kind": "envVar",  "envVar": String}
+parseCommentTarget : List (String × JSON) → ParseError ⊎ CommentTarget
+parseCommentTarget obj =
+  require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
+  (if ⌊ kind ≟ₛ "network" ⌋ then inj₂ CTNetwork
+  else if ⌊ kind ≟ₛ "node" ⌋ then
+    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+     inj₂ (CTNode n))
+  else if ⌊ kind ≟ₛ "message" ⌋ then
+    (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "comment target" rawId obj >>=ₑ λ cid →
+     inj₂ (CTMessage cid))
+  else if ⌊ kind ≟ₛ "signal" ⌋ then
+    (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "comment target" rawId obj >>=ₑ λ cid →
+     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     inj₂ (CTSignal cid sig))
+  else if ⌊ kind ≟ₛ "envVar" ⌋ then
+    (require (MissingField "envVar") (lookupString "envVar" obj) >>=ₑ λ ev →
+     inj₂ (CTEnvVar ev))
+  else inj₁ (InvalidKind "commentTarget" kind))
+
+parseComment : List (String × JSON) → ParseError ⊎ DBCComment
+parseComment obj =
+  require (MissingField "target") (lookupObject "target" obj) >>=ₑ λ tgtObj →
+  parseCommentTarget tgtObj >>=ₑ λ target →
+  require (MissingField "text") (lookupString "text" obj) >>=ₑ λ text →
+  inj₂ (mkComment target text)
+
+parseCommentList : List JSON → ParseError ⊎ List DBCComment
+parseCommentList = parseObjectList "comment" parseComment 0
+
+-- ---- Attributes (BA_*) ----
+
+parseAttrScope : String → ParseError ⊎ AttrScope
+parseAttrScope s =
+  if ⌊ s ≟ₛ "network" ⌋ then inj₂ ASNetwork
+  else if ⌊ s ≟ₛ "node"    ⌋ then inj₂ ASNode
+  else if ⌊ s ≟ₛ "message" ⌋ then inj₂ ASMessage
+  else if ⌊ s ≟ₛ "signal"  ⌋ then inj₂ ASSignal
+  else if ⌊ s ≟ₛ "envVar"  ⌋ then inj₂ ASEnvVar
+  else if ⌊ s ≟ₛ "nodeMsg" ⌋ then inj₂ ASNodeMsg
+  else if ⌊ s ≟ₛ "nodeSig" ⌋ then inj₂ ASNodeSig
+  else inj₁ (InvalidKind "attrScope" s)
+
+-- Attribute type declaration (RHS of BA_DEF_).
+-- Variants keyed on "kind":
+--   {"kind": "int",    "min": ℤ, "max": ℤ}
+--   {"kind": "float",  "min": ℚ, "max": ℚ}
+--   {"kind": "string"}
+--   {"kind": "enum",   "values": [String, ...]}
+--   {"kind": "hex",    "min": ℕ, "max": ℕ}
+parseAttrType : List (String × JSON) → ParseError ⊎ AttrType
+parseAttrType obj =
+  require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
+  (if ⌊ kind ≟ₛ "int" ⌋ then
+    (require (MissingField "min") (lookupInt "min" obj) >>=ₑ λ mn →
+     require (MissingField "max") (lookupInt "max" obj) >>=ₑ λ mx →
+     inj₂ (ATInt mn mx))
+  else if ⌊ kind ≟ₛ "float" ⌋ then
+    (require (MissingField "min") (lookupRational "min" obj) >>=ₑ λ mn →
+     require (MissingField "max") (lookupRational "max" obj) >>=ₑ λ mx →
+     inj₂ (ATFloat mn mx))
+  else if ⌊ kind ≟ₛ "string" ⌋ then inj₂ ATString
+  else if ⌊ kind ≟ₛ "enum" ⌋ then
+    (require (MissingField "values") (lookupArray "values" obj) >>=ₑ λ vs →
+     parseStringList vs >>=ₑ λ labels →
+     inj₂ (ATEnum labels))
+  else if ⌊ kind ≟ₛ "hex" ⌋ then
+    (require (MissingField "min") (lookupNat "min" obj) >>=ₑ λ mn →
+     require (MissingField "max") (lookupNat "max" obj) >>=ₑ λ mx →
+     inj₂ (ATHex mn mx))
+  else inj₁ (InvalidKind "attrType" kind))
+
+-- Concrete attribute value (BA_, BA_REL_, BA_DEF_DEF_).
+-- Variants keyed on "kind":
+--   {"kind": "int",    "value": ℤ}
+--   {"kind": "float",  "value": ℚ}
+--   {"kind": "string", "value": String}
+--   {"kind": "enum",   "value": ℕ}   -- 0-based index into definition's labels
+--   {"kind": "hex",    "value": ℕ}
+parseAttrValue : List (String × JSON) → ParseError ⊎ AttrValue
+parseAttrValue obj =
+  require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
+  (if ⌊ kind ≟ₛ "int" ⌋ then
+    (require (MissingField "value") (lookupInt "value" obj) >>=ₑ λ v →
+     inj₂ (AVInt v))
+  else if ⌊ kind ≟ₛ "float" ⌋ then
+    (require (MissingField "value") (lookupRational "value" obj) >>=ₑ λ v →
+     inj₂ (AVFloat v))
+  else if ⌊ kind ≟ₛ "string" ⌋ then
+    (require (MissingField "value") (lookupString "value" obj) >>=ₑ λ v →
+     inj₂ (AVString v))
+  else if ⌊ kind ≟ₛ "enum" ⌋ then
+    (require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ v →
+     inj₂ (AVEnum v))
+  else if ⌊ kind ≟ₛ "hex" ⌋ then
+    (require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ v →
+     inj₂ (AVHex v))
+  else inj₁ (InvalidKind "attrValue" kind))
+
+-- Attribute assignment target (LHS of BA_ / BA_REL_). Superset of CommentTarget
+-- with two extra relation variants.
+parseAttrTarget : List (String × JSON) → ParseError ⊎ AttrTarget
+parseAttrTarget obj =
+  require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
+  (if ⌊ kind ≟ₛ "network" ⌋ then inj₂ ATgtNetwork
+  else if ⌊ kind ≟ₛ "node" ⌋ then
+    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+     inj₂ (ATgtNode n))
+  else if ⌊ kind ≟ₛ "message" ⌋ then
+    (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "attr target" rawId obj >>=ₑ λ cid →
+     inj₂ (ATgtMessage cid))
+  else if ⌊ kind ≟ₛ "signal" ⌋ then
+    (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "attr target" rawId obj >>=ₑ λ cid →
+     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     inj₂ (ATgtSignal cid sig))
+  else if ⌊ kind ≟ₛ "envVar" ⌋ then
+    (require (MissingField "envVar") (lookupString "envVar" obj) >>=ₑ λ ev →
+     inj₂ (ATgtEnvVar ev))
+  else if ⌊ kind ≟ₛ "nodeMsg" ⌋ then
+    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+     require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "attr target" rawId obj >>=ₑ λ cid →
+     inj₂ (ATgtNodeMsg n cid))
+  else if ⌊ kind ≟ₛ "nodeSig" ⌋ then
+    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+     require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
+     parseCANId "attr target" rawId obj >>=ₑ λ cid →
+     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     inj₂ (ATgtNodeSig n cid sig))
+  else inj₁ (InvalidKind "attrTarget" kind))
+
+-- BA_DEF_ / BA_DEF_REL_ — carries name, scope, and type declaration.
+parseAttrDef : List (String × JSON) → ParseError ⊎ AttrDef
+parseAttrDef obj =
+  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "scope") (lookupString "scope" obj) >>=ₑ λ scopeStr →
+  parseAttrScope scopeStr >>=ₑ λ scope →
+  require (MissingField "attrType") (lookupObject "attrType" obj) >>=ₑ λ typeObj →
+  parseAttrType typeObj >>=ₑ λ ty →
+  inj₂ (mkAttrDef name scope ty)
+
+-- BA_DEF_DEF_ — default value for a previously-declared attribute.
+parseAttrDefault : List (String × JSON) → ParseError ⊎ AttrDefault
+parseAttrDefault obj =
+  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "value") (lookupObject "value" obj) >>=ₑ λ valObj →
+  parseAttrValue valObj >>=ₑ λ val →
+  inj₂ (mkAttrDefault name val)
+
+-- BA_ / BA_REL_ — concrete attribute value assigned to a target entity.
+parseAttrAssign : List (String × JSON) → ParseError ⊎ AttrAssign
+parseAttrAssign obj =
+  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "target") (lookupObject "target" obj) >>=ₑ λ tgtObj →
+  parseAttrTarget tgtObj >>=ₑ λ target →
+  require (MissingField "value") (lookupObject "value" obj) >>=ₑ λ valObj →
+  parseAttrValue valObj >>=ₑ λ val →
+  inj₂ (mkAttrAssign name target val)
+
+-- Discriminated parse for any BA_-family keyword, keyed on "kind":
+--   {"kind": "definition", ...}  → DBCAttrDef
+--   {"kind": "default",    ...}  → DBCAttrDefault
+--   {"kind": "assignment", ...}  → DBCAttrAssign
+parseAttribute : List (String × JSON) → ParseError ⊎ DBCAttribute
+parseAttribute obj =
+  require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
+  (if ⌊ kind ≟ₛ "definition" ⌋ then
+    (parseAttrDef obj >>=ₑ λ d → inj₂ (DBCAttrDef d))
+  else if ⌊ kind ≟ₛ "default" ⌋ then
+    (parseAttrDefault obj >>=ₑ λ d → inj₂ (DBCAttrDefault d))
+  else if ⌊ kind ≟ₛ "assignment" ⌋ then
+    (parseAttrAssign obj >>=ₑ λ a → inj₂ (DBCAttrAssign a))
+  else inj₁ (InvalidKind "attribute" kind))
+
+parseAttributeList : List JSON → ParseError ⊎ List DBCAttribute
+parseAttributeList = parseObjectList "attribute" parseAttribute 0
+
 -- Parse optional array field: returns [] if the field is missing
 parseOptionalArray : {A : Set} → (List JSON → ParseError ⊎ List A)
   → Maybe (List JSON) → ParseError ⊎ List A
@@ -338,11 +552,17 @@ parseDBCWithErrors (JObject obj) =
   parseOptionalArray parseSignalGroupList (lookupArray "signalGroups" obj) >>=ₑ λ groups →
   parseOptionalArray parseEnvironmentVarList (lookupArray "environmentVars" obj) >>=ₑ λ envvars →
   parseOptionalArray parseValueTableList (lookupArray "valueTables" obj) >>=ₑ λ vtables →
+  parseOptionalArray parseNodeList (lookupArray "nodes" obj) >>=ₑ λ nodes →
+  parseOptionalArray parseCommentList (lookupArray "comments" obj) >>=ₑ λ comments →
+  parseOptionalArray parseAttributeList (lookupArray "attributes" obj) >>=ₑ λ attributes →
   inj₂ (record
     { version = version
     ; messages = messages
     ; signalGroups = groups
     ; environmentVars = envvars
     ; valueTables = vtables
+    ; nodes = nodes
+    ; comments = comments
+    ; attributes = attributes
     })
 parseDBCWithErrors _ = inj₁ RootNotObject

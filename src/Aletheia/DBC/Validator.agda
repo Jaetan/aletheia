@@ -27,7 +27,11 @@ open import Aletheia.DBC.Validator.Formatting public
 
 validateDBCFull : DBC → List ValidationIssue
 validateDBCFull dbc =
-  let msgs = DBC.messages dbc
+  let msgs    = DBC.messages dbc
+      nodes   = DBC.nodes dbc
+      envVars = DBC.environmentVars dbc
+      cmts    = DBC.comments dbc
+      attrs   = DBC.attributes dbc
   in checkDuplicateMessageIds msgs
      ++ₗ checkAllDuplicateSignalNames msgs
      ++ₗ checkAllFactorZero msgs
@@ -44,3 +48,6 @@ validateDBCFull dbc =
      ++ₗ checkAllEmptyMessage msgs
      ++ₗ checkAllStartBitOutOfRange msgs
      ++ₗ checkAllBitLengthExcessive msgs
+     ++ₗ checkDuplicateAttributeNames attrs
+     ++ₗ checkAllUnknownCommentTargets msgs nodes envVars cmts
+     ++ₗ checkAllUnknownMessageSenders msgs nodes

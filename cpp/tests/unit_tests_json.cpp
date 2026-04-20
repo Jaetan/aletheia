@@ -757,6 +757,201 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
     CHECK(ev.maximum == Rational{22, 7});
 }
 
+// ===========================================================================
+// Tier 2 DBC metadata round-trip (Phase B.1.x) — nodes, comments, attributes
+// ===========================================================================
+
+TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
+          "[json][serialize][parse][dbc][tier2]") {
+    auto dbc = make_test_dbc();
+    dbc.nodes.push_back(DbcNode{.name = "ECU1"});
+    dbc.nodes.push_back(DbcNode{.name = "Gateway"});
+
+    dbc.comments.push_back(DbcComment{
+        .target = DbcCommentTargetNetwork{},
+        .text = "Vehicle network",
+    });
+    dbc.comments.push_back(DbcComment{
+        .target = DbcCommentTargetNode{.node = "ECU1"},
+        .text = "Engine control unit",
+    });
+    dbc.comments.push_back(DbcComment{
+        .target = DbcCommentTargetMessage{.id = 256, .extended = false},
+        .text = "Engine status message",
+    });
+    dbc.comments.push_back(DbcComment{
+        .target = DbcCommentTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
+        .text = "Requested torque",
+    });
+    dbc.comments.push_back(DbcComment{
+        .target = DbcCommentTargetEnvVar{.env_var = "AmbientTemp"},
+        .text = "Ambient temperature sensor",
+    });
+
+    dbc.attributes.push_back(DbcAttrDef{
+        .name = "GenMsgCycleTime",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeInt{.min = 0, .max = 10000},
+    });
+    dbc.attributes.push_back(DbcAttrDef{
+        .name = "SignalGain",
+        .scope = DbcAttrScope::Signal,
+        .attr_type = DbcAttrTypeFloat{.min = Rational{-1, 2}, .max = Rational{22, 7}},
+    });
+    dbc.attributes.push_back(DbcAttrDef{
+        .name = "BusName",
+        .scope = DbcAttrScope::Network,
+        .attr_type = DbcAttrTypeString{},
+    });
+    dbc.attributes.push_back(DbcAttrDef{
+        .name = "ModuleType",
+        .scope = DbcAttrScope::Node,
+        .attr_type = DbcAttrTypeEnum{.values = {"ECU", "Gateway", "Sensor"}},
+    });
+    dbc.attributes.push_back(DbcAttrDef{
+        .name = "AddressMask",
+        .scope = DbcAttrScope::Message,
+        .attr_type = DbcAttrTypeHex{.min = 0, .max = 65535},
+    });
+    dbc.attributes.push_back(DbcAttrDefault{
+        .name = "GenMsgCycleTime",
+        .value = DbcAttrValueInt{.value = 100},
+    });
+    dbc.attributes.push_back(DbcAttrAssign{
+        .name = "GenMsgCycleTime",
+        .target = DbcAttrTargetMessage{.id = 256, .extended = false},
+        .value = DbcAttrValueInt{.value = 20},
+    });
+    dbc.attributes.push_back(DbcAttrAssign{
+        .name = "SignalGain",
+        .target = DbcAttrTargetSignal{.id = 512, .extended = true, .signal = "Torque"},
+        .value = DbcAttrValueFloat{.value = Rational{3, 4}},
+    });
+    dbc.attributes.push_back(DbcAttrAssign{
+        .name = "ModuleType",
+        .target = DbcAttrTargetNode{.node = "ECU1"},
+        .value = DbcAttrValueEnum{.value = 0},
+    });
+    dbc.attributes.push_back(DbcAttrAssign{
+        .name = "SenderRole",
+        .target = DbcAttrTargetNodeMsg{.node = "ECU1", .id = 256, .extended = false},
+        .value = DbcAttrValueString{.value = "producer"},
+    });
+    dbc.attributes.push_back(DbcAttrAssign{
+        .name = "SignalAccess",
+        .target =
+            DbcAttrTargetNodeSig{.node = "ECU1", .id = 512, .extended = true, .signal = "Torque"},
+        .value = DbcAttrValueHex{.value = 255},
+    });
+
+    auto str = detail::serialize_parse_dbc(dbc);
+    auto j = json::parse(str);
+
+    // Confirm wire shape: every tagged union carries "kind" first.
+    REQUIRE(j["dbc"]["nodes"].is_array());
+    REQUIRE(j["dbc"]["nodes"].size() == 2);
+    CHECK(j["dbc"]["nodes"][0]["name"] == "ECU1");
+
+    REQUIRE(j["dbc"]["comments"].size() == 5);
+    CHECK(j["dbc"]["comments"][0]["target"]["kind"] == "network");
+    CHECK(j["dbc"]["comments"][3]["target"]["kind"] == "signal");
+    CHECK(j["dbc"]["comments"][3]["target"]["extended"] == true);
+
+    REQUIRE(j["dbc"]["attributes"].size() == 11);
+    CHECK(j["dbc"]["attributes"][0]["kind"] == "definition");
+    CHECK(j["dbc"]["attributes"][0]["attrType"]["kind"] == "int");
+    // Float attribute values serialize as {numerator, denominator} dicts
+    // — matches Python's Fraction, drifts under double.
+    CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["numerator"] == -1);
+    CHECK(j["dbc"]["attributes"][1]["attrType"]["min"]["denominator"] == 2);
+
+    // Route the serialized JSON through parse_dbc_response (wrap as success
+    // envelope) to exercise the parser leg of the round-trip.
+    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    auto result = detail::parse_dbc_response(envelope.dump());
+    REQUIRE(result.has_value());
+
+    REQUIRE(result->nodes.size() == 2);
+    CHECK(result->nodes[0].name == "ECU1");
+    CHECK(result->nodes[1].name == "Gateway");
+
+    REQUIRE(result->comments.size() == 5);
+    CHECK(std::holds_alternative<DbcCommentTargetNetwork>(result->comments[0].target));
+    CHECK(std::get<DbcCommentTargetNode>(result->comments[1].target).node == "ECU1");
+    const auto& msg_ct = std::get<DbcCommentTargetMessage>(result->comments[2].target);
+    CHECK(msg_ct.id == 256);
+    CHECK_FALSE(msg_ct.extended);
+    const auto& sig_ct = std::get<DbcCommentTargetSignal>(result->comments[3].target);
+    CHECK(sig_ct.id == 512);
+    CHECK(sig_ct.extended);
+    CHECK(sig_ct.signal == "Torque");
+    CHECK(std::get<DbcCommentTargetEnvVar>(result->comments[4].target).env_var == "AmbientTemp");
+
+    REQUIRE(result->attributes.size() == 11);
+    // Definitions
+    const auto& def_int = std::get<DbcAttrDef>(result->attributes[0]);
+    CHECK(def_int.name == "GenMsgCycleTime");
+    CHECK(def_int.scope == DbcAttrScope::Message);
+    CHECK(std::get<DbcAttrTypeInt>(def_int.attr_type).max == 10000);
+    const auto& def_float = std::get<DbcAttrDef>(result->attributes[1]);
+    const auto& float_bounds = std::get<DbcAttrTypeFloat>(def_float.attr_type);
+    CHECK(float_bounds.min == Rational{-1, 2});
+    CHECK(float_bounds.max == Rational{22, 7});
+    const auto& def_enum = std::get<DbcAttrDef>(result->attributes[3]);
+    const auto& enum_labels = std::get<DbcAttrTypeEnum>(def_enum.attr_type);
+    REQUIRE(enum_labels.values.size() == 3);
+    CHECK(enum_labels.values[1] == "Gateway");
+
+    // Default
+    const auto& dflt = std::get<DbcAttrDefault>(result->attributes[5]);
+    CHECK(dflt.name == "GenMsgCycleTime");
+    CHECK(std::get<DbcAttrValueInt>(dflt.value).value == 100);
+
+    // Assignments (target + value parity)
+    const auto& assign_sig = std::get<DbcAttrAssign>(result->attributes[7]);
+    const auto& sig_tgt = std::get<DbcAttrTargetSignal>(assign_sig.target);
+    CHECK(sig_tgt.id == 512);
+    CHECK(sig_tgt.extended);
+    CHECK(sig_tgt.signal == "Torque");
+    CHECK(std::get<DbcAttrValueFloat>(assign_sig.value).value == Rational{3, 4});
+
+    const auto& assign_nm = std::get<DbcAttrAssign>(result->attributes[9]);
+    const auto& nm_tgt = std::get<DbcAttrTargetNodeMsg>(assign_nm.target);
+    CHECK(nm_tgt.node == "ECU1");
+    CHECK(nm_tgt.id == 256);
+    CHECK_FALSE(nm_tgt.extended);
+
+    const auto& assign_ns = std::get<DbcAttrAssign>(result->attributes[10]);
+    const auto& ns_tgt = std::get<DbcAttrTargetNodeSig>(assign_ns.target);
+    CHECK(ns_tgt.node == "ECU1");
+    CHECK(ns_tgt.signal == "Torque");
+    CHECK(ns_tgt.extended);
+    CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
+}
+
+TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][parse][dbc][tier2]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": []}
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->nodes.empty());
+    CHECK(result->comments.empty());
+    CHECK(result->attributes.empty());
+}
+
+TEST_CASE("parse_dbc_response rejects unknown comment target kind",
+          "[json][parse][dbc][tier2][error]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": [],
+                "comments": [{"target": {"kind": "galaxy"}, "text": "x"}]}
+    })");
+    CHECK_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::Protocol);
+    CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("comment target kind"));
+}
+
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
     auto result = detail::parse_extraction(R"({
         "status": "success",

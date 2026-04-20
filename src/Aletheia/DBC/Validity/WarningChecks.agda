@@ -8,7 +8,12 @@
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
 
-open import Aletheia.DBC.Types using (ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue; GlobalNameCollision; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using
+  ( ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
+  ; GlobalNameCollision; SignalPresence; Always; When
+  ; Node; DBCComment; EnvironmentVar
+  ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef
+  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
@@ -21,7 +26,12 @@ open import Aletheia.DBC.Validator using
   ; checkStartBitOutOfRange; checkAllStartBitOutOfRange
   ; checkBitLengthExcessive; checkAllBitLengthExcessive
   ; checkMuxScaling; checkMuxScalingSig; checkAllMuxScaling
+  ; attrDefNames; checkDuplicateAttrNamePair; checkDuplicateAttributeNames
+  ; findMessageInList
+  ; checkCommentTargetExists; checkAllUnknownCommentTargets
+  ; checkUnknownSender; checkAllUnknownMessageSenders
   )
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
   ( MinLeqMax; DistinctMessageNames; NonEmptySignals
@@ -35,12 +45,13 @@ open import Aletheia.DBC.Validity.Combinators using
   ( liftConcatMap-sound; liftConcatMap-complete
   ; requireDec-sound; requireDec-complete
   ; rejectDec-sound; rejectDec-complete
-  ; liftTriangular-sound; liftTriangular-complete )
+  ; liftTriangular-sound; liftTriangular-complete
+  ; triangularCheck )
 open import Data.List using (List; []; _∷_; map; filter; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using (++⁺)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs; []; _∷_)
-open import Data.List.Relation.Unary.Any using (Any)
+open import Data.List.Relation.Unary.Any using (Any; any?)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
@@ -577,3 +588,77 @@ checkAllMuxScaling-complete : ∀ msgs →
 checkAllMuxScaling-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _
     (checkMuxScalingSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _
+
+-- ============================================================================
+-- CHECK 18: DUPLICATE ATTRIBUTE NAME — Severity
+-- ============================================================================
+
+checkDuplicateAttrNamePair-allW : ∀ n1 n2 → All W (checkDuplicateAttrNamePair n1 n2)
+checkDuplicateAttrNamePair-allW n1 n2 with n1 ≟ₛ n2
+... | yes _ = refl ∷ []
+... | no  _ = []
+
+checkDuplicateAttributeNames-allW : ∀ attrs → All W (checkDuplicateAttributeNames attrs)
+checkDuplicateAttributeNames-allW attrs = go (attrDefNames attrs)
+  where
+    against : ∀ n rest → All W (concatMap (checkDuplicateAttrNamePair n) rest)
+    against _ [] = []
+    against n (m ∷ rest) = ++⁺ (checkDuplicateAttrNamePair-allW n m) (against n rest)
+    go : ∀ ns → All W (triangularCheck checkDuplicateAttrNamePair ns)
+    go [] = []
+    go (n ∷ rest) = ++⁺ (against n rest) (go rest)
+
+-- ============================================================================
+-- CHECK 19: UNKNOWN COMMENT TARGET — Severity
+-- ============================================================================
+
+checkCommentTargetExists-allW : ∀ msgs nodes envVars cm →
+  All W (checkCommentTargetExists msgs nodes envVars cm)
+checkCommentTargetExists-allW msgs nodes envVars cm with DBCComment.target cm
+... | CTNetwork   = []
+... | CTNode nname with any? (λ n → Node.name n ≟ₛ nname) nodes
+...   | yes _ = []
+...   | no  _ = refl ∷ []
+checkCommentTargetExists-allW msgs _ _ cm | CTMessage mid
+  with findMessageInList mid msgs
+...   | just _  = []
+...   | nothing = refl ∷ []
+checkCommentTargetExists-allW msgs _ _ cm | CTSignal mid sname
+  with findMessageInList mid msgs
+...   | nothing = refl ∷ []
+...   | just m  with findSignalInList sname (DBCMessage.signals m)
+...     | just _  = []
+...     | nothing = refl ∷ []
+checkCommentTargetExists-allW _ _ envVars cm | CTEnvVar evname
+  with any? (λ ev → EnvironmentVar.name ev ≟ₛ evname) envVars
+...   | yes _ = []
+...   | no  _ = refl ∷ []
+
+checkAllUnknownCommentTargets-allW : ∀ msgs nodes envVars cmts →
+  All W (checkAllUnknownCommentTargets msgs nodes envVars cmts)
+checkAllUnknownCommentTargets-allW msgs nodes envVars cmts =
+  All-concatMap (go cmts)
+  where
+    go : ∀ cs → All (λ c → All W (checkCommentTargetExists msgs nodes envVars c)) cs
+    go [] = []
+    go (c ∷ cs) = checkCommentTargetExists-allW msgs nodes envVars c ∷ go cs
+
+-- ============================================================================
+-- CHECK 20: UNKNOWN MESSAGE SENDER — Severity
+-- ============================================================================
+
+checkUnknownSender-allW : ∀ nodes msg → All W (checkUnknownSender nodes msg)
+checkUnknownSender-allW nodes msg
+  with any? (λ n → Node.name n ≟ₛ DBCMessage.sender msg) nodes
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkAllUnknownMessageSenders-allW : ∀ msgs nodes →
+  All W (checkAllUnknownMessageSenders msgs nodes)
+checkAllUnknownMessageSenders-allW _    []              = []
+checkAllUnknownMessageSenders-allW msgs nodes@(_ ∷ _) =
+  All-concatMap (go msgs)
+  where
+    go : ∀ ms → All (λ m → All W (checkUnknownSender nodes m)) ms
+    go [] = []
+    go (m ∷ ms) = checkUnknownSender-allW nodes m ∷ go ms
