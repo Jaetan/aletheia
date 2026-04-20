@@ -77,15 +77,15 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 125 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 127 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (125 total):
-- **121 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (127 total):
+- **123 modules**: `--safe --without-K` (standard safe modules)
 - **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 
-**All 125 modules use `--safe`**. No modules require `--sized-types`.
+**All 127 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
