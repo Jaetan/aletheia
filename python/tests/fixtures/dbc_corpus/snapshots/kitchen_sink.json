@@ -1,0 +1,564 @@
+{
+  "version": "ks-1.0",
+  "messages": [
+    {
+      "id": 256,
+      "name": "EngineStatus",
+      "dlc": 8,
+      "sender": "Engine",
+      "senders": [
+        "Gateway"
+      ],
+      "signals": [
+        {
+          "name": "Speed",
+          "startBit": 0,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 4
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 8000,
+            "denominator": 1
+          },
+          "unit": "rpm",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "Temp",
+          "startBit": 16,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": true,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": -40,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": -40,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 215,
+            "denominator": 1
+          },
+          "unit": "degC",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "Running",
+          "startBit": 24,
+          "length": 1,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        }
+      ]
+    },
+    {
+      "id": 300,
+      "name": "BrakeMux",
+      "dlc": 8,
+      "sender": "Brake",
+      "senders": [],
+      "signals": [
+        {
+          "name": "Mode",
+          "startBit": 0,
+          "length": 4,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 15,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "Pressure",
+          "startBit": 8,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 10
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 13107,
+            "denominator": 2
+          },
+          "unit": "bar",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "Mode",
+          "multiplex_values": [
+            0
+          ]
+        },
+        {
+          "name": "PedalPct",
+          "startBit": 8,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 100,
+            "denominator": 1
+          },
+          "unit": "%",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "Mode",
+          "multiplex_values": [
+            1
+          ]
+        }
+      ]
+    },
+    {
+      "id": 512,
+      "name": "DiagRequest",
+      "dlc": 8,
+      "sender": "Gateway",
+      "senders": [],
+      "signals": [
+        {
+          "name": "Service",
+          "startBit": 0,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 255,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [],
+          "presence": "always"
+        },
+        {
+          "name": "Value",
+          "startBit": 8,
+          "length": 32,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 4294967295,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [],
+          "presence": "always"
+        }
+      ],
+      "extended": true
+    }
+  ],
+  "signalGroups": [
+    {
+      "name": "StatusGroup",
+      "signals": [
+        "Speed",
+        "Temp",
+        "Running"
+      ]
+    }
+  ],
+  "environmentVars": [
+    {
+      "name": "RigTime",
+      "varType": 1,
+      "initial": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "minimum": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "maximum": {
+        "numerator": 86400,
+        "denominator": 1
+      }
+    }
+  ],
+  "valueTables": [
+    {
+      "name": "OnOff",
+      "entries": [
+        {
+          "value": 0,
+          "description": "Off"
+        },
+        {
+          "value": 1,
+          "description": "On"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Engine"
+    },
+    {
+      "name": "Brake"
+    },
+    {
+      "name": "Gateway"
+    }
+  ],
+  "comments": [
+    {
+      "target": {
+        "kind": "network"
+      },
+      "text": "Kitchen-sink DBC used by aletheia B.3 corpus."
+    },
+    {
+      "target": {
+        "kind": "node",
+        "node": "Engine"
+      },
+      "text": "Primary engine ECU."
+    },
+    {
+      "target": {
+        "kind": "message",
+        "id": 256
+      },
+      "text": "Periodic engine status."
+    },
+    {
+      "target": {
+        "kind": "signal",
+        "id": 256,
+        "signal": "Temp"
+      },
+      "text": "Coolant temperature, -40 offset encoding."
+    },
+    {
+      "target": {
+        "kind": "envVar",
+        "envVar": "RigTime"
+      },
+      "text": "Wall-clock seconds on the test rig."
+    }
+  ],
+  "attributes": [
+    {
+      "kind": "definition",
+      "name": "BusType",
+      "scope": "network",
+      "attrType": {
+        "kind": "string"
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeLoad",
+      "scope": "node",
+      "attrType": {
+        "kind": "float",
+        "min": {
+          "numerator": 0,
+          "denominator": 1
+        },
+        "max": {
+          "numerator": 100,
+          "denominator": 1
+        }
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "GenMsgCycleTime",
+      "scope": "message",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 10000
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "SignalPriority",
+      "scope": "signal",
+      "attrType": {
+        "kind": "enum",
+        "values": [
+          "Low",
+          "Normal",
+          "High"
+        ]
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "EnvScaling",
+      "scope": "envVar",
+      "attrType": {
+        "kind": "hex",
+        "min": 0,
+        "max": 255
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeMsgRole",
+      "scope": "nodeMsg",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 3
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeSigRole",
+      "scope": "nodeSig",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "kind": "default",
+      "name": "BusType",
+      "value": {
+        "kind": "string",
+        "value": "CAN"
+      }
+    },
+    {
+      "kind": "default",
+      "name": "NodeLoad",
+      "value": {
+        "kind": "float",
+        "value": {
+          "numerator": 0,
+          "denominator": 1
+        }
+      }
+    },
+    {
+      "kind": "default",
+      "name": "GenMsgCycleTime",
+      "value": {
+        "kind": "int",
+        "value": 100
+      }
+    },
+    {
+      "kind": "default",
+      "name": "SignalPriority",
+      "value": {
+        "kind": "enum",
+        "value": 1
+      }
+    },
+    {
+      "kind": "default",
+      "name": "EnvScaling",
+      "value": {
+        "kind": "hex",
+        "value": 1
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "BusType",
+      "target": {
+        "kind": "network"
+      },
+      "value": {
+        "kind": "string",
+        "value": "CAN"
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeLoad",
+      "target": {
+        "kind": "node",
+        "node": "Engine"
+      },
+      "value": {
+        "kind": "float",
+        "value": {
+          "numerator": 25,
+          "denominator": 2
+        }
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "GenMsgCycleTime",
+      "target": {
+        "kind": "message",
+        "id": 256
+      },
+      "value": {
+        "kind": "int",
+        "value": 10
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "SignalPriority",
+      "target": {
+        "kind": "signal",
+        "id": 256,
+        "signal": "Speed"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 2
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "EnvScaling",
+      "target": {
+        "kind": "envVar",
+        "envVar": "RigTime"
+      },
+      "value": {
+        "kind": "hex",
+        "value": 1
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeMsgRole",
+      "target": {
+        "kind": "nodeMsg",
+        "node": "Gateway",
+        "id": 256
+      },
+      "value": {
+        "kind": "int",
+        "value": 1
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeSigRole",
+      "target": {
+        "kind": "nodeSig",
+        "node": "Gateway",
+        "id": 256,
+        "signal": "Speed"
+      },
+      "value": {
+        "kind": "int",
+        "value": 1
+      }
+    }
+  ]
+}

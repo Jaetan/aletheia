@@ -1,0 +1,311 @@
+{
+  "version": "1.0",
+  "messages": [
+    {
+      "id": 400,
+      "name": "Payload",
+      "dlc": 8,
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "name": "Value",
+          "startBit": 0,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 65535,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Sensor"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "Status",
+          "startBit": 16,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 255,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Sensor"
+          ],
+          "presence": "always"
+        }
+      ]
+    }
+  ],
+  "signalGroups": [],
+  "environmentVars": [
+    {
+      "name": "Monitor",
+      "varType": 0,
+      "initial": {
+        "numerator": 50,
+        "denominator": 1
+      },
+      "minimum": {
+        "numerator": 0,
+        "denominator": 1
+      },
+      "maximum": {
+        "numerator": 100,
+        "denominator": 1
+      }
+    }
+  ],
+  "valueTables": [],
+  "nodes": [
+    {
+      "name": "ECU"
+    },
+    {
+      "name": "Sensor"
+    }
+  ],
+  "comments": [],
+  "attributes": [
+    {
+      "kind": "definition",
+      "name": "DBVersion",
+      "scope": "network",
+      "attrType": {
+        "kind": "string"
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeBusLoad",
+      "scope": "node",
+      "attrType": {
+        "kind": "float",
+        "min": {
+          "numerator": 0,
+          "denominator": 1
+        },
+        "max": {
+          "numerator": 100,
+          "denominator": 1
+        }
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "MsgCycleTime",
+      "scope": "message",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 10000
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "SignalPriority",
+      "scope": "signal",
+      "attrType": {
+        "kind": "enum",
+        "values": [
+          "Low",
+          "Normal",
+          "High"
+        ]
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "EnvVarScaling",
+      "scope": "envVar",
+      "attrType": {
+        "kind": "hex",
+        "min": 0,
+        "max": 255
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeMsgAccess",
+      "scope": "nodeMsg",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 3
+      }
+    },
+    {
+      "kind": "definition",
+      "name": "NodeSigAccess",
+      "scope": "nodeSig",
+      "attrType": {
+        "kind": "int",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "kind": "default",
+      "name": "DBVersion",
+      "value": {
+        "kind": "string",
+        "value": "0.0.0"
+      }
+    },
+    {
+      "kind": "default",
+      "name": "NodeBusLoad",
+      "value": {
+        "kind": "float",
+        "value": {
+          "numerator": 0,
+          "denominator": 1
+        }
+      }
+    },
+    {
+      "kind": "default",
+      "name": "MsgCycleTime",
+      "value": {
+        "kind": "int",
+        "value": 100
+      }
+    },
+    {
+      "kind": "default",
+      "name": "SignalPriority",
+      "value": {
+        "kind": "enum",
+        "value": 1
+      }
+    },
+    {
+      "kind": "default",
+      "name": "EnvVarScaling",
+      "value": {
+        "kind": "hex",
+        "value": 1
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "DBVersion",
+      "target": {
+        "kind": "network"
+      },
+      "value": {
+        "kind": "string",
+        "value": "2.1.0"
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeBusLoad",
+      "target": {
+        "kind": "node",
+        "node": "ECU"
+      },
+      "value": {
+        "kind": "float",
+        "value": {
+          "numerator": 85,
+          "denominator": 2
+        }
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "MsgCycleTime",
+      "target": {
+        "kind": "message",
+        "id": 400
+      },
+      "value": {
+        "kind": "int",
+        "value": 50
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "SignalPriority",
+      "target": {
+        "kind": "signal",
+        "id": 400,
+        "signal": "Value"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 2
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "EnvVarScaling",
+      "target": {
+        "kind": "envVar",
+        "envVar": "Monitor"
+      },
+      "value": {
+        "kind": "hex",
+        "value": 16
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeMsgAccess",
+      "target": {
+        "kind": "nodeMsg",
+        "node": "Sensor",
+        "id": 400
+      },
+      "value": {
+        "kind": "int",
+        "value": 2
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "NodeSigAccess",
+      "target": {
+        "kind": "nodeSig",
+        "node": "Sensor",
+        "id": 400,
+        "signal": "Status"
+      },
+      "value": {
+        "kind": "int",
+        "value": 1
+      }
+    }
+  ]
+}

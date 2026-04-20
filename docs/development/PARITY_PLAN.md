@@ -105,7 +105,9 @@ Behavioral parity confirmed by side-by-side inspection: the three suites exercis
 
 **Scope: full cantools equivalence** — users may feed DBCs with any construct cantools accepts, and silent rejection is worse than loud failure.
 
-**Done-criterion: the construct inventory below must round-trip identically to cantools on a corpus of representative real-world DBCs.**
+**Done-criterion: the construct inventory below must round-trip to cantools' parsed representation on the corpus. "Round-trip" here is semantic `DbcDefinition` equivalence (byte-identical JSON from `dbc_to_json`), not byte-identical DBC text — cantools canonicalizes on output (sort order, whitespace, optional-field emission), so a text-level comparison is the wrong oracle. The snapshot JSON corpus in `python/tests/fixtures/dbc_corpus/snapshots/` is the structural spec.**
+
+**New Agda modules in scope (B.3.b/c/d):** `src/Aletheia/DBC/TextParser.agda` (grammar) AND `src/Aletheia/DBC/TextFormatter.agda` (canonical DBC-text emitter for the `parseText ∘ formatText ≡ id` roundtrip property). The existing `DBC/Formatter.agda` emits the JSON wire shape, not DBC text, so B.3.d cannot close without a text formatter.
 
 | Category | Constructs |
 |---|---|
@@ -123,8 +125,8 @@ Behavioral parity confirmed by side-by-side inspection: the three suites exercis
 
 Plan:
 
-- B.3.a Build the construct corpus: 5–10 real-world DBCs (open-source automotive projects; cantools test fixtures) that exercise every row above. This is the parser's test corpus.
-- B.3.b Design grammar in `Parser/Combinators.agda` style (structural recursion on length; `--safe --without-K` throughout).
+- B.3.a ✅ Build the construct corpus: `python/tests/fixtures/dbc_corpus/` with 8 hand-authored DBCs (see `README.md` coverage map) covering every inventory row. `test_dbc_corpus_baseline.py` snapshots each through `dbc_to_json`; snapshots are the structural spec for B.3.d onward. Landed 2026-04-21.
+- B.3.b Design grammar in `Parser/Combinators.agda` style (structural recursion on length; `--safe --without-K` throughout). Add `DBC/TextParser.agda` and `DBC/TextFormatter.agda` skeletons; plan `Properties.agda` facade split from day one per `feedback_properties_facade_split.md`.
 - B.3.c Implement incrementally, bottom-up. Order: `VERSION`/`NS_`/`BS_`; `BU_`/`BO_`/`SG_`; `VAL_`/`VAL_TABLE_`; attributes (`BA_*`); comments; signal groups; value types; extended mux; environment vars.
 - B.3.d Roundtrip property: `parse ∘ format ≡ id` for canonical DBC shape.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.

@@ -1,0 +1,26 @@
+VERSION ""
+
+
+NS_ :
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: ECU Gateway
+
+BO_ 100 BasicMux: 8 ECU
+ SG_ Mode M : 0|4@1+ (1,0) [0|15] "" Gateway
+ SG_ PayloadA m0 : 8|16@1+ (1,0) [0|65535] "" Gateway
+ SG_ PayloadB m1 : 8|16@1+ (0.1,0) [0|6553.5] "V" Gateway
+ SG_ PayloadC m2 : 8|8@1- (1,0) [-128|127] "degC" Gateway
+ SG_ CommonCounter : 24|8@1+ (1,0) [0|255] "" Gateway
+
+BO_ 200 ExtendedMux: 8 ECU
+ SG_ PrimaryMux M : 0|8@1+ (1,0) [0|255] "" Gateway
+ SG_ SecondaryMux m0M : 8|4@1+ (1,0) [0|15] "" Gateway
+ SG_ LeafSignalX m0 : 16|16@1+ (1,0) [0|65535] "" Gateway
+ SG_ LeafSignalY m1 : 16|16@1+ (1,0) [0|65535] "" Gateway
+
+SG_MUL_VAL_ 200 LeafSignalX SecondaryMux 0-2;
+SG_MUL_VAL_ 200 LeafSignalY SecondaryMux 3-5, 10-12;
+

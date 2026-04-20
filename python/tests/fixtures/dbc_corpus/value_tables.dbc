@@ -1,0 +1,19 @@
+VERSION ""
+
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
+VAL_TABLE_ GearPosition 0 "Neutral" 1 "First" 2 "Second" 3 "Third" 4 "Reverse" ;
+VAL_TABLE_ OnOff 0 "Off" 1 "On" ;
+
+BO_ 300 Transmission: 8 ECU
+ SG_ Gear : 0|4@1+ (1,0) [0|15] "" Vector__XXX
+ SG_ ShiftInProgress : 4|1@1+ (1,0) [0|1] "" Vector__XXX
+ SG_ EngineState : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+
+VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
+

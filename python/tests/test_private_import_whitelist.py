@@ -102,6 +102,16 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._response_parsers",
         "build_error_response",
     ),
+    # B.3 DBC-text-parser corpus snapshot gate uses ``dump_json`` to
+    # serialize the TypedDict shape produced by ``dbc_to_json`` against a
+    # byte-identical JSON baseline. The Fraction-aware encoder lives in
+    # ``_helpers``; kept internal because user code passes Fractions in
+    # directly and never has to serialize ``DBCDefinition`` wire shapes.
+    (
+        "test_dbc_corpus_baseline.py",
+        "aletheia.client._helpers",
+        "dump_json",
+    ),
     # Enrichment helpers — pure functions used by the client to attach
     # ``enrichment`` metadata to violation results; kept internal because
     # they depend on ``_diags``/``_caches`` state that is client-owned.

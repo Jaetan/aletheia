@@ -1,0 +1,18 @@
+VERSION ""
+
+
+NS_ :
+	EV_DATA_
+	ENVVAR_DATA_
+
+BS_:
+
+BU_: Host
+
+BO_ 600 Dummy: 1 Host
+ SG_ Tag : 0|8@1+ (1,0) [0|255] "" Vector__XXX
+
+EV_ SimulationTime: 1 [0|86400] "s" 0 1 DUMMY_NODE_VECTOR0 Host;
+EV_ ActiveScenario: 0 [0|255] "" 0 2 DUMMY_NODE_VECTOR0 Vector__XXX;
+EV_ ScenarioLabel: 2 [0|0] "" 0 3 DUMMY_NODE_VECTOR0 Host;
+

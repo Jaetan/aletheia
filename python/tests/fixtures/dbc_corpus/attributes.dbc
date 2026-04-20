@@ -1,0 +1,39 @@
+VERSION ""
+
+
+NS_ :
+
+BS_:
+
+BU_: ECU Sensor
+
+BO_ 400 Payload: 8 ECU
+ SG_ Value : 0|16@1+ (1,0) [0|65535] "" Sensor
+ SG_ Status : 16|8@1+ (1,0) [0|255] "" Sensor
+
+EV_ Monitor: 0 [0|100] "" 50 1 DUMMY_NODE_VECTOR0 Vector__XXX;
+
+BA_DEF_ "DBVersion" STRING ;
+BA_DEF_ BU_ "NodeBusLoad" FLOAT 0 100 ;
+BA_DEF_ BO_ "MsgCycleTime" INT 0 10000 ;
+BA_DEF_ SG_ "SignalPriority" ENUM  "Low","Normal","High" ;
+BA_DEF_ EV_ "EnvVarScaling" HEX 0 255 ;
+BA_DEF_REL_ BU_BO_REL_  "NodeMsgAccess" INT 0 3 ;
+BA_DEF_REL_ BU_SG_REL_  "NodeSigAccess" INT 0 1 ;
+
+BA_DEF_DEF_  "DBVersion" "0.0.0";
+BA_DEF_DEF_  "NodeBusLoad" 0;
+BA_DEF_DEF_  "MsgCycleTime" 100;
+BA_DEF_DEF_  "SignalPriority" "Normal";
+BA_DEF_DEF_  "EnvVarScaling" 1;
+BA_DEF_DEF_  "NodeMsgAccess" 0;
+BA_DEF_DEF_  "NodeSigAccess" 0;
+
+BA_ "DBVersion" "2.1.0";
+BA_ "NodeBusLoad" BU_ ECU 42.5;
+BA_ "MsgCycleTime" BO_ 400 50;
+BA_ "SignalPriority" SG_ 400 Value 2;
+BA_ "EnvVarScaling" EV_ Monitor 16;
+BA_REL_ "NodeMsgAccess" BU_BO_REL_ Sensor 400 2;
+BA_REL_ "NodeSigAccess" BU_SG_REL_ Sensor SG_ 400 Status 1;
+

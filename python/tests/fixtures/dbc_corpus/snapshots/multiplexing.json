@@ -1,0 +1,310 @@
+{
+  "version": "1.0",
+  "messages": [
+    {
+      "id": 100,
+      "name": "BasicMux",
+      "dlc": 8,
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "name": "Mode",
+          "startBit": 0,
+          "length": 4,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 15,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "PayloadA",
+          "startBit": 8,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 65535,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "Mode",
+          "multiplex_values": [
+            0
+          ]
+        },
+        {
+          "name": "PayloadB",
+          "startBit": 8,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 10
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 13107,
+            "denominator": 2
+          },
+          "unit": "V",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "Mode",
+          "multiplex_values": [
+            1
+          ]
+        },
+        {
+          "name": "PayloadC",
+          "startBit": 8,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": true,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": -128,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 127,
+            "denominator": 1
+          },
+          "unit": "degC",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "Mode",
+          "multiplex_values": [
+            2
+          ]
+        },
+        {
+          "name": "CommonCounter",
+          "startBit": 24,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 255,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "name": "ExtendedMux",
+      "dlc": 8,
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "name": "PrimaryMux",
+          "startBit": 0,
+          "length": 8,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 255,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "SecondaryMux",
+          "startBit": 8,
+          "length": 4,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 15,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "presence": "always"
+        },
+        {
+          "name": "LeafSignalX",
+          "startBit": 16,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 65535,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "SecondaryMux",
+          "multiplex_values": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "name": "LeafSignalY",
+          "startBit": 16,
+          "length": 16,
+          "byteOrder": "little_endian",
+          "signed": false,
+          "factor": {
+            "numerator": 1,
+            "denominator": 1
+          },
+          "offset": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "minimum": {
+            "numerator": 0,
+            "denominator": 1
+          },
+          "maximum": {
+            "numerator": 65535,
+            "denominator": 1
+          },
+          "unit": "",
+          "receivers": [
+            "Gateway"
+          ],
+          "multiplexor": "SecondaryMux",
+          "multiplex_values": [
+            3,
+            4,
+            5,
+            10,
+            11,
+            12
+          ]
+        }
+      ]
+    }
+  ],
+  "signalGroups": [],
+  "environmentVars": [],
+  "valueTables": [],
+  "nodes": [
+    {
+      "name": "ECU"
+    },
+    {
+      "name": "Gateway"
+    }
+  ],
+  "comments": [],
+  "attributes": []
+}
