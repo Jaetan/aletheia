@@ -208,6 +208,17 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp OpenXLSX::OpenXLSX Catch2::Catch2WithMain)
     add_test(NAME excel_tests COMMAND excel_tests)
 
+    # Layer 6: Feature matrix parity test (yaml-cpp, Catch2). Reads
+    # docs/FEATURE_MATRIX.yaml and verifies every C++ implemented entry
+    # ("<header>#<symbol>") resolves to an existing header containing the
+    # symbol as a whole-word match. See docs/development/PARITY_PLAN.md.
+    add_executable(feature_matrix_tests tests/test_feature_matrix_parity.cpp)
+    target_link_libraries(feature_matrix_tests
+        PRIVATE yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(feature_matrix_tests
+        PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
+
     # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
     # loaded via dlopen. The CMake build will succeed without the .so, but the
     # resulting binary will fail at startup with a dlopen error. Build the
