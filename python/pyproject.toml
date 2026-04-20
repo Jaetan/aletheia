@@ -112,6 +112,14 @@ max-line-length = 100
 # ``tests/`` and ``benchmarks/`` are lint-checked separately (different rules
 # around fixtures/asserts) and are not part of the release gate.
 ignore = ["tests", "benchmarks", "stubs", ".venv", "build"]
+# Prepend ``.`` to sys.path so pylint can resolve ``aletheia.*`` imports when
+# run against ``tests/`` without requiring the package to be pip-installed.
+# The canonical flow is ``pip install -e .[dev]`` inside ``python/.venv``,
+# which makes this redundant; this belt-and-suspenders entry keeps the
+# ``pylint tests/`` gate working if someone invokes pylint outside the venv.
+# Recognised by pylint 3.x (the dev-extras pin). Pylint 4 renamed the option
+# to ``source-roots``; revisit when the upper bound is bumped.
+pythonpath = ["."]
 # ctypes and cantools lack full stubs; pyright handles the real type checks,
 # so silence pylint's redundant no-member/import-error noise for them.
 # Revisit if either upstream gains complete type stubs — at that point
