@@ -12,19 +12,25 @@
 --     for future hex/binary variants, e.g. signal-overlap hex traces).
 --   * `quoteStringLit` — wrap in `"..."` with CSV-style `""` escape on inner
 --     quotes (mirrors `Lexer.parseStringLit` exactly; NOT JSON backslash).
---   * Rationals (`factor` / `offset` / `minimum` / `maximum` on signals, and
---     the `ATFloat` / `AVFloat` attribute payloads) emit in canonical `n.d`
---     form with no exponent — implemented alongside the SG_ / BA_* emitters
---     in a later B.3.c sub-commit.  Intentionally not present in this module
---     yet: a placeholder would be a code smell because no caller in B.3.c.1
---     needs rational emission.
+--   * `showℚ-dec` — canonical `n.d` decimal emission.  Stdlib
+--     `Data.Rational.Show.show` emits `p/q` fraction form, which is not
+--     DBC-grammar syntax; the SG_ `factor`/`offset`/`minimum`/`maximum`
+--     columns and the BA_ `FLOAT` / `AVFloat` payloads demand plain decimal.
+--     Implementation: long division with a 15-fractional-digit cap.
+--     Terminating-decimal rationals (reduced `p/q` where `q = 2^a · 5^b`
+--     with `a + b ≤ 15`) roundtrip exactly; non-terminating ones truncate,
+--     and the B.3.d roundtrip proof is conditioned on the terminating
+--     class.  Every corpus-observed factor/offset (cantools emits from
+--     Python `decimal`/`float`) falls in that class.
 module Aletheia.DBC.TextFormatter.Emitter where
 
 open import Data.Bool using (if_then_else_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Integer using (ℤ)
+open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (foldr)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; zero; suc; _*_; _/_; _%_)
+open import Data.Rational as Rat using (ℚ)
+open import Data.Rational.Unnormalised as ℚᵘ using (mkℚᵘ)
 open import Data.String using (String; toList; fromChar) renaming (_++_ to _++ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -55,3 +61,40 @@ escapeChar c = if ⌊ c ≟ᶜ '"' ⌋ then "\"\"" else fromChar c
 -- cleanly.
 quoteStringLit : String → String
 quoteStringLit s = "\"" ++ₛ foldr (λ c acc → escapeChar c ++ₛ acc) "\"" (toList s)
+
+-- ============================================================================
+-- RATIONAL NUMBERS (decimal)
+-- ============================================================================
+
+private
+  -- Long-division helper: emit up to `fuel` decimal digits of `r / (suc
+  -- denom-1)`.  Passing `denom-1 : ℕ` raw (instead of reconstructing the
+  -- NonZero denominator internally) keeps the `NonZero (suc _)` instance
+  -- visible at every recursive call without plumbing evidence.  Returns
+  -- "" once fuel hits zero or the remainder drops to zero — the latter
+  -- is the terminating-decimal exit.
+  fracDigits : (fuel r denom-1 : ℕ) → String
+  fracDigits zero       _         _       = ""
+  fracDigits (suc _)    zero      _       = ""
+  fracDigits (suc fuel) (suc r-1) denom-1 =
+    let r10 = (suc r-1) * 10
+    in showℕ (r10 / suc denom-1) ++ₛ
+       fracDigits fuel (r10 % suc denom-1) denom-1
+
+-- Canonical `n.d` decimal emission for ℚ (see module-header rationale).
+-- Three cases mirror the three reachable shapes of `toℚᵘ r`:
+--   * denom-1 = 0  (integer) — delegate to `showℤ`, which already handles
+--     sign.  `ℚ` coprimality guarantees the stored denominator is 1 exactly
+--     when the value is an integer.
+--   * positive non-integer — `intPart "." fracDigits`.
+--   * negative non-integer — `"-" intPart "." fracDigits` on the absolute
+--     value.  `-[1+ n ]` encodes `-(n+1)`, so the absolute is `suc n`.
+showℚ-dec : ℚ → String
+showℚ-dec r with Rat.toℚᵘ r
+... | mkℚᵘ num       zero      = showℤ num
+... | mkℚᵘ (+ n)     (suc d-1) =
+      showℕ (n / suc d-1) ++ₛ "." ++ₛ
+      fracDigits 15 (n % suc d-1) d-1
+... | mkℚᵘ -[1+ n ] (suc d-1) =
+      "-" ++ₛ showℕ (suc n / suc d-1) ++ₛ "." ++ₛ
+      fracDigits 15 (suc n % suc d-1) d-1
