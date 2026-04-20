@@ -1,0 +1,35 @@
+{-# OPTIONS --safe --without-K #-}
+
+-- Correctness properties for the DBC text-format parser — facade
+-- placeholder (Phase B.3.b).
+--
+-- Purpose: Top-level theorem module for `Aletheia.DBC.TextParser`.  The
+-- split-from-day-one structure follows the `DBC/Formatter/` facade
+-- pattern (see feedback_properties_facade_split.md): each sub-file
+-- type-checks independently, which keeps incremental rebuild cost low
+-- once the proof burden grows past the ~600–800 line soft cap.
+--
+-- Planned sub-files (populated in B.3.c → B.3.d as each proof layer
+-- lands):
+--   * Aletheia.DBC.TextParser.Grammar.agda          — grammar well-
+--     formedness: no-trailing-whitespace invariants, keyword
+--     disjointness, lexer-vs-grammar agreement lemmas.
+--   * Aletheia.DBC.TextParser.VersionRoundtrip.agda — parseText on
+--     `VERSION/NS_/BS_` preamble recovers the original DBC preamble
+--     (first grammar category, anchors the roundtrip base case).
+--   * Aletheia.DBC.TextParser.MessageRoundtrip.agda — BO_/SG_ roundtrip,
+--     mirroring DBC/Formatter/MessageRoundtrip.agda's shape.
+--   * Aletheia.DBC.TextParser.MetadataRoundtrip.agda — CM_/BA_*/VAL_*/
+--     SIG_GROUP_/SIG_VALTYPE_/SG_MUL_VAL_/EV_ roundtrip, mirroring
+--     DBC/Formatter/MetadataRoundtrip.agda.
+--   * Aletheia.DBC.TextParser.ErrorCompleteness.agda — every
+--     `DBCTextParseError` constructor is reachable from at least one
+--     malformed-input witness (no dead error codes).
+--
+-- Facade contract (B.3.d): this module will `open import ... public
+-- using (...)` each sub-file's proved lemmas and expose the top-level
+-- `parseText-formatText-roundtrip : ∀ d → parseText (formatText d) ≡
+-- inj₂ d`.  For B.3.b the module body is intentionally empty — the
+-- sub-files don't exist yet and creating placeholder holes would flag
+-- spuriously under `check-properties`.
+module Aletheia.DBC.TextParser.Properties where
