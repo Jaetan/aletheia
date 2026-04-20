@@ -377,8 +377,11 @@ class TestDBCConversion:
         message.senders = ["ECU"]
         message.signals = [signal]
         message.is_extended_frame = False
+        message.signal_groups = []
 
         db.messages = [message]
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -393,6 +396,8 @@ class TestDBCConversion:
         db = Mock()
         db.version = None  # No version
         db.messages = []
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -414,9 +419,12 @@ class TestDBCConversion:
             msg.senders = ["ECU"]
             msg.signals = []
             msg.is_extended_frame = False
+            msg.signal_groups = []
             messages.append(msg)
 
         db.messages = messages
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("test.dbc")
@@ -431,6 +439,8 @@ class TestDBCConversion:
         db = Mock()
         db.version = "1.0"
         db.messages = []
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("empty.dbc")
@@ -452,6 +462,8 @@ class TestFileIO:
         db = Mock()
         db.version = "1.0"
         db.messages = []
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = convert_dbc_file("test.dbc")
@@ -467,6 +479,8 @@ class TestFileIO:
         db = Mock()
         db.version = "1.0"
         db.messages = []
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
@@ -496,6 +510,8 @@ class TestFileIO:
         db = Mock()
         db.version = "1.0"
         db.messages = []
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = convert_dbc_file("test.dbc")
@@ -534,6 +550,8 @@ class TestErrorHandling:
             db = Mock()
             db.version = "1.0"
             db.messages = []
+            db.dbc.environment_variables = {}
+            db.dbc.value_tables = {}
             mock_load.return_value = db
 
             path = Path("test.dbc")
@@ -576,10 +594,13 @@ class TestIntegrationStyle:
         message.senders = ["VehicleController"]
         message.signals = [speed_signal]
         message.is_extended_frame = False
+        message.signal_groups = []
 
         db = Mock()
         db.version = "1.0"
         db.messages = [message]
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("vehicle.dbc")
@@ -618,6 +639,7 @@ class TestIntegrationStyle:
         std_msg.senders = ["ECU1"]
         std_msg.signals = []
         std_msg.is_extended_frame = False
+        std_msg.signal_groups = []
 
         ext_msg = Mock()
         ext_msg.frame_id = 0x18FF1234
@@ -626,10 +648,13 @@ class TestIntegrationStyle:
         ext_msg.senders = ["ECU2"]
         ext_msg.signals = []
         ext_msg.is_extended_frame = True
+        ext_msg.signal_groups = []
 
         db = Mock()
         db.version = "1.0"
         db.messages = [std_msg, ext_msg]
+        db.dbc.environment_variables = {}
+        db.dbc.value_tables = {}
         mock_load.return_value = db
 
         result = dbc_to_json("mixed.dbc")

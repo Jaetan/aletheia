@@ -12,12 +12,23 @@ from typing import cast
 
 import cantools
 import cantools.database.can
+from cantools.database.can.database import Database as CantoolsDatabase
+from cantools.database.can.environment_variable import (
+    EnvironmentVariable as CantoolsEnvironmentVariable,
+)
+from cantools.database.can.signal_group import SignalGroup as CantoolsSignalGroup
+from cantools.database.namedsignalvalue import NamedSignalValue
 
 from .client._helpers import dump_json, to_signal_fraction
 from .protocols import (
     DBCSignal,
     DBCMessage,
     DBCDefinition,
+    DBCSignalGroup,
+    DBCEnvironmentVar,
+    DBCValueEntry,
+    DBCValueTable,
+    DBCVarType,
 )
 
 # CAN Extended Frame Format flag — bit 31 set to distinguish 29-bit extended
@@ -93,6 +104,87 @@ def message_to_json(message: cantools.database.can.Message) -> DBCMessage:
     return message_dict
 
 
+def signal_group_to_json(
+    group: CantoolsSignalGroup,
+) -> DBCSignalGroup:
+    """Flatten a cantools SignalGroup into the Agda wire format.
+
+    cantools stores signal groups per-message (``message.signal_groups``);
+    the Agda core expects a flat top-level list because signal-name
+    uniqueness is enforced globally. ``repetitions`` is dropped — it is
+    a DBC-text-format concern with no verifier-side semantics.
+    """
+    return {
+        "name": group.name,
+        "signals": list(group.signal_names),
+    }
+
+
+def _env_var_type_to_wire(env_type: int, name: str) -> DBCVarType:
+    """Validate cantools' ``env_type`` (expected 0/1/2) as a wire VarType."""
+    if env_type == 0:
+        return 0
+    if env_type == 1:
+        return 1
+    if env_type == 2:
+        return 2
+    raise ValueError(
+        f"Unknown environment variable type {env_type!r} for {name!r}"
+    )
+
+
+def env_var_to_json(
+    ev: CantoolsEnvironmentVariable,
+) -> DBCEnvironmentVar:
+    """Convert a cantools EnvironmentVariable to the Agda wire format.
+
+    ``initial_value`` / ``minimum`` / ``maximum`` come back from cantools
+    as ``int`` or ``float`` depending on the variable type; we convert
+    through ``to_signal_fraction`` to preserve decimal intent the same
+    way DBCSignal numeric fields do.
+    """
+    return {
+        "name": ev.name,
+        "varType": _env_var_type_to_wire(ev.env_type, ev.name),
+        "initial": to_signal_fraction(ev.initial_value),
+        "minimum": to_signal_fraction(ev.minimum),
+        "maximum": to_signal_fraction(ev.maximum),
+    }
+
+
+def value_table_to_json(
+    name: str, entries: dict[int, NamedSignalValue]
+) -> DBCValueTable:
+    """Convert a cantools value-table entry (dict) to the Agda wire format.
+
+    cantools exposes ``db.dbc.value_tables`` as
+    ``OrderedDict[str, dict[int, NamedSignalValue]]`` — the proxy is not
+    JSON-serialisable but round-trips through ``str()`` to its human-readable
+    name.  We iterate entries in insertion order to keep the Agda roundtrip
+    deterministic (cantools preserves DBC source order).
+    """
+    wire_entries: list[DBCValueEntry] = [
+        {"value": value, "description": str(description)}
+        for value, description in entries.items()
+    ]
+    return {"name": name, "entries": wire_entries}
+
+
+def _collect_signal_groups(
+    db: CantoolsDatabase,
+) -> list[DBCSignalGroup]:
+    """Flatten ``msg.signal_groups`` across all messages.
+
+    Iteration order: messages in DBC source order, then groups in per-message
+    source order — matches cantools' ``Database.messages`` ordering.
+    """
+    groups: list[DBCSignalGroup] = []
+    for msg in db.messages:
+        for group in msg.signal_groups:
+            groups.append(signal_group_to_json(group))
+    return groups
+
+
 def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     """Convert a .dbc file to JSON format.
 
@@ -114,10 +206,23 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     except Exception as exc:
         raise ValueError(f"Failed to parse DBC file '{dbc_path}': {exc}") from exc
 
-    # Convert to JSON structure
+    specifics = db.dbc
+    environment_vars: dict[str, CantoolsEnvironmentVariable] = (
+        specifics.environment_variables if specifics is not None else {}
+    )
+    value_tables: dict[str, dict[int, NamedSignalValue]] = (
+        specifics.value_tables if specifics is not None else {}
+    )
+
     dbc_def: DBCDefinition = {
         "version": db.version if db.version else "1.0",
-        "messages": [message_to_json(msg) for msg in db.messages]
+        "messages": [message_to_json(msg) for msg in db.messages],
+        "signalGroups": _collect_signal_groups(db),
+        "environmentVars": [env_var_to_json(ev) for ev in environment_vars.values()],
+        "valueTables": [
+            value_table_to_json(name, entries)
+            for name, entries in value_tables.items()
+        ],
     }
     return dbc_def
 

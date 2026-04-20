@@ -508,7 +508,9 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 ### Type & Safety (4)
 
 7. **Type annotation coverage** -- all public functions fully annotated; basedpyright strict mode clean; TypedDict/Protocol/Literal used correctly
-8. **Strong type usage** -- no bare `dict`/`list`/`Any` where a TypedDict, Protocol, or domain type exists; validated constructors
+8. **Strong type usage** -- sub-checks:
+    - (a) **Domain types over primitives**: no bare `dict`/`list`/`Any` where a TypedDict, Protocol, or domain type exists; validated constructors over raw `int`/`str` at boundaries.
+    - (b) **Tightness**: type hints must be as tight as the underlying value permits. basedpyright accepts any supertype (including `object`), so loose annotations silently pass the gate — reviewer must check that each annotation reflects the narrowest type the value can hold. If a third-party library produces a more specific type (e.g. cantools' `NamedSignalValue`, `Fraction` over `float`, `Literal[0, 1, 2]` over `int`), use that; do not fall back to `object` just because it type-checks.
 9. **Error handling** -- exceptions are specific (not bare `except`), raised with context, documented in docstrings; no silent swallowing
 10. **Resource safety** -- ctypes handles cleaned up, file handles closed, context managers used where appropriate
 

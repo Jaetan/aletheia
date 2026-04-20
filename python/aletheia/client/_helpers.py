@@ -2,14 +2,19 @@
 
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from fractions import Fraction
 from typing import cast, override
 
 from ..protocols import (
     DBCDefinition,
-    DBCSignal,
+    DBCEnvironmentVar,
     DBCMessage,
+    DBCSignal,
+    DBCSignalGroup,
+    DBCValueEntry,
+    DBCValueTable,
+    DBCVarType,
     RationalNumber,
     is_str_dict,
     is_object_list,
@@ -18,6 +23,9 @@ from ._types import ProtocolError
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
+
+# Fields in a DBCEnvironmentVar that carry ℚ on the Agda wire.
+_NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
 
 
 class FractionJSONEncoder(json.JSONEncoder):
@@ -207,6 +215,76 @@ def normalize_signal(raw_sig: dict[str, object]) -> DBCSignal:
     return cast(DBCSignal, sig)
 
 
+def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
+    """Normalize one ``signalGroups`` entry from Agda formatDBC output."""
+    name = raw.get("name")
+    if not isinstance(name, str):
+        raise ProtocolError("Expected signal group 'name' to be str")
+    raw_signals = raw.get("signals")
+    if not is_object_list(raw_signals):
+        raise ProtocolError("Expected signal group 'signals' to be a list")
+    signals: list[str] = []
+    for s in raw_signals:
+        if not isinstance(s, str):
+            raise ProtocolError("Expected signal group member to be str")
+        signals.append(s)
+    return {"name": name, "signals": signals}
+
+
+def _normalize_var_type(raw: object) -> DBCVarType:
+    """Narrow an Agda ``varType`` (ℕ 0/1/2) to the ``DBCVarType`` Literal."""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw not in (0, 1, 2):
+        raise ProtocolError(
+            f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
+        )
+    return raw
+
+
+def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
+    """Normalize one ``environmentVars`` entry from Agda formatDBC output."""
+    name = raw.get("name")
+    if not isinstance(name, str):
+        raise ProtocolError("Expected environment var 'name' to be str")
+    ev: dict[str, object] = {
+        "name": name,
+        "varType": _normalize_var_type(raw.get("varType")),
+    }
+    for field in _NUMERIC_ENV_VAR_FIELDS:
+        if field not in raw:
+            raise ProtocolError(f"Expected environment var field {field!r}")
+        ev[field] = parse_rational(raw[field])
+    return cast(DBCEnvironmentVar, ev)
+
+
+def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
+    """Normalize one ``entries`` item from a ``valueTables`` entry."""
+    value_raw = raw.get("value")
+    if isinstance(value_raw, bool) or not isinstance(value_raw, int) or value_raw < 0:
+        raise ProtocolError(
+            f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
+        )
+    desc = raw.get("description")
+    if not isinstance(desc, str):
+        raise ProtocolError("Expected value table entry 'description' to be str")
+    return {"value": value_raw, "description": desc}
+
+
+def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
+    """Normalize one ``valueTables`` entry from Agda formatDBC output."""
+    name = raw.get("name")
+    if not isinstance(name, str):
+        raise ProtocolError("Expected value table 'name' to be str")
+    raw_entries = raw.get("entries")
+    if not is_object_list(raw_entries):
+        raise ProtocolError("Expected value table 'entries' to be a list")
+    entries: list[DBCValueEntry] = []
+    for e in raw_entries:
+        if not is_str_dict(e):
+            raise ProtocolError("Expected value table entry to be a dict")
+        entries.append(_normalize_value_entry(e))
+    return {"name": name, "entries": entries}
+
+
 def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     """Normalize Agda's formatDBC JSON into a proper DBCDefinition.
 
@@ -215,6 +293,10 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     converts those to ``Fraction`` so the result matches the
     ``DBCDefinition`` TypedDict and preserves the core's exact
     rational precision end-to-end.
+
+    The three metadata arrays (signalGroups / environmentVars / valueTables)
+    are treated as optional on input — Agda formatDBC always emits them,
+    but the caller may omit them in hand-built fixtures.
     """
     raw_messages = raw.get("messages")
     if not is_object_list(raw_messages):
@@ -234,10 +316,39 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
         msg: dict[str, object] = dict(m)
         msg["signals"] = signals
         messages.append(cast(DBCMessage, msg))
-    return {
+    result: DBCDefinition = {
         "version": str(raw.get("version", "")),
         "messages": messages,
     }
+    result["signalGroups"] = _normalize_optional_list(
+        raw, "signalGroups", _normalize_signal_group
+    )
+    result["environmentVars"] = _normalize_optional_list(
+        raw, "environmentVars", _normalize_environment_var
+    )
+    result["valueTables"] = _normalize_optional_list(
+        raw, "valueTables", _normalize_value_table
+    )
+    return result
+
+
+def _normalize_optional_list[T](
+    raw: dict[str, object],
+    key: str,
+    item_parser: "Callable[[dict[str, object]], T]",
+) -> list[T]:
+    """Normalize a NotRequired metadata array: treat missing as empty."""
+    if key not in raw:
+        return []
+    items = raw.get(key)
+    if not is_object_list(items):
+        raise ProtocolError(f"Expected {key!r} to be a list")
+    parsed: list[T] = []
+    for item in items:
+        if not is_str_dict(item):
+            raise ProtocolError(f"Expected each {key!r} entry to be a dict")
+        parsed.append(item_parser(item))
+    return parsed
 
 
 def parse_values_list(values_data: Sequence[object]) -> dict[str, Fraction]:

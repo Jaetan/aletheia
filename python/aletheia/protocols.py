@@ -189,10 +189,63 @@ class DBCMessage(TypedDict):
     extended: NotRequired[bool]  # Optional: true for 29-bit, false/absent for 11-bit
 
 
+class DBCSignalGroup(TypedDict):
+    """DBC signal group (``SIG_GROUP_`` keyword).
+
+    The DBC spec carries a parent-message id and a repetition count on the
+    wire; the Agda core only models the flattened ``{name, signals}`` view
+    because signal-name uniqueness is enforced globally by the validator,
+    so reconstructing message context on format_dbc is unnecessary.
+    """
+    name: str
+    signals: list[str]
+
+
+# DBC environment variable type (``EV_`` ``type`` field).
+# The DBC spec encodes int/float/string as 0/1/2 respectively; the Agda
+# core preserves that wire vocabulary directly (``varTypeToℕ``).
+DBCVarType = Literal[0, 1, 2]
+
+
+class DBCEnvironmentVar(TypedDict):
+    """DBC environment variable (``EV_`` keyword).
+
+    Numeric fields (initial/minimum/maximum) use ``Fraction`` for the same
+    reason as ``DBCSignalAlways`` — the Agda core works in ℚ and exact
+    rational precision has to survive the wire round-trip.
+    """
+    name: str
+    varType: DBCVarType
+    initial: Fraction
+    minimum: Fraction
+    maximum: Fraction
+
+
+class DBCValueEntry(TypedDict):
+    """One entry in a DBC value table (numeric value → description)."""
+    value: int
+    description: str
+
+
+class DBCValueTable(TypedDict):
+    """DBC value table (``VAL_TABLE_`` keyword)."""
+    name: str
+    entries: list[DBCValueEntry]
+
+
 class DBCDefinition(TypedDict):
-    """Complete DBC file structure"""
+    """Complete DBC file structure.
+
+    The three metadata arrays are ``NotRequired`` so that pre-Tier-1
+    wire formats (and hand-written fixtures) remain accepted; absent
+    keys are treated as empty lists by both ``dbc_to_json`` consumers
+    and the Agda parser.
+    """
     version: str
     messages: list[DBCMessage]
+    signalGroups: NotRequired[list[DBCSignalGroup]]
+    environmentVars: NotRequired[list[DBCEnvironmentVar]]
+    valueTables: NotRequired[list[DBCValueTable]]
 
 
 # ============================================================================
@@ -589,6 +642,11 @@ __all__ = [
     "DBCSignalMultiplexed",
     "DBCMessage",
     "DBCDefinition",
+    "DBCSignalGroup",
+    "DBCVarType",
+    "DBCEnvironmentVar",
+    "DBCValueEntry",
+    "DBCValueTable",
     # Signal predicates
     "SignalPredicate",
     "EqualsPredicate",
