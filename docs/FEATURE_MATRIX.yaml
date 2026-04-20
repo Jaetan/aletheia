@@ -92,20 +92,38 @@ features:
         status: planned
         notes: "Blocked on B.3.i — awaits Agda-core parser reaching cantools equivalence."
 
-  - id: dbc_metadata_full
-    name: Full DBC metadata exposure
-    description: Expose DBC nodes, attribute defaults, value tables, and comments to callers.
+  - id: dbc_metadata_tier1
+    name: DBC metadata Tier 1 (signal groups, env vars, value tables)
+    description: Expose the three top-level DBC metadata arrays — signal groups, environment variables, and value tables — that the Agda core already carries end-to-end through the wire.
     related: R17-DEF-2, B.1
     bindings:
       python:
+        status: implemented
+        entry: aletheia.protocols.DBCSignalGroup
+        notes: "Tier 1 TypedDicts (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) land as NotRequired fields on DBCDefinition; populated by dbc_to_json from cantools and round-tripped via format_dbc."
+      cpp:
+        status: implemented
+        entry: "aletheia/dbc.hpp#DbcSignalGroup"
+        notes: "Tier 1 structs (DbcSignalGroup, DbcEnvironmentVar, DbcValueTable) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+      go:
+        status: implemented
+        entry: DbcSignalGroup
+        notes: "Tier 1 types (DbcSignalGroup, DbcEnvironmentVar, DbcValueTable) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
+
+  - id: dbc_metadata_full
+    name: Full DBC metadata exposure (Tier 2 — nodes, attributes, comments, receivers)
+    description: Expose DBC nodes, attribute defaults, comments, and signal receivers — fields that the Agda core does not yet carry.
+    related: R17-DEF-2, B.1.x
+    bindings:
+      python:
         status: planned
-        notes: "DBCDefinition TypedDict shallow; nodes / attributes / value tables stripped by normalize_dbc."
+        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before the TypedDict can expose Tier 2 fields."
       cpp:
         status: planned
-        notes: "DbcDefinition struct shallow — mirrors Python; data is preserved in Agda core but dropped at FFI."
+        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before DbcDefinition can expose Tier 2 fields."
       go:
         status: planned
-        notes: "DbcDefinition struct shallow — mirrors Python."
+        notes: "Blocked on B.1.x — requires widening Aletheia.DBC.Types.DBC before DbcDefinition can expose Tier 2 fields."
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
