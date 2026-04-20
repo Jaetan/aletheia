@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build-tidy/
 _build/
 dist/
 dist-newstyle/
