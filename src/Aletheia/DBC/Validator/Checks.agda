@@ -532,3 +532,29 @@ checkAllUnknownSignalReceivers : List DBCMessage → List Node → List Validati
 checkAllUnknownSignalReceivers _    []             = []
 checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
   liftPerSignal (checkReceiversForSignal nodes) msgs
+
+-- ============================================================================
+-- CHECK 22: UNKNOWN ADDITIONAL SENDER (BO_TX_BU_)
+-- ============================================================================
+-- Each additional transmitter listed on a message's BO_TX_BU_ line should
+-- correspond to a declared node. Reuses the UnknownMessageSender issue code
+-- (same domain concept — a sender that is not in BU_) and skips when the DBC
+-- omits BU_, matching the behavior of checkAllUnknownMessageSenders.
+
+checkUnknownAdditionalSender : List Node → String → String → List ValidationIssue
+checkUnknownAdditionalSender nodes msgName sender =
+  requireDec (any? (λ n → Node.name n ≟ₛ sender) nodes)
+    (mkIssue IsWarning UnknownMessageSender
+      ("Message '" ++ₛ msgName
+       ++ₛ "': additional sender '" ++ₛ sender
+       ++ₛ "' not declared in BU_ (nodes) list"))
+
+checkAdditionalSendersForMessage : List Node → DBCMessage → List ValidationIssue
+checkAdditionalSendersForMessage nodes msg =
+  concatMap (checkUnknownAdditionalSender nodes (DBCMessage.name msg))
+            (DBCMessage.senders msg)
+
+checkAllUnknownAdditionalSenders : List DBCMessage → List Node → List ValidationIssue
+checkAllUnknownAdditionalSenders _    []             = []
+checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
+  concatMap (checkAdditionalSendersForMessage nodes) msgs

@@ -22,6 +22,7 @@ open import Aletheia.DBC.Validator using
   ; checkAllBitLengthExcessive
   ; checkDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
+  ; checkAllUnknownAdditionalSenders
   )
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using
@@ -51,6 +52,7 @@ open import Aletheia.DBC.Validity.WarningChecks using
   ; checkAllStartBitOutOfRange-allW; checkAllBitLengthExcessive-allW
   ; checkDuplicateAttributeNames-allW; checkAllUnknownCommentTargets-allW
   ; checkAllUnknownMessageSenders-allW; checkAllUnknownSignalReceivers-allW
+  ; checkAllUnknownAdditionalSenders-allW
   )
 open import Data.List using (List; []) renaming (_++_ to _++ₗ_)
 open import Data.Product using (proj₁; proj₂)
@@ -137,8 +139,10 @@ completeness dbc v =
     (errorIssues-allW _ (checkAllUnknownCommentTargets-allW msgs nodes envVars cmts))
   (ei-combine (checkAllUnknownMessageSenders msgs nodes) _
     (errorIssues-allW _ (checkAllUnknownMessageSenders-allW msgs nodes))
+  (ei-combine (checkAllUnknownSignalReceivers msgs nodes) _
     (errorIssues-allW _ (checkAllUnknownSignalReceivers-allW msgs nodes))
-  ))))))))))))))))))
+    (errorIssues-allW _ (checkAllUnknownAdditionalSenders-allW msgs nodes))
+  )))))))))))))))))))
   where
     msgs    = DBC.messages dbc
     nodes   = DBC.nodes dbc

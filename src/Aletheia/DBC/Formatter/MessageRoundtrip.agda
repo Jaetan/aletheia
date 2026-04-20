@@ -27,21 +27,21 @@ open import Aletheia.DBC.Formatter.MessageRoundtrip.Standard using (message-roun
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Extended using (message-roundtrip-ext)
 
 private
-  message-roundtrip-go : ∀ canId n (dlc : DLC) sender signals
+  message-roundtrip-go : ∀ canId n (dlc : DLC) sender senders signals
     → dlcBytes dlc ≤ 64
     → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
-    → parseMessage (messageFields (mkMessage canId n dlc sender signals))
-      ≡ inj₂ (mkMessage canId n dlc sender signals)
-  message-roundtrip-go (Standard rawId pf) n dlc sender signals dlc-bound sigs-wf sigs-pv =
-    message-roundtrip-std rawId pf n dlc sender signals dlc-bound sigs-wf sigs-pv
-  message-roundtrip-go (Extended rawId pf) n dlc sender signals dlc-bound sigs-wf sigs-pv =
-    message-roundtrip-ext rawId pf n dlc sender signals dlc-bound sigs-wf sigs-pv
+    → parseMessage (messageFields (mkMessage canId n dlc sender senders signals))
+      ≡ inj₂ (mkMessage canId n dlc sender senders signals)
+  message-roundtrip-go (Standard rawId pf) n dlc sender senders signals dlc-bound sigs-wf sigs-pv =
+    message-roundtrip-std rawId pf n dlc sender senders signals dlc-bound sigs-wf sigs-pv
+  message-roundtrip-go (Extended rawId pf) n dlc sender senders signals dlc-bound sigs-wf sigs-pv =
+    message-roundtrip-ext rawId pf n dlc sender senders signals dlc-bound sigs-wf sigs-pv
 
 message-roundtrip : ∀ msg → WellFormedMessageRT msg
   → parseMessage (messageFields msg) ≡ inj₂ msg
 message-roundtrip msg wfrt = message-roundtrip-go
   (DBCMessage.id msg) (DBCMessage.name msg) (DBCMessage.dlc msg)
-  (DBCMessage.sender msg) (DBCMessage.signals msg)
+  (DBCMessage.sender msg) (DBCMessage.senders msg) (DBCMessage.signals msg)
   (WellFormedMessage.dlc-bound (WellFormedMessageRT.msg-wf wfrt))
   (WellFormedMessage.signals-wf (WellFormedMessageRT.msg-wf wfrt))
   (WellFormedMessageRT.signals-pv wfrt)

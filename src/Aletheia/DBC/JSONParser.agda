@@ -237,6 +237,7 @@ parseMessageBody context name canId obj =
   require (InContext context (InvalidDLCBytes rawDlc))
           (bytesToValidDLC rawDlc) >>=ₑ λ dlc →
   require (InContext context (MissingField "sender")) (lookupString "sender" obj) >>=ₑ λ sender →
+  parseOptionalArray parseStringList (lookupArray "senders" obj) >>=ₑ λ senders →
   require (InContext context (MissingField "signals")) (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
   parseSignalList rawDlc context signalsJSON 0 >>=ₑ λ signals →
   inj₂ (record
@@ -244,6 +245,7 @@ parseMessageBody context name canId obj =
     ; name = name
     ; dlc = dlc
     ; sender = sender
+    ; senders = senders
     ; signals = signals
     })
 

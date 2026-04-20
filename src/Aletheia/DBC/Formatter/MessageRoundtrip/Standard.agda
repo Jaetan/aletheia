@@ -23,40 +23,42 @@ open import Aletheia.Prelude using (ifᵀ-witness)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;
   getNat-ℕtoJSON)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)
+open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseStringList-roundtrip)
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
 
 private
   -- Stage 1: parseCANId roundtrip (Standard)
-  canId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender signals
-    → parseCANId (ctx n) rawId (messageFields (mkMessage (Standard rawId pf) n dlc sender signals))
+  canId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender senders signals
+    → parseCANId (ctx n) rawId (messageFields (mkMessage (Standard rawId pf) n dlc sender senders signals))
       ≡ inj₂ (Standard rawId pf)
-  canId-std rawId pf n dlc sender signals = ifᵀ-witness _ _ pf
+  canId-std rawId pf n dlc sender senders signals = ifᵀ-witness _ _ pf
 
-  msgId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender signals
-    → parseMessageId (ctx n) (messageFields (mkMessage (Standard rawId pf) n dlc sender signals))
+  msgId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender senders signals
+    → parseMessageId (ctx n) (messageFields (mkMessage (Standard rawId pf) n dlc sender senders signals))
       ≡ inj₂ (Standard rawId pf)
-  msgId-std rawId pf n dlc sender signals
+  msgId-std rawId pf n dlc sender senders signals
     rewrite getNat-ℕtoJSON rawId
-    = canId-std rawId pf n dlc sender signals
+    = canId-std rawId pf n dlc sender senders signals
 
   -- Stage 2: parseMessageBody roundtrip (Standard)
-  msgBody-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender signals
+  msgBody-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender senders signals
     → dlcBytes dlc ≤ 64
     → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
-    → parseMessageBody (ctx n) n (Standard rawId pf) (messageFields (mkMessage (Standard rawId pf) n dlc sender signals))
-      ≡ inj₂ (mkMessage (Standard rawId pf) n dlc sender signals)
-  msgBody-std rawId pf n dlc sender signals dlc-bound sigs-wf sigs-pv
+    → parseMessageBody (ctx n) n (Standard rawId pf) (messageFields (mkMessage (Standard rawId pf) n dlc sender senders signals))
+      ≡ inj₂ (mkMessage (Standard rawId pf) n dlc sender senders signals)
+  msgBody-std rawId pf n dlc sender senders signals dlc-bound sigs-wf sigs-pv
     rewrite getNat-ℕtoJSON (dlcBytes dlc)
           | bytesToValidDLC-roundtrip dlc
+          | parseStringList-roundtrip senders
           | signal-list-roundtrip (dlcBytes dlc) (ctx n) signals 0 sigs-wf dlc-bound sigs-pv
     = refl
 
 -- Composed Standard message roundtrip
-message-roundtrip-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender signals
+message-roundtrip-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max)) n (dlc : DLC) sender senders signals
   → dlcBytes dlc ≤ 64
   → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
-  → parseMessage (messageFields (mkMessage (Standard rawId pf) n dlc sender signals))
-    ≡ inj₂ (mkMessage (Standard rawId pf) n dlc sender signals)
-message-roundtrip-std rawId pf n dlc sender signals dlc-bound sigs-wf sigs-pv =
-  trans (>>=ₑ-congʳ _ (msgId-std rawId pf n dlc sender signals))
-        (msgBody-std rawId pf n dlc sender signals dlc-bound sigs-wf sigs-pv)
+  → parseMessage (messageFields (mkMessage (Standard rawId pf) n dlc sender senders signals))
+    ≡ inj₂ (mkMessage (Standard rawId pf) n dlc sender senders signals)
+message-roundtrip-std rawId pf n dlc sender senders signals dlc-bound sigs-wf sigs-pv =
+  trans (>>=ₑ-congʳ _ (msgId-std rawId pf n dlc sender senders signals))
+        (msgBody-std rawId pf n dlc sender senders signals dlc-bound sigs-wf sigs-pv)

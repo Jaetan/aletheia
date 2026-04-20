@@ -34,13 +34,16 @@ def signal(name: str, **overrides: Any) -> dict:
 
 def message(msg_id: int, name: str, signals: list[dict], **overrides: Any) -> dict:
     """Build a DBC message dict wrapping the given signals."""
-    return {
+    msg: dict = {
         "id": msg_id,
         "name": name,
         "dlc": overrides.get("dlc", 8),
         "sender": overrides.get("sender", "ECU"),
         "signals": signals,
     }
+    if "senders" in overrides:
+        msg["senders"] = overrides["senders"]
+    return msg
 
 
 def dbc(messages: list[dict], version: str = "1.0") -> DBCDefinition:

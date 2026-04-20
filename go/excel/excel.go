@@ -597,6 +597,7 @@ func parseDbcRows(rows []map[string]string) (*aletheia.DbcDefinition, error) {
 			aletheia.MessageName(key.name),
 			dlcVal,
 			"",
+			nil,
 			signals,
 		))
 	}

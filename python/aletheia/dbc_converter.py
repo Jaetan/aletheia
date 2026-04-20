@@ -118,11 +118,18 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
 def message_to_json(message: cantools.database.can.Message) -> DBCMessage:
     """Convert a cantools Message to JSON format."""
 
+    # cantools' ``message.senders`` is ``[primary] + BO_TX_BU_ additional``.
+    # We split them: ``sender`` carries the BO_ primary, ``senders`` carries
+    # only the BO_TX_BU_ extras so the Agda validator can bind the
+    # UnknownMessageSender check independently against both vocabularies.
+    primary_sender = message.senders[0] if message.senders else ""
+    additional_senders = list(message.senders[1:]) if message.senders else []
     message_dict: DBCMessage = {
         "id": message.frame_id,
         "name": message.name,
         "dlc": message.length,
-        "sender": message.senders[0] if message.senders else "",
+        "sender": primary_sender,
+        "senders": additional_senders,
         "signals": [signal_to_json(sig) for sig in message.signals]
     }
 

@@ -311,11 +311,20 @@ static auto parse_message_def(const Json& j) -> DbcMessage {
     for (const auto& s : j.at("signals"))
         signals.push_back(parse_signal_def(s));
 
+    std::vector<std::string> senders;
+    if (j.contains("senders")) {
+        const auto& arr = j.at("senders");
+        senders.reserve(arr.size());
+        for (const auto& elem : arr)
+            senders.emplace_back(elem.get<std::string>());
+    }
+
     return DbcMessage{
         .id = id,
         .name = MessageName{j.at("name").get<std::string>()},
         .dlc = *dlc_result,
         .sender = NodeName{j.value("sender", "")},
+        .senders = std::move(senders),
         .signals = std::move(signals),
     };
 }

@@ -35,7 +35,7 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil)
+	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
 	dbc := aletheia.DbcDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DbcMessage{msg},
@@ -121,7 +121,7 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil)
+	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
 	dbc := aletheia.DbcDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DbcMessage{msg},
@@ -331,7 +331,7 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 
 	id, _ := aletheia.NewStandardID(100)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "Test", dlc, "X", nil)
+	msg := aletheia.NewDbcMessage(id, "Test", dlc, "X", nil, nil)
 	original := aletheia.DbcDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DbcMessage{msg},

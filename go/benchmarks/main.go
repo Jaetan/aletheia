@@ -78,13 +78,13 @@ func can20DBC() aletheia.DbcDefinition {
 	// drops SignalByName, MessageByID, and MessageByName onto their linear-
 	// scan fallback — a benchmark-correctness defect.
 	msgs := []aletheia.DbcMessage{
-		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", []aletheia.DbcSignal{
+		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DbcSignal{
 			{Name: "EngineSpeed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 4), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(8000, 1), Unit: "rpm", Presence: aletheia.AlwaysPresent{}},
 			{Name: "EngineTemp", StartBit: 16, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: aletheia.AlwaysPresent{}},
 		}),
-		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", []aletheia.DbcSignal{
+		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DbcSignal{
 			{Name: "BrakePressure", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 10), Unit: "bar", Presence: aletheia.AlwaysPresent{}},
 			{Name: "BrakePressed", StartBit: 16, BitLength: 1, ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -101,6 +101,7 @@ func canfdDBC() aletheia.DbcDefinition {
 	// so the benchmark measures the lookup path real users exercise.
 	msgs := []aletheia.DbcMessage{
 		aletheia.NewDbcMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
+			nil,
 			[]aletheia.DbcSignal{
 				{Name: "GPSLatitude", StartBit: 0, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-90, 1), Maximum: rat(90, 1), Unit: "deg", Presence: ap},
 				{Name: "GPSLongitude", StartBit: 32, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-180, 1), Maximum: rat(180, 1), Unit: "deg", Presence: ap},

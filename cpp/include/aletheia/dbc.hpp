@@ -92,6 +92,10 @@ struct DbcMessage {
     MessageName name;
     Dlc dlc;
     NodeName sender;
+    // Additional transmitters declared on BO_TX_BU_ lines. The BO_ primary
+    // stays in `sender`; these are the extras the Agda validator binds
+    // against the BU_ node table via UnknownMessageSender.
+    std::vector<std::string> senders;
     std::vector<DbcSignal> signals;
 
     // --- Multiplexing query helpers (defined in dbc.cpp) ---

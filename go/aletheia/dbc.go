@@ -39,10 +39,15 @@ type DbcSignal struct {
 
 // DbcMessage defines a CAN message with its signals.
 type DbcMessage struct {
-	ID          CanID
-	Name        MessageName
-	DLC         DLC
-	Sender      NodeName
+	ID     CanID
+	Name   MessageName
+	DLC    DLC
+	Sender NodeName
+	// Senders carries the additional transmitters declared on BO_TX_BU_
+	// lines. The BO_ primary stays in Sender; these extras feed the Agda
+	// validator's UnknownMessageSender check with the "additional sender"
+	// disambiguation so primary-vs-extra diagnostics stay distinguishable.
+	Senders     []string
 	Signals     []DbcSignal
 	signalIndex map[string]int // maps signal name -> index into Signals
 }
@@ -51,12 +56,16 @@ type DbcMessage struct {
 // populated. External loaders must use this constructor — directly populating
 // the struct leaves signalIndex nil and forces [DbcMessage.SignalByName] onto
 // its linear fallback path.
-func NewDbcMessage(id CanID, name MessageName, dlc DLC, sender NodeName, signals []DbcSignal) DbcMessage {
+//
+// senders carries the BO_TX_BU_ additional-transmitter list; pass nil or an
+// empty slice when the DBC source has no BO_TX_BU_ line for this message.
+func NewDbcMessage(id CanID, name MessageName, dlc DLC, sender NodeName, senders []string, signals []DbcSignal) DbcMessage {
 	m := DbcMessage{
 		ID:      id,
 		Name:    name,
 		DLC:     dlc,
 		Sender:  sender,
+		Senders: senders,
 		Signals: signals,
 	}
 	m.buildSignalIndex()

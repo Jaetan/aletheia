@@ -88,6 +88,7 @@ formatDBCMessage msg = JObject (
   ("name"    , JString (DBCMessage.name msg)) ∷
   ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
+  ("senders" , JArray (map JString (DBCMessage.senders msg))) ∷
   ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   [])
 

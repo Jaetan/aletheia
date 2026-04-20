@@ -978,6 +978,49 @@ TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][d
     CHECK(result->messages[0].signals[0].receivers.empty());
 }
 
+TEST_CASE("DbcMessage.senders round-trips through serialize + parse",
+          "[json][serialize][parse][dbc][tier2]") {
+    // BO_TX_BU_ additional transmitters: primary stays in `sender`, extras
+    // in `senders`. Mirrors the Python split — Agda treats both the same
+    // way for UnknownMessageSender validation but the disambiguated message
+    // text differs.
+    auto dbc = make_test_dbc();
+    REQUIRE(dbc.messages.size() == 1);
+    dbc.messages[0].senders = {"ECU_B", "ECU_C"};
+
+    auto str = detail::serialize_parse_dbc(dbc);
+    auto j = json::parse(str);
+
+    REQUIRE(j["dbc"]["messages"][0]["senders"].is_array());
+    CHECK(j["dbc"]["messages"][0]["senders"].size() == 2);
+    CHECK(j["dbc"]["messages"][0]["senders"][0] == "ECU_B");
+    CHECK(j["dbc"]["messages"][0]["senders"][1] == "ECU_C");
+
+    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    auto result = detail::parse_dbc_response(envelope.dump());
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    const auto& parsed = result->messages[0].senders;
+    REQUIRE(parsed.size() == 2);
+    CHECK(parsed[0] == "ECU_B");
+    CHECK(parsed[1] == "ECU_C");
+}
+
+TEST_CASE("parse_dbc_response accepts missing senders field", "[json][parse][dbc][tier2]") {
+    // Pre-B.1.x snapshots / hand-written JSON may omit `senders`; default to
+    // an empty vector rather than rejecting.
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": [{
+            "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
+            "signals": []
+        }]}
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    CHECK(result->messages[0].senders.empty());
+}
+
 TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][parse][dbc][tier2]") {
     auto result = detail::parse_dbc_response(R"({
         "status": "success",

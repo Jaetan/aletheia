@@ -55,7 +55,8 @@ record DBCMessage : Set where
     id : CANId
     name : String
     dlc : DLC
-    sender : String
+    sender : String           -- Primary transmitter from the BO_ line
+    senders : List String     -- Additional transmitters from BO_TX_BU_ lines
     signals : List DBCSignal
 
 -- Signal group: named collection of signal references (DBC SG_ keyword).

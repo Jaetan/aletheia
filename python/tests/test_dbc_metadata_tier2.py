@@ -438,3 +438,87 @@ class TestDBCSignalReceivers:
 
         codes = {issue["code"] for issue in validation["issues"]}
         assert "unknown_signal_receiver" in codes
+
+
+# ---------------------------------------------------------------------------
+# Additional message senders (BO_TX_BU_ lines)
+# ---------------------------------------------------------------------------
+
+
+def _msg_with_additional_senders(
+    primary: str,
+    additional: list[str],
+) -> dict:
+    return message(
+        _MSG_ID,
+        _MSG_NAME,
+        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")],
+        sender=primary,
+        senders=additional,
+    )
+
+
+class TestDBCMessageSenders:
+    """The BO_TX_BU_ additional-transmitter list round-trips through the core.
+
+    ``sender`` carries the singular BO_ primary; ``senders`` carries only the
+    BO_TX_BU_ extras. The two vocabularies stay separate so the Agda validator
+    can report unknown additional transmitters without shadowing the primary
+    sender's own check.
+    """
+
+    def test_additional_senders_preserved(self) -> None:
+        """Explicit additional transmitters round-trip untouched."""
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_additional_senders("ECU_A", ["ECU_B", "ECU_C"])],
+            "nodes": [{"name": "ECU_A"}, {"name": "ECU_B"}, {"name": "ECU_C"}],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        msg = formatted["messages"][0]
+        assert msg["sender"] == "ECU_A"
+        assert msg["senders"] == ["ECU_B", "ECU_C"]
+
+    def test_empty_senders_default(self) -> None:
+        """Absent BO_TX_BU_ line round-trips as an empty ``senders`` list."""
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_additional_senders("ECU_A", [])],
+            "nodes": [{"name": "ECU_A"}],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        msg = formatted["messages"][0]
+        assert msg["sender"] == "ECU_A"
+        assert msg["senders"] == []
+
+    def test_unknown_additional_sender_reported_as_warning(self) -> None:
+        """An additional sender not in BU_ surfaces an ``unknown_message_sender``
+        warning, disambiguated by the "additional sender" phrasing.
+
+        The Agda validator reuses ``UnknownMessageSender`` for both the primary
+        ``sender`` and each BO_TX_BU_ entry — same conceptual check ("node
+        referenced but not declared"), single wire code.
+        """
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_additional_senders("ECU_A", ["GhostECU"])],
+            "nodes": [{"name": "ECU_A"}],
+        }
+        with AletheiaClient() as client:
+            validation = client.validate_dbc(original)
+
+        matching = [
+            issue for issue in validation["issues"]
+            if issue["code"] == "unknown_message_sender"
+            and "additional sender" in issue["detail"]
+            and "GhostECU" in issue["detail"]
+        ]
+        assert matching, validation["issues"]

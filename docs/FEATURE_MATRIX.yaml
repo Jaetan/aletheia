@@ -148,18 +148,21 @@ features:
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
-    description: Expose the ``BO_TX_BU_`` message-level transmitter list — DBC's extension to the single per-message ``sender`` covering multi-node transmitters (gateways, redundant ECUs).
-    related: R17-DEF-2, B.1.x (commit 3, planned)
+    description: Expose the ``BO_TX_BU_`` additional-transmitter list on DBCMessage. The primary transmitter stays in ``sender``; ``senders`` carries the extras declared on ``BO_TX_BU_`` lines. New ``unknown_message_sender`` warning (with "additional sender" disambiguation) fires when a listed sender is not declared in ``BU_``.
+    related: R17-DEF-2, B.1.x (commit 3)
     bindings:
       python:
-        status: planned
-        notes: "Requires extending Aletheia.DBC.Types.DBCMessage with a transmitters list and adding a BO_TX_BU_ emitter path in Formatter.agda."
+        status: implemented
+        entry: aletheia.protocols.DBCMessage
+        notes: "DBCMessage gains a NotRequired senders: list[str]; dbc_to_json splits cantools' merged message.senders into primary (index 0) + additional (index 1:)."
       cpp:
-        status: planned
-        notes: "Awaits Agda-core extension; surfaces as std::vector<std::string> on DbcMessage."
+        status: implemented
+        entry: "aletheia/dbc.hpp#DbcMessage"
+        notes: "DbcMessage gains std::vector<std::string> senders; serializer emits it on every message; parser reads an absent key as empty."
       go:
-        status: planned
-        notes: "Awaits Agda-core extension; surfaces as []string on DbcMessage."
+        status: implemented
+        entry: DbcMessage
+        notes: "DbcMessage gains Senders []string; serializer normalises nil to []string{}; parser treats an absent key as nil."
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers

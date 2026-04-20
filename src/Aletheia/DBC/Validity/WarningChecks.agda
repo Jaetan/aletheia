@@ -32,6 +32,8 @@ open import Aletheia.DBC.Validator using
   ; checkUnknownSender; checkAllUnknownMessageSenders
   ; checkUnknownReceiver; checkReceiversForSignal
   ; checkAllUnknownSignalReceivers
+  ; checkUnknownAdditionalSender; checkAdditionalSendersForMessage
+  ; checkAllUnknownAdditionalSenders
   )
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
@@ -698,3 +700,33 @@ checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
     goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal nodes (DBCMessage.name m)) (DBCMessage.signals m))) ms
     goMsgs [] = []
     goMsgs (m ∷ ms) = All-concatMap (goSigs (DBCMessage.name m) (DBCMessage.signals m)) ∷ goMsgs ms
+
+-- ============================================================================
+-- CHECK 22: UNKNOWN ADDITIONAL SENDER — Severity
+-- ============================================================================
+
+checkUnknownAdditionalSender-allW : ∀ nodes msgName s →
+  All W (checkUnknownAdditionalSender nodes msgName s)
+checkUnknownAdditionalSender-allW nodes msgName s
+  with any? (λ n → Node.name n ≟ₛ s) nodes
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkAdditionalSendersForMessage-allW : ∀ nodes msg →
+  All W (checkAdditionalSendersForMessage nodes msg)
+checkAdditionalSendersForMessage-allW nodes msg =
+  All-concatMap (go (DBCMessage.senders msg))
+  where
+    go : ∀ ss → All (λ s → All W (checkUnknownAdditionalSender nodes (DBCMessage.name msg) s)) ss
+    go [] = []
+    go (s ∷ ss) = checkUnknownAdditionalSender-allW nodes (DBCMessage.name msg) s ∷ go ss
+
+checkAllUnknownAdditionalSenders-allW : ∀ msgs nodes →
+  All W (checkAllUnknownAdditionalSenders msgs nodes)
+checkAllUnknownAdditionalSenders-allW _    []              = []
+checkAllUnknownAdditionalSenders-allW msgs nodes@(_ ∷ _) =
+  All-concatMap (go msgs)
+  where
+    go : ∀ ms → All (λ m → All W (checkAdditionalSendersForMessage nodes m)) ms
+    go [] = []
+    go (m ∷ ms) = checkAdditionalSendersForMessage-allW nodes m ∷ go ms

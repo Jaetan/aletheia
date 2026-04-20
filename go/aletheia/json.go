@@ -141,12 +141,17 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			}
 			sigs = append(sigs, s)
 		}
+		senders := msg.Senders
+		if senders == nil {
+			senders = []string{}
+		}
 		m := map[string]any{
 			"id":       msg.ID.Value(),
 			"extended": msg.ID.IsExtended(),
 			"name":     string(msg.Name),
 			"dlc":      msg.DLC.ToBytes(),
 			"sender":   string(msg.Sender),
+			"senders":  senders,
 			"signals":  sigs,
 		}
 		msgs = append(msgs, m)
@@ -1716,11 +1721,24 @@ func parseDbcMessage(j map[string]any) (*DbcMessage, error) {
 		return nil, protocolError("message missing required field: name")
 	}
 
+	var senders []string
+	if raw, ok := j["senders"].([]any); ok {
+		senders = make([]string, 0, len(raw))
+		for _, s := range raw {
+			ss, sOk := s.(string)
+			if !sOk {
+				return nil, protocolError("senders entry is not a string")
+			}
+			senders = append(senders, ss)
+		}
+	}
+
 	msg := &DbcMessage{
 		ID:      id,
 		Name:    MessageName(msgName),
 		DLC:     dlc,
 		Sender:  NodeName(getString(j, "sender")),
+		Senders: senders,
 		Signals: signals,
 	}
 	msg.buildSignalIndex()

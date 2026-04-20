@@ -337,7 +337,7 @@ class TestMessageConversion:
         assert result.get("extended") is True
 
     def test_message_no_sender(self) -> None:
-        """Message without sender"""
+        """Message without sender: both ``sender`` and ``senders`` empty."""
         message = Mock()
         message.frame_id = 0x200
         message.name = "NoSender"
@@ -349,6 +349,7 @@ class TestMessageConversion:
         result = message_to_json(message)
 
         assert result["sender"] == ""
+        assert not result["senders"]
 
     def test_message_multiple_signals(self) -> None:
         """Message with multiple signals"""
@@ -399,7 +400,8 @@ class TestMessageConversion:
         assert result["dlc"] == 4
 
     def test_message_multiple_senders(self) -> None:
-        """Message with multiple senders (uses first)"""
+        """Message with multiple senders: primary is ``sender``, extras are
+        ``senders`` (matches BO_ / BO_TX_BU_ split in DBC text)."""
         message = Mock()
         message.frame_id = 0x500
         message.name = "MultiSender"
@@ -410,7 +412,8 @@ class TestMessageConversion:
 
         result = message_to_json(message)
 
-        assert result["sender"] == "ECU1"  # Uses first sender
+        assert result["sender"] == "ECU1"
+        assert result["senders"] == ["ECU2", "ECU3"]
 
 
 # ============================================================================

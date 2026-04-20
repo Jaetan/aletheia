@@ -19,9 +19,9 @@ open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.JSON using (JSON; JString; JNumber; JArray)
 open import Aletheia.Prelude using (_>>=ₑ_)
 
-mkMessage : CANId → String → DLC → String → List DBCSignal → DBCMessage
-mkMessage i n d s sigs = record
-  { id = i ; name = n ; dlc = d ; sender = s ; signals = sigs }
+mkMessage : CANId → String → DLC → String → List String → List DBCSignal → DBCMessage
+mkMessage i n d s ss sigs = record
+  { id = i ; name = n ; dlc = d ; sender = s ; senders = ss ; signals = sigs }
 
 messageFields : DBCMessage → List (String × JSON)
 messageFields msg =
@@ -29,6 +29,7 @@ messageFields msg =
   ("name"    , JString (DBCMessage.name msg)) ∷
   ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
   ("sender"  , JString (DBCMessage.sender msg)) ∷
+  ("senders" , JArray (map JString (DBCMessage.senders msg))) ∷
   ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   []
 

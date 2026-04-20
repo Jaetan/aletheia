@@ -22,7 +22,7 @@ func buildTier2Fixture(t *testing.T) aletheia.DbcDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil)
+	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
 
 	return aletheia.DbcDefinition{
 		Version:  "1.0",
@@ -351,7 +351,7 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 		Presence:  aletheia.AlwaysPresent{},
 		Receivers: []string{"ECU_A", "ECU_B"},
 	}
-	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU", []aletheia.DbcSignal{sig})
+	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU", nil, []aletheia.DbcSignal{sig})
 	fixture := aletheia.DbcDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DbcMessage{msg},
@@ -457,6 +457,110 @@ func TestDbcSignalReceivers_EmptyWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
+	// BO_TX_BU_ additional senders: primary in Sender, extras in Senders.
+	// Mirrors TestDbcSignalReceivers_RoundtripThroughMock for the new
+	// message-level wire key.
+	id, err := aletheia.NewStandardID(256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlc, err := aletheia.BytesToDLC(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU_A",
+		[]string{"ECU_B", "ECU_C"}, nil)
+	fixture := aletheia.DbcDefinition{
+		Version:  "1.0",
+		Messages: []aletheia.DbcMessage{msg},
+	}
+
+	sendMock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
+	sendClient, err := aletheia.NewClient(sendMock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sendClient.Close()
+	if err := sendClient.ParseDBC(fixture); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+
+	envBytes := sendMock.Inputs()[0]
+	var env map[string]any
+	if err := json.Unmarshal([]byte(envBytes), &env); err != nil {
+		t.Fatalf("envelope unmarshal: %v\n%s", err, envBytes)
+	}
+	dbcObj, ok := env["dbc"].(map[string]any)
+	if !ok {
+		t.Fatalf("dbc object missing from envelope")
+	}
+	msgs, _ := dbcObj["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages: want 1, got %d", len(msgs))
+	}
+	wireSenders, ok := msgs[0].(map[string]any)["senders"].([]any)
+	if !ok {
+		t.Fatalf("senders: missing or not an array")
+	}
+	if len(wireSenders) != 2 || wireSenders[0] != "ECU_B" || wireSenders[1] != "ECU_C" {
+		t.Errorf("wire senders: got %v, want [ECU_B ECU_C]", wireSenders)
+	}
+
+	respEnv := map[string]any{"status": "success", "dbc": dbcObj}
+	respBytes, err := json.Marshal(respEnv)
+	if err != nil {
+		t.Fatalf("response marshal: %v", err)
+	}
+	parseMock := aletheia.NewMockBackend(aletheia.Respond(string(respBytes)))
+	parseClient, err := aletheia.NewClient(parseMock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parseClient.Close()
+
+	decoded, err := parseClient.FormatDBC()
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	if len(decoded.Messages) != 1 {
+		t.Fatalf("decoded shape: want 1 msg, got %d", len(decoded.Messages))
+	}
+	got := decoded.Messages[0].Senders
+	if len(got) != 2 || got[0] != "ECU_B" || got[1] != "ECU_C" {
+		t.Errorf("decoded senders: got %v, want [ECU_B ECU_C]", got)
+	}
+}
+
+func TestDbcMessageSenders_EmptyWhenAbsent(t *testing.T) {
+	// Pre-B.1.x DBC responses may omit "senders"; parser defaults to nil.
+	mock := aletheia.NewMockBackend(aletheia.Respond(`{
+		"status":"success",
+		"dbc":{
+			"version":"1.0",
+			"messages":[{
+				"id":256,"name":"M","dlc":8,"sender":"ECU","extended":false,
+				"signals":[]
+			}]
+		}
+	}`))
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	dbc, err := c.FormatDBC()
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	if len(dbc.Messages) != 1 {
+		t.Fatalf("unexpected shape: %+v", dbc)
+	}
+	if got := dbc.Messages[0].Senders; got != nil {
+		t.Errorf("absent senders: want nil, got %v", got)
+	}
+}
+
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	mock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
 	c, err := aletheia.NewClient(mock)
@@ -467,7 +571,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
-	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil)
+	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
 	dbc := aletheia.DbcDefinition{
 		Version:  "1.0",
 		Messages: []aletheia.DbcMessage{msg},

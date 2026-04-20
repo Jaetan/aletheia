@@ -79,9 +79,9 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     return {
-        {"id", can_id_numeric(m.id)},        {"name", m.name.get()},
-        {"dlc", dlc_to_bytes(m.dlc)},        {"sender", m.sender.get()},
-        {"extended", can_id_extended(m.id)}, {"signals", std::move(sigs)},
+        {"id", can_id_numeric(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()},   {"senders", m.senders}, {"extended", can_id_extended(m.id)},
+        {"signals", std::move(sigs)},
     };
 }
 
