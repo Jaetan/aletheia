@@ -572,6 +572,7 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 cd python && python3 -m pytest tests/ -v
 cd python && basedpyright aletheia/
 cd python && pylint aletheia/
+cd python && pylint tests/ conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory)
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the
