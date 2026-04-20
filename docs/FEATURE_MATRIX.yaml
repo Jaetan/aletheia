@@ -1,0 +1,379 @@
+# Aletheia Cross-Binding Feature Matrix
+#
+# Authoritative source for feature parity across Python, C++, Go.
+# See docs/development/PARITY_PLAN.md for the roadmap and locked design decisions.
+#
+# Schema:
+#   features[]: one entry per user-facing capability (NOT per method)
+#     id:          lowercase snake_case identifier used as test parametrization key
+#     name:        short human-readable title
+#     description: one-sentence summary of the capability
+#     related:     optional — tracking codes (R17-DEF-4, B.3, SFP-2, ...)
+#     bindings:
+#       python / cpp / go: all three required
+#         status:  implemented | not_applicable | planned
+#         entry:   required when status=implemented (see conventions below)
+#         reason:  required when status=not_applicable (non-empty string)
+#         notes:   optional — transition state, caveats, migration pointers
+#
+# Entry conventions per binding:
+#   python: importable dotted path resolved via importlib + recursive getattr.
+#           e.g. "aletheia.AletheiaClient.parse_dbc"
+#   cpp:    "<header>#<symbol>" — header path relative to cpp/include/,
+#           symbol is grepped inside the header text.
+#           e.g. "aletheia/client.hpp#parse_dbc"
+#   go:     identifier within the aletheia package, optionally "Type.Method".
+#           Prefix with "<subpkg>:" to denote a sub-package entry.
+#           e.g. "Client.ParseDBC" or "excel:LoadChecksFromExcel"
+#
+# Structural tests (Cat 32-style mandatory gate):
+#   python/tests/test_feature_matrix_parity.py
+#   go/aletheia/feature_matrix_test.go
+#   cpp/tests/test_feature_matrix_parity.cpp
+#
+# Every test must:
+#   - load this YAML
+#   - for each feature, assert status is one of {implemented, not_applicable, planned}
+#   - for status=implemented, verify entry resolves on this binding
+#   - for status=not_applicable, verify reason is a non-empty string
+#   - fail loudly on any violation
+
+features:
+
+  # =====================================================================
+  # Core client and DBC handling
+  # =====================================================================
+
+  - id: core_client
+    name: Client lifecycle
+    description: Construct, use, and dispose of a client with scoped resource cleanup.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#AletheiaClient" }
+      go:     { status: implemented, entry: NewClient }
+
+  - id: parse_dbc_json
+    name: Parse structured DBC definition
+    description: Accept a pre-structured DBC definition (JSON / struct) and load it into the client.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.parse_dbc }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#parse_dbc" }
+      go:     { status: implemented, entry: Client.ParseDBC }
+
+  - id: validate_dbc
+    name: DBC validation
+    description: Run all DBC validity checks and report structured issues with severity.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.validate_dbc }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#validate_dbc" }
+      go:     { status: implemented, entry: Client.ValidateDBC }
+
+  - id: format_dbc
+    name: DBC serialization
+    description: Emit the currently-loaded DBC back as structured JSON / struct.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.format_dbc }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#format_dbc" }
+      go:     { status: implemented, entry: Client.FormatDBC }
+
+  - id: dbc_text_parse
+    name: Parse .dbc text
+    description: Parse a raw .dbc text file (cantools-compatible) into a DbcDefinition.
+    related: R17-DEF-4, B.3
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.dbc_to_json
+        notes: "Currently via cantools (LGPL). Transitioning to Agda core per B.3; dep drops at B.3.g."
+      cpp:
+        status: planned
+        notes: "Blocked on B.3.h — awaits Agda-core parser reaching cantools equivalence."
+      go:
+        status: planned
+        notes: "Blocked on B.3.i — awaits Agda-core parser reaching cantools equivalence."
+
+  - id: dbc_metadata_full
+    name: Full DBC metadata exposure
+    description: Expose DBC nodes, attribute defaults, value tables, and comments to callers.
+    related: R17-DEF-2, B.1
+    bindings:
+      python:
+        status: planned
+        notes: "DBCDefinition TypedDict shallow; nodes / attributes / value tables stripped by normalize_dbc."
+      cpp:
+        status: planned
+        notes: "DbcDefinition struct shallow — mirrors Python; data is preserved in Agda core but dropped at FFI."
+      go:
+        status: planned
+        notes: "DbcDefinition struct shallow — mirrors Python."
+
+  - id: dbc_queries_mux
+    name: DBC multiplexing query helpers
+    description: Query a loaded DBC for mux structure — is_multiplexed, multiplexor_names, mux_values, signals_for_mux_value, etc.
+    related: R8, B.2
+    bindings:
+      python: { status: implemented, entry: aletheia.is_multiplexed }
+      cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
+      go:
+        status: planned
+        notes: "Agda core handles mux; Go accessors not yet exposed (B.2)."
+
+  # =====================================================================
+  # Signal extraction and frame manipulation
+  # =====================================================================
+
+  - id: signal_extraction
+    name: Signal extraction
+    description: Extract decoded physical signal values from a frame against the loaded DBC.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.extract_signals }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#extract_signals" }
+      go:     { status: implemented, entry: Client.ExtractSignals }
+
+  - id: build_frame
+    name: Frame construction from signals
+    description: Build frame payload bytes from a map of signal values (binary FFI path).
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.build_frame }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#build_frame" }
+      go:     { status: implemented, entry: Client.BuildFrame }
+
+  - id: update_frame
+    name: Frame update (signal splice)
+    description: Modify specific signals inside an existing frame payload without reconstructing from scratch.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.update_frame }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#update_frame" }
+      go:     { status: implemented, entry: Client.UpdateFrame }
+
+  - id: mux_extraction
+    name: Multiplexed signal extraction
+    description: Automatically select mux-dependent signals based on the mux field value in each frame.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.extract_signals }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#extract_signals" }
+      go:     { status: implemented, entry: Client.ExtractSignals }
+
+  - id: can_fd
+    name: CAN-FD support
+    description: Full support for CAN-FD frames (DLC 9–15, payloads up to 64 bytes).
+    bindings:
+      python: { status: implemented, entry: aletheia.dlc_to_bytes }
+      cpp:    { status: implemented, entry: "aletheia/types.hpp#Dlc" }
+      go:     { status: implemented, entry: DLC }
+
+  # =====================================================================
+  # Streaming LTL
+  # =====================================================================
+
+  - id: set_properties
+    name: LTL property binding
+    description: Bind a set of LTL formulas to the stream for monitoring.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.set_properties }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#set_properties" }
+      go:     { status: implemented, entry: Client.SetProperties }
+
+  - id: streaming_ltl
+    name: Streaming LTL monitor
+    description: start_stream → send_frame (many) → end_stream; incremental verdict updates per frame.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.start_stream }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#start_stream" }
+      go:     { status: implemented, entry: Client.StartStream }
+
+  - id: batch_frame_send
+    name: Batch frame send
+    description: Send multiple frames in one call; amortizes FFI cost; stops on first transport error.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.send_frames }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#send_frames" }
+      go:     { status: implemented, entry: Client.SendFrames }
+
+  - id: send_error
+    name: Bus error event
+    description: Record a bus-error timestamp during streaming.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.send_error }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#send_error" }
+      go:     { status: implemented, entry: Client.SendError }
+
+  - id: send_remote
+    name: Remote frame event
+    description: Record a remote-frame event during streaming.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.send_remote }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#send_remote" }
+      go:     { status: implemented, entry: Client.SendRemote }
+
+  # =====================================================================
+  # Checks
+  # =====================================================================
+
+  - id: check_dsl
+    name: Fluent Check DSL
+    description: Programmatic check construction — Signal("X").equals(1).always() / Check::signal(...) / CheckSignal(...).
+    bindings:
+      python: { status: implemented, entry: aletheia.Signal }
+      cpp:    { status: implemented, entry: "aletheia/check.hpp#Check" }
+      go:     { status: implemented, entry: CheckSignal }
+
+  - id: add_checks
+    name: Runtime check attachment
+    description: Attach CheckResult objects to the stream after property binding.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient.add_checks }
+      cpp:    { status: implemented, entry: "aletheia/client.hpp#add_checks" }
+      go:     { status: implemented, entry: Client.AddChecks }
+
+  - id: yaml_check_loader
+    name: YAML check loader
+    description: Load a set of named checks from a YAML file.
+    bindings:
+      python: { status: implemented, entry: aletheia.load_checks }
+      cpp:    { status: implemented, entry: "aletheia/yaml.hpp#load_checks_from_yaml" }
+      go:     { status: implemented, entry: LoadChecksFromYAML }
+
+  - id: excel_check_loader
+    name: Excel check + DBC loader
+    description: Load checks and DBC from an Excel workbook; template generation for non-programmers.
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.load_checks_from_excel
+      cpp:
+        status: implemented
+        entry: "aletheia/excel.hpp#load_checks_from_excel"
+      go:
+        status: implemented
+        entry: "excel:LoadChecks"
+        notes: "Separate Go module at go/excel/ to isolate the xuri/excelize dependency chain. Other entries: excel.LoadDbc, excel.CreateTemplate."
+
+  # =====================================================================
+  # Observability and diagnostics
+  # =====================================================================
+
+  - id: structured_logging
+    name: Structured logging (15 events)
+    description: Canonical 15-event log vocabulary across lifecycle / stream / cache / enrichment / extraction domains.
+    bindings:
+      python: { status: implemented, entry: "aletheia.client._log" }
+      cpp:    { status: implemented, entry: "aletheia/log.hpp#Logger" }
+      go:     { status: implemented, entry: WithLogger }
+
+  - id: validation_errors
+    name: Structured validation errors
+    description: ValidationIssue with IssueCode enum and human-readable message; severity error/warning.
+    bindings:
+      python: { status: implemented, entry: aletheia.ValidationIssue }
+      cpp:    { status: implemented, entry: "aletheia/validation.hpp#ValidationIssue" }
+      go:     { status: implemented, entry: ValidationIssue }
+
+  - id: violation_enrichment
+    name: Violation enrichment
+    description: Attach signal values and core reason string to LTL violations.
+    bindings:
+      python: { status: implemented, entry: aletheia.PropertyDiagnostic }
+      cpp:    { status: implemented, entry: "aletheia/response.hpp#PropertyDiagnostic" }
+      go:     { status: implemented, entry: PropertyDiagnostic }
+
+  - id: rts_cores_config
+    name: RTS cores configuration
+    description: Configure the number of RTS cores used by the GHC runtime at backend creation.
+    bindings:
+      python: { status: implemented, entry: aletheia.AletheiaClient }
+      cpp:    { status: implemented, entry: "aletheia/backend.hpp#make_ffi_backend" }
+      go:     { status: implemented, entry: WithRTSCores }
+
+  - id: mock_backend
+    name: Mock backend for testing
+    description: Drop-in backend replaying canned JSON responses; used for unit testing without loading the .so.
+    bindings:
+      python:
+        status: not_applicable
+        reason: "Python tests use monkeypatch at the FFI boundary (tests/fake_backend.py) rather than a public mock class. Promoting to aletheia.testing is a separate design decision; this row flips to implemented if that happens."
+      cpp:
+        status: not_applicable
+        reason: "MockBackend exists as test-internal scaffolding at cpp/src/detail/mock_backend.hpp, not as a public exported class (cpp/include/ is the installed API surface). Promoting to aletheia/testing.hpp is a separate design decision; this row flips to implemented if that happens."
+      go:  { status: implemented, entry: MockBackend }
+
+  # =====================================================================
+  # Ergonomics — Part 2 (all planned, design rounds required)
+  # =====================================================================
+
+  - id: cancellation_contract
+    name: Cooperative cancellation
+    description: Behavioral parity for cancelling long-running ops — Python async cancel, Go context.Context, C++ std::stop_token.
+    related: C.0, C.1, C.3, C.4
+    bindings:
+      python:
+        status: planned
+        notes: "SFP-2 async path; design round gated on C.0 outcome."
+      cpp:
+        status: planned
+        notes: "C.4 — std::stop_token candidate; new backlog item surfaced by the parity plan."
+      go:
+        status: planned
+        notes: "R17-DEF-5; design round required per project_go_features_to_explore.md."
+
+  - id: lazy_streaming_batch
+    name: Lazy batch frame send
+    description: Iterator-driven variant of batch frame send — consume input lazily without full materialization.
+    related: R17-DEF-3, C.2
+    bindings:
+      python:
+        status: planned
+        notes: "send_frames_iter; bundled with C.1 async design round."
+      cpp:
+        status: planned
+        notes: "Design open — may or may not be needed depending on Phase C outcome (C.5)."
+      go:
+        status: planned
+        notes: "Design open — may or may not be needed depending on Phase C outcome (C.5)."
+
+  # =====================================================================
+  # Distribution / infrastructure
+  # =====================================================================
+
+  - id: cli
+    name: Command-line interface
+    description: Host-integrated CLI wrapping the client — subcommands for validate, mux-query, convert, extract, etc.
+    bindings:
+      python: { status: implemented, entry: aletheia.cli.main }
+      cpp:
+        status: not_applicable
+        reason: "C++ is a library binding; CLI tools are a host-application concern and not part of the cross-language parity surface."
+      go:
+        status: not_applicable
+        reason: "Go is a library binding; CLI tools are a host-application concern and not part of the cross-language parity surface."
+
+  - id: can_log_reader
+    name: CAN log file reader
+    description: Parse candump / python-can log files and yield frames for streaming.
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.iter_can_log
+        notes: "Via python-can (LGPL); same LGPL contingency as cantools — see project_lgpl_contingency.md."
+      cpp:
+        status: planned
+        notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."
+      go:
+        status: planned
+        notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."
+
+  - id: doc_example_gate_checks
+    name: Executable doc examples
+    description: Every fenced code block in README + docs/ runs as part of the default test battery.
+    related: R17-DEF-6, D.1, D.2
+    bindings:
+      python:
+        status: implemented
+        entry: "aletheia.AletheiaClient"
+        notes: "R17 C6 — pytest --markdown-docs with repo-root conftest.py; 103 fence runs."
+      cpp:
+        status: planned
+        notes: "D.1 — catch2 harness extracting cpp fences from tracked markdown files."
+      go:
+        status: planned
+        notes: "D.2 — go test helper extracting Go fences from tracked markdown files."
