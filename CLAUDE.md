@@ -173,6 +173,7 @@ Shake tracks dependencies automatically. After modifying an Agda file, only affe
 - **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++ and Go dlopen)
 - **python/pyproject.toml**: Python package configuration
 - **cpp/CMakeLists.txt**: C++23 binding build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
+- **docs/FEATURE_MATRIX.yaml**: Authoritative cross-binding feature parity matrix; paired structural gate tests in `python/tests/`, `go/aletheia/`, `cpp/tests/` fail CI on silent symbol removal. See `docs/development/PARITY_PLAN.md` for the roadmap.
 
 ## Requirements
 

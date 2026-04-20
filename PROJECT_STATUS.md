@@ -397,14 +397,14 @@ end-to-end workflows. Cross-linked from README, INDEX, and Python API Guide.
 - Agda modules: 119 (all `--safe --without-K`, 4 also `--no-main`) — evolution: 92 (R7, 2026-04-07) → 95 (R8 post-commit + `Timestamp μs` refinement) → 103 (R9, 2026-04-14) → 120 (R11 split of large `Properties` files behind facade re-exports, 2026-04-15) → 119 (R17 C3b removed `BatchFrameBuilding/Properties.agda` as part of JSON-output path removal, 2026-04-19). See the "Prior" entries in [CLAUDE.md § Current Session Progress](../CLAUDE.md#current-session-progress) for per-round detail.
 - Python modules: 22 (13 top-level + 9 in `aletheia/client/` subpackage)
 - C++ files: 41 (14 public headers + 1 public detail header + 11 source + 3 internal detail headers + 11 test `.cpp` + 1 `test_helpers.hpp`)
-- Go files: 16 source + 15 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
+- Go files: 16 source + 16 test (in `go/aletheia/`); separate `go/excel/` package for the optional Excel loader
 - Lines of code: ~15,500 Agda + ~5,300 Python + ~4,000 C++ + ~4,400 Go (source only)
 
 **Testing**:
-- Python tests: 649 passing (via FFI) + 1 expected-skip (`test_lazy_import_boundary.py` skips when `_install_config.py` isn't present — guards the dev-checkout vs installed-wheel boundary); additionally 103 doc-example `python` fences executed end-to-end by `pytest --markdown-docs` via the repo-root `conftest.py` harness (R17 C6)
-- C++ tests: 159 unit + 34 integration + 33 YAML + 47 Excel TEST_CASEs (273 total) across 4 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`) + 1 compile-time binary (`static_tests`), built from 11 `.cpp` sources — R12 split `unit_tests.cpp` into 7 focused TUs (check/client/dbc/enrich/json/log/validation) all linked into the single `unit_tests` binary (mock backend + Catch2)
-- Go tests: 223 passing in `go/aletheia` across 15 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total
-- Total: 1145 tests
+- Python tests: 707 passing (via FFI) + 1 expected-skip (`test_lazy_import_boundary.py` skips when `_install_config.py` isn't present — guards the dev-checkout vs installed-wheel boundary); additionally 103 doc-example `python` fences executed end-to-end by `pytest --markdown-docs` via the repo-root `conftest.py` harness (R17 C6). Includes 58 cross-binding parity tests (`tests/test_feature_matrix_parity.py`) that validate `docs/FEATURE_MATRIX.yaml` schema + every Python `implemented` entry
+- C++ tests: 159 unit + 34 integration + 33 YAML + 47 Excel + 2 parity TEST_CASEs (275 total) across 5 runtime ctest binaries (`unit_tests`, `integration_tests`, `yaml_tests`, `excel_tests`, `feature_matrix_tests`) + 1 compile-time binary (`static_tests`), built from 12 `.cpp` sources; `feature_matrix_tests` reads `docs/FEATURE_MATRIX.yaml` and verifies every C++ `implemented` entry resolves to a header + whole-word symbol under `cpp/include/`
+- Go tests: 225 passing in `go/aletheia` across 16 test files (mock backend, `-race` clean); the optional `go/excel` package is a separate Go module and is not counted in the total. Includes 2 parity tests (`feature_matrix_test.go`) that validate the matrix schema + every Go `implemented` entry via `go/ast` source parsing (handles `Type.Method` receivers and `excel:<ident>` sub-package references)
+- Total: 1207 tests
 
 **Performance** (canonical source — other docs may round or summarize these numbers):
 
