@@ -72,11 +72,11 @@ Adds DBC fields that the Agda core does not currently carry. Heavier than B.1 be
 - B.1.x.d ✅ Validator updates — attribute-name uniqueness + comment target existence (Commit 1); node reference integrity via CHECK 21 `UnknownSignalReceiver` warning using the `liftPerSignal` combinator (Commit 2).
 - B.1.x.e ✅ Binding structs widened + `dbc_to_json` population mirror B.1. Python `DBCNode` / `DBCComment` / `DBCAttribute*` TypedDicts; matching Go / C++ structs. `Vector__XXX` cantools placeholder stripped on parse and re-emitted as fallback when per-signal receivers are empty (cantools parity).
 - B.1.x.f ✅ Cross-binding roundtrip tests — fully-loaded DBC with every Tier 2 field → identical `DbcDefinition` across all three bindings (per-binding `test_dbc_metadata_tier2.*` suites).
-- B.1.x.g ✅ `dbc_metadata_tier2` row flipped to `implemented` × 3; `dbc_signal_receivers` row added for Commit 2 and flipped to `implemented` × 3. **New `dbc_message_senders` row** reserved for **Commit 3** (`BO_TX_BU_` transmitters on `DBCMessage.senders`) — labelled `planned` until that commit lands.
+- B.1.x.g ✅ `dbc_metadata_tier2` row flipped to `implemented` × 3; `dbc_signal_receivers` row added for Commit 2 and flipped to `implemented` × 3. `dbc_message_senders` row (`BO_TX_BU_` transmitters on `DBCMessage.senders`) flipped to `implemented` × 3 in Commit 3.
 
-**Commit 3 (pending) — `dbc_message_senders`:** Expose `BO_TX_BU_` transmitter nodes on `DBCMessage.senders`. Thin data-widening (scope mirrors `dbc_signal_receivers`); no Agda proof rewrites beyond the standard roundtrip check.
+**Commit 3 (landed in `fc4242f`) — `dbc_message_senders`:** `DBCMessage.senders : List String` — the `BO_TX_BU_` additional-transmitter list on `BO_` lines. Primary `sender : String` stays separate (Q1 option A). `dbc_to_json` splits cantools' merged `message.senders` at index 0 / 1: (primary + additional). New CHECK 22 `UnknownAdditionalSender` warning via `liftPerMessage`, reusing the `UnknownMessageSender` issue code with an "additional sender" disambiguation in the message text (Q2 yes). Completeness proof extended. 27 files, +438/−76.
 
-**Status:** ✅ Tier 2 + signal receivers complete; Commit 3 (`dbc_message_senders`) pending. **Matrix rows:** `dbc_metadata_tier2`, `dbc_signal_receivers` (both implemented × 3); `dbc_message_senders` (planned).
+**Status:** ✅ Complete. **Matrix rows:** `dbc_metadata_tier2`, `dbc_signal_receivers`, `dbc_message_senders` (all implemented × 3).
 
 #### B.2 — Mux Query Helpers (R8, from `project_go_features_to_explore.md`)
 
