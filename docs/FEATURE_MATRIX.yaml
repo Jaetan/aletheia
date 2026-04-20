@@ -166,14 +166,21 @@ features:
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers
-    description: Query a loaded DBC for mux structure — is_multiplexed, multiplexor_names, mux_values, signals_for_mux_value, etc.
+    description: Query a loaded DBC for mux structure — is_multiplexed, always_present_signals, multiplexed_signals, multiplexor_names, mux_values, signals_for_mux_value.
     related: R8, B.2
     bindings:
       python: { status: implemented, entry: aletheia.is_multiplexed }
       cpp:    { status: implemented, entry: "aletheia/dbc.hpp#is_multiplexed" }
-      go:
-        status: planned
-        notes: "Agda core handles mux; Go accessors not yet exposed (B.2)."
+      go:     { status: implemented, entry: DbcMessage.IsMultiplexed }
+
+  - id: dbc_lookup
+    name: DBC entity lookup helpers
+    description: Look up DBC entities by key — message_by_id, message_by_name (on DbcDefinition), signal_by_name (on DbcMessage).
+    related: R8, B.2
+    bindings:
+      python: { status: implemented, entry: aletheia.message_by_id }
+      cpp:    { status: implemented, entry: "aletheia/dbc.hpp#message_by_id" }
+      go:     { status: implemented, entry: DbcDefinition.MessageByID }
 
   # =====================================================================
   # Signal extraction and frame manipulation

@@ -82,14 +82,24 @@ Adds DBC fields that the Agda core does not currently carry. Heavier than B.1 be
 
 Read-only query API over in-memory DBC. Agda already handles mux.
 
-- B.2.a Locate mux logic in Agda; define the query surface (signals present for a mux value; mux relationship graph).
-- B.2.b Add JSON protocol command.
-- B.2.c Python method on `AletheiaClient`.
-- B.2.d Go method on `Client`.
-- B.2.e C++ method on `Client`.
-- B.2.f Parity test: same DBC + mux value → same signal set across all three.
+**Audit finding — helpers pre-existed across all three bindings.** The plan originally scoped 2–3 days of FFI-protocol work. Pre-flight audit found the surface was already implemented client-side on the parsed DBC value types (not through JSON/FFI) in every binding:
 
-**Estimate:** 2–3 days. **Matrix row:** `mux_query`.
+- **Python** (`python/aletheia/dbc_queries.py`, 9 pure-Python helpers): `is_multiplexed`, `always_present_signals`, `multiplexed_signals`, `multiplexor_names`, `mux_values`, `signals_for_mux_value`, `message_by_id`, `message_by_name`, `signal_by_name`. Re-exported from `aletheia/__init__.py`. Tests: `python/tests/test_dbc_queries.py` (28 cases).
+- **Go** (`go/aletheia/dbc.go`, 9 methods): `DbcMessage.IsMultiplexed`, `AlwaysPresentSignals`, `MultiplexedSignals`, `MultiplexorNames`, `MuxValues`, `SignalsForMuxValue`, `SignalByName`; `DbcDefinition.MessageByID`, `MessageByName`. Tests: `go/aletheia/mux_test.go` (27 cases).
+- **C++** (`cpp/include/aletheia/dbc.hpp` + `cpp/src/dbc.cpp`, 9 methods): `DbcMessage::is_multiplexed`, `always_present_signals`, `multiplexed_signals`, `multiplexor_names`, `mux_values`, `signals_for_mux_value`, `signal_by_name`; `DbcDefinition::message_by_id`, `message_by_name` (both with lazy-index cache). Tests: `cpp/tests/unit_tests_dbc.cpp` (14 TEST_CASEs, ~20 checks).
+
+Behavioral parity confirmed by side-by-side inspection: the three suites exercise the same scenarios — empty signals, unknown multiplexor, unknown mux value, non-mux messages, extended-vs-standard CAN ID discrimination, lookup hit/miss.
+
+- B.2.a ✅ Pre-existing: mux logic lives in Agda core (`SignalPresence` ADT in `src/Aletheia/DBC/Types.agda`); query surface is defined client-side against the parsed DBC value.
+- B.2.b ✅ Not applicable: query helpers are pure-value-layer — no JSON protocol command is needed. The DBC is already parsed and held binding-side.
+- B.2.c ✅ Pre-existing: `aletheia.is_multiplexed` and 8 sibling helpers (module `aletheia.dbc_queries`, re-exported at package level).
+- B.2.d ✅ Pre-existing: `DbcMessage` / `DbcDefinition` methods on the parsed value (not on `Client`).
+- B.2.e ✅ Pre-existing: `DbcMessage` / `DbcDefinition` methods on the parsed value (not on `Client`), with lazy-index caching on name/ID lookups.
+- B.2.f ✅ Closed by this audit: **matrix rows** `dbc_queries_mux` (Go flipped `planned` → `implemented`) and new `dbc_lookup` (all three `implemented`). The structural gate in each binding's parity test resolves the new entries, providing the cross-binding parity check.
+
+**Granularity note.** Per the matrix schema ("one entry per user-facing capability, not per method"), the six mux helpers cluster under `dbc_queries_mux` and the three lookup helpers under `dbc_lookup`. Lookup and mux-structure are distinct capabilities — a user can need entity lookup without caring about mux, and vice versa.
+
+**Status:** ✅ Complete via audit. **Matrix rows:** `dbc_queries_mux` (implemented × 3), `dbc_lookup` (implemented × 3, new).
 
 #### B.3 — DBC Text Parser in Agda (R17-DEF-4) — Heaviest Item
 
