@@ -30,6 +30,8 @@ open import Aletheia.DBC.Validator using
   ; findMessageInList
   ; checkCommentTargetExists; checkAllUnknownCommentTargets
   ; checkUnknownSender; checkAllUnknownMessageSenders
+  ; checkUnknownReceiver; checkReceiversForSignal
+  ; checkAllUnknownSignalReceivers
   )
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
@@ -662,3 +664,37 @@ checkAllUnknownMessageSenders-allW msgs nodes@(_ ∷ _) =
     go : ∀ ms → All (λ m → All W (checkUnknownSender nodes m)) ms
     go [] = []
     go (m ∷ ms) = checkUnknownSender-allW nodes m ∷ go ms
+
+-- ============================================================================
+-- CHECK 21: UNKNOWN SIGNAL RECEIVER — Severity
+-- ============================================================================
+
+checkUnknownReceiver-allW : ∀ nodes msgName sigName r →
+  All W (checkUnknownReceiver nodes msgName sigName r)
+checkUnknownReceiver-allW nodes msgName sigName r
+  with any? (λ n → Node.name n ≟ₛ r) nodes
+... | yes _ = []
+... | no  _ = refl ∷ []
+
+checkReceiversForSignal-allW : ∀ nodes msgName sig →
+  All W (checkReceiversForSignal nodes msgName sig)
+checkReceiversForSignal-allW nodes msgName sig =
+  All-concatMap (go (DBCSignal.receivers sig))
+  where
+    go : ∀ rs → All (λ r → All W (checkUnknownReceiver nodes msgName (DBCSignal.name sig) r)) rs
+    go [] = []
+    go (r ∷ rs) = checkUnknownReceiver-allW nodes msgName (DBCSignal.name sig) r ∷ go rs
+
+checkAllUnknownSignalReceivers-allW : ∀ msgs nodes →
+  All W (checkAllUnknownSignalReceivers msgs nodes)
+checkAllUnknownSignalReceivers-allW _    []              = []
+checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
+  All-concatMap (goMsgs msgs)
+  where
+    goSigs : ∀ msgName sigs → All (λ s → All W (checkReceiversForSignal nodes msgName s)) sigs
+    goSigs msgName [] = []
+    goSigs msgName (s ∷ ss) = checkReceiversForSignal-allW nodes msgName s ∷ goSigs msgName ss
+
+    goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal nodes (DBCMessage.name m)) (DBCMessage.signals m))) ms
+    goMsgs [] = []
+    goMsgs (m ∷ ms) = All-concatMap (goSigs (DBCMessage.name m) (DBCMessage.signals m)) ∷ goMsgs ms

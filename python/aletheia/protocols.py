@@ -139,6 +139,8 @@ class DBCSignalAlways(TypedDict):
 
     Numeric fields (factor/offset/minimum/maximum) use ``Fraction`` to
     preserve the Agda core's exact rational representation end-to-end.
+    ``receivers`` is the trailing node list from the ``SG_`` line
+    (empty list when only the ``Vector__XXX`` placeholder is present).
     """
     name: str
     startBit: int
@@ -151,6 +153,7 @@ class DBCSignalAlways(TypedDict):
     maximum: Fraction
     unit: str
     presence: SignalPresence
+    receivers: NotRequired[list[str]]
 
 
 class DBCSignalMultiplexed(TypedDict):
@@ -158,6 +161,8 @@ class DBCSignalMultiplexed(TypedDict):
 
     Numeric fields (factor/offset/minimum/maximum) use ``Fraction`` to
     preserve the Agda core's exact rational representation end-to-end.
+    ``receivers`` is the trailing node list from the ``SG_`` line
+    (empty list when only the ``Vector__XXX`` placeholder is present).
     """
     name: str
     startBit: int
@@ -171,6 +176,7 @@ class DBCSignalMultiplexed(TypedDict):
     unit: str
     multiplexor: str
     multiplex_values: list[int]
+    receivers: NotRequired[list[str]]
 
 
 # Union type for all signal types

@@ -76,6 +76,15 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
     # converted to Fraction to match DBCSignal's typed contract — the Agda
     # core works in ℚ and to_signal_fraction preserves decimal intent
     # (0.1 → 1/10) rather than the IEEE-754 binary approximation.
+    #
+    # ``receivers``: cantools exposes the trailing SG_ node list as
+    # ``signal.receivers``. Its "no explicit receiver" sentinel is the
+    # ``Vector__XXX`` placeholder, which we drop so the JSON wire list only
+    # names real ECUs (matching the Agda validator's UnknownSignalReceiver
+    # check against the BU_ table).
+    receivers_raw = list(signal.receivers) if signal.receivers else []
+    receivers_filtered = [r for r in receivers_raw if r != "Vector__XXX"]
+
     base_fields = {
         "name": signal.name,
         "startBit": signal.start,
@@ -87,6 +96,7 @@ def signal_to_json(signal: cantools.database.can.Signal) -> DBCSignal:
         "minimum": to_signal_fraction(min_value),
         "maximum": to_signal_fraction(max_value),
         "unit": signal.unit if signal.unit else "",
+        "receivers": receivers_filtered,
     }
 
     # Handle multiplexing: check if signal has multiplexer_ids
@@ -796,15 +806,15 @@ def _signal_to_dbc_line(
     elif mux_signal_names and name in mux_signal_names:
         mux_indicator = " M"
 
-    # Vector__XXX is the DBC convention for "no specific receiver node".
-    # Aletheia's signal model does not preserve receiver info from the original
-    # DBC, so all exported signals use this placeholder.
+    # Trailing receiver list. Vector__XXX is the DBC convention for "no
+    # specific receiver", used when the per-signal receivers field is empty.
+    receivers_text = ",".join(signal.get("receivers") or ()) or "Vector__XXX"
     return (
         f" SG_ {name}{mux_indicator} : "
         f"{start_bit}|{length}@{bo}{sign} "
         f"({factor},{offset}) "
         f"[{minimum}|{maximum}] "
-        f'"{unit}" Vector__XXX'
+        f'"{unit}" {receivers_text}'
     )
 
 

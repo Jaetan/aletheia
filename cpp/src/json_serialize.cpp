@@ -68,6 +68,7 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
         {"minimum", rational_to_json(s.minimum.get())},
         {"maximum", rational_to_json(s.maximum.get())},
         {"unit", s.unit.get()},
+        {"receivers", s.receivers},
     };
     presence_to_json(s.presence, sig);
     return sig;

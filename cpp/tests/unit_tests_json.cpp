@@ -929,6 +929,55 @@ TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",
     CHECK(std::get<DbcAttrValueHex>(assign_ns.value).value == 255);
 }
 
+TEST_CASE("DbcSignal.receivers round-trips through serialize + parse",
+          "[json][serialize][parse][dbc][tier2]") {
+    auto dbc = make_test_dbc();
+    REQUIRE(dbc.messages.size() == 1);
+    REQUIRE(dbc.messages[0].signals.size() == 1);
+    dbc.messages[0].signals[0].receivers = {"ECU_A", "ECU_B"};
+
+    auto str = detail::serialize_parse_dbc(dbc);
+    auto j = json::parse(str);
+
+    REQUIRE(j["dbc"]["messages"][0]["signals"][0]["receivers"].is_array());
+    CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"].size() == 2);
+    CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][0] == "ECU_A");
+    CHECK(j["dbc"]["messages"][0]["signals"][0]["receivers"][1] == "ECU_B");
+
+    json envelope = {{"status", "success"}, {"dbc", j["dbc"]}};
+    auto result = detail::parse_dbc_response(envelope.dump());
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    REQUIRE(result->messages[0].signals.size() == 1);
+    const auto& parsed = result->messages[0].signals[0].receivers;
+    REQUIRE(parsed.size() == 2);
+    CHECK(parsed[0] == "ECU_A");
+    CHECK(parsed[1] == "ECU_B");
+}
+
+TEST_CASE("parse_dbc_response accepts missing receivers field", "[json][parse][dbc][tier2]") {
+    // Older snapshots / hand-written JSON may omit the receivers key entirely;
+    // the parser defaults to an empty vector rather than rejecting.
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": [{
+            "id": 256, "name": "M", "dlc": 8, "sender": "ECU", "extended": false,
+            "signals": [{
+                "name": "S", "startBit": 0, "length": 8, "byteOrder": "little_endian",
+                "signed": false, "factor": {"numerator": 1, "denominator": 1},
+                "offset": {"numerator": 0, "denominator": 1},
+                "minimum": {"numerator": 0, "denominator": 1},
+                "maximum": {"numerator": 255, "denominator": 1},
+                "unit": ""
+            }]
+        }]}
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->messages.size() == 1);
+    REQUIRE(result->messages[0].signals.size() == 1);
+    CHECK(result->messages[0].signals[0].receivers.empty());
+}
+
 TEST_CASE("parse_dbc_response accepts missing Tier 2 metadata keys", "[json][parse][dbc][tier2]") {
     auto result = detail::parse_dbc_response(R"({
         "status": "success",

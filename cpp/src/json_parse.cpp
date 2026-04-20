@@ -257,6 +257,14 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
                                .mux_values = std::move(vals)};
     }
 
+    std::vector<std::string> receivers;
+    if (j.contains("receivers")) {
+        const auto& arr = j.at("receivers");
+        receivers.reserve(arr.size());
+        for (const auto& elem : arr)
+            receivers.emplace_back(elem.get<std::string>());
+    }
+
     return DbcSignal{
         .name = SignalName{j.at("name").get<std::string>()},
         .start_bit = BitPosition{j.at("startBit").get<std::uint16_t>()},
@@ -269,6 +277,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         .maximum = RationalBound{parse_rational(j.at("maximum"))},
         .unit = Unit{j.value("unit", "")},
         .presence = std::move(presence),
+        .receivers = std::move(receivers),
     };
 }
 

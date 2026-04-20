@@ -373,3 +373,68 @@ def test_comment_text_with_special_chars() -> None:
         formatted = client.format_dbc()
 
     assert formatted["comments"] == spacey["comments"]
+
+
+# ---------------------------------------------------------------------------
+# Signal receivers (SG_ trailing node list)
+# ---------------------------------------------------------------------------
+
+
+def _msg_with_signal_receivers(receivers: list[str]) -> dict:
+    return message(
+        _MSG_ID,
+        _MSG_NAME,
+        [signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm",
+                receivers=receivers)],
+    )
+
+
+class TestDBCSignalReceivers:
+    """The SG_ trailing receiver list round-trips through the Agda core."""
+
+    def test_named_receivers_preserved(self) -> None:
+        """A signal with explicit receiver nodes round-trips untouched."""
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_receivers(["ECU_A", "ECU_B"])],
+            "nodes": [{"name": "ECU_A"}, {"name": "ECU_B"}],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        sig = formatted["messages"][0]["signals"][0]
+        assert sig["receivers"] == ["ECU_A", "ECU_B"]
+
+    def test_empty_receivers_default(self) -> None:
+        """Absent receivers default to an empty list — no receiver node
+        referenced, the field still round-trips as present."""
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_receivers([])],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        sig = formatted["messages"][0]["signals"][0]
+        assert sig["receivers"] == []
+
+    def test_unknown_receiver_reported_as_warning(self) -> None:
+        """A receiver that isn't a declared BU_ node surfaces a warning.
+
+        The Agda validator's `UnknownSignalReceiver` check compares each
+        receiver name against the declared node list.
+        """
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_receivers(["GhostECU"])],
+            "nodes": [{"name": "ECU_A"}],
+        }
+        with AletheiaClient() as client:
+            validation = client.validate_dbc(original)
+
+        codes = {issue["code"] for issue in validation["issues"]}
+        assert "unknown_signal_receiver" in codes

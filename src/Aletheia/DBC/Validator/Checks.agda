@@ -20,6 +20,7 @@ open import Aletheia.DBC.Types using
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   ; DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender
+  ; UnknownSignalReceiver
   ; Node; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; EnvironmentVar
@@ -506,3 +507,28 @@ checkUnknownSender nodes msg =
 checkAllUnknownMessageSenders : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownMessageSenders _    []             = []
 checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSender nodes) msgs
+
+-- ============================================================================
+-- CHECK 21: UNKNOWN SIGNAL RECEIVER
+-- ============================================================================
+-- Each receiver listed on a signal should correspond to a declared node.
+-- When the DBC has no BU_ section (nodes = []) the check is skipped, same
+-- as checkAllUnknownMessageSenders above.
+
+checkUnknownReceiver : List Node → String → String → String → List ValidationIssue
+checkUnknownReceiver nodes msgName sigName receiver =
+  requireDec (any? (λ n → Node.name n ≟ₛ receiver) nodes)
+    (mkIssue IsWarning UnknownSignalReceiver
+      ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
+       ++ₛ "': receiver '" ++ₛ receiver
+       ++ₛ "' not declared in BU_ (nodes) list"))
+
+checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
+checkReceiversForSignal nodes msgName sig =
+  concatMap (checkUnknownReceiver nodes msgName (DBCSignal.name sig))
+            (DBCSignal.receivers sig)
+
+checkAllUnknownSignalReceivers : List DBCMessage → List Node → List ValidationIssue
+checkAllUnknownSignalReceivers _    []             = []
+checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
+  liftPerSignal (checkReceiversForSignal nodes) msgs

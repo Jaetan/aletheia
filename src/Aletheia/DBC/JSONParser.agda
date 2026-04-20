@@ -115,6 +115,20 @@ parseSigned obj with lookupBool "signed" obj
 addSignalContext : String → ParseError ⊎ DBCSignal → ParseError ⊎ DBCSignal
 addSignalContext ctx = mapₑ (InContext ctx)
 
+-- Parse a list of JSON strings. Hoisted above parseSignalFields so the signal
+-- parser can accept the trailing receiver list (SG_ ... : ... : Node1,Node2).
+parseStringList : List JSON → ParseError ⊎ List String
+parseStringList [] = inj₂ []
+parseStringList (JString s ∷ rest) =
+  parseStringList rest >>=ₑ λ ss → inj₂ (s ∷ ss)
+parseStringList (_ ∷ _) = inj₁ (MissingField "string in array")
+
+-- Parse optional array field: returns [] if the field is missing.
+parseOptionalArray : {A : Set} → (List JSON → ParseError ⊎ List A)
+  → Maybe (List JSON) → ParseError ⊎ List A
+parseOptionalArray _      nothing   = inj₂ []
+parseOptionalArray parser (just xs) = parser xs
+
 -- Physical-validity gate (BigEndian signals only).
 -- LE signals pass through unchanged — PhysicallyValid is trivially `pv-LE refl`
 -- because the unconvert→convert roundtrip is the identity for LE.
@@ -153,6 +167,7 @@ parseSignalFields frameBytes ctx name obj =
     require (MissingField "maximum") (lookupRational "maximum" obj) >>=ₑ λ maximum →
     require (MissingField "unit") (lookupString "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
+    parseOptionalArray parseStringList (lookupArray "receivers" obj) >>=ₑ λ receivers →
     let sb  = startBit % max-physical-bits
         bl  = bitLength % (1 + max-physical-bits)
         csb = convertStartBit frameBytes byteOrder sb bl
@@ -170,6 +185,7 @@ parseSignalFields frameBytes ctx name obj =
       ; byteOrder = byteOrder
       ; unit = unit
       ; presence = presence
+      ; receivers = receivers
       }))
 
 -- Parse a single signal from JSON object.
@@ -258,13 +274,6 @@ parseMessageList (_ ∷ _) idx =
 -- ============================================================================
 -- METADATA PARSERS (signal groups, environment vars, value tables)
 -- ============================================================================
-
--- Parse a list of JSON strings
-parseStringList : List JSON → ParseError ⊎ List String
-parseStringList [] = inj₂ []
-parseStringList (JString s ∷ rest) =
-  parseStringList rest >>=ₑ λ ss → inj₂ (s ∷ ss)
-parseStringList (_ ∷ _) = inj₁ (MissingField "string in array")
 
 -- Parse VarType from natural (0=Int, 1=Float, 2=String)
 parseVarType : ℕ → ParseError ⊎ VarType
@@ -536,12 +545,6 @@ parseAttribute obj =
 
 parseAttributeList : List JSON → ParseError ⊎ List DBCAttribute
 parseAttributeList = parseObjectList "attribute" parseAttribute 0
-
--- Parse optional array field: returns [] if the field is missing
-parseOptionalArray : {A : Set} → (List JSON → ParseError ⊎ List A)
-  → Maybe (List JSON) → ParseError ⊎ List A
-parseOptionalArray _      nothing   = inj₂ []
-parseOptionalArray parser (just xs) = parser xs
 
 -- Parse top-level DBC structure from JSON object (with typed errors)
 parseDBCWithErrors : JSON → ParseError ⊎ DBC

@@ -51,3 +51,4 @@ validateDBCFull dbc =
      ++ₗ checkDuplicateAttributeNames attrs
      ++ₗ checkAllUnknownCommentTargets msgs nodes envVars cmts
      ++ₗ checkAllUnknownMessageSenders msgs nodes
+     ++ₗ checkAllUnknownSignalReceivers msgs nodes

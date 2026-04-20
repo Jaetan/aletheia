@@ -28,6 +28,7 @@ def signal(name: str, **overrides: Any) -> dict:
         "maximum": overrides.get("maximum", 65535.0),
         "unit": overrides.get("unit", ""),
         "presence": overrides.get("presence", "always"),
+        "receivers": overrides.get("receivers", []),
     }
 
 

@@ -80,6 +80,7 @@ struct DbcSignal {
     RationalBound maximum;
     Unit unit;
     SignalPresence presence;
+    std::vector<std::string> receivers;
 };
 
 // ---------------------------------------------------------------------------

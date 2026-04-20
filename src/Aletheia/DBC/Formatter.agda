@@ -79,6 +79,7 @@ formatDBCSignal frameBytes sig =
     ("minimum"   , JNumber (SignalDef.minimum def)) ∷
     ("maximum"   , JNumber (SignalDef.maximum def)) ∷
     ("unit"      , JString (DBCSignal.unit sig)) ∷
+    ("receivers" , JArray (map JString (DBCSignal.receivers sig))) ∷
     formatPresence (DBCSignal.presence sig))
 
 formatDBCMessage : DBCMessage → JSON

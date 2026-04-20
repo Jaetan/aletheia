@@ -129,19 +129,37 @@ features:
         notes: "Tier 2 types (DbcNode, DbcComment, DbcAttribute with sealed-interface variants) live alongside DbcDefinition; serializer emits all three arrays, parser accepts them."
 
   - id: dbc_signal_receivers
-    name: DBC signal receivers (BO_TX_BU_ + per-signal receiver nodes)
-    description: Expose per-message/signal receiver node lists — the ``receivers`` field on DBCSignal (and message-level sender/receiver metadata) that extends the Agda core beyond Tier 2's top-level arrays.
+    name: DBC signal receivers (per-signal receiver nodes from SG_)
+    description: Expose the ``receivers`` trailing-node list on DBCSignal (the tail of the ``SG_`` line). The ``Vector__XXX`` DBC placeholder is stripped on parse and re-emitted when the list is empty. New ``unknown_signal_receiver`` warning fires when a listed receiver is not declared in ``BU_``.
     related: R17-DEF-2, B.1.x (commit 2)
     bindings:
       python:
+        status: implemented
+        entry: aletheia.protocols.DBCSignalAlways
+        notes: "DBCSignalAlways/Multiplexed gain a NotRequired receivers: list[str]; dbc_to_json populates it from cantools and strips Vector__XXX; _signal_to_dbc_line re-emits Vector__XXX when empty."
+      cpp:
+        status: implemented
+        entry: "aletheia/dbc.hpp#DbcSignal"
+        notes: "DbcSignal gains std::vector<std::string> receivers; serializer emits it on every signal; parser reads an absent key as empty."
+      go:
+        status: implemented
+        entry: DbcSignal
+        notes: "DbcSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
+
+  - id: dbc_message_senders
+    name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)
+    description: Expose the ``BO_TX_BU_`` message-level transmitter list — DBC's extension to the single per-message ``sender`` covering multi-node transmitters (gateways, redundant ECUs).
+    related: R17-DEF-2, B.1.x (commit 3, planned)
+    bindings:
+      python:
         status: planned
-        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before the TypedDict can surface them."
+        notes: "Requires extending Aletheia.DBC.Types.DBCMessage with a transmitters list and adding a BO_TX_BU_ emitter path in Formatter.agda."
       cpp:
         status: planned
-        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before DbcSignal can surface them."
+        notes: "Awaits Agda-core extension; surfaces as std::vector<std::string> on DbcMessage."
       go:
         status: planned
-        notes: "Blocked on B.1.x commit 2 — requires extending Aletheia.DBC.Types.DBCSignal/DBCMessage with receivers before DbcSignal can surface them."
+        notes: "Awaits Agda-core extension; surfaces as []string on DbcMessage."
 
   - id: dbc_queries_mux
     name: DBC multiplexing query helpers

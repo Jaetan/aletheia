@@ -48,6 +48,7 @@ record DBCSignal : Set where
     byteOrder : ByteOrder
     unit : String
     presence : SignalPresence  -- Conditional presence for multiplexing
+    receivers : List String    -- Node names from SG_ trailing receiver list
 
 record DBCMessage : Set where
   field
@@ -240,6 +241,7 @@ data IssueCode : Set where
   DuplicateAttributeName      : IssueCode
   UnknownCommentTarget        : IssueCode
   UnknownMessageSender        : IssueCode
+  UnknownSignalReceiver       : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

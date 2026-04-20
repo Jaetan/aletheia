@@ -326,6 +326,137 @@ func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
 	}
 }
 
+func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
+	// Build a single-signal DBC with explicit Receivers, serialize it
+	// through parseDBC, rebuild the response envelope, parse it back
+	// through formatDBC, and confirm Receivers survived unchanged.
+	id, err := aletheia.NewStandardID(256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dlc, err := aletheia.BytesToDLC(8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := aletheia.DbcSignal{
+		Name:      "Speed",
+		StartBit:  0,
+		BitLength: 16,
+		ByteOrder: aletheia.LittleEndian,
+		Factor:    aletheia.Rational{Numerator: 1, Denominator: 1},
+		Offset:    aletheia.Rational{Numerator: 0, Denominator: 1},
+		Minimum:   aletheia.Rational{Numerator: 0, Denominator: 1},
+		Maximum:   aletheia.Rational{Numerator: 255, Denominator: 1},
+		Unit:      "km/h",
+		Presence:  aletheia.AlwaysPresent{},
+		Receivers: []string{"ECU_A", "ECU_B"},
+	}
+	msg := aletheia.NewDbcMessage(id, "VehicleSpeed", dlc, "ECU", []aletheia.DbcSignal{sig})
+	fixture := aletheia.DbcDefinition{
+		Version:  "1.0",
+		Messages: []aletheia.DbcMessage{msg},
+	}
+
+	sendMock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
+	sendClient, err := aletheia.NewClient(sendMock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sendClient.Close()
+	if err := sendClient.ParseDBC(fixture); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+
+	envBytes := sendMock.Inputs()[0]
+	var env map[string]any
+	if err := json.Unmarshal([]byte(envBytes), &env); err != nil {
+		t.Fatalf("envelope unmarshal: %v\n%s", err, envBytes)
+	}
+	// Confirm wire shape: receivers is present on the outgoing signal.
+	dbcObj, ok := env["dbc"].(map[string]any)
+	if !ok {
+		t.Fatalf("dbc object missing from envelope")
+	}
+	msgs, _ := dbcObj["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages: want 1, got %d", len(msgs))
+	}
+	sigs, _ := msgs[0].(map[string]any)["signals"].([]any)
+	if len(sigs) != 1 {
+		t.Fatalf("signals: want 1, got %d", len(sigs))
+	}
+	wireRecv, ok := sigs[0].(map[string]any)["receivers"].([]any)
+	if !ok {
+		t.Fatalf("receivers: missing or not an array")
+	}
+	if len(wireRecv) != 2 || wireRecv[0] != "ECU_A" || wireRecv[1] != "ECU_B" {
+		t.Errorf("wire receivers: got %v, want [ECU_A ECU_B]", wireRecv)
+	}
+
+	respEnv := map[string]any{"status": "success", "dbc": dbcObj}
+	respBytes, err := json.Marshal(respEnv)
+	if err != nil {
+		t.Fatalf("response marshal: %v", err)
+	}
+	parseMock := aletheia.NewMockBackend(aletheia.Respond(string(respBytes)))
+	parseClient, err := aletheia.NewClient(parseMock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parseClient.Close()
+
+	decoded, err := parseClient.FormatDBC()
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	if len(decoded.Messages) != 1 || len(decoded.Messages[0].Signals) != 1 {
+		t.Fatalf("decoded shape: want 1 msg / 1 sig, got %d / %d",
+			len(decoded.Messages), len(decoded.Messages[0].Signals))
+	}
+	got := decoded.Messages[0].Signals[0].Receivers
+	if len(got) != 2 || got[0] != "ECU_A" || got[1] != "ECU_B" {
+		t.Errorf("decoded receivers: got %v, want [ECU_A ECU_B]", got)
+	}
+}
+
+func TestDbcSignalReceivers_EmptyWhenAbsent(t *testing.T) {
+	// A parseDBC response that omits "receivers" entirely must parse
+	// cleanly with Receivers == nil (not an error).
+	mock := aletheia.NewMockBackend(aletheia.Respond(`{
+		"status":"success",
+		"dbc":{
+			"version":"1.0",
+			"messages":[{
+				"id":256,"name":"M","dlc":8,"sender":"ECU","extended":false,
+				"signals":[{
+					"name":"S","startBit":0,"length":8,"byteOrder":"little_endian",
+					"signed":false,
+					"factor":{"numerator":1,"denominator":1},
+					"offset":{"numerator":0,"denominator":1},
+					"minimum":{"numerator":0,"denominator":1},
+					"maximum":{"numerator":255,"denominator":1},
+					"unit":""
+				}]
+			}]
+		}
+	}`))
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	dbc, err := c.FormatDBC()
+	if err != nil {
+		t.Fatalf("FormatDBC: %v", err)
+	}
+	if len(dbc.Messages) != 1 || len(dbc.Messages[0].Signals) != 1 {
+		t.Fatalf("unexpected shape: %+v", dbc)
+	}
+	if got := dbc.Messages[0].Signals[0].Receivers; got != nil {
+		t.Errorf("absent receivers: want nil, got %v", got)
+	}
+}
+
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	mock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
 	c, err := aletheia.NewClient(mock)

@@ -26,6 +26,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   DuplicateMessageName; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling;
   DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender;
+  UnknownSignalReceiver;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
@@ -134,6 +135,7 @@ formatResponse (ValidationResponse issues) =
     formatIssueCode DuplicateAttributeName      = "duplicate_attribute_name"
     formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
     formatIssueCode UnknownMessageSender        = "unknown_message_sender"
+    formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
 
     formatValidationIssue : ValidationIssue → JSON
     formatValidationIssue issue =

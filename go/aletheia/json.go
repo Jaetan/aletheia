@@ -105,16 +105,21 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 	for _, msg := range dbc.Messages {
 		sigs := make([]map[string]any, 0, len(msg.Signals))
 		for _, sig := range msg.Signals {
+			receivers := sig.Receivers
+			if receivers == nil {
+				receivers = []string{}
+			}
 			s := map[string]any{
-				"name":     string(sig.Name),
-				"startBit": sig.StartBit,
-				"length":   sig.BitLength,
-				"signed":   sig.IsSigned,
-				"factor":   serializeRational(sig.Factor),
-				"offset":   serializeRational(sig.Offset),
-				"minimum":  serializeRational(sig.Minimum),
-				"maximum":  serializeRational(sig.Maximum),
-				"unit":     string(sig.Unit),
+				"name":      string(sig.Name),
+				"startBit":  sig.StartBit,
+				"length":    sig.BitLength,
+				"signed":    sig.IsSigned,
+				"factor":    serializeRational(sig.Factor),
+				"offset":    serializeRational(sig.Offset),
+				"minimum":   serializeRational(sig.Minimum),
+				"maximum":   serializeRational(sig.Maximum),
+				"unit":      string(sig.Unit),
+				"receivers": receivers,
 			}
 			switch sig.ByteOrder {
 			case BigEndian:
@@ -1787,6 +1792,18 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		}
 	}
 
+	var receivers []string
+	if raw, ok := j["receivers"].([]any); ok {
+		receivers = make([]string, 0, len(raw))
+		for _, r := range raw {
+			rs, rOk := r.(string)
+			if !rOk {
+				return zero, protocolError("receivers entry is not a string")
+			}
+			receivers = append(receivers, rs)
+		}
+	}
+
 	return DbcSignal{
 		Name:      SignalName(name),
 		StartBit:  BitPosition(startBit),
@@ -1799,6 +1816,7 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		Maximum:   maximum,
 		Unit:      Unit(getString(j, "unit")),
 		Presence:  presence,
+		Receivers: receivers,
 	}, nil
 }
 

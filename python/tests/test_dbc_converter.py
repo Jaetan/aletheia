@@ -63,6 +63,7 @@ class TestSignalConversion:
         signal.maximum = 655.35
         signal.unit = "kph"
         signal.multiplexer_ids = None
+        signal.receivers = []
         signal.multiplexer_signal = None
 
         raw_result = signal_to_json(signal)
@@ -95,6 +96,7 @@ class TestSignalConversion:
         signal.maximum = 8000
         signal.unit = "rpm"
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         result = signal_to_json(signal)
 
@@ -114,6 +116,7 @@ class TestSignalConversion:
         signal.maximum = 215
         signal.unit = "°C"
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         result = signal_to_json(signal)
 
@@ -134,6 +137,7 @@ class TestSignalConversion:
         signal.maximum = 255
         signal.unit = None  # No unit
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         result = signal_to_json(signal)
 
@@ -154,6 +158,7 @@ class TestSignalConversion:
         signal.unit = ""
         signal.multiplexer_ids = [5, 6, 7]  # Multiple values
         signal.multiplexer_signal = "Multiplexor"
+        signal.receivers = []
 
         raw_result = signal_to_json(signal)
         # Cast to DBCSignalMultiplexed since signal has multiplexer values
@@ -179,6 +184,7 @@ class TestSignalConversion:
         signal.unit = ""
         signal.multiplexer_ids = []  # Empty list
         signal.multiplexer_signal = "Mux"
+        signal.receivers = []
 
         raw_result = signal_to_json(signal)
         # Empty multiplexer_ids means it's treated as always present
@@ -201,6 +207,7 @@ class TestSignalConversion:
         signal.maximum = 255
         signal.unit = ""
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         result = signal_to_json(signal)
 
@@ -221,10 +228,56 @@ class TestSignalConversion:
         signal.maximum = 65.535
         signal.unit = "V"
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         result = signal_to_json(signal)
 
         assert result["factor"] == Fraction(1, 1000)
+
+    def test_signal_receivers_named_nodes(self) -> None:
+        """Explicit receiver node list is preserved verbatim."""
+        signal = Mock()
+        signal.name = "Throttle"
+        signal.start = 0
+        signal.length = 8
+        signal.byte_order = "little_endian"
+        signal.is_signed = False
+        signal.scale = 1
+        signal.offset = 0
+        signal.minimum = 0
+        signal.maximum = 255
+        signal.unit = ""
+        signal.multiplexer_ids = None
+        signal.receivers = ["ECU_A", "ECU_B"]
+
+        result = signal_to_json(signal)
+
+        assert result["receivers"] == ["ECU_A", "ECU_B"]
+
+    def test_signal_vector_xxx_placeholder_dropped(self) -> None:
+        """Vector__XXX is a 'no explicit receiver' sentinel, dropped on the wire.
+
+        The Agda validator's UnknownSignalReceiver check compares receiver names
+        against the BU_ table; letting the placeholder through would always flag
+        every signal that lacks an explicit receiver node.
+        """
+        signal = Mock()
+        signal.name = "Temperature"
+        signal.start = 0
+        signal.length = 8
+        signal.byte_order = "little_endian"
+        signal.is_signed = False
+        signal.scale = 1
+        signal.offset = 0
+        signal.minimum = 0
+        signal.maximum = 255
+        signal.unit = ""
+        signal.multiplexer_ids = None
+        signal.receivers = ["Vector__XXX"]
+
+        result = signal_to_json(signal)
+
+        assert result["receivers"] == []
 
 
 # ============================================================================
@@ -248,6 +301,7 @@ class TestMessageConversion:
         signal1.maximum = 655.35
         signal1.unit = "kph"
         signal1.multiplexer_ids = None
+        signal1.receivers = []
 
         message = Mock()
         message.frame_id = 0x100
@@ -312,6 +366,7 @@ class TestMessageConversion:
             sig.maximum = 255
             sig.unit = ""
             sig.multiplexer_ids = None
+            sig.receivers = []
             signals.append(sig)
 
         message = Mock()
@@ -385,6 +440,7 @@ class TestDBCConversion:
         signal.maximum = 655.35
         signal.unit = "kph"
         signal.multiplexer_ids = None
+        signal.receivers = []
 
         message = Mock()
         message.frame_id = 0x100
@@ -609,6 +665,7 @@ class TestIntegrationStyle:
         speed_signal.maximum = 655.35
         speed_signal.unit = "kph"
         speed_signal.multiplexer_ids = None
+        speed_signal.receivers = []
 
         # Create message
         message = Mock()

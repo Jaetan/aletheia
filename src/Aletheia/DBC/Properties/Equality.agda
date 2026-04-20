@@ -62,7 +62,7 @@ s₁ ≟-SignalDef s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.maximum eq))
 ... | yes refl = yes refl
 
--- Decidable equality for DBCSignal (5 fields)
+-- Decidable equality for DBCSignal (6 fields)
 _≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
 s₁ ≟-DBCSignal s₂
   with DBCSignal.name s₁ ≟ₛ DBCSignal.name s₂
@@ -79,4 +79,7 @@ s₁ ≟-DBCSignal s₂
 ... | yes refl
   with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.presence eq))
+... | yes refl
+  with ≡-dec _≟ₛ_ (DBCSignal.receivers s₁) (DBCSignal.receivers s₂)
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.receivers eq))
 ... | yes refl = yes refl

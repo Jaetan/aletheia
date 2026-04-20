@@ -31,6 +31,10 @@ type DbcSignal struct {
 	Maximum   Rational
 	Unit      Unit
 	Presence  SignalPresence
+	// Receivers is the trailing node list from the SG_ line. The
+	// Vector__XXX DBC placeholder is stripped on parse; an empty
+	// slice round-trips back to Vector__XXX on re-emission.
+	Receivers []string
 }
 
 // DbcMessage defines a CAN message with its signals.

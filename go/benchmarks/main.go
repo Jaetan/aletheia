@@ -752,11 +752,11 @@ func runScaling(backend *aletheia.FFIBackend, out *os.File, numFrames, numRuns i
 // ---------------------------------------------------------------------------
 
 type jsonOutput struct {
-	Benchmark string      `json:"benchmark"`
-	Language  string      `json:"language"`
-	Timestamp string      `json:"timestamp"`
-	System    systemInfo  `json:"system"`
-	Results   any `json:"results"`
+	Benchmark string     `json:"benchmark"`
+	Language  string     `json:"language"`
+	Timestamp string     `json:"timestamp"`
+	System    systemInfo `json:"system"`
+	Results   any        `json:"results"`
 }
 
 func emitJSON(benchmark string, results any) {
