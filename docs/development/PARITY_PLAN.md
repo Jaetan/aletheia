@@ -48,18 +48,33 @@ Sets the rules of the game. No Part 1 or Part 2 work lands without a matching ma
 
 ### Phase B — Agda-Core Migrations (Part 1)
 
-#### B.1 — DBC Metadata Exposure (R17-DEF-2)
+#### B.1 — DBC Metadata Exposure (Tier 1, R17-DEF-2)
 
-Low risk; data is already preserved in the Agda core, just dropped at the FFI boundary.
+Low risk; data is already preserved in the Agda core, just dropped at the FFI boundary. Scope of B.1 is strictly **Tier 1** — the three arrays that exist on `Aletheia.DBC.Types.DBC` and round-trip through `Formatter`/`JSONParser` today (`signalGroups`, `environmentVars`, `valueTables`). Fields that do not exist in the Agda core (nodes, comments, attributes, signal receivers) are carved out as **B.1.x** below.
 
-- B.1.a Audit JSON protocol schema for `DbcDefinition`; identify dropped fields (nodes, attribute defaults, value tables, signal/message comments).
-- B.1.b Extend JSON schema to carry the missing fields.
-- B.1.c Update Python `DBCDefinition` TypedDict and `normalize_dbc` in `client/_helpers.py`.
-- B.1.d Update Go `DbcDefinition` struct.
-- B.1.e Update C++ `DbcDefinition` struct.
-- B.1.f Roundtrip test: fully-loaded DBC → JSON → reparse → byte-identical.
+- B.1.a Audit — **complete 2026-04-20.** Tier 1 fields: Agda core ✓, formatter ✓, optional-array parser ✓; dropped in `dbc_converter.dbc_to_json` and in `DbcDefinition` for all three bindings. Tier 2 fields: not in core.
+- B.1.b Python `DBCDefinition` TypedDict — add `signalGroups`, `environmentVars`, `valueTables` as `NotRequired` entries plus supporting row TypedDicts (`DBCSignalGroup`, `DBCEnvironmentVar`, `DBCValueTable`).
+- B.1.c `dbc_to_json` — populate the three arrays from cantools (`db.signal_groups`, `db.environment_variables`, `db.dbc.value_tables`). Preserve empty-list semantics when cantools has nothing.
+- B.1.d Go `DbcDefinition` struct — add matching fields + row types.
+- B.1.e C++ `DbcDefinition` struct — add matching fields + row types.
+- B.1.f Roundtrip test: fully-loaded DBC → JSON → reparse → byte-identical (lives per-binding alongside existing DBC suites).
+- B.1.g Update `docs/FEATURE_MATRIX.yaml`: add row `dbc_metadata_tier1` covering the three arrays. Mark all three bindings `implemented` once B.1.b–f land.
 
-**Estimate:** 2–3 days. **Matrix row:** `dbc_metadata_full`.
+**Estimate:** 2–3 days. **Matrix row:** `dbc_metadata_tier1`.
+
+#### B.1.x — DBC Metadata Tier 2 (nodes, comments, attributes, receivers)
+
+Adds DBC fields that the Agda core does not currently carry. Heavier than B.1 because every step touches the verified kernel.
+
+- B.1.x.a Extend `Aletheia.DBC.Types.DBC` with `nodes : List Node`, `comments : List DBCComment` (node/message/signal-scoped), `attributes : List DBCAttribute` (including `BA_DEF_`, `BA_DEF_DEF_`, `BA_`, and the rel variants). Extend `DBCSignal`/`DBCMessage` with `receivers : List String`.
+- B.1.x.b Update `JSONParser.agda` (optional-array parsing for the new fields, strict for `receivers` on existing rows).
+- B.1.x.c Update `Formatter.agda` and its roundtrip properties (`Formatter/Properties.agda`, `MessageRoundtrip.agda`, `SignalRoundtrip.agda`). Every new field needs its roundtrip proof closed before binding work starts.
+- B.1.x.d Validator updates — attribute-name uniqueness, comment target existence, node reference integrity in message sender/receivers.
+- B.1.x.e Widen the three binding structs + `dbc_to_json` the same way B.1 did for Tier 1.
+- B.1.x.f Cross-binding roundtrip: fully-loaded DBC with every Tier 2 field → identical `DbcDefinition` across all three.
+- B.1.x.g Update `docs/FEATURE_MATRIX.yaml`: either add row `dbc_metadata_tier2` or promote `dbc_metadata_tier1` → `dbc_metadata_full` when both tiers land.
+
+**Estimate:** 1 week (Agda + proofs dominate; binding work mirrors B.1 once the core settles). **Matrix row:** `dbc_metadata_tier2`. Scheduled immediately after B.1, before B.2.
 
 #### B.2 — Mux Query Helpers (R8, from `project_go_features_to_explore.md`)
 
@@ -157,7 +172,8 @@ Python shipped in R17 C6 via `pytest --markdown-docs`. C++/Go need equivalents.
 ```
 Week 1:     Phase A (matrix + gates)         ──┐
                                                 │
-Week 1–2:   Phase B.1 + B.2                  ──┤ parallel
+Week 1–2:   Phase B.1 → B.1.x (sequential)   ──┤
+Week 2:     Phase B.2                        ──┤ parallel with B.1.x tail
                                                 │
 Week 2–3:   Phase D (doc harness C++/Go)     ──┤
                                                 │
