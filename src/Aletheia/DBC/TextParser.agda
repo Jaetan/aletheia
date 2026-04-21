@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- DBC (Database CAN) text format parser — skeleton (Phase B.3.b).
+-- DBC (Database CAN) text format parser — entry point (Phase B.3.c.k).
 --
 -- Purpose: Parse the canonical ASCII `.dbc` text format directly in Agda,
 -- producing the `DBC` structural shape already defined in `Aletheia.DBC.Types`.
@@ -10,33 +10,71 @@
 -- semantic-equivalence caveat — byte-identity of the text itself is NOT a
 -- target).
 --
--- Role: Phase B.3.c wires concrete combinator-based parsers into this
--- module; B.3.d proves the structural roundtrip; B.3.e exposes a JSON
--- protocol command; B.3.f/g retire the cantools dependency.
+-- Role: Phase B.3.c.k wires the concrete combinator-based parsers from
+-- `TextParser.TopLevel` into a single `parseText : String → ⊎`.  B.3.d
+-- proves the structural roundtrip; B.3.e exposes a JSON protocol command;
+-- B.3.f/g retire the cantools dependency.
 --
--- Skeleton state (B.3.b):
---   * Grammar spec captured below as BNF, keyed by the PARITY_PLAN.md §B.3
---     construct inventory so reviewers can diff grammar-vs-inventory in
---     review rounds.
---   * Local error ADT carries exactly one constructor; per-construct
---     refinements land in B.3.c as each grammar category is implemented.
---   * `parseText` is wired as an unimplemented stub; `Aletheia.Main` is
---     intentionally NOT updated — the skeleton stays out of the runtime
---     path until B.3.e.
+-- Design notes:
+--   * `Aletheia.Parser.Combinators` provides the structural-recursion
+--     harness used here (Parser combinators over `List Char`).  String
+--     input is funnelled through `Data.String.toList` exactly once.
+--   * Error taxonomy stays local to this module instead of extending
+--     `Aletheia.Error.ParseError` — the JSON parser's error vocabulary
+--     does not overlap with DBC text, so widening the shared ADT would
+--     couple two unrelated evolution streams.  The current constructors
+--     cover the three distinguishable failure modes from
+--     `runParserPartial` + `refineAttributes`:
 --
--- Design notes (forward to B.3.c):
---   * `Aletheia.Parser.Combinators` already provides the structural-
---     recursion harness used here (Parser combinators over `List Char`).
---   * Error taxonomy is kept local to this module instead of extending
---     `Aletheia.Error.ParseError`, because DBC text errors don't overlap
---     with the JSON parser vocabulary and widening the shared ADT would
---     couple two unrelated evolution streams.
+--       * `ParseFailure`             — top-level combinator returned
+--                                      `nothing` (wrong token / no
+--                                      alternative matched).  The
+--                                      combinators lose position info
+--                                      on failure, so this is a 0-arg
+--                                      constructor — reporting "which
+--                                      byte failed" would require a
+--                                      redesign of `Parser` to thread
+--                                      the last-touched position out of
+--                                      `nothing`, which is scoped for a
+--                                      future refactor rather than
+--                                      B.3.c.k.
+--       * `TrailingInput`            — parser succeeded but left bytes
+--                                      on the tape.  Position of the
+--                                      first unconsumed byte is carried
+--                                      so callers can localise the
+--                                      error; empty-tape success is
+--                                      the ≡ id path.
+--       * `AttributeRefinementFailed` — `refineAttributes` returned
+--                                      `nothing` because some default/
+--                                      assignment referenced an unknown
+--                                      AttrDef or an out-of-range ENUM
+--                                      index.  The parameter carries a
+--                                      short human-readable note; the
+--                                      refinement pass itself does not
+--                                      currently surface which
+--                                      attribute / attribute name was at
+--                                      fault, so we tag the whole
+--                                      refinement stage.
 module Aletheia.DBC.TextParser where
 
-open import Data.String using (String)
+open import Data.List using (List; []; _∷_)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Product using (_×_; _,_)
+open import Data.String using (String; toList)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 
-open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.Parser.Combinators using
+  (Position; ParseResult; value; position; remaining;
+   runParserPartial)
+
+open import Aletheia.DBC.Types using
+  (DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup;
+   Node; DBCAttribute)
+
+open import Aletheia.DBC.TextParser.TopLevel using
+  (TopStmt; CollectedTop; mkCollectedTop; partitionTopStmts; parseDBCText)
+open import Aletheia.DBC.TextParser.Attributes using
+  (refineAttributes)
 
 -- ============================================================================
 -- GRAMMAR (BNF)
@@ -137,18 +175,57 @@ open import Aletheia.DBC.Types using (DBC)
 
 -- Local error ADT for DBC-text parsing.  Kept separate from
 -- `Aletheia.Error.ParseError` (the JSON-protocol parser error) because the
--- two vocabularies do not overlap; each can evolve independently.  B.3.c
--- adds per-construct constructors (e.g. `ExpectedSGKeyword`,
--- `InvalidByteOrderDigit`, `UnterminatedStringLiteral`) as grammar
--- categories get wired.
+-- two vocabularies do not overlap; each can evolve independently.  See the
+-- module header for the rationale behind each constructor.
 data DBCTextParseError : Set where
-  UnimplementedConstruct : String → DBCTextParseError
+  ParseFailure              : DBCTextParseError
+  TrailingInput             : Position → DBCTextParseError
+  AttributeRefinementFailed : String   → DBCTextParseError
 
 -- ============================================================================
 -- ENTRY POINT
 -- ============================================================================
 
--- Skeleton stub.  Returns a structured error until B.3.c begins wiring
--- Aletheia.Parser.Combinators-based parsers per grammar category.
+-- Build a `DBC` record from parsed pieces.  Wire order across the
+-- `List TopStmt` is preserved by `partitionTopStmts`; every bucket is
+-- therefore in source order, matching the JSON pipeline's invariants.
+-- `attributes` carries the refined (resolved-def-reference) list — the
+-- raw two-stage split stays internal to the parser.
+buildDBC : String → List Node → CollectedTop → List DBCAttribute → DBC
+buildDBC ver nodes c attrs = record
+  { version         = ver
+  ; messages        = CollectedTop.messages        c
+  ; signalGroups    = CollectedTop.signalGroups    c
+  ; environmentVars = CollectedTop.environmentVars c
+  ; valueTables     = CollectedTop.valueTables     c
+  ; nodes           = nodes
+  ; comments        = CollectedTop.comments        c
+  ; attributes      = attrs
+  }
+
+-- Shape the `runParserPartial` result into the public error ⊎ DBC
+-- taxonomy.  Broken out from `parseText` so the three-case dispatch
+-- does not nest inside the `toList` call — easier to read, and the
+-- refinement step is isolated from the outer runner.
+finalizeParse : Maybe (ParseResult (String × List Node × List TopStmt))
+              → DBCTextParseError ⊎ DBC
+finalizeParse nothing = inj₁ ParseFailure
+finalizeParse (just res) with remaining res
+... | (_ ∷ _) = inj₁ (TrailingInput (position res))
+... | []      with value res
+...   | (ver , nodes , stmts) with partitionTopStmts stmts
+...     | collected with refineAttributes (CollectedTop.rawAttributes collected)
+...       | nothing     = inj₁ (AttributeRefinementFailed
+                                  "BA_DEF_DEF_ / BA_ / BA_REL_ references unknown AttrDef or OOB ENUM index")
+...       | just attrs  = inj₂ (buildDBC ver nodes collected attrs)
+
+-- Parse a DBC text image.  Success requires:
+--   1. `parseDBCText` consumes every byte of input (no trailing slop).
+--   2. `refineAttributes` resolves every BA_DEF_DEF_ / BA_ / BA_REL_
+--      against the input's AttrDef list.
+-- Failure of either surfaces as the matching `DBCTextParseError` case;
+-- the refinement-fail note describes the class of issue, not which
+-- specific attribute is broken (the refinement pass currently does not
+-- thread that info out — see module header).
 parseText : String → DBCTextParseError ⊎ DBC
-parseText _ = inj₁ (UnimplementedConstruct "B.3.c: parseText not yet implemented")
+parseText s = finalizeParse (runParserPartial parseDBCText (toList s))
