@@ -36,8 +36,12 @@
 -- `Maybe`-valued parsers throughout).
 --
 -- Deferred to later sub-commits:
---   * Multi-value mux selectors (`SG_MUL_VAL_`) — B.3.c.8.  Single-value
---     `m<N>` selectors map to a singleton `values = N List⁺.∷ []`.
+--   * Multi-value mux selectors (`SG_MUL_VAL_`) — the syntactic drop
+--     parser lands in B.3.c.8 (see `TextParser.ExtendedMux`); the
+--     cross-line coordination that turns those parsed-and-dropped
+--     ranges into actual multi-value `When` selectors is deferred to
+--     a later mux-integration sub-commit.  Single-value `m<N>`
+--     selectors map to a singleton `values = N List⁺.∷ []` today.
 --   * BO_TX_BU_ `senders` — future sub-commit; for now `senders = []`.
 --   * Integer-valued SG_ signals with `signalDef.startBit` physical-gate
 --     rejection — leave to the validator per the scope note above.
@@ -239,9 +243,12 @@ findMuxName (s ∷ rest) with RawSignal.muxMarker s
 
 -- Build a `SignalPresence` from a `MuxMarker` given the master's name
 -- (may be `nothing` if no master exists in the enclosing BO_ block).
--- Single-value selectors only — `SG_MUL_VAL_` (multi-value) is deferred
--- to B.3.c.8.  `SelBy`/`BothMux` with no master yields `nothing` (the
--- input is ill-formed — a mux-slave without a master in the same message).
+-- Single-value selectors only — `SG_MUL_VAL_` multi-value integration
+-- is deferred to a later mux-integration sub-commit (the syntactic
+-- drop parser for the line already landed in B.3.c.8; see
+-- `TextParser.ExtendedMux`).  `SelBy`/`BothMux` with no master yields
+-- `nothing` (the input is ill-formed — a mux-slave without a master in
+-- the same message).
 resolvePresence : Maybe String → MuxMarker → Maybe SignalPresence
 resolvePresence _        NotMux      = just Always
 resolvePresence _        IsMux       = just Always

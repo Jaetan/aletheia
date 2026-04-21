@@ -77,15 +77,15 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD should verify no unsafe modules in production paths
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ All 137 Agda modules use `--safe --without-K`
+**Current Status**: ✅ All 139 Agda modules use `--safe --without-K`
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (137 total):
-- **133 modules**: `--safe --without-K` (standard safe modules)
+**By flag combination** (139 total):
+- **135 modules**: `--safe --without-K` (standard safe modules)
 - **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 
-**All 137 modules use `--safe`**. No modules require `--sized-types`.
+**All 139 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -336,7 +336,7 @@ If you're new to Agda but familiar with Python/typed languages:
 **Safety Flags:**
 - `--safe` ensures no undefined behavior (like Rust's borrow checker)
   - No postulates, no unsafe primitives, all functions terminate
-  - Used in all 137 Aletheia modules
+  - Used in all 139 Aletheia modules
 - `--without-K` disables Streicher's K axiom (uniqueness of identity proofs)
   - Makes code compatible with Homotopy Type Theory
   - Required for formal verification

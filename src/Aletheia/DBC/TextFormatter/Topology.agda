@@ -26,9 +26,13 @@
 --   * Mux marker — `M` on the multiplexor itself (found via
 --     `findMuxMaster`), `m<N>` on selected signals, no marker on plain
 --     always-present signals.  Multi-value selectors (`SG_MUL_VAL_`) and
---     nested multiplexors (`m<N>M`) are deferred to B.3.c.8; this phase
---     emits the head value of the `When _ values` list only, which matches
---     single-value cantools output.
+--     nested multiplexors (`m<N>M`) are deferred to a later
+--     mux-integration sub-commit; this phase emits the head value of
+--     the `When _ values` list only, which matches single-value
+--     cantools output.  B.3.c.8 has already wired the parse-side drop
+--     parser for `SG_MUL_VAL_` (see `TextParser.ExtendedMux`); the
+--     cross-line coordination needed to materialise multi-value
+--     `When` selectors is what remains.
 --
 -- Each BO_ block ends with the BO_ line + SG_ lines + one trailing blank
 -- line separating it from the next block.  `emitMessages` concatenates.
