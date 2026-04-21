@@ -111,8 +111,12 @@ open import Aletheia.DBC.Types using (DBC)
 --    see corpus README known-divergences)
 --   env-var      ::= "EV_" ws identifier ws? ":" ws ("0" | "1" | "2") ws
 --                    "[" rational "|" rational "]" ws string-lit ws
---                    rational ws nat ws identifier
---                    (ws "," ws? identifier)* ws? ";" newline
+--                    rational ws nat ws identifier ws identifier ws? ";"
+--                    newline
+--   -- Access-list shape follows cantools' `dbc.py` production (single
+--   -- `access_type` WORD + single `access_node` WORD, no comma list).
+--   -- Corpus example `... DUMMY_NODE_VECTOR0 Host;` confirms the
+--   -- whitespace-separated single-node form.
 --
 -- H. Lexical primitives
 --   identifier   ::= (letter | "_") (letter | digit | "_")*
