@@ -87,12 +87,13 @@ private
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
     = refl
-  signal-roundtrip-LE frameBytes ctx n sd u (When mux vs) rs dwf
+  signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
           | parseStringList-roundtrip rs
-          | parseNatList-roundtrip (List⁺.toList vs)
+          | getNat-ℕtoJSON v
+          | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
     = refl
@@ -118,12 +119,13 @@ private
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
     = refl
-  signal-roundtrip-BE frameBytes ctx n sd u (When mux vs) rs dwf fb≤64 len-pos fits msb-ge
+  signal-roundtrip-BE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf fb≤64 len-pos fits msb-ge
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
           | parseStringList-roundtrip rs
-          | parseNatList-roundtrip (List⁺.toList vs)
+          | getNat-ℕtoJSON v
+          | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (unconvertSB-bound-BE frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) fb≤64)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | unconvertStartBit-roundtrip frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) len-pos fits msb-ge

@@ -126,9 +126,19 @@ Behavioral parity confirmed by side-by-side inspection: the three suites exercis
 Plan:
 
 - B.3.a ✅ Build the construct corpus: `python/tests/fixtures/dbc_corpus/` with 8 hand-authored DBCs (see `README.md` coverage map) covering every inventory row. `test_dbc_corpus_baseline.py` snapshots each through `dbc_to_json`; snapshots are the structural spec for B.3.d onward. Landed 2026-04-21.
-- B.3.b Design grammar in `Parser/Combinators.agda` style (structural recursion on length; `--safe --without-K` throughout). Add `DBC/TextParser.agda` and `DBC/TextFormatter.agda` skeletons; plan `Properties.agda` facade split from day one per `feedback_properties_facade_split.md`.
-- B.3.c Implement incrementally, bottom-up. Order: `VERSION`/`NS_`/`BS_`; `BU_`/`BO_`/`SG_`; `VAL_`/`VAL_TABLE_`; attributes (`BA_*`); comments; signal groups; value types; extended mux; environment vars.
-- B.3.d Roundtrip property: `parse ∘ format ≡ id` for canonical DBC shape.
+- B.3.b ✅ Grammar designed in `Parser/Combinators.agda` style (structural recursion on length; `--safe --without-K` throughout). `DBC/TextParser.agda` + `DBC/TextFormatter.agda` skeletons plus `Properties.agda` facade placeholders landed per `feedback_properties_facade_split.md`. Commit `785d2cc`.
+- B.3.c ✅ Implemented incrementally, bottom-up: B.3.c.1 lexical primitives (`441b0d2`) → c.2 `VERSION`/`NS_`/`BS_` (`977783f`) → c.3 `BU_`/`BO_`/`SG_` + `showℚ-dec` (`4fb5270`) → c.4 `VAL_`/`VAL_TABLE_` (`c6d8998`) → c.5 `BA_DEF_`/`BA_DEF_DEF_`/`BA_`/`BA_REL_` (`7b55340`) → c.6 `CM_` (`52454a0`) → c.7 `SIG_GROUP_` (`f36e531`) → c.8 `SIG_VALTYPE_` + `SG_MUL_VAL_` parse-and-drop (`926f189`) → c.9 `EV_` (`3399695`) → c.k `parseText`/`formatText` aggregator (`7d77dcb`) + `showℚ-dec` off-by-one fix (`a7f255e`).
+- B.3.d ⏳ Roundtrip theorem — **universal form is the target**: `∀ d → parseText (formatText d) ≡ inj₂ d`. Per-fixture point verifications (the "corpus-shape" approach attempted earlier and reverted) are not an acceptable substitute — the done-criterion is a theorem that quantifies over the `DBC` domain, not a finite conjunction of concrete equalities. Corpus-based coverage belongs to B.3.j (binding-layer parity against cantools snapshots); B.3.d is the Agda-side property.
+
+  **Proof decomposition** — four layers, each closeable independently:
+  1. **String-side substrate**. `toList-++ₛ : toList (a ++ₛ b) ≡ toList a ++ₗ toList b` (audit `Data.String.Properties` first — likely already present), plus `toList` behaviour on each primitive used by the emitter (`showℕ`, `showℚ-dec`, identifier/string-literal emitters, enum-tag emitters). Unblocks `primStringToList` reduction past abstract record fields — the obstacle that stalls `refl` on the universal.
+  2. **Per-primitive lemmas**. One `parseX (toList (emitX v) ++ₗ rest) ≡ inj₂ (v, rest)` for every parser/emitter pair (string literal, identifier, ℕ literal, ℚ literal, enum tags, ByteOrder, Signed/Unsigned, etc.). Locally provable from the substrate.
+  3. **Per-line-construct lemmas**. One per `VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`, `CM_`, `BA_DEF_`, `BA_DEF_DEF_`, `BA_`, `BA_REL_`, `VAL_`, `VAL_TABLE_`, `EV_`, `SIG_GROUP_`, `SIG_VALTYPE_`, `SG_MUL_VAL_`. Compose primitive lemmas along each construct's bind chain.
+  4. **Top-level aggregator**. Compose line-construct lemmas along `parseDBCText`'s bind chain against `formatText`'s concatenation order. Structural induction over each list-of-X field in `DBC`.
+
+  **Pre-implementation gate**: read-only stdlib audit for `toList-++ₛ`, `toList-fromList`, `primShow*` / `showℕ` / rational-show behavioural lemmas — confirm what substrate already exists vs. what must be built in-project before committing to the layer-1 implementation.
+
+  **Shake gate already in place**: `check-properties` walks `DBC/TextParser/Properties.agda`; once populated, regression protection is automatic.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.

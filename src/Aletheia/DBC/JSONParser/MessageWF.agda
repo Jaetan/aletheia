@@ -28,7 +28,8 @@ open import Aletheia.CAN.DLC using (DLC; mkDLC; bytesToValidDLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bvd-bytes)
 open import Aletheia.DBC.Types using (DBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessageId; parseMessageBody;
-  parseMessageFields; parseMessage; parseMessageList; parseSignalList)
+  parseMessageFields; parseMessage; parseMessageList; parseSignalList;
+  parseOptionalArray; parseStringList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSignalList-pv)
@@ -121,12 +122,15 @@ parseMessageBody-wf ctx name canId obj msg eq
     with lookupString "sender" obj | eq₂
 ...     | nothing | ()
 ...     | just sender | eq₃
-      with lookupArray "signals" obj | eq₃
-...       | nothing | ()
-...       | just signalsJSON | eq₄
-        with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
-...         | inj₁ _ | ()
-...         | inj₂ signals | refl = record
+      with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
+...       | inj₁ _ | ()
+...       | inj₂ _ | eq₃'
+        with lookupArray "signals" obj | eq₃'
+...         | nothing | ()
+...         | just signalsJSON | eq₄
+          with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
+...           | inj₁ _ | ()
+...           | inj₂ signals | refl = record
               { dlc-bound  = dlcBytes-bounded dlc
               ; signals-wf = parseSignalList-wf rawDlc ctx signalsJSON 0 signals
                                (bvd-raw-bound rawDlc dlc bvd-eq) sig-eq
@@ -213,12 +217,15 @@ parseMessageBody-pv ctx name canId obj msg eq
     with lookupString "sender" obj | eq₂
 ...     | nothing | ()
 ...     | just sender | eq₃
-      with lookupArray "signals" obj | eq₃
-...       | nothing | ()
-...       | just signalsJSON | eq₄
-        with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
-...         | inj₁ _ | ()
-...         | inj₂ signals | refl =
+      with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
+...       | inj₁ _ | ()
+...       | inj₂ _ | eq₃'
+        with lookupArray "signals" obj | eq₃'
+...         | nothing | ()
+...         | just signalsJSON | eq₄
+          with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
+...           | inj₁ _ | ()
+...           | inj₂ signals | refl =
               -- parseSignalList-pv returns `All (PhysicallyValid rawDlc) signals`
               -- but the message has `dlc = dlc` so the goal is
               -- `All (PhysicallyValid (dlcBytes dlc)) signals`. bvd-bytes
