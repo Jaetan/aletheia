@@ -83,6 +83,12 @@ open import Aletheia.DBC.Types using (DBC)
 --   attr-rel     ::= "BA_REL_" ws string-lit ws rel-target ws attr-value ws? ";" newline
 --   attr-scope   ::= "BU_" | "BO_" | "SG_" | "EV_"
 --   rel-scope    ::= "BU_BO_REL_" | "BU_SG_REL_"
+--   attr-target  ::= "BU_" ws identifier
+--                  | "BO_" ws nat
+--                  | "SG_" ws nat ws identifier
+--                  | "EV_" ws identifier
+--   rel-target   ::= "BU_BO_REL_" ws identifier ws nat
+--                  | "BU_SG_REL_" ws identifier ws "SG_" ws nat ws identifier
 --   attr-value   ::= string-lit | rational | int
 --
 -- E. Comments
