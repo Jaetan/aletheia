@@ -82,19 +82,27 @@ private
        fracDigits fuel (r10 % suc denom-1) denom-1
 
 -- Canonical `n.d` decimal emission for ℚ (see module-header rationale).
--- Three cases mirror the three reachable shapes of `toℚᵘ r`:
+-- Three cases mirror the three reachable shapes of `toℚᵘ r`.  The stored
+-- ℚᵘ field is already `denominator-1` (i.e. `ℚᵘ.denominator-1 = d - 1`);
+-- pattern-matching against `(suc d-2)` binds `d-2 = d - 2`, so the actual
+-- denominator is `suc (suc d-2)` and the `fracDigits` third argument —
+-- which itself takes a d-1 encoding — is `suc d-2`.  (Historical note:
+-- an earlier revision matched `(suc d-1)` and used `suc d-1` as the
+-- denominator; that was off-by-one — it divided/mod-ed by `d - 1`
+-- instead of `d`, so e.g. `157/50` emitted as the 15-digit truncation
+-- of `157/49` = `"3.204081632653061"` instead of `"3.14"`.)
 --   * denom-1 = 0  (integer) — delegate to `showℤ`, which already handles
---     sign.  `ℚ` coprimality guarantees the stored denominator is 1 exactly
---     when the value is an integer.
+--     sign.  `ℚ` coprimality guarantees the stored denominator-1 is 0
+--     exactly when the value is an integer.
 --   * positive non-integer — `intPart "." fracDigits`.
 --   * negative non-integer — `"-" intPart "." fracDigits` on the absolute
 --     value.  `-[1+ n ]` encodes `-(n+1)`, so the absolute is `suc n`.
 showℚ-dec : ℚ → String
 showℚ-dec r with Rat.toℚᵘ r
 ... | mkℚᵘ num       zero      = showℤ num
-... | mkℚᵘ (+ n)     (suc d-1) =
-      showℕ (n / suc d-1) ++ₛ "." ++ₛ
-      fracDigits 15 (n % suc d-1) d-1
-... | mkℚᵘ -[1+ n ] (suc d-1) =
-      "-" ++ₛ showℕ (suc n / suc d-1) ++ₛ "." ++ₛ
-      fracDigits 15 (suc n % suc d-1) d-1
+... | mkℚᵘ (+ n)     (suc d-2) =
+      showℕ (n / suc (suc d-2)) ++ₛ "." ++ₛ
+      fracDigits 15 (n % suc (suc d-2)) (suc d-2)
+... | mkℚᵘ -[1+ n ] (suc d-2) =
+      "-" ++ₛ showℕ (suc n / suc (suc d-2)) ++ₛ "." ++ₛ
+      fracDigits 15 (suc n % suc (suc d-2)) (suc d-2)
