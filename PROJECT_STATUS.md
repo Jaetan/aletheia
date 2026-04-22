@@ -1,25 +1,24 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-20 (Phase A matrix gates + Phase B.1/B.1.x DBC metadata landed; pylint gate hardened in `c4bda3f`)
+**Last Updated**: 2026-04-21 (Phase B.2 audit-closed; Phase B.3.a/b/c shipped; Phase B.3.d in_progress with universal roundtrip as target)
 
 ---
 
 ## Current Position
 
-**Phase 5.1 - Proof Gaps & Spec Observations** ✅ COMPLETE. **Phase A (matrix + structural gates)** + **Phase B.1 / B.1.x (DBC metadata Tier 1 + Tier 2 + signal receivers)** ✅ COMPLETE, following the [Cross-Binding Parity Plan](docs/development/PARITY_PLAN.md) locked 2026-04-20.
+**Phase 5.1 - Proof Gaps & Spec Observations** ✅ COMPLETE. **Phase A (matrix + structural gates)** + **Phase B.1 / B.1.x (DBC metadata Tier 1 + Tier 2 + signal receivers + message senders)** + **Phase B.2 (mux query helpers — audit-closed)** + **Phase B.3.a (corpus baseline) / B.3.b (Agda skeletons) / B.3.c (incremental construct implementation)** ✅ COMPLETE, following the [Cross-Binding Parity Plan](docs/development/PARITY_PLAN.md) locked 2026-04-20.
 
 Phases 1-5.1 complete. Phase 5 delivered optional extensions driven by user feedback: CAN-FD, multi-language bindings (C++, Go), binary FFI, formal verification completion, benchmarks. Phase 5.1 closed all 2026-04-07 system-review items. All provable correctness properties are proven.
 
 Post-R17 work now follows the parity plan rather than the generic "Phase 6" label. Active tracks:
-- **Phase A** ✅ — `docs/FEATURE_MATRIX.yaml` is the authoritative parity source (34 rows × 3 bindings); structural gates in Python / C++ / Go fail CI on any unresolved `implemented` entry.
-- **Phase B.1 / B.1.x** ✅ — DBC metadata Tier 1 (signal groups, environment variables, value tables) and Tier 2 (nodes, comments, attributes, signal receivers) flow end-to-end through Agda core → FFI → bindings with roundtrip proofs.
-- **Phase B.1.x Commit 3** (next) — `dbc_message_senders` row: `BO_TX_BU_` transmitters on `DBCMessage.senders`.
-- **Phase B.2** — Mux query helpers (Go R8 backlog; merged into the plan).
-- **Phase B.3** — Agda-core DBC text parser (R17-DEF-4, 3–6 weeks). Unlocks dropping the cantools dep per `project_lgpl_contingency.md`.
+- **Phase A** ✅ — `docs/FEATURE_MATRIX.yaml` is the authoritative parity source (35 rows × 3 bindings after B.1.x + B.2); structural gates in Python / C++ / Go fail CI on any unresolved `implemented` entry.
+- **Phase B.1 / B.1.x** ✅ — DBC metadata Tier 1 + Tier 2 + signal receivers + message senders (`BO_TX_BU_`) flow end-to-end through Agda core → FFI → bindings with roundtrip proofs.
+- **Phase B.2** ✅ — Mux query helpers + DBC lookups, closed via audit (binding surface pre-existed client-side); matrix rows `dbc_queries_mux` + `dbc_lookup` both `implemented` × 3.
+- **Phase B.3** — Agda-core DBC text parser (R17-DEF-4). **B.3.a/b/c ✅** (corpus baseline, skeletons, incremental constructs — 13 commits `4a086e8..a7f255e`). **Pre-B.3.d infrastructure ✅** (`check-properties` Shake wiring + three WF proof-completeness fixes, commit `0035a4e`). **B.3.d in_progress**: target is the universal `∀ d → parseText (formatText d) ≡ inj₂ d` — proof decomposition (four layers: string-side substrate → per-primitive → per-line-construct → top-level aggregator) in PARITY_PLAN.md §B.3.d. A corpus-shape / per-fixture attempt was reverted on 2026-04-21 because point verification is not a proof of the function-level property — see `feedback_no_silent_proof_reframing.md`. Pre-implementation gate: stdlib audit for `toList-++ₛ` and related substrate. **B.3.e–j pending**: JSON command, Python feature-flag switch, cantools drop, C++/Go APIs, cross-binding parity.
 - **Phase C** — Idiomatic cancellation / async / `send_frames_iter` / Go `context.Context` / C++ cancellation — **design rounds required** before any code (user rejected prior R17 proposals).
 - **Phase D** — C++/Go doc-example harness mirror of R17 C6 (R17-DEF-6).
 
-**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x complete; Phase B.1.x Commit 3 → Phase B.2 → Phase B.3 → Phase C/D per plan.
+**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c complete; **Phase B.3.d in_progress** (universal proof); Phase B.3.e–j → Phase C/D per plan.
 
 ---
 

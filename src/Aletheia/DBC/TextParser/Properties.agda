@@ -32,4 +32,26 @@
 -- inj₂ d`.  For B.3.b the module body is intentionally empty — the
 -- sub-files don't exist yet and creating placeholder holes would flag
 -- spuriously under `check-properties`.
+--
+-- Pre-implementation audit (2026-04-22, pre-layer-1).  The stdlib
+-- substrate audit mandated by PARITY_PLAN.md §B.3.d is complete.
+-- Finding: the layer-1 target lemma
+--
+--     toList-++ₛ : ∀ s t → toList (s ++ₛ t) ≡ toList s ++ₗ toList t
+--
+-- (plus `toList-fromList` and `fromList-toList`) exists in stdlib only
+-- via `Data.String.Unsafe`, where it is proven by `trustMe` under
+-- `{-# OPTIONS --with-K #-}`.  That module is labelled Unsafe and
+-- cannot be imported from a `--safe` module.  `Data.String.Properties`
+-- and `Agda.Builtin.String.Properties` carry no append-behaviour
+-- lemma at any layer.  Under `--safe --without-K`, the Agda String
+-- primitives (`primStringAppend`, `primStringToList`,
+-- `primStringFromList`) only reduce on closed terms, so a direct
+-- in-project proof is also blocked.
+--
+-- Consequence: layer 1 is **not** import-and-re-export.  Four options
+-- are enumerated in `project_b3d_stdlib_audit.md`; selecting one
+-- requires explicit user approval — do NOT silently introduce an
+-- Unsafe module (`feedback_no_suppression_without_approval.md`) or
+-- silently weaken the target (`feedback_no_silent_proof_reframing.md`).
 module Aletheia.DBC.TextParser.Properties where
