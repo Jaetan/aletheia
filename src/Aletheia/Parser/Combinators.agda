@@ -169,19 +169,21 @@ sameLengthᵇ [] (_ ∷ _) = false
 sameLengthᵇ (_ ∷ xs) (_ ∷ ys) = sameLengthᵇ xs ys
 
 -- Helper for many: structurally recursive on input via well-founded recursion
--- Uses the length of the input as a measure
-private
-  manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Maybe (ParseResult (List A))
-  -- Base case: ran out of attempts
-  manyHelper p pos input zero = just (mkResult [] pos input)
-  -- Recursive case: try parser
-  manyHelper p pos input (suc n) with p pos input
-  ... | nothing = just (mkResult [] pos input)  -- Parser failed, return empty list
-  ... | just result with sameLengthᵇ input (remaining result)
-  ...   | true = just (mkResult [] pos input)  -- No progress made, stop to ensure termination
-  ...   | false with manyHelper p (position result) (remaining result) n  -- Progress made, continue
-  ...     | nothing = just (mkResult ((value result) ∷ []) (position result) (remaining result))
-  ...     | just restResult = just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
+-- Uses the length of the input as a measure.
+-- Exposed (not private) so roundtrip proofs in `Aletheia.DBC.TextParser.*.Properties`
+-- can pattern-match on its structure (see
+-- `Aletheia.DBC.TextParser.DecRatParse.Properties.manyHelper-satisfy-exhaust`).
+manyHelper : ∀ {A : Set} → Parser A → Position → (input : List Char) → ℕ → Maybe (ParseResult (List A))
+-- Base case: ran out of attempts
+manyHelper p pos input zero = just (mkResult [] pos input)
+-- Recursive case: try parser
+manyHelper p pos input (suc n) with p pos input
+... | nothing = just (mkResult [] pos input)  -- Parser failed, return empty list
+... | just result with sameLengthᵇ input (remaining result)
+...   | true = just (mkResult [] pos input)  -- No progress made, stop to ensure termination
+...   | false with manyHelper p (position result) (remaining result) n  -- Progress made, continue
+...     | nothing = just (mkResult ((value result) ∷ []) (position result) (remaining result))
+...     | just restResult = just (mkResult ((value result) ∷ (value restResult)) (position restResult) (remaining restResult))
 
 -- | Parse zero or more occurrences (structurally terminating)
 many : ∀ {A : Set} → Parser A → Parser (List A)
