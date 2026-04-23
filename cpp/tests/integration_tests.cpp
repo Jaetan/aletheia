@@ -177,6 +177,28 @@ TEST_CASE("env var with non-terminating rational is rejected") {
     CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
 }
 
+TEST_CASE("signal with non-terminating rational factor is rejected") {
+    // Parallel coverage for the SG_ fields (Commit 4/6): factor / offset /
+    // minimum / maximum go through the same `fromℚ? ∘ lookupRational` path
+    // as EV_, so a Rational{1,3} in any of those fields triggers
+    // parse_non_terminating_rational.  This test pins the `factor` lane —
+    // the remaining three lanes are exercised by the Python parametrised
+    // test (`test_signal_non_terminating_rational_rejected`).
+    auto lib = find_lib();
+    if (lib.empty())
+        return;
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    auto dbc = make_integration_dbc();
+    // Override the first signal's factor to a repeating rational.
+    dbc.messages[0].signals[0].factor = RationalFactor{Rational{1, 3}};
+
+    auto result = client.parse_dbc(dbc);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
+}
+
 TEST_CASE("extract signals via real FFI", "[integration]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);

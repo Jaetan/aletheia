@@ -35,7 +35,7 @@ open import Aletheia.DBC.Properties using (
   SignalPairValid; signalPairValid-sym;
   extractDisjointness; CanCoexist; both-always;
   _≟-DBCSignal_)
-open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factor≢0; BitsInFrame)
+open import Aletheia.DBC.Validity using (ValidDBC; nonZeroFactor→factor≢0; nonZeroFactor→factorℚ≢0; BitsInFrame)
 
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
@@ -44,6 +44,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ)
 open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
+open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; toℚ)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Bool using (true; false)
 open import Data.List.Membership.Propositional using (_∈_)
@@ -239,27 +240,33 @@ validDBC-roundtrip pairs frame frame' vdbc msg∈ aap afm pd ar eq mem =
 data Representable (sig : DBCSignal) (v : ℚ) : Set where
   repr-unsigned : (n : ℕ)
     → v ≡ signalValue (+ n) (DBCSignal.signalDef sig)
-    → inBounds v (SignalDef.minimum (DBCSignal.signalDef sig))
-                  (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+    → inBounds v (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
+                  (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
     → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
     → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
     → Representable sig v
   repr-signed : (z : ℤ)
     → v ≡ signalValue z (DBCSignal.signalDef sig)
-    → inBounds v (SignalDef.minimum (DBCSignal.signalDef sig))
-                  (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
+    → inBounds v (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
+                  (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
     → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
     → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
     → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))
     → Representable sig v
 
 representable? : (sig : DBCSignal) (v : ℚ)
-  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
   → Dec (Representable sig v)
 representable? sig v factor≢0 = go (removeScaling v factor offset) refl
   where
     sd = DBCSignal.signalDef sig
     open SignalDef sd
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
 
     +-inj : ∀ {m n : ℕ} → (+ m) ≡ (+ n) → m ≡ n
     +-inj refl = refl
@@ -321,19 +328,19 @@ representable? sig v factor≢0 = go (removeScaling v factor offset) refl
 -- Bridge: Representable → InjectRoundtrips
 representable→roundtrips : ∀ {m sig v}
   → Representable sig v
-  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
   → signalFits m (DBCSignal.signalDef sig)
   → InjectRoundtrips m sig v
 representable→roundtrips {_} {sig} (repr-unsigned n v≡ bounds-ok unsigned n<) factor≢0 fits =
   subst (InjectRoundtrips _ sig) (sym v≡)
     (roundtrip-unsigned→IR n sig
-      (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
+      (subst (λ x → inBounds x (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd)) ≡ true) v≡ bounds-ok)
       factor≢0 unsigned fits n<)
   where sd = DBCSignal.signalDef sig
 representable→roundtrips {_} {sig} (repr-signed z v≡ bounds-ok signed bl>0 sf) factor≢0 fits =
   subst (InjectRoundtrips _ sig) (sym v≡)
     (roundtrip-signed→IR z sig
-      (subst (λ x → inBounds x (SignalDef.minimum sd) (SignalDef.maximum sd) ≡ true) v≡ bounds-ok)
+      (subst (λ x → inBounds x (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd)) ≡ true) v≡ bounds-ok)
       factor≢0 signed bl>0 sf fits)
   where sd = DBCSignal.signalDef sig
 
@@ -345,7 +352,7 @@ data AllRepresentable : List (DBCSignal × ℚ) → Set where
     → AllRepresentable ((s , v) ∷ rest)
 
 allRepresentable? : (pairs : List (DBCSignal × ℚ))
-  → StdAll.All (λ { (s , _) → SignalDef.factor (DBCSignal.signalDef s) ≢ 0ℚ }) pairs
+  → StdAll.All (λ { (s , _) → toℚ (SignalDef.factor (DBCSignal.signalDef s)) ≢ 0ℚ }) pairs
   → Dec (AllRepresentable pairs)
 allRepresentable? [] _ = yes arep-nil
 allRepresentable? ((s , v) ∷ rest) (f≢0 StdAll.∷ fs) with representable? s v f≢0
@@ -366,7 +373,7 @@ allRepresentable→allRoundtrip ((s , v) ∷ rest) vdbc msg∈
     (afm-cons s∈ afm-rest) (arep-cons rep arep-rest) =
   ar-cons
     (representable→roundtrips rep
-      (nonZeroFactor→factor≢0 {s} (StdAll.lookup nzfs s∈))
+      (nonZeroFactor→factorℚ≢0 {s} (StdAll.lookup nzfs s∈))
       (StdAll.lookup bifs s∈))
     (allRepresentable→allRoundtrip rest vdbc msg∈ afm-rest arep-rest)
   where

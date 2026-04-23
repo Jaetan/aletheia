@@ -233,6 +233,28 @@ class TestDBCMetadataTier1Rejects:
         assert result["status"] == "error"
         assert result["code"] == "parse_non_terminating_rational"
 
+    @pytest.mark.parametrize("field", ["factor", "offset", "minimum", "maximum"])
+    def test_signal_non_terminating_rational_rejected(self, field: str) -> None:
+        """SG_ (SignalDef) numeric fields must have terminating decimal
+        expansions. ``Fraction(1, 3)`` in ``factor``/``offset``/``minimum``/
+        ``maximum`` has no ``2^a·5^b`` form, so ``fromℚ?`` returns
+        ``nothing`` and the parser emits ``parse_non_terminating_rational``."""
+        # Build a signal with the targeted field set to a non-terminating
+        # rational; keep the others on sensible defaults.
+        overrides = {field: Fraction(1, 3)}
+        # `minimum` and `maximum` defaults would conflict with factor 1/3 +
+        # offset 0 producing a physical range outside [0, 65535]; ignore the
+        # mismatch — the parser rejects before any validator check runs.
+        bad: DBCDefinition = {
+            "version": "1.0",
+            "messages": [message(0x100, "Engine", [signal("Rpm", **overrides)])],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(bad)
+        assert result["status"] == "error"
+        assert result["code"] == "parse_non_terminating_rational"
+        assert field in result["message"]
+
     def test_signal_group_referring_to_unknown_signal_accepted(self) -> None:
         """The Agda parser does not cross-check group signal references against
         message signals — the field is opaque, so dangling references round-

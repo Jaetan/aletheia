@@ -13,7 +13,7 @@ open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
 open import Data.List.Properties using (≡-dec)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
-open import Data.Rational.Properties using () renaming (_≟_ to _≟ᵣ_)
+open import Aletheia.DBC.DecRat using (_≟ᵈ_)
 open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
@@ -49,16 +49,16 @@ s₁ ≟-SignalDef s₂
   with SignalDef.isSigned s₁ ≟ᵇ SignalDef.isSigned s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.isSigned eq))
 ... | yes refl
-  with SignalDef.factor s₁ ≟ᵣ SignalDef.factor s₂
+  with SignalDef.factor s₁ ≟ᵈ SignalDef.factor s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.factor eq))
 ... | yes refl
-  with SignalDef.offset s₁ ≟ᵣ SignalDef.offset s₂
+  with SignalDef.offset s₁ ≟ᵈ SignalDef.offset s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.offset eq))
 ... | yes refl
-  with SignalDef.minimum s₁ ≟ᵣ SignalDef.minimum s₂
+  with SignalDef.minimum s₁ ≟ᵈ SignalDef.minimum s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.minimum eq))
 ... | yes refl
-  with SignalDef.maximum s₁ ≟ᵣ SignalDef.maximum s₂
+  with SignalDef.maximum s₁ ≟ᵈ SignalDef.maximum s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.maximum eq))
 ... | yes refl = yes refl
 

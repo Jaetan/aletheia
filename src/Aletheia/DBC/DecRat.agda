@@ -33,8 +33,13 @@
 -- at the ℚ surface for callers that only see post-canonicalisation.
 --
 -- Used by: DBC text-parser / formatter roundtrip (B.3.d) — signal
--- scale/offset/min/max, value-table keys, environment-variable bounds.
--- Not used on signal-extraction hot path: `CAN/Signal.agda` keeps ℚ.
+-- scale/offset/min/max (`SignalDef`), environment-variable initial /
+-- minimum / maximum (`EnvironmentVar`), attribute float bounds
+-- (`AttrType.ATFloat` / `AttrValue.AVFloat`), value-table keys.
+-- Signal-extraction hot path converts DecRat → ℚ via `toℚ` at the four
+-- arithmetic call sites in `CAN/Encoding.agda` (`scaleExtracted`,
+-- `extractSignal` bounds, `injectHelper` removeScaling, `injectHelper`
+-- bounds).  Post-extraction `SignalValue` stays ℚ.
 module Aletheia.DBC.DecRat where
 
 open import Data.Nat.Base
@@ -60,7 +65,13 @@ open import Data.Integer.Properties
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational.Base using (ℚ; _/_; fromℚᵘ; mkℚ)
 import Data.Rational.Base as ℚ
-open import Data.Rational.Properties using (fromℚᵘ-cong)
+open import Data.Rational.Properties using (fromℚᵘ-cong; _≤?_)
+open import Data.Nat.Coprimality
+  using (Coprime; coprime-divisor; 1-coprimeTo)
+  renaming (sym to coprime-sym)
+open import Data.Nat.Primality
+  using (Prime; prime[2]; prime?; prime⇒irreducible)
+open import Relation.Nullary.Decidable.Core using (toWitness; recompute)
 open import Data.Rational.Unnormalised.Base
   using (ℚᵘ; mkℚᵘ; *≡*)
   renaming (_≃_ to _≃ᵘ_; ↥_ to ↥ᵘ_; ↧_ to ↧ᵘ_)
@@ -73,7 +84,7 @@ import Data.Sign.Properties as SP
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Bool.Base using (Bool; true; false; T; _∧_; _∨_; not)
-open import Data.Bool.Properties using (T-irrelevant)
+open import Data.Bool.Properties using (T-irrelevant; T?)
 open import Data.Unit using (⊤; tt)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality
@@ -104,6 +115,94 @@ IsCanonical : ℕ → ℕ → ℕ → Set
 IsCanonical n a b = T (isCanonicalᵇ n a b)
 
 ------------------------------------------------------------------------
+-- Canonical → Coprime bridge
+--
+-- `toℚ` builds a `ℚ` directly (not via stdlib `_/_`'s gcd normaliser)
+-- using `mkℚ num (d-1) .coprime`.  That needs a `Coprime ∣num∣ (suc d-1)`
+-- proof at the irrelevant slot — derived from the `IsCanonical` bit-witness
+-- via `IsCanonical→Coprime`.  The machinery below is the bottom-up bridge:
+-- prime + ∤ → coprime, then product of coprimes, then prime power, then
+-- `IsCanonical` case-split.  Duplicated shapes in the RationalRoundtrip
+-- module were consolidated here (2026-04-24) so that `toℚ` can run without
+-- gcd.
+
+prime[5] : Prime 5
+prime[5] = toWitness {a? = prime? 5} _
+
+-- Bridge: `T (not (isYes (p ∣? n))) → p ∤ n`.
+T-not-isYes-∤ : ∀ p n → T (not (isYes (p ∣? n))) → p ∤ n
+T-not-isYes-∤ p n tw with p ∣? n
+... | yes _   = ⊥-elim tw
+... | no  ¬∣  = ¬∣
+
+-- Project a T-witness over a boolean conjunction.
+splitBool-T : ∀ {x y} → T (x ∧ y) → T x × T y
+splitBool-T {true}  {true}  tt  = tt , tt
+splitBool-T {true}  {false} ()
+splitBool-T {false} {_}     ()
+
+-- A prime that doesn't divide n is coprime to n.
+∤-prime⇒coprime : ∀ n p → Prime p → p ∤ n → Coprime n p
+∤-prime⇒coprime n p pp p∤n {d} (d∣n , d∣p)
+  with prime⇒irreducible pp d∣p
+... | inj₁ d≡1 = d≡1
+... | inj₂ d≡p = ⊥-elim (p∤n (subst (_∣ n) d≡p d∣n))
+
+-- Coprimality distributes over products on the right factor.
+coprime-product : ∀ n m k → Coprime n m → Coprime n k → Coprime n (m * k)
+coprime-product n m k cnm cnk {d} (d∣n , d∣mk) =
+  cnk (d∣n , coprime-divisor cdm d∣mk)
+  where
+  cdm : Coprime d m
+  cdm {e} (e∣d , e∣m) = cnm (∣-trans e∣d d∣n , e∣m)
+
+-- Coprimality of n with a prime p lifts to coprimality with p^k.
+coprime-prime-power : ∀ n p → Coprime n p → ∀ k → Coprime n (p ^ k)
+coprime-prime-power n p cnp zero    = coprime-sym (1-coprimeTo n)
+coprime-prime-power n p cnp (suc k) =
+  coprime-product n p (p ^ k) cnp (coprime-prime-power n p cnp k)
+
+-- Bridge: a canonical witness gives coprimality with 2^a * 5^b.  The
+-- witness slot is RELEVANT (T-witness dispatch needs to case-split on
+-- it); `toℚ` uses `recompute` + `T?` to turn the irrelevant `.canonical`
+-- field of the DecRat record into a relevant witness for this call.
+IsCanonical→Coprime :
+  ∀ n a b → IsCanonical n a b → Coprime n (2 ^ a * 5 ^ b)
+IsCanonical→Coprime zero    zero    zero    _  =
+  coprime-sym (1-coprimeTo 0)
+IsCanonical→Coprime zero    zero    (suc _) ()
+IsCanonical→Coprime zero    (suc _) _       ()
+IsCanonical→Coprime (suc m) zero    zero    _  =
+  coprime-sym (1-coprimeTo (suc m))
+IsCanonical→Coprime (suc m) zero    (suc b) cr =
+  subst (Coprime (suc m)) (sym (*-identityˡ (5 ^ suc b)))
+        (coprime-prime-power (suc m) 5
+          (∤-prime⇒coprime (suc m) 5 prime[5]
+            (T-not-isYes-∤ 5 (suc m) cr))
+          (suc b))
+IsCanonical→Coprime (suc m) (suc a) zero    cr =
+  subst (Coprime (suc m)) (sym (*-identityʳ (2 ^ suc a)))
+        (coprime-prime-power (suc m) 2
+          (∤-prime⇒coprime (suc m) 2 prime[2]
+            (T-not-isYes-∤ 2 (suc m) cr))
+          (suc a))
+IsCanonical→Coprime (suc m) (suc a) (suc b) cr =
+  coprime-product (suc m) (2 ^ suc a) (5 ^ suc b)
+    (coprime-prime-power (suc m) 2 cnp-2 (suc a))
+    (coprime-prime-power (suc m) 5 cnp-5 (suc b))
+  where
+  parts : T (not (isYes (2 ∣? suc m))) × T (not (isYes (5 ∣? suc m)))
+  parts = splitBool-T cr
+
+  cnp-2 : Coprime (suc m) 2
+  cnp-2 = ∤-prime⇒coprime (suc m) 2 prime[2]
+            (T-not-isYes-∤ 2 (suc m) (proj₁ parts))
+
+  cnp-5 : Coprime (suc m) 5
+  cnp-5 = ∤-prime⇒coprime (suc m) 5 prime[5]
+            (T-not-isYes-∤ 5 (suc m) (proj₂ parts))
+
+------------------------------------------------------------------------
 -- The record
 
 record DecRat : Set where
@@ -121,6 +220,10 @@ record DecRat : Set where
 0ᵈ : DecRat
 0ᵈ = mkDecRat (+ 0) 0 0 tt
 
+-- One.
+1ᵈ : DecRat
+1ᵈ = mkDecRat (+ 1) 0 0 tt
+
 -- Embed any ℤ with denominator 1.
 fromℤ : ℤ → DecRat
 fromℤ (+ 0)      = 0ᵈ
@@ -135,11 +238,20 @@ fromℤ -[1+ n ]   = mkDecRat -[1+ n ]  0 0 tt
 2^a·5^b-NonZero a b = m*n≢0 (2 ^ a) (5 ^ b)
   {{m^n≢0 2 a}} {{m^n≢0 5 b}}
 
--- The rational represented by a DecRat.  Denominator is always positive
--- so the ℚ is well-formed without explicit coprimality reasoning.
+-- The rational represented by a DecRat.  Bypass stdlib `_/_`'s gcd
+-- normaliser by constructing `mkℚ` directly with the canonical coprime
+-- witness (the DecRat canonical invariant already guarantees that
+-- |numerator| and 2^a·5^b share no common factor).  Equivalent to the
+-- gcd-normalised form for canonical DecRat (all DecRat by invariant),
+-- but avoids per-call gcd at runtime — saves measurable cost on the
+-- signal-extraction hot path (`scaleExtracted` → `applyScaling`).
 toℚ : DecRat → ℚ
-toℚ (mkDecRat num a b _) = _/_ num (2 ^ a * 5 ^ b)
-  {{2^a·5^b-NonZero a b}}
+toℚ (mkDecRat num a b c) =
+  mkℚ num ((2 ^ a * 5 ^ b) ∸ 1)
+      (subst (Coprime ∣ num ∣)
+             (sym (suc-pred (2 ^ a * 5 ^ b) ⦃ 2^a·5^b-NonZero a b ⦄))
+             (IsCanonical→Coprime ∣ num ∣ a b
+               (recompute (T? (isCanonicalᵇ ∣ num ∣ a b)) c)))
 
 ------------------------------------------------------------------------
 -- Decidable equality
@@ -162,6 +274,21 @@ mkDecRat nx ax bx cx ≟ᵈ mkDecRat ny ay by cy
 ...   | yes refl with bx ≟ₙ by
 ...     | no  bx≢by = no (λ eq → bx≢by (cong DecRat.fiveExp eq))
 ...     | yes refl = yes refl
+
+------------------------------------------------------------------------
+-- Ordering (derived from ℚ projection)
+
+-- `x ≤ᵈ y` iff their ℚ projections compare.  DBC validity checks need
+-- ordering for `ValidRange` (min ≤ max) and are parse-time-only, so
+-- routing through `toℚ` is acceptable.
+infix 4 _≤ᵈ_
+_≤ᵈ_ : DecRat → DecRat → Set
+x ≤ᵈ y = toℚ x ℚ.≤ toℚ y
+
+-- Decidable version of _≤ᵈ_ for use in `requireDec` / `rejectDec`.
+infix 4 _≤?ᵈ_
+_≤?ᵈ_ : (x y : DecRat) → Dec (x ≤ᵈ y)
+x ≤?ᵈ y = toℚ x ≤? toℚ y
 
 ------------------------------------------------------------------------
 -- Canonicalisation primitives (ℕ-level magnitudes)

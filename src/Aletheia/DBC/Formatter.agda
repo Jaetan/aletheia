@@ -75,10 +75,10 @@ formatDBCSignal frameBytes sig =
     ("length"    , ℕtoJSON (SignalDef.bitLength def)) ∷
     ("byteOrder" , JString (formatByteOrder (DBCSignal.byteOrder sig))) ∷
     ("signed"    , JBool (SignalDef.isSigned def)) ∷
-    ("factor"    , JNumber (SignalDef.factor def)) ∷
-    ("offset"    , JNumber (SignalDef.offset def)) ∷
-    ("minimum"   , JNumber (SignalDef.minimum def)) ∷
-    ("maximum"   , JNumber (SignalDef.maximum def)) ∷
+    ("factor"    , JNumber (toℚ (SignalDef.factor def))) ∷
+    ("offset"    , JNumber (toℚ (SignalDef.offset def))) ∷
+    ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
+    ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
     ("unit"      , JString (DBCSignal.unit sig)) ∷
     ("receivers" , JArray (map JString (DBCSignal.receivers sig))) ∷
     formatPresence (DBCSignal.presence sig))

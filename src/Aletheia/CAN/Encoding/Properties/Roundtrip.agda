@@ -37,6 +37,7 @@ open import Data.Vec using (Vec)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _<_; _<?_; _≤_; _^_; _>_; z≤n; s≤s)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Rational using (ℚ; 0ℚ)
+open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; toℚ; _≤ᵈ_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Product using (_×_; _,_)
@@ -54,8 +55,12 @@ record WellFormedSignal (sig : SignalDef) : Set where
     startBit-bounded : SignalDef.startBit sig < 64
     bitLength-positive : SignalDef.bitLength sig > 0
     bitLength-fits : SignalDef.startBit sig + SignalDef.bitLength sig ≤ 64
-    factor-nonzero : ¬ (SignalDef.factor sig ≡ 0ℚ)
-    ranges-consistent : SignalDef.minimum sig Data.Rational.≤ SignalDef.maximum sig
+    -- Stated at the ℚ arithmetic level: the proofs below rely on
+    -- `removeScaling-applyScaling-exact` which is a ℚ lemma, so stating
+    -- `factor-nonzero` and `ranges-consistent` after `toℚ` conversion
+    -- keeps the bridge transparent.
+    factor-nonzero : ¬ (toℚ (SignalDef.factor sig) ≡ 0ℚ)
+    ranges-consistent : toℚ (SignalDef.minimum sig) Data.Rational.≤ toℚ (SignalDef.maximum sig)
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- LAYER 4A: Core roundtrip (pure bytes level, no Maybe/guards)
@@ -207,9 +212,11 @@ private
 -- For now, we state the theorem for the unsigned case (isSigned = false)
 -- The signed case follows the same structure with SignedFits constraint
 
--- Helper: compute signal value from raw integer
+-- Helper: compute signal value from raw integer.  `factor`/`offset` are
+-- stored as `DecRat`; this function bridges to the ℚ arithmetic used by
+-- `applyScaling`/`removeScaling`/`inBounds`.
 signalValue : ℤ → SignalDef → ℚ
-signalValue raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
+signalValue raw sig = applyScaling raw (toℚ (SignalDef.factor sig)) (toℚ (SignalDef.offset sig))
 
 -- ============================================================================
 -- REDUCTION LEMMAS: State exactly what injectSignal/extractSignal compute
@@ -227,17 +234,24 @@ injectedFrame n sig byteOrder frame n<2^bl =
 -- This is more useful than existence because it eliminates ∃ from proofs
 injectSignal-reduces-unsigned :
   ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
-  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
   → injectSignal (signalValue (+ n) sig) sig byteOrder frame ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
 injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl =
   helper bounds-ok remove-eq fits-check
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
     open import Relation.Nullary.Decidable using (dec-yes-irr)
     open import Data.Nat.Properties using (<-irrelevant)
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
 
     value : ℚ
     value = signalValue (+ n) sig
@@ -265,7 +279,7 @@ injectSignal-reduces-unsigned n sig byteOrder frame bounds-ok factor≢0 n<2^bl 
 -- Now uses the refactored extractSignal with computational core
 extractSignal-reduces-unsigned :
   ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
   → (unsigned : SignalDef.isSigned sig ≡ false)
   → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
@@ -276,7 +290,15 @@ extractSignal-reduces-unsigned n sig LittleEndian frame bounds-ok unsigned fits-
   helper core-eq bounds-ok
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
+
     value : ℚ
     value = signalValue (+ n) sig
 
@@ -316,7 +338,15 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
   helper swap-cancel core-eq bounds-ok
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
+
     value : ℚ
     value = signalValue (+ n) sig
 
@@ -365,8 +395,8 @@ extractSignal-reduces-unsigned n sig BigEndian frame bounds-ok unsigned fits-in-
 
 extractSignal-injectSignal-roundtrip-unsigned :
   ∀ {m} (n : ℕ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue (+ n) sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
-  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (bounds-ok : inBounds (signalValue (+ n) sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
   → (unsigned : SignalDef.isSigned sig ≡ false)
   → (fits-in-frame : SignalDef.startBit sig + SignalDef.bitLength sig ≤ m * 8)
   → (n<2^bl : n < 2 ^ SignalDef.bitLength sig)
@@ -399,8 +429,8 @@ extractSignal-injectSignal-roundtrip-unsigned n sig byteOrder frame bounds-ok fa
 -- The raw value is fromSigned z bitLength, which we prove fits in bitLength bits
 injectSignal-reduces-signed :
   ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
-  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
   → let n = fromSigned z (SignalDef.bitLength sig)
@@ -410,9 +440,16 @@ injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf =
   helper bounds-ok remove-eq fits-check
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
     open import Relation.Nullary.Decidable using (dec-yes-irr)
     open import Data.Nat.Properties using (<-irrelevant)
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
 
     value : ℚ
     value = signalValue z sig
@@ -446,7 +483,7 @@ injectSignal-reduces-signed z sig byteOrder frame bounds-ok factor≢0 bl>0 sf =
 -- Uses signal-roundtrip-signed which uses toSigned with isSigned = true
 extractSignal-reduces-signed :
   ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
+  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
   → (signed : SignalDef.isSigned sig ≡ true)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
@@ -460,7 +497,15 @@ extractSignal-reduces-signed z sig LittleEndian frame bounds-ok signed bl>0 sf f
   helper core-eq bounds-ok
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
+
     value : ℚ
     value = signalValue z sig
 
@@ -501,7 +546,15 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
   helper swap-cancel core-eq bounds-ok
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
     open CANFrame frame
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
+
     value : ℚ
     value = signalValue z sig
 
@@ -552,8 +605,8 @@ extractSignal-reduces-signed z sig BigEndian frame bounds-ok signed bl>0 sf fits
 -- Main theorem (Signed): inject then extract returns original value
 extractSignal-injectSignal-roundtrip-signed :
   ∀ {m} (z : ℤ) (sig : SignalDef) (byteOrder : ByteOrder) (frame : CANFrame m)
-  → (bounds-ok : inBounds (signalValue z sig) (SignalDef.minimum sig) (SignalDef.maximum sig) ≡ true)
-  → (factor≢0 : SignalDef.factor sig ≢ 0ℚ)
+  → (bounds-ok : inBounds (signalValue z sig) (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig)) ≡ true)
+  → (factor≢0 : toℚ (SignalDef.factor sig) ≢ 0ℚ)
   → (signed : SignalDef.isSigned sig ≡ true)
   → (bl>0 : SignalDef.bitLength sig > 0)
   → (sf : SignedFits z (SignalDef.bitLength sig))
@@ -564,6 +617,14 @@ extractSignal-injectSignal-roundtrip-signed z sig byteOrder frame bounds-ok fact
   proof
   where
     open SignalDef sig
+      using (startBit; bitLength; isSigned)
+      renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
+
+    factor = toℚ factorᵈ
+    offset = toℚ offsetᵈ
+    minimum = toℚ minimumᵈ
+    maximum = toℚ maximumᵈ
+
     value : ℚ
     value = signalValue z sig
 

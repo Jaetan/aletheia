@@ -30,6 +30,8 @@ open import Aletheia.DBC.Formatter using (ℕtoJSON; formatDBCSignal; formatByte
 open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList; parseNatList)
 open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseStringList-roundtrip)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Aletheia.DBC.DecRat using (toℚ)
+open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (unconvertStartBit-roundtrip)
 open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JBool; JArray)
@@ -60,10 +62,10 @@ private
        ("length"    , ℕtoJSON (SignalDef.bitLength def)) ∷
        ("byteOrder" , JString (formatByteOrder (DBCSignal.byteOrder sig))) ∷
        ("signed"    , JBool (SignalDef.isSigned def)) ∷
-       ("factor"    , JNumber (SignalDef.factor def)) ∷
-       ("offset"    , JNumber (SignalDef.offset def)) ∷
-       ("minimum"   , JNumber (SignalDef.minimum def)) ∷
-       ("maximum"   , JNumber (SignalDef.maximum def)) ∷
+       ("factor"    , JNumber (toℚ (SignalDef.factor def))) ∷
+       ("offset"    , JNumber (toℚ (SignalDef.offset def))) ∷
+       ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
+       ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
        ("unit"      , JString (DBCSignal.unit sig)) ∷
        ("receivers" , JArray (map JString (DBCSignal.receivers sig))) ∷
        formatPresence (DBCSignal.presence sig)
@@ -84,6 +86,10 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
           | parseStringList-roundtrip rs
+          | fromℚ?-after-toℚ (SignalDef.factor sd)
+          | fromℚ?-after-toℚ (SignalDef.offset sd)
+          | fromℚ?-after-toℚ (SignalDef.minimum sd)
+          | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
     = refl
@@ -92,6 +98,10 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
           | parseStringList-roundtrip rs
+          | fromℚ?-after-toℚ (SignalDef.factor sd)
+          | fromℚ?-after-toℚ (SignalDef.offset sd)
+          | fromℚ?-after-toℚ (SignalDef.minimum sd)
+          | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | getNat-ℕtoJSON v
           | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
@@ -112,6 +122,10 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
           | parseStringList-roundtrip rs
+          | fromℚ?-after-toℚ (SignalDef.factor sd)
+          | fromℚ?-after-toℚ (SignalDef.offset sd)
+          | fromℚ?-after-toℚ (SignalDef.minimum sd)
+          | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | m<n⇒m%n≡m (unconvertSB-bound-BE frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) fb≤64)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | unconvertStartBit-roundtrip frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) len-pos fits msb-ge
@@ -124,6 +138,10 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
           | parseStringList-roundtrip rs
+          | fromℚ?-after-toℚ (SignalDef.factor sd)
+          | fromℚ?-after-toℚ (SignalDef.offset sd)
+          | fromℚ?-after-toℚ (SignalDef.minimum sd)
+          | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | getNat-ℕtoJSON v
           | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (unconvertSB-bound-BE frameBytes (SignalDef.startBit sd) (SignalDef.bitLength sd) fb≤64)

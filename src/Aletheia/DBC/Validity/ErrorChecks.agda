@@ -38,6 +38,7 @@ open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
+open import Aletheia.DBC.DecRat using (DecRat)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Maybe using (Maybe; just; nothing; Is-just)
 open import Data.Bool using (Bool; true; false)
@@ -81,12 +82,12 @@ checkAllBitLengthZero-complete = liftConcatMap-complete _ λ msg →
 checkFactorZeroSig-sound : ∀ msgName sig →
   checkFactorZeroSig msgName sig ≡ [] → NonZeroFactor sig
 checkFactorZeroSig-sound _ sig =
-  rejectDec-sound (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
+  rejectDec-sound (DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
 
 checkFactorZeroSig-complete : ∀ msgName sig →
   NonZeroFactor sig → checkFactorZeroSig msgName sig ≡ []
 checkFactorZeroSig-complete _ sig =
-  rejectDec-complete (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
+  rejectDec-complete (DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)) _
 
 checkAllFactorZero-sound : ∀ msgs →
   checkAllFactorZero msgs ≡ [] →

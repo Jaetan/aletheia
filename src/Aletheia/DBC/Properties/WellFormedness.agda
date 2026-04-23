@@ -20,8 +20,7 @@ open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (Any; any?; here; there)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
-open import Data.Rational using (ℚ) renaming (_≤_ to _≤ᵣ_)
-open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_)
+open import Aletheia.DBC.DecRat using (_≤ᵈ_; _≤?ᵈ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
@@ -161,12 +160,12 @@ messageSignalsValid? msg = allSignalPairsValid? (dlcBytes (DBCMessage.dlc msg)) 
 SignalRangeConsistent : DBCSignal → Set
 SignalRangeConsistent sig =
   let open SignalDef (DBCSignal.signalDef sig)
-  in minimum ≤ᵣ maximum
+  in minimum ≤ᵈ maximum
 
 signalRangeConsistent? : (sig : DBCSignal) → Dec (SignalRangeConsistent sig)
 signalRangeConsistent? sig =
   let open SignalDef (DBCSignal.signalDef sig)
-  in minimum ≤?ᵣ maximum
+  in minimum ≤?ᵈ maximum
 
 data AllSignalRangesConsistent : List DBCSignal → Set where
   ranges-nil : AllSignalRangesConsistent []

@@ -15,6 +15,7 @@ open import Aletheia.CAN.Frame using (CANFrame; Byte)
 open import Aletheia.CAN.Signal using (SignalDef; SignalValue)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; isBigEndian; swapBytes; extractBits; extractRaw; extractRaw-extractBits; injectBits)
 open import Aletheia.CAN.Encoding.Arithmetic using (toSigned; fromSigned; applyScaling; removeScaling; inBounds)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.Data.BitVec using (BitVec)
 open import Aletheia.Data.BitVec.Conversion using (bitVecToℕ; ℕToBitVec)
 open import Data.Nat using (ℕ; _^_; _<_; _<?_)
@@ -55,9 +56,12 @@ extractSignalCoreFast-equiv {m} bytes sig =
   let open SignalDef sig in
   cong (λ v → toSigned v bitLength isSigned) (extractRaw-extractBits m bytes startBit bitLength)
 
--- Apply scaling to raw extracted value
+-- Apply scaling to raw extracted value.  SignalDef.factor / offset are
+-- stored as `DecRat` for exact DBC text roundtrip; `applyScaling` is
+-- ℚ-algebra, so the conversion happens once per signal per frame at
+-- this boundary.
 scaleExtracted : ℤ → SignalDef → ℚ
-scaleExtracted raw sig = applyScaling raw (SignalDef.factor sig) (SignalDef.offset sig)
+scaleExtracted raw sig = applyScaling raw (toℚ (SignalDef.factor sig)) (toℚ (SignalDef.offset sig))
 
 -- Get the bytes to extract from (handles byte order)
 extractionBytes : ∀ {m} → CANFrame m → ByteOrder → Vec Byte m
@@ -73,7 +77,7 @@ extractSignal frame sig byteOrder =
   let bytes = extractionBytes frame byteOrder
       raw = extractSignalCore bytes sig
       value = scaleExtracted raw sig
-  in if inBounds value (SignalDef.minimum sig) (SignalDef.maximum sig)
+  in if inBounds value (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig))
      then just value
      -- Value outside [minimum, maximum]: reachable via matchMuxValue (mux
      -- selector value doesn't match any expected value) and via
@@ -88,9 +92,9 @@ injectSignal : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame 
 injectSignal value signalDef byteOrder frame =
   let open CANFrame frame
       open SignalDef signalDef
-      -- Check bounds
+      -- Check bounds (minimum/maximum stored as DecRat; ℚ-level check).
       valid : Bool
-      valid = inBounds value minimum maximum
+      valid = inBounds value (toℚ minimum) (toℚ maximum)
   in if valid
      then injectHelper value signalDef byteOrder frame
      else nothing
@@ -111,7 +115,7 @@ injectSignal value signalDef byteOrder frame =
     -- C++/CAN-FD; -2.7%/+1.8% for Go; within noise of the 5% gate.)
     injectHelper : ∀ {m} → SignalValue → SignalDef → ByteOrder → CANFrame m → Maybe (CANFrame m)
     injectHelper {m} value signalDef byteOrder frame
-      with removeScaling value factor offset
+      with removeScaling value (toℚ factor) (toℚ offset)
          where open SignalDef signalDef
     ... | nothing = nothing
     ... | just rawSigned

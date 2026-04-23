@@ -16,6 +16,9 @@ open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Properties using (SignalPairValid)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.DLC using (dlcBytes)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; 0ᵈ; 1ᵈ; _≤ᵈ_; toℚ)
+open import Aletheia.DBC.DecRat.RationalRoundtrip using (↥-toℚ-canonical)
+open import Data.Rational.Base as ℚ using ()
 open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.List.Relation.Unary.AllPairs using (AllPairs)
@@ -23,11 +26,10 @@ open import Data.List.Relation.Unary.Any using (Any)
 open import Data.Nat using (ℕ; _+_; _*_; _≤_; _<_; _∸_)
 open import Data.Integer using (+_)
 open import Data.Rational using (ℚ; 0ℚ) renaming (_≤_ to _≤ᵣ_)
-open import Aletheia.Prelude using (ℕtoℚ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤)
 open import Data.Empty using (⊥)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; cong; trans; sym)
 open import Data.String using (String)
 open import Data.Bool using (Bool; true; false)
 open import Data.Product using (_×_)
@@ -37,15 +39,31 @@ open import Aletheia.CAN.Constants using (max-physical-bits)
 -- PER-SIGNAL PREDICATES
 -- ============================================================================
 
--- Condition 3: Factor numerator is non-zero
+-- Condition 3: Factor numerator is non-zero (at the DecRat-storage level).
+-- A canonical DecRat has numerator ≡ +0 iff it represents 0; so this also
+-- rules out `factor ≡ 0ᵈ`.
 NonZeroFactor : DBCSignal → Set
-NonZeroFactor sig = ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≢ + 0
+NonZeroFactor sig = DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≢ + 0
 
--- Bridge: NonZeroFactor → factor ≢ 0ℚ (contrapositive of ↥p≡0⇒p≡0)
--- If numerator ≢ +0, then the rational itself ≢ 0ℚ (since numerator 0ℚ = +0)
+-- Bridge: NonZeroFactor → factor ≢ 0ᵈ (contrapositive of numerator 0ᵈ ≡ + 0)
 nonZeroFactor→factor≢0 : ∀ {sig} → NonZeroFactor sig
-  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
-nonZeroFactor→factor≢0 nzf f≡0 = nzf (cong ℚ.numerator f≡0)
+  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ᵈ
+nonZeroFactor→factor≢0 nzf f≡0 = nzf (cong DecRat.numerator f≡0)
+
+-- ℚ-level bridge: NonZeroFactor → toℚ factor ≢ 0ℚ.  Encoding-layer
+-- proofs (Roundtrip, Capstone) operate in ℚ and consume this form.
+-- Proof goes via a helper that pattern-matches on `mkDecRat`, so
+-- `↥-toℚ-canonical` gets its concrete `num a b c` arguments (its 4th is
+-- irrelevant, so the canonical witness can't be extracted via projection).
+private
+  ↥-toℚ : ∀ (d : DecRat) → ℚ.↥ (toℚ d) ≡ DecRat.numerator d
+  ↥-toℚ (mkDecRat num a b c) = ↥-toℚ-canonical num a b c
+
+nonZeroFactor→factorℚ≢0 : ∀ {sig} → NonZeroFactor sig
+  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
+nonZeroFactor→factorℚ≢0 {sig} nzf toℚfactor≡0 =
+  nzf (trans (sym (↥-toℚ (SignalDef.factor (DBCSignal.signalDef sig))))
+             (cong ℚ.↥_ toℚfactor≡0))
 
 -- Condition 4: Multiplexor reference resolves (if conditional)
 MuxResolvable : List DBCSignal → SignalPresence → Set
@@ -111,10 +129,10 @@ record ValidDBC (dbc : DBC) : Set where
 -- WARNING PREDICATES (advisory, not part of ValidDBC)
 -- ============================================================================
 
--- Check 7: Signal minimum ≤ maximum
+-- Check 7: Signal minimum ≤ maximum (DecRat-level ordering).
 MinLeqMax : DBCSignal → Set
 MinLeqMax sig =
-  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵣ
+  SignalDef.minimum (DBCSignal.signalDef sig) ≤ᵈ
   SignalDef.maximum (DBCSignal.signalDef sig)
 
 -- Check 11: Message names pairwise distinct
@@ -158,8 +176,8 @@ RangeBoundsOK true  physA physB declMin declMax = RangeLowOK physB declMin × Ra
 MuxScalingOK : Maybe DBCSignal → Set
 MuxScalingOK nothing = ⊤
 MuxScalingOK (just muxSig) =
-  SignalDef.factor (DBCSignal.signalDef muxSig) ≡ ℕtoℚ 1
-  × SignalDef.offset (DBCSignal.signalDef muxSig) ≡ ℕtoℚ 0
+  SignalDef.factor (DBCSignal.signalDef muxSig) ≡ 1ᵈ
+  × SignalDef.offset (DBCSignal.signalDef muxSig) ≡ 0ᵈ
 
 -- Takes SignalPresence directly (not DBCSignal) to allow pattern matching
 -- without where-blocks, which are opaque to external proofs.

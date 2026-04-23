@@ -56,7 +56,7 @@ open import Aletheia.CAN.Endianness using
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec; showℚ-dec; quoteStringLit)
+  (showℕ-dec; showDecRat-dec; quoteStringLit)
 
 -- ============================================================================
 -- BU_ (NODES)
@@ -150,10 +150,10 @@ emitSignalLine master frameBytes sig =
      emitMuxMarker master (DBCSignal.name sig) (DBCSignal.presence sig) ++ₛ
      " : " ++ₛ showℕ-dec sb ++ₛ "|" ++ₛ showℕ-dec (SignalDef.bitLength def) ++ₛ
      "@" ++ₛ emitByteOrderDigit bo ++ₛ emitSignFlag (SignalDef.isSigned def) ++ₛ
-     " (" ++ₛ showℚ-dec (SignalDef.factor def) ++ₛ "," ++ₛ
-     showℚ-dec (SignalDef.offset def) ++ₛ ")" ++ₛ
-     " [" ++ₛ showℚ-dec (SignalDef.minimum def) ++ₛ "|" ++ₛ
-     showℚ-dec (SignalDef.maximum def) ++ₛ "]" ++ₛ
+     " (" ++ₛ showDecRat-dec (SignalDef.factor def) ++ₛ "," ++ₛ
+     showDecRat-dec (SignalDef.offset def) ++ₛ ")" ++ₛ
+     " [" ++ₛ showDecRat-dec (SignalDef.minimum def) ++ₛ "|" ++ₛ
+     showDecRat-dec (SignalDef.maximum def) ++ₛ "]" ++ₛ
      " " ++ₛ quoteStringLit (DBCSignal.unit sig) ++ₛ
      " " ++ₛ emitReceivers (DBCSignal.receivers sig) ++ₛ "\n"
 

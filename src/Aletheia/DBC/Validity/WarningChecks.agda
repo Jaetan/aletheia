@@ -61,6 +61,7 @@ open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.Nat.Properties using (_≤?_; _<?_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
+open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Unit using (⊤; tt)
 open import Data.Bool using (Bool; true; false)
@@ -170,7 +171,7 @@ checkAllGlobalNameCollisions-complete =
 
 checkMinMaxSig-allW : ∀ msgName sig → All W (checkMinMaxSig msgName sig)
 checkMinMaxSig-allW msgName sig
-  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+  with SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
        SignalDef.maximum (DBCSignal.signalDef sig)
 ... | yes _ = []
 ... | no  _ = refl ∷ []
@@ -193,13 +194,13 @@ checkAllMinMax-allW (msg ∷ rest) =
 checkMinMaxSig-sound : ∀ msgName sig →
   checkMinMaxSig msgName sig ≡ [] → MinLeqMax sig
 checkMinMaxSig-sound _ sig =
-  requireDec-sound (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+  requireDec-sound (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
                     SignalDef.maximum (DBCSignal.signalDef sig)) _
 
 checkMinMaxSig-complete : ∀ msgName sig →
   MinLeqMax sig → checkMinMaxSig msgName sig ≡ []
 checkMinMaxSig-complete _ sig =
-  requireDec-complete (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+  requireDec-complete (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
                        SignalDef.maximum (DBCSignal.signalDef sig)) _
 
 checkAllMinMax-sound : ∀ msgs →
@@ -299,9 +300,9 @@ checkOffsetScaleRange-allW : ∀ msgName sig → All W (checkOffsetScaleRange ms
 checkOffsetScaleRange-allW msgName sig
   with SignalDef.isSigned (DBCSignal.signalDef sig)
 ... | true  = checkRangeBounds-allW msgName (DBCSignal.name sig)
-                (SignalDef.factor (DBCSignal.signalDef sig)) _ _ _ _
+                (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
 ... | false = checkRangeBounds-allW msgName (DBCSignal.name sig)
-                (SignalDef.factor (DBCSignal.signalDef sig)) _ _ _ _
+                (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
 
 checkAllOffsetScaleRange-allW : ∀ msgs → All W (checkAllOffsetScaleRange msgs)
 checkAllOffsetScaleRange-allW [] = []
@@ -507,8 +508,8 @@ checkAllBitLengthExcessive-complete = liftConcatMap-complete _ λ msg →
 
 checkMuxScaling-allW : ∀ msgName muxName muxSig → All W (checkMuxScaling msgName muxName muxSig)
 checkMuxScaling-allW msgName muxName muxSig
-  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
-     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵈ 1ᵈ
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵈ 0ᵈ
 ... | yes _ | yes _ = []
 ... | yes _ | no  _ = refl ∷ []
 ... | no  _ | _     = refl ∷ []
@@ -540,8 +541,8 @@ checkAllMuxScaling-allW (msg ∷ rest) =
 checkMuxScaling-sound : ∀ msgName muxName muxSig →
   checkMuxScaling msgName muxName muxSig ≡ [] → MuxScalingOK (just muxSig)
 checkMuxScaling-sound msgName muxName muxSig eq
-  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
-     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵈ 1ᵈ
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵈ 0ᵈ
 ... | yes p₁ | yes p₂ = p₁ , p₂
 checkMuxScaling-sound _ _ _ () | yes _ | no _
 checkMuxScaling-sound _ _ _ () | no _  | _
@@ -549,8 +550,8 @@ checkMuxScaling-sound _ _ _ () | no _  | _
 checkMuxScaling-complete : ∀ msgName muxName muxSig →
   MuxScalingOK (just muxSig) → checkMuxScaling msgName muxName muxSig ≡ []
 checkMuxScaling-complete msgName muxName muxSig (p₁ , p₂)
-  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
-     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵈ 1ᵈ
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵈ 0ᵈ
 ... | yes _  | yes _  = refl
 ... | yes _  | no ¬p₂ = ⊥-elim (¬p₂ p₂)
 ... | no ¬p₁ | _      = ⊥-elim (¬p₁ p₁)

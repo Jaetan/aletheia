@@ -14,6 +14,7 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (extractSignal; extractSignalCoreFast; scaleExtracted; extractionBytes)
 open import Aletheia.CAN.Encoding.Arithmetic using (inBounds)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed)
@@ -101,8 +102,8 @@ extractSignalDirect msg frame sig with checkSignalPresence frame msg sig
             bytes = extractionBytes frame bo
             raw = extractSignalCoreFast bytes sigDef
             value = scaleExtracted raw sigDef
-            minVal = SignalDef.minimum sigDef
-            maxVal = SignalDef.maximum sigDef
+            minVal = toℚ (SignalDef.minimum sigDef)
+            maxVal = toℚ (SignalDef.maximum sigDef)
         in if inBounds value minVal maxVal
            then Success value
            else ValueOutOfBounds value minVal maxVal

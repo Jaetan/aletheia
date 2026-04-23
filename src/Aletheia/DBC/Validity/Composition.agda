@@ -36,6 +36,7 @@ open import Data.Nat.Properties using (_≤?_; _≟_)
 open import Data.Integer using (ℤ; +_)
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Rational using (ℚ)
+open import Aletheia.DBC.DecRat using (DecRat)
 open import Data.Maybe using (just; nothing)
 open import Data.Bool using (true; false)
 open import Aletheia.CAN.DLC using (dlcBytes)
@@ -105,7 +106,7 @@ checkDuplicateSignalPair-allE msgName s1 s2 with DBCSignal.name s1 ≟ₛ DBCSig
 -- Check 3: FactorZero
 checkFactorZeroSig-allE : ∀ msgName sig → All E (checkFactorZeroSig msgName sig)
 checkFactorZeroSig-allE msgName sig
-  with ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
+  with DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0)
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 

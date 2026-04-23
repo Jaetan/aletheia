@@ -60,7 +60,7 @@ open import Aletheia.Parser.Combinators using
    satisfy; char; string; many)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural; parseRational)
+   parseNatural; parseDecRat)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
@@ -209,15 +209,15 @@ parseSignalLine = do
   isSigned ← parseSignFlag
   _ ← parseWSOpt
   _ ← char '('
-  factor ← parseRational
+  factor ← parseDecRat
   _ ← char ','
-  offset ← parseRational
+  offset ← parseDecRat
   _ ← char ')'
   _ ← parseWSOpt
   _ ← char '['
-  minimum ← parseRational
+  minimum ← parseDecRat
   _ ← char '|'
-  maximum ← parseRational
+  maximum ← parseDecRat
   _ ← char ']'
   _ ← parseWSOpt
   unit ← parseStringLit

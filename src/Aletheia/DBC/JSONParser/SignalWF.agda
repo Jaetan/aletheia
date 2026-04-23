@@ -29,7 +29,7 @@ open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; J
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
-open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList;
+open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
   parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate;
   parseOptionalArray; parseStringList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
@@ -150,18 +150,18 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
         with parseSigned obj | eq₄
 ...         | inj₁ _ | ()
 ...         | inj₂ isSigned | eq₅
-          with lookupRational "factor" obj | eq₅
-...           | nothing | ()
-...           | just factor | eq₆
-            with lookupRational "offset" obj | eq₆
-...             | nothing | ()
-...             | just offset | eq₇
-              with lookupRational "minimum" obj | eq₇
-...               | nothing | ()
-...               | just minimum | eq₈
-                with lookupRational "maximum" obj | eq₈
-...                 | nothing | ()
-...                 | just maximum | eq₉
+          with lookupDecRat "factor" obj | eq₅
+...           | inj₁ _ | ()
+...           | inj₂ factor | eq₆
+            with lookupDecRat "offset" obj | eq₆
+...             | inj₁ _ | ()
+...             | inj₂ offset | eq₇
+              with lookupDecRat "minimum" obj | eq₇
+...               | inj₁ _ | ()
+...               | inj₂ minimum | eq₈
+                with lookupDecRat "maximum" obj | eq₈
+...                 | inj₁ _ | ()
+...                 | inj₂ maximum | eq₉
                   with lookupString "unit" obj | eq₉
 ...                   | nothing | ()
 ...                   | just unit | eq₁₀

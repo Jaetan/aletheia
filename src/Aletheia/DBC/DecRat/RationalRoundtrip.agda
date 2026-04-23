@@ -23,7 +23,7 @@ open import Data.Nat.Base
 open import Data.Nat.Properties
   using (*-identityʳ; *-identityˡ; *-assoc; *-comm; *-zeroˡ; *-zeroʳ;
          m^n≢0; m*n≢0; m^n>0; *-cancelˡ-≡; <-irrefl;
-         ≤-refl; <-trans; n<1+n; suc-injective)
+         ≤-refl; <-trans; n<1+n; suc-injective; suc-pred)
   renaming (_≟_ to _≟ₙ_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat.Divisibility
@@ -59,7 +59,10 @@ open import Data.Rational.Properties
 open import Aletheia.DBC.DecRat using
   (DecRat; mkDecRat; IsCanonical; isCanonicalᵇ; toℚ; fromℚ?;
    fromℚ?-raw; canonicalizeDecRat; canonicalizeNat;
-   stripShared2-abs; stripShared5-abs; stripFactor-fuel)
+   stripShared2-abs; stripShared5-abs; stripFactor-fuel;
+   2^a·5^b-NonZero; T-not-isYes-∤; splitBool-T;
+   prime[5]; ∤-prime⇒coprime; coprime-product; coprime-prime-power;
+   IsCanonical→Coprime)
 import Aletheia.DBC.DecRat as D
 
 -- ----------------------------------------------------------------------------
@@ -211,19 +214,6 @@ stripShared5-abs-id-zero :
   ∀ n → stripShared5-abs n zero ≡ (n , zero)
 stripShared5-abs-id-zero n = refl
 
--- Bridge: T (not (isYes (p ∣? n))) → p ∤ n.
-T-not-isYes-∤ :
-  ∀ p n → T (not (isYes (p ∣? n))) → p ∤ n
-T-not-isYes-∤ p n tw with p ∣? n
-... | yes _   = ⊥-elim tw
-... | no  ¬∣  = ¬∣
-
--- Project a T-witness over a boolean conjunction.
-splitBool-T : ∀ {x y} → T (x ∧ y) → T x × T y
-splitBool-T {true}  {true}  tt  = tt , tt
-splitBool-T {true}  {false} ()
-splitBool-T {false} {_}     ()
-
 -- From a canonical witness, extract that `stripShared2-abs n a` is an
 -- identity (n, a).  Dispatches on (n, a, b) to align with isCanonicalᵇ's
 -- exhaustive pattern.
@@ -323,81 +313,6 @@ canonicalizeDecRat-id d@(mkDecRat num a b canonical) =
 -- the boolean `IsCanonical` witness to nat-level `Coprime` is built bottom-up:
 -- prime + ∤ → coprime, then product of coprimes, then prime power.
 
-prime[5] : Prime 5
-prime[5] = toWitness {a? = prime? 5} _
-
--- A prime that doesn't divide n is coprime to n.
-∤-prime⇒coprime :
-  ∀ n p → Prime p → p ∤ n → Coprime n p
-∤-prime⇒coprime n p pp p∤n {d} (d∣n , d∣p)
-  with prime⇒irreducible pp d∣p
-... | inj₁ d≡1 = d≡1
-... | inj₂ d≡p = ⊥-elim (p∤n (subst (_∣ n) d≡p d∣n))
-
--- Coprimality distributes over products on the right factor.
--- Proof: any common divisor d of n and (m * k) is also coprime to m
--- (via cnm + d∣n), so by `coprime-divisor` it must divide k; then
--- cnk forces d ≡ 1.
-coprime-product :
-  ∀ n m k → Coprime n m → Coprime n k → Coprime n (m * k)
-coprime-product n m k cnm cnk {d} (d∣n , d∣mk) =
-  cnk (d∣n , coprime-divisor cdm d∣mk)
-  where
-  cdm : Coprime d m
-  cdm {e} (e∣d , e∣m) = cnm (∣-trans e∣d d∣n , e∣m)
-
--- Coprimality of n with a prime p lifts to coprimality with p^k.
-coprime-prime-power :
-  ∀ n p → Coprime n p → ∀ k → Coprime n (p ^ k)
-coprime-prime-power n p cnp zero    = coprime-sym (1-coprimeTo n)
-coprime-prime-power n p cnp (suc k) =
-  coprime-product n p (p ^ k) cnp (coprime-prime-power n p cnp k)
-
--- Bridge: a canonical witness gives coprimality with 2^a * 5^b.
--- Case-split on n first (zero / suc) to dispatch the canonical witness
--- shape, then on (a, b) to discharge the trivial sub-goals.
-IsCanonical→Coprime :
-  ∀ n a b → IsCanonical n a b → Coprime n (2 ^ a * 5 ^ b)
--- n = zero : canonical forces (a, b) = (0, 0); other branches absurd.
-IsCanonical→Coprime zero    zero    zero    _  =
-  coprime-sym (1-coprimeTo 0)
-IsCanonical→Coprime zero    zero    (suc _) ()
-IsCanonical→Coprime zero    (suc _) _       ()
--- n = suc m, (a, b) = (0, 0) : 2^0 * 5^0 = 1; trivially coprime.
-IsCanonical→Coprime (suc m) zero    zero    _  =
-  coprime-sym (1-coprimeTo (suc m))
--- n = suc m, a = 0, b = suc b' : need 5 ∤ suc m from canonical.
-IsCanonical→Coprime (suc m) zero    (suc b) cr =
-  subst (Coprime (suc m)) (sym (*-identityˡ (5 ^ suc b)))
-        (coprime-prime-power (suc m) 5
-          (∤-prime⇒coprime (suc m) 5 prime[5]
-            (T-not-isYes-∤ 5 (suc m) cr))
-          (suc b))
--- n = suc m, a = suc a', b = 0 : need 2 ∤ suc m.
-IsCanonical→Coprime (suc m) (suc a) zero    cr =
-  subst (Coprime (suc m)) (sym (*-identityʳ (2 ^ suc a)))
-        (coprime-prime-power (suc m) 2
-          (∤-prime⇒coprime (suc m) 2 prime[2]
-            (T-not-isYes-∤ 2 (suc m) cr))
-          (suc a))
--- n = suc m, a = suc a', b = suc b' : need both.
-IsCanonical→Coprime (suc m) (suc a) (suc b) cr =
-  coprime-product (suc m) (2 ^ suc a) (5 ^ suc b)
-    (coprime-prime-power (suc m) 2 cnp-2 (suc a))
-    (coprime-prime-power (suc m) 5 cnp-5 (suc b))
-  where
-  parts : T (not (isYes (2 ∣? suc m))) ×
-          T (not (isYes (5 ∣? suc m)))
-  parts = splitBool-T cr
-
-  cnp-2 : Coprime (suc m) 2
-  cnp-2 = ∤-prime⇒coprime (suc m) 2 prime[2]
-            (T-not-isYes-∤ 2 (suc m) (proj₁ parts))
-
-  cnp-5 : Coprime (suc m) 5
-  cnp-5 = ∤-prime⇒coprime (suc m) 5 prime[5]
-            (T-not-isYes-∤ 5 (suc m) (proj₂ parts))
-
 -- Denominator of toℚ d in `suc D` form.
 2^a*5^b≡suc :
   ∀ a b → 2 ^ a * 5 ^ b ≡ suc ((2 ^ a * 5 ^ b) Data.Nat.Base.∸ 1)
@@ -424,47 +339,22 @@ normalize-canonical-+ n a b coprime-w =
                         refl (2^a*5^b≡suc a b))
         (normalize-coprime coprime-w)
 
--- Numerator projection of toℚ for canonical d.
+-- Numerator projection of toℚ for canonical d.  The new `toℚ` uses
+-- `mkℚ` directly (no gcd normalisation), so `↥` projects the original
+-- numerator by definitional equality.
 ↥-toℚ-canonical :
   ∀ num a b .(c : IsCanonical ∣ num ∣ a b) →
     ↥ (toℚ (mkDecRat num a b c)) ≡ num
-↥-toℚ-canonical (+ n) a b c =
-  cong ↥_ (normalize-canonical-+ n a b coprime-w)
-  where
-  coprime-w : Coprime n (suc ((2 ^ a * 5 ^ b) Data.Nat.Base.∸ 1))
-  coprime-w = subst (Coprime n) (2^a*5^b≡suc a b)
-                    (IsCanonical→Coprime n a b
-                      (Dec.recompute (T? (isCanonicalᵇ n a b)) c))
-↥-toℚ-canonical -[1+ n ] a b c =
-  cong (λ q → ↥ (- q)) (normalize-canonical-+ (suc n) a b coprime-w)
-  where
-  coprime-w : Coprime (suc n) (suc ((2 ^ a * 5 ^ b) Data.Nat.Base.∸ 1))
-  coprime-w = subst (Coprime (suc n)) (2^a*5^b≡suc a b)
-                    (IsCanonical→Coprime (suc n) a b
-                      (Dec.recompute (T? (isCanonicalᵇ (suc n) a b)) c))
+↥-toℚ-canonical num a b c = refl
 
 -- Denominator (in ℕ form: `suc denominator-1`) of toℚ for canonical d.
+-- After the `mkℚ` rewrite of `toℚ`, `denominator-1 = (2^a·5^b) ∸ 1`,
+-- so `suc (d-1) ≡ 2^a·5^b` via `suc-pred` at the NonZero witness.
 ↧ₙ-toℚ-canonical :
   ∀ num a b .(c : IsCanonical ∣ num ∣ a b) →
     suc (ℚ.denominator-1 (toℚ (mkDecRat num a b c))) ≡ 2 ^ a * 5 ^ b
-↧ₙ-toℚ-canonical (+ n) a b c =
-  trans (cong (λ q → suc (ℚ.denominator-1 q))
-              (normalize-canonical-+ n a b coprime-w))
-        (sym (2^a*5^b≡suc a b))
-  where
-  coprime-w : Coprime n (suc ((2 ^ a * 5 ^ b) Data.Nat.Base.∸ 1))
-  coprime-w = subst (Coprime n) (2^a*5^b≡suc a b)
-                    (IsCanonical→Coprime n a b
-                      (Dec.recompute (T? (isCanonicalᵇ n a b)) c))
-↧ₙ-toℚ-canonical -[1+ n ] a b c =
-  trans (cong (λ q → suc (ℚ.denominator-1 (- q)))
-              (normalize-canonical-+ (suc n) a b coprime-w))
-        (sym (2^a*5^b≡suc a b))
-  where
-  coprime-w : Coprime (suc n) (suc ((2 ^ a * 5 ^ b) Data.Nat.Base.∸ 1))
-  coprime-w = subst (Coprime (suc n)) (2^a*5^b≡suc a b)
-                    (IsCanonical→Coprime (suc n) a b
-                      (Dec.recompute (T? (isCanonicalᵇ (suc n) a b)) c))
+↧ₙ-toℚ-canonical num a b c =
+  suc-pred (2 ^ a * 5 ^ b) ⦃ 2^a·5^b-NonZero a b ⦄
 
 -- ----------------------------------------------------------------------------
 -- Layer 4 — `fromℚ? (toℚ d) ≡ just d`

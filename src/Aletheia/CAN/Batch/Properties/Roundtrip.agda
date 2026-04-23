@@ -29,6 +29,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _^_; _>_; _∸_; suc; _<?_; _≤?_)
 open import Data.Rational using (ℚ; 0ℚ)
+open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; toℚ)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Bool using (true; false)
 open import Data.List.Membership.Propositional using (_∈_)
@@ -86,6 +87,10 @@ private
   extractSignal-bits-eq frame₁ frame₂ sig bo bits-eq = result-eq
     where
       open SignalDef sig
+        using (startBit; bitLength; isSigned)
+        renaming (factor to factorᵈ; offset to offsetᵈ; minimum to minimumᵈ; maximum to maximumᵈ)
+      minimum = toℚ minimumᵈ
+      maximum = toℚ maximumᵈ
 
       bytes₁ = extractionBytes frame₁ bo
       bytes₂ = extractionBytes frame₂ bo
@@ -191,9 +196,9 @@ data AllRoundtrip (n : ℕ) : List (DBCSignal × ℚ) → Set where
 roundtrip-unsigned→IR :
   ∀ {m} (n : ℕ) (sig : DBCSignal)
   → inBounds (signalValue (+ n) (DBCSignal.signalDef sig))
-             (SignalDef.minimum (DBCSignal.signalDef sig))
-             (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
-  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+             (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
+             (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
+  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
   → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ false
   → signalFits m (DBCSignal.signalDef sig)
   → n < 2 ^ SignalDef.bitLength (DBCSignal.signalDef sig)
@@ -212,9 +217,9 @@ roundtrip-unsigned→IR n sig bounds-ok factor≢0 unsigned fits n<2^bl frame fr
 roundtrip-signed→IR :
   ∀ {m} (z : ℤ) (sig : DBCSignal)
   → inBounds (signalValue z (DBCSignal.signalDef sig))
-             (SignalDef.minimum (DBCSignal.signalDef sig))
-             (SignalDef.maximum (DBCSignal.signalDef sig)) ≡ true
-  → SignalDef.factor (DBCSignal.signalDef sig) ≢ 0ℚ
+             (toℚ (SignalDef.minimum (DBCSignal.signalDef sig)))
+             (toℚ (SignalDef.maximum (DBCSignal.signalDef sig))) ≡ true
+  → toℚ (SignalDef.factor (DBCSignal.signalDef sig)) ≢ 0ℚ
   → SignalDef.isSigned (DBCSignal.signalDef sig) ≡ true
   → SignalDef.bitLength (DBCSignal.signalDef sig) > 0
   → SignedFits z (SignalDef.bitLength (DBCSignal.signalDef sig))

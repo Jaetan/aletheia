@@ -44,6 +44,7 @@ open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Rational using (ℚ) renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_; _/_ to _/ᵣ_)
 open import Aletheia.Prelude using (ℕtoℚ; fromℤ)
 open import Data.Rational.Properties using () renaming (_≤?_ to _≤?ᵣ_; _≟_ to _≟ᵣ_)
+open import Aletheia.DBC.DecRat using (DecRat; 0ᵈ; 1ᵈ; toℚ; _≟ᵈ_; _≤?ᵈ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Integer.Properties using () renaming (_≟_ to _≟ℤ_)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
@@ -117,7 +118,7 @@ checkAllDuplicateSignalNames = concatMap checkDuplicateSignalNamesInMsg
 
 checkFactorZeroSig : String → DBCSignal → List ValidationIssue
 checkFactorZeroSig msgName sig =
-  rejectDec (ℚ.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0))
+  rejectDec (DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0))
             (mkIssue IsError FactorZero
               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
                ++ₛ "': factor is zero (constant-zero signal)"))
@@ -194,8 +195,8 @@ checkAllMuxCycle = concatMap λ msg →
 
 checkMuxScaling : String → String → DBCSignal → List ValidationIssue
 checkMuxScaling msgName muxName muxSig
-  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 1
-     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵣ ℕtoℚ 0
+  with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵈ 1ᵈ
+     | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵈ 0ᵈ
 ... | yes _ | yes _ = []
 ... | _     | _     = mkIssue IsWarning MultiplexorNonUnitScaling
                          ("Message '" ++ₛ msgName ++ₛ "': multiplexor '"
@@ -244,7 +245,7 @@ checkAllGlobalNameCollisions = triangularCheck checkGlobalNamePair
 
 checkMinMaxSig : String → DBCSignal → List ValidationIssue
 checkMinMaxSig msgName sig =
-  requireDec (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵣ
+  requireDec (SignalDef.minimum (DBCSignal.signalDef sig) ≤?ᵈ
               SignalDef.maximum (DBCSignal.signalDef sig))
              (mkIssue IsWarning MinExceedsMax
                ("Message '" ++ₛ msgName ++ₛ "', signal '"
@@ -367,13 +368,13 @@ rawRange false n = ℕtoℚ 0 , ℕtoℚ (pred (2 ^ n))
 checkOffsetScaleRange : String → DBCSignal → List ValidationIssue
 checkOffsetScaleRange msgName sig =
   let sd      = DBCSignal.signalDef sig
-      factor  = SignalDef.factor sd
-      offset  = SignalDef.offset sd
+      factor  = toℚ (SignalDef.factor sd)
+      offset  = toℚ (SignalDef.offset sd)
       raw     = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
       physA   = proj₁ raw *ᵣ factor +ᵣ offset
       physB   = proj₂ raw *ᵣ factor +ᵣ offset
   in checkRangeBounds msgName (DBCSignal.name sig) factor physA physB
-                      (SignalDef.minimum sd) (SignalDef.maximum sd)
+                      (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd))
 
 checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
 checkAllOffsetScaleRange = liftPerSignal checkOffsetScaleRange

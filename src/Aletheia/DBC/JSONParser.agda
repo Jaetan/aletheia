@@ -53,6 +53,19 @@ open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
 -- JSON → DBC PARSERS (with typed ParseError)
 -- ============================================================================
 
+-- Combined `lookupRational` + `fromℚ?` for JSON fields that hold a
+-- DBC-decimal.  Returns `MissingField` if the key is absent and
+-- `NonTerminatingRational` if the ℚ literal has no exact DecRat
+-- representation.  A single `with lookupDecRat key obj | eq` inversion
+-- covers both failure modes in downstream WF proofs — avoids stacking
+-- `with lookupRational ... | eq` + `with fromℚ? ... | eq` per field.
+lookupDecRat : String → List (String × JSON) → ParseError ⊎ DecRat
+lookupDecRat key obj with lookupRational key obj
+... | nothing = inj₁ (MissingField key)
+... | just q  with fromℚ? q
+...   | nothing = inj₁ (NonTerminatingRational key)
+...   | just d  = inj₂ d
+
 -- Parse ByteOrder from string
 parseByteOrder : String → ParseError ⊎ ByteOrder
 parseByteOrder s =
@@ -162,10 +175,10 @@ parseSignalFields frameBytes ctx name obj =
     require (MissingField "byteOrder") (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
     parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
     parseSigned obj >>=ₑ λ isSigned →
-    require (MissingField "factor") (lookupRational "factor" obj) >>=ₑ λ factor →
-    require (MissingField "offset") (lookupRational "offset" obj) >>=ₑ λ offset →
-    require (MissingField "minimum") (lookupRational "minimum" obj) >>=ₑ λ minimum →
-    require (MissingField "maximum") (lookupRational "maximum" obj) >>=ₑ λ maximum →
+    lookupDecRat "factor"  obj >>=ₑ λ factor →
+    lookupDecRat "offset"  obj >>=ₑ λ offset →
+    lookupDecRat "minimum" obj >>=ₑ λ minimum →
+    lookupDecRat "maximum" obj >>=ₑ λ maximum →
     require (MissingField "unit") (lookupString "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
     parseOptionalArray parseStringList (lookupArray "receivers" obj) >>=ₑ λ receivers →
@@ -315,12 +328,9 @@ parseEnvironmentVar obj =
   require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
   require (MissingField "varType") (lookupNat "varType" obj) >>=ₑ λ vtNat →
   parseVarType vtNat >>=ₑ λ vt →
-  require (MissingField "initial") (lookupRational "initial" obj) >>=ₑ λ iniℚ →
-  require (NonTerminatingRational "initial") (fromℚ? iniℚ)  >>=ₑ λ initial →
-  require (MissingField "minimum") (lookupRational "minimum" obj) >>=ₑ λ minℚ →
-  require (NonTerminatingRational "minimum") (fromℚ? minℚ)  >>=ₑ λ minimum →
-  require (MissingField "maximum") (lookupRational "maximum" obj) >>=ₑ λ maxℚ →
-  require (NonTerminatingRational "maximum") (fromℚ? maxℚ)  >>=ₑ λ maximum →
+  lookupDecRat "initial" obj >>=ₑ λ initial →
+  lookupDecRat "minimum" obj >>=ₑ λ minimum →
+  lookupDecRat "maximum" obj >>=ₑ λ maximum →
   inj₂ (record
     { name = name ; varType = vt ; initial = initial
     ; minimum = minimum ; maximum = maximum })

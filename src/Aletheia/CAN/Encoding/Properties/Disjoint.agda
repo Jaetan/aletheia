@@ -30,6 +30,7 @@ open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _<?_; _≤_; _^_)
 open import Data.Nat.Properties using (<-≤-trans; +-monoʳ-<)
 open import Data.Rational using (ℚ)
+open import Aletheia.DBC.DecRat using (toℚ)
 open import Data.Maybe using (just; nothing)
 open import Data.Maybe.Properties using (just-injective)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -61,9 +62,9 @@ injectSignal-preserves-disjoint-bits :
   → extractBits {len₂} (extractionBytes frame' bo) start₂
     ≡ extractBits {len₂} (extractionBytes frame bo) start₂
 injectSignal-preserves-disjoint-bits {m} {len₂} v sig bo frame frame' start₂ eq disj fits₁ fits₂
-  with inBounds v (SignalDef.minimum sig) (SignalDef.maximum sig)
+  with inBounds v (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig))
 ... | false = case eq of λ ()
-... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
+... | true with removeScaling v (toℚ (SignalDef.factor sig)) (toℚ (SignalDef.offset sig))
 ...   | nothing = case eq of λ ()
 ...   | just rawSigned with fromSigned rawSigned (SignalDef.bitLength sig) <? 2 ^ SignalDef.bitLength sig
 ...     | no _ = case eq of λ ()
@@ -131,9 +132,9 @@ injectSignal-preserves-disjoint-bits-physical :
   → extractBits {len₂} (extractionBytes frame' bo₂) start₂
     ≡ extractBits {len₂} (extractionBytes frame bo₂) start₂
 injectSignal-preserves-disjoint-bits-physical {n} {len₂} v sig bo₁ bo₂ frame frame' start₂ eq physDisj fits₁ fits₂
-  with inBounds v (SignalDef.minimum sig) (SignalDef.maximum sig)
+  with inBounds v (toℚ (SignalDef.minimum sig)) (toℚ (SignalDef.maximum sig))
 ... | false = case eq of λ ()
-... | true with removeScaling v (SignalDef.factor sig) (SignalDef.offset sig)
+... | true with removeScaling v (toℚ (SignalDef.factor sig)) (toℚ (SignalDef.offset sig))
 ...   | nothing = case eq of λ ()
 ...   | just rawSigned with fromSigned rawSigned (SignalDef.bitLength sig) <? 2 ^ SignalDef.bitLength sig
 ...     | no _ = case eq of λ ()
