@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-21 (Phase B.2 audit-closed; Phase B.3.a/b/c shipped; Phase B.3.d in_progress with universal roundtrip as target)
+**Last Updated**: 2026-04-24 (Phase B.3.d pre-gate ✅ complete — 6 commits migrating every on-disk ℚ field to DecRat; proof-layer work still in_progress)
 
 ---
 
@@ -14,11 +14,11 @@ Post-R17 work now follows the parity plan rather than the generic "Phase 6" labe
 - **Phase A** ✅ — `docs/FEATURE_MATRIX.yaml` is the authoritative parity source (35 rows × 3 bindings after B.1.x + B.2); structural gates in Python / C++ / Go fail CI on any unresolved `implemented` entry.
 - **Phase B.1 / B.1.x** ✅ — DBC metadata Tier 1 + Tier 2 + signal receivers + message senders (`BO_TX_BU_`) flow end-to-end through Agda core → FFI → bindings with roundtrip proofs.
 - **Phase B.2** ✅ — Mux query helpers + DBC lookups, closed via audit (binding surface pre-existed client-side); matrix rows `dbc_queries_mux` + `dbc_lookup` both `implemented` × 3.
-- **Phase B.3** — Agda-core DBC text parser (R17-DEF-4). **B.3.a/b/c ✅** (corpus baseline, skeletons, incremental constructs — 13 commits `4a086e8..a7f255e`). **Pre-B.3.d infrastructure ✅** (`check-properties` Shake wiring + three WF proof-completeness fixes, commit `0035a4e`). **B.3.d in_progress**: target is the universal `∀ d → parseText (formatText d) ≡ inj₂ d` — proof decomposition (four layers: string-side substrate → per-primitive → per-line-construct → top-level aggregator) in PARITY_PLAN.md §B.3.d. A corpus-shape / per-fixture attempt was reverted on 2026-04-21 because point verification is not a proof of the function-level property — see `feedback_no_silent_proof_reframing.md`. Pre-implementation gate: stdlib audit for `toList-++ₛ` and related substrate. **B.3.e–j pending**: JSON command, Python feature-flag switch, cantools drop, C++/Go APIs, cross-binding parity.
+- **Phase B.3** — Agda-core DBC text parser (R17-DEF-4). **B.3.a/b/c ✅** (corpus baseline, skeletons, incremental constructs — 13 commits `4a086e8..a7f255e`). **Pre-B.3.d infrastructure ✅** (`check-properties` wiring + three WF fixes, commit `0035a4e`). **B.3.d pre-gate ✅ complete (2026-04-24)** — 6-commit ℚ→DecRat migration (`0b7849b` DecRat primitives, `c05083e` text parser/emitter + universal sketch, `6fa29e3` EV_ + Layer-4 closure + `NonTerminatingRational` wired cross-binding, `dd9b770` SG_ + `lookupDecRat` combinator + `mkℚ`-direct `toℚ` runtime optimisation that closed a 9–15% CAN-FD Signal Extraction regression and delivered +16% on CAN 2.0B, `917465b` Attributes + `TextParser.agda` / `TextFormatter.agda` added to `check-properties` walk, this commit docs/memory). The pre-gate closes the decimal-precision gap (every ℚ-valued DBC-on-disk field now stored as `DecRat = n / (2^a · 5^b)` canonical form, exact roundtrip through `fromℚ?-after-toℚ`). **B.3.d proof-layer work ⏳ in_progress**: target is the universal `∀ d → parseText (formatText d) ≡ inj₂ d` — four-layer decomposition in PARITY_PLAN.md §B.3.d.  Pre-implementation gate: layer-1 stdlib audit complete 2026-04-22; `toList-++ₛ` is only stdlib-provable via `trustMe` under `--with-K`, so layer 1 is not import-and-re-export.  Four options in `project_b3d_stdlib_audit.md` await user decision before layer-1 code lands.  **B.3.e–j pending**: JSON command, Python feature-flag switch, cantools drop, C++/Go APIs, cross-binding parity.
 - **Phase C** — Idiomatic cancellation / async / `send_frames_iter` / Go `context.Context` / C++ cancellation — **design rounds required** before any code (user rejected prior R17 proposals).
 - **Phase D** — C++/Go doc-example harness mirror of R17 C6 (R17-DEF-6).
 
-**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c complete; **Phase B.3.d in_progress** (universal proof); Phase B.3.e–j → Phase C/D per plan.
+**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c + **Phase B.3.d pre-gate** complete; **Phase B.3.d proof-layer work in_progress** (universal roundtrip; layer-1 substrate decision owed per `project_b3d_stdlib_audit.md`); Phase B.3.e–j → Phase C/D per plan.
 
 ---
 

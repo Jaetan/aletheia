@@ -130,15 +130,29 @@ Plan:
 - B.3.c ✅ Implemented incrementally, bottom-up: B.3.c.1 lexical primitives (`441b0d2`) → c.2 `VERSION`/`NS_`/`BS_` (`977783f`) → c.3 `BU_`/`BO_`/`SG_` + `showℚ-dec` (`4fb5270`) → c.4 `VAL_`/`VAL_TABLE_` (`c6d8998`) → c.5 `BA_DEF_`/`BA_DEF_DEF_`/`BA_`/`BA_REL_` (`7b55340`) → c.6 `CM_` (`52454a0`) → c.7 `SIG_GROUP_` (`f36e531`) → c.8 `SIG_VALTYPE_` + `SG_MUL_VAL_` parse-and-drop (`926f189`) → c.9 `EV_` (`3399695`) → c.k `parseText`/`formatText` aggregator (`7d77dcb`) + `showℚ-dec` off-by-one fix (`a7f255e`).
 - B.3.d ⏳ Roundtrip theorem — **universal form is the target**: `∀ d → parseText (formatText d) ≡ inj₂ d`. Per-fixture point verifications (the "corpus-shape" approach attempted earlier and reverted) are not an acceptable substitute — the done-criterion is a theorem that quantifies over the `DBC` domain, not a finite conjunction of concrete equalities. Corpus-based coverage belongs to B.3.j (binding-layer parity against cantools snapshots); B.3.d is the Agda-side property.
 
-  **Proof decomposition** — four layers, each closeable independently:
-  1. **String-side substrate**. `toList-++ₛ : toList (a ++ₛ b) ≡ toList a ++ₗ toList b` (audit `Data.String.Properties` first — likely already present), plus `toList` behaviour on each primitive used by the emitter (`showℕ`, `showℚ-dec`, identifier/string-literal emitters, enum-tag emitters). Unblocks `primStringToList` reduction past abstract record fields — the obstacle that stalls `refl` on the universal.
-  2. **Per-primitive lemmas**. One `parseX (toList (emitX v) ++ₗ rest) ≡ inj₂ (v, rest)` for every parser/emitter pair (string literal, identifier, ℕ literal, ℚ literal, enum tags, ByteOrder, Signed/Unsigned, etc.). Locally provable from the substrate.
+  **Pre-gate ✅ complete (2026-04-24).** Every ℚ-valued DBC-on-disk field migrated to the `DecRat` canonical form (`n / (2^a · 5^b)`), closing the decimal-precision gap that previously prevented `parseText (formatText d)` from trivially composing through the `_/_` gcd normaliser.  Six commits `0b7849b` → `c05083e` → `6fa29e3` → `dd9b770` → `917465b` → current:
+    * **Commit 1/6** — `DecRat` type, canonicalisation, `_≟ᵈ_`, `toℚ`, `fromℚ?`.
+    * **Commit 2/6** — `parseDecRat` + `showDecRat-dec` + `fromℚ?-after-toℚ` universal sketch.
+    * **Commit 3/6** — EV_ (`EnvironmentVar.{initial,minimum,maximum}`) + Layer-4 closure of `fromℚ?-after-toℚ` + `NonTerminatingRational` parse error wired cross-binding.
+    * **Commit 4/6** — SG_ (`SignalDef.{factor,offset,minimum,maximum}`) + `lookupDecRat` JSON combinator + `mkℚ`-direct `toℚ` runtime optimisation (closed 9–15% CAN-FD Signal Extraction regression, delivered +16% on CAN 2.0B Signal Extraction as a bonus).
+    * **Commit 5/6** — Attributes (`ATFloat.{min,max}` + `AVFloat.value`); `TextParser.agda` / `TextFormatter.agda` aggregators added to `check-properties` walk (caught a latent `RawSignal`-vs-DecRat typing bug from Commit 4/6 that slipped past the main build because the TextParser tree is not in Main's transitive closure).
+    * **Commit 6/6** — docs + memory + this PARITY_PLAN.md section.
+
+  With the pre-gate closed, the remaining proof-layer work is the four-layer decomposition, each layer closeable independently:
+  1. **String-side substrate**. `toList-++ₛ : toList (a ++ₛ b) ≡ toList a ++ₗ toList b`, plus `toList` behaviour on each primitive used by the emitter (`showℕ`, `showDecRat-dec`, identifier/string-literal emitters, enum-tag emitters). Unblocks `primStringToList` reduction past abstract record fields — the obstacle that stalls `refl` on the universal.
+  2. **Per-primitive lemmas**. One `parseX (toList (emitX v) ++ₗ rest) ≡ inj₂ (v, rest)` for every parser/emitter pair (string literal, identifier, ℕ literal, DecRat literal, enum tags, ByteOrder, Signed/Unsigned, etc.). Locally provable from the substrate.  The DecRat-side per-primitive proofs are already closed (`fromℚ?-after-toℚ` is the universal at the storage layer).
   3. **Per-line-construct lemmas**. One per `VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`, `CM_`, `BA_DEF_`, `BA_DEF_DEF_`, `BA_`, `BA_REL_`, `VAL_`, `VAL_TABLE_`, `EV_`, `SIG_GROUP_`, `SIG_VALTYPE_`, `SG_MUL_VAL_`. Compose primitive lemmas along each construct's bind chain.
   4. **Top-level aggregator**. Compose line-construct lemmas along `parseDBCText`'s bind chain against `formatText`'s concatenation order. Structural induction over each list-of-X field in `DBC`.
 
-  **Pre-implementation gate**: read-only stdlib audit for `toList-++ₛ`, `toList-fromList`, `primShow*` / `showℕ` / rational-show behavioural lemmas — confirm what substrate already exists vs. what must be built in-project before committing to the layer-1 implementation.
+  **Layer-1 stdlib audit complete (2026-04-22).** Finding: `toList-++ₛ` is stdlib-provable **only** via `Data.String.Unsafe` under `{-# OPTIONS --with-K #-}` (proved by `trustMe`).  `Data.String.Properties` (the `--safe` counterpart) carries `toList-injective` but not the append lemma.  Under `--safe --without-K`, `primStringAppend` / `primStringToList` reduce only on closed terms — direct in-project proof is blocked.  **Layer 1 is therefore not import-and-re-export; four options await user decision** (`project_b3d_stdlib_audit.md`):
+    1. Unsafe substrate module (breaks the 148-safe status stamp).
+    2. Move public API to `List Char`.
+    3. Hybrid: internal proof at `List Char` + single bridging axiom.
+    4. Defer B.3.d; rely on B.3.j cantools-snapshot parity.
 
-  **Shake gate already in place**: `check-properties` walks `DBC/TextParser/Properties.agda`; once populated, regression protection is automatic.
+  Sign-off required before layer-1 code lands — per `feedback_no_suppression_without_approval.md` do not introduce an Unsafe module silently, and per `feedback_no_silent_proof_reframing.md` do not weaken the target.
+
+  **Shake gate in place**: `check-properties` walks `DBC/TextParser/Properties.agda` (skeleton), plus the `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregators added in Commit 5/6.  Once layer-1 content populates the Properties file, regression protection is automatic for the proof layers; the aggregator walks already protect the implementation submodules.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
