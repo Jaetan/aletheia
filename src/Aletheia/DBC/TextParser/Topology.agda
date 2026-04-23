@@ -53,6 +53,7 @@ open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _%_; _^_; _<ᵇ_; _≤ᵇ_)
 open import Data.Rational using (ℚ)
+open import Aletheia.DBC.DecRat using (DecRat)
 open import Data.String using (String)
 
 open import Aletheia.Parser.Combinators using
@@ -60,7 +61,8 @@ open import Aletheia.Parser.Combinators using
    satisfy; char; string; many)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural; parseDecRat)
+   parseNatural)
+open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
@@ -166,10 +168,10 @@ record RawSignal : Set where
     bitLength : ℕ
     byteOrder : ByteOrder
     isSigned  : Bool
-    factor    : ℚ
-    offset    : ℚ
-    minimum   : ℚ
-    maximum   : ℚ
+    factor    : DecRat
+    offset    : DecRat
+    minimum   : DecRat
+    maximum   : DecRat
     unit      : String
     receivers : List String
 

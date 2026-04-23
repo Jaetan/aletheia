@@ -146,7 +146,7 @@ data AttrScope : Set where
 -- the (ordered) list of enumeration labels.
 data AttrType : Set where
   ATInt    : (min max : ℤ) → AttrType
-  ATFloat  : (min max : ℚ) → AttrType
+  ATFloat  : (min max : DecRat) → AttrType
   ATString : AttrType
   ATEnum   : (values : List String) → AttrType
   ATHex    : (min max : ℕ) → AttrType
@@ -155,7 +155,7 @@ data AttrType : Set where
 -- AVEnum carries the 0-based index into the matching AttrDef's label list.
 data AttrValue : Set where
   AVInt    : ℤ → AttrValue
-  AVFloat  : ℚ → AttrValue
+  AVFloat  : DecRat → AttrValue
   AVString : String → AttrValue
   AVEnum   : ℕ → AttrValue
   AVHex    : ℕ → AttrValue

@@ -441,8 +441,8 @@ parseAttrType obj =
      require (MissingField "max") (lookupInt "max" obj) >>=ₑ λ mx →
      inj₂ (ATInt mn mx))
   else if ⌊ kind ≟ₛ "float" ⌋ then
-    (require (MissingField "min") (lookupRational "min" obj) >>=ₑ λ mn →
-     require (MissingField "max") (lookupRational "max" obj) >>=ₑ λ mx →
+    (lookupDecRat "min" obj >>=ₑ λ mn →
+     lookupDecRat "max" obj >>=ₑ λ mx →
      inj₂ (ATFloat mn mx))
   else if ⌊ kind ≟ₛ "string" ⌋ then inj₂ ATString
   else if ⌊ kind ≟ₛ "enum" ⌋ then
@@ -469,7 +469,7 @@ parseAttrValue obj =
     (require (MissingField "value") (lookupInt "value" obj) >>=ₑ λ v →
      inj₂ (AVInt v))
   else if ⌊ kind ≟ₛ "float" ⌋ then
-    (require (MissingField "value") (lookupRational "value" obj) >>=ₑ λ v →
+    (lookupDecRat "value" obj >>=ₑ λ v →
      inj₂ (AVFloat v))
   else if ⌊ kind ≟ₛ "string" ⌋ then
     (require (MissingField "value") (lookupString "value" obj) >>=ₑ λ v →

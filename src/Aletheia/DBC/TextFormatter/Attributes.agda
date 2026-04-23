@@ -69,7 +69,7 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec; showℤ-dec; showℚ-dec; quoteStringLit)
+  (showℕ-dec; showℤ-dec; showDecRat-dec; quoteStringLit)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 -- ============================================================================
@@ -133,7 +133,7 @@ emitAttrType : AttrType → String
 emitAttrType (ATInt mn mx)   =
   "INT "   ++ₛ showℤ-dec mn ++ₛ " " ++ₛ showℤ-dec mx
 emitAttrType (ATFloat mn mx) =
-  "FLOAT " ++ₛ showℚ-dec mn ++ₛ " " ++ₛ showℚ-dec mx
+  "FLOAT " ++ₛ showDecRat-dec mn ++ₛ " " ++ₛ showDecRat-dec mx
 emitAttrType ATString        = "STRING"
 emitAttrType (ATEnum labels) =
   "ENUM "  ++ₛ emitEnumLabels labels
@@ -147,7 +147,7 @@ emitAttrType (ATHex mn mx)   =
 -- Assignment context: `AVEnum n` → decimal integer (no label lookup).
 emitAssignValue : AttrValue → String
 emitAssignValue (AVInt z)    = showℤ-dec z
-emitAssignValue (AVFloat q)  = showℚ-dec q
+emitAssignValue (AVFloat q)  = showDecRat-dec q
 emitAssignValue (AVString s) = quoteStringLit s
 emitAssignValue (AVEnum n)   = showℕ-dec n
 emitAssignValue (AVHex n)    = showℕ-dec n
@@ -157,7 +157,7 @@ emitAssignValue (AVHex n)    = showℕ-dec n
 -- def, non-ENUM def, or OOB index all degrade to `""` (see module header).
 emitDefaultValue : List AttrDef → (attrName : String) → AttrValue → String
 emitDefaultValue _    _  (AVInt z)    = showℤ-dec z
-emitDefaultValue _    _  (AVFloat q)  = showℚ-dec q
+emitDefaultValue _    _  (AVFloat q)  = showDecRat-dec q
 emitDefaultValue _    _  (AVString s) = quoteStringLit s
 emitDefaultValue _    _  (AVHex n)    = showℕ-dec n
 emitDefaultValue defs nm (AVEnum n) with lookupDef nm defs

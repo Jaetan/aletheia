@@ -210,6 +210,16 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
+        -- TextParser / TextFormatter aggregator modules.  These are not
+        -- proof files themselves, but pulling them into `check-properties`
+        -- forces the full TextParser / TextFormatter submodule tree to be
+        -- type-checked (they're unreachable from Main.agda's transitive
+        -- closure, so the main build walk does not cover them).  B.3.d
+        -- Commit 4/6 shipped with a latent `RawSignal : ℚ`-vs-DecRat
+        -- mismatch in `TextParser/Topology.agda` precisely because this
+        -- guard was missing; Commit 5/6 added it.
+        agdaWithRTS "Aletheia/DBC/TextParser.agda"
+        agdaWithRTS "Aletheia/DBC/TextFormatter.agda"
         agdaWithRTS "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"

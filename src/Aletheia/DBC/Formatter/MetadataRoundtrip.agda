@@ -307,7 +307,8 @@ attrScope-roundtrip ASNodeSig = refl
 attrType-roundtrip : ∀ t → parseAttrType (formatAttrType t) ≡ inj₂ t
 attrType-roundtrip (ATInt mn mx)
   rewrite getInt-ℤtoJSON mn | getInt-ℤtoJSON mx = refl
-attrType-roundtrip (ATFloat _ _) = refl
+attrType-roundtrip (ATFloat mn mx)
+  rewrite fromℚ?-after-toℚ mn | fromℚ?-after-toℚ mx = refl
 attrType-roundtrip ATString      = refl
 attrType-roundtrip (ATEnum labels)
   rewrite parseStringList-roundtrip labels = refl
@@ -317,7 +318,7 @@ attrType-roundtrip (ATHex mn mx)
 -- AttrValue: 5 tagged variants, same bridge story as AttrType.
 attrValue-roundtrip : ∀ v → parseAttrValue (formatAttrValue v) ≡ inj₂ v
 attrValue-roundtrip (AVInt v)    rewrite getInt-ℤtoJSON v = refl
-attrValue-roundtrip (AVFloat _)  = refl
+attrValue-roundtrip (AVFloat v)  rewrite fromℚ?-after-toℚ v = refl
 attrValue-roundtrip (AVString _) = refl
 attrValue-roundtrip (AVEnum v)   rewrite getNat-ℕtoJSON v = refl
 attrValue-roundtrip (AVHex v)    rewrite getNat-ℕtoJSON v = refl

@@ -167,7 +167,7 @@ formatAttrType : AttrType → List (String × JSON)
 formatAttrType (ATInt mn mx) =
   ("kind" , JString "int") ∷ ("min" , ℤtoJSON mn) ∷ ("max" , ℤtoJSON mx) ∷ []
 formatAttrType (ATFloat mn mx) =
-  ("kind" , JString "float") ∷ ("min" , JNumber mn) ∷ ("max" , JNumber mx) ∷ []
+  ("kind" , JString "float") ∷ ("min" , JNumber (toℚ mn)) ∷ ("max" , JNumber (toℚ mx)) ∷ []
 formatAttrType ATString =
   ("kind" , JString "string") ∷ []
 formatAttrType (ATEnum labels) =
@@ -180,7 +180,7 @@ formatAttrValue : AttrValue → List (String × JSON)
 formatAttrValue (AVInt v) =
   ("kind" , JString "int") ∷ ("value" , ℤtoJSON v) ∷ []
 formatAttrValue (AVFloat v) =
-  ("kind" , JString "float") ∷ ("value" , JNumber v) ∷ []
+  ("kind" , JString "float") ∷ ("value" , JNumber (toℚ v)) ∷ []
 formatAttrValue (AVString v) =
   ("kind" , JString "string") ∷ ("value" , JString v) ∷ []
 formatAttrValue (AVEnum v) =

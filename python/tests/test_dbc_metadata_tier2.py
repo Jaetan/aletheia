@@ -9,9 +9,13 @@ parser can dispatch without separate arrays.
 These tests drive ``parse_dbc`` → ``format_dbc`` through the real FFI (same
 pattern as the Tier 1 suite) to prove every variant is reconstructed by the
 Agda core on the return trip. Numeric bounds survive as ``Fraction`` — the
-same ℚ-precision guarantee the rest of the wire carries — so the fixture
-pins one non-trivial rational (``Fraction(-1, 2)`` / ``Fraction(22, 7)``)
-to fail loudly if a future refactor ever drops to ``float``.
+same decimal-precision guarantee the rest of the wire carries — so the
+fixture pins non-trivial DBC-representable rationals (``Fraction(-1, 2)``
+/ ``Fraction(1025, 1000)``) to fail loudly if a future refactor ever drops
+to ``float``.  DBC attribute bounds are stored as ``DecRat`` (Commit
+5/6), so values must have a terminating decimal expansion
+(denominator = 2^a · 5^b); rationals like ``22/7`` are rejected with
+``parse_non_terminating_rational``.
 """
 
 from __future__ import annotations
@@ -84,7 +88,7 @@ def _all_attributes() -> list[DBCAttribute]:
             "attrType": {
                 "kind": "float",
                 "min": Fraction(-1, 2),
-                "max": Fraction(22, 7),
+                "max": Fraction(1025, 1000),
             },
         },
         {
@@ -114,7 +118,7 @@ def _all_attributes() -> list[DBCAttribute]:
         {"kind": "default", "name": "IntAttr", "value": {"kind": "int", "value": 42}},
         {
             "kind": "default", "name": "FloatAttr",
-            "value": {"kind": "float", "value": Fraction(1, 3)},
+            "value": {"kind": "float", "value": Fraction(1, 8)},
         },
         {
             "kind": "default", "name": "StringAttr",
@@ -262,7 +266,7 @@ class TestDBCMetadataTier2Roundtrip:
         ftype = float_def_typed["attrType"]
         assert ftype["kind"] == "float"
         assert ftype["min"] == Fraction(-1, 2)
-        assert ftype["max"] == Fraction(22, 7)
+        assert ftype["max"] == Fraction(1025, 1000)
         assert isinstance(ftype["min"], Fraction)
         assert isinstance(ftype["max"], Fraction)
 
@@ -273,7 +277,7 @@ class TestDBCMetadataTier2Roundtrip:
         float_default_typed: DBCAttrDefault = float_default  # type: ignore[assignment]
         fval = float_default_typed["value"]
         assert fval["kind"] == "float"
-        assert fval["value"] == Fraction(1, 3)
+        assert fval["value"] == Fraction(1, 8)
         assert isinstance(fval["value"], Fraction)
 
     def test_every_comment_target_kind_preserved(self) -> None:
@@ -346,6 +350,65 @@ class TestDBCMetadataTier2Rejects:
         with AletheiaClient() as client:
             result = client.parse_dbc(bad)
         assert result["status"] == "error", result
+
+    @pytest.mark.parametrize("field", ["min", "max"])
+    def test_float_attr_bound_non_terminating_rejected(self, field: str) -> None:
+        """``ATFloat`` min / max must have terminating decimal expansions
+        (Commit 5/6).  ``Fraction(22, 7)`` — 3.142857… repeating — gets
+        rejected by ``fromℚ?`` with ``parse_non_terminating_rational``."""
+        attr_type: dict = {
+            "kind": "float",
+            "min": Fraction(0),
+            "max": Fraction(1),
+        }
+        attr_type[field] = Fraction(22, 7)
+        bad: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_one_signal()],
+            "attributes": [
+                {
+                    "kind": "definition",
+                    "name": "FloatAttr",
+                    "scope": "network",
+                    "attrType": attr_type,  # type: ignore[typeddict-item]
+                },
+            ],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(bad)
+        assert result["status"] == "error"
+        assert result["code"] == "parse_non_terminating_rational"
+        assert field in result["message"]
+
+    def test_float_attr_value_non_terminating_rejected(self) -> None:
+        """``AVFloat`` default value must also have a terminating decimal
+        expansion (mirrors ATFloat min/max at the value layer)."""
+        bad: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_one_signal()],
+            "attributes": [
+                {
+                    "kind": "definition",
+                    "name": "FloatAttr",
+                    "scope": "network",
+                    "attrType": {
+                        "kind": "float",
+                        "min": Fraction(0),
+                        "max": Fraction(1),
+                    },
+                },
+                {
+                    "kind": "default",
+                    "name": "FloatAttr",
+                    "value": {"kind": "float", "value": Fraction(1, 3)},
+                },
+            ],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(bad)
+        assert result["status"] == "error"
+        assert result["code"] == "parse_non_terminating_rational"
+        assert "value" in result["message"]
 
 
 # ---------------------------------------------------------------------------

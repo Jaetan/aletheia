@@ -58,6 +58,8 @@ open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Rational as Rat using (ℚ)
+open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
+open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Data.Rational.Unnormalised using (mkℚᵘ)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
@@ -152,9 +154,9 @@ parseFloatType : Parser AttrType
 parseFloatType = do
   _ ← string "FLOAT"
   _ ← parseWS
-  mn ← parseRational
+  mn ← parseDecRat
   _ ← parseWS
-  mx ← parseRational
+  mx ← parseDecRat
   pure (ATFloat mn mx)
 
 parseStringType : Parser AttrType
@@ -451,7 +453,9 @@ refineDefaultValue ATString      (RavString s) = just (AVString s)
 refineDefaultValue (ATInt _ _)   (RavNumber q) with ratToInt q
 ... | just z  = just (AVInt z)
 ... | nothing = nothing
-refineDefaultValue (ATFloat _ _) (RavNumber q) = just (AVFloat q)
+refineDefaultValue (ATFloat _ _) (RavNumber q) with fromℚ? q
+... | just d  = just (AVFloat d)
+... | nothing = nothing
 refineDefaultValue (ATEnum ls)   (RavString s) with findLabel s ls
 ... | just i  = just (AVEnum i)
 ... | nothing = nothing
@@ -468,7 +472,9 @@ refineAssignValue ATString      (RavString s) = just (AVString s)
 refineAssignValue (ATInt _ _)   (RavNumber q) with ratToInt q
 ... | just z  = just (AVInt z)
 ... | nothing = nothing
-refineAssignValue (ATFloat _ _) (RavNumber q) = just (AVFloat q)
+refineAssignValue (ATFloat _ _) (RavNumber q) with fromℚ? q
+... | just d  = just (AVFloat d)
+... | nothing = nothing
 refineAssignValue (ATEnum _)    (RavNumber q) with ratToNat q
 ... | just n  = just (AVEnum n)
 ... | nothing = nothing
