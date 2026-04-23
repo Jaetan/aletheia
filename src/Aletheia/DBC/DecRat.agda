@@ -39,7 +39,7 @@ module Aletheia.DBC.DecRat where
 
 open import Data.Nat.Base
   using (ℕ; zero; suc; _+_; _*_; _∸_; _^_; _<_; _≤_; _>_; z<s; s<s; NonZero)
-  renaming (_/_ to _/ₙ_)
+  renaming (_/_ to _/ₙ_; _%_ to _%ₙ_)
 open import Data.Nat.Properties
   using (*-identityʳ; *-identityˡ; *-assoc; *-comm; *-zeroˡ; *-zeroʳ;
          *-cancelʳ-≡; *-cancelˡ-≡;
@@ -57,7 +57,9 @@ open import Data.Integer.Properties
   using (signᵢ◃∣i∣≡i; ◃-cong; abs-◃; sign-◃; abs-*; +◃n≡+n;
          ◃-distrib-*)
   renaming (_≟_ to _≟ℤ_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Rational.Base using (ℚ; _/_; fromℚᵘ; mkℚ)
+import Data.Rational.Base as ℚ
 open import Data.Rational.Properties using (fromℚᵘ-cong)
 open import Data.Rational.Unnormalised.Base
   using (ℚᵘ; mkℚᵘ; *≡*)
@@ -604,3 +606,45 @@ canonicalizeDecRat num a b
                                      (proj₂ (proj₂ p)))
                   can-eq
                   (canonicalize-witness ∣ num ∣ a b)))
+
+------------------------------------------------------------------------
+-- ℚ → DecRat (partial: fails if the ℚ's denominator has a prime factor
+-- outside {2, 5}).  Used at JSON-parse boundaries where a `JNumber ℚ`
+-- must land in a `DecRat`-typed field.  Every `toℚ d` roundtrips via
+-- `fromℚ?`; arbitrary ℚ does not.
+
+-- Strip factors of `p` from `n` using `fuel` as an upper bound on the
+-- iteration count.  Returns `(exponent, remainder)` such that
+-- `n = p^exponent * remainder` (assuming enough fuel).  Fuel is a
+-- termination guard; for `n ≤ 2^fuel` the exponent is fully extracted.
+--
+-- Implementation uses `%` / `/` directly (not `_∣?_`) so the peeling
+-- proof can reduce via stdlib's `m*n%n≡0` / `m*n/n≡m` without
+-- pattern-matching on `divides` constructors.  `NonZero p` is required
+-- to use `%` / `/`.
+stripFactor-fuel : (fuel p n : ℕ) .{{_ : NonZero p}} → ℕ × ℕ
+stripFactor-fuel zero    _ n = 0 , n
+stripFactor-fuel (suc f) p n with n %ₙ p ≟ₙ 0
+... | no  _ = 0 , n
+... | yes _ with n /ₙ p
+...           | zero    = 0 , n
+...           | suc q-1 =
+        let er = stripFactor-fuel f p (suc q-1)
+        in  suc (proj₁ er) , proj₂ er
+
+-- Build a `DecRat` from ℤ numerator + ℕ+ denominator, when the
+-- denominator is of the form `2^a * 5^b`.  Returns `nothing` if the
+-- denominator has a prime factor outside {2, 5}.
+fromℚ?-raw : (num : ℤ) (den : ℕ) → Maybe DecRat
+fromℚ?-raw _   zero    = nothing
+fromℚ?-raw num (suc d)
+  with stripFactor-fuel (suc (suc d)) 2 (suc d)
+... | (a , after2)
+    with stripFactor-fuel (suc (suc d)) 5 after2
+...   | (b , after5)
+      with after5 ≟ₙ 1
+...     | yes _ = just (canonicalizeDecRat num a b)
+...     | no  _ = nothing
+
+fromℚ? : ℚ → Maybe DecRat
+fromℚ? q = fromℚ?-raw (ℚ.numerator q) (suc (ℚ.denominator-1 q))

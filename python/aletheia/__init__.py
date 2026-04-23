@@ -79,9 +79,9 @@ from .client import (
 )
 from .checks import Check, CheckResult
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
+from .error_codes import ErrorCode
 from .protocols import (
     DBCDefinition,
-    ErrorCode,
     IssueCode,
     PropertyResultEntry,
     ValidationIssue,

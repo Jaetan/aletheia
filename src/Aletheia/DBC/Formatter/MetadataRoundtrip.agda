@@ -17,7 +17,9 @@ open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₂)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ)
+open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
 
 open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
   VarType; IntVar; FloatVar; StringVar; varTypeToℕ;
@@ -117,16 +119,19 @@ private
   environmentVarFields ev =
     ("name"    , JString (EnvironmentVar.name ev)) ∷
     ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
-    ("initial" , JNumber (EnvironmentVar.initial ev)) ∷
-    ("minimum" , JNumber (EnvironmentVar.minimum ev)) ∷
-    ("maximum" , JNumber (EnvironmentVar.maximum ev)) ∷
+    ("initial" , JNumber (toℚ (EnvironmentVar.initial ev))) ∷
+    ("minimum" , JNumber (toℚ (EnvironmentVar.minimum ev))) ∷
+    ("maximum" , JNumber (toℚ (EnvironmentVar.maximum ev))) ∷
     []
 
 environmentVar-roundtrip : ∀ ev
   → parseEnvironmentVar (environmentVarFields ev) ≡ inj₂ ev
 environmentVar-roundtrip ev
   rewrite getNat-ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))
-        | parseVarType-roundtrip (EnvironmentVar.varType ev) = refl
+        | parseVarType-roundtrip (EnvironmentVar.varType ev)
+        | fromℚ?-after-toℚ (EnvironmentVar.initial ev)
+        | fromℚ?-after-toℚ (EnvironmentVar.minimum ev)
+        | fromℚ?-after-toℚ (EnvironmentVar.maximum ev) = refl
 
 private
   environmentVar-list-go : ∀ n evs

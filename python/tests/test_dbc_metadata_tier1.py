@@ -209,6 +209,30 @@ class TestDBCMetadataTier1Rejects:
             result = client.parse_dbc(bad)
         assert result["status"] == "error"
 
+    def test_non_terminating_rational_rejected(self) -> None:
+        """EV_ numeric fields must have terminating decimal expansions —
+        ``Fraction(1, 3)`` (denominator 3) has no ``2^a·5^b`` form, so
+        ``fromℚ?`` returns ``nothing`` and the parser emits
+        ``parse_non_terminating_rational``. Prevents silent precision
+        loss when users hand-build rationals outside DBC's decimal grammar."""
+        bad: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_two_signals()],
+            "environmentVars": [
+                {
+                    "name": "Repeating",
+                    "varType": 1,
+                    "initial": Fraction(1, 3),
+                    "minimum": Fraction(0),
+                    "maximum": Fraction(1),
+                },
+            ],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(bad)
+        assert result["status"] == "error"
+        assert result["code"] == "parse_non_terminating_rational"
+
     def test_signal_group_referring_to_unknown_signal_accepted(self) -> None:
         """The Agda parser does not cross-check group signal references against
         message signals — the field is opaque, so dangling references round-

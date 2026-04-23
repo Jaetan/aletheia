@@ -21,6 +21,7 @@ open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
+open import Aletheia.DBC.DecRat using (DecRat)
 
 -- Signal presence model for multiplexing.
 -- A signal is either always present or conditionally present based on a multiplexor.
@@ -82,9 +83,9 @@ record EnvironmentVar : Set where
   field
     name : String
     varType : VarType
-    initial : ℚ
-    minimum : ℚ
-    maximum : ℚ
+    initial : DecRat
+    minimum : DecRat
+    maximum : DecRat
 
 -- Value description table (DBC VAL_TABLE_ keyword).
 record ValueTable : Set where

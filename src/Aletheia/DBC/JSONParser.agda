@@ -45,8 +45,9 @@ open import Aletheia.Error using
   ; StdCANIdOutOfRange; DefaultCANIdOutOfRange; InvalidDLCBytes
   ; RootNotObject; MissingSignalName; InContext
   ; SignalBitLengthZero; SignalOverflowsFrame; SignalMSBBelowBitLength
-  ; InvalidKind
+  ; InvalidKind; NonTerminatingRational
   )
+open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
 
 -- ============================================================================
 -- JSON → DBC PARSERS (with typed ParseError)
@@ -314,9 +315,12 @@ parseEnvironmentVar obj =
   require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
   require (MissingField "varType") (lookupNat "varType" obj) >>=ₑ λ vtNat →
   parseVarType vtNat >>=ₑ λ vt →
-  require (MissingField "initial") (lookupRational "initial" obj) >>=ₑ λ initial →
-  require (MissingField "minimum") (lookupRational "minimum" obj) >>=ₑ λ minimum →
-  require (MissingField "maximum") (lookupRational "maximum" obj) >>=ₑ λ maximum →
+  require (MissingField "initial") (lookupRational "initial" obj) >>=ₑ λ iniℚ →
+  require (NonTerminatingRational "initial") (fromℚ? iniℚ)  >>=ₑ λ initial →
+  require (MissingField "minimum") (lookupRational "minimum" obj) >>=ₑ λ minℚ →
+  require (NonTerminatingRational "minimum") (fromℚ? minℚ)  >>=ₑ λ minimum →
+  require (MissingField "maximum") (lookupRational "maximum" obj) >>=ₑ λ maxℚ →
+  require (NonTerminatingRational "maximum") (fromℚ? maxℚ)  >>=ₑ λ maximum →
   inj₂ (record
     { name = name ; varType = vt ; initial = initial
     ; minimum = minimum ; maximum = maximum })

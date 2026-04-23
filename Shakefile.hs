@@ -210,6 +210,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/Formatter/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Properties.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/DecRatParse/Properties.agda"
+        agdaWithRTS "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"

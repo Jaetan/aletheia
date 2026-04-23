@@ -63,7 +63,7 @@ func (e *Error) Error() string {
 // Unwrap returns the underlying error, enabling [errors.Is] and [errors.As].
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Machine-readable error codes matching Agda Error ADT (50 codes).
+// Machine-readable error codes matching Agda Error ADT (51 codes).
 // Each maps 1:1 to an Agda error constructor via errorCode.
 const (
 	// Parse errors.
@@ -83,6 +83,7 @@ const (
 	CodeParseSignalOverflowsFrame    = "parse_signal_overflows_frame"
 	CodeParseSignalMSBBelowBitLength = "parse_signal_msb_below_bit_length"
 	CodeParseInvalidKind             = "parse_invalid_kind"
+	CodeParseNonTerminatingRational  = "parse_non_terminating_rational"
 	// Frame errors.
 	CodeFrameSignalNotFound         = "frame_signal_not_found"
 	CodeFrameSignalIndexOOB         = "frame_signal_index_oob"

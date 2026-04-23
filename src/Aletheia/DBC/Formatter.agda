@@ -31,6 +31,7 @@ open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
 open import Aletheia.CAN.Frame using (CANId)
+open import Aletheia.DBC.DecRat using (DecRat; toℚ)
 
 -- ============================================================================
 -- HELPER: ℕ → JNumber
@@ -108,9 +109,9 @@ formatEnvironmentVar : EnvironmentVar → JSON
 formatEnvironmentVar ev = JObject (
   ("name"    , JString (EnvironmentVar.name ev)) ∷
   ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
-  ("initial" , JNumber (EnvironmentVar.initial ev)) ∷
-  ("minimum" , JNumber (EnvironmentVar.minimum ev)) ∷
-  ("maximum" , JNumber (EnvironmentVar.maximum ev)) ∷
+  ("initial" , JNumber (toℚ (EnvironmentVar.initial ev))) ∷
+  ("minimum" , JNumber (toℚ (EnvironmentVar.minimum ev))) ∷
+  ("maximum" , JNumber (toℚ (EnvironmentVar.maximum ev))) ∷
   [])
 
 formatValueTable : ValueTable → JSON

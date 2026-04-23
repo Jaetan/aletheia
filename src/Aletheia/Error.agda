@@ -46,6 +46,13 @@ data ParseError : Set where
   -- domain name ("commentTarget", "attrScope", etc.); second is the offending
   -- value. Used by Tier 2 DBC metadata parsers (nodes / comments / attributes).
   InvalidKind             : String → String → ParseError
+  -- Non-terminating rational in a DBC-decimal field (EV_ initial/min/max,
+  -- SG_ factor/offset/min/max, BA_DEF_ FLOAT min/max, BA_ float value).
+  -- DBC text grammar is decimal-terminating by construction, so only the
+  -- JSON wire form `{"numerator": n, "denominator": d}` can produce a
+  -- rational whose denominator has a prime factor outside {2, 5}. First
+  -- argument is the field name for diagnostics.
+  NonTerminatingRational  : String → ParseError
   InContext               : String → ParseError → ParseError
 
 formatParseError : ParseError → String
@@ -83,6 +90,8 @@ formatParseError (SignalMSBBelowBitLength sb bl) =
     ++ₛ " below bitLength " ++ₛ showℕ bl ++ₛ " ∸ 1"
 formatParseError (InvalidKind domain value) =
   "invalid " ++ₛ domain ++ₛ " kind '" ++ₛ value ++ₛ "'"
+formatParseError (NonTerminatingRational f) =
+  "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -103,6 +112,7 @@ parseErrorCode SignalBitLengthZero        = "parse_signal_bit_length_zero"
 parseErrorCode (SignalOverflowsFrame _ _ _) = "parse_signal_overflows_frame"
 parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_length"
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
+parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================

@@ -45,6 +45,7 @@ constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     {"parse_signal_overflows_frame", ErrorCode::ParseSignalOverflowsFrame},
     {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
+    {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},

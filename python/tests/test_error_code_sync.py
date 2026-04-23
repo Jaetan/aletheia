@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from aletheia.protocols import ErrorCode
+from aletheia.error_codes import ErrorCode
 
 
 _AGDA_FILE = (

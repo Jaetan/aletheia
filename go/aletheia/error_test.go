@@ -241,10 +241,47 @@ func TestParseError_CodeConstantsExported(t *testing.T) {
 		{"SignalBitLengthZero", aletheia.CodeParseSignalBitLengthZero, "parse_signal_bit_length_zero"},
 		{"SignalOverflowsFrame", aletheia.CodeParseSignalOverflowsFrame, "parse_signal_overflows_frame"},
 		{"SignalMSBBelowBitLength", aletheia.CodeParseSignalMSBBelowBitLength, "parse_signal_msb_below_bit_length"},
+		{"NonTerminatingRational", aletheia.CodeParseNonTerminatingRational, "parse_non_terminating_rational"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
 			t.Errorf("%s = %q, want %q", tt.name, tt.got, tt.want)
 		}
+	}
+}
+
+func TestParseError_NonTerminatingRational(t *testing.T) {
+	// Commit 3/6 (EV_ ℚ→DecRat migration) introduces this failure mode:
+	// a Rational with a denominator that isn't 2^a·5^b has no terminating
+	// decimal expansion, so fromℚ? returns nothing and the parser emits
+	// parse_non_terminating_rational.  Mock exercises the Go binding's
+	// decode path for the new code; Python/C++ integration tests cover
+	// the actual FFI → Agda round-trip.
+	mock := aletheia.NewMockBackend(
+		aletheia.Respond(`{
+			"status": "error",
+			"code": "parse_non_terminating_rational",
+			"message": "rational field 'initial' has no terminating decimal expansion"
+		}`),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	err = c.ParseDBC(testDBC())
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	var aErr *aletheia.Error
+	if !errors.As(err, &aErr) {
+		t.Fatalf("expected *aletheia.Error, got %T", err)
+	}
+	if aErr.Code != aletheia.CodeParseNonTerminatingRational {
+		t.Errorf("expected code %q, got %q", aletheia.CodeParseNonTerminatingRational, aErr.Code)
+	}
+	if aErr.Kind != aletheia.ErrProtocol {
+		t.Errorf("expected ErrProtocol, got %s", aErr.Kind)
 	}
 }

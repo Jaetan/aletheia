@@ -20,14 +20,14 @@ enum class ErrorKind {
 /// Machine-readable error codes mirroring the Agda `Error` ADT.
 ///
 /// Each named constant other than `Unknown` maps 1:1 to a string emitted by
-/// `errorCode` in `Aletheia.Error` — the ADT defines 50 codes across 6
+/// `errorCode` in `Aletheia.Error` — the ADT defines 51 codes across 6
 /// families (Parse / Frame / Route / Handler / Dispatch / Extraction).
 ///
 /// `Unknown` is a forward-compatibility sentinel used by
 /// `error_code_from_string` when the Agda core returns a code the C++
 /// binding does not recognise. In lock-step builds it should never be
 /// produced; its presence here is a deliberate escape hatch rather than a
-/// 50th ADT constructor.
+/// 51st ADT constructor.
 enum class ErrorCode {
     Unknown,
     // Parse errors
@@ -47,6 +47,7 @@ enum class ErrorCode {
     ParseSignalOverflowsFrame,
     ParseSignalMsbBelowBitLength,
     ParseInvalidKind,
+    ParseNonTerminatingRational,
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,

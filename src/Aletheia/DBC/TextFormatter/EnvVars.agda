@@ -46,7 +46,7 @@ open import Data.String using (String) renaming (_++_ to _++ₛ_)
 
 open import Aletheia.DBC.Types using
   (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
-open import Aletheia.DBC.TextFormatter.Emitter using (showℚ-dec)
+open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec)
 
 -- ============================================================================
 -- VARTYPE DIGIT EMITTER
@@ -71,10 +71,10 @@ emitEnvVar : EnvironmentVar → String
 emitEnvVar ev =
   "EV_ " ++ₛ EnvironmentVar.name ev ++ₛ ": " ++ₛ
   emitVarType (EnvironmentVar.varType ev) ++ₛ
-  " [" ++ₛ showℚ-dec (EnvironmentVar.minimum ev) ++ₛ "|" ++ₛ
-  showℚ-dec (EnvironmentVar.maximum ev) ++ₛ "]" ++ₛ
+  " [" ++ₛ showDecRat-dec (EnvironmentVar.minimum ev) ++ₛ "|" ++ₛ
+  showDecRat-dec (EnvironmentVar.maximum ev) ++ₛ "]" ++ₛ
   " \"\" " ++ₛ                             -- unit (synthesized)
-  showℚ-dec (EnvironmentVar.initial ev) ++ₛ
+  showDecRat-dec (EnvironmentVar.initial ev) ++ₛ
   " 0" ++ₛ                                 -- env_id (synthesized)
   " DUMMY_NODE_VECTOR0" ++ₛ                -- access_type (synthesized)
   " Vector__XXX" ++ₛ                       -- access_node (synthesized)

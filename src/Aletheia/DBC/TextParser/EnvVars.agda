@@ -57,7 +57,6 @@
 --   `SG_MUL_VAL_`), so no longest-first ordering is required here.
 module Aletheia.DBC.TextParser.EnvVars where
 
-open import Data.Rational using (ℚ)
 open import Data.String using (String)
 open import Data.Unit using (⊤; tt)
 
@@ -66,7 +65,8 @@ open import Aletheia.Parser.Combinators using
    char; string; many)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural; parseRational)
+   parseNatural)
+open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 
 open import Aletheia.DBC.Types using
   (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
@@ -108,14 +108,14 @@ parseEnvVar = do
   vt ← parseVarType
   _ ← parseWS
   _ ← char '['
-  mn ← parseRational
+  mn ← parseDecRat
   _ ← char '|'
-  mx ← parseRational
+  mx ← parseDecRat
   _ ← char ']'
   _ ← parseWS
   _ ← parseStringLit      -- unit, discarded
   _ ← parseWS
-  ini ← parseRational
+  ini ← parseDecRat
   _ ← parseWS
   _ ← parseNatural        -- env_id, discarded
   _ ← parseWS

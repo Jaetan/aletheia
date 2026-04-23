@@ -152,6 +152,31 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
     CHECK(round_tripped->value_tables[0].entries[2].description == "Reverse");
 }
 
+TEST_CASE("env var with non-terminating rational is rejected") {
+    auto lib = find_lib();
+    if (lib.empty())
+        return;
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    // Fraction 1/3 has no 2^a·5^b denominator form, so fromℚ? returns
+    // nothing and the parser emits parse_non_terminating_rational.  This
+    // is the canonical "user built a Rational outside DBC's decimal
+    // grammar" failure mode the Commit 3 migration introduces.
+    auto dbc = make_integration_dbc();
+    dbc.environment_vars.push_back(DbcEnvironmentVar{
+        .name = "Repeating",
+        .var_type = DbcVarType::Float,
+        .initial = Rational{1, 3},
+        .minimum = Rational{0, 1},
+        .maximum = Rational{1, 1},
+    });
+
+    auto result = client.parse_dbc(dbc);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
+}
+
 TEST_CASE("extract signals via real FFI", "[integration]") {
     auto lib = find_lib();
     auto backend = make_ffi_backend(lib);
