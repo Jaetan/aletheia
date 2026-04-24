@@ -55,3 +55,13 @@
 -- Unsafe module (`feedback_no_suppression_without_approval.md`) or
 -- silently weaken the target (`feedback_no_silent_proof_reframing.md`).
 module Aletheia.DBC.TextParser.Properties where
+
+-- Layer 2 — per-primitive roundtrips.  Identifier first (this commit);
+-- remaining primitives (ByteOrder/sign/mux/string-lit/attr-scope/attr-type/
+-- attr-value/signal-presence) cascade in commit 2c.
+open import Aletheia.DBC.TextParser.Properties.Primitives public
+  using (parseIdentifier-roundtrip;
+         mkIdentFromCharsUnsafe-on-valid;
+         decompose-valid;
+         satisfy-success-T;
+         buildIdent-eq)

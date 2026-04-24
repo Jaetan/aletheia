@@ -67,6 +67,7 @@ open import Data.Unit using (tt)
 open import Data.String using (String; toList; fromList)
 open import Relation.Binary.PropositionalEquality using (_≡_; sym; cong; subst)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Aletheia.Prelude using (ifᵀ_then_else_)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -84,10 +85,18 @@ postulate
 -- to the `toList name`-level witness required by `Identifier.valid` via the
 -- `toList∘fromList` axiom.  This is the text parser's construction path; the
 -- axiom use is bounded to this single helper.
+--
+-- Defined via `ifᵀ_then_else_` (regular function, not `with ... in eq`) so
+-- downstream roundtrip proofs (`Properties.Primitives.mkIdentFromCharsUnsafe-
+-- on-valid`) can compose without hitting the with-abstraction failure on
+-- `valid`'s dependent type.  The `ifᵀ`-witness lemma in `Aletheia.Prelude`
+-- converts a `T (validIdentifierᵇ cs)` witness directly into the
+-- `just (mkIdent (fromList cs) …)` branch.
 mkIdentFromCharsUnsafe : (cs : List Char) → Maybe Identifier
-mkIdentFromCharsUnsafe cs with validIdentifierᵇ cs in eq
-... | true  = just (mkIdent (fromList cs)
-                   (subst T
-                     (cong validIdentifierᵇ (sym (toList∘fromList cs)))
-                     (subst T (sym eq) tt)))
-... | false = nothing
+mkIdentFromCharsUnsafe cs =
+  ifᵀ validIdentifierᵇ cs
+    then (λ w → just (mkIdent (fromList cs)
+                       (subst T
+                         (cong validIdentifierᵇ (sym (toList∘fromList cs)))
+                         w)))
+    else nothing

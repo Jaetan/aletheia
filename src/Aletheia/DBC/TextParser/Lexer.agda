@@ -24,7 +24,7 @@ module Aletheia.DBC.TextParser.Lexer where
 open import Data.Bool using (Bool; _∨_; not)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_)
-open import Data.Maybe using (just; nothing)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.String using (String; fromList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -64,11 +64,21 @@ isHSpace c = ⌊ c ≟ᶜ ' ' ⌋ ∨ ⌊ c ≟ᶜ '\t' ⌋
 -- axiom use for Identifier construction, confined to `mkIdentFromCharsUnsafe`
 -- in `Substrate.Unsafe`).  This module therefore drops `--safe`, as does
 -- every downstream TextParser module that imports parseIdentifier.
-private
-  buildIdent : Char → List Char → Parser Identifier
-  buildIdent h t with mkIdentFromCharsUnsafe (h ∷ t)
-  ... | just i  = pure i
-  ... | nothing = fail
+--
+-- Split into an outer `buildIdent h t = fromMaybeIdent (mkIdentFromCharsUnsafe
+-- (h ∷ t))` rather than a top-level `with` so the B.3.d layer-2 roundtrip
+-- proof (`Properties.Primitives.parseIdentifier-roundtrip`) can substitute
+-- the `mkIdentFromCharsUnsafe`-result via `cong` once `mkIdentFromCharsUnsafe-
+-- on-valid` gives the equation — the `with` form's internal case-split is
+-- opaque to outer rewrites.  Exposed (not private) so the roundtrip proof
+-- in `Aletheia.DBC.TextParser.Properties.Primitives` can name them
+-- explicitly in `bind-just-step` continuations.
+fromMaybeIdent : Maybe Identifier → Parser Identifier
+fromMaybeIdent (just i) = pure i
+fromMaybeIdent nothing  = fail
+
+buildIdent : Char → List Char → Parser Identifier
+buildIdent h t = fromMaybeIdent (mkIdentFromCharsUnsafe (h ∷ t))
 
 parseIdentifier : Parser Identifier
 parseIdentifier =
