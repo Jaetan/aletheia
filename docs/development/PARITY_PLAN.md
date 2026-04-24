@@ -157,6 +157,25 @@ Plan:
   Formatter refactor: every per-section emitter (`Preamble` / `Topology` / `ValueTables` / `Attributes` / `Comments` / `SignalGroups` / `EnvVars` + `Emitter` primitives) now exports only `-chars` companions (`emitX-chars : … → List Char`); `formatChars : DBC → List Char` in `TextFormatter/TopLevel.agda` is the substrate the top-level proof reasons about; the only `String`-returning function in the formatter pipeline is `formatText = fromList ∘ formatChars`.  Parser entry points: `parseTextChars : List Char → ⊎` extracted from `parseText : String → ⊎ = parseTextChars ∘ toList`.  External behaviour unchanged — every test (Python 760, C++ 6, Go) passes against the refactored emitters.
 
   **Shake gates in place**: `check-properties` walks `DBC/TextParser/Properties.agda` (skeleton; will host the universal theorem in layer 4), plus the `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregators (Commit 5/6).  `check-invariants` enforces the 1-Unsafe / 1-postulate-file allowlist project-wide.  Layer 2 work can start when ready.
+
+  **Layer 2 — in progress (2026-04-24).** Two commits landed the Identifier primitive end-to-end:
+
+  * **Commit 2a** (`9adbc46`) — `Identifier` type lifts from bare `String` to `record { name : String; valid : T (validIdentifierᵇ (toList name)) }`.  All identifier-valued DBC fields migrated (DBCSignal.name + receivers; DBCMessage.name + sender + senders; SignalGroup; EnvironmentVar; ValueTable; Node; CommentTarget; AttrTarget variants; SignalPresence.When).  Attribute names (AttrDef/AttrDefault/AttrAssign) stay `String` (DBC wire format encodes them as quoted literals, no identifier-grammar restriction).  T3-fixed (relevant `valid` field rather than `@0 valid` erased) because the stdlib `cong` required by `_≟ᴵ_` rejects erased function args and a custom `cong₀` needs K.  Accepted cost: 5–10% Signal Extraction regression on C++/Go (MAlonzo compiles `data MkIdent String AgdaAny` — two-field boxed, not a newtype).  Revisit angles documented in `memory/project_identifier_eq_revisit.md`.  Scope-infection: the 15 `DBC/TextParser/*.agda` modules drop `--safe` to import the axiom-using `mkIdentFromCharsUnsafe` from `Substrate.Unsafe`.
+
+  * **Commit 2b** (`4559d5c`) — `parseIdentifier-roundtrip` at `List Char` level:
+
+    ```agda
+    parseIdentifier-roundtrip : ∀ pos i suffix
+      → SuffixStops isIdentCont suffix
+      → parseIdentifier pos (toList (Identifier.name i) ++ₗ suffix)
+        ≡ just (mkResult i
+                  (advancePositions pos (toList (Identifier.name i)))
+                  suffix)
+    ```
+
+    `SuffixStops isIdentCont suffix` mirrors `parseNatural-showNat-chars`'s `SuffixStops isDigit` discipline; Layer 3 will discharge it via char-class disjointness (every grammar context that ends an identifier has `isIdentCont c ≡ false`).  Two structural refactors were needed: (a) `mkIdentFromCharsUnsafe` in `Substrate.Unsafe` moved from `with validIdentifierᵇ cs in eq` to `ifᵀ validIdentifierᵇ cs then (λ w → …) else nothing` — the `with` form triggered an ill-typed with-abstraction (`validIdentifierᵇ (toList name) != w`) because `Identifier.valid`'s type depends on the scrutinee; (b) `buildIdent h t` in `Lexer.agda` split into `fromMaybeIdent (mkIdentFromCharsUnsafe (h ∷ t))` so the `Maybe Identifier` value is externally rewritable via `cong fromMaybeIdent`.  New file `Properties/Primitives.agda` (253 lines): 5 staging probes + main theorem, composed via `bind-just-step` following `DecRatParse/Properties.parseDecRat-roundtrip-+suc` template.
+
+  **Commit 2c pending** — remaining primitives: ByteOrder digit, sign flag, mux marker, StringLit, AttrScope tags, AttrType/AttrValue tags, SignalPresence tags.  Mechanical after 2b: each follows the bind-chain template, and none carry an axiom-bridging witness comparable to Identifier's.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
