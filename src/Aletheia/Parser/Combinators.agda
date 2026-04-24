@@ -213,15 +213,21 @@ countRange min max p = count min p >>= λ xs →
 -- STRING PARSERS
 -- ============================================================================
 
+-- | Match an exact char list (helper for `string`).  Lifted from
+-- `string`'s `where` clause so B.3.d Layer 2 roundtrip proofs in
+-- `Aletheia.DBC.TextParser.Properties.Primitives` can reason about
+-- the internal recursion by name (`string-success` + `parseCharsSeq-
+-- success`).  Behaviour preserved: `string s` still calls this on
+-- `toList s` and discards the result.
+parseCharsSeq : List Char → Parser (List Char)
+parseCharsSeq []       = pure []
+parseCharsSeq (c ∷ cs) = char c >>= λ x →
+                         parseCharsSeq cs >>= λ xs →
+                         pure (x ∷ xs)
+
 -- | Parse a specific string
 string : String → Parser String
-string s = parseChars (String.toList s) >>= λ _ → pure s
-  where
-    parseChars : List Char → Parser (List Char)
-    parseChars [] = pure []
-    parseChars (c ∷ cs) = char c >>= λ x →
-                          parseChars cs >>= λ xs →
-                          pure (x ∷ xs)
+string s = parseCharsSeq (String.toList s) >>= λ _ → pure s
 
 -- ============================================================================
 -- COMMON CHARACTER CLASSES
