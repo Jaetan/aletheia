@@ -26,6 +26,7 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Comments where
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
@@ -52,15 +53,15 @@ emitComment-chars c = body (DBCComment.target c)
     body CTNetwork =
       toList "CM_ " ++ₗ quoted ++ₗ toList ";\n"
     body (CTNode n) =
-      toList "CM_ BU_ " ++ₗ toList n ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      toList "CM_ BU_ " ++ₗ toList (Identifier.name n) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTMessage cid) =
       toList "CM_ BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
       ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTSignal cid s) =
       toList "CM_ SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList s ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      ' ' ∷ toList (Identifier.name s) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTEnvVar ev) =
-      toList "CM_ EV_ " ++ₗ toList ev ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      toList "CM_ EV_ " ++ₗ toList (Identifier.name ev) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER

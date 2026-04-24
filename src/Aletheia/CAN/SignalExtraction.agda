@@ -8,6 +8,8 @@
 --
 -- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.
 module Aletheia.CAN.SignalExtraction where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -42,7 +44,7 @@ open import Data.Bool using (Bool; if_then_else_; _∧_)
 matchMuxValue : ∀ {n} → CANFrame n → DBCSignal → List⁺ ℕ → Maybe ExtractionError
 matchMuxValue frame muxSig muxValues
   with extractSignal frame (DBCSignal.signalDef muxSig) (DBCSignal.byteOrder muxSig)
-... | nothing = just (MuxExtractionFailed (DBCSignal.name muxSig))
+... | nothing = just (MuxExtractionFailed (signalNameStr muxSig))
 ... | just muxVal =
       let matches = any (λ v → let vℚ = (+ v) / 1
                                 in (muxVal ≤ᵇ vℚ) ∧ (vℚ ≤ᵇ muxVal))
@@ -79,8 +81,8 @@ checkPresenceP _       _     _   Always         = nothing
 checkPresenceP zero    _     _   (When _ _)     =
   just MuxChainCycle
 checkPresenceP (suc f) frame msg (When muxName muxValues)
-  with findSignalByName muxName msg
-... | nothing  = just (MuxSignalNotFound muxName)
+  with findSignalByName (Identifier.name muxName) msg
+... | nothing  = just (MuxSignalNotFound (Identifier.name muxName))
 ... | just muxSig with checkPresenceP f frame msg (DBCSignal.presence muxSig)
 ...   | just reason = just reason
 ...   | nothing     = matchMuxValue frame muxSig muxValues

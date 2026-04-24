@@ -16,7 +16,8 @@ open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Properties using (signalPhysicalBits; bitsIntersectᵇ)
 open import Data.String using (String)
 open import Data.Rational using (ℚ)
@@ -108,7 +109,7 @@ lookupSignalsByIndex = lookupSignalsG indexStrategy
 -- Inject a single signal into a frame
 injectOne : ∀ {n} → CANFrame n → (DBCSignal × ℚ) → FrameError ⊎ CANFrame n
 injectOne frame (sig , value) with injectSignal value (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig) frame
-... | nothing = inj₁ (InjectionFailed (DBCSignal.name sig))
+... | nothing = inj₁ (InjectionFailed (signalNameStr sig))
 ... | just f  = inj₂ f
 
 -- Inject all signals into a frame (left-to-right fold)

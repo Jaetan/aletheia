@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Signal value-type parser for the DBC text format (Phase B.3.c.8).
 --

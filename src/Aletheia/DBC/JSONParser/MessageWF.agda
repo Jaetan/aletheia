@@ -29,7 +29,7 @@ open import Aletheia.CAN.DLC.Properties using (bvd-bytes)
 open import Aletheia.DBC.Types using (DBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessageId; parseMessageBody;
   parseMessageFields; parseMessage; parseMessageList; parseSignalList;
-  parseOptionalArray; parseStringList)
+  parseOptionalArray; parseStringList; validateIdent; validateIdentList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSignalList-pv)
@@ -124,17 +124,26 @@ parseMessageBody-wf ctx name canId obj msg eq
 ...     | just sender | eq₃
       with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
 ...       | inj₁ _ | ()
-...       | inj₂ _ | eq₃'
+...       | inj₂ senders | eq₃'
         with lookupArray "signals" obj | eq₃'
 ...         | nothing | ()
 ...         | just signalsJSON | eq₄
           with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
 ...           | inj₁ _ | ()
-...           | inj₂ signals | refl = record
-              { dlc-bound  = dlcBytes-bounded dlc
-              ; signals-wf = parseSignalList-wf rawDlc ctx signalsJSON 0 signals
-                               (bvd-raw-bound rawDlc dlc bvd-eq) sig-eq
-              }
+...           | inj₂ signals | eq₅
+            with validateIdent name | eq₅
+...           | inj₁ _ | ()
+...           | inj₂ nameId | eq₆
+              with validateIdent sender | eq₆
+...             | inj₁ _ | ()
+...             | inj₂ senderId | eq₇
+                with validateIdentList senders | eq₇
+...               | inj₁ _ | ()
+...               | inj₂ senderIds | refl = record
+                    { dlc-bound  = dlcBytes-bounded dlc
+                    ; signals-wf = parseSignalList-wf rawDlc ctx signalsJSON 0 signals
+                                     (bvd-raw-bound rawDlc dlc bvd-eq) sig-eq
+                    }
 
 -- ============================================================================
 -- MESSAGE FIELDS WELL-FORMEDNESS
@@ -219,21 +228,30 @@ parseMessageBody-pv ctx name canId obj msg eq
 ...     | just sender | eq₃
       with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
 ...       | inj₁ _ | ()
-...       | inj₂ _ | eq₃'
+...       | inj₂ senders | eq₃'
         with lookupArray "signals" obj | eq₃'
 ...         | nothing | ()
 ...         | just signalsJSON | eq₄
           with parseSignalList rawDlc ctx signalsJSON 0 in sig-eq | eq₄
 ...           | inj₁ _ | ()
-...           | inj₂ signals | refl =
-              -- parseSignalList-pv returns `All (PhysicallyValid rawDlc) signals`
-              -- but the message has `dlc = dlc` so the goal is
-              -- `All (PhysicallyValid (dlcBytes dlc)) signals`. bvd-bytes
-              -- bridges via dlcBytes dlc ≡ rawDlc.
-              subst (λ n → All (PhysicallyValid n) signals)
-                    (sym (bvd-bytes rawDlc dlc bvd-eq))
-                    (parseSignalList-pv rawDlc ctx signalsJSON 0 signals
-                      (bvd-raw-bound rawDlc dlc bvd-eq) sig-eq)
+...           | inj₂ signals | eq₅
+            with validateIdent name | eq₅
+...           | inj₁ _ | ()
+...           | inj₂ nameId | eq₆
+              with validateIdent sender | eq₆
+...             | inj₁ _ | ()
+...             | inj₂ senderId | eq₇
+                with validateIdentList senders | eq₇
+...               | inj₁ _ | ()
+...               | inj₂ senderIds | refl =
+                    -- parseSignalList-pv returns `All (PhysicallyValid rawDlc) signals`
+                    -- but the message has `dlc = dlc` so the goal is
+                    -- `All (PhysicallyValid (dlcBytes dlc)) signals`. bvd-bytes
+                    -- bridges via dlcBytes dlc ≡ rawDlc.
+                    subst (λ n → All (PhysicallyValid n) signals)
+                          (sym (bvd-bytes rawDlc dlc bvd-eq))
+                          (parseSignalList-pv rawDlc ctx signalsJSON 0 signals
+                            (bvd-raw-bound rawDlc dlc bvd-eq) sig-eq)
 
 parseMessageFields-pv : ∀ ctx name obj msg
   → parseMessageFields ctx name obj ≡ inj₂ msg

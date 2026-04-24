@@ -7,6 +7,8 @@
 -- exporting validated/modified DBC definitions.
 -- Role: Used by Protocol.StreamState to handle FormatDBC command.
 module Aletheia.DBC.Formatter where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; signalGroupNameStr; envVarNameStr; valueTableNameStr; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr)
 
 open import Data.String using (String)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
@@ -57,7 +59,7 @@ formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool 
 
 formatPresence : SignalPresence → List (String × JSON)
 formatPresence Always        = ("presence" , JString "always") ∷ []
-formatPresence (When mux vs) = ("multiplexor" , JString mux)
+formatPresence (When mux vs) = ("multiplexor" , JString (Identifier.name mux))
   ∷ ("multiplex_values" , JArray (map ℕtoJSON (List⁺.toList vs))) ∷ []
 
 -- ============================================================================
@@ -70,7 +72,7 @@ formatDBCSignal frameBytes sig =
       bo  = DBCSignal.byteOrder sig
       sb  = unconvertStartBit frameBytes bo (SignalDef.startBit def) (SignalDef.bitLength def)
   in JObject (
-    ("name"      , JString (DBCSignal.name sig)) ∷
+    ("name"      , JString (signalNameStr sig)) ∷
     ("startBit"  , ℕtoJSON sb) ∷
     ("length"    , ℕtoJSON (SignalDef.bitLength def)) ∷
     ("byteOrder" , JString (formatByteOrder (DBCSignal.byteOrder sig))) ∷
@@ -80,16 +82,16 @@ formatDBCSignal frameBytes sig =
     ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
     ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
     ("unit"      , JString (DBCSignal.unit sig)) ∷
-    ("receivers" , JArray (map JString (DBCSignal.receivers sig))) ∷
+    ("receivers" , JArray (map (λ r → JString (Identifier.name r)) (DBCSignal.receivers sig))) ∷
     formatPresence (DBCSignal.presence sig))
 
 formatDBCMessage : DBCMessage → JSON
 formatDBCMessage msg = JObject (
   formatCANId (DBCMessage.id msg) ++ₗ
-  ("name"    , JString (DBCMessage.name msg)) ∷
+  ("name"    , JString (messageNameStr msg)) ∷
   ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
-  ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("senders" , JArray (map JString (DBCMessage.senders msg))) ∷
+  ("sender"  , JString (messageSenderStr msg)) ∷
+  ("senders" , JArray (map (λ s → JString (Identifier.name s)) (DBCMessage.senders msg))) ∷
   ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   [])
 
@@ -101,13 +103,13 @@ formatValueEntry (n , s) = JObject (
 
 formatSignalGroup : SignalGroup → JSON
 formatSignalGroup sg = JObject (
-  ("name"    , JString (SignalGroup.name sg)) ∷
-  ("signals" , JArray (map JString (SignalGroup.signals sg))) ∷
+  ("name"    , JString (signalGroupNameStr sg)) ∷
+  ("signals" , JArray (map (λ s → JString (Identifier.name s)) (SignalGroup.signals sg))) ∷
   [])
 
 formatEnvironmentVar : EnvironmentVar → JSON
 formatEnvironmentVar ev = JObject (
-  ("name"    , JString (EnvironmentVar.name ev)) ∷
+  ("name"    , JString (envVarNameStr ev)) ∷
   ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
   ("initial" , JNumber (toℚ (EnvironmentVar.initial ev))) ∷
   ("minimum" , JNumber (toℚ (EnvironmentVar.minimum ev))) ∷
@@ -116,7 +118,7 @@ formatEnvironmentVar ev = JObject (
 
 formatValueTable : ValueTable → JSON
 formatValueTable vt = JObject (
-  ("name"    , JString (ValueTable.name vt)) ∷
+  ("name"    , JString (valueTableNameStr vt)) ∷
   ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
   [])
 
@@ -127,7 +129,7 @@ formatValueTable vt = JObject (
 -- ---- Nodes (BU_) ----
 
 formatNode : Node → JSON
-formatNode n = JObject (("name" , JString (Node.name n)) ∷ [])
+formatNode n = JObject (("name" , JString (nodeNameStr n)) ∷ [])
 
 -- ---- Comments (CM_) ----
 
@@ -137,13 +139,13 @@ formatNode n = JObject (("name" , JString (Node.name n)) ∷ [])
 formatCommentTarget : CommentTarget → List (String × JSON)
 formatCommentTarget CTNetwork = ("kind" , JString "network") ∷ []
 formatCommentTarget (CTNode n) =
-  ("kind" , JString "node") ∷ ("node" , JString n) ∷ []
+  ("kind" , JString "node") ∷ ("node" , JString (Identifier.name n)) ∷ []
 formatCommentTarget (CTMessage id) =
   ("kind" , JString "message") ∷ formatCANId id
 formatCommentTarget (CTSignal id s) =
-  ("kind" , JString "signal") ∷ formatCANId id ++ₗ ("signal" , JString s) ∷ []
+  ("kind" , JString "signal") ∷ formatCANId id ++ₗ ("signal" , JString (Identifier.name s)) ∷ []
 formatCommentTarget (CTEnvVar ev) =
-  ("kind" , JString "envVar") ∷ ("envVar" , JString ev) ∷ []
+  ("kind" , JString "envVar") ∷ ("envVar" , JString (Identifier.name ev)) ∷ []
 
 formatComment : DBCComment → JSON
 formatComment c = JObject (
@@ -193,37 +195,37 @@ formatAttrTarget : AttrTarget → List (String × JSON)
 formatAttrTarget ATgtNetwork =
   ("kind" , JString "network") ∷ []
 formatAttrTarget (ATgtNode n) =
-  ("kind" , JString "node") ∷ ("node" , JString n) ∷ []
+  ("kind" , JString "node") ∷ ("node" , JString (Identifier.name n)) ∷ []
 formatAttrTarget (ATgtMessage id) =
   ("kind" , JString "message") ∷ formatCANId id
 formatAttrTarget (ATgtSignal id s) =
-  ("kind" , JString "signal") ∷ formatCANId id ++ₗ ("signal" , JString s) ∷ []
+  ("kind" , JString "signal") ∷ formatCANId id ++ₗ ("signal" , JString (Identifier.name s)) ∷ []
 formatAttrTarget (ATgtEnvVar ev) =
-  ("kind" , JString "envVar") ∷ ("envVar" , JString ev) ∷ []
+  ("kind" , JString "envVar") ∷ ("envVar" , JString (Identifier.name ev)) ∷ []
 formatAttrTarget (ATgtNodeMsg n id) =
-  ("kind" , JString "nodeMsg") ∷ ("node" , JString n) ∷ formatCANId id
+  ("kind" , JString "nodeMsg") ∷ ("node" , JString (Identifier.name n)) ∷ formatCANId id
 formatAttrTarget (ATgtNodeSig n id s) =
-  ("kind" , JString "nodeSig") ∷ ("node" , JString n) ∷ formatCANId id
-    ++ₗ ("signal" , JString s) ∷ []
+  ("kind" , JString "nodeSig") ∷ ("node" , JString (Identifier.name n)) ∷ formatCANId id
+    ++ₗ ("signal" , JString (Identifier.name s)) ∷ []
 
 -- Raw field lists for each BA_* sub-record. `formatAttribute` prepends the
 -- "kind" discriminator so the three variants live in a single flat object.
 attrDefFields : AttrDef → List (String × JSON)
 attrDefFields d =
-  ("name"     , JString (AttrDef.name d)) ∷
+  ("name"     , JString (attrDefNameStr d)) ∷
   ("scope"    , JString (formatAttrScope (AttrDef.scope d))) ∷
   ("attrType" , JObject (formatAttrType (AttrDef.attrType d))) ∷
   []
 
 attrDefaultFields : AttrDefault → List (String × JSON)
 attrDefaultFields d =
-  ("name"  , JString (AttrDefault.name d)) ∷
+  ("name"  , JString (attrDefaultNameStr d)) ∷
   ("value" , JObject (formatAttrValue (AttrDefault.value d))) ∷
   []
 
 attrAssignFields : AttrAssign → List (String × JSON)
 attrAssignFields a =
-  ("name"   , JString (AttrAssign.name a)) ∷
+  ("name"   , JString (attrAssignNameStr a)) ∷
   ("target" , JObject (formatAttrTarget (AttrAssign.target a))) ∷
   ("value"  , JObject (formatAttrValue (AttrAssign.value a))) ∷
   []

@@ -7,6 +7,7 @@
 module Aletheia.DBC.Properties.Equality where
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (_≟-ByteOrder_)
 open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
@@ -32,7 +33,7 @@ _≟-SignalPresence_ : (p₁ p₂ : SignalPresence) → Dec (p₁ ≡ p₂)
 Always       ≟-SignalPresence Always       = yes refl
 Always       ≟-SignalPresence When _ _     = no (λ ())
 When _ _     ≟-SignalPresence Always       = no (λ ())
-When m₁ vs₁ ≟-SignalPresence When m₂ vs₂ with m₁ ≟ₛ m₂ | vs₁ ≟-List⁺ℕ vs₂
+When m₁ vs₁ ≟-SignalPresence When m₂ vs₂ with m₁ ≟ᴵ m₂ | vs₁ ≟-List⁺ℕ vs₂
 ... | yes refl | yes refl = yes refl
 ... | no  m≢   | _        = no (λ { refl → m≢ refl })
 ... | _        | no  vs≢  = no (λ { refl → vs≢ refl })
@@ -65,7 +66,7 @@ s₁ ≟-SignalDef s₂
 -- Decidable equality for DBCSignal (6 fields)
 _≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
 s₁ ≟-DBCSignal s₂
-  with DBCSignal.name s₁ ≟ₛ DBCSignal.name s₂
+  with DBCSignal.name s₁ ≟ᴵ DBCSignal.name s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.name eq))
 ... | yes refl
   with DBCSignal.signalDef s₁ ≟-SignalDef DBCSignal.signalDef s₂
@@ -80,6 +81,6 @@ s₁ ≟-DBCSignal s₂
   with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.presence eq))
 ... | yes refl
-  with ≡-dec _≟ₛ_ (DBCSignal.receivers s₁) (DBCSignal.receivers s₂)
+  with ≡-dec _≟ᴵ_ (DBCSignal.receivers s₁) (DBCSignal.receivers s₂)
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.receivers eq))
 ... | yes refl = yes refl

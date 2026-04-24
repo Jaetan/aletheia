@@ -12,6 +12,7 @@ open import Aletheia.DBC.Properties.Disjointness using
   ( PhysicallyDisjoint; physicallyDisjoint-sym; physicallyDisjoint?
   ; SignalsDisjoint; signalsDisjoint-sym)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Data.List using (List; []; _∷_)
@@ -36,20 +37,28 @@ ValuesOverlap vs₁ vs₂ = Any (λ v → Any (v ≡_) (toList vs₂)) (toList v
 valuesOverlap? : (vs₁ vs₂ : List⁺ ℕ) → Dec (ValuesOverlap vs₁ vs₂)
 valuesOverlap? vs₁ vs₂ = any? (λ v → any? (v ≟_) (toList vs₂)) (toList vs₁)
 
+-- Same-multiplexor predicate: two `When` presences share a multiplexor iff
+-- their name Strings are propositionally equal.  Using name equality (rather
+-- than `_≡_` on Identifier) avoids having to prove proof irrelevance for the
+-- `@0 valid` witness, which would need the `fromList∘toList` axiom.
 data CanCoexist : SignalPresence → SignalPresence → Set where
   both-always : CanCoexist Always Always
   always-left : ∀ {m vs} → CanCoexist Always (When m vs)
   always-right : ∀ {m vs} → CanCoexist (When m vs) Always
-  different-mux : ∀ {m₁ m₂ vs₁ vs₂} → m₁ ≢ m₂ → CanCoexist (When m₁ vs₁) (When m₂ vs₂)
-  same-mux-overlap : ∀ {m₁ m₂ vs₁ vs₂} → m₁ ≡ m₂ → ValuesOverlap vs₁ vs₂ → CanCoexist (When m₁ vs₁) (When m₂ vs₂)
+  different-mux : ∀ {m₁ m₂ vs₁ vs₂} → Identifier.name m₁ ≢ Identifier.name m₂
+    → CanCoexist (When m₁ vs₁) (When m₂ vs₂)
+  same-mux-overlap : ∀ {m₁ m₂ vs₁ vs₂} → Identifier.name m₁ ≡ Identifier.name m₂
+    → ValuesOverlap vs₁ vs₂ → CanCoexist (When m₁ vs₁) (When m₂ vs₂)
 
 canCoexist? : (p₁ p₂ : SignalPresence) → Dec (CanCoexist p₁ p₂)
 canCoexist? Always Always = yes both-always
 canCoexist? Always (When m vs) = yes always-left
 canCoexist? (When m vs) Always = yes always-right
-canCoexist? (When m₁ vs₁) (When m₂ vs₂) = helper (m₁ ≟ₛ m₂) (valuesOverlap? vs₁ vs₂)
+canCoexist? (When m₁ vs₁) (When m₂ vs₂) =
+    helper (Identifier.name m₁ ≟ₛ Identifier.name m₂) (valuesOverlap? vs₁ vs₂)
   where
-    helper : Dec (m₁ ≡ m₂) → Dec (ValuesOverlap vs₁ vs₂) → Dec (CanCoexist (When m₁ vs₁) (When m₂ vs₂))
+    helper : Dec (Identifier.name m₁ ≡ Identifier.name m₂) → Dec (ValuesOverlap vs₁ vs₂)
+      → Dec (CanCoexist (When m₁ vs₁) (When m₂ vs₂))
     helper (yes m≡) (yes ovl) = yes (same-mux-overlap m≡ ovl)
     helper (yes m≡) (no ¬ovl) = no λ where
       (different-mux m≢) → m≢ m≡

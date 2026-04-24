@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Correctness properties for the DBC text-format parser — facade
 -- placeholder (Phase B.3.b).

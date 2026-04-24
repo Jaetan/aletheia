@@ -10,7 +10,8 @@
 module Aletheia.CAN.DBCHelpers where
 
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Data.List using (List; []; _∷_)
@@ -89,7 +90,7 @@ findMessageById msgId dbc = findByPredicate matchesId (DBC.messages dbc)
 -- a real proof bridge. (See Cache.agda for the same blocker.)
 findSignalInList : String → List DBCSignal → Maybe DBCSignal
 findSignalInList _ [] = nothing
-findSignalInList name (s ∷ ss) with name ≟ₛ DBCSignal.name s
+findSignalInList name (s ∷ ss) with name ≟ₛ signalNameStr s
 ... | yes _ = just s
 ... | no  _ = findSignalInList name ss
 

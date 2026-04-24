@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- DBC (Database CAN) text format parser — entry point (Phase B.3.c.k).
 --

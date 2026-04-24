@@ -41,6 +41,8 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Topology where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char)
@@ -72,7 +74,7 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 emitBU-chars : List Node → List Char
 emitBU-chars ns =
   toList "BU_:" ++ₗ
-  foldr (λ n acc → ' ' ∷ toList (Node.name n) ++ₗ acc) (toList "\n\n") ns
+  foldr (λ n acc → ' ' ∷ toList (nodeNameStr n) ++ₗ acc) (toList "\n\n") ns
 
 -- ============================================================================
 -- CANID (raw ℕ for BO_ line)
@@ -104,10 +106,11 @@ emitSignFlag-chars false = '+' ∷ []
 
 -- Comma-separated receivers; `Vector__XXX` placeholder when empty (matches
 -- cantools output and satisfies the grammar's ≥1-receiver requirement).
-emitReceivers-chars : List String → List Char
+emitReceivers-chars : List Identifier → List Char
 emitReceivers-chars []       = toList "Vector__XXX"
 emitReceivers-chars (r ∷ rs) =
-  toList r ++ₗ foldr (λ x acc → ',' ∷ toList x ++ₗ acc) [] rs
+  toList (Identifier.name r)
+    ++ₗ foldr (λ x acc → ',' ∷ toList (Identifier.name x) ++ₗ acc) [] rs
 
 -- ============================================================================
 -- MUX RESOLUTION (scan signals for the master)
@@ -121,7 +124,7 @@ findMuxMaster : List DBCSignal → Maybe String
 findMuxMaster [] = nothing
 findMuxMaster (s ∷ rest) with DBCSignal.presence s
 ... | Always   = findMuxMaster rest
-... | When m _ = just m
+... | When m _ = just (Identifier.name m)
 
 -- Emit the mux indicator for one signal, given the master's name (if any).
 --   * `Always` + name == master       ⇒ " M"
@@ -152,8 +155,8 @@ emitSignalLine-chars master frameBytes sig =
       bo  = DBCSignal.byteOrder sig
       sb  = unconvertStartBit frameBytes bo
               (SignalDef.startBit def) (SignalDef.bitLength def)
-  in toList " SG_ " ++ₗ toList (DBCSignal.name sig) ++ₗ
-     emitMuxMarker-chars master (DBCSignal.name sig) (DBCSignal.presence sig) ++ₗ
+  in toList " SG_ " ++ₗ toList (signalNameStr sig) ++ₗ
+     emitMuxMarker-chars master (signalNameStr sig) (DBCSignal.presence sig) ++ₗ
      toList " : " ++ₗ showℕ-dec-chars sb ++ₗ
      '|' ∷ showℕ-dec-chars (SignalDef.bitLength def) ++ₗ
      '@' ∷ emitByteOrderDigit-chars bo ++ₗ
@@ -181,10 +184,10 @@ emitMessage-chars msg =
       sigs   = DBCMessage.signals msg
       master = findMuxMaster sigs
   in toList "BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ (DBCMessage.id msg)) ++ₗ
-     ' ' ∷ toList (DBCMessage.name msg) ++ₗ
+     ' ' ∷ toList (messageNameStr msg) ++ₗ
      toList ": " ++ₗ
      showℕ-dec-chars fb ++ₗ
-     ' ' ∷ toList (DBCMessage.sender msg) ++ₗ
+     ' ' ∷ toList (messageSenderStr msg) ++ₗ
      '\n' ∷
      foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc) [] sigs ++ₗ
      '\n' ∷ []

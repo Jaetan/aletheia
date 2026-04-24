@@ -22,6 +22,8 @@
 --
 -- Runtime cost: zero (proofs erased by MAlonzo compilation).
 module Aletheia.CAN.SignalExtraction.Properties where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; SignalNotPresent)
@@ -54,11 +56,11 @@ open import Function using (case_of_)
 -- multiplexor signal exists in the message. This guarantees the DBC reference
 -- is valid (the mux signal was defined in the message).
 checkPresenceP-finds-mux : ∀ {n} (f : ℕ) (frame : CANFrame n) (msg : DBCMessage)
-  (muxName : String) (muxValues : List⁺ ℕ)
+  (muxName : Identifier) (muxValues : List⁺ ℕ)
   → checkPresenceP (suc f) frame msg (When muxName muxValues) ≡ nothing
-  → Is-just (findSignalByName muxName msg)
+  → Is-just (findSignalByName (Identifier.name muxName) msg)
 checkPresenceP-finds-mux f frame msg muxName muxValues eq
-  with findSignalByName muxName msg
+  with findSignalByName (Identifier.name muxName) msg
 ... | nothing = case eq of λ ()
 ... | just _  = is-just tt
 
@@ -70,11 +72,11 @@ checkPresenceP-finds-mux f frame msg muxName muxValues eq
 -- on a When-presence fails. Guarantees that typos or renamed signals are
 -- caught at runtime as a defensive backstop to the static validator.
 checkPresenceP-rejects-missing : ∀ {n} (f : ℕ) (frame : CANFrame n) (msg : DBCMessage)
-  (muxName : String) (muxValues : List⁺ ℕ)
-  → findSignalByName muxName msg ≡ nothing
+  (muxName : Identifier) (muxValues : List⁺ ℕ)
+  → findSignalByName (Identifier.name muxName) msg ≡ nothing
   → Is-just (checkPresenceP (suc f) frame msg (When muxName muxValues))
 checkPresenceP-rejects-missing f frame msg muxName muxValues eq
-  with findSignalByName muxName msg
+  with findSignalByName (Identifier.name muxName) msg
 ... | nothing = is-just tt
 ... | just _  = case eq of λ ()
 
@@ -125,10 +127,10 @@ extractSignalDirect-mux msg frame sig reason eq
 --
 --   * walkMux  : ℕ → List DBCSignal → SignalPresence → Bool
 --                (true = "no cycle within fuel"); discriminator
---                `DBCSignal.name s ≟ name`
+--                `signalNameStr s ≟ name`
 --   * checkPresenceP : ℕ → CANFrame n → DBCMessage → SignalPresence → Maybe ExtractionError
 --                (nothing = "presence held"); discriminator
---                `name ≟ DBCSignal.name s`
+--                `name ≟ signalNameStr s`
 --
 -- We avoid ExtractionError disequality by introducing an inductive
 -- predicate `HitsCycleBranch` that captures structurally the shape of
@@ -143,11 +145,11 @@ extractSignalDirect-mux msg frame sig reason eq
 -- recursively through a mux ancestor whose presence chain hits the branch.
 data HitsCycleBranch : ∀ {n} → ℕ → CANFrame n → DBCMessage → SignalPresence → Set where
   hit-zero : ∀ {n} (frame : CANFrame n) (msg : DBCMessage)
-             (name : String) (vals : List⁺ ℕ)
+             (name : Identifier) (vals : List⁺ ℕ)
            → HitsCycleBranch zero frame msg (When name vals)
   hit-suc  : ∀ {n} (f : ℕ) (frame : CANFrame n) (msg : DBCMessage)
-             (name : String) (vals : List⁺ ℕ) (sig : DBCSignal)
-           → findSignalByName name msg ≡ just sig
+             (name : Identifier) (vals : List⁺ ℕ) (sig : DBCSignal)
+           → findSignalByName (Identifier.name name) msg ≡ just sig
            → HitsCycleBranch f frame msg (DBCSignal.presence sig)
            → HitsCycleBranch (suc f) frame msg (When name vals)
 
@@ -182,8 +184,8 @@ walkMux-blocks-cycle-branch zero    _     _   (When _ _)     wm-eq _ =
   case wm-eq of λ ()
 walkMux-blocks-cycle-branch (suc f) frame msg (When muxName _) wm-eq
                             (hit-suc _ _ _ _ _ sig fbn-eq inner-hit)
-  with findSignalPresence muxName (DBCMessage.signals msg)
-     | findSignal-bridge-just muxName (DBCMessage.signals msg) sig fbn-eq
+  with findSignalPresence (Identifier.name muxName) (DBCMessage.signals msg)
+     | findSignal-bridge-just (Identifier.name muxName) (DBCMessage.signals msg) sig fbn-eq
 ... | nothing | bridge-eq = case bridge-eq of λ ()
 ... | just p  | refl      =
         walkMux-blocks-cycle-branch f frame msg p wm-eq inner-hit

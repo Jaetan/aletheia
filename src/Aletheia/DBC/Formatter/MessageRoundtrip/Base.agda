@@ -4,6 +4,8 @@
 -- Defines mkMessage, messageFields, ctx, and >>=ₑ-congʳ once.
 -- All exports are used by Standard.agda and Extended.agda.
 module Aletheia.DBC.Formatter.MessageRoundtrip.Base where
+open import Aletheia.DBC.Types using (messageNameStr; messageSenderStr)
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Nat using (ℕ)
 open import Data.List using (List; _∷_; map; []) renaming (_++_ to _++ₗ_)
@@ -19,17 +21,17 @@ open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.JSON using (JSON; JString; JNumber; JArray)
 open import Aletheia.Prelude using (_>>=ₑ_)
 
-mkMessage : CANId → String → DLC → String → List String → List DBCSignal → DBCMessage
+mkMessage : CANId → Identifier → DLC → Identifier → List Identifier → List DBCSignal → DBCMessage
 mkMessage i n d s ss sigs = record
   { id = i ; name = n ; dlc = d ; sender = s ; senders = ss ; signals = sigs }
 
 messageFields : DBCMessage → List (String × JSON)
 messageFields msg =
   formatCANId (DBCMessage.id msg) ++ₗ
-  ("name"    , JString (DBCMessage.name msg)) ∷
+  ("name"    , JString (messageNameStr msg)) ∷
   ("dlc"     , ℕtoJSON (dlcBytes (DBCMessage.dlc msg))) ∷
-  ("sender"  , JString (DBCMessage.sender msg)) ∷
-  ("senders" , JArray (map JString (DBCMessage.senders msg))) ∷
+  ("sender"  , JString (messageSenderStr msg)) ∷
+  ("senders" , JArray (map (λ s → JString (Identifier.name s)) (DBCMessage.senders msg))) ∷
   ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
   []
 

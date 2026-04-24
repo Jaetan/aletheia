@@ -8,6 +8,8 @@
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
 --   into validateDBCFull in the parent Validator module.
 module Aletheia.DBC.Validator.Checks where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr)
 
 open import Aletheia.DBC.Types using
   ( DBCMessage; DBCSignal; SignalPresence; Always; When
@@ -69,7 +71,7 @@ findSignalPresence name sigs = mapₘ DBCSignal.presence (findSignalInList name 
 -- Replaces the recurring concatMap (λ msg → concatMap (f (name msg)) (signals msg)) pattern.
 liftPerSignal : (String → DBCSignal → List ValidationIssue) → List DBCMessage → List ValidationIssue
 liftPerSignal f = concatMap λ msg →
-  concatMap (f (DBCMessage.name msg)) (DBCMessage.signals msg)
+  concatMap (f (messageNameStr msg)) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs
@@ -79,8 +81,8 @@ checkDuplicateIdPair : DBCMessage → DBCMessage → List ValidationIssue
 checkDuplicateIdPair m1 m2 =
   rejectDec (DBCMessage.id m1 ≟-CANId DBCMessage.id m2)
             (mkIssue IsError DuplicateMessageId
-              ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-               ++ₛ DBCMessage.name m2 ++ₛ "' share the same CAN ID"))
+              ("Messages '" ++ₛ messageNameStr m1 ++ₛ "' and '"
+               ++ₛ messageNameStr m2 ++ₛ "' share the same CAN ID"))
 
 checkDuplicateIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDuplicateIdAgainstList = checkAgainst checkDuplicateIdPair
@@ -94,10 +96,10 @@ checkDuplicateMessageIds = triangularCheck checkDuplicateIdPair
 
 checkDuplicateSignalPair : String → DBCSignal → DBCSignal → List ValidationIssue
 checkDuplicateSignalPair msgName s1 s2 =
-  rejectDec (DBCSignal.name s1 ≟ₛ DBCSignal.name s2)
+  rejectDec (signalNameStr s1 ≟ₛ signalNameStr s2)
             (mkIssue IsError DuplicateSignalName
               ("Message '" ++ₛ msgName ++ₛ "': duplicate signal name '"
-               ++ₛ DBCSignal.name s1 ++ₛ "'"))
+               ++ₛ signalNameStr s1 ++ₛ "'"))
 
 checkDuplicateSignalAgainstList : String → DBCSignal → List DBCSignal → List ValidationIssue
 checkDuplicateSignalAgainstList msgName = checkAgainst (checkDuplicateSignalPair msgName)
@@ -107,7 +109,7 @@ checkDuplicateSignalTriangular msgName = triangularCheck (checkDuplicateSignalPa
 
 checkDuplicateSignalNamesInMsg : DBCMessage → List ValidationIssue
 checkDuplicateSignalNamesInMsg msg =
-  checkDuplicateSignalTriangular (DBCMessage.name msg) (DBCMessage.signals msg)
+  checkDuplicateSignalTriangular (messageNameStr msg) (DBCMessage.signals msg)
 
 checkAllDuplicateSignalNames : List DBCMessage → List ValidationIssue
 checkAllDuplicateSignalNames = concatMap checkDuplicateSignalNamesInMsg
@@ -120,7 +122,7 @@ checkFactorZeroSig : String → DBCSignal → List ValidationIssue
 checkFactorZeroSig msgName sig =
   rejectDec (DecRat.numerator (SignalDef.factor (DBCSignal.signalDef sig)) ≟ℤ (+ 0))
             (mkIssue IsError FactorZero
-              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                ++ₛ "': factor is zero (constant-zero signal)"))
 
 checkAllFactorZero : List DBCMessage → List ValidationIssue
@@ -133,16 +135,16 @@ checkAllFactorZero = liftPerSignal checkFactorZeroSig
 checkMuxFoundSig : String → List DBCSignal → DBCSignal → List ValidationIssue
 checkMuxFoundSig msgName allSigs sig with DBCSignal.presence sig
 ... | Always        = []
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) allSigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) allSigs
 ...   | yes _ = []
 ...   | no  _ = mkIssue IsError MultiplexorNotFound
-                  ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
-                   ++ₛ "': multiplexor '" ++ₛ muxName
+                  ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
+                   ++ₛ "': multiplexor '" ++ₛ Identifier.name muxName
                    ++ₛ "' not found in message") ∷ []
 
 checkAllMuxFound : List DBCMessage → List ValidationIssue
 checkAllMuxFound = concatMap λ msg →
-  concatMap (checkMuxFoundSig (DBCMessage.name msg) (DBCMessage.signals msg))
+  concatMap (checkMuxFoundSig (messageNameStr msg) (DBCMessage.signals msg))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -171,7 +173,7 @@ checkAllMuxFound = concatMap λ msg →
 walkMux : ℕ → List DBCSignal → SignalPresence → Bool
 walkMux _       _    Always         = true
 walkMux zero    _    (When _ _)     = false
-walkMux (suc f) sigs (When name _) with findSignalPresence name sigs
+walkMux (suc f) sigs (When name _) with findSignalPresence (Identifier.name name) sigs
 ... | nothing = true   -- caught by checkMuxFound (check 4)
 ... | just p  = walkMux f sigs p
 
@@ -181,39 +183,39 @@ checkMuxCycleSig msgName allSigs sig
 ... | true  = []
 ... | false = mkIssue IsError MultiplexorCycle
                 ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                 ++ₛ DBCSignal.name sig
+                 ++ₛ signalNameStr sig
                  ++ₛ "': multiplexor chain forms a cycle") ∷ []
 
 checkAllMuxCycle : List DBCMessage → List ValidationIssue
 checkAllMuxCycle = concatMap λ msg →
-  concatMap (checkMuxCycleSig (DBCMessage.name msg) (DBCMessage.signals msg))
+  concatMap (checkMuxCycleSig (messageNameStr msg) (DBCMessage.signals msg))
             (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 17: MULTIPLEXOR NON-UNIT SCALING
 -- ============================================================================
 
-checkMuxScaling : String → String → DBCSignal → List ValidationIssue
+checkMuxScaling : String → Identifier → DBCSignal → List ValidationIssue
 checkMuxScaling msgName muxName muxSig
   with SignalDef.factor (DBCSignal.signalDef muxSig) ≟ᵈ 1ᵈ
      | SignalDef.offset (DBCSignal.signalDef muxSig) ≟ᵈ 0ᵈ
 ... | yes _ | yes _ = []
 ... | _     | _     = mkIssue IsWarning MultiplexorNonUnitScaling
                          ("Message '" ++ₛ msgName ++ₛ "': multiplexor '"
-                          ++ₛ muxName
+                          ++ₛ Identifier.name muxName
                           ++ₛ "' has non-unit scaling (factor≠1 or offset≠0); "
                           ++ₛ "mux value matching may be unreliable") ∷ []
 
 checkMuxScalingSig : String → List DBCSignal → DBCSignal → List ValidationIssue
 checkMuxScalingSig msgName allSigs sig with DBCSignal.presence sig
 ... | Always = []
-... | When muxName _ with findSignalInList muxName allSigs
+... | When muxName _ with findSignalInList (Identifier.name muxName) allSigs
 ...   | nothing     = []
 ...   | just muxSig = checkMuxScaling msgName muxName muxSig
 
 checkAllMuxScaling : List DBCMessage → List ValidationIssue
 checkAllMuxScaling = concatMap λ msg →
-  concatMap (checkMuxScalingSig (DBCMessage.name msg) (DBCMessage.signals msg))
+  concatMap (checkMuxScalingSig (messageNameStr msg) (DBCMessage.signals msg))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -221,7 +223,7 @@ checkAllMuxScaling = concatMap λ msg →
 -- ============================================================================
 
 messageSignalNames : DBCMessage → List String
-messageSignalNames msg = map DBCSignal.name (DBCMessage.signals msg)
+messageSignalNames msg = map signalNameStr (DBCMessage.signals msg)
 
 checkGlobalNamePair : DBCMessage → DBCMessage → List ValidationIssue
 checkGlobalNamePair m1 m2 =
@@ -230,8 +232,8 @@ checkGlobalNamePair m1 m2 =
       shared  = filter (_∈? names2) names1
   in map (λ n → mkIssue IsWarning GlobalNameCollision
                   ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-                   ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-                   ++ₛ DBCMessage.name m2 ++ₛ "'")) shared
+                   ++ₛ messageNameStr m1 ++ₛ "' and '"
+                   ++ₛ messageNameStr m2 ++ₛ "'")) shared
 
 checkGlobalNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkGlobalNameAgainstList = checkAgainst checkGlobalNamePair
@@ -249,7 +251,7 @@ checkMinMaxSig msgName sig =
               SignalDef.maximum (DBCSignal.signalDef sig))
              (mkIssue IsWarning MinExceedsMax
                ("Message '" ++ₛ msgName ++ₛ "', signal '"
-                ++ₛ DBCSignal.name sig
+                ++ₛ signalNameStr sig
                 ++ₛ "': minimum exceeds maximum"))
 
 checkAllMinMax : List DBCMessage → List ValidationIssue
@@ -264,12 +266,12 @@ checkSignalExceedsDLC msgName dlc sig =
   requireDec (SignalDef.startBit (DBCSignal.signalDef sig)
               + SignalDef.bitLength (DBCSignal.signalDef sig) ≤? dlc * 8)
              (mkIssue IsError SignalExceedsDLC
-               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                 ++ₛ "': bit range exceeds DLC"))
 
 checkAllSignalExceedsDLC : List DBCMessage → List ValidationIssue
 checkAllSignalExceedsDLC = concatMap λ msg →
-  concatMap (checkSignalExceedsDLC (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)))
+  concatMap (checkSignalExceedsDLC (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg)))
             (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -280,8 +282,8 @@ checkOverlapPair : String → ℕ → DBCSignal → DBCSignal → List Validatio
 checkOverlapPair msgName n s1 s2 =
   requireDec (signalPairValid? n s1 s2)
              (mkIssue IsError SignalOverlap
-               ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ DBCSignal.name s1
-                ++ₛ "' and '" ++ₛ DBCSignal.name s2 ++ₛ "' overlap"))
+               ("Message '" ++ₛ msgName ++ₛ "', signals '" ++ₛ signalNameStr s1
+                ++ₛ "' and '" ++ₛ signalNameStr s2 ++ₛ "' overlap"))
 
 checkOverlapAgainstList : String → ℕ → DBCSignal → List DBCSignal → List ValidationIssue
 checkOverlapAgainstList msgName n = checkAgainst (checkOverlapPair msgName n)
@@ -291,7 +293,7 @@ checkOverlapTriangular msgName n = triangularCheck (checkOverlapPair msgName n)
 
 checkOverlapsInMsg : DBCMessage → List ValidationIssue
 checkOverlapsInMsg msg =
-  checkOverlapTriangular (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
+  checkOverlapTriangular (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg)) (DBCMessage.signals msg)
 
 checkAllSignalOverlaps : List DBCMessage → List ValidationIssue
 checkAllSignalOverlaps = concatMap checkOverlapsInMsg
@@ -304,7 +306,7 @@ checkBitLengthZero : String → DBCSignal → List ValidationIssue
 checkBitLengthZero msgName sig =
   rejectDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≟ 0)
             (mkIssue IsError BitLengthZero
-              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+              ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                ++ₛ "': bit length is zero"))
 
 checkAllBitLengthZero : List DBCMessage → List ValidationIssue
@@ -316,10 +318,10 @@ checkAllBitLengthZero = liftPerSignal checkBitLengthZero
 
 checkDuplicateNamePair : DBCMessage → DBCMessage → List ValidationIssue
 checkDuplicateNamePair m1 m2 =
-  rejectDec (DBCMessage.name m1 ≟ₛ DBCMessage.name m2)
+  rejectDec (messageNameStr m1 ≟ₛ messageNameStr m2)
             (mkIssue IsWarning DuplicateMessageName
-              ("Messages '" ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-               ++ₛ DBCMessage.name m2 ++ₛ "' share the same name"))
+              ("Messages '" ++ₛ messageNameStr m1 ++ₛ "' and '"
+               ++ₛ messageNameStr m2 ++ₛ "' share the same name"))
 
 checkDuplicateNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDuplicateNameAgainstList = checkAgainst checkDuplicateNamePair
@@ -373,7 +375,7 @@ checkOffsetScaleRange msgName sig =
       raw     = rawRange (SignalDef.isSigned sd) (SignalDef.bitLength sd)
       physA   = proj₁ raw *ᵣ factor +ᵣ offset
       physB   = proj₂ raw *ᵣ factor +ᵣ offset
-  in checkRangeBounds msgName (DBCSignal.name sig) factor physA physB
+  in checkRangeBounds msgName (signalNameStr sig) factor physA physB
                       (toℚ (SignalDef.minimum sd)) (toℚ (SignalDef.maximum sd))
 
 checkAllOffsetScaleRange : List DBCMessage → List ValidationIssue
@@ -386,7 +388,7 @@ checkAllOffsetScaleRange = liftPerSignal checkOffsetScaleRange
 checkEmptyMessage : DBCMessage → List ValidationIssue
 checkEmptyMessage msg with DBCMessage.signals msg
 ... | []    = mkIssue IsWarning EmptyMessage
-                ("Message '" ++ₛ DBCMessage.name msg
+                ("Message '" ++ₛ messageNameStr msg
                  ++ₛ "': message has no signals") ∷ []
 ... | _ ∷ _ = []
 
@@ -401,7 +403,7 @@ checkStartBitOutOfRange : String → DBCSignal → List ValidationIssue
 checkStartBitOutOfRange msgName sig =
   requireDec (SignalDef.startBit (DBCSignal.signalDef sig) <? max-physical-bits)
              (mkIssue IsWarning StartBitOutOfRange
-               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                 ++ₛ "': start bit ≥ max-physical-bits"))
 
 checkAllStartBitOutOfRange : List DBCMessage → List ValidationIssue
@@ -415,7 +417,7 @@ checkBitLengthExcessive : String → DBCSignal → List ValidationIssue
 checkBitLengthExcessive msgName sig =
   requireDec (SignalDef.bitLength (DBCSignal.signalDef sig) ≤? max-physical-bits)
              (mkIssue IsWarning BitLengthExcessive
-               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ DBCSignal.name sig
+               ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
                 ++ₛ "': bit length exceeds max-physical-bits"))
 
 checkAllBitLengthExcessive : List DBCMessage → List ValidationIssue
@@ -430,7 +432,7 @@ checkAllBitLengthExcessive = liftPerSignal checkBitLengthExcessive
 
 attrDefNames : List DBCAttribute → List String
 attrDefNames [] = []
-attrDefNames (DBCAttrDef d ∷ rest)     = AttrDef.name d ∷ attrDefNames rest
+attrDefNames (DBCAttrDef d ∷ rest)     = attrDefNameStr d ∷ attrDefNames rest
 attrDefNames (DBCAttrDefault _ ∷ rest) = attrDefNames rest
 attrDefNames (DBCAttrAssign _ ∷ rest)  = attrDefNames rest
 
@@ -462,9 +464,9 @@ checkCommentTargetExists : List DBCMessage → List Node → List EnvironmentVar
 checkCommentTargetExists msgs nodes envVars cm with DBCComment.target cm
 ... | CTNetwork = []
 ... | CTNode nname =
-        requireDec (any? (λ n → Node.name n ≟ₛ nname) nodes)
+        requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name nname) nodes)
           (mkIssue IsWarning UnknownCommentTarget
-            ("Comment references unknown node '" ++ₛ nname ++ₛ "'"))
+            ("Comment references unknown node '" ++ₛ Identifier.name nname ++ₛ "'"))
 ... | CTMessage mid with findMessageInList mid msgs
 ...   | just _  = []
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
@@ -473,16 +475,16 @@ checkCommentTargetExists msgs _ _ cm | CTSignal mid sname
   with findMessageInList mid msgs
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
                     ("Comment references unknown signal '"
-                     ++ₛ sname ++ₛ "' (message not found)") ∷ []
-...   | just m with findSignalInList sname (DBCMessage.signals m)
+                     ++ₛ Identifier.name sname ++ₛ "' (message not found)") ∷ []
+...   | just m with findSignalInList (Identifier.name sname) (DBCMessage.signals m)
 ...     | just _  = []
 ...     | nothing = mkIssue IsWarning UnknownCommentTarget
-                      ("Comment references unknown signal '" ++ₛ sname
-                       ++ₛ "' in message '" ++ₛ DBCMessage.name m ++ₛ "'") ∷ []
+                      ("Comment references unknown signal '" ++ₛ Identifier.name sname
+                       ++ₛ "' in message '" ++ₛ messageNameStr m ++ₛ "'") ∷ []
 checkCommentTargetExists _ _ envVars cm | CTEnvVar evname =
-  requireDec (any? (λ ev → EnvironmentVar.name ev ≟ₛ evname) envVars)
+  requireDec (any? (λ ev → envVarNameStr ev ≟ₛ Identifier.name evname) envVars)
     (mkIssue IsWarning UnknownCommentTarget
-      ("Comment references unknown environment variable '" ++ₛ evname ++ₛ "'"))
+      ("Comment references unknown environment variable '" ++ₛ Identifier.name evname ++ₛ "'"))
 
 checkAllUnknownCommentTargets : List DBCMessage → List Node → List EnvironmentVar
                               → List DBCComment → List ValidationIssue
@@ -499,10 +501,10 @@ checkAllUnknownCommentTargets msgs nodes envVars =
 
 checkUnknownSender : List Node → DBCMessage → List ValidationIssue
 checkUnknownSender nodes msg =
-  requireDec (any? (λ n → Node.name n ≟ₛ DBCMessage.sender msg) nodes)
+  requireDec (any? (λ n → nodeNameStr n ≟ₛ messageSenderStr msg) nodes)
     (mkIssue IsWarning UnknownMessageSender
-      ("Message '" ++ₛ DBCMessage.name msg
-       ++ₛ "': sender '" ++ₛ DBCMessage.sender msg
+      ("Message '" ++ₛ messageNameStr msg
+       ++ₛ "': sender '" ++ₛ messageSenderStr msg
        ++ₛ "' not declared in BU_ (nodes) list"))
 
 checkAllUnknownMessageSenders : List DBCMessage → List Node → List ValidationIssue
@@ -516,17 +518,17 @@ checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSend
 -- When the DBC has no BU_ section (nodes = []) the check is skipped, same
 -- as checkAllUnknownMessageSenders above.
 
-checkUnknownReceiver : List Node → String → String → String → List ValidationIssue
+checkUnknownReceiver : List Node → String → String → Identifier → List ValidationIssue
 checkUnknownReceiver nodes msgName sigName receiver =
-  requireDec (any? (λ n → Node.name n ≟ₛ receiver) nodes)
+  requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name receiver) nodes)
     (mkIssue IsWarning UnknownSignalReceiver
       ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
-       ++ₛ "': receiver '" ++ₛ receiver
+       ++ₛ "': receiver '" ++ₛ Identifier.name receiver
        ++ₛ "' not declared in BU_ (nodes) list"))
 
 checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
 checkReceiversForSignal nodes msgName sig =
-  concatMap (checkUnknownReceiver nodes msgName (DBCSignal.name sig))
+  concatMap (checkUnknownReceiver nodes msgName (signalNameStr sig))
             (DBCSignal.receivers sig)
 
 checkAllUnknownSignalReceivers : List DBCMessage → List Node → List ValidationIssue
@@ -542,17 +544,17 @@ checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
 -- (same domain concept — a sender that is not in BU_) and skips when the DBC
 -- omits BU_, matching the behavior of checkAllUnknownMessageSenders.
 
-checkUnknownAdditionalSender : List Node → String → String → List ValidationIssue
+checkUnknownAdditionalSender : List Node → String → Identifier → List ValidationIssue
 checkUnknownAdditionalSender nodes msgName sender =
-  requireDec (any? (λ n → Node.name n ≟ₛ sender) nodes)
+  requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name sender) nodes)
     (mkIssue IsWarning UnknownMessageSender
       ("Message '" ++ₛ msgName
-       ++ₛ "': additional sender '" ++ₛ sender
+       ++ₛ "': additional sender '" ++ₛ Identifier.name sender
        ++ₛ "' not declared in BU_ (nodes) list"))
 
 checkAdditionalSendersForMessage : List Node → DBCMessage → List ValidationIssue
 checkAdditionalSendersForMessage nodes msg =
-  concatMap (checkUnknownAdditionalSender nodes (DBCMessage.name msg))
+  concatMap (checkUnknownAdditionalSender nodes (messageNameStr msg))
             (DBCMessage.senders msg)
 
 checkAllUnknownAdditionalSenders : List DBCMessage → List Node → List ValidationIssue

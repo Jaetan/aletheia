@@ -10,6 +10,7 @@
 -- so convertStartBit-wf-bound provides the startBit bound.
 -- Role: Used by MessageWF for the signal-list component.
 module Aletheia.DBC.JSONParser.SignalWF where
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; _≤ᵇ_; _<ᵇ_; suc; zero; z≤n; s≤s; _∸_)
 open import Data.Nat.DivMod using (m%n<n)
@@ -30,7 +31,7 @@ open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; c
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
-  parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate;
+  parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate; validateIdent; validateIdentList;
   parseOptionalArray; parseStringList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   PhysicallyValid; pv-LE; pv-BE)
@@ -69,7 +70,7 @@ private
   -- immediately; BE forces a 3-deep with-chain on the boolean checks.
   -- Combining eliminates the duplicate postPresence-wf/postPresence-pv pair.
   postPresence-wf×pv :
-    ∀ (frameBytes : ℕ) (ctx name : String) (bo : ByteOrder)
+    ∀ (frameBytes : ℕ) (ctx : String) (name : Identifier) (bo : ByteOrder)
       (sb-mod : ℕ) (sb-bound : sb-mod < max-physical-bits)
       (bl-mod : ℕ) (bl-bound : bl-mod < suc max-physical-bits)
       isSigned factor offset minimum maximum unit presence receivers sig
@@ -170,11 +171,17 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
 ...                     | inj₂ presence | eq₁₁
                       with parseOptionalArray parseStringList (lookupArray "receivers" obj) | eq₁₁
 ...                       | inj₁ _ | ()
-...                       | inj₂ receivers | eq₁₂ =
-                            postPresence-wf×pv frameBytes ctx name bo
-                              (sb % max-physical-bits) (m%n<n sb max-physical-bits)
-                              (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
-                              isSigned factor offset minimum maximum unit presence receivers sig fb≤64 eq₁₂
+...                       | inj₂ receivers | eq₁₂
+                        with validateIdent name | eq₁₂
+...                         | inj₁ _ | ()
+...                         | inj₂ nameId | eq₁₃
+                          with validateIdentList receivers | eq₁₃
+...                           | inj₁ _ | ()
+...                           | inj₂ receiverIds | eq₁₄ =
+                                postPresence-wf×pv frameBytes ctx nameId bo
+                                  (sb % max-physical-bits) (m%n<n sb max-physical-bits)
+                                  (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
+                                  isSigned factor offset minimum maximum unit presence receiverIds sig fb≤64 eq₁₄
 
 -- Projections of the combined proof (preserve backward-compatible API).
 parseSignalFields-wf : ∀ frameBytes ctx name obj sig

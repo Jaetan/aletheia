@@ -59,10 +59,14 @@
 --   Aletheia inherits the same soundness assumption.
 module Aletheia.DBC.TextParser.Properties.Substrate.Unsafe where
 
+open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
 open import Data.List using (List)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Unit using (tt)
 open import Data.String using (String; toList; fromList)
-open import Relation.Binary.PropositionalEquality using (_≡_)
+open import Relation.Binary.PropositionalEquality using (_≡_; sym; cong; subst)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -71,3 +75,19 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 postulate
   toList∘fromList : ∀ (cs : List Char) → toList (fromList cs) ≡ cs
   fromList∘toList : ∀ (s  : String)    → fromList (toList s)  ≡ s
+
+-- ============================================================================
+-- CHAR-LIST IDENTIFIER CONSTRUCTION (text parser path)
+-- ============================================================================
+
+-- Build an Identifier from a char list, bridging the char-level bool witness
+-- to the `toList name`-level witness required by `Identifier.valid` via the
+-- `toList∘fromList` axiom.  This is the text parser's construction path; the
+-- axiom use is bounded to this single helper.
+mkIdentFromCharsUnsafe : (cs : List Char) → Maybe Identifier
+mkIdentFromCharsUnsafe cs with validIdentifierᵇ cs in eq
+... | true  = just (mkIdent (fromList cs)
+                   (subst T
+                     (cong validIdentifierᵇ (sym (toList∘fromList cs)))
+                     (subst T (sym eq) tt)))
+... | false = nothing

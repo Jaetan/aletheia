@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Lexical primitives for the DBC text format (Phase B.3.c.1).
 --
@@ -23,26 +23,28 @@ module Aletheia.DBC.TextParser.Lexer where
 
 open import Data.Bool using (Bool; _∨_; not)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.Char.Base using (isAlpha)
 open import Data.List using (List; []; _∷_)
+open import Data.Maybe using (just; nothing)
 open import Data.String using (String; fromList)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; _>>=_; _<|>_; _*>_;
-   satisfy; char; string; many; some; isAlphaNum)
+  (Parser; pure; fail; _>>=_; _<|>_; _*>_;
+   satisfy; char; string; many; some)
+
+open import Aletheia.DBC.Identifier using
+  (Identifier; mkIdent; isIdentStart; isIdentCont) public
+open import Aletheia.DBC.TextParser.Properties.Substrate.Unsafe
+  using (mkIdentFromCharsUnsafe)
 
 open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseInt; parseRational) public
 
 -- ============================================================================
 -- CHARACTER CLASSES
 -- ============================================================================
-
-isIdentStart : Char → Bool
-isIdentStart c = isAlpha c ∨ ⌊ c ≟ᶜ '_' ⌋
-
-isIdentCont : Char → Bool
-isIdentCont c = isAlphaNum c ∨ ⌊ c ≟ᶜ '_' ⌋
+-- `isIdentStart` / `isIdentCont` are defined in `Aletheia.DBC.Identifier` and
+-- re-exported via the `open import ... public` above, so this module remains
+-- the canonical surface for DBC-text lexical primitives.
 
 -- Intraline whitespace — matches the grammar `ws ::= (" " | "\t")+`.
 -- Explicitly excludes newlines so lexers sharing a BNF line cannot swallow
@@ -54,11 +56,25 @@ isHSpace c = ⌊ c ≟ᶜ ' ' ⌋ ∨ ⌊ c ≟ᶜ '\t' ⌋
 -- IDENTIFIERS
 -- ============================================================================
 
-parseIdentifier : Parser String
-parseIdentifier = do
-  h ← satisfy isIdentStart
-  t ← many (satisfy isIdentCont)
-  pure (fromList (h ∷ t))
+-- Build an Identifier from chars after satisfy accepted the head and `many
+-- (satisfy isIdentCont)` accepted every element of the tail.  The `nothing`
+-- branch is logically unreachable but must be handled syntactically.
+-- T3-fixed: the Identifier's `name` is `fromList (h ∷ t)`; the `.valid`
+-- witness bridges from the char-level bool via `toList∘fromList` (the sole
+-- axiom use for Identifier construction, confined to `mkIdentFromCharsUnsafe`
+-- in `Substrate.Unsafe`).  This module therefore drops `--safe`, as does
+-- every downstream TextParser module that imports parseIdentifier.
+private
+  buildIdent : Char → List Char → Parser Identifier
+  buildIdent h t with mkIdentFromCharsUnsafe (h ∷ t)
+  ... | just i  = pure i
+  ... | nothing = fail
+
+parseIdentifier : Parser Identifier
+parseIdentifier =
+  satisfy isIdentStart >>= λ h →
+  many (satisfy isIdentCont) >>= λ t →
+  buildIdent h t
 
 -- ============================================================================
 -- STRING LITERALS

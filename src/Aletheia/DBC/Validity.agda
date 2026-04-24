@@ -9,6 +9,8 @@
 -- A DBC is valid when all 8 error-severity conditions hold.
 -- Warning-severity checks are advisory and NOT part of ValidDBC.
 module Aletheia.DBC.Validity where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using (findSignalPresence; walkMux)
@@ -68,7 +70,7 @@ nonZeroFactor→factorℚ≢0 {sig} nzf toℚfactor≡0 =
 -- Condition 4: Multiplexor reference resolves (if conditional)
 MuxResolvable : List DBCSignal → SignalPresence → Set
 MuxResolvable _    Always           = ⊤
-MuxResolvable sigs (When muxName _) = Any (λ s → DBCSignal.name s ≡ muxName) sigs
+MuxResolvable sigs (When muxName _) = Any (λ s → signalNameStr s ≡ Identifier.name muxName) sigs
 
 -- Condition 5: Multiplexor chain is acyclic.
 -- Defined in terms of walkMux from Validator: starting from a signal's
@@ -104,7 +106,7 @@ record ValidDBC (dbc : DBC) : Set where
     -- 1. All message IDs pairwise distinct
     uniqueIds         : AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs
     -- 2. Signal names pairwise distinct within each message
-    uniqueSigNames    : All (λ m → AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂)
+    uniqueSigNames    : All (λ m → AllPairs (λ s₁ s₂ → signalNameStr s₁ ≢ signalNameStr s₂)
                                             (DBCMessage.signals m)) msgs
     -- 3. Non-zero factors for all signals
     nonZeroFactors    : All (λ m → All NonZeroFactor (DBCMessage.signals m)) msgs
@@ -137,7 +139,7 @@ MinLeqMax sig =
 
 -- Check 11: Message names pairwise distinct
 DistinctMessageNames : DBCMessage → DBCMessage → Set
-DistinctMessageNames m1 m2 = DBCMessage.name m1 ≢ DBCMessage.name m2
+DistinctMessageNames m1 m2 = messageNameStr m1 ≢ messageNameStr m2
 
 -- Check 14: Message has at least one signal
 NonEmptySignals : DBCMessage → Set
@@ -183,4 +185,4 @@ MuxScalingOK (just muxSig) =
 -- without where-blocks, which are opaque to external proofs.
 MuxUnitScaling : List DBCSignal → SignalPresence → Set
 MuxUnitScaling _       Always           = ⊤
-MuxUnitScaling allSigs (When muxName _) = MuxScalingOK (findSignalInList muxName allSigs)
+MuxUnitScaling allSigs (When muxName _) = MuxScalingOK (findSignalInList (Identifier.name muxName) allSigs)

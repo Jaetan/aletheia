@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Value-table parsers for the DBC text format (Phase B.3.c.4).
 --

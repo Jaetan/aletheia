@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Topology parsers for the DBC text format (Phase B.3.c.3).
 --
@@ -46,6 +46,9 @@
 --   * Integer-valued SG_ signals with `signalDef.startBit` physical-gate
 --     rejection — leave to the validator per the scope note above.
 module Aletheia.DBC.TextParser.Topology where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Data.String.Properties
+open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (Bool; true; false)
 open import Data.List using (List; []; _∷_; map)
@@ -162,7 +165,7 @@ parseSignFlag =
 record RawSignal : Set where
   constructor mkRawSignal
   field
-    name      : String
+    name      : Identifier
     muxMarker : MuxMarker
     startBit  : ℕ
     bitLength : ℕ
@@ -173,10 +176,10 @@ record RawSignal : Set where
     minimum   : DecRat
     maximum   : DecRat
     unit      : String
-    receivers : List String
+    receivers : List Identifier
 
 -- Comma-separated receiver list (grammar requires at least one).
-parseReceiverList : Parser (List String)
+parseReceiverList : Parser (List Identifier)
 parseReceiverList = do
   h ← parseIdentifier
   t ← many (char ',' *> parseIdentifier)
@@ -186,9 +189,11 @@ parseReceiverList = do
 -- matching the JSON path's canonical in-memory form.  Only applied when
 -- it is the sole entry — a list like `Vector__XXX,NodeA` (which cantools
 -- never emits but third-party tooling might) is preserved verbatim.
-stripVectorPlaceholder : List String → List String
-stripVectorPlaceholder ("Vector__XXX" ∷ []) = []
-stripVectorPlaceholder rs                    = rs
+stripVectorPlaceholder : List Identifier → List Identifier
+stripVectorPlaceholder (r ∷ []) with Identifier.name r Data.String.Properties.≟ "Vector__XXX"
+... | yes _ = []
+... | no _  = r ∷ []
+stripVectorPlaceholder rs = rs
 
 -- Parse one SG_ line into a `RawSignal`.  Leading indent is `parseWSOpt`
 -- (cantools emits one space; we tolerate any amount).  Mux resolution is
@@ -236,7 +241,7 @@ parseSignalLine = do
 -- ============================================================================
 
 -- Find the multiplexor master's name in a list of raw signals, if any.
-findMuxName : List RawSignal → Maybe String
+findMuxName : List RawSignal → Maybe Identifier
 findMuxName [] = nothing
 findMuxName (s ∷ rest) with RawSignal.muxMarker s
 ... | IsMux       = just (RawSignal.name s)
@@ -251,7 +256,7 @@ findMuxName (s ∷ rest) with RawSignal.muxMarker s
 -- `TextParser.ExtendedMux`).  `SelBy`/`BothMux` with no master yields
 -- `nothing` (the input is ill-formed — a mux-slave without a master in
 -- the same message).
-resolvePresence : Maybe String → MuxMarker → Maybe SignalPresence
+resolvePresence : Maybe Identifier → MuxMarker → Maybe SignalPresence
 resolvePresence _        NotMux      = just Always
 resolvePresence _        IsMux       = just Always
 resolvePresence (just m) (SelBy n)   = just (When m (n List⁺.∷ []))
@@ -264,7 +269,7 @@ resolvePresence nothing  (BothMux _) = nothing
 -- `JSONParser.parseSignalFields` so both paths produce the same internal
 -- representation.  The BE physical gate (`bitLength ≥ 1`, signal-in-frame,
 -- MSB-above-LSB) is skipped here; the validator catches gate violations.
-buildSignal : (frameBytes : ℕ) → Maybe String → RawSignal → Maybe DBCSignal
+buildSignal : (frameBytes : ℕ) → Maybe Identifier → RawSignal → Maybe DBCSignal
 buildSignal frameBytes master raw
   with resolvePresence master (RawSignal.muxMarker raw)
 ... | nothing = nothing
@@ -297,7 +302,7 @@ buildSignal frameBytes master raw
 resolveSignalList : (frameBytes : ℕ) → List RawSignal → Maybe (List DBCSignal)
 resolveSignalList frameBytes raws = buildAll (findMuxName raws) raws
   where
-    buildAll : Maybe String → List RawSignal → Maybe (List DBCSignal)
+    buildAll : Maybe Identifier → List RawSignal → Maybe (List DBCSignal)
     buildAll _ [] = just []
     buildAll m (r ∷ rest) with buildSignal frameBytes m r
     ... | nothing = nothing
@@ -335,7 +340,7 @@ parseMessage = do
   _ ← many parseNewline
   buildMessage rawId msgName rawDlc msgSender raws
   where
-    buildMessage : ℕ → String → ℕ → String → List RawSignal → Parser DBCMessage
+    buildMessage : ℕ → Identifier → ℕ → Identifier → List RawSignal → Parser DBCMessage
     buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
     ... | nothing = fail
     ... | just canId with bytesToValidDLC rawDlc

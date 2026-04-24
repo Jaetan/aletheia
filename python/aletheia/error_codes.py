@@ -38,6 +38,7 @@ class ErrorCode(str, Enum):
     PARSE_SIGNAL_MSB_BELOW_BIT_LENGTH = "parse_signal_msb_below_bit_length"
     PARSE_INVALID_KIND = "parse_invalid_kind"
     PARSE_NON_TERMINATING_RATIONAL = "parse_non_terminating_rational"
+    PARSE_INVALID_IDENTIFIER = "parse_invalid_identifier"
     # Frame errors
     FRAME_SIGNAL_NOT_FOUND = "frame_signal_not_found"
     FRAME_SIGNAL_INDEX_OOB = "frame_signal_index_oob"

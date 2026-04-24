@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Signal-group parser for the DBC text format (Phase B.3.c.7).
 --
@@ -27,6 +27,7 @@
 -- grammar-allowed; `emitSignalGroup` mirrors this on the output side so
 -- B.3.d composes.
 module Aletheia.DBC.TextParser.SignalGroups where
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.String using (String)
 
@@ -48,7 +49,7 @@ open import Aletheia.DBC.Types using (SignalGroup)
 -- `parseWS` fails on `;`, so the repetition stops cleanly without a
 -- separator combinator).  Mirrors `parseValueEntry` in
 -- `TextParser.ValueTables`.
-parseSigNameEntry : Parser String
+parseSigNameEntry : Parser Identifier
 parseSigNameEntry = do
   _ ← parseWS
   parseIdentifier

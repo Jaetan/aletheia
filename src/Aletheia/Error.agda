@@ -53,6 +53,11 @@ data ParseError : Set where
   -- rational whose denominator has a prime factor outside {2, 5}. First
   -- argument is the field name for diagnostics.
   NonTerminatingRational  : String → ParseError
+  -- Name field that fails the DBC identifier grammar (letter/underscore start,
+  -- alphanumeric/underscore continue).  Introduced in Phase B.3.d Layer 2 to
+  -- reject invalid identifiers at the JSON parse boundary; the text parser
+  -- already rejects these syntactically via `parseIdentifier`.
+  InvalidIdentifier       : String → ParseError
   InContext               : String → ParseError → ParseError
 
 formatParseError : ParseError → String
@@ -92,6 +97,8 @@ formatParseError (InvalidKind domain value) =
   "invalid " ++ₛ domain ++ₛ " kind '" ++ₛ value ++ₛ "'"
 formatParseError (NonTerminatingRational f) =
   "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
+formatParseError (InvalidIdentifier s) =
+  "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -113,6 +120,7 @@ parseErrorCode (SignalOverflowsFrame _ _ _) = "parse_signal_overflows_frame"
 parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_length"
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
+parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================

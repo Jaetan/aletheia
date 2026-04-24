@@ -40,6 +40,7 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.EnvVars where
+open import Aletheia.DBC.Types using (envVarNameStr)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
@@ -68,7 +69,7 @@ emitVarType-chars StringVar = '2' ∷ []
 -- module header).
 emitEnvVar-chars : EnvironmentVar → List Char
 emitEnvVar-chars ev =
-  toList "EV_ " ++ₗ toList (EnvironmentVar.name ev) ++ₗ
+  toList "EV_ " ++ₗ toList (envVarNameStr ev) ++ₗ
   toList ": " ++ₗ
   emitVarType-chars (EnvironmentVar.varType ev) ++ₗ
   toList " [" ++ₗ showDecRat-dec-chars (EnvironmentVar.minimum ev) ++ₗ

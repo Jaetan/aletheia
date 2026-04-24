@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Top-level aggregator for the DBC text format (Phase B.3.c.k).
 --

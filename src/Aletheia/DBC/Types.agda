@@ -21,7 +21,9 @@ open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ)
 open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
+open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.Identifier using (Identifier)
 
 -- Signal presence model for multiplexing.
 -- A signal is either always present or conditionally present based on a multiplexor.
@@ -40,31 +42,31 @@ open import Aletheia.DBC.DecRat using (DecRat)
 -- nested multiplexing chains.
 data SignalPresence : Set where
   Always : SignalPresence
-  When : (multiplexor : String) → (values : List⁺ ℕ) → SignalPresence
+  When : (multiplexor : Identifier) → (values : List⁺ ℕ) → SignalPresence
 
 record DBCSignal : Set where
   field
-    name : String
+    name : Identifier
     signalDef : SignalDef
     byteOrder : ByteOrder
     unit : String
-    presence : SignalPresence  -- Conditional presence for multiplexing
-    receivers : List String    -- Node names from SG_ trailing receiver list
+    presence : SignalPresence        -- Conditional presence for multiplexing
+    receivers : List Identifier      -- Node names from SG_ trailing receiver list
 
 record DBCMessage : Set where
   field
     id : CANId
-    name : String
+    name : Identifier
     dlc : DLC
-    sender : String           -- Primary transmitter from the BO_ line
-    senders : List String     -- Additional transmitters from BO_TX_BU_ lines
+    sender : Identifier              -- Primary transmitter from the BO_ line
+    senders : List Identifier        -- Additional transmitters from BO_TX_BU_ lines
     signals : List DBCSignal
 
 -- Signal group: named collection of signal references (DBC SG_ keyword).
 record SignalGroup : Set where
   field
-    name : String
-    signals : List String
+    name : Identifier
+    signals : List Identifier
 
 -- Environment variable type (DBC EV_ keyword varType field).
 data VarType : Set where
@@ -81,7 +83,7 @@ varTypeToℕ StringVar = 2
 -- Environment variable (DBC EV_ keyword).
 record EnvironmentVar : Set where
   field
-    name : String
+    name : Identifier
     varType : VarType
     initial : DecRat
     minimum : DecRat
@@ -90,7 +92,7 @@ record EnvironmentVar : Set where
 -- Value description table (DBC VAL_TABLE_ keyword).
 record ValueTable : Set where
   field
-    name : String
+    name : Identifier
     entries : List (ℕ × String)  -- (numeric value, description)
 
 -- ============================================================================
@@ -102,7 +104,7 @@ record ValueTable : Set where
 record Node : Set where
   constructor mkNode
   field
-    name : String
+    name : Identifier
 
 -- ============================================================================
 -- COMMENT (DBC CM_ keyword family)
@@ -113,10 +115,10 @@ record Node : Set where
 -- SG_ (signal), EV_ (environment variable).
 data CommentTarget : Set where
   CTNetwork : CommentTarget
-  CTNode    : (node : String) → CommentTarget
+  CTNode    : (node : Identifier) → CommentTarget
   CTMessage : (msgID : CANId) → CommentTarget
-  CTSignal  : (msgID : CANId) → (signal : String) → CommentTarget
-  CTEnvVar  : (envVar : String) → CommentTarget
+  CTSignal  : (msgID : CANId) → (signal : Identifier) → CommentTarget
+  CTEnvVar  : (envVar : Identifier) → CommentTarget
 
 -- One DBC comment (a single CM_ line).
 record DBCComment : Set where
@@ -164,14 +166,16 @@ data AttrValue : Set where
 -- concrete identifier(s) of the target entity.
 data AttrTarget : Set where
   ATgtNetwork : AttrTarget
-  ATgtNode    : (node : String) → AttrTarget
+  ATgtNode    : (node : Identifier) → AttrTarget
   ATgtMessage : (msgID : CANId) → AttrTarget
-  ATgtSignal  : (msgID : CANId) → (signal : String) → AttrTarget
-  ATgtEnvVar  : (envVar : String) → AttrTarget
-  ATgtNodeMsg : (node : String) → (msgID : CANId) → AttrTarget
-  ATgtNodeSig : (node : String) → (msgID : CANId) → (signal : String) → AttrTarget
+  ATgtSignal  : (msgID : CANId) → (signal : Identifier) → AttrTarget
+  ATgtEnvVar  : (envVar : Identifier) → AttrTarget
+  ATgtNodeMsg : (node : Identifier) → (msgID : CANId) → AttrTarget
+  ATgtNodeSig : (node : Identifier) → (msgID : CANId) → (signal : Identifier) → AttrTarget
 
 -- BA_DEF_ / BA_DEF_REL_ — attribute type declaration.
+-- `name` is a DBC wire-format quoted string literal (not restricted to the
+-- identifier grammar), so kept as String.
 record AttrDef : Set where
   constructor mkAttrDef
   field
@@ -212,6 +216,46 @@ record DBC : Set where
     nodes : List Node
     comments : List DBCComment
     attributes : List DBCAttribute
+
+-- ============================================================================
+-- IDENTIFIER NAME ACCESSORS (convenience helpers — Identifier → String)
+-- ============================================================================
+-- These mirror the previous `DBCSignal.name : String` etc. API so callers that
+-- only care about the underlying String don't have to write
+-- `Identifier.name (DBCSignal.name sig)`.  MAlonzo inlines the newtype cast,
+-- so there is zero runtime cost vs. direct field access.
+
+signalNameStr : DBCSignal → String
+signalNameStr = Identifier.name ∘ DBCSignal.name
+
+messageNameStr : DBCMessage → String
+messageNameStr = Identifier.name ∘ DBCMessage.name
+
+messageSenderStr : DBCMessage → String
+messageSenderStr = Identifier.name ∘ DBCMessage.sender
+
+nodeNameStr : Node → String
+nodeNameStr = Identifier.name ∘ Node.name
+
+signalGroupNameStr : SignalGroup → String
+signalGroupNameStr = Identifier.name ∘ SignalGroup.name
+
+envVarNameStr : EnvironmentVar → String
+envVarNameStr = Identifier.name ∘ EnvironmentVar.name
+
+valueTableNameStr : ValueTable → String
+valueTableNameStr = Identifier.name ∘ ValueTable.name
+
+-- Attribute names are free-form quoted strings in DBC wire format; these
+-- helpers are identity but kept for naming consistency with other *NameStr.
+attrDefNameStr : AttrDef → String
+attrDefNameStr = AttrDef.name
+
+attrDefaultNameStr : AttrDefault → String
+attrDefaultNameStr = AttrDefault.name
+
+attrAssignNameStr : AttrAssign → String
+attrAssignNameStr = AttrAssign.name
 
 -- ============================================================================
 -- VALIDATION ISSUE TYPES

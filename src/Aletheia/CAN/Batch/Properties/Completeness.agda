@@ -6,6 +6,7 @@
 --   in the message's signal list, partitioned across values/errors/absent.
 -- Key result: extractAll-complete.
 module Aletheia.CAN.Batch.Properties.Completeness where
+open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
@@ -43,7 +44,7 @@ extractAll-complete : ∀ {n} (frame : CANFrame n) msg
 extractAll-complete frame msg = go (DBCMessage.signals msg)
   where
     f : DBCSignal → ExtractionResults
-    f sig = categorizeResult (DBCSignal.name sig)
+    f sig = categorizeResult (signalNameStr sig)
               (extractSignalDirect msg frame sig)
 
     go : ∀ sigs → totalEntries (foldr combinePartitioned emptyPartitioned (map f sigs))

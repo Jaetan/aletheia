@@ -33,6 +33,8 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.SignalGroups where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalGroupNameStr)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
@@ -48,9 +50,9 @@ open import Aletheia.DBC.Types using (SignalGroup)
 -- `[]`, non-empty emits ` sig1 sig2 ... sigN`.  The `:`/`;` boundary
 -- characters are added by the line emitter, so this helper stays
 -- delimiter-agnostic.
-emitSignalNames-chars : List String → List Char
+emitSignalNames-chars : List Identifier → List Char
 emitSignalNames-chars =
-  foldr (λ s acc → ' ' ∷ toList s ++ₗ acc) []
+  foldr (λ s acc → ' ' ∷ toList (Identifier.name s) ++ₗ acc) []
 
 -- ============================================================================
 -- LINE EMITTER
@@ -61,7 +63,7 @@ emitSignalNames-chars =
 -- no-space-before-`;` convention.
 emitSignalGroup-chars : SignalGroup → List Char
 emitSignalGroup-chars sg =
-  toList "SIG_GROUP_ 0 " ++ₗ toList (SignalGroup.name sg) ++ₗ
+  toList "SIG_GROUP_ 0 " ++ₗ toList (signalGroupNameStr sg) ++ₗ
   toList " 1 :" ++ₗ
   emitSignalNames-chars (SignalGroup.signals sg) ++ₗ
   toList ";\n"

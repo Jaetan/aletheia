@@ -11,6 +11,7 @@
 --         Both string-keyed and index-keyed variants share the parameterized
 --         PartitionedResults record.
 module Aletheia.CAN.BatchExtraction where
+open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
@@ -93,7 +94,7 @@ extractAllSignalsFromMessage frame msg =
   where
     extractOne : DBCSignal → ExtractionResults
     extractOne sig =
-      let sigName = DBCSignal.name sig
+      let sigName = signalNameStr sig
           result = extractSignalDirect msg frame sig
       in categorizeResult sigName result
 

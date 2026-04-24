@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- DBC decimal-rational parser — terminal for `scale`, `offset`, `min`,
 -- `max`, environment-variable bounds, value-table keys.

@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Attribute parsers for the DBC text format (Phase B.3.c.5).
 --
@@ -51,6 +51,8 @@
 -- fails on `parseWS` (next char `R`), backtracking cleanly.  The current
 -- ordering is longest-first as a readability aid only.
 module Aletheia.DBC.TextParser.Attributes where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (attrDefNameStr)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Integer using (ℤ; +_; -[1+_])
@@ -210,17 +212,17 @@ wrapMsgTarget r with buildCANId r
 ... | just cid = pure (ATgtMessage cid)
 ... | nothing  = fail
 
-wrapSigTarget : ℕ → String → Parser AttrTarget
+wrapSigTarget : ℕ → Identifier → Parser AttrTarget
 wrapSigTarget r sig with buildCANId r
 ... | just cid = pure (ATgtSignal cid sig)
 ... | nothing  = fail
 
-wrapNodeMsgTarget : String → ℕ → Parser AttrTarget
+wrapNodeMsgTarget : Identifier → ℕ → Parser AttrTarget
 wrapNodeMsgTarget n r with buildCANId r
 ... | just cid = pure (ATgtNodeMsg n cid)
 ... | nothing  = fail
 
-wrapNodeSigTarget : String → ℕ → String → Parser AttrTarget
+wrapNodeSigTarget : Identifier → ℕ → Identifier → Parser AttrTarget
 wrapNodeSigTarget n r sig with buildCANId r
 ... | just cid = pure (ATgtNodeSig n cid sig)
 ... | nothing  = fail
@@ -497,7 +499,7 @@ collectRawDefs (RawAssign _  ∷ rest) = collectRawDefs rest
 lookupDef : String → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =
-  if ⌊ name ≟ₛ AttrDef.name d ⌋
+  if ⌊ name ≟ₛ attrDefNameStr d ⌋
     then just d
     else lookupDef name rest
 

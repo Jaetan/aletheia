@@ -7,6 +7,8 @@
 -- 2. All-error-severity proofs for each of the 9 error checks
 -- Used by Theorem.agda to derive top-level soundness/completeness.
 module Aletheia.DBC.Validity.Composition where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
@@ -99,7 +101,7 @@ checkDuplicateIdPair-allE m1 m2 with DBCMessage.id m1 ≟-CANId DBCMessage.id m2
 
 -- Check 2: DuplicateSignalNames
 checkDuplicateSignalPair-allE : ∀ msgName s1 s2 → All E (checkDuplicateSignalPair msgName s1 s2)
-checkDuplicateSignalPair-allE msgName s1 s2 with DBCSignal.name s1 ≟ₛ DBCSignal.name s2
+checkDuplicateSignalPair-allE msgName s1 s2 with signalNameStr s1 ≟ₛ signalNameStr s2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
@@ -114,7 +116,7 @@ checkFactorZeroSig-allE msgName sig
 checkMuxFoundSig-allE : ∀ msgName sigs sig → All E (checkMuxFoundSig msgName sigs sig)
 checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
 ... | Always = []
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 
@@ -182,31 +184,31 @@ checkAllDuplicateSignalNames-allE : ∀ msgs →
   All E (checkAllDuplicateSignalNames msgs)
 checkAllDuplicateSignalNames-allE [] = []
 checkAllDuplicateSignalNames-allE (msg ∷ rest) =
-  ++⁺ (checkDuplicateSignalTriangular-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+  ++⁺ (checkDuplicateSignalTriangular-allE (messageNameStr msg) (DBCMessage.signals msg))
          (checkAllDuplicateSignalNames-allE rest)
 
 -- Check 3
 checkAllFactorZero-allE : ∀ msgs → All E (checkAllFactorZero msgs)
 checkAllFactorZero-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkFactorZeroSig-allE (DBCMessage.name msg))
+  All-concatMap (universal (checkFactorZeroSig-allE (messageNameStr msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 4
 checkAllMuxFound-allE : ∀ msgs → All E (checkAllMuxFound msgs)
 checkAllMuxFound-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkMuxFoundSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+  All-concatMap (universal (checkMuxFoundSig-allE (messageNameStr msg) (DBCMessage.signals msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 5
 checkAllMuxCycle-allE : ∀ msgs → All E (checkAllMuxCycle msgs)
 checkAllMuxCycle-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkMuxCycleSig-allE (DBCMessage.name msg) (DBCMessage.signals msg))
+  All-concatMap (universal (checkMuxCycleSig-allE (messageNameStr msg) (DBCMessage.signals msg))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 8
 checkAllSignalExceedsDLC-allE : ∀ msgs → All E (checkAllSignalExceedsDLC msgs)
 checkAllSignalExceedsDLC-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkSignalExceedsDLC-allE (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg)))
+  All-concatMap (universal (checkSignalExceedsDLC-allE (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg)))
                          (DBCMessage.signals msg))) msgs)
 
 -- Check 9
@@ -226,12 +228,12 @@ checkOverlapTriangular-allE msgName n (sig ∷ rest) =
 
 checkAllSignalOverlaps-allE : ∀ msgs → All E (checkAllSignalOverlaps msgs)
 checkAllSignalOverlaps-allE msgs = All-concatMap (universal (λ msg →
-  checkOverlapTriangular-allE (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
+  checkOverlapTriangular-allE (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))
                               (DBCMessage.signals msg)) msgs)
 
 -- Check 10
 checkAllBitLengthZero-allE : ∀ msgs → All E (checkAllBitLengthZero msgs)
 checkAllBitLengthZero-allE msgs = All-concatMap (universal (λ msg →
-  All-concatMap (universal (checkBitLengthZero-allE (DBCMessage.name msg))
+  All-concatMap (universal (checkBitLengthZero-allE (messageNameStr msg))
                          (DBCMessage.signals msg))) msgs)
 

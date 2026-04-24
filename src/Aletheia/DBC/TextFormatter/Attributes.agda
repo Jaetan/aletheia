@@ -49,6 +49,8 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Attributes where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (attrDefNameStr; attrDefaultNameStr; attrAssignNameStr)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char)
@@ -89,7 +91,7 @@ collectDefs (DBCAttrAssign _  ∷ rest) = collectDefs rest
 lookupDef : String → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =
-  if ⌊ name ≟ₛ AttrDef.name d ⌋
+  if ⌊ name ≟ₛ attrDefNameStr d ⌋
     then just d
     else lookupDef name rest
 
@@ -182,11 +184,11 @@ emitAttrDef-chars : AttrDef → List Char
 emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 ... | true  =
   toList "BA_DEF_REL_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  quoteStringLit-chars (attrDefNameStr d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 ... | false =
   toList "BA_DEF_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  quoteStringLit-chars (attrDefNameStr d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.  The
@@ -194,8 +196,8 @@ emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 emitAttrDefault-chars : List AttrDef → AttrDefault → List Char
 emitAttrDefault-chars defs d =
   toList "BA_DEF_DEF_ " ++ₗ
-  quoteStringLit-chars (AttrDefault.name d) ++ₗ
-  ' ' ∷ emitDefaultValue-chars defs (AttrDefault.name d) (AttrDefault.value d) ++ₗ
+  quoteStringLit-chars (attrDefaultNameStr d) ++ₗ
+  ' ' ∷ emitDefaultValue-chars defs (attrDefaultNameStr d) (AttrDefault.value d) ++ₗ
   toList ";\n"
 
 -- `"BA_" ...` vs `"BA_REL_" ...` dispatched on the target.  For each
@@ -207,14 +209,14 @@ emitAttrAssign-chars : AttrAssign → List Char
 emitAttrAssign-chars a = body (AttrAssign.target a)
   where
     qname : List Char
-    qname = quoteStringLit-chars (AttrAssign.name a)
+    qname = quoteStringLit-chars (attrAssignNameStr a)
     vstr : List Char
     vstr = emitAssignValue-chars (AttrAssign.value a)
     body : AttrTarget → List Char
     body ATgtNetwork =
       toList "BA_ " ++ₗ qname ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNode n) =
-      toList "BA_ " ++ₗ qname ++ₗ toList " BU_ " ++ₗ toList n ++ₗ
+      toList "BA_ " ++ₗ qname ++ₗ toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtMessage cid) =
       toList "BA_ " ++ₗ qname ++ₗ toList " BO_ " ++ₗ
@@ -223,20 +225,20 @@ emitAttrAssign-chars a = body (AttrAssign.target a)
     body (ATgtSignal cid sig) =
       toList "BA_ " ++ₗ qname ++ₗ toList " SG_ " ++ₗ
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
+      ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtEnvVar ev) =
-      toList "BA_ " ++ₗ qname ++ₗ toList " EV_ " ++ₗ toList ev ++ₗ
+      toList "BA_ " ++ₗ qname ++ₗ toList " EV_ " ++ₗ toList (Identifier.name ev) ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeMsg n cid) =
       toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_BO_REL_ " ++ₗ
-      toList n ++ₗ ' ' ∷
+      toList (Identifier.name n) ++ₗ ' ' ∷
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeSig n cid sig) =
       toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_SG_REL_ " ++ₗ
-      toList n ++ₗ toList " SG_ " ++ₗ
+      toList (Identifier.name n) ++ₗ toList " SG_ " ++ₗ
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
+      ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER

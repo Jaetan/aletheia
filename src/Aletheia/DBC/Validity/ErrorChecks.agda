@@ -5,6 +5,8 @@
 -- For each error check: checkE args ≡ [] ↔ condition(args)
 -- Proved by case analysis on the Dec used in each check function.
 module Aletheia.DBC.Validity.ErrorChecks where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
@@ -67,13 +69,13 @@ checkAllBitLengthZero-sound : ∀ msgs →
   checkAllBitLengthZero msgs ≡ [] →
   All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs
 checkAllBitLengthZero-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkBitLengthZero-sound (DBCMessage.name msg)) _
+  liftConcatMap-sound _ (checkBitLengthZero-sound (messageNameStr msg)) _
 
 checkAllBitLengthZero-complete : ∀ msgs →
   All (λ m → All NonZeroBitLength (DBCMessage.signals m)) msgs →
   checkAllBitLengthZero msgs ≡ []
 checkAllBitLengthZero-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkBitLengthZero-complete (DBCMessage.name msg)) _
+  liftConcatMap-complete _ (checkBitLengthZero-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 3: FACTOR ZERO
@@ -93,13 +95,13 @@ checkAllFactorZero-sound : ∀ msgs →
   checkAllFactorZero msgs ≡ [] →
   All (λ m → All NonZeroFactor (DBCMessage.signals m)) msgs
 checkAllFactorZero-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkFactorZeroSig-sound (DBCMessage.name msg)) _
+  liftConcatMap-sound _ (checkFactorZeroSig-sound (messageNameStr msg)) _
 
 checkAllFactorZero-complete : ∀ msgs →
   All (λ m → All NonZeroFactor (DBCMessage.signals m)) msgs →
   checkAllFactorZero msgs ≡ []
 checkAllFactorZero-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkFactorZeroSig-complete (DBCMessage.name msg)) _
+  liftConcatMap-complete _ (checkFactorZeroSig-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 8: SIGNAL EXCEEDS DLC
@@ -123,13 +125,13 @@ checkAllSignalExceedsDLC-sound : ∀ msgs →
   checkAllSignalExceedsDLC msgs ≡ [] →
   All (λ m → All (BitsInFrame (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllSignalExceedsDLC-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkSignalExceedsDLC-sound (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))) _
+  liftConcatMap-sound _ (checkSignalExceedsDLC-sound (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))) _
 
 checkAllSignalExceedsDLC-complete : ∀ msgs →
   All (λ m → All (BitsInFrame (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllSignalExceedsDLC msgs ≡ []
 checkAllSignalExceedsDLC-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkSignalExceedsDLC-complete (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))) _
+  liftConcatMap-complete _ (checkSignalExceedsDLC-complete (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))) _
 
 -- ============================================================================
 -- CHECK 1: DUPLICATE MESSAGE IDs (triangular)
@@ -174,52 +176,52 @@ checkDuplicateMessageIds-complete =
 -- ============================================================================
 
 checkDuplicateSignalPair-sound : ∀ msgName s1 s2 →
-  checkDuplicateSignalPair msgName s1 s2 ≡ [] → DBCSignal.name s1 ≢ DBCSignal.name s2
+  checkDuplicateSignalPair msgName s1 s2 ≡ [] → signalNameStr s1 ≢ signalNameStr s2
 checkDuplicateSignalPair-sound _ s1 s2 =
-  rejectDec-sound (DBCSignal.name s1 ≟ₛ DBCSignal.name s2) _
+  rejectDec-sound (signalNameStr s1 ≟ₛ signalNameStr s2) _
 
 checkDuplicateSignalPair-complete : ∀ msgName s1 s2 →
-  DBCSignal.name s1 ≢ DBCSignal.name s2 → checkDuplicateSignalPair msgName s1 s2 ≡ []
+  signalNameStr s1 ≢ signalNameStr s2 → checkDuplicateSignalPair msgName s1 s2 ≡ []
 checkDuplicateSignalPair-complete _ s1 s2 =
-  rejectDec-complete (DBCSignal.name s1 ≟ₛ DBCSignal.name s2) _
+  rejectDec-complete (signalNameStr s1 ≟ₛ signalNameStr s2) _
 
 checkDuplicateSignalAgainstList-sound : ∀ msgName sig rest →
   checkDuplicateSignalAgainstList msgName sig rest ≡ [] →
-  All (λ other → DBCSignal.name sig ≢ DBCSignal.name other) rest
+  All (λ other → signalNameStr sig ≢ signalNameStr other) rest
 checkDuplicateSignalAgainstList-sound msgName sig =
   liftConcatMap-sound (checkDuplicateSignalPair msgName sig) (checkDuplicateSignalPair-sound msgName sig)
 
 checkDuplicateSignalAgainstList-complete : ∀ msgName sig rest →
-  All (λ other → DBCSignal.name sig ≢ DBCSignal.name other) rest →
+  All (λ other → signalNameStr sig ≢ signalNameStr other) rest →
   checkDuplicateSignalAgainstList msgName sig rest ≡ []
 checkDuplicateSignalAgainstList-complete msgName sig =
   liftConcatMap-complete (checkDuplicateSignalPair msgName sig) (checkDuplicateSignalPair-complete msgName sig)
 
 checkDuplicateSignalTriangular-sound : ∀ msgName sigs →
   checkDuplicateSignalTriangular msgName sigs ≡ [] →
-  AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂) sigs
+  AllPairs (λ s₁ s₂ → signalNameStr s₁ ≢ signalNameStr s₂) sigs
 checkDuplicateSignalTriangular-sound msgName =
   liftTriangular-sound (checkDuplicateSignalPair msgName) (checkDuplicateSignalPair-sound msgName)
 
 checkDuplicateSignalTriangular-complete : ∀ msgName sigs →
-  AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂) sigs →
+  AllPairs (λ s₁ s₂ → signalNameStr s₁ ≢ signalNameStr s₂) sigs →
   checkDuplicateSignalTriangular msgName sigs ≡ []
 checkDuplicateSignalTriangular-complete msgName =
   liftTriangular-complete (checkDuplicateSignalPair msgName) (checkDuplicateSignalPair-complete msgName)
 
 checkAllDuplicateSignalNames-sound : ∀ msgs →
   checkAllDuplicateSignalNames msgs ≡ [] →
-  All (λ m → AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂)
+  All (λ m → AllPairs (λ s₁ s₂ → signalNameStr s₁ ≢ signalNameStr s₂)
                        (DBCMessage.signals m)) msgs
 checkAllDuplicateSignalNames-sound = liftConcatMap-sound _ λ msg →
-  checkDuplicateSignalTriangular-sound (DBCMessage.name msg) (DBCMessage.signals msg)
+  checkDuplicateSignalTriangular-sound (messageNameStr msg) (DBCMessage.signals msg)
 
 checkAllDuplicateSignalNames-complete : ∀ msgs →
-  All (λ m → AllPairs (λ s₁ s₂ → DBCSignal.name s₁ ≢ DBCSignal.name s₂)
+  All (λ m → AllPairs (λ s₁ s₂ → signalNameStr s₁ ≢ signalNameStr s₂)
                        (DBCMessage.signals m)) msgs →
   checkAllDuplicateSignalNames msgs ≡ []
 checkAllDuplicateSignalNames-complete = liftConcatMap-complete _ λ msg →
-  checkDuplicateSignalTriangular-complete (DBCMessage.name msg) (DBCMessage.signals msg)
+  checkDuplicateSignalTriangular-complete (messageNameStr msg) (DBCMessage.signals msg)
 
 -- ============================================================================
 -- CHECK 9: SIGNAL OVERLAP (nested triangular via signalPairValid?)
@@ -263,14 +265,14 @@ checkAllSignalOverlaps-sound : ∀ msgs →
   checkAllSignalOverlaps msgs ≡ [] →
   All (λ m → AllPairs (SignalPairValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs
 checkAllSignalOverlaps-sound = liftConcatMap-sound _ λ msg →
-  checkOverlapTriangular-sound (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
+  checkOverlapTriangular-sound (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))
     (DBCMessage.signals msg)
 
 checkAllSignalOverlaps-complete : ∀ msgs →
   All (λ m → AllPairs (SignalPairValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)) msgs →
   checkAllSignalOverlaps msgs ≡ []
 checkAllSignalOverlaps-complete = liftConcatMap-complete _ λ msg →
-  checkOverlapTriangular-complete (DBCMessage.name msg) (dlcBytes (DBCMessage.dlc msg))
+  checkOverlapTriangular-complete (messageNameStr msg) (dlcBytes (DBCMessage.dlc msg))
     (DBCMessage.signals msg)
 
 -- ============================================================================
@@ -282,7 +284,7 @@ checkMuxFoundSig-sound : ∀ msgName sigs sig →
   MuxResolvable sigs (DBCSignal.presence sig)
 checkMuxFoundSig-sound msgName sigs sig eq with DBCSignal.presence sig
 ... | Always = tt
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
 ...   | yes p = p
 checkMuxFoundSig-sound _ _ _ () | When _ _ | no _
 
@@ -291,7 +293,7 @@ checkMuxFoundSig-complete : ∀ msgName sigs sig →
   checkMuxFoundSig msgName sigs sig ≡ []
 checkMuxFoundSig-complete msgName sigs sig p with DBCSignal.presence sig
 ... | Always = refl
-... | When muxName _ with any? (λ s → DBCSignal.name s ≟ₛ muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
 ...   | yes _ = refl
 ...   | no ¬a = ⊥-elim (¬a p)
 
@@ -302,7 +304,7 @@ checkAllMuxFound-sound : ∀ msgs →
                   (DBCMessage.signals m)) msgs
 checkAllMuxFound-sound = liftConcatMap-sound _ λ msg →
   liftConcatMap-sound _
-    (checkMuxFoundSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxFoundSig-sound (messageNameStr msg) (DBCMessage.signals msg)) _
 
 checkAllMuxFound-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxResolvable (DBCMessage.signals m)
@@ -311,7 +313,7 @@ checkAllMuxFound-complete : ∀ msgs →
   checkAllMuxFound msgs ≡ []
 checkAllMuxFound-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _
-    (checkMuxFoundSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxFoundSig-complete (messageNameStr msg) (DBCMessage.signals msg)) _
 
 -- ============================================================================
 -- CHECK 5: MULTIPLEXOR CYCLE
@@ -340,7 +342,7 @@ checkAllMuxCycle-sound : ∀ msgs →
                   (DBCMessage.signals m)) msgs
 checkAllMuxCycle-sound = liftConcatMap-sound _ λ msg →
   liftConcatMap-sound _
-    (checkMuxCycleSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxCycleSig-sound (messageNameStr msg) (DBCMessage.signals msg)) _
 
 checkAllMuxCycle-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxAcyclic (DBCMessage.signals m)
@@ -349,4 +351,4 @@ checkAllMuxCycle-complete : ∀ msgs →
   checkAllMuxCycle msgs ≡ []
 checkAllMuxCycle-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _
-    (checkMuxCycleSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxCycleSig-complete (messageNameStr msg) (DBCMessage.signals msg)) _

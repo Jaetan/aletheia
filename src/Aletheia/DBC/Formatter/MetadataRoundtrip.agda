@@ -8,13 +8,20 @@
 -- PhysicallyValid), so the proofs are unconditional.
 -- Role: Middle layer — used by Properties.agda for the top-level roundtrip.
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
+open import Aletheia.DBC.Types using (nodeNameStr; signalGroupNameStr; envVarNameStr; valueTableNameStr; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr; messageNameStr)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Data.Bool.Properties using (T?; T-irrelevant)
+open import Data.Unit using (tt)
+open import Data.Empty using (⊥-elim)
+open import Data.String using (toList)
+open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (T)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
-open import Data.Sum using (_⊎_; inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
@@ -49,7 +56,8 @@ open import Aletheia.DBC.JSONParser using (parseStringList; parseVarType;
   parseAttrScope; parseAttrType; parseAttrValue; parseAttrTarget;
   parseAttrDef; parseAttrDefault; parseAttrAssign;
   parseAttribute; parseAttributeList;
-  parseCANId)
+  parseCANId;
+  validateIdent; validateIdentList)
 open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
@@ -73,6 +81,34 @@ parseStringList-roundtrip [] = refl
 parseStringList-roundtrip (s ∷ ss)
   rewrite parseStringList-roundtrip ss = refl
 
+-- Identifier roundtrip: validating the `name` field of a valid Identifier
+-- returns the original Identifier.  No axiom — `mkIdentFromString` uses
+-- `T?`, so in the `yes w` branch we have a witness and close via
+-- `T-irrelevant`; in the `no ¬w` branch, `¬w valid` produces ⊥.
+validateIdent-roundtrip : ∀ (i : Identifier) → validateIdent (Identifier.name i) ≡ inj₂ i
+validateIdent-roundtrip (mkIdent name valid)
+  with T? (validIdentifierᵇ (toList name))
+... | yes w  = cong (λ v → inj₂ (mkIdent name v)) (T-irrelevant w valid)
+... | no  ¬w = ⊥-elim (¬w valid)
+
+-- `map` post-compose through `Identifier.name` — used in SignalGroup /
+-- receivers / senders roundtrips where the formatter emits
+-- `map (JString ∘ Identifier.name) xs`.  Exported for SignalRoundtrip /
+-- MessageRoundtrip which need the same lemma for their identifier fields.
+map-∘-identifier : ∀ {A : Set} (f : String → A) (is : List Identifier)
+  → map (λ i → f (Identifier.name i)) is ≡ map f (map Identifier.name is)
+map-∘-identifier _ []       = refl
+map-∘-identifier f (_ ∷ is) = cong (_ ∷_) (map-∘-identifier f is)
+
+-- List-of-identifiers roundtrip: mapped validateIdentList matches.
+validateIdentList-roundtrip :
+  ∀ (is : List Identifier) →
+    validateIdentList (map Identifier.name is) ≡ inj₂ is
+validateIdentList-roundtrip [] = refl
+validateIdentList-roundtrip (i ∷ is)
+  rewrite validateIdent-roundtrip i
+        | validateIdentList-roundtrip is = refl
+
 -- ============================================================================
 -- VARTYPE ROUNDTRIP
 -- ============================================================================
@@ -89,14 +125,17 @@ parseVarType-roundtrip StringVar = refl
 private
   signalGroupFields : SignalGroup → List (String × JSON)
   signalGroupFields sg =
-    ("name"    , JString (SignalGroup.name sg)) ∷
-    ("signals" , JArray (map JString (SignalGroup.signals sg))) ∷
+    ("name"    , JString (signalGroupNameStr sg)) ∷
+    ("signals" , JArray (map (λ s → JString (Identifier.name s)) (SignalGroup.signals sg))) ∷
     []
 
 signalGroup-roundtrip : ∀ sg
   → parseSignalGroup (signalGroupFields sg) ≡ inj₂ sg
 signalGroup-roundtrip sg
-  rewrite parseStringList-roundtrip (SignalGroup.signals sg) = refl
+  rewrite map-∘-identifier JString (SignalGroup.signals sg)
+        | parseStringList-roundtrip (map Identifier.name (SignalGroup.signals sg))
+        | validateIdent-roundtrip (SignalGroup.name sg)
+        | validateIdentList-roundtrip (SignalGroup.signals sg) = refl
 
 private
   signalGroup-list-go : ∀ n gs
@@ -117,7 +156,7 @@ signalGroup-list-roundtrip = signalGroup-list-go 0
 private
   environmentVarFields : EnvironmentVar → List (String × JSON)
   environmentVarFields ev =
-    ("name"    , JString (EnvironmentVar.name ev)) ∷
+    ("name"    , JString (envVarNameStr ev)) ∷
     ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
     ("initial" , JNumber (toℚ (EnvironmentVar.initial ev))) ∷
     ("minimum" , JNumber (toℚ (EnvironmentVar.minimum ev))) ∷
@@ -131,7 +170,8 @@ environmentVar-roundtrip ev
         | parseVarType-roundtrip (EnvironmentVar.varType ev)
         | fromℚ?-after-toℚ (EnvironmentVar.initial ev)
         | fromℚ?-after-toℚ (EnvironmentVar.minimum ev)
-        | fromℚ?-after-toℚ (EnvironmentVar.maximum ev) = refl
+        | fromℚ?-after-toℚ (EnvironmentVar.maximum ev)
+        | validateIdent-roundtrip (EnvironmentVar.name ev) = refl
 
 private
   environmentVar-list-go : ∀ n evs
@@ -176,14 +216,15 @@ valueEntryList-roundtrip = valueEntryList-go 0
 private
   valueTableFields : ValueTable → List (String × JSON)
   valueTableFields vt =
-    ("name"    , JString (ValueTable.name vt)) ∷
+    ("name"    , JString (valueTableNameStr vt)) ∷
     ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
     []
 
 valueTable-roundtrip : ∀ vt
   → parseValueTable (valueTableFields vt) ≡ inj₂ vt
 valueTable-roundtrip vt
-  rewrite valueEntryList-roundtrip (ValueTable.entries vt) = refl
+  rewrite valueEntryList-roundtrip (ValueTable.entries vt)
+        | validateIdent-roundtrip (ValueTable.name vt) = refl
 
 private
   valueTable-list-go : ∀ n vts
@@ -202,13 +243,14 @@ valueTable-list-roundtrip = valueTable-list-go 0
 -- ============================================================================
 
 -- Node has a single `name : String` field, so the roundtrip reduces by record
--- eta (`mkNode (Node.name n) ≡ n` definitionally).
+-- eta (`mkNode (nodeNameStr n) ≡ n` definitionally).
 private
   nodeFields : Node → List (String × JSON)
-  nodeFields n = ("name" , JString (Node.name n)) ∷ []
+  nodeFields n = ("name" , JString (nodeNameStr n)) ∷ []
 
 node-roundtrip : ∀ n → parseNode (nodeFields n) ≡ inj₂ n
-node-roundtrip _ = refl
+node-roundtrip (mkNode name)
+  rewrite validateIdent-roundtrip name = refl
 
 -- `rewrite` on `node-roundtrip x` with an abstract `x : Node` fails under
 -- `--without-K`: Node has an explicit `constructor mkNode` declaration, so
@@ -222,8 +264,9 @@ private
   node-list-go : ∀ n ns
     → parseObjectList "node" parseNode n (map formatNode ns) ≡ inj₂ ns
   node-list-go _ [] = refl
-  node-list-go n (mkNode _ ∷ xs)
-    rewrite node-list-go (suc n) xs = refl
+  node-list-go n (mkNode name ∷ xs)
+    rewrite validateIdent-roundtrip name
+          | node-list-go (suc n) xs = refl
 
 node-list-roundtrip : ∀ ns
   → parseNodeList (map formatNode ns) ≡ inj₂ ns
@@ -243,20 +286,24 @@ node-list-roundtrip = node-list-go 0
 commentTarget-roundtrip : ∀ tgt
   → parseCommentTarget (formatCommentTarget tgt) ≡ inj₂ tgt
 commentTarget-roundtrip CTNetwork  = refl
-commentTarget-roundtrip (CTNode _) = refl
+commentTarget-roundtrip (CTNode n)
+  rewrite validateIdent-roundtrip n = refl
 commentTarget-roundtrip (CTMessage (Standard rawId pf))
   rewrite getNat-ℕtoJSON rawId
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
 commentTarget-roundtrip (CTMessage (Extended rawId pf))
   rewrite getNat-ℕtoJSON rawId
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-commentTarget-roundtrip (CTSignal (Standard rawId pf) _)
+commentTarget-roundtrip (CTSignal (Standard rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-commentTarget-roundtrip (CTSignal (Extended rawId pf) _)
+commentTarget-roundtrip (CTSignal (Extended rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-commentTarget-roundtrip (CTEnvVar _) = refl
+commentTarget-roundtrip (CTEnvVar ev)
+  rewrite validateIdent-roundtrip ev = refl
 
 -- ============================================================================
 -- COMMENT ROUNDTRIP (Tier 2)
@@ -327,31 +374,41 @@ attrValue-roundtrip (AVHex v)    rewrite getNat-ℕtoJSON v = refl
 -- Mirrors commentTarget-roundtrip with two extra relation variants.
 attrTarget-roundtrip : ∀ t → parseAttrTarget (formatAttrTarget t) ≡ inj₂ t
 attrTarget-roundtrip ATgtNetwork    = refl
-attrTarget-roundtrip (ATgtNode _)   = refl
+attrTarget-roundtrip (ATgtNode n)
+  rewrite validateIdent-roundtrip n = refl
 attrTarget-roundtrip (ATgtMessage (Standard rawId pf))
   rewrite getNat-ℕtoJSON rawId
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
 attrTarget-roundtrip (ATgtMessage (Extended rawId pf))
   rewrite getNat-ℕtoJSON rawId
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtSignal (Standard rawId pf) _)
+attrTarget-roundtrip (ATgtSignal (Standard rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtSignal (Extended rawId pf) _)
+attrTarget-roundtrip (ATgtSignal (Extended rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtEnvVar _) = refl
-attrTarget-roundtrip (ATgtNodeMsg _ (Standard rawId pf))
+attrTarget-roundtrip (ATgtEnvVar ev)
+  rewrite validateIdent-roundtrip ev = refl
+attrTarget-roundtrip (ATgtNodeMsg n (Standard rawId pf))
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip n
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtNodeMsg _ (Extended rawId pf))
+attrTarget-roundtrip (ATgtNodeMsg n (Extended rawId pf))
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip n
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtNodeSig _ (Standard rawId pf) _)
+attrTarget-roundtrip (ATgtNodeSig n (Standard rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip n
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
-attrTarget-roundtrip (ATgtNodeSig _ (Extended rawId pf) _)
+attrTarget-roundtrip (ATgtNodeSig n (Extended rawId pf) s)
   rewrite getNat-ℕtoJSON rawId
+        | validateIdent-roundtrip n
+        | validateIdent-roundtrip s
   = >>=ₑ-congʳ _ (ifᵀ-witness _ _ pf)
 
 -- AttrDef/Default/Assign: straightforward field-by-field composition.

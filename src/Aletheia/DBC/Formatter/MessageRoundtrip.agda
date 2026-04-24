@@ -6,6 +6,7 @@
 -- normalization bounded. This module composes them and exports the
 -- top-level message-roundtrip and message-list-roundtrip theorems.
 module Aletheia.DBC.Formatter.MessageRoundtrip where
+open import Aletheia.DBC.Types using (messageNameStr; messageSenderStr)
 
 open import Data.Nat using (ℕ; _≤_; _+_)
 open import Data.List using (List; []; _∷_; map)

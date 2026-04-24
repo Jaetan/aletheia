@@ -35,6 +35,7 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.ValueTables where
+open import Aletheia.DBC.Types using (valueTableNameStr)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
@@ -68,7 +69,7 @@ emitValueEntry-chars (v , desc) =
 -- emitter never produces any.
 emitValueTable-chars : ValueTable → List Char
 emitValueTable-chars vt =
-  toList "VAL_TABLE_ " ++ₗ toList (ValueTable.name vt) ++ₗ
+  toList "VAL_TABLE_ " ++ₗ toList (valueTableNameStr vt) ++ₗ
   foldr (λ e acc → emitValueEntry-chars e ++ₗ acc)
         (toList " ;\n")
         (ValueTable.entries vt)

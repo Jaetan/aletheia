@@ -1,4 +1,4 @@
-{-# OPTIONS --safe --without-K #-}
+{-# OPTIONS --without-K #-}
 
 -- Comment parsers for the DBC text format (Phase B.3.c.6).
 --
@@ -35,6 +35,7 @@
 -- agree on the same convention.  Out-of-range IDs abort the parse via
 -- `fail`.
 module Aletheia.DBC.TextParser.Comments where
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
@@ -65,7 +66,7 @@ wrapCTMessage r with buildCANId r
 ... | just cid = pure (CTMessage cid)
 ... | nothing  = fail
 
-wrapCTSignal : ℕ → String → Parser CommentTarget
+wrapCTSignal : ℕ → Identifier → Parser CommentTarget
 wrapCTSignal r sig with buildCANId r
 ... | just cid = pure (CTSignal cid sig)
 ... | nothing  = fail

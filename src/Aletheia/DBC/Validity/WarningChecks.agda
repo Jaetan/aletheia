@@ -7,6 +7,8 @@
 -- (predicate → check ≡ []) for each warning check, relating the
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr)
 
 open import Aletheia.DBC.Types using
   ( ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
@@ -89,8 +91,8 @@ checkGlobalNamePair-allW m1 m2 = go (messageSignalNames m1)
     names2 = messageSignalNames m2
     go : ∀ ns → All W (map (λ n → mkIssue IsWarning GlobalNameCollision
             ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-             ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-             ++ₛ DBCMessage.name m2 ++ₛ "'")) (filter (_∈? names2) ns))
+             ++ₛ messageNameStr m1 ++ₛ "' and '"
+             ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns))
     go [] = []
     go (n ∷ ns) with n ∈? names2
     ... | yes _ = refl ∷ go ns
@@ -117,8 +119,8 @@ checkGlobalNamePair-sound m1 m2 eq = go (messageSignalNames m1) eq
     names2 = messageSignalNames m2
     go : ∀ ns → map (λ n → mkIssue IsWarning GlobalNameCollision
             ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-             ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-             ++ₛ DBCMessage.name m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
+             ++ₛ messageNameStr m1 ++ₛ "' and '"
+             ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
          → All (λ n → ¬ Any (n ≡_) names2) ns
     go [] _ = []
     go (n ∷ ns) eq with n ∈? names2
@@ -134,8 +136,8 @@ checkGlobalNamePair-complete m1 m2 disj = go (messageSignalNames m1) disj
     go : ∀ ns → All (λ n → ¬ Any (n ≡_) names2) ns
          → map (λ n → mkIssue IsWarning GlobalNameCollision
                   ("Signal '" ++ₛ n ++ₛ "' appears in both message '"
-                   ++ₛ DBCMessage.name m1 ++ₛ "' and '"
-                   ++ₛ DBCMessage.name m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
+                   ++ₛ messageNameStr m1 ++ₛ "' and '"
+                   ++ₛ messageNameStr m2 ++ₛ "'")) (filter (_∈? names2) ns) ≡ []
     go [] [] = refl
     go (n ∷ ns) (¬n∈ ∷ rest) with n ∈? names2
     ... | yes n∈ = ⊥-elim (¬n∈ n∈)
@@ -183,9 +185,9 @@ checkAllMinMax-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllMinMax-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkMinMaxSig (DBCMessage.name msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkMinMaxSig (messageNameStr msg) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkMinMaxSig-allW (DBCMessage.name msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkMinMaxSig-allW (messageNameStr msg) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 7: MIN EXCEEDS MAX — Soundness/Completeness
@@ -207,20 +209,20 @@ checkAllMinMax-sound : ∀ msgs →
   checkAllMinMax msgs ≡ [] →
   All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs
 checkAllMinMax-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkMinMaxSig-sound (DBCMessage.name msg)) _
+  liftConcatMap-sound _ (checkMinMaxSig-sound (messageNameStr msg)) _
 
 checkAllMinMax-complete : ∀ msgs →
   All (λ m → All MinLeqMax (DBCMessage.signals m)) msgs →
   checkAllMinMax msgs ≡ []
 checkAllMinMax-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkMinMaxSig-complete (DBCMessage.name msg)) _
+  liftConcatMap-complete _ (checkMinMaxSig-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 11: DUPLICATE MESSAGE NAME — Severity
 -- ============================================================================
 
 checkDuplicateNamePair-allW : ∀ m1 m2 → All W (checkDuplicateNamePair m1 m2)
-checkDuplicateNamePair-allW m1 m2 with DBCMessage.name m1 ≟ₛ DBCMessage.name m2
+checkDuplicateNamePair-allW m1 m2 with messageNameStr m1 ≟ₛ messageNameStr m2
 ... | yes _ = refl ∷ []
 ... | no  _ = []
 
@@ -240,12 +242,12 @@ checkDuplicateMessageNames-allW (m ∷ rest) =
 checkDuplicateNamePair-sound : ∀ m1 m2 →
   checkDuplicateNamePair m1 m2 ≡ [] → DistinctMessageNames m1 m2
 checkDuplicateNamePair-sound m1 m2 =
-  rejectDec-sound (DBCMessage.name m1 ≟ₛ DBCMessage.name m2) _
+  rejectDec-sound (messageNameStr m1 ≟ₛ messageNameStr m2) _
 
 checkDuplicateNamePair-complete : ∀ m1 m2 →
   DistinctMessageNames m1 m2 → checkDuplicateNamePair m1 m2 ≡ []
 checkDuplicateNamePair-complete m1 m2 =
-  rejectDec-complete (DBCMessage.name m1 ≟ₛ DBCMessage.name m2) _
+  rejectDec-complete (messageNameStr m1 ≟ₛ messageNameStr m2) _
 
 checkDuplicateNameAgainstList-sound : ∀ m rest →
   checkDuplicateNameAgainstList m rest ≡ [] →
@@ -299,9 +301,9 @@ checkRangeBounds-allW msgName sigName factor physA physB declMin declMax
 checkOffsetScaleRange-allW : ∀ msgName sig → All W (checkOffsetScaleRange msgName sig)
 checkOffsetScaleRange-allW msgName sig
   with SignalDef.isSigned (DBCSignal.signalDef sig)
-... | true  = checkRangeBounds-allW msgName (DBCSignal.name sig)
+... | true  = checkRangeBounds-allW msgName (signalNameStr sig)
                 (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
-... | false = checkRangeBounds-allW msgName (DBCSignal.name sig)
+... | false = checkRangeBounds-allW msgName (signalNameStr sig)
                 (toℚ (SignalDef.factor (DBCSignal.signalDef sig))) _ _ _ _
 
 checkAllOffsetScaleRange-allW : ∀ msgs → All W (checkAllOffsetScaleRange msgs)
@@ -310,9 +312,9 @@ checkAllOffsetScaleRange-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllOffsetScaleRange-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkOffsetScaleRange (DBCMessage.name msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkOffsetScaleRange (messageNameStr msg) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkOffsetScaleRange-allW (DBCMessage.name msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkOffsetScaleRange-allW (messageNameStr msg) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE — Soundness/Completeness (component level)
@@ -426,9 +428,9 @@ checkAllStartBitOutOfRange-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllStartBitOutOfRange-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkStartBitOutOfRange (DBCMessage.name msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkStartBitOutOfRange (messageNameStr msg) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkStartBitOutOfRange-allW (DBCMessage.name msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkStartBitOutOfRange-allW (messageNameStr msg) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 15: START BIT OUT OF RANGE — Soundness/Completeness
@@ -448,13 +450,13 @@ checkAllStartBitOutOfRange-sound : ∀ msgs →
   checkAllStartBitOutOfRange msgs ≡ [] →
   All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs
 checkAllStartBitOutOfRange-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkStartBitOutOfRange-sound (DBCMessage.name msg)) _
+  liftConcatMap-sound _ (checkStartBitOutOfRange-sound (messageNameStr msg)) _
 
 checkAllStartBitOutOfRange-complete : ∀ msgs →
   All (λ m → All StartBitInRange (DBCMessage.signals m)) msgs →
   checkAllStartBitOutOfRange msgs ≡ []
 checkAllStartBitOutOfRange-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkStartBitOutOfRange-complete (DBCMessage.name msg)) _
+  liftConcatMap-complete _ (checkStartBitOutOfRange-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE — Severity
@@ -472,9 +474,9 @@ checkAllBitLengthExcessive-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllBitLengthExcessive-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkBitLengthExcessive (DBCMessage.name msg) sig)) sigs
+    go : ∀ sigs → All (λ sig → All W (checkBitLengthExcessive (messageNameStr msg) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkBitLengthExcessive-allW (DBCMessage.name msg) sig ∷ go sigs
+    go (sig ∷ sigs) = checkBitLengthExcessive-allW (messageNameStr msg) sig ∷ go sigs
 
 -- ============================================================================
 -- CHECK 16: BIT LENGTH EXCESSIVE — Soundness/Completeness
@@ -494,13 +496,13 @@ checkAllBitLengthExcessive-sound : ∀ msgs →
   checkAllBitLengthExcessive msgs ≡ [] →
   All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs
 checkAllBitLengthExcessive-sound = liftConcatMap-sound _ λ msg →
-  liftConcatMap-sound _ (checkBitLengthExcessive-sound (DBCMessage.name msg)) _
+  liftConcatMap-sound _ (checkBitLengthExcessive-sound (messageNameStr msg)) _
 
 checkAllBitLengthExcessive-complete : ∀ msgs →
   All (λ m → All BitLengthInRange (DBCMessage.signals m)) msgs →
   checkAllBitLengthExcessive msgs ≡ []
 checkAllBitLengthExcessive-complete = liftConcatMap-complete _ λ msg →
-  liftConcatMap-complete _ (checkBitLengthExcessive-complete (DBCMessage.name msg)) _
+  liftConcatMap-complete _ (checkBitLengthExcessive-complete (messageNameStr msg)) _
 
 -- ============================================================================
 -- CHECK 17: MULTIPLEXOR NON-UNIT SCALING — Severity
@@ -517,7 +519,7 @@ checkMuxScaling-allW msgName muxName muxSig
 checkMuxScalingSig-allW : ∀ msgName allSigs sig → All W (checkMuxScalingSig msgName allSigs sig)
 checkMuxScalingSig-allW msgName allSigs sig with DBCSignal.presence sig
 ... | Always = []
-... | When muxName _ with findSignalInList muxName allSigs
+... | When muxName _ with findSignalInList (Identifier.name muxName) allSigs
 ...   | nothing     = []
 ...   | just muxSig = checkMuxScaling-allW msgName muxName muxSig
 
@@ -527,10 +529,10 @@ checkAllMuxScaling-allW (msg ∷ rest) =
   ++⁺ (All-concatMap (go (DBCMessage.signals msg)))
          (checkAllMuxScaling-allW rest)
   where
-    go : ∀ sigs → All (λ sig → All W (checkMuxScalingSig (DBCMessage.name msg)
+    go : ∀ sigs → All (λ sig → All W (checkMuxScalingSig (messageNameStr msg)
                                         (DBCMessage.signals msg) sig)) sigs
     go [] = []
-    go (sig ∷ sigs) = checkMuxScalingSig-allW (DBCMessage.name msg)
+    go (sig ∷ sigs) = checkMuxScalingSig-allW (messageNameStr msg)
                         (DBCMessage.signals msg) sig ∷ go sigs
 
 -- ============================================================================
@@ -562,7 +564,7 @@ checkMuxScalingSig-sound : ∀ msgName allSigs sig →
   MuxUnitScaling allSigs (DBCSignal.presence sig)
 checkMuxScalingSig-sound msgName allSigs sig eq with DBCSignal.presence sig
 ... | Always = tt
-... | When muxName _ with findSignalInList muxName allSigs
+... | When muxName _ with findSignalInList (Identifier.name muxName) allSigs
 ...   | nothing     = tt
 ...   | just muxSig = checkMuxScaling-sound msgName muxName muxSig eq
 
@@ -571,7 +573,7 @@ checkMuxScalingSig-complete : ∀ msgName allSigs sig →
   checkMuxScalingSig msgName allSigs sig ≡ []
 checkMuxScalingSig-complete msgName allSigs sig p with DBCSignal.presence sig
 ... | Always = refl
-... | When muxName _ with findSignalInList muxName allSigs
+... | When muxName _ with findSignalInList (Identifier.name muxName) allSigs
 ...   | nothing     = refl
 ...   | just muxSig = checkMuxScaling-complete msgName muxName muxSig p
 
@@ -583,7 +585,7 @@ checkAllMuxScaling-sound : ∀ msgs →
                   (DBCMessage.signals m)) msgs
 checkAllMuxScaling-sound = liftConcatMap-sound _ λ msg →
   liftConcatMap-sound _
-    (checkMuxScalingSig-sound (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxScalingSig-sound (messageNameStr msg) (DBCMessage.signals msg)) _
 
 checkAllMuxScaling-complete : ∀ msgs →
   All (λ m → All (λ sig → MuxUnitScaling (DBCMessage.signals m)
@@ -592,7 +594,7 @@ checkAllMuxScaling-complete : ∀ msgs →
   checkAllMuxScaling msgs ≡ []
 checkAllMuxScaling-complete = liftConcatMap-complete _ λ msg →
   liftConcatMap-complete _
-    (checkMuxScalingSig-complete (DBCMessage.name msg) (DBCMessage.signals msg)) _
+    (checkMuxScalingSig-complete (messageNameStr msg) (DBCMessage.signals msg)) _
 
 -- ============================================================================
 -- CHECK 18: DUPLICATE ATTRIBUTE NAME — Severity
@@ -621,7 +623,7 @@ checkCommentTargetExists-allW : ∀ msgs nodes envVars cm →
   All W (checkCommentTargetExists msgs nodes envVars cm)
 checkCommentTargetExists-allW msgs nodes envVars cm with DBCComment.target cm
 ... | CTNetwork   = []
-... | CTNode nname with any? (λ n → Node.name n ≟ₛ nname) nodes
+... | CTNode nname with any? (λ n → nodeNameStr n ≟ₛ Identifier.name nname) nodes
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 checkCommentTargetExists-allW msgs _ _ cm | CTMessage mid
@@ -631,11 +633,11 @@ checkCommentTargetExists-allW msgs _ _ cm | CTMessage mid
 checkCommentTargetExists-allW msgs _ _ cm | CTSignal mid sname
   with findMessageInList mid msgs
 ...   | nothing = refl ∷ []
-...   | just m  with findSignalInList sname (DBCMessage.signals m)
+...   | just m  with findSignalInList (Identifier.name sname) (DBCMessage.signals m)
 ...     | just _  = []
 ...     | nothing = refl ∷ []
 checkCommentTargetExists-allW _ _ envVars cm | CTEnvVar evname
-  with any? (λ ev → EnvironmentVar.name ev ≟ₛ evname) envVars
+  with any? (λ ev → envVarNameStr ev ≟ₛ Identifier.name evname) envVars
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 
@@ -654,7 +656,7 @@ checkAllUnknownCommentTargets-allW msgs nodes envVars cmts =
 
 checkUnknownSender-allW : ∀ nodes msg → All W (checkUnknownSender nodes msg)
 checkUnknownSender-allW nodes msg
-  with any? (λ n → Node.name n ≟ₛ DBCMessage.sender msg) nodes
+  with any? (λ n → nodeNameStr n ≟ₛ messageSenderStr msg) nodes
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -675,7 +677,7 @@ checkAllUnknownMessageSenders-allW msgs nodes@(_ ∷ _) =
 checkUnknownReceiver-allW : ∀ nodes msgName sigName r →
   All W (checkUnknownReceiver nodes msgName sigName r)
 checkUnknownReceiver-allW nodes msgName sigName r
-  with any? (λ n → Node.name n ≟ₛ r) nodes
+  with any? (λ n → nodeNameStr n ≟ₛ Identifier.name r) nodes
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -684,9 +686,9 @@ checkReceiversForSignal-allW : ∀ nodes msgName sig →
 checkReceiversForSignal-allW nodes msgName sig =
   All-concatMap (go (DBCSignal.receivers sig))
   where
-    go : ∀ rs → All (λ r → All W (checkUnknownReceiver nodes msgName (DBCSignal.name sig) r)) rs
+    go : ∀ rs → All (λ r → All W (checkUnknownReceiver nodes msgName (signalNameStr sig) r)) rs
     go [] = []
-    go (r ∷ rs) = checkUnknownReceiver-allW nodes msgName (DBCSignal.name sig) r ∷ go rs
+    go (r ∷ rs) = checkUnknownReceiver-allW nodes msgName (signalNameStr sig) r ∷ go rs
 
 checkAllUnknownSignalReceivers-allW : ∀ msgs nodes →
   All W (checkAllUnknownSignalReceivers msgs nodes)
@@ -698,9 +700,9 @@ checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
     goSigs msgName [] = []
     goSigs msgName (s ∷ ss) = checkReceiversForSignal-allW nodes msgName s ∷ goSigs msgName ss
 
-    goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal nodes (DBCMessage.name m)) (DBCMessage.signals m))) ms
+    goMsgs : ∀ ms → All (λ m → All W (concatMap (checkReceiversForSignal nodes (messageNameStr m)) (DBCMessage.signals m))) ms
     goMsgs [] = []
-    goMsgs (m ∷ ms) = All-concatMap (goSigs (DBCMessage.name m) (DBCMessage.signals m)) ∷ goMsgs ms
+    goMsgs (m ∷ ms) = All-concatMap (goSigs (messageNameStr m) (DBCMessage.signals m)) ∷ goMsgs ms
 
 -- ============================================================================
 -- CHECK 22: UNKNOWN ADDITIONAL SENDER — Severity
@@ -709,7 +711,7 @@ checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
 checkUnknownAdditionalSender-allW : ∀ nodes msgName s →
   All W (checkUnknownAdditionalSender nodes msgName s)
 checkUnknownAdditionalSender-allW nodes msgName s
-  with any? (λ n → Node.name n ≟ₛ s) nodes
+  with any? (λ n → nodeNameStr n ≟ₛ Identifier.name s) nodes
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -718,9 +720,9 @@ checkAdditionalSendersForMessage-allW : ∀ nodes msg →
 checkAdditionalSendersForMessage-allW nodes msg =
   All-concatMap (go (DBCMessage.senders msg))
   where
-    go : ∀ ss → All (λ s → All W (checkUnknownAdditionalSender nodes (DBCMessage.name msg) s)) ss
+    go : ∀ ss → All (λ s → All W (checkUnknownAdditionalSender nodes (messageNameStr msg) s)) ss
     go [] = []
-    go (s ∷ ss) = checkUnknownAdditionalSender-allW nodes (DBCMessage.name msg) s ∷ go ss
+    go (s ∷ ss) = checkUnknownAdditionalSender-allW nodes (messageNameStr msg) s ∷ go ss
 
 checkAllUnknownAdditionalSenders-allW : ∀ msgs nodes →
   All W (checkAllUnknownAdditionalSenders msgs nodes)
