@@ -1,6 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Value-table emitters for the DBC text format (Phase B.3.c.4).
+-- Value-table emitters for the DBC text format (Phase B.3.c.4; layer-1
+-- form 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.ValueTables`):
 --   val-table    ::= "VAL_TABLE_" ws identifier (ws nat ws string-lit)*
@@ -22,23 +23,28 @@
 -- Canonical choices (cantools parity):
 --   * One space between every token; one space before the terminating `;`.
 --   * Each VAL_TABLE_ line ends with `;\n`; lines are packed directly with
---     no blank-line separator between tables, so `emitValueTables` just
---     concatenates via `foldr` without an inter-line combinator.  Blank-
---     line separation to the next section is the composer's job, not this
---     emitter's.
+--     no blank-line separator between tables, so `emitValueTables-chars`
+--     just concatenates via `foldr` without an inter-line combinator.
+--     Blank-line separation to the next section is the composer's job,
+--     not this emitter's.
 --   * Zero-entry VAL_TABLE_ (e.g. `VAL_TABLE_ Empty ;`) is representable
 --     in the record type and emitted faithfully.  The corpus never carries
 --     one (cantools drops empty tables), but the grammar allows it and the
 --     roundtrip proof in B.3.d needs the case to hold.
+--
+-- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
+-- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.ValueTables where
 
-open import Data.List using (List; []; _∷_; foldr)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList)
 
 open import Aletheia.DBC.Types using (ValueTable)
-open import Aletheia.DBC.TextFormatter.Emitter using (showℕ-dec; quoteStringLit)
+open import Aletheia.DBC.TextFormatter.Emitter using
+  (showℕ-dec-chars; quoteStringLit-chars)
 
 -- ============================================================================
 -- ENTRY EMITTER
@@ -47,30 +53,32 @@ open import Aletheia.DBC.TextFormatter.Emitter using (showℕ-dec; quoteStringLi
 -- One `nat ws string-lit` pair, preceded by a single space.  Called in a
 -- right fold where the accumulator carries the trailing ` ;\n` terminator,
 -- so each entry slot in the grammar just contributes ` <nat> "<str>"`.
-emitValueEntry : (ℕ × String) → String
-emitValueEntry (v , desc) =
-  " " ++ₛ showℕ-dec v ++ₛ " " ++ₛ quoteStringLit desc
+emitValueEntry-chars : (ℕ × String) → List Char
+emitValueEntry-chars (v , desc) =
+  ' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars desc
 
 -- ============================================================================
 -- VAL_TABLE_ LINE
 -- ============================================================================
 
 -- `"VAL_TABLE_" ws identifier entries ws? ";" newline`.  Lines are packed
--- directly, with no blank-line separator between VAL_TABLE_ entries;
--- `emitValueTables` concatenates via `foldr` without an inter-line
--- combinator.  `parseValueLine` on the parse side tolerates optional
--- trailing blanks via its `many parseNewline` tail (for hand-written
--- inputs), but this emitter never produces any.
-emitValueTable : ValueTable → String
-emitValueTable vt =
-  "VAL_TABLE_ " ++ₛ ValueTable.name vt ++ₛ
-  foldr (λ e acc → emitValueEntry e ++ₛ acc) " ;\n" (ValueTable.entries vt)
+-- directly, with no blank-line separator between VAL_TABLE_ entries.
+-- `parseValueLine` on the parse side tolerates optional trailing blanks
+-- via its `many parseNewline` tail (for hand-written inputs), but this
+-- emitter never produces any.
+emitValueTable-chars : ValueTable → List Char
+emitValueTable-chars vt =
+  toList "VAL_TABLE_ " ++ₗ toList (ValueTable.name vt) ++ₗ
+  foldr (λ e acc → emitValueEntry-chars e ++ₗ acc)
+        (toList " ;\n")
+        (ValueTable.entries vt)
 
 -- ============================================================================
 -- SECTION EMITTER
 -- ============================================================================
 
--- Zero-or-more VAL_TABLE_ lines, concatenated.  Empty list emits `""`,
+-- Zero-or-more VAL_TABLE_ lines, concatenated.  Empty list emits `[]`,
 -- matching cantools' behaviour when no value tables are defined.
-emitValueTables : List ValueTable → String
-emitValueTables = foldr (λ vt acc → emitValueTable vt ++ₛ acc) ""
+emitValueTables-chars : List ValueTable → List Char
+emitValueTables-chars =
+  foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) []

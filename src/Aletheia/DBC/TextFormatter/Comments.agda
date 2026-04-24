@@ -1,6 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Comment emitters for the DBC text format (Phase B.3.c.6).
+-- Comment emitters for the DBC text format (Phase B.3.c.6; layer-1 form
+-- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Comments`):
 --   comment        ::= "CM_" (ws comment-target)? ws string-lit
@@ -22,53 +23,52 @@
 --     its DBC-standard keyword (BU_ / BO_ / SG_ / EV_) followed by a
 --     single space and its identifier(s).
 --
--- The five per-target cases are spelled out directly in `body` rather
--- than routing through a uniform target-only helper; the `CTNetwork`
--- case would need a "no trailing separator" special-case if we factored
--- target rendering out.  Mirrors the shape of
--- `TextFormatter.Attributes.emitAttrAssign`.
+-- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
+-- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Comments where
 
-open import Data.List using (List; []; _∷_; foldr)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
+open import Data.String using (String; toList)
 
 open import Aletheia.DBC.Types using
   ( CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; DBCComment
   )
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec; quoteStringLit)
+  (showℕ-dec-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 -- ============================================================================
 -- LINE EMITTER
 -- ============================================================================
 
-emitComment : DBCComment → String
-emitComment c = body (DBCComment.target c)
+emitComment-chars : DBCComment → List Char
+emitComment-chars c = body (DBCComment.target c)
   where
-    quoted : String
-    quoted = quoteStringLit (DBCComment.text c)
-    body : CommentTarget → String
+    quoted : List Char
+    quoted = quoteStringLit-chars (DBCComment.text c)
+    body : CommentTarget → List Char
     body CTNetwork =
-      "CM_ " ++ₛ quoted ++ₛ ";\n"
+      toList "CM_ " ++ₗ quoted ++ₗ toList ";\n"
     body (CTNode n) =
-      "CM_ BU_ " ++ₛ n ++ₛ " " ++ₛ quoted ++ₛ ";\n"
+      toList "CM_ BU_ " ++ₗ toList n ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTMessage cid) =
-      "CM_ BO_ " ++ₛ showℕ-dec (rawCanIdℕ cid) ++ₛ " " ++ₛ quoted ++ₛ ";\n"
+      toList "CM_ BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTSignal cid s) =
-      "CM_ SG_ " ++ₛ showℕ-dec (rawCanIdℕ cid) ++ₛ " " ++ₛ s ++ₛ " " ++ₛ
-      quoted ++ₛ ";\n"
+      toList "CM_ SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ toList s ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTEnvVar ev) =
-      "CM_ EV_ " ++ₛ ev ++ₛ " " ++ₛ quoted ++ₛ ";\n"
+      toList "CM_ EV_ " ++ₗ toList ev ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER
 -- ============================================================================
 
--- Zero-or-more CM_ lines concatenated.  Empty list emits `""`, matching
+-- Zero-or-more CM_ lines concatenated.  Empty list emits `[]`, matching
 -- cantools' behaviour on comment-free databases.  Blank-line separation
--- between this section and the next is the composer's responsibility,
--- not this emitter's.
-emitComments : List DBCComment → String
-emitComments = foldr (λ c acc → emitComment c ++ₛ acc) ""
+-- between this section and the next is the composer's responsibility.
+emitComments-chars : List DBCComment → List Char
+emitComments-chars =
+  foldr (λ c acc → emitComment-chars c ++ₗ acc) []

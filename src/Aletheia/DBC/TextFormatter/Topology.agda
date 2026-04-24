@@ -1,6 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Topology emitters for the DBC text format (Phase B.3.c.3).
+-- Topology emitters for the DBC text format (Phase B.3.c.3; layer-1 form
+-- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Topology`):
 --   bu-section    ::= "BU_:" (ws identifier)* newline
@@ -35,15 +36,19 @@
 --     `When` selectors is what remains.
 --
 -- Each BO_ block ends with the BO_ line + SG_ lines + one trailing blank
--- line separating it from the next block.  `emitMessages` concatenates.
+-- line separating it from the next block.  `emitMessages-chars` concatenates.
+--
+-- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
+-- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Topology where
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.List using (List; []; _∷_; foldr)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _^_)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -56,17 +61,18 @@ open import Aletheia.CAN.Endianness using
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec; showDecRat-dec; quoteStringLit)
+  (showℕ-dec-chars; showDecRat-dec-chars; quoteStringLit-chars)
 
 -- ============================================================================
 -- BU_ (NODES)
 -- ============================================================================
 
 -- `BU_:` + one space per node name + section-closing blank line.  Empty
--- node list emits `"BU_:\n\n"`.
-emitBU : List Node → String
-emitBU ns =
-  "BU_:" ++ₛ foldr (λ n acc → " " ++ₛ Node.name n ++ₛ acc) "\n\n" ns
+-- node list emits `BU_:\n\n` as `List Char`.
+emitBU-chars : List Node → List Char
+emitBU-chars ns =
+  toList "BU_:" ++ₗ
+  foldr (λ n acc → ' ' ∷ toList (Node.name n) ++ₗ acc) (toList "\n\n") ns
 
 -- ============================================================================
 -- CANID (raw ℕ for BO_ line)
@@ -86,22 +92,22 @@ rawCanIdℕ (Extended n _) = n + extFlagBit
 -- SG_ FIELD EMITTERS
 -- ============================================================================
 
-emitByteOrderDigit : ByteOrder → String
-emitByteOrderDigit LittleEndian = "1"
-emitByteOrderDigit BigEndian    = "0"
+emitByteOrderDigit-chars : ByteOrder → List Char
+emitByteOrderDigit-chars LittleEndian = '1' ∷ []
+emitByteOrderDigit-chars BigEndian    = '0' ∷ []
 
 -- '-' = signed, '+' = unsigned (DBC historical encoding — opposite of
 -- cantools' `isSigned : Bool` field semantics, which is why we flip here).
-emitSignFlag : Bool → String
-emitSignFlag true  = "-"
-emitSignFlag false = "+"
+emitSignFlag-chars : Bool → List Char
+emitSignFlag-chars true  = '-' ∷ []
+emitSignFlag-chars false = '+' ∷ []
 
 -- Comma-separated receivers; `Vector__XXX` placeholder when empty (matches
 -- cantools output and satisfies the grammar's ≥1-receiver requirement).
-emitReceivers : List String → String
-emitReceivers []       = "Vector__XXX"
-emitReceivers (r ∷ rs) =
-  r ++ₛ foldr (λ x acc → "," ++ₛ x ++ₛ acc) "" rs
+emitReceivers-chars : List String → List Char
+emitReceivers-chars []       = toList "Vector__XXX"
+emitReceivers-chars (r ∷ rs) =
+  toList r ++ₗ foldr (λ x acc → ',' ∷ toList x ++ₗ acc) [] rs
 
 -- ============================================================================
 -- MUX RESOLUTION (scan signals for the master)
@@ -120,18 +126,18 @@ findMuxMaster (s ∷ rest) with DBCSignal.presence s
 -- Emit the mux indicator for one signal, given the master's name (if any).
 --   * `Always` + name == master       ⇒ " M"
 --   * `Always` + name != master       ⇒ ""
---   * `When _ (v ∷ _)`                 ⇒ " m<v>" (head value only)
+--   * `When _ (v ∷ _)`                ⇒ " m<v>" (head value only)
 --   * No master (nothing)             ⇒ "" for any Always, still " m<v>"
---                                        for `When` (ill-formed input, but
---                                        emitted faithfully so the
---                                        validator catches it on the next
---                                        reparse).
-emitMuxMarker : Maybe String → (thisName : String) → SignalPresence → String
-emitMuxMarker nothing       _        Always         = ""
-emitMuxMarker (just master) thisName Always         =
-  if ⌊ thisName ≟ₛ master ⌋ then " M" else ""
-emitMuxMarker _             _        (When _ (v ∷ _)) =
-  " m" ++ₛ showℕ-dec v
+--                                       for `When` (ill-formed input, but
+--                                       emitted faithfully so the
+--                                       validator catches it on the next
+--                                       reparse).
+emitMuxMarker-chars : Maybe String → (thisName : String) → SignalPresence → List Char
+emitMuxMarker-chars nothing       _        Always         = []
+emitMuxMarker-chars (just master) thisName Always         =
+  if ⌊ thisName ≟ₛ master ⌋ then toList " M" else []
+emitMuxMarker-chars _             _        (When _ (v ∷ _)) =
+  toList " m" ++ₗ showℕ-dec-chars v
 
 -- ============================================================================
 -- SG_ LINE EMITTER
@@ -140,22 +146,27 @@ emitMuxMarker _             _        (When _ (v ∷ _)) =
 -- One SG_ line including its trailing newline.  The message's DLC byte
 -- count is needed by `unconvertStartBit` to de-normalize the start-bit for
 -- BigEndian signals.
-emitSignalLine : (master : Maybe String) (frameBytes : ℕ) → DBCSignal → String
-emitSignalLine master frameBytes sig =
+emitSignalLine-chars : (master : Maybe String) (frameBytes : ℕ) → DBCSignal → List Char
+emitSignalLine-chars master frameBytes sig =
   let def = DBCSignal.signalDef sig
       bo  = DBCSignal.byteOrder sig
       sb  = unconvertStartBit frameBytes bo
               (SignalDef.startBit def) (SignalDef.bitLength def)
-  in " SG_ " ++ₛ DBCSignal.name sig ++ₛ
-     emitMuxMarker master (DBCSignal.name sig) (DBCSignal.presence sig) ++ₛ
-     " : " ++ₛ showℕ-dec sb ++ₛ "|" ++ₛ showℕ-dec (SignalDef.bitLength def) ++ₛ
-     "@" ++ₛ emitByteOrderDigit bo ++ₛ emitSignFlag (SignalDef.isSigned def) ++ₛ
-     " (" ++ₛ showDecRat-dec (SignalDef.factor def) ++ₛ "," ++ₛ
-     showDecRat-dec (SignalDef.offset def) ++ₛ ")" ++ₛ
-     " [" ++ₛ showDecRat-dec (SignalDef.minimum def) ++ₛ "|" ++ₛ
-     showDecRat-dec (SignalDef.maximum def) ++ₛ "]" ++ₛ
-     " " ++ₛ quoteStringLit (DBCSignal.unit sig) ++ₛ
-     " " ++ₛ emitReceivers (DBCSignal.receivers sig) ++ₛ "\n"
+  in toList " SG_ " ++ₗ toList (DBCSignal.name sig) ++ₗ
+     emitMuxMarker-chars master (DBCSignal.name sig) (DBCSignal.presence sig) ++ₗ
+     toList " : " ++ₗ showℕ-dec-chars sb ++ₗ
+     '|' ∷ showℕ-dec-chars (SignalDef.bitLength def) ++ₗ
+     '@' ∷ emitByteOrderDigit-chars bo ++ₗ
+     emitSignFlag-chars (SignalDef.isSigned def) ++ₗ
+     toList " (" ++ₗ showDecRat-dec-chars (SignalDef.factor def) ++ₗ
+     ',' ∷ showDecRat-dec-chars (SignalDef.offset def) ++ₗ
+     toList ") " ++ₗ
+     '[' ∷ showDecRat-dec-chars (SignalDef.minimum def) ++ₗ
+     '|' ∷ showDecRat-dec-chars (SignalDef.maximum def) ++ₗ
+     toList "] " ++ₗ
+     quoteStringLit-chars (DBCSignal.unit sig) ++ₗ
+     ' ' ∷ emitReceivers-chars (DBCSignal.receivers sig) ++ₗ
+     '\n' ∷ []
 
 -- ============================================================================
 -- BO_ BLOCK + MESSAGES SECTION
@@ -163,17 +174,21 @@ emitSignalLine master frameBytes sig =
 
 -- One BO_ block: header line + all SG_ lines + single trailing blank.
 -- BO_TX_BU_ (message `senders`) is deferred to a future sub-commit; this
--- phase treats the list as unused on the output path.  Callers that need
--- it will emit separate `BO_TX_BU_` lines alongside `emitMessages`.
-emitMessage : DBCMessage → String
-emitMessage msg =
+-- phase treats the list as unused on the output path.
+emitMessage-chars : DBCMessage → List Char
+emitMessage-chars msg =
   let fb     = dlcBytes (DBCMessage.dlc msg)
       sigs   = DBCMessage.signals msg
       master = findMuxMaster sigs
-  in "BO_ " ++ₛ showℕ-dec (rawCanIdℕ (DBCMessage.id msg)) ++ₛ
-     " " ++ₛ DBCMessage.name msg ++ₛ ": " ++ₛ
-     showℕ-dec fb ++ₛ " " ++ₛ DBCMessage.sender msg ++ₛ "\n" ++ₛ
-     foldr (λ s acc → emitSignalLine master fb s ++ₛ acc) "" sigs ++ₛ "\n"
+  in toList "BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ (DBCMessage.id msg)) ++ₗ
+     ' ' ∷ toList (DBCMessage.name msg) ++ₗ
+     toList ": " ++ₗ
+     showℕ-dec-chars fb ++ₗ
+     ' ' ∷ toList (DBCMessage.sender msg) ++ₗ
+     '\n' ∷
+     foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc) [] sigs ++ₗ
+     '\n' ∷ []
 
-emitMessages : List DBCMessage → String
-emitMessages = foldr (λ m acc → emitMessage m ++ₛ acc) ""
+emitMessages-chars : List DBCMessage → List Char
+emitMessages-chars =
+  foldr (λ m acc → emitMessage-chars m ++ₗ acc) []

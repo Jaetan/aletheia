@@ -57,6 +57,7 @@
 --                                      refinement stage.
 module Aletheia.DBC.TextParser where
 
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
@@ -219,7 +220,15 @@ finalizeParse (just res) with remaining res
                                   "BA_DEF_DEF_ / BA_ / BA_REL_ references unknown AttrDef or OOB ENUM index")
 ...       | just attrs  = inj₂ (buildDBC ver nodes collected attrs)
 
--- Parse a DBC text image.  Success requires:
+-- Parse a DBC text image given as a `List Char`.  Layer-1 form
+-- (B.3.d Option 3a, 2026-04-24): the parser already operates on
+-- `List Char` throughout — `runParserPartial` takes one — so the
+-- only `String` site is the public `parseText` boundary, which
+-- bridges via `Data.String.toList`.  The universal roundtrip proof
+-- composes `parseTextChars (formatChars d) ≡ inj₂ d` (internal,
+-- 100% `--safe`) with the `Substrate/Unsafe` bridging axioms.
+--
+-- Success requires:
 --   1. `parseDBCText` consumes every byte of input (no trailing slop).
 --   2. `refineAttributes` resolves every BA_DEF_DEF_ / BA_ / BA_REL_
 --      against the input's AttrDef list.
@@ -227,5 +236,10 @@ finalizeParse (just res) with remaining res
 -- the refinement-fail note describes the class of issue, not which
 -- specific attribute is broken (the refinement pass currently does not
 -- thread that info out — see module header).
+parseTextChars : List Char → DBCTextParseError ⊎ DBC
+parseTextChars cs = finalizeParse (runParserPartial parseDBCText cs)
+
+-- Parse a DBC text image.  See `parseTextChars` for the `List Char`
+-- entry point used by the B.3.d roundtrip proofs.
 parseText : String → DBCTextParseError ⊎ DBC
-parseText s = finalizeParse (runParserPartial parseDBCText (toList s))
+parseText s = parseTextChars (toList s)

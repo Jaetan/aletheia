@@ -144,15 +144,19 @@ Plan:
   3. **Per-line-construct lemmas**. One per `VERSION`, `NS_`, `BS_`, `BU_`, `BO_`, `SG_`, `CM_`, `BA_DEF_`, `BA_DEF_DEF_`, `BA_`, `BA_REL_`, `VAL_`, `VAL_TABLE_`, `EV_`, `SIG_GROUP_`, `SIG_VALTYPE_`, `SG_MUL_VAL_`. Compose primitive lemmas along each construct's bind chain.
   4. **Top-level aggregator**. Compose line-construct lemmas along `parseDBCText`'s bind chain against `formatText`'s concatenation order. Structural induction over each list-of-X field in `DBC`.
 
-  **Layer-1 stdlib audit complete (2026-04-22).** Finding: `toList-++ₛ` is stdlib-provable **only** via `Data.String.Unsafe` under `{-# OPTIONS --with-K #-}` (proved by `trustMe`).  `Data.String.Properties` (the `--safe` counterpart) carries `toList-injective` but not the append lemma.  Under `--safe --without-K`, `primStringAppend` / `primStringToList` reduce only on closed terms — direct in-project proof is blocked.  **Layer 1 is therefore not import-and-re-export; four options await user decision** (`project_b3d_stdlib_audit.md`):
-    1. Unsafe substrate module (breaks the 148-safe status stamp).
-    2. Move public API to `List Char`.
-    3. Hybrid: internal proof at `List Char` + single bridging axiom.
-    4. Defer B.3.d; rely on B.3.j cantools-snapshot parity.
+  **Layer 1 ✅ complete (2026-04-24, Option 3a per user decision).** Code-level structural audit of the four options resolved the audit hedge in favour of Option 3a — the **2-axiom hybrid** with formatter refactored to `List Char` internals.  Substrate at `src/Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (148-of-149 status stamp + 1 allowlisted Unsafe; the only non-`--safe` module in the project, allowlisted by name in `Shakefile.hs check-invariants` alongside the `^postulate` exception scoped to the same file).  Substrate hosts the two stdlib-equivalent axioms:
 
-  Sign-off required before layer-1 code lands — per `feedback_no_suppression_without_approval.md` do not introduce an Unsafe module silently, and per `feedback_no_silent_proof_reframing.md` do not weaken the target.
+  ```agda
+  postulate
+    toList∘fromList : ∀ (cs : List Char) → toList (fromList cs) ≡ cs
+    fromList∘toList : ∀ (s  : String)    → fromList (toList s)  ≡ s
+  ```
 
-  **Shake gate in place**: `check-properties` walks `DBC/TextParser/Properties.agda` (skeleton), plus the `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregators added in Commit 5/6.  Once layer-1 content populates the Properties file, regression protection is automatic for the proof layers; the aggregator walks already protect the implementation submodules.
+  Mirrors `Data.String.Unsafe` (proven by `trustMe` under `--with-K`); structurally unprovable in `--safe --without-K` because `primStringToList` / `primStringFromList` reduce only on closed terms.  Why two and not one: any path that keeps `DBC` storing identifiers/comments/units as `String` forces the second axiom — every per-primitive identifier roundtrip reduces to `fromList (toList name) ≡ name`.  Eliminating the second axiom would require Option 2 (move every `String` field in `DBC` to `List Char`), a far larger surface change.
+
+  Formatter refactor: every per-section emitter (`Preamble` / `Topology` / `ValueTables` / `Attributes` / `Comments` / `SignalGroups` / `EnvVars` + `Emitter` primitives) now exports only `-chars` companions (`emitX-chars : … → List Char`); `formatChars : DBC → List Char` in `TextFormatter/TopLevel.agda` is the substrate the top-level proof reasons about; the only `String`-returning function in the formatter pipeline is `formatText = fromList ∘ formatChars`.  Parser entry points: `parseTextChars : List Char → ⊎` extracted from `parseText : String → ⊎ = parseTextChars ∘ toList`.  External behaviour unchanged — every test (Python 760, C++ 6, Go) passes against the refactored emitters.
+
+  **Shake gates in place**: `check-properties` walks `DBC/TextParser/Properties.agda` (skeleton; will host the universal theorem in layer 4), plus the `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregators (Commit 5/6).  `check-invariants` enforces the 1-Unsafe / 1-postulate-file allowlist project-wide.  Layer 2 work can start when ready.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.

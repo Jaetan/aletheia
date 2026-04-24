@@ -1,7 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Environment-variable emitters for the DBC text format (Phase B.3.c.9 —
--- companion to `Aletheia.DBC.TextParser.EnvVars`).
+-- companion to `Aletheia.DBC.TextParser.EnvVars`; layer-1 form 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.EnvVars`):
 --   env-var      ::= "EV_" ws identifier ws? ":" ws ("0" | "1" | "2") ws
@@ -24,7 +24,7 @@
 --                   unassigned-node slot; cantools also emits this when
 --                   `env.access_type is None`).
 --   * access_node — `Vector__XXX` (cantools' no-named-node placeholder;
---                   matches `TextFormatter.Topology.emitReceivers`'s
+--                   matches `TextFormatter.Topology.emitReceivers-chars`'s
 --                   fallback choice for the same class of field).
 --
 -- All four placeholders are *reparseable* by `parseEnvVar`: `""` satisfies
@@ -34,31 +34,30 @@
 -- projection.
 --
 -- Section packing: EV_ lines pack directly with no blank-line separator
--- between entries; `emitEnvVars` concatenates via `foldr` without an
--- inter-line combinator.  `parseEnvVar`'s `many parseNewline` tail
--- tolerates optional blank lines for hand-written corpora but this
--- emitter never produces any, mirroring the pack-direct stance of
--- `emitValueTables`.
+-- between entries; `emitEnvVars-chars` concatenates via `foldr` without
+-- an inter-line combinator.
+--
+-- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
+-- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.EnvVars where
 
-open import Data.List using (List; foldr)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
+open import Data.String using (toList)
 
 open import Aletheia.DBC.Types using
   (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
-open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec)
+open import Aletheia.DBC.TextFormatter.Emitter using (showDecRat-dec-chars)
 
 -- ============================================================================
 -- VARTYPE DIGIT EMITTER
 -- ============================================================================
 
--- `VarType` → the single ASCII digit the grammar demands.  Mirrors
--- `varTypeToℕ` (in `Aletheia.DBC.Types`) but returns the digit character
--- directly so no intermediate `ℕ` conversion is needed.
-emitVarType : VarType → String
-emitVarType IntVar    = "0"
-emitVarType FloatVar  = "1"
-emitVarType StringVar = "2"
+-- `VarType` → the single ASCII digit the grammar demands.
+emitVarType-chars : VarType → List Char
+emitVarType-chars IntVar    = '0' ∷ []
+emitVarType-chars FloatVar  = '1' ∷ []
+emitVarType-chars StringVar = '2' ∷ []
 
 -- ============================================================================
 -- EV_ LINE
@@ -67,25 +66,28 @@ emitVarType StringVar = "2"
 -- One EV_ line with trailing `\n`.  Synthesized drop-field values chosen
 -- to reparse cleanly and match cantools' None-handling fallbacks (see
 -- module header).
-emitEnvVar : EnvironmentVar → String
-emitEnvVar ev =
-  "EV_ " ++ₛ EnvironmentVar.name ev ++ₛ ": " ++ₛ
-  emitVarType (EnvironmentVar.varType ev) ++ₛ
-  " [" ++ₛ showDecRat-dec (EnvironmentVar.minimum ev) ++ₛ "|" ++ₛ
-  showDecRat-dec (EnvironmentVar.maximum ev) ++ₛ "]" ++ₛ
-  " \"\" " ++ₛ                             -- unit (synthesized)
-  showDecRat-dec (EnvironmentVar.initial ev) ++ₛ
-  " 0" ++ₛ                                 -- env_id (synthesized)
-  " DUMMY_NODE_VECTOR0" ++ₛ                -- access_type (synthesized)
-  " Vector__XXX" ++ₛ                       -- access_node (synthesized)
-  ";\n"
+emitEnvVar-chars : EnvironmentVar → List Char
+emitEnvVar-chars ev =
+  toList "EV_ " ++ₗ toList (EnvironmentVar.name ev) ++ₗ
+  toList ": " ++ₗ
+  emitVarType-chars (EnvironmentVar.varType ev) ++ₗ
+  toList " [" ++ₗ showDecRat-dec-chars (EnvironmentVar.minimum ev) ++ₗ
+  '|' ∷ showDecRat-dec-chars (EnvironmentVar.maximum ev) ++ₗ
+  toList "]" ++ₗ
+  toList " \"\" " ++ₗ                             -- unit (synthesized)
+  showDecRat-dec-chars (EnvironmentVar.initial ev) ++ₗ
+  toList " 0" ++ₗ                                 -- env_id (synthesized)
+  toList " DUMMY_NODE_VECTOR0" ++ₗ                -- access_type (synthesized)
+  toList " Vector__XXX" ++ₗ                       -- access_node (synthesized)
+  toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER
 -- ============================================================================
 
 -- Zero-or-more EV_ lines, concatenated without inter-line blanks.  Empty
--- list emits `""`, matching cantools' behaviour when no environment
+-- list emits `[]`, matching cantools' behaviour when no environment
 -- variables are defined.
-emitEnvVars : List EnvironmentVar → String
-emitEnvVars = foldr (λ ev acc → emitEnvVar ev ++ₛ acc) ""
+emitEnvVars-chars : List EnvironmentVar → List Char
+emitEnvVars-chars =
+  foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) []

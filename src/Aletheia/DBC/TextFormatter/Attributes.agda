@@ -1,6 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Attribute emitters for the DBC text format (Phase B.3.c.5).
+-- Attribute emitters for the DBC text format (Phase B.3.c.5; layer-1 form
+-- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Attributes`):
 --   attr-def     ::= "BA_DEF_" (ws attr-scope)? ws string-lit ws attr-type
@@ -18,18 +19,18 @@
 --     the matching AttrDef's ENUM labels list, quoted as a string literal.
 --     This mirrors `TextParser.Attributes.refineDefaultValue`'s label→index
 --     lookup in the opposite direction.  Emission requires the ambient
---     AttrDef list, so `emitAttrDefault` takes it as a parameter.
+--     AttrDef list, so `emitAttrDefault-chars` takes it as a parameter.
 --   * `AVEnum n` inside an `AttrAssign` emits `n` directly as a decimal
 --     integer (no lookup, no quoting).
 --   Any other AttrValue constructor (`AVInt` / `AVFloat` / `AVString` /
 --   `AVHex`) emits identically in both contexts.
 --
--- Lookup-table discipline: `emitAttributes` precomputes the AttrDef list
--- via `collectDefs` and threads it into every per-attribute emit.  An
--- earlier design threaded a mutable state-like accumulator through a
+-- Lookup-table discipline: `emitAttributes-chars` precomputes the AttrDef
+-- list via `collectDefs` and threads it into every per-attribute emit.
+-- An earlier design threaded a mutable state-like accumulator through a
 -- fold; the precompute approach is order-insensitive (works for hand-
 -- written DBCs where defs may interleave with defaults), and forces the
--- missing-def case to be handled at compile time in `emitDefaultValue`.
+-- missing-def case to be handled at compile time in `emitDefaultValue-chars`.
 --
 -- Canonical choices (cantools parity):
 --   * Separator whitespace — single space between every token.  The
@@ -43,17 +44,18 @@
 --     or `BA_` / `BA_REL_` lines (`";\n"`).  Mirrored here.
 --   * Missing/OOB enum label — when `AVEnum n` inside a default has no
 --     matching AttrDef, or the index overflows the label list, emit
---     `""` (empty string literal) as a clearly-wrong sentinel.  The
---     well-formedness hypothesis for a clean B.3.d roundtrip is: every
---     `AVEnum n` default has a matching AttrDef with `ATEnum labels`
---     and `n < length labels`.
+--     `""` (empty string literal) as a clearly-wrong sentinel.
+--
+-- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
+-- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Attributes where
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.List using (List; []; _∷_; foldr)
+open import Data.Char using (Char)
+open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; toList)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -69,11 +71,11 @@ open import Aletheia.DBC.Types using
   )
 
 open import Aletheia.DBC.TextFormatter.Emitter using
-  (showℕ-dec; showℤ-dec; showDecRat-dec; quoteStringLit)
+  (showℕ-dec-chars; showℤ-dec-chars; showDecRat-dec-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 
 -- ============================================================================
--- DEF LOOKUP TABLE (shared across defaults in `emitAttributes`)
+-- DEF LOOKUP TABLE (shared across defaults in `emitAttributes-chars`)
 -- ============================================================================
 
 -- Extract every AttrDef from a DBCAttribute list, preserving wire order.
@@ -103,17 +105,17 @@ nthLabel (suc n) (_ ∷ xs) = nthLabel n xs
 -- ============================================================================
 
 -- Scope keyword emitted between `BA_DEF_` / `BA_DEF_REL_` and the name,
--- with trailing space.  `ASNetwork` emits `""` so `BA_DEF_ "name" ...`
+-- with trailing space.  `ASNetwork` emits `[]` so `BA_DEF_ "name" ...`
 -- falls out naturally; the other six keywords carry their canonical DBC
 -- token followed by a single space.
-emitScopePrefix : AttrScope → String
-emitScopePrefix ASNetwork = ""
-emitScopePrefix ASNode    = "BU_ "
-emitScopePrefix ASMessage = "BO_ "
-emitScopePrefix ASSignal  = "SG_ "
-emitScopePrefix ASEnvVar  = "EV_ "
-emitScopePrefix ASNodeMsg = "BU_BO_REL_ "
-emitScopePrefix ASNodeSig = "BU_SG_REL_ "
+emitScopePrefix-chars : AttrScope → List Char
+emitScopePrefix-chars ASNetwork = []
+emitScopePrefix-chars ASNode    = toList "BU_ "
+emitScopePrefix-chars ASMessage = toList "BO_ "
+emitScopePrefix-chars ASSignal  = toList "SG_ "
+emitScopePrefix-chars ASEnvVar  = toList "EV_ "
+emitScopePrefix-chars ASNodeMsg = toList "BU_BO_REL_ "
+emitScopePrefix-chars ASNodeSig = toList "BU_SG_REL_ "
 
 -- Relation scopes dispatch to `BA_DEF_REL_`; everything else to `BA_DEF_`.
 isRelScope : AttrScope → Bool
@@ -123,48 +125,49 @@ isRelScope _         = false
 
 -- Enum labels comma-separated, each quoted.  Matches cantools output of
 -- `"Low","Normal","High"` (no spaces around comma).
-emitEnumLabels : List String → String
-emitEnumLabels []       = ""
-emitEnumLabels (x ∷ xs) =
-  quoteStringLit x ++ₛ
-  foldr (λ y acc → "," ++ₛ quoteStringLit y ++ₛ acc) "" xs
+emitEnumLabels-chars : List String → List Char
+emitEnumLabels-chars []       = []
+emitEnumLabels-chars (x ∷ xs) =
+  quoteStringLit-chars x ++ₗ
+  foldr (λ y acc → ',' ∷ quoteStringLit-chars y ++ₗ acc) [] xs
 
-emitAttrType : AttrType → String
-emitAttrType (ATInt mn mx)   =
-  "INT "   ++ₛ showℤ-dec mn ++ₛ " " ++ₛ showℤ-dec mx
-emitAttrType (ATFloat mn mx) =
-  "FLOAT " ++ₛ showDecRat-dec mn ++ₛ " " ++ₛ showDecRat-dec mx
-emitAttrType ATString        = "STRING"
-emitAttrType (ATEnum labels) =
-  "ENUM "  ++ₛ emitEnumLabels labels
-emitAttrType (ATHex mn mx)   =
-  "HEX "   ++ₛ showℕ-dec mn ++ₛ " " ++ₛ showℕ-dec mx
+emitAttrType-chars : AttrType → List Char
+emitAttrType-chars (ATInt mn mx)   =
+  toList "INT "   ++ₗ showℤ-dec-chars mn ++ₗ ' ' ∷ showℤ-dec-chars mx
+emitAttrType-chars (ATFloat mn mx) =
+  toList "FLOAT " ++ₗ showDecRat-dec-chars mn ++ₗ
+  ' ' ∷ showDecRat-dec-chars mx
+emitAttrType-chars ATString        = toList "STRING"
+emitAttrType-chars (ATEnum labels) =
+  toList "ENUM "  ++ₗ emitEnumLabels-chars labels
+emitAttrType-chars (ATHex mn mx)   =
+  toList "HEX "   ++ₗ showℕ-dec-chars mn ++ₗ ' ' ∷ showℕ-dec-chars mx
 
 -- ============================================================================
 -- VALUE EMITTERS
 -- ============================================================================
 
 -- Assignment context: `AVEnum n` → decimal integer (no label lookup).
-emitAssignValue : AttrValue → String
-emitAssignValue (AVInt z)    = showℤ-dec z
-emitAssignValue (AVFloat q)  = showDecRat-dec q
-emitAssignValue (AVString s) = quoteStringLit s
-emitAssignValue (AVEnum n)   = showℕ-dec n
-emitAssignValue (AVHex n)    = showℕ-dec n
+emitAssignValue-chars : AttrValue → List Char
+emitAssignValue-chars (AVInt z)    = showℤ-dec-chars z
+emitAssignValue-chars (AVFloat q)  = showDecRat-dec-chars q
+emitAssignValue-chars (AVString s) = quoteStringLit-chars s
+emitAssignValue-chars (AVEnum n)   = showℕ-dec-chars n
+emitAssignValue-chars (AVHex n)    = showℕ-dec-chars n
 
 -- Default context: `AVEnum n` → look up the label at index n in the
 -- matching AttrDef's ENUM labels, quoted as a string literal.  Missing
 -- def, non-ENUM def, or OOB index all degrade to `""` (see module header).
-emitDefaultValue : List AttrDef → (attrName : String) → AttrValue → String
-emitDefaultValue _    _  (AVInt z)    = showℤ-dec z
-emitDefaultValue _    _  (AVFloat q)  = showDecRat-dec q
-emitDefaultValue _    _  (AVString s) = quoteStringLit s
-emitDefaultValue _    _  (AVHex n)    = showℕ-dec n
-emitDefaultValue defs nm (AVEnum n) with lookupDef nm defs
-... | nothing  = quoteStringLit ""
+emitDefaultValue-chars : List AttrDef → (attrName : String) → AttrValue → List Char
+emitDefaultValue-chars _    _  (AVInt z)    = showℤ-dec-chars z
+emitDefaultValue-chars _    _  (AVFloat q)  = showDecRat-dec-chars q
+emitDefaultValue-chars _    _  (AVString s) = quoteStringLit-chars s
+emitDefaultValue-chars _    _  (AVHex n)    = showℕ-dec-chars n
+emitDefaultValue-chars defs nm (AVEnum n) with lookupDef nm defs
+... | nothing  = quoteStringLit-chars ""
 ... | just def with AttrDef.attrType def
-...   | ATEnum labels = quoteStringLit (nthLabel n labels)
-...   | _             = quoteStringLit ""
+...   | ATEnum labels = quoteStringLit-chars (nthLabel n labels)
+...   | _             = quoteStringLit-chars ""
 
 -- ============================================================================
 -- LINE EMITTERS
@@ -175,72 +178,80 @@ emitDefaultValue defs nm (AVEnum n) with lookupDef nm defs
 -- dispatched on scope.  Trailing ` ;\n` (space before semicolon) matches
 -- the cantools BA_DEF_* convention; the shorter-line families use `;\n`
 -- (no space).
-emitAttrDef : AttrDef → String
-emitAttrDef d with isRelScope (AttrDef.scope d)
+emitAttrDef-chars : AttrDef → List Char
+emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 ... | true  =
-  "BA_DEF_REL_ " ++ₛ emitScopePrefix (AttrDef.scope d) ++ₛ
-  quoteStringLit (AttrDef.name d) ++ₛ " " ++ₛ
-  emitAttrType (AttrDef.attrType d) ++ₛ " ;\n"
+  toList "BA_DEF_REL_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
+  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 ... | false =
-  "BA_DEF_ " ++ₛ emitScopePrefix (AttrDef.scope d) ++ₛ
-  quoteStringLit (AttrDef.name d) ++ₛ " " ++ₛ
-  emitAttrType (AttrDef.attrType d) ++ₛ " ;\n"
+  toList "BA_DEF_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
+  quoteStringLit-chars (AttrDef.name d) ++ₗ
+  ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.  The
 -- ambient AttrDef list flows in for ENUM label resolution.
-emitAttrDefault : List AttrDef → AttrDefault → String
-emitAttrDefault defs d =
-  "BA_DEF_DEF_ " ++ₛ
-  quoteStringLit (AttrDefault.name d) ++ₛ " " ++ₛ
-  emitDefaultValue defs (AttrDefault.name d) (AttrDefault.value d) ++ₛ ";\n"
+emitAttrDefault-chars : List AttrDef → AttrDefault → List Char
+emitAttrDefault-chars defs d =
+  toList "BA_DEF_DEF_ " ++ₗ
+  quoteStringLit-chars (AttrDefault.name d) ++ₗ
+  ' ' ∷ emitDefaultValue-chars defs (AttrDefault.name d) (AttrDefault.value d) ++ₗ
+  toList ";\n"
 
 -- `"BA_" ...` vs `"BA_REL_" ...` dispatched on the target.  For each
 -- target shape the explicit cases spell out the inter-token spacing
--- directly rather than routing through `emitAttrTarget`; this keeps the
--- assembly of the line simple and avoids the "target-is-network ⇒ no
+-- directly rather than routing through an `emitAttrTarget`; this keeps
+-- the assembly of the line simple and avoids the "target-is-network ⇒ no
 -- trailing space" special case that a uniform helper would need.
-emitAttrAssign : AttrAssign → String
-emitAttrAssign a = body (AttrAssign.target a)
+emitAttrAssign-chars : AttrAssign → List Char
+emitAttrAssign-chars a = body (AttrAssign.target a)
   where
-    qname : String
-    qname = quoteStringLit (AttrAssign.name a)
-    vstr : String
-    vstr = emitAssignValue (AttrAssign.value a)
-    body : AttrTarget → String
+    qname : List Char
+    qname = quoteStringLit-chars (AttrAssign.name a)
+    vstr : List Char
+    vstr = emitAssignValue-chars (AttrAssign.value a)
+    body : AttrTarget → List Char
     body ATgtNetwork =
-      "BA_ " ++ₛ qname ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_ " ++ₗ qname ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNode n) =
-      "BA_ " ++ₛ qname ++ₛ " BU_ " ++ₛ n ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_ " ++ₗ qname ++ₗ toList " BU_ " ++ₗ toList n ++ₗ
+      ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtMessage cid) =
-      "BA_ " ++ₛ qname ++ₛ " BO_ " ++ₛ showℕ-dec (rawCanIdℕ cid) ++ₛ
-      " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_ " ++ₗ qname ++ₗ toList " BO_ " ++ₗ
+      showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtSignal cid sig) =
-      "BA_ " ++ₛ qname ++ₛ " SG_ " ++ₛ showℕ-dec (rawCanIdℕ cid) ++ₛ
-      " " ++ₛ sig ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_ " ++ₗ qname ++ₗ toList " SG_ " ++ₗ
+      showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ toList sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtEnvVar ev) =
-      "BA_ " ++ₛ qname ++ₛ " EV_ " ++ₛ ev ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_ " ++ₗ qname ++ₗ toList " EV_ " ++ₗ toList ev ++ₗ
+      ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeMsg n cid) =
-      "BA_REL_ " ++ₛ qname ++ₛ " BU_BO_REL_ " ++ₛ n ++ₛ " " ++ₛ
-      showℕ-dec (rawCanIdℕ cid) ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_BO_REL_ " ++ₗ
+      toList n ++ₗ ' ' ∷
+      showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeSig n cid sig) =
-      "BA_REL_ " ++ₛ qname ++ₛ " BU_SG_REL_ " ++ₛ n ++ₛ " SG_ " ++ₛ
-      showℕ-dec (rawCanIdℕ cid) ++ₛ " " ++ₛ sig ++ₛ " " ++ₛ vstr ++ₛ ";\n"
+      toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_SG_REL_ " ++ₗ
+      toList n ++ₗ toList " SG_ " ++ₗ
+      showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
+      ' ' ∷ toList sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER
 -- ============================================================================
 
-emitAttribute : List AttrDef → DBCAttribute → String
-emitAttribute _    (DBCAttrDef d)     = emitAttrDef d
-emitAttribute defs (DBCAttrDefault d) = emitAttrDefault defs d
-emitAttribute _    (DBCAttrAssign a)  = emitAttrAssign a
+emitAttribute-chars : List AttrDef → DBCAttribute → List Char
+emitAttribute-chars _    (DBCAttrDef d)     = emitAttrDef-chars d
+emitAttribute-chars defs (DBCAttrDefault d) = emitAttrDefault-chars defs d
+emitAttribute-chars _    (DBCAttrAssign a)  = emitAttrAssign-chars a
 
--- Precompute the def lookup table once per `emitAttributes` call and
--- thread it through the per-line fold.  Empty list emits `""` (no
+-- Precompute the def lookup table once per `emitAttributes-chars` call
+-- and thread it through the per-line fold.  Empty list emits `[]` (no
 -- attributes section), matching cantools behaviour on attribute-free
--- databases.  Blank-line separation between the attributes section and
--- the next section is the composer's responsibility, not this emitter's.
-emitAttributes : List DBCAttribute → String
-emitAttributes attrs =
+-- databases.
+emitAttributes-chars : List DBCAttribute → List Char
+emitAttributes-chars attrs =
   let defs = collectDefs attrs
-  in foldr (λ a acc → emitAttribute defs a ++ₛ acc) "" attrs
+  in foldr (λ a acc → emitAttribute-chars defs a ++ₗ acc) [] attrs

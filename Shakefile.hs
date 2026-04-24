@@ -234,21 +234,54 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "All proof modules type-checked successfully!"
 
     phony "check-invariants" $ do
-        -- Enforce "zero postulates, zero *.Unsafe.agda modules" project-wide.
-        -- --safe alone rules out postulates in each module; this rule additionally
-        -- forbids any *.Unsafe.agda escape hatch from creeping into the tree.
-        -- grep exits 1 when there are no matches (the desired case here), so
-        -- we take Exit + Stdout explicitly and ignore the exit code.
-        (Exit _, Stdout postulates) <-
-            cmd "grep" "-rn" "--include=*.agda" "-E" "^postulate" "src/"
-        unless (null (postulates :: String)) $ do
-            putError $ "postulate found in Agda source:\n" ++ postulates
+        -- Enforce "postulates and Unsafe modules are limited to the
+        -- allowlisted B.3.d substrate" project-wide.
+        --
+        -- Allowlist policy: exactly one Unsafe module is permitted —
+        -- `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`,
+        -- which carries the two `String ↔ List Char` bridging axioms
+        -- (`toList∘fromList`, `fromList∘toList`) needed to compose the
+        -- B.3.d universal roundtrip theorem.  These mirror stdlib's
+        -- `Data.String.Unsafe` (proven by `trustMe` under `--with-K`),
+        -- which is structurally unprovable in `--safe --without-K`.
+        -- Any other `Unsafe`-named module OR any other `^postulate`
+        -- line is rejected — adding one requires a paired Shakefile
+        -- update and explicit user approval (see
+        -- `feedback_no_suppression_without_approval.md`).
+        --
+        -- The grep below uses -l (filenames only) so we can compare
+        -- paths against the allowlist; -r recurses; --include limits
+        -- to .agda; -E enables the regex.  grep exits 1 when there
+        -- are no matches, so we take Exit + Stdout explicitly and
+        -- ignore the exit code.
+        let allowedUnsafe =
+                ["Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda"]
+        (Exit _, Stdout postulateOut) <-
+            cmd "grep" "-rln" "--include=*.agda" "-E" "^postulate" "src/"
+        let postulateFiles = lines (postulateOut :: String)
+            stripSrc f = case stripPrefix "src/" f of
+                           Just rest -> rest
+                           Nothing   -> f
+            unauthorisedPostulate =
+                filter (\f -> stripSrc f `notElem` allowedUnsafe) postulateFiles
+        unless (null unauthorisedPostulate) $ do
+            putError $ "^postulate found in non-allowlisted Agda source:\n"
+                    ++ unlines unauthorisedPostulate
             error "check-invariants failed"
-        unsafe <- getDirectoryFiles "src" ["//*.Unsafe.agda"]
-        unless (null unsafe) $ do
-            putError $ "*.Unsafe.agda module(s) found: " ++ show unsafe
+        -- Two glob forms: "//*.Unsafe.agda" matches dotted suffixes
+        -- (e.g. `Foo.Unsafe.agda`); "//Unsafe.agda" matches leaf
+        -- `Unsafe.agda` files (the stdlib-style layout used by the
+        -- substrate module).  Union of matches is the candidate set.
+        unsafeMatches <-
+            getDirectoryFiles "src" ["//*.Unsafe.agda", "//Unsafe.agda"]
+        let unauthorisedUnsafe =
+                filter (`notElem` allowedUnsafe) unsafeMatches
+        unless (null unauthorisedUnsafe) $ do
+            putError $ "Unauthorised Unsafe-named module(s) found: "
+                    ++ show unauthorisedUnsafe
             error "check-invariants failed"
-        putInfo "Invariants OK: 0 postulates, 0 *.Unsafe.agda modules."
+        putInfo $ "Invariants OK: postulates and Unsafe modules limited "
+               ++ "to the allowlisted B.3.d substrate."
 
     phony "check-no-properties-in-runtime" $ do
         -- Runtime modules must not import Properties modules; a Properties

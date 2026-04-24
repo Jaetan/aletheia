@@ -24,10 +24,10 @@
 --   JSON image, not the text image, for precisely this reason.
 module Aletheia.DBC.TextFormatter where
 
-open import Data.String using (String)
+open import Data.String using (String; fromList)
 
 open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.DBC.TextFormatter.TopLevel using (emitDBCText)
+open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 
 -- ============================================================================
 -- ENTRY POINT
@@ -36,5 +36,11 @@ open import Aletheia.DBC.TextFormatter.TopLevel using (emitDBCText)
 -- Emit the canonical DBC text image.  See `TextFormatter.TopLevel` for
 -- the canonical section ordering and the deliberate omissions of
 -- constructs with no retained Agda field.
+--
+-- Layer-1 form (B.3.d Option 3a, 2026-04-24): `formatText` is the only
+-- `String`-returning function in the formatter pipeline; everything
+-- below it operates on `List Char`.  The `fromList` here is the single
+-- load-bearing site for the `Substrate/Unsafe.toList∘fromList` axiom
+-- in the universal-roundtrip proof.
 formatText : DBC → String
-formatText = emitDBCText
+formatText d = fromList (formatChars d)
