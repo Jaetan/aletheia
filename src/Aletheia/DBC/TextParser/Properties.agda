@@ -56,12 +56,50 @@
 -- silently weaken the target (`feedback_no_silent_proof_reframing.md`).
 module Aletheia.DBC.TextParser.Properties where
 
--- Layer 2 — per-primitive roundtrips.  Identifier first (this commit);
--- remaining primitives (ByteOrder/sign/mux/string-lit/attr-scope/attr-type/
--- attr-value/signal-presence) cascade in commit 2c.
+-- Layer 2 — per-primitive roundtrips.  Identifier (commit 2b) +
+-- Tier A (byte-order / sign / keyword-dispatch scope tags, attr-type
+-- STRING tag) + Tier B (string-literal escape body, mux marker with
+-- embedded parseNatural).  `ATInt`/`ATFloat`/`ATHex`/`ATEnum` and
+-- `SignalPresence` reclassified to Layer 3 (per-line-construct
+-- payloads, not primitives — see `memory/project_b3d_universal_proof.md`).
 open import Aletheia.DBC.TextParser.Properties.Primitives public
-  using (parseIdentifier-roundtrip;
+  using ( -- Probes + Identifier roundtrip
+         parseIdentifier-roundtrip;
          mkIdentFromCharsUnsafe-on-valid;
          decompose-valid;
          satisfy-success-T;
-         buildIdent-eq)
+         buildIdent-eq;
+         -- Tier A primitives
+         parseByteOrderDigit-roundtrip;
+         parseSignFlag-roundtrip;
+         parseOptionalStandardScope-ASNode-roundtrip;
+         parseOptionalStandardScope-ASMessage-roundtrip;
+         parseOptionalStandardScope-ASSignal-roundtrip;
+         parseOptionalStandardScope-ASEnvVar-roundtrip;
+         parseOptionalStandardScope-ASNetwork-roundtrip;
+         parseRelScopeWS;
+         parseRelScopeWS-ASNodeMsg-roundtrip;
+         parseRelScopeWS-ASNodeSig-roundtrip;
+         parseStringType-roundtrip;
+         -- Tier B primitives
+         parseStringLit-roundtrip;
+         parseMuxMarker-IsMux-roundtrip;
+         parseMuxMarker-left-branch;
+         parseMuxMarker-NotMux-roundtrip;
+         parseMuxMarker-SelBy-roundtrip)
+
+-- Layer 3 — per-line-construct roundtrips.  Preamble first (Commit
+-- 3a); simple-line, attribute, message constructs cascade in 3b / 3c /
+-- 3d.  See `memory/project_b3d_universal_proof.md` for the partition
+-- and `Properties/Preamble.agda` for the intra-commit split.
+open import Aletheia.DBC.TextParser.Properties.Preamble public
+  using (isNewlineStart;
+         parseNewline-match-LF;
+         parseNewline-fail-on-stop;
+         manyHelper-parseNewline-exhaust;
+         manyHelper-one-iter;
+         many-parseNewline-one-LF-stop;
+         parseVersion-roundtrip;
+         parseBitTiming-roundtrip;
+         parseNamespace-roundtrip;
+         isNSLineStart)
