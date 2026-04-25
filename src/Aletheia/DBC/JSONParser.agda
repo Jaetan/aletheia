@@ -22,6 +22,7 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdentFromString)
+open import Aletheia.DBC.DecRat.Refinement using (mkIntDecRatFromℤ; mkNatDecRatFromℕ)
 open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupBool; lookupInt;
   lookupNat; lookupRational; lookupObject; lookupArray; getNat)
 open import Aletheia.CAN.DLC using (bytesToValidDLC)
@@ -471,7 +472,7 @@ parseAttrType obj =
   (if ⌊ kind ≟ₛ "int" ⌋ then
     (require (MissingField "min") (lookupInt "min" obj) >>=ₑ λ mn →
      require (MissingField "max") (lookupInt "max" obj) >>=ₑ λ mx →
-     inj₂ (ATInt mn mx))
+     inj₂ (ATInt (mkIntDecRatFromℤ mn) (mkIntDecRatFromℤ mx)))
   else if ⌊ kind ≟ₛ "float" ⌋ then
     (lookupDecRat "min" obj >>=ₑ λ mn →
      lookupDecRat "max" obj >>=ₑ λ mx →
@@ -484,7 +485,7 @@ parseAttrType obj =
   else if ⌊ kind ≟ₛ "hex" ⌋ then
     (require (MissingField "min") (lookupNat "min" obj) >>=ₑ λ mn →
      require (MissingField "max") (lookupNat "max" obj) >>=ₑ λ mx →
-     inj₂ (ATHex mn mx))
+     inj₂ (ATHex (mkNatDecRatFromℕ mn) (mkNatDecRatFromℕ mx)))
   else inj₁ (InvalidKind "attrType" kind))
 
 -- Concrete attribute value (BA_, BA_REL_, BA_DEF_DEF_).
@@ -499,7 +500,7 @@ parseAttrValue obj =
   require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
   (if ⌊ kind ≟ₛ "int" ⌋ then
     (require (MissingField "value") (lookupInt "value" obj) >>=ₑ λ v →
-     inj₂ (AVInt v))
+     inj₂ (AVInt (mkIntDecRatFromℤ v)))
   else if ⌊ kind ≟ₛ "float" ⌋ then
     (lookupDecRat "value" obj >>=ₑ λ v →
      inj₂ (AVFloat v))
@@ -508,10 +509,10 @@ parseAttrValue obj =
      inj₂ (AVString v))
   else if ⌊ kind ≟ₛ "enum" ⌋ then
     (require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ v →
-     inj₂ (AVEnum v))
+     inj₂ (AVEnum (mkNatDecRatFromℕ v)))
   else if ⌊ kind ≟ₛ "hex" ⌋ then
     (require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ v →
-     inj₂ (AVHex v))
+     inj₂ (AVHex (mkNatDecRatFromℕ v)))
   else inj₁ (InvalidKind "attrValue" kind))
 
 -- Attribute assignment target (LHS of BA_ / BA_REL_). Superset of CommentTarget

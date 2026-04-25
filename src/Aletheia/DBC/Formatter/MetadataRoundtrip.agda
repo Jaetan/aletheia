@@ -10,6 +10,10 @@
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
 open import Aletheia.DBC.Types using (nodeNameStr; signalGroupNameStr; envVarNameStr; valueTableNameStr; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr; messageNameStr)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Aletheia.DBC.DecRat.Refinement using
+  (intDecRatToℤ; mkIntDecRatFromℤ;
+   natDecRatToℕ; mkNatDecRatFromℕ;
+   mkIntDecRatFromℤ-intDecRatToℤ; mkNatDecRatFromℕ-natDecRatToℕ)
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
@@ -353,22 +357,31 @@ attrScope-roundtrip ASNodeSig = refl
 -- on JNumber/JString reduce definitionally).
 attrType-roundtrip : ∀ t → parseAttrType (formatAttrType t) ≡ inj₂ t
 attrType-roundtrip (ATInt mn mx)
-  rewrite getInt-ℤtoJSON mn | getInt-ℤtoJSON mx = refl
+  rewrite getInt-ℤtoJSON (intDecRatToℤ mn)
+        | getInt-ℤtoJSON (intDecRatToℤ mx)
+        | mkIntDecRatFromℤ-intDecRatToℤ mn
+        | mkIntDecRatFromℤ-intDecRatToℤ mx = refl
 attrType-roundtrip (ATFloat mn mx)
   rewrite fromℚ?-after-toℚ mn | fromℚ?-after-toℚ mx = refl
 attrType-roundtrip ATString      = refl
 attrType-roundtrip (ATEnum labels)
   rewrite parseStringList-roundtrip labels = refl
 attrType-roundtrip (ATHex mn mx)
-  rewrite getNat-ℕtoJSON mn | getNat-ℕtoJSON mx = refl
+  rewrite getNat-ℕtoJSON (natDecRatToℕ mn)
+        | getNat-ℕtoJSON (natDecRatToℕ mx)
+        | mkNatDecRatFromℕ-natDecRatToℕ mn
+        | mkNatDecRatFromℕ-natDecRatToℕ mx = refl
 
 -- AttrValue: 5 tagged variants, same bridge story as AttrType.
 attrValue-roundtrip : ∀ v → parseAttrValue (formatAttrValue v) ≡ inj₂ v
-attrValue-roundtrip (AVInt v)    rewrite getInt-ℤtoJSON v = refl
+attrValue-roundtrip (AVInt v)
+  rewrite getInt-ℤtoJSON (intDecRatToℤ v) | mkIntDecRatFromℤ-intDecRatToℤ v = refl
 attrValue-roundtrip (AVFloat v)  rewrite fromℚ?-after-toℚ v = refl
 attrValue-roundtrip (AVString _) = refl
-attrValue-roundtrip (AVEnum v)   rewrite getNat-ℕtoJSON v = refl
-attrValue-roundtrip (AVHex v)    rewrite getNat-ℕtoJSON v = refl
+attrValue-roundtrip (AVEnum v)
+  rewrite getNat-ℕtoJSON (natDecRatToℕ v) | mkNatDecRatFromℕ-natDecRatToℕ v = refl
+attrValue-roundtrip (AVHex v)
+  rewrite getNat-ℕtoJSON (natDecRatToℕ v) | mkNatDecRatFromℕ-natDecRatToℕ v = refl
 
 -- AttrTarget: 10 branches (7 kinds × 2 CANId flavours where applicable).
 -- Mirrors commentTarget-roundtrip with two extra relation variants.

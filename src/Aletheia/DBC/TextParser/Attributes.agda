@@ -59,10 +59,10 @@ open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Rational as Rat using (ℚ)
-open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRatFromℤ; NatDecRat; mkNatDecRatFromℕ)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
-open import Data.Rational.Unnormalised using (mkℚᵘ)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
@@ -72,7 +72,7 @@ open import Aletheia.Parser.Combinators using
    char; string; many; optional)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural; parseInt; parseRational)
+   parseNatural; parseInt)
 open import Aletheia.DBC.TextParser.Topology using (buildCANId)
 
 open import Aletheia.DBC.Types using
@@ -92,12 +92,22 @@ open import Aletheia.DBC.Types using
 -- ============================================================================
 
 -- At parse time, all we know lexically is whether the value is a string
--- literal or a numeric literal.  Semantic refinement (INT/FLOAT/STRING/
--- ENUM/HEX disambiguation plus enum-label-lookup on defaults) happens
--- after the full attribute list is available.
+-- literal or a numeric literal.  Numeric values are normalised to
+-- `DecRat` regardless of wire form (bare integer or decimal-fraction);
+-- this matches the project-wide convention "all numbers are `DecRat`
+-- except on the frame hot-path" (signal extraction sticks with `ℚ` for
+-- performance, every other DBC numeric field is `DecRat`).
+--
+-- The two-way split (vs the older `RavNumber : ℚ`) keeps the substrate
+-- aligned with the parsers that already have roundtrip proofs:
+-- `parseStringLit-roundtrip`, `parseDecRat-roundtrip-suffix`, plus
+-- `parseInt-roundtrip` (Layer 2 follow-up).  There is no
+-- `parseRational-roundtrip` and proving it from scratch (scientific
+-- notation, sign + fraction + exponent unrolling) would add ~1 kLOC of
+-- foundation work for B.3.d Layer 3 attribute proofs.
 data RawAttrValue : Set where
   RavString : String → RawAttrValue
-  RavNumber : ℚ      → RawAttrValue
+  RavDecRat : DecRat → RawAttrValue
 
 record RawAttrDefault : Set where
   constructor mkRawAttrDefault
@@ -150,7 +160,7 @@ parseIntType = do
   mn ← parseInt
   _ ← parseWS
   mx ← parseInt
-  pure (ATInt mn mx)
+  pure (ATInt (mkIntDecRatFromℤ mn) (mkIntDecRatFromℤ mx))
 
 parseFloatType : Parser AttrType
 parseFloatType = do
@@ -187,7 +197,7 @@ parseHexType = do
   mn ← parseNatural
   _ ← parseWS
   mx ← parseNatural
-  pure (ATHex mn mx)
+  pure (ATHex (mkNatDecRatFromℕ mn) (mkNatDecRatFromℕ mx))
 
 -- Attribute-type declaration (RHS of `BA_DEF_` / `BA_DEF_REL_`).  None of
 -- the keywords share a prefix longer than one character so ordering is
@@ -308,14 +318,21 @@ parseRelTarget = parseNodeMsgTgt <|> parseNodeSigTgt
 -- RAW VALUE LEXER
 -- ============================================================================
 
--- The attribute value on the wire is either a string literal or a number.
--- `parseRational` already accepts optional leading `-`, decimal fraction,
--- and scientific notation, so it covers every numeric form (int, float,
--- hex-integer-in-decimal, enum-index) emitted by cantools.
+-- The attribute value on the wire is either a string literal, a
+-- decimal-fraction, or a bare integer.  Decimals dispatch to
+-- `parseDecRat` (Shape B `nat "." digit+`); bare integers dispatch to
+-- `parseInt` then promote to `DecRat` via `fromℤ`.  Both numeric paths
+-- land on `RavDecRat`.  Order matters in the `<|>` chain: `parseDecRat`
+-- precedes `parseInt` so the longer-match decimal form is preferred
+-- (an input like `42.5` would also start a successful `parseInt 42`
+-- run, but the `.5` continuation would be left unconsumed and the
+-- caller's trailing-WS check would fail — backtracking via `<|>` keeps
+-- the parser deterministic on cantools-emitted forms).
 parseRawAttrValue : Parser RawAttrValue
 parseRawAttrValue =
-  (parseStringLit >>= λ s → pure (RavString s)) <|>
-  (parseRational  >>= λ q → pure (RavNumber q))
+  (parseStringLit >>= λ s → pure (RavString s))    <|>
+  (parseDecRat    >>= λ d → pure (RavDecRat d))    <|>
+  (parseInt       >>= λ z → pure (RavDecRat (fromℤ z)))
 
 -- ============================================================================
 -- LINE PARSERS
@@ -420,20 +437,21 @@ parseAttrLine =
 -- REFINEMENT (stage 2 — enum label lookup + type-dispatched narrowing)
 -- ============================================================================
 
--- `ℚ` → `ℤ` coercion, succeeds iff the denominator is exactly 1.  Uses
--- `toℚᵘ` to project into the unnormalised view; `ℚ` stores values in
--- lowest terms so `denom-1 = 0` iff the value is integer-valued.
-ratToInt : ℚ → Maybe ℤ
-ratToInt r with Rat.toℚᵘ r
-... | mkℚᵘ num zero    = just num
-... | mkℚᵘ _   (suc _) = nothing
+-- `DecRat` → `ℤ` coercion, succeeds iff the value is integer-valued
+-- (`twoExp = 0` and `fiveExp = 0` together imply the denominator
+-- `2^a · 5^b = 1`).  The canonical-form invariant on `DecRat` makes this
+-- check structural — no gcd, no normalisation.
+decRatToℤ? : DecRat → Maybe ℤ
+decRatToℤ? (mkDecRat z zero    zero    _) = just z
+decRatToℤ? (mkDecRat _ (suc _) _       _) = nothing
+decRatToℤ? (mkDecRat _ _       (suc _) _) = nothing
 
--- `ℚ` → `ℕ` coercion, succeeds iff the value is a non-negative integer.
-ratToNat : ℚ → Maybe ℕ
-ratToNat r with Rat.toℚᵘ r
-... | mkℚᵘ (+ n)     zero    = just n
-... | mkℚᵘ -[1+ _ ]  zero    = nothing
-... | mkℚᵘ _         (suc _) = nothing
+-- `DecRat` → `ℕ` coercion: integer-valued AND non-negative.
+decRatToℕ? : DecRat → Maybe ℕ
+decRatToℕ? (mkDecRat (+ n)     zero    zero    _) = just n
+decRatToℕ? (mkDecRat -[1+ _ ]  zero    zero    _) = nothing
+decRatToℕ? (mkDecRat _         (suc _) _       _) = nothing
+decRatToℕ? (mkDecRat _         _       (suc _) _) = nothing
 
 -- 0-based index of `s` in `labels`; `nothing` if not present.  Used by
 -- `refineDefaultValue` to convert an enum-default's string label into
@@ -450,38 +468,38 @@ findLabel s (x ∷ xs) with ⌊ s ≟ₛ x ⌋
 
 -- Refine a default value against the declared attribute type.  ENUM is
 -- the odd-one-out: wire form is a label, semantic form is an index.
+-- Numeric coercions go through `mkIntDecRatFromℤ` / `mkNatDecRatFromℕ`
+-- to recover the refinement-type witness from the structurally-projected
+-- integer.
 refineDefaultValue : AttrType → RawAttrValue → Maybe AttrValue
 refineDefaultValue ATString      (RavString s) = just (AVString s)
-refineDefaultValue (ATInt _ _)   (RavNumber q) with ratToInt q
-... | just z  = just (AVInt z)
+refineDefaultValue (ATInt _ _)   (RavDecRat d) with decRatToℤ? d
+... | just z  = just (AVInt (mkIntDecRatFromℤ z))
 ... | nothing = nothing
-refineDefaultValue (ATFloat _ _) (RavNumber q) with fromℚ? q
-... | just d  = just (AVFloat d)
-... | nothing = nothing
+refineDefaultValue (ATFloat _ _) (RavDecRat d) = just (AVFloat d)
 refineDefaultValue (ATEnum ls)   (RavString s) with findLabel s ls
-... | just i  = just (AVEnum i)
+... | just i  = just (AVEnum (mkNatDecRatFromℕ i))
 ... | nothing = nothing
-refineDefaultValue (ATHex _ _)   (RavNumber q) with ratToNat q
-... | just n  = just (AVHex n)
+refineDefaultValue (ATHex _ _)   (RavDecRat d) with decRatToℕ? d
+... | just n  = just (AVHex (mkNatDecRatFromℕ n))
 ... | nothing = nothing
 refineDefaultValue _             _             = nothing
 
 -- Refine an assignment value.  Differs from `refineDefaultValue` on the
--- ENUM branch only: wire form is the numeric index, so the conversion
--- is just `ratToNat`.
+-- ENUM branch only: assignments encode the index as a bare integer, so
+-- the conversion is just `decRatToℕ?` (the wire form is normalised to
+-- `RavDecRat` via `fromℤ`, so the denominator structure is `2^0 · 5^0 = 1`).
 refineAssignValue : AttrType → RawAttrValue → Maybe AttrValue
 refineAssignValue ATString      (RavString s) = just (AVString s)
-refineAssignValue (ATInt _ _)   (RavNumber q) with ratToInt q
-... | just z  = just (AVInt z)
+refineAssignValue (ATInt _ _)   (RavDecRat d) with decRatToℤ? d
+... | just z  = just (AVInt (mkIntDecRatFromℤ z))
 ... | nothing = nothing
-refineAssignValue (ATFloat _ _) (RavNumber q) with fromℚ? q
-... | just d  = just (AVFloat d)
+refineAssignValue (ATFloat _ _) (RavDecRat d) = just (AVFloat d)
+refineAssignValue (ATEnum _)    (RavDecRat d) with decRatToℕ? d
+... | just n  = just (AVEnum (mkNatDecRatFromℕ n))
 ... | nothing = nothing
-refineAssignValue (ATEnum _)    (RavNumber q) with ratToNat q
-... | just n  = just (AVEnum n)
-... | nothing = nothing
-refineAssignValue (ATHex _ _)   (RavNumber q) with ratToNat q
-... | just n  = just (AVHex n)
+refineAssignValue (ATHex _ _)   (RavDecRat d) with decRatToℕ? d
+... | just n  = just (AVHex (mkNatDecRatFromℕ n))
 ... | nothing = nothing
 refineAssignValue _             _             = nothing
 

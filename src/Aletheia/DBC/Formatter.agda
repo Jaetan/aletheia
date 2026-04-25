@@ -8,6 +8,7 @@
 -- Role: Used by Protocol.StreamState to handle FormatDBC command.
 module Aletheia.DBC.Formatter where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; signalGroupNameStr; envVarNameStr; valueTableNameStr; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr)
 
 open import Data.String using (String)
@@ -167,7 +168,7 @@ formatAttrScope ASNodeSig = "nodeSig"
 -- Emit AttrType as a raw field list (callers wrap in JObject).
 formatAttrType : AttrType → List (String × JSON)
 formatAttrType (ATInt mn mx) =
-  ("kind" , JString "int") ∷ ("min" , ℤtoJSON mn) ∷ ("max" , ℤtoJSON mx) ∷ []
+  ("kind" , JString "int") ∷ ("min" , ℤtoJSON (intDecRatToℤ mn)) ∷ ("max" , ℤtoJSON (intDecRatToℤ mx)) ∷ []
 formatAttrType (ATFloat mn mx) =
   ("kind" , JString "float") ∷ ("min" , JNumber (toℚ mn)) ∷ ("max" , JNumber (toℚ mx)) ∷ []
 formatAttrType ATString =
@@ -175,20 +176,20 @@ formatAttrType ATString =
 formatAttrType (ATEnum labels) =
   ("kind" , JString "enum") ∷ ("values" , JArray (map JString labels)) ∷ []
 formatAttrType (ATHex mn mx) =
-  ("kind" , JString "hex") ∷ ("min" , ℕtoJSON mn) ∷ ("max" , ℕtoJSON mx) ∷ []
+  ("kind" , JString "hex") ∷ ("min" , ℕtoJSON (natDecRatToℕ mn)) ∷ ("max" , ℕtoJSON (natDecRatToℕ mx)) ∷ []
 
 -- Emit AttrValue as a raw field list (callers wrap in JObject).
 formatAttrValue : AttrValue → List (String × JSON)
 formatAttrValue (AVInt v) =
-  ("kind" , JString "int") ∷ ("value" , ℤtoJSON v) ∷ []
+  ("kind" , JString "int") ∷ ("value" , ℤtoJSON (intDecRatToℤ v)) ∷ []
 formatAttrValue (AVFloat v) =
   ("kind" , JString "float") ∷ ("value" , JNumber (toℚ v)) ∷ []
 formatAttrValue (AVString v) =
   ("kind" , JString "string") ∷ ("value" , JString v) ∷ []
 formatAttrValue (AVEnum v) =
-  ("kind" , JString "enum") ∷ ("value" , ℕtoJSON v) ∷ []
+  ("kind" , JString "enum") ∷ ("value" , ℕtoJSON (natDecRatToℕ v)) ∷ []
 formatAttrValue (AVHex v) =
-  ("kind" , JString "hex") ∷ ("value" , ℕtoJSON v) ∷ []
+  ("kind" , JString "hex") ∷ ("value" , ℕtoJSON (natDecRatToℕ v)) ∷ []
 
 -- Emit AttrTarget as a raw field list (callers wrap in JObject).
 formatAttrTarget : AttrTarget → List (String × JSON)

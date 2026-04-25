@@ -23,6 +23,7 @@ open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
 open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
 open import Aletheia.DBC.Identifier using (Identifier)
 
 -- Signal presence model for multiplexing.
@@ -147,20 +148,20 @@ data AttrScope : Set where
 -- FLOAT carries rational bounds, STRING is unconstrained, and ENUM carries
 -- the (ordered) list of enumeration labels.
 data AttrType : Set where
-  ATInt    : (min max : ℤ) → AttrType
+  ATInt    : (min max : IntDecRat) → AttrType
   ATFloat  : (min max : DecRat) → AttrType
   ATString : AttrType
   ATEnum   : (values : List String) → AttrType
-  ATHex    : (min max : ℕ) → AttrType
+  ATHex    : (min max : NatDecRat) → AttrType
 
 -- Concrete attribute value (BA_, BA_REL_, BA_DEF_DEF_).
 -- AVEnum carries the 0-based index into the matching AttrDef's label list.
 data AttrValue : Set where
-  AVInt    : ℤ → AttrValue
+  AVInt    : IntDecRat → AttrValue
   AVFloat  : DecRat → AttrValue
   AVString : String → AttrValue
-  AVEnum   : ℕ → AttrValue
-  AVHex    : ℕ → AttrValue
+  AVEnum   : NatDecRat → AttrValue
+  AVHex    : NatDecRat → AttrValue
 
 -- Assignment target (BA_ / BA_REL_). Mirrors AttrScope but carries the
 -- concrete identifier(s) of the target entity.

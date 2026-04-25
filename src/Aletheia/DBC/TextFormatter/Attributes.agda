@@ -51,6 +51,7 @@
 module Aletheia.DBC.TextFormatter.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using (attrDefNameStr; attrDefaultNameStr; attrAssignNameStr)
+open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char)
@@ -135,7 +136,8 @@ emitEnumLabels-chars (x ∷ xs) =
 
 emitAttrType-chars : AttrType → List Char
 emitAttrType-chars (ATInt mn mx)   =
-  toList "INT "   ++ₗ showℤ-dec-chars mn ++ₗ ' ' ∷ showℤ-dec-chars mx
+  toList "INT "   ++ₗ showℤ-dec-chars (intDecRatToℤ mn) ++ₗ
+  ' ' ∷ showℤ-dec-chars (intDecRatToℤ mx)
 emitAttrType-chars (ATFloat mn mx) =
   toList "FLOAT " ++ₗ showDecRat-dec-chars mn ++ₗ
   ' ' ∷ showDecRat-dec-chars mx
@@ -143,7 +145,8 @@ emitAttrType-chars ATString        = toList "STRING"
 emitAttrType-chars (ATEnum labels) =
   toList "ENUM "  ++ₗ emitEnumLabels-chars labels
 emitAttrType-chars (ATHex mn mx)   =
-  toList "HEX "   ++ₗ showℕ-dec-chars mn ++ₗ ' ' ∷ showℕ-dec-chars mx
+  toList "HEX "   ++ₗ showℕ-dec-chars (natDecRatToℕ mn) ++ₗ
+  ' ' ∷ showℕ-dec-chars (natDecRatToℕ mx)
 
 -- ============================================================================
 -- VALUE EMITTERS
@@ -151,24 +154,24 @@ emitAttrType-chars (ATHex mn mx)   =
 
 -- Assignment context: `AVEnum n` → decimal integer (no label lookup).
 emitAssignValue-chars : AttrValue → List Char
-emitAssignValue-chars (AVInt z)    = showℤ-dec-chars z
+emitAssignValue-chars (AVInt z)    = showℤ-dec-chars (intDecRatToℤ z)
 emitAssignValue-chars (AVFloat q)  = showDecRat-dec-chars q
 emitAssignValue-chars (AVString s) = quoteStringLit-chars s
-emitAssignValue-chars (AVEnum n)   = showℕ-dec-chars n
-emitAssignValue-chars (AVHex n)    = showℕ-dec-chars n
+emitAssignValue-chars (AVEnum n)   = showℕ-dec-chars (natDecRatToℕ n)
+emitAssignValue-chars (AVHex n)    = showℕ-dec-chars (natDecRatToℕ n)
 
 -- Default context: `AVEnum n` → look up the label at index n in the
 -- matching AttrDef's ENUM labels, quoted as a string literal.  Missing
 -- def, non-ENUM def, or OOB index all degrade to `""` (see module header).
 emitDefaultValue-chars : List AttrDef → (attrName : String) → AttrValue → List Char
-emitDefaultValue-chars _    _  (AVInt z)    = showℤ-dec-chars z
+emitDefaultValue-chars _    _  (AVInt z)    = showℤ-dec-chars (intDecRatToℤ z)
 emitDefaultValue-chars _    _  (AVFloat q)  = showDecRat-dec-chars q
 emitDefaultValue-chars _    _  (AVString s) = quoteStringLit-chars s
-emitDefaultValue-chars _    _  (AVHex n)    = showℕ-dec-chars n
+emitDefaultValue-chars _    _  (AVHex n)    = showℕ-dec-chars (natDecRatToℕ n)
 emitDefaultValue-chars defs nm (AVEnum n) with lookupDef nm defs
 ... | nothing  = quoteStringLit-chars ""
 ... | just def with AttrDef.attrType def
-...   | ATEnum labels = quoteStringLit-chars (nthLabel n labels)
+...   | ATEnum labels = quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels)
 ...   | _             = quoteStringLit-chars ""
 
 -- ============================================================================
