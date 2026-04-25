@@ -309,6 +309,12 @@ Each guideline below carries a stable identifier (`G-A1`..`G-A20`) so the step-1
 **G-A20 — Module separation:**
 - Separate domain Types, Operations, and Properties into distinct modules (e.g., `CAN/Frame.agda` for types, `CAN/Encoding.agda` for operations, `CAN/Encoding/Properties.agda` for proofs). Don't put proofs alongside the implementation they verify -- it conflates "what runs" with "what we know about what runs."
 
+**G-A21 — Refinement-types pattern (`record { value : Base; witness : T (predicateᵇ value) }`):**
+- When two or more types in the codebase differ only on a decidable predicate over a shared base type (e.g., `ℤ`-typed bounds vs `DecRat`-typed bounds, or "any string" vs "valid identifier string"), unify them under the more general type with a witness record carrying `T (predicateᵇ value)`. The runtime check happens once at the boundary; downstream code carries the proof at the type level.
+- Worked examples in-tree: `Identifier` (String + `T (validIdentifierᵇ ∘ toList)`), `IntDecRat` (DecRat + `T isIntegerᵇ`), `NatDecRat` (DecRat + `T isNonNegIntegerᵇ`).  See `memory/project_refinement_types_pattern.md` for the 5 design choices (relevant witness, smart constructor via `subst T`, total projection via `()`, bidirectional roundtrip via `T-irrelevant`, parser via `ifᵀ_then_else_`).
+- Required constraints: (a) **witness field MUST be relevant** (no `.` modality / no `@0` erasure) under `--without-K` — irrelevant witnesses break `_≟_` decidable equality (Identifier T3 incident, see `project_identifier_eq_revisit.md`); (b) the predicate must reduce on closed canonical-form inputs, otherwise `subst T` cannot auto-witness in smart constructors; (c) for parser combinator promotion, use `parseDecRat >>= λ d → ifᵀ predicateᵇ d then mkRefined else fail` — the `ifᵀ` combinator from `Aletheia.Prelude` provides the witness inside the `then` branch automatically (G-A10's bounded-constructor pattern is the inline cousin of this).
+- When NOT to apply: when the base type is genuinely the wrong representation (the refinement carries semantic information beyond a constraint), or when introducing the refinement would create an asymmetric API where some callers see the refined type and others see the base type (per `feedback_no_subsumption_asymmetry.md`, asymmetric subsumption invites pushback — apply across every call site that admits the unification).
+
 ### Verification
 
 ```bash
