@@ -2,8 +2,11 @@
 
 -- DBC decimal-rational parser — terminal for `scale`, `offset`, `min`,
 -- `max`, environment-variable bounds, value-table keys, and (post-3c-pre)
--- attribute values whose wire form is a bare integer (subsumes the
--- former `parseInt` branch of `parseRawAttrValue`).
+-- every attribute numeric slot.  Subsumes the former `parseInt` branch
+-- of `parseRawAttrValue` AND the per-slot `parseInt` / `parseNatural`
+-- usage in `parseIntType` / `parseHexType` (refined via
+-- `parseIntDecRat` / `parseNatDecRat` below — `parseDecRat` plus a
+-- predicate-witness `ifᵀ` check).
 --
 -- Two shapes accepted, in `<|>` order:
 --
@@ -49,9 +52,13 @@ open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _∸_; _^_)
 open import Data.Integer using (ℤ; +_; -[1+_]) renaming (-_ to -ℤ_)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; _>>=_; _*>_; _<|>_; char; digit; optional; some)
+  (Parser; pure; fail; _>>=_; _*>_; _<|>_; char; digit; optional; some)
 open import Aletheia.DBC.DecRat using (DecRat; canonicalizeDecRat)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRat; isIntegerᵇ;
+   NatDecRat; mkNatDecRat; isNonNegIntegerᵇ)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
+open import Aletheia.Prelude using (ifᵀ_then_else_)
 
 -- Helper: digit character → natural (ASCII '0'..'9' → 0..9).  Mirrors
 -- `Aletheia.Protocol.JSON.Parse.parseRational`'s inner `charToDigit` so
@@ -124,3 +131,34 @@ parseDecRatBareInt = do
 -- partial consumption by the frac branch is harmless.
 parseDecRat : Parser DecRat
 parseDecRat = parseDecRatFrac <|> parseDecRatBareInt
+
+-- ============================================================================
+-- REFINED PARSERS — IntDecRat / NatDecRat
+-- ============================================================================
+--
+-- Run `parseDecRat`, then check the result's structural shape against the
+-- refinement predicate (`isIntegerᵇ` or `isNonNegIntegerᵇ`); on success
+-- carry the witness through to the refined record, on failure abort the
+-- parser via `fail`.  The runtime check happens once at the parser
+-- boundary; downstream code carries the proof at the type level (per
+-- `memory/project_decrat_universal_principle.md`'s "all numbers are
+-- DecRat except on the frame hot-path" with refinement types).
+--
+-- Wire grammar: cantools always emits integer/natural attribute bounds
+-- without a fractional part (`BA_DEF_ "X" INT 0 100;`, not
+-- `BA_DEF_ "X" INT 0.0 100.0;`).  The frac branch of `parseDecRat`
+-- therefore fails on well-formed input and the bare-int branch fires;
+-- the predicate check is a guarantee, not a coercion.  Malformed input
+-- like `BA_DEF_ "X" INT 0.5 100;` is rejected by the predicate check.
+
+parseIntDecRat : Parser IntDecRat
+parseIntDecRat = parseDecRat >>= λ d →
+  ifᵀ isIntegerᵇ d
+    then (λ wf → pure (mkIntDecRat d wf))
+    else fail
+
+parseNatDecRat : Parser NatDecRat
+parseNatDecRat = parseDecRat >>= λ d →
+  ifᵀ isNonNegIntegerᵇ d
+    then (λ wf → pure (mkNatDecRat d wf))
+    else fail

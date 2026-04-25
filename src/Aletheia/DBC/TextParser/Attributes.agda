@@ -62,7 +62,8 @@ open import Data.Nat using (ℕ; zero; suc)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; NatDecRat; mkNatDecRatFromℕ)
-open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
+open import Aletheia.DBC.TextParser.DecRatParse using
+  (parseDecRat; parseIntDecRat; parseNatDecRat)
 open import Data.String using (String)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
@@ -72,7 +73,7 @@ open import Aletheia.Parser.Combinators using
    char; string; many; optional)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural; parseInt)
+   parseNatural)
 open import Aletheia.DBC.TextParser.Topology using (buildCANId)
 
 open import Aletheia.DBC.Types using
@@ -160,10 +161,10 @@ parseIntType : Parser AttrType
 parseIntType = do
   _ ← string "INT"
   _ ← parseWS
-  mn ← parseInt
+  mn ← parseIntDecRat
   _ ← parseWS
-  mx ← parseInt
-  pure (ATInt (mkIntDecRatFromℤ mn) (mkIntDecRatFromℤ mx))
+  mx ← parseIntDecRat
+  pure (ATInt mn mx)
 
 parseFloatType : Parser AttrType
 parseFloatType = do
@@ -197,10 +198,10 @@ parseHexType : Parser AttrType
 parseHexType = do
   _ ← string "HEX"
   _ ← parseWS
-  mn ← parseNatural
+  mn ← parseNatDecRat
   _ ← parseWS
-  mx ← parseNatural
-  pure (ATHex (mkNatDecRatFromℕ mn) (mkNatDecRatFromℕ mx))
+  mx ← parseNatDecRat
+  pure (ATHex mn mx)
 
 -- Attribute-type declaration (RHS of `BA_DEF_` / `BA_DEF_REL_`).  None of
 -- the keywords share a prefix longer than one character so ordering is
