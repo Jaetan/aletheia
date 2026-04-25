@@ -315,7 +315,7 @@ Each guideline below carries a stable identifier (`G-A1`..`G-A20`) so the step-1
 cd src && agda +RTS -N32 -M4G -RTS Aletheia/YourModule.agda
 ```
 
-Use `-M4G` for all proof modules (catches memory blowups from rewrite chains). Use `-M8G` for larger modules if `-M4G` is too tight.
+The `-M<size>` heap cap is **mandatory**, not optional — it doubles as a runaway-elaboration tripwire and prevents the typechecker from thrashing the host.  Use `-M4G` for all proof modules under review (catches memory blowups from rewrite chains).  Use `-M8G` for larger modules if `-M4G` is too tight.  For ad-hoc development invocations outside review, use the `-M16G` default documented in `CLAUDE.md`.  Bump only when a specific module legitimately needs more; never raise the cap globally.  Empirical floor: `Aletheia/DBC/TextParser/Properties/Comments/Comment.agda` blew >48 GB during B.3.d Layer 3 Commit 3b (open issue tracked in `memory/project_b3d_cm_heap_blowup.md`); without a cap that would have OOM-killed the WSL host instead of failing the build. See `memory/feedback_agda_rts_memlimit.md`.
 
 ---
 

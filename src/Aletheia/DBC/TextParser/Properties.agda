@@ -103,3 +103,20 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
          parseBitTiming-roundtrip;
          parseNamespace-roundtrip;
          isNSLineStart)
+
+-- Topology section (Commit 3b: BU_ node list).  Future Layer-3
+-- commits land BO_ / SG_ here.
+open import Aletheia.DBC.TextParser.Properties.Topology public
+  using (parseBU-roundtrip; NodeNameStop)
+
+-- Value-table section (Commit 3b: VAL_TABLE_).
+open import Aletheia.DBC.TextParser.Properties.ValueTables public
+  using (parseValueTable-roundtrip; ValueTableNameStop)
+
+-- Environment-variable section (Commit 3b: EV_).
+open import Aletheia.DBC.TextParser.Properties.EnvVars public
+  using (parseEnvVar-roundtrip; EnvVarNameStop)
+
+-- Comment section (Commit 3b: CM_ — 5-way CommentTarget dispatch).
+open import Aletheia.DBC.TextParser.Properties.Comments public
+  using (parseComment-roundtrip; CommentTargetStop)

@@ -645,7 +645,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cores <- liftIO getNumProcessors
         cmd_ (Cwd "src")
             "agda"
-            "+RTS" ("-N" ++ show cores) "-RTS"
+            "+RTS" ("-N" ++ show cores) "-M16G" "-RTS"
             "--compile"
             "--compile-dir=../build"
             "--ghc-dont-call-ghc"

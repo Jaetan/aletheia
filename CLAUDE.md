@@ -33,9 +33,9 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - **User binaries**: `/home/nicolas/.local/bin` (accessible)
 - **User libraries**: `/home/nicolas/.local/lib` (accessible)
 
-**Type-checking command**:
+**Type-checking command** (always cap heap to prevent runaway elaboration):
 ```bash
-/home/nicolas/.cabal/bin/agda +RTS -N32 -RTS /home/nicolas/dev/agda/aletheia/src/Aletheia/YourModule.agda
+/home/nicolas/.cabal/bin/agda +RTS -N32 -M16G -RTS /home/nicolas/dev/agda/aletheia/src/Aletheia/YourModule.agda
 ```
 
 ## Global Project Rules
@@ -77,16 +77,16 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - CI/CD runs `check-invariants` on every build
 - Code review checklist includes verifying flags
 
-**Current Status**: ✅ 134 of 157 Agda modules use `--safe`; 1 allowlisted Unsafe module (B.3.d substrate) carries the only postulates project-wide; the remaining 22 `--without-K`-only modules transitively import that substrate.
+**Current Status**: ✅ 134 of 166 Agda modules use `--safe`; 1 allowlisted Unsafe module (B.3.d substrate) carries the only postulates project-wide; the remaining 31 `--without-K`-only modules transitively import that substrate.
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (157 total):
+**By flag combination** (166 total — `cabal run shake -- count-modules`):
 - **130 modules**: `--safe --without-K` (standard safe modules)
 - **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
-- **23 modules**: `--without-K` only (no `--safe`) — all under `Aletheia/DBC/TextParser/`. Exactly **1** is the allowlisted Unsafe module: `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) needed to compose the B.3.d universal roundtrip theorem (mirrors stdlib's `Data.String.Unsafe`, proven by `trustMe` under `--with-K`; structurally unprovable in `--safe --without-K` because the Agda String primitives reduce only on closed terms). The other **22** transitively import that substrate via `DBC/TextParser/Lexer.agda` (which uses the bridging axioms to lift `parseIdentifier` from `List Char` to `String`); Agda's `--safe` propagation forces them to the same flag set.  Allowlisted by name in `Shakefile.hs` `check-invariants`; any other Unsafe module or `^postulate` line is rejected.
+- **32 modules**: `--without-K` only (no `--safe`) — all under `Aletheia/DBC/TextParser/`. Exactly **1** is the allowlisted Unsafe module: `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) needed to compose the B.3.d universal roundtrip theorem (mirrors stdlib's `Data.String.Unsafe`, proven by `trustMe` under `--with-K`; structurally unprovable in `--safe --without-K` because the Agda String primitives reduce only on closed terms). The other **31** transitively import that substrate via `DBC/TextParser/Lexer.agda` (which uses the bridging axioms to lift `parseIdentifier` from `List Char` to `String`); Agda's `--safe` propagation forces them to the same flag set.  Allowlisted by name in `Shakefile.hs` `check-invariants`; any other Unsafe module or `^postulate` line is rejected.
 
-**134 of 157 modules use `--safe`**. No modules require `--sized-types`.
+**134 of 166 modules use `--safe`**. No modules require `--sized-types`.
 
 ## Common Commands
 
@@ -153,7 +153,7 @@ Core packages:
 vim src/Aletheia/Parser/Combinators.agda
 
 # 2. Quick type-check (fast feedback, no compilation)
-cd src && agda +RTS -N32 -RTS Aletheia/Parser/Combinators.agda
+cd src && agda +RTS -N32 -M16G -RTS Aletheia/Parser/Combinators.agda
 
 # 3. Full build when ready (also builds FFI shared library)
 cd .. && cabal run shake -- build
@@ -184,13 +184,13 @@ See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed re
 
 ### Agda Compilation
 
-- Always use `--safe --without-K` flags by default (enforced in module headers); the 23-module exception under `DBC/TextParser/` is documented in the Module Safety Flag Breakdown above
+- Always use `--safe --without-K` flags by default (enforced in module headers); the 32-module exception under `DBC/TextParser/` is documented in the Module Safety Flag Breakdown above
 - Four modules use `--no-main` (see Module Safety Flag Breakdown above)
 - Generated MAlonzo code goes to `build/` directory
 - Don't edit generated Haskell code; modify Agda source instead
-- **Performance**: Use parallel GHC with `agda +RTS -N32 -RTS` for all modules
-  - Critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout)
-  - Recommended for all type-checking to maximize performance
+- **Performance**: Use parallel GHC with `agda +RTS -N32 -M16G -RTS` for all modules
+  - `-N32` parallelism critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout)
+  - `-M16G` heap cap prevents runaway elaboration from thrashing the host (62 GiB total + 16 GiB swap; bump only when a specific module legitimately needs it)
 - **First build**: Standard library compiles on first `agda` invocation (~20s one-time cost, cached thereafter)
 
 ### MAlonzo FFI and Name Mangling
@@ -291,7 +291,7 @@ _Build-time issues beyond this table are collected in [BUILDING.md § Troublesho
 
 **MAlonzo name mismatch**: Build provides exact sed command - just run it
 
-**Type-checking timeout**: Always use `agda +RTS -N32 -RTS` for parallel GHC
+**Type-checking timeout**: Always use `agda +RTS -N32 -M16G -RTS` for parallel GHC + heap cap
 
 **`hs_init` failure at first client start**: Symptom is `aletheia_init() returned null` from Python/C++/Go. Usually means the `.so` was built against a different GHC runtime than what's present at load time. Rebuild the shared library (`cabal run shake -- build` — the Shakefile rebuilds `libaletheia-ffi.so`) and make sure no stale copy is shadowing it in `$LD_LIBRARY_PATH`.
 
@@ -448,71 +448,17 @@ For code changes, [AGENTS.md § Step 4: Implement and verify](AGENTS.md#step-4-i
 
 ## Current Session Progress
 
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for phase status and deliverables.
+For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d pre-gate) see [PROJECT_STATUS.md](PROJECT_STATUS.md). For the in-flight commit / next steps / resume notes see [.session-state.md](.session-state.md).
 
-See [.session-state.md](.session-state.md) for session recovery, next steps, and current work context.
+**Current track:** Phase B.3.d — universal DBC text-parser roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d`. Decomposition in [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md): (1) `List Char` substrate; (2) per-primitive parse/emit lemmas; (3) per-line-construct lemmas; (4) top-level aggregator induction.
 
-**Latest (2026-04-25):** Phase A + B.1 + B.1.x + B.2 + B.3.a/b/c landed (2026-04-21). **Phase B.3.d pre-gate ✅ complete (2026-04-24)** — all six commits shipped (`0b7849b`, `c05083e`, `6fa29e3`, `dd9b770`, `917465b`, `1f175ab`). The pre-gate migrates every ℚ-valued DBC-on-disk field (EV_ `initial`/`minimum`/`maximum` — Commit 3/6; SG_ `factor`/`offset`/`minimum`/`maximum` — Commit 4/6; attribute `ATFloat` / `AVFloat` — Commit 5/6) to the new `DecRat` representation (`n / (2^a · 5^b)` canonical form), closing the decimal-precision gap that blocked the B.3.d universal roundtrip theorem from composing trivially.
+**Status (2026-04-25):**
+- **Pre-gate ✅** (`0b7849b`–`1f175ab`, 2026-04-24): ℚ→DecRat migration across every DBC-on-disk numeric field. Universal `fromℚ?-after-toℚ` proven. `mkℚ`-direct `toℚ` runtime optimisation closed a 9–15% CAN-FD Signal Extraction regression and lifted CAN 2.0B +16% cross-binding. `NonTerminatingRational "<field>"` parse error wired cross-binding.
+- **Layer 1 ✅** (`66afc2d`, 2026-04-24): 2-axiom `Properties/Substrate/Unsafe.agda` (`toList∘fromList` + `fromList∘toList`), allowlisted in `check-invariants`. Formatter refactored to `List Char` internals (`formatText = fromList ∘ formatChars`).
+- **Layer 2 ✅** (`9adbc46` + `4559d5c` + `f315c6f`, 2026-04-24/25): Identifier lifted to `record { name ; valid : T (validIdentifierᵇ (toList name)) }` (5–10% Signal Extraction regression accepted; revisit angles in `project_identifier_eq_revisit.md`). `parseIdentifier-roundtrip` template + Tier A (byte-order/sign/scope/string-type) + Tier B (string-literal/mux-marker) primitives.
+- **Layer 3 in_progress** — **Commit 3a `804c584` ✅** (Preamble: VERSION + BS_ + NS_; reusable Newline infrastructure under `Properties/Preamble/Newline.agda`; Properties facade pattern per `feedback_properties_facade_split.md`).  **Commit 3b ✅** (Option C-broad, this commit): all four simple-line constructs land together — `BU_` (Topology/Nodes) + `VAL_TABLE_` (ValueTables/ValueTable) + `EV_` (EnvVars/EnvVar) + `CM_` (Comments/Comment) with full per-construct roundtrips wired through facade modules under `Properties/{Topology,ValueTables,EnvVars,Comments}.agda`.  CM_ proof closes the most complex Layer-3 construct: 5-way `CommentTarget` dispatch (`CTNetwork`/`CTNode`/`CTMessage`/`CTSignal`/`CTEnvVar`) via 4-fold `<|>`-chain (`parseBUTgt <|> parseBOTgt <|> parseSGTgt <|> parseEVTgt`) with backtracking fall-through to `pure CTNetwork`.  Heap blowup root-cause and fix — `buildCANId-rawCanIdℕ`'s Extended clause `rewrite n+ext∸ext≡n` over a goal containing nested `ifᵀ`s — replaced with pointwise `subst`; type-checks at `-M16G` (was failing at `-M48G`).  Commits 3c (attributes) / 3d (messages: BO_ + inner SG_ many) pending.
+- **Layer 4 pending** — top-level aggregator induction over the `DBC` record + the owed char-class-disjointness bridge lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`).
 
-Key artifacts:
-  * `DecRat` type + canonicalisation machinery + `_≟ᵈ_` / `_≤ᵈ_` / `0ᵈ` / `1ᵈ` / `toℚ` / `fromℚ?` (Commit 1/6).
-  * Universal roundtrip `fromℚ?-after-toℚ : ∀ d → fromℚ? (toℚ d) ≡ just d` (Commit 2/6 sketch → Commit 3/6 Layer-4 closure).  Four-layer proof: `stripFactor-peel` + `canonicalizeDecRat-id` + `↥/↧ₙ-toℚ-canonical` + `peel-2`/`peel-5`/`fromℚ?-raw-canonical-shape`.
-  * `lookupDecRat` JSON combinator (Commit 4/6) — single `with`-step per float field in WF proofs; avoids stacked `with lookupRational ... | eq; with fromℚ? ... | eq`.
-  * `toℚ` runtime optimisation via direct `mkℚ` with canonical coprime witness (Commit 4/6) — bypasses stdlib `_/_`'s gcd normalisation (which is a no-op for canonical DecRat).  Closed a 9–15% CAN-FD Signal Extraction regression AND lifted CAN 2.0B Signal Extraction **+16%** cross-binding as a bonus.  `↥-toℚ-canonical`/`↧ₙ-toℚ-canonical` simplified to `refl`/`suc-pred` as downstream benefit.
-  * Option B validity predicates (DecRat-native: `factor ≢ 0ᵈ`, `minimum ≤ᵈ maximum`, `factor ≡ 1ᵈ`, `offset ≡ 0ᵈ`) with `nonZeroFactor→factorℚ≢0` bridge for the ℚ-arithmetic Encoding-layer proofs.
-  * `check-properties` extended to walk `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregators — catches the class of bug that Commit 4/6 shipped with (`RawSignal` ℚ vs DecRat mismatch in `TextParser/Topology.agda`, unreachable from Main and therefore missed by both the main build and the existing check-properties walk). Caught and fixed in Commit 5/6.
-  * Cross-binding: `NonTerminatingRational "<field>"` parse error (wired in Commit 3/6) now covers EV_ + all SG_ fields + ATFloat/AVFloat.  Wire format unchanged (ℚ both directions via `toℚ`); only new failure mode is rejection of non-terminating-decimal ℚ literals.
+**Module count:** 166 Agda modules — see Module Safety Flag Breakdown above.  Net +9 vs 157 post-3a baseline: 4 facade modules (`Properties/{Topology,ValueTables,EnvVars,Comments}.agda`) + 4 per-construct submodules (`Properties/Topology/Nodes.agda`, `Properties/ValueTables/ValueTable.agda`, `Properties/EnvVars/EnvVar.agda`, `Properties/Comments/Comment.agda`) + 1 EnvVar `_Scratch` canary.
 
-**Phase B.3.d Layer 1 ✅ complete (2026-04-24, this commit, Option 3a per user decision).** Substrate layout: 2-axiom `Substrate/Unsafe.agda` (`toList∘fromList` + `fromList∘toList`, mirroring stdlib `Data.String.Unsafe`), allowlisted by name in `Shakefile.hs check-invariants`.  Formatter refactored to `List Char` internals: every per-section emitter (`Preamble` / `Topology` / `ValueTables` / `Attributes` / `Comments` / `SignalGroups` / `EnvVars` / `Emitter` primitives) exports only `-chars` companions; the only `String`-returning function in the formatter pipeline is `formatText = fromList ∘ formatChars`.  Parser entry points: `parseTextChars : List Char → ⊎` extracted from `parseText : String → ⊎ = parseTextChars ∘ toList`.  External behaviour unchanged; sets the substrate for layer-2 per-primitive proofs.  Status stamp: 148 of 149 Agda modules use `--safe`; 1 allowlisted Unsafe module.
-
-**Phase B.3.d Layer 2 ✅ complete (2026-04-25).** Three commits closed every per-primitive roundtrip at `List Char` level: 2a (`9adbc46`) lifted `Identifier` from bare `String` to `{ name : String; valid : T (validIdentifierᵇ (toList name)) }` (T3-fixed; 5–10% Signal Extraction regression accepted — see `project_identifier_eq_revisit.md` for revisit angles); 2b (`4559d5c`) shipped `parseIdentifier-roundtrip` — the first per-primitive theorem at `List Char` level; 2c (`f315c6f`) closed Tier A (byte-order digit, sign flag, scope tags, string-type tag) + Tier B (string-literal escape body, mux marker with embedded `parseNatural`).  `ATInt`/`ATFloat`/`ATHex`/`ATEnum`/`SignalPresence` reclassified to Layer 3 (per-line-construct payloads, not primitives).  DecRat-side already closed via `fromℚ?-after-toℚ`.
-
-**Phase B.3.d Layer 3 — in progress (2026-04-25).** Commit 3a (this commit) ships Preamble per-line-construct roundtrips: `parseVersion-roundtrip` (VERSION line + trailing blank lines, template-validates the bind-chain composition pattern) + `parseBitTiming-roundtrip` (BS_ with opaque tail, canonical empty-body emission) + `parseNamespace-roundtrip` (NS_ : 25-keyword block, newline-terminated `\t<kw>` body lines).  Reusable Newline infrastructure landed under `Properties/Preamble/Newline.agda` (exported via the Preamble facade): `isNewlineStart`, `parseNewline-match-LF` / `parseNewline-fail-on-stop`, `manyHelper-parseNewline-exhaust`, `manyHelper-one-iter`, `many-parseNewline-one-LF-stop`, plus new `manyHelper-prog-cons` (one-step iteration with non-empty tail) for the NS_ keyword-line walk.  Properties facade pattern (per `feedback_properties_facade_split.md`): `Properties/Preamble.agda` re-exports per-construct submodules; `Properties/Preamble/_Scratch.agda` is a load-bearing reduction canary verifying `validIdentifierᵇ (toList kw)` reduces to `true` on every NS_ keyword (the `nsKeywords-valid : All (T ∘ validIdentifierᵇ ∘ toList) nsKeywords` discharge depends on this reduction).  Commits 3b/3c/3d still pending: simple-line constructs / attributes / messages.
-
-Work follows the [cross-binding parity roadmap](docs/development/PARITY_PLAN.md) locked after R17.
-
-- **Phases A + B.1 + B.1.x + B.2 + B.3.a/b/c** — see [PROJECT_STATUS.md](PROJECT_STATUS.md) for commit SHAs and per-phase detail.  Aggregate scope: feature matrix + structural gates (Phase A); DBC metadata Tier 1/2 + signal receivers + message senders (B.1/B.1.x); mux query helpers audit-closed + dbc_lookup matrix row (B.2); DBC text parser corpus baseline + Agda skeletons + 11-commit bottom-up construct implementation (B.3.a/b/c).
-- **Pre-B.3.d infrastructure** (`0035a4e`) — `check-properties` Shake phony extended to walk `Aletheia/DBC/TextParser/Properties.agda`; three WF proof-completeness fixes in `Formatter/SignalRoundtrip.agda`, `JSONParser/MessageWF.agda`, `JSONParser/Properties.agda`.
-- **Phase B.3.d pre-gate — 6 commits** (`0b7849b` → `c05083e` → `6fa29e3` → `dd9b770` → `917465b` → this commit): ℚ→DecRat migration across every DBC-on-disk numeric field, closing the decimal-precision gap that blocked the universal roundtrip theorem from composing trivially.
-  * **Commit 1/6** (`0b7849b`) — DecRat type, canonicalisation, `_≟ᵈ_`, `toℚ`, `fromℚ?`.
-  * **Commit 2/6** (`c05083e`) — DecRat text parser (`parseDecRat`) + emitter (`showDecRat-dec`) + `fromℚ?-after-toℚ` universal sketch.
-  * **Commit 3/6** (`6fa29e3`, 24 files + 2 new, +937/−116) — EV_ `EnvironmentVar.{initial,minimum,maximum}` migration; Layer-4 closure of `fromℚ?-after-toℚ` via `stripFactor-peel` + `canonicalizeDecRat-id` + `↥/↧ₙ-toℚ-canonical`; `NonTerminatingRational` parse error added cross-binding; `ErrorCode` enum extracted to `aletheia/error_codes.py`; pylint config consolidated (pyproject.toml authoritative, pylint ≥4.0 pin, `.pylintrc` deleted).
-  * **Commit 4/6** (`dd9b770`, 24 files, +454/−261) — SG_ `SignalDef.{factor,offset,minimum,maximum}` migration including the hot-path Encoding.agda + Signal Extraction + 15 Agda proof files; Option B native DecRat predicates (`factor ≢ 0ᵈ`, `min ≤ᵈ max`, `factor ≡ 1ᵈ`, `offset ≡ 0ᵈ`); `nonZeroFactor→factorℚ≢0` ℚ-level bridge; `lookupDecRat` JSON combinator (single `with`-step per field in WF proofs); **`toℚ` runtime optimisation** — bypasses stdlib `_/_`'s gcd normaliser by building `mkℚ` directly with the canonical `IsCanonical→Coprime` witness.  Net benchmark result: closed the 9–15% CAN-FD Signal Extraction regression AND lifted CAN 2.0B Signal Extraction **+16.2%–+16.4%** C++/Go beyond baseline; downstream `↥/↧ₙ-toℚ-canonical` proofs simplified to `refl` / `suc-pred`.
-  * **Commit 5/6** (`917465b`, 9 files, +111/−29) — Attributes `ATFloat.{min,max}` + `AVFloat.value` migration (smallest surface); `attrType-roundtrip`/`attrValue-roundtrip` close via `fromℚ?-after-toℚ` rewrites.  Scope-flagged fix for a Commit-4/6 latent bug: `RawSignal` still ℚ-typed in `TextParser/Topology.agda` (unreachable from Main's transitive closure, and therefore missed by the main build walk).  `check-properties` extended to include the `DBC/TextParser.agda` + `DBC/TextFormatter.agda` aggregator modules so the same class of gap can't recur.
-  * **Commit 6/6** (this commit) — docs + memory + PARITY_PLAN.md + `.session-state.md` closing the pre-gate.
-- **Phase B.3.d Layer 1 ✅ complete** (this commit, Option 3a per user decision 2026-04-24): substrate `Substrate/Unsafe.agda` (2 named axioms, allowlisted in `check-invariants`); formatter refactor to `List Char` internals across all 7 per-section emitters + `Emitter` primitives + `TopLevel.formatChars`; parser-side `parseTextChars` extracted; CLAUDE.md safety stamp updated (148 of 149 `--safe` + 1 Unsafe).
-- **Phase B.3.d status** — **pre-gate ✅; layer 1 ✅; layer 2 ✅ (commits 2a `9adbc46` + 2b `4559d5c` + 2c `f315c6f`); layer 3 in_progress (commit 3a this commit ✅, 3b/3c/3d pending); layer 4 pending.** Target is the universal `∀ d → parseText (formatText d) ≡ inj₂ d` (not corpus-shape / per-fixture).  Proof decomposition in PARITY_PLAN.md §B.3.d: (1) `List Char` substrate ✅, (2) per-primitive parse/emit lemmas ✅ (Identifier 2a+2b; Tier A + Tier B 2c), (3) per-line-construct lemmas — Preamble (3a) ✅, simple lines (3b) / attributes (3c) / messages (3d) pending, (4) top-level aggregator induction.
-- **Phase B.3.d Layer 3 Commit 3a (this commit, 4 modified + 6 new).**  Modified: `Properties.agda` (add Preamble facade re-export of `parseVersion-roundtrip` / `parseBitTiming-roundtrip` / `parseNamespace-roundtrip` / `isNSLineStart`); `Newline.agda` adds `manyHelper-prog-cons`.  New: `Properties/Preamble.agda` (per-construct facade) + `Properties/Preamble/{Newline,Version,BitTiming,Namespace,_Scratch}.agda`.  Namespace.agda is the largest (~770 lines): full `parseNamespace-roundtrip` proof composing 5 bind-just-steps (parseNS_ → after-LF₁ → afterKeywords → after-LF₂ → success); proves the 25-`tt`-witnesses `nsKeywords-valid` discharge via canary-verified reduction; novel `afterKeywords-advancePositions` inductive helper threads `advancePositions` across the keyword-line concatenation.  `_Scratch.agda` is the load-bearing canary that catches stdlib `Data.Char.Base` regressions before `Namespace.agda` reports them.
-- **FP / DEFER:** B.1.x benchmark noise — two-batch protocol (`feedback_benchmark_noise_diagnostics.md`) confirmed apparent B1 deltas across B.1.x Commits 2 and 3 were session-level WSL2/thermal noise, not real regressions.  B.3.d pre-gate Commit 4/6 initially produced a real 9–15% CAN-FD Signal Extraction regression (via per-call `toℚ` on hot path); the `mkℚ`-direct optimisation closed the regression and delivered a +16% bonus on CAN 2.0B Signal Extraction.
-- **Verification:** Agda full build + `check-invariants` (postulates and Unsafe modules limited to allowlisted B.3.d substrate) + `check-properties` all green; this commit is Agda-side only (pure proof additions in the `Properties/` tree — no runtime code touched, so no binding-layer rerun was required).  157 Agda modules (134 `--safe` — 130 `--safe --without-K` plus 4 `--safe --without-K --no-main`; 23 `--without-K`-only including the 1 allowlisted `Substrate/Unsafe.agda` and the 22 transitive importers under `DBC/TextParser/`).  Net +6 modules from Layer 2 close: `Properties/Preamble.agda` + `Properties/Preamble/{Newline,Version,BitTiming,Namespace,_Scratch}.agda`.
-
-**Prior (2026-04-18 → 2026-04-19):** AGENTS.md review round 17 — decomposed into 7 commit phases (C1–C7). Aggregate diff `eae36aa..9355da9`: 12 commits, 111 files, +2605/−1704. Stamped `a8fc5b7`.
-
-- **C1** (`db2d90c`): Agda per-file items 1, 2, 4, 5, 6 + system items 13, 14, 15. New build guards: Shakefile phonies `check-ffi-exports` / `regen-ffi-exports` (paired with `haskell-shim/ffi-exports.snapshot`) and `check-stdlib-version`. PROTOCOL.md gained a "Streaming Semantics: Soundness vs. Completeness" section clarifying that `pipeline-adequate` is offline-conditional on `AllObserved`. Item #3 resolved in-source as `DEFER-stdlib-mandate` comments.
-- **C1-fixup** (`2ba39df`): (8a) drop dead `_-_` from `Evaluation.agda`; (9b) uniform `InContext` wrapping + quoting across all 5 error ADTs; (11a) replace local `+-assoc-cancelʳ` with the stdlib lemma.
-- **C2** (`998ba88`): Python non-#17 items 16, 18–28, 30, 32–34; `tests/` held at pylint 10.00/10 via four batches (mechanical, restructuring, protected-access, R0801 cross-file dedup).
-- **C3** (`dca748f`): C++ items 35–40 + Go items 41, 43, 44, 45 + Go/C++ mirror of Python item 34; scoped CMake fix.
-- **C3b** (`be33e26`) + benchmarks baseline (`774c6c8`): removed the JSON-output frame build/update path end-to-end — Agda (deleted `BatchFrameBuilding/Properties.agda` → 120 → 119 modules), Haskell shim, MAlonzo snapshot, C++ serializers, Go marshalers, Python ctypes + error code, docs.
-- **C4** (`4b84cdf`): merged `rts.cores_mismatch` event scope into Lifecycle across Python / C++ / Go.
-- **C5a** (`fd7a436`): docs sweep items 48–64 + Structured Logging SSOT.
-- **C5b** (`5166b72` + shell-syntax fix `37b8dbc`): promoted BENCHMARKS.md to `docs/development/`.
-- **C6** (`9355da9`): Python item #17 — repo-root `conftest.py` harness (pre-built DBC + parse_dbc'd `AletheiaClient` + `dbc_to_json` / `convert_dbc_file` / `iter_can_log` / `load_can_log` / `load_checks` / `load_checks_from_excel` / `load_dbc_from_excel` / `create_template` stubs) + `python/tests/test_doc_examples_harness.py` structural Cat 32 gate (parametrised over 11 tracked doc files, bans `python notest`). `pytest-markdown-docs>=0.9.2,<1` pinned in `dev` extras; AGENTS.md § Cat 32 description + Verification invocation; PYTHON_API/INTERFACES fence retags (`python` → `text` for pseudocode/return-value shapes; `continuation` where fences re-use the prior namespace).
-- **FP (3):** #7 (binary-constructor rewrites inherently 2-step, not G-A2), #24 (runtime optional-dep extras float majors by design), #46 (15 events confirmed across all three bindings).
-- **DEFER (6):** #3 (in-source `DEFER-stdlib-mandate`), #12 (FFI `unsafeCoerce`), #27 (DBC metadata), #31 (`send_frames_iter`), #38 (C++/Go DBC text), #42 (Go `context.Context`), plus **R17-DEF-6** — C++/Go doc-example harness mirror of C6. Tracked in `project_r17_post_review_followups.md`.
-- **Verification:** 649 Python tests + 1 expected-skip + 103 markdown-docs fence runs, 273 C++ tests (R17 C3b removed JSON build/update cases), 223 Go tests, 1145 total. pyright `aletheia/` 0/0/0; pylint `aletheia/` / `tests/` / `conftest.py` all 10.00/10; ctest 5/5; go -race clean; Agda full build green. Benchmark audit (15 runs via two-batch protocol) confirmed no real regression vs R16 baseline; apparent B1 negatives were session-level WSL2/thermal noise, normalised by B2.
-
-**Prior rounds (compressed; full detail in [PROJECT_STATUS.md](PROJECT_STATUS.md)):**
-
-- **R16 (2026-04-17):** test split, doc SSOT, `ValidationFailed` structured. Commit `eae36aa` (37 files, +1536/−901). 1122 total tests.
-- **R15 (2026-04-17):** cross-binding parity + strict protocol validation; Debug-build benchmark guard. Commit `2853644` (38 files, +617/−207).
-- **R14 (2026-04-16):** cross-binding correctness + PhysicalValue precision (C++ `double` → `Rational` across 19 files, WNext operator across 22 Agda files + bindings, evaluate-before-update proof). Commit `a3208aa` (80 files, +934/−529). 1163 total tests.
-- **R13 (2026-04-16):** docs-dominant round (28 doc items, count drift fixes, CLI mux-query). `Predicate.next()` relocated (not deprecated). 617 tests. Python Stream LTL 75,914 fps (+8.4% vs R12 post-fix).
-- **R12 (2026-04-15):** 92-file single commit + post-bench log_event fast-path fix. Commits `60661a1` + `1e40b4d`. Python Stream LTL +10.9% after fix.
-- **R11 (2026-04-15):** 6 batches (`bf238b3` + `222b662`). Stream LTL +2.4% C++ / +3.4% Go / +8.9% Python.
-- **R10 (2026-04-14):** 68 findings; hot-path +10.8% Stream LTL. Commit `f227d88`.
-- **R9 (2026-04-14):** 56 findings, commit `7203d9f`. R8 partial (`6ab5639`). Squash-merge `a8ba94c`.
-- **R7 (2026-04-11):** 51 findings. Commit `cdd5821`.
-- **R6 (2026-04-10):** 24 findings. Commit `57a0358`.
-- **Path G (2026-04-09):** three-valued Kleene `FinalVerdict` with `Unsure` constructor.
-- **Frame-fix (2026-04-08):** closed deferred items, frame-building regression fixed.
-- **Phase 5.1 (2026-04-07):** complete (14/14).
+**Cross-binding parity roadmap:** [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..6, B.3.d Layer 4 owed lemmas, B.3.d-gated cantools drop) tracked in memory under `project_*` files.

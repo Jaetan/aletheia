@@ -47,7 +47,8 @@ open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
 open import Data.List using (List; []; _∷_; length; foldl) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (length-++ to length-++ₗ)
+open import Data.List.Properties using (++-assoc)
+  renaming (length-++ to length-++ₗ)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.List.Relation.Unary.All.Properties using () renaming (++⁺ to All-++⁺)
 open import Data.Maybe using (Maybe; just; nothing; maybe)
@@ -1110,6 +1111,40 @@ emitMagnitude-chars-mag : ∀ n a b →
         ++ₗ '.' ∷ mag-fracChars n a b
 emitMagnitude-chars-mag _ _ _ = refl
 
+-- Head-of-`showDecRat-dec-chars` decomposition.  Negative DecRat values
+-- emit `'-'` first; non-negative values emit `digitChar k` (`showNat-
+-- chars`'s head from `showNat-chars-head`).  The `mag-quot` reference in
+-- the digit case stays opaque to the caller — it surfaces only inside
+-- the equation's RHS, never in the type.
+--
+-- Used by Layer 3 line constructs (e.g. EV_) to discharge the
+-- `SuffixStops isHSpace (showDecRat-dec-chars d ++ rest)` precondition
+-- of `parseWS-one-space` after a separator space.
+showDecRat-chars-head-dash : ∀ n a b
+  .(cx : IsCanonical (suc n) a b) →
+  ∃ λ tail →
+    showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx) ≡ '-' ∷ tail
+showDecRat-chars-head-dash _ _ _ _ = _ , refl
+
+showDecRat-chars-head-digit : ∀ absNum a b
+  .(cx : IsCanonical absNum a b) →
+  ∃₂ λ (k : ℕ) (tail : List Char) →
+    k < 10 ×
+    showDecRat-dec-chars (mkDecRat (ℤ+ absNum) a b cx) ≡ digitChar k ∷ tail
+-- Case-split on `absNum` is required: `showDecRat-dec-chars` pattern-
+-- matches on `+ zero` vs `+ suc _`, so the equation's RHS doesn't
+-- reduce on abstract `absNum`.
+showDecRat-chars-head-digit zero a b _
+  with showNat-chars-head (mag-quot 0 a b)
+... | k , subtail , k<10 , eq =
+      k , subtail ++ₗ '.' ∷ mag-fracChars 0 a b , k<10 ,
+      cong (λ s → s ++ₗ '.' ∷ mag-fracChars 0 a b) eq
+showDecRat-chars-head-digit (suc n) a b _
+  with showNat-chars-head (mag-quot (suc n) a b)
+... | k , subtail , k<10 , eq =
+      k , subtail ++ₗ '.' ∷ mag-fracChars (suc n) a b , k<10 ,
+      cong (λ s → s ++ₗ '.' ∷ mag-fracChars (suc n) a b) eq
+
 -- `build-eq-+suc` / `build-eq-neg` — `buildDecRat` on the emitter-shape
 -- inputs reconstructs the original canonical record.  Lifted to module-
 -- level (out of `parseDecRat-roundtrip-+suc`'s / `-neg`'s `where` block)
@@ -1510,3 +1545,264 @@ parseDecRat-roundtrip (mkDecRat (ℤ+ suc n) a b cx) pos =
   parseDecRat-roundtrip-+suc n a b pos cx
 parseDecRat-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos =
   parseDecRat-roundtrip-neg n a b pos cx
+
+-- ============================================================================
+-- Phase 6: Suffix-aware variant
+-- ============================================================================
+--
+-- Layer 3 line constructs (B.3.d Layer 3) consume `showDecRat-dec-chars d`
+-- between non-empty boundaries (e.g. `EV_ … <initial> <minimum> <maximum> …`,
+-- where each value is followed by horizontal whitespace).  The closed-form
+-- `parseDecRat-roundtrip` above only handles `suffix = []`; below we mirror
+-- the three numerator branches with an extra `suffix` argument and a
+-- `SuffixStops isDigit suffix` precondition.
+--
+-- Two structural differences from the closed form:
+--   * Input is `showDecRat-dec-chars d ++ₗ suffix`, which under
+--     `_++_`'s left-grouping is `(showNat-chars _ ++ₗ '.' ∷ frac) ++ₗ
+--     suffix`.  An explicit `++-assoc` step re-groups it to `showNat-chars
+--     _ ++ₗ '.' ∷ (frac ++ₗ suffix)` so the `optional-dash-fail-on-showNat`
+--     and `parseNatural-showNat-chars` lemmas can match.
+--   * The fractional `some digit` step takes `suffix` directly (via the
+--     existing `some-digit-showℕ-padded-chars`) rather than the
+--     closed-suffix `-end` variant.
+--
+-- The position arithmetic is unchanged: `advancePositions pos
+-- (showDecRat-dec-chars d)` only depends on the consumed prefix, not the
+-- trailing `suffix`.
+
+-- Helper: regroup `emitMagnitude-chars _ ++ suffix` from left-grouped to
+-- right-grouped via `++-assoc`.  Used as the first `cong (parseDecRat
+-- pos)` step in both `+suc-suffix` and `-neg-suffix`.
+emag-suffix-shape : ∀ absNum a b suffix →
+  emitMagnitude-chars absNum a b ++ₗ suffix
+    ≡ showNat-chars (mag-quot absNum a b)
+        ++ₗ '.' ∷ mag-fracChars absNum a b ++ₗ suffix
+emag-suffix-shape absNum a b suffix =
+  ++-assoc (showNat-chars (mag-quot absNum a b))
+           ('.' ∷ mag-fracChars absNum a b)
+           suffix
+
+-- ----------------------------------------------------------------------------
+-- Phase 6.1: `+ zero` case with suffix
+-- ----------------------------------------------------------------------------
+--
+-- For the canonical (a, b) = (0, 0) sub-case, `showDecRat-dec-chars
+-- (mkDecRat (+ 0) 0 0 _) = '0' ∷ '.' ∷ '0' ∷ []`.  Appending `suffix`
+-- gives `'0' ∷ '.' ∷ '0' ∷ suffix` (definitional via `_∷_` → `_++_`
+-- reduction).  parseDecRat then reduces step-by-step:
+--   * `optional (char '-')` on `'0' ∷ ...` falls to `nothing` branch (def).
+--   * `parseNatural` on `'0' ∷ '.' ∷ '0' ∷ suffix` reads `'0'` and stops
+--     at `'.'` (def — `manyHelper`'s outer `with satisfy isDigit` resolves
+--     definitionally on the concrete `'.'` head).
+--   * `char '.'` consumes (def).
+--   * `some digit` on `'0' ∷ suffix` reads `'0'` then must check `suffix`
+--     for further digits — *this* is where the lemma is needed.  We
+--     `rewrite` with `some-satisfy-prefix` at the matching shape.
+-- After the `rewrite`, the entire chain reduces, yielding `refl`.
+parseDecRat-roundtrip-+zero-suffix : ∀ a b pos suffix
+  .(cx : IsCanonical 0 a b) →
+  SuffixStops isDigit suffix →
+  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)
+                     ++ₗ suffix)
+    ≡ just (mkResult (mkDecRat (ℤ+ zero) a b cx)
+                     (advancePositions pos
+                        (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)))
+                     suffix)
+parseDecRat-roundtrip-+zero-suffix zero    zero    pos suffix _ ss
+  rewrite some-satisfy-prefix isDigit
+            (advancePosition (advancePosition pos '0') '.')
+            '0' [] suffix refl [] ss
+  = refl
+parseDecRat-roundtrip-+zero-suffix zero    (suc _) _   _      cx _ = EmptyI.⊥-elim cx
+parseDecRat-roundtrip-+zero-suffix (suc _) _       _   _      cx _ = EmptyI.⊥-elim cx
+
+-- ----------------------------------------------------------------------------
+-- Phase 6.2: `+ suc n` case with suffix
+-- ----------------------------------------------------------------------------
+parseDecRat-roundtrip-+suc-suffix : ∀ n a b pos suffix
+  .(cx : IsCanonical (suc n) a b) →
+  SuffixStops isDigit suffix →
+  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)
+                     ++ₗ suffix)
+    ≡ just (mkResult (mkDecRat (ℤ+ suc n) a b cx)
+                     (advancePositions pos
+                        (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
+                     suffix)
+parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss =
+  trans (cong (parseDecRat pos) (emag-suffix-shape (suc n) a b suffix))
+    (trans step-dash-fail
+      (trans step-parseNat
+        (trans step-some-digit
+          (cong₂ (λ v p → just (mkResult v p suffix))
+                 (build-eq-+suc n a b cx)
+                 pos-eq))))
+  where
+    posAfterNat : Position
+    posAfterNat = advancePositions pos (showNat-chars (mag-quot (suc n) a b))
+
+    posAfterDot : Position
+    posAfterDot = advancePosition posAfterNat '.'
+
+    posAfterFrac : Position
+    posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
+
+    input-shape : List Char
+    input-shape = showNat-chars (mag-quot (suc n) a b)
+                    ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix
+
+    step-dash-fail :
+      parseDecRat pos input-shape
+      ≡ (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+           pure (buildDecRat nothing nₚ fd))
+        pos input-shape
+    step-dash-fail =
+      bind-just-step (optional (char '-'))
+                     (λ neg → parseNatural >>= λ nₚ → char '.' >>= λ _ →
+                              some digit >>= λ fd →
+                              pure (buildDecRat neg nₚ fd))
+                     pos input-shape
+                     nothing pos input-shape
+                     (optional-dash-fail-on-showNat pos
+                        (mag-quot (suc n) a b)
+                        ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix))
+
+    step-parseNat :
+      (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+         pure (buildDecRat nothing nₚ fd))
+        pos input-shape
+      ≡ (char '.' >>= λ _ → some digit >>= λ fd →
+           pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+        posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+    step-parseNat =
+      bind-just-step parseNatural
+                     (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                              pure (buildDecRat nothing nₚ fd))
+                     pos input-shape
+                     (mag-quot (suc n) a b) posAfterNat
+                     ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+                     (parseNatural-showNat-chars pos
+                        (mag-quot (suc n) a b)
+                        ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+                        (∷-stop isDigit-dot-false))
+
+    step-some-digit :
+      (char '.' >>= λ _ → some digit >>= λ fd →
+         pure (buildDecRat nothing (mag-quot (suc n) a b) fd))
+        posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+      ≡ just (mkResult
+                (buildDecRat nothing (mag-quot (suc n) a b)
+                              (mag-fracChars (suc n) a b))
+                posAfterFrac suffix)
+    step-some-digit =
+      trans (past-dot-char-dot-eq nothing (mag-quot (suc n) a b)
+               posAfterNat (mag-fracChars (suc n) a b ++ₗ suffix))
+            (bind-just-step (some digit)
+                            (λ fd → pure (buildDecRat nothing
+                                                      (mag-quot (suc n) a b) fd))
+                            posAfterDot (mag-fracChars (suc n) a b ++ₗ suffix)
+                            (mag-fracChars (suc n) a b) posAfterFrac suffix
+                            (some-digit-showℕ-padded-chars (mag-m a b)
+                               (mag-rem (suc n) a b) posAfterDot suffix
+                               (0<[a⊔b]⊔1 a b) ss))
+
+    pos-eq : posAfterFrac ≡ advancePositions pos
+                              (emitMagnitude-chars (suc n) a b)
+    pos-eq = sym (advancePositions-++ pos
+                    (showNat-chars (mag-quot (suc n) a b))
+                    ('.' ∷ mag-fracChars (suc n) a b))
+
+-- ----------------------------------------------------------------------------
+-- Phase 6.3: `-[1+ n ]` (neg) case with suffix
+-- ----------------------------------------------------------------------------
+parseDecRat-roundtrip-neg-suffix : ∀ n a b pos suffix
+  .(cx : IsCanonical (suc n) a b) →
+  SuffixStops isDigit suffix →
+  parseDecRat pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)
+                     ++ₗ suffix)
+    ≡ just (mkResult (mkDecRat ℤ-[1+ n ] a b cx)
+                     (advancePositions pos
+                        (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
+                     suffix)
+parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss =
+  trans (cong (λ x → parseDecRat pos ('-' ∷ x))
+              (emag-suffix-shape (suc n) a b suffix))
+    (trans step-parseNat
+      (trans step-some-digit
+        (cong₂ (λ v p → just (mkResult v p suffix))
+               (build-eq-neg n a b cx)
+               pos-eq)))
+  where
+    posAfterDash : Position
+    posAfterDash = advancePosition pos '-'
+
+    posAfterNat : Position
+    posAfterNat = advancePositions posAfterDash
+                    (showNat-chars (mag-quot (suc n) a b))
+
+    posAfterDot : Position
+    posAfterDot = advancePosition posAfterNat '.'
+
+    posAfterFrac : Position
+    posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
+
+    step-parseNat :
+      parseDecRat pos
+        ('-' ∷ showNat-chars (mag-quot (suc n) a b)
+                 ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+      ≡ (char '.' >>= λ _ → some digit >>= λ fd →
+           pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+        posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+    step-parseNat =
+      bind-just-step parseNatural
+                     (λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
+                              pure (buildDecRat (just '-') nₚ fd))
+                     posAfterDash
+                     (showNat-chars (mag-quot (suc n) a b)
+                        ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+                     (mag-quot (suc n) a b) posAfterNat
+                     ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+                     (parseNatural-showNat-chars posAfterDash
+                        (mag-quot (suc n) a b)
+                        ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+                        (∷-stop isDigit-dot-false))
+
+    step-some-digit :
+      (char '.' >>= λ _ → some digit >>= λ fd →
+         pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
+        posAfterNat ('.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
+      ≡ just (mkResult
+                (buildDecRat (just '-') (mag-quot (suc n) a b)
+                              (mag-fracChars (suc n) a b))
+                posAfterFrac suffix)
+    step-some-digit =
+      trans (past-dot-char-dot-eq (just '-') (mag-quot (suc n) a b)
+               posAfterNat (mag-fracChars (suc n) a b ++ₗ suffix))
+            (bind-just-step (some digit)
+                            (λ fd → pure (buildDecRat (just '-')
+                                                      (mag-quot (suc n) a b) fd))
+                            posAfterDot (mag-fracChars (suc n) a b ++ₗ suffix)
+                            (mag-fracChars (suc n) a b) posAfterFrac suffix
+                            (some-digit-showℕ-padded-chars (mag-m a b)
+                               (mag-rem (suc n) a b) posAfterDot suffix
+                               (0<[a⊔b]⊔1 a b) ss))
+
+    pos-eq : posAfterFrac ≡ advancePositions pos
+                              ('-' ∷ emitMagnitude-chars (suc n) a b)
+    pos-eq = sym (advancePositions-++ posAfterDash
+                    (showNat-chars (mag-quot (suc n) a b))
+                    ('.' ∷ mag-fracChars (suc n) a b))
+
+-- ----------------------------------------------------------------------------
+-- Phase 6.4: Top-level dispatcher with suffix
+-- ----------------------------------------------------------------------------
+parseDecRat-roundtrip-suffix : ∀ d pos suffix →
+  SuffixStops isDigit suffix →
+  parseDecRat pos (showDecRat-dec-chars d ++ₗ suffix)
+    ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) suffix)
+parseDecRat-roundtrip-suffix (mkDecRat (ℤ+ zero)  a b cx) pos suffix ss =
+  parseDecRat-roundtrip-+zero-suffix a b pos suffix cx ss
+parseDecRat-roundtrip-suffix (mkDecRat (ℤ+ suc n) a b cx) pos suffix ss =
+  parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss
+parseDecRat-roundtrip-suffix (mkDecRat ℤ-[1+ n ]  a b cx) pos suffix ss =
+  parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss
