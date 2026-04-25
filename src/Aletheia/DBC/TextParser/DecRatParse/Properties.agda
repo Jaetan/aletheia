@@ -3,7 +3,7 @@
 -- DBC DecRat parser — roundtrip proof scaffolding (Phase B.3.d pre-gate,
 -- commit 2/6).  Target theorem:
 --
---   parseDecRat-roundtrip : ∀ d → runParser parseDecRat
+--   parseDecRatFrac-roundtrip : ∀ d → runParser parseDecRat
 --                              (showDecRat-dec-chars d) ≡ just (d , _)
 --
 -- stated over `List Char` (not `String`) per the Option-1-scoped-to-
@@ -35,7 +35,7 @@
 --
 --   * Phase 3 (future): top-level composition.  `parseNatural-showNat-
 --     chars`, `some-digit-showℕ-padded-chars`, sign branch, then
---     `parseDecRat-roundtrip` invoking
+--     `parseDecRatFrac-roundtrip` invoking
 --     `canonicalizeNat-scale-pos` to strip the emitter's scaling.
 --
 -- Each phase builds on the previous without reopening earlier ones.
@@ -78,7 +78,8 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
          emitMagnitude-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
-  using (charToDigit; parseDigitList; parseDecRat; applySign; buildDecRat)
+  using (charToDigit; parseDigitList; parseDecRat; parseDecRatFrac;
+         parseDecRatBareInt; applySign; buildDecRat)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
 open import Aletheia.Protocol.JSON.Parse using (digitToNat)
 open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
@@ -1147,7 +1148,7 @@ showDecRat-chars-head-digit (suc n) a b _
 
 -- `build-eq-+suc` / `build-eq-neg` — `buildDecRat` on the emitter-shape
 -- inputs reconstructs the original canonical record.  Lifted to module-
--- level (out of `parseDecRat-roundtrip-+suc`'s / `-neg`'s `where` block)
+-- level (out of `parseDecRatFrac-roundtrip-+suc`'s / `-neg`'s `where` block)
 -- because Agda 2.8 does not put `where`-bound names in scope for
 -- `rewrite` clauses, and each appears as the last step in its branch's
 -- outer rewrite chain.
@@ -1318,9 +1319,9 @@ past-dot-char-dot-eq _ _ _ _ = refl
 -- ----------------------------------------------------------------------------
 -- Phase 4.1: `+ suc n` case
 -- ----------------------------------------------------------------------------
-parseDecRat-roundtrip-+suc : ∀ n a b pos
+parseDecRatFrac-roundtrip-+suc : ∀ n a b pos
   .(cx : IsCanonical (suc n) a b) →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx))
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx))
     ≡ just (mkResult (mkDecRat (ℤ+ suc n) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
@@ -1333,7 +1334,7 @@ parseDecRat-roundtrip-+suc : ∀ n a b pos
 --     the canonicalisation arithmetic.
 --   * No `'-'` in position arithmetic — `advancePositions-++` needs only the
 --     two-piece split `showNat-chars ++ '.' ∷ mag-fracChars`.
-parseDecRat-roundtrip-+suc n a b pos cx =
+parseDecRatFrac-roundtrip-+suc n a b pos cx =
   trans step-dash-fail
     (trans step-parseNat
       (trans step-some-digit
@@ -1351,7 +1352,7 @@ parseDecRat-roundtrip-+suc n a b pos cx =
     posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
 
     step-dash-fail :
-      parseDecRat pos (emitMagnitude-chars (suc n) a b)
+      parseDecRatFrac pos (emitMagnitude-chars (suc n) a b)
       ≡ (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
            pure (buildDecRat nothing nₚ fd))
         pos (emitMagnitude-chars (suc n) a b)
@@ -1428,14 +1429,14 @@ parseDecRat-roundtrip-+suc n a b pos cx =
 --     routes through `canonicalizeDecRat-from-canonicalizeNat` with
 --     `canonicalizeNat-scale-pos-max` composed via a `sym scaled-eq`
 --     rewrite on the magnitude argument.
-parseDecRat-roundtrip-neg : ∀ n a b pos
+parseDecRatFrac-roundtrip-neg : ∀ n a b pos
   .(cx : IsCanonical (suc n) a b) →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx))
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx))
     ≡ just (mkResult (mkDecRat ℤ-[1+ n ] a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
                      [])
-parseDecRat-roundtrip-neg n a b pos cx =
+parseDecRatFrac-roundtrip-neg n a b pos cx =
   trans step-parseNat
     (trans step-some-digit
       (cong₂ (λ v p → just (mkResult v p []))
@@ -1459,7 +1460,7 @@ parseDecRat-roundtrip-neg n a b pos cx =
     -- Step 2: `parseNatural posAfterDash emag` → `just (mkResult (mag-quot …) posAfterNat
     -- ('.' ∷ mag-fracChars …))`, lifted through the remainder of the bind chain.
     step-parseNat :
-      parseDecRat pos ('-' ∷ emitMagnitude-chars (suc n) a b)
+      parseDecRatFrac pos ('-' ∷ emitMagnitude-chars (suc n) a b)
       ≡ (char '.' >>= λ _ → some digit >>= λ fd →
            pure (buildDecRat (just '-') (mag-quot (suc n) a b) fd))
         posAfterNat ('.' ∷ mag-fracChars (suc n) a b)
@@ -1517,16 +1518,16 @@ parseDecRat-roundtrip-neg n a b pos cx =
 -- entirely by pattern matching; `canonicalizeNat 0 1 1 = (0, 0, 0)`
 -- definitionally), and the two impossible sub-cases close via
 -- `EmptyI.⊥-elim cx`.
-parseDecRat-roundtrip-+zero : ∀ a b pos
+parseDecRatFrac-roundtrip-+zero : ∀ a b pos
   .(cx : IsCanonical 0 a b) →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx))
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx))
     ≡ just (mkResult (mkDecRat (ℤ+ zero) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)))
                      [])
-parseDecRat-roundtrip-+zero zero    zero    _   _  = refl
-parseDecRat-roundtrip-+zero zero    (suc _) _   cx = EmptyI.⊥-elim cx
-parseDecRat-roundtrip-+zero (suc _) _       _   cx = EmptyI.⊥-elim cx
+parseDecRatFrac-roundtrip-+zero zero    zero    _   _  = refl
+parseDecRatFrac-roundtrip-+zero zero    (suc _) _   cx = EmptyI.⊥-elim cx
+parseDecRatFrac-roundtrip-+zero (suc _) _       _   cx = EmptyI.⊥-elim cx
 
 -- ============================================================================
 -- Phase 5: Top-level dispatcher
@@ -1536,15 +1537,15 @@ parseDecRat-roundtrip-+zero (suc _) _       _   cx = EmptyI.⊥-elim cx
 -- `-[1+ n ]`) and route to the corresponding per-branch theorem.
 -- Each branch's theorem carries the same statement shape, so the
 -- dispatcher is three one-liners.
-parseDecRat-roundtrip : ∀ d pos →
-  parseDecRat pos (showDecRat-dec-chars d)
+parseDecRatFrac-roundtrip : ∀ d pos →
+  parseDecRatFrac pos (showDecRat-dec-chars d)
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) [])
-parseDecRat-roundtrip (mkDecRat (ℤ+ zero)  a b cx) pos =
-  parseDecRat-roundtrip-+zero a b pos cx
-parseDecRat-roundtrip (mkDecRat (ℤ+ suc n) a b cx) pos =
-  parseDecRat-roundtrip-+suc n a b pos cx
-parseDecRat-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos =
-  parseDecRat-roundtrip-neg n a b pos cx
+parseDecRatFrac-roundtrip (mkDecRat (ℤ+ zero)  a b cx) pos =
+  parseDecRatFrac-roundtrip-+zero a b pos cx
+parseDecRatFrac-roundtrip (mkDecRat (ℤ+ suc n) a b cx) pos =
+  parseDecRatFrac-roundtrip-+suc n a b pos cx
+parseDecRatFrac-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos =
+  parseDecRatFrac-roundtrip-neg n a b pos cx
 
 -- ============================================================================
 -- Phase 6: Suffix-aware variant
@@ -1553,7 +1554,7 @@ parseDecRat-roundtrip (mkDecRat ℤ-[1+ n ]  a b cx) pos =
 -- Layer 3 line constructs (B.3.d Layer 3) consume `showDecRat-dec-chars d`
 -- between non-empty boundaries (e.g. `EV_ … <initial> <minimum> <maximum> …`,
 -- where each value is followed by horizontal whitespace).  The closed-form
--- `parseDecRat-roundtrip` above only handles `suffix = []`; below we mirror
+-- `parseDecRatFrac-roundtrip` above only handles `suffix = []`; below we mirror
 -- the three numerator branches with an extra `suffix` argument and a
 -- `SuffixStops isDigit suffix` precondition.
 --
@@ -1600,37 +1601,37 @@ emag-suffix-shape absNum a b suffix =
 --     for further digits — *this* is where the lemma is needed.  We
 --     `rewrite` with `some-satisfy-prefix` at the matching shape.
 -- After the `rewrite`, the entire chain reduces, yielding `refl`.
-parseDecRat-roundtrip-+zero-suffix : ∀ a b pos suffix
+parseDecRatFrac-roundtrip-+zero-suffix : ∀ a b pos suffix
   .(cx : IsCanonical 0 a b) →
   SuffixStops isDigit suffix →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)
                      ++ₗ suffix)
     ≡ just (mkResult (mkDecRat (ℤ+ zero) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ zero) a b cx)))
                      suffix)
-parseDecRat-roundtrip-+zero-suffix zero    zero    pos suffix _ ss
+parseDecRatFrac-roundtrip-+zero-suffix zero    zero    pos suffix _ ss
   rewrite some-satisfy-prefix isDigit
             (advancePosition (advancePosition pos '0') '.')
             '0' [] suffix refl [] ss
   = refl
-parseDecRat-roundtrip-+zero-suffix zero    (suc _) _   _      cx _ = EmptyI.⊥-elim cx
-parseDecRat-roundtrip-+zero-suffix (suc _) _       _   _      cx _ = EmptyI.⊥-elim cx
+parseDecRatFrac-roundtrip-+zero-suffix zero    (suc _) _   _      cx _ = EmptyI.⊥-elim cx
+parseDecRatFrac-roundtrip-+zero-suffix (suc _) _       _   _      cx _ = EmptyI.⊥-elim cx
 
 -- ----------------------------------------------------------------------------
 -- Phase 6.2: `+ suc n` case with suffix
 -- ----------------------------------------------------------------------------
-parseDecRat-roundtrip-+suc-suffix : ∀ n a b pos suffix
+parseDecRatFrac-roundtrip-+suc-suffix : ∀ n a b pos suffix
   .(cx : IsCanonical (suc n) a b) →
   SuffixStops isDigit suffix →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)
                      ++ₗ suffix)
     ≡ just (mkResult (mkDecRat (ℤ+ suc n) a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat (ℤ+ suc n) a b cx)))
                      suffix)
-parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss =
-  trans (cong (parseDecRat pos) (emag-suffix-shape (suc n) a b suffix))
+parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss =
+  trans (cong (parseDecRatFrac pos) (emag-suffix-shape (suc n) a b suffix))
     (trans step-dash-fail
       (trans step-parseNat
         (trans step-some-digit
@@ -1652,7 +1653,7 @@ parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss =
                     ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix
 
     step-dash-fail :
-      parseDecRat pos input-shape
+      parseDecRatFrac pos input-shape
       ≡ (parseNatural >>= λ nₚ → char '.' >>= λ _ → some digit >>= λ fd →
            pure (buildDecRat nothing nₚ fd))
         pos input-shape
@@ -1715,17 +1716,17 @@ parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss =
 -- ----------------------------------------------------------------------------
 -- Phase 6.3: `-[1+ n ]` (neg) case with suffix
 -- ----------------------------------------------------------------------------
-parseDecRat-roundtrip-neg-suffix : ∀ n a b pos suffix
+parseDecRatFrac-roundtrip-neg-suffix : ∀ n a b pos suffix
   .(cx : IsCanonical (suc n) a b) →
   SuffixStops isDigit suffix →
-  parseDecRat pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)
+  parseDecRatFrac pos (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)
                      ++ₗ suffix)
     ≡ just (mkResult (mkDecRat ℤ-[1+ n ] a b cx)
                      (advancePositions pos
                         (showDecRat-dec-chars (mkDecRat ℤ-[1+ n ] a b cx)))
                      suffix)
-parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss =
-  trans (cong (λ x → parseDecRat pos ('-' ∷ x))
+parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss =
+  trans (cong (λ x → parseDecRatFrac pos ('-' ∷ x))
               (emag-suffix-shape (suc n) a b suffix))
     (trans step-parseNat
       (trans step-some-digit
@@ -1747,7 +1748,7 @@ parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss =
     posAfterFrac = advancePositions posAfterDot (mag-fracChars (suc n) a b)
 
     step-parseNat :
-      parseDecRat pos
+      parseDecRatFrac pos
         ('-' ∷ showNat-chars (mag-quot (suc n) a b)
                  ++ₗ '.' ∷ mag-fracChars (suc n) a b ++ₗ suffix)
       ≡ (char '.' >>= λ _ → some digit >>= λ fd →
@@ -1796,13 +1797,67 @@ parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss =
 -- ----------------------------------------------------------------------------
 -- Phase 6.4: Top-level dispatcher with suffix
 -- ----------------------------------------------------------------------------
+parseDecRatFrac-roundtrip-suffix : ∀ d pos suffix →
+  SuffixStops isDigit suffix →
+  parseDecRatFrac pos (showDecRat-dec-chars d ++ₗ suffix)
+    ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) suffix)
+parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ zero)  a b cx) pos suffix ss =
+  parseDecRatFrac-roundtrip-+zero-suffix a b pos suffix cx ss
+parseDecRatFrac-roundtrip-suffix (mkDecRat (ℤ+ suc n) a b cx) pos suffix ss =
+  parseDecRatFrac-roundtrip-+suc-suffix n a b pos suffix cx ss
+parseDecRatFrac-roundtrip-suffix (mkDecRat ℤ-[1+ n ]  a b cx) pos suffix ss =
+  parseDecRatFrac-roundtrip-neg-suffix n a b pos suffix cx ss
+
+-- ----------------------------------------------------------------------------
+-- Phase 6.5: Public `parseDecRat`-level roundtrip on the frac wire form
+-- ----------------------------------------------------------------------------
+--
+-- Lifts `parseDecRatFrac-roundtrip-suffix` through the outer `<|>`.  The
+-- `showDecRat-dec-chars` emitter always produces a `'.'`-bearing form, so
+-- `parseDecRatFrac` always succeeds on this input — the bare-int branch
+-- of `parseDecRat = parseDecRatFrac <|> parseDecRatBareInt` never fires
+-- and `alt-left-just` collapses the wrapper to a one-liner.
+--
+-- This is the lemma external callers (e.g.,
+-- `Aletheia.DBC.TextParser.Properties.EnvVars.EnvVar`) hold against —
+-- their goals are `parseDecRat …`, not `parseDecRatFrac …`, since the
+-- aggregate parsers compose the public name.
+--
+-- Owed for Layer 3 (AVInt attribute path):
+--
+--   parseDecRat-bareInt-roundtrip-suffix : ∀ z pos suffix →
+--     SuffixStops isDigit suffix → '.' ≢ headOr suffix '_' →
+--     parseDecRat pos (showInt-chars z ++ₗ suffix) ≡
+--     just (mkResult (fromℤ z)
+--                    (advancePositions pos (showInt-chars z))
+--                    suffix)
+--
+-- The wire form for `AVInt z` is `showInt-chars (intDecRatToℤ z)` (see
+-- `Aletheia.DBC.TextFormatter.Attributes.emitAssignValue-chars` /
+-- `emitDefaultValue-chars`), which has no `'.'`.  The lemma will
+-- discharge the `parseDecRatFrac` failure via `bind-nothing` on the
+-- absent `'.'`, then close on the bare-int branch.  Estimated ~100 LOC
+-- (no canonicalization mass — denominator stays 1, so the
+-- `canonicalizeDecRat (+ n) 0 0` reduction is direct).  Consumed by
+-- `Aletheia.DBC.TextParser.Properties.Attributes.Common`'s AVInt
+-- `rawOfAttribute` per-case lemma.
+
+private
+  -- Same shape as `_<|>_` would expand to — kept lifted so the wrapper
+  -- below doesn't open the entire `Primitives` module just for one
+  -- helper.  Identical body to `Properties.Primitives.alt-left-just`.
+  alt-left-just-here :
+    ∀ {A : Set} (p q : Parser A) (pos : Position) (input : List Char) r
+    → p pos input ≡ just r
+    → (p <|> q) pos input ≡ just r
+  alt-left-just-here p q pos input r eq with p pos input | eq
+  ... | just .r | refl = refl
+
 parseDecRat-roundtrip-suffix : ∀ d pos suffix →
   SuffixStops isDigit suffix →
   parseDecRat pos (showDecRat-dec-chars d ++ₗ suffix)
     ≡ just (mkResult d (advancePositions pos (showDecRat-dec-chars d)) suffix)
-parseDecRat-roundtrip-suffix (mkDecRat (ℤ+ zero)  a b cx) pos suffix ss =
-  parseDecRat-roundtrip-+zero-suffix a b pos suffix cx ss
-parseDecRat-roundtrip-suffix (mkDecRat (ℤ+ suc n) a b cx) pos suffix ss =
-  parseDecRat-roundtrip-+suc-suffix n a b pos suffix cx ss
-parseDecRat-roundtrip-suffix (mkDecRat ℤ-[1+ n ]  a b cx) pos suffix ss =
-  parseDecRat-roundtrip-neg-suffix n a b pos suffix cx ss
+parseDecRat-roundtrip-suffix d pos suffix ss =
+  alt-left-just-here parseDecRatFrac parseDecRatBareInt pos
+    (showDecRat-dec-chars d ++ₗ suffix) _
+    (parseDecRatFrac-roundtrip-suffix d pos suffix ss)

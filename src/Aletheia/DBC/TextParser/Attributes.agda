@@ -100,11 +100,14 @@ open import Aletheia.DBC.Types using
 --
 -- The two-way split (vs the older `RavNumber : ℚ`) keeps the substrate
 -- aligned with the parsers that already have roundtrip proofs:
--- `parseStringLit-roundtrip`, `parseDecRat-roundtrip-suffix`, plus
--- `parseInt-roundtrip` (Layer 2 follow-up).  There is no
--- `parseRational-roundtrip` and proving it from scratch (scientific
--- notation, sign + fraction + exponent unrolling) would add ~1 kLOC of
--- foundation work for B.3.d Layer 3 attribute proofs.
+-- `parseStringLit-roundtrip` and `parseDecRat-roundtrip-suffix`.  Both
+-- numeric wire forms (bare integer like `50` and decimal-fraction like
+-- `0.5`) flow through `parseDecRat`, which subsumes the former
+-- `parseInt` branch via the alt of `parseDecRatFrac <|>
+-- parseDecRatBareInt` (see `Aletheia.DBC.TextParser.DecRatParse`).
+-- There is no `parseRational-roundtrip` and proving it from scratch
+-- (scientific notation, sign + fraction + exponent unrolling) would add
+-- ~1 kLOC of foundation work for B.3.d Layer 3 attribute proofs.
 data RawAttrValue : Set where
   RavString : String → RawAttrValue
   RavDecRat : DecRat → RawAttrValue
@@ -318,21 +321,19 @@ parseRelTarget = parseNodeMsgTgt <|> parseNodeSigTgt
 -- RAW VALUE LEXER
 -- ============================================================================
 
--- The attribute value on the wire is either a string literal, a
--- decimal-fraction, or a bare integer.  Decimals dispatch to
--- `parseDecRat` (Shape B `nat "." digit+`); bare integers dispatch to
--- `parseInt` then promote to `DecRat` via `fromℤ`.  Both numeric paths
--- land on `RavDecRat`.  Order matters in the `<|>` chain: `parseDecRat`
--- precedes `parseInt` so the longer-match decimal form is preferred
--- (an input like `42.5` would also start a successful `parseInt 42`
--- run, but the `.5` continuation would be left unconsumed and the
--- caller's trailing-WS check would fail — backtracking via `<|>` keeps
--- the parser deterministic on cantools-emitted forms).
+-- The attribute value on the wire is either a string literal or a
+-- numeric form.  All numeric forms — decimal-fraction (`42.5`) and bare
+-- integer (`50`) — go through `parseDecRat`, which internally tries
+-- `parseDecRatFrac` first and falls through to `parseDecRatBareInt`.
+-- Both branches yield a `DecRat`; the bare-int branch fixes the
+-- denominator at 1 via `buildDecRat ... []`.  Refinement against the
+-- declared `AttrType` (e.g., reject a `42.5` payload for an INT slot)
+-- happens later in `refineAttributes` over `RawDBCAttribute`, not in
+-- this lexer.
 parseRawAttrValue : Parser RawAttrValue
 parseRawAttrValue =
   (parseStringLit >>= λ s → pure (RavString s))    <|>
-  (parseDecRat    >>= λ d → pure (RavDecRat d))    <|>
-  (parseInt       >>= λ z → pure (RavDecRat (fromℤ z)))
+  (parseDecRat    >>= λ d → pure (RavDecRat d))
 
 -- ============================================================================
 -- LINE PARSERS
