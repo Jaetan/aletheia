@@ -44,6 +44,17 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 
 [AGENTS.md](AGENTS.md) defines per-language categories, guidelines, and verification commands. **Follow these as coding standards when writing code, not only as review checklists.** Before writing or modifying code in any language, consult the relevant language section in AGENTS.md and produce code that already conforms to its categories and guidelines.
 
+### User Shorthands
+
+When the user's message is just `UPD` (case-insensitive, no other content), interpret it as the canonical phrasing **"Update the session state, the memory/feedback, the plan/project status, and CLAUDE.md/AGENTS.md."**  Run the doc sweep across:
+- `.session-state.md` (gitignored — local resume notes; refresh next-session entry point and any in-flight context)
+- `MEMORY.md` + relevant files under `memory/` (open-work pointers, project status, new feedback memories if a generalizable lesson surfaced this session)
+- `PROJECT_STATUS.md` and `docs/development/PARITY_PLAN.md` (the two roadmap surfaces — keep in sync)
+- `CLAUDE.md` (this file — Current Session Progress, module-flag breakdown, anything that drifted)
+- `AGENTS.md` (only if a new rule / guideline / cross-ref was earned this session)
+
+Apply the standard 2-question pre-commit gate before committing the doc sweep (`feedback_pre_commit_scope_check.md`).
+
 ### Agda Module Requirements (MANDATORY)
 
 **Every Agda module MUST use**:
