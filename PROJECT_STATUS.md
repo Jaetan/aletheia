@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-26 (Phase B.3.d pre-gate ✅, layer 1 ✅, layer 2 ✅; layer 3 in_progress — commits 3a `804c584` + 3b `ad111bf` + 3c precursor `3a7c86e`/`c884e69`/`7a44c87` + 3c.0 `2bee3e5`/`cd723f2` + 3c.1 `12175ac` + 3c.2 `be4feac` + 3c.3 + 3c.4 + 3d.1 shipped; **3d.2 shipped 2026-04-26 this session** — `parseReceiverList-roundtrip` primitive + `stripVectorPlaceholder` lemmas: `Properties/Topology/Receivers.agda` (~430 LOC, 4 sub-lemmas + composed theorem), +1 module, 182→183 modules.  3d.3+ (per-MuxMarker SG_ shape) next; see `.session-state.md`)
+**Last Updated**: 2026-04-26 (Phase B.3.d pre-gate ✅, layer 1 ✅, layer 2 ✅; layer 3 in_progress — commits 3a `804c584` + 3b `ad111bf` + 3c precursor `3a7c86e`/`c884e69`/`7a44c87` + 3c.0 `2bee3e5`/`cd723f2` + 3c.1 `12175ac` + 3c.2 `be4feac` + 3c.3 + 3c.4 + 3d.1 + 3d.2 `8d145a8` shipped; **3d.3a shipped 2026-04-26 this session `6f418c4`** — parseSignalLine infrastructure: `Properties/Topology/Signal.agda` (~425 LOC) lands `SignalNameStop` + `expectedRaw` + `tailBody-chars` + `emitSignalLine-chars-shape` + `parseSignalTail` + `parseSignalLine-decompose ≡ refl` + `TailPositions` + parseWSOpt helpers, plus Layer 2 IsMux-precondition fix in `Primitives.agda`; +1 module, 183→184 modules.  3d.3b (28-step bind chain proof body + per-dispatcher main theorems + `tailBody-pos-end-eq` alignment) next; see `.session-state.md`)
 
 ---
 
@@ -18,7 +18,7 @@ Post-R17 work now follows the parity plan rather than the generic "Phase 6" labe
 - **Phase C** — Idiomatic cancellation / async / `send_frames_iter` / Go `context.Context` / C++ cancellation — **design rounds required** before any code (user rejected prior R17 proposals).
 - **Phase D** — C++/Go doc-example harness mirror of R17 C6 (R17-DEF-6).
 
-**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c + **Phase B.3.d pre-gate + layer 1 + layer 2** complete; **Phase B.3.d layer 3 in_progress** (3a/3b/3c-precursor + 3c.0/3c.1/3c.2 shipped 2026-04-25/26; 3c.3 + 3c.4 + 3d.1 shipped 2026-04-26; **3d.2 (parseReceiverList primitive + stripVectorPlaceholder lemmas)** shipped 2026-04-26 this session; 3d.3+ messages per-line proofs next); Layer 4 + Phase B.3.e–j → Phase C/D per plan.
+**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c + **Phase B.3.d pre-gate + layer 1 + layer 2** complete; **Phase B.3.d layer 3 in_progress** (3a/3b/3c-precursor + 3c.0/3c.1/3c.2 shipped 2026-04-25/26; 3c.3 + 3c.4 + 3d.1 + 3d.2 shipped 2026-04-26; **3d.3a (parseSignalLine infrastructure: parseSignalTail extraction + decompose + shape + helpers + Layer 2 IsMux fix)** shipped 2026-04-26 this session `6f418c4` as a unilateral split from the user-sized 3d.3 (proof body 3d.3b deferred to next session); 3d.3b proof body next); Layer 4 + Phase B.3.e–j → Phase C/D per plan.
 
 ---
 
