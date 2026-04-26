@@ -1,6 +1,6 @@
 # Aletheia Project Status
 
-**Last Updated**: 2026-04-26 (Phase B.3.d pre-gate ✅, layer 1 ✅, layer 2 ✅; layer 3 in_progress — commits 3a `804c584` + 3b `ad111bf` + 3c precursor `3a7c86e`/`c884e69`/`7a44c87` + 3c.0 `2bee3e5`/`cd723f2` + 3c.1 `12175ac` + 3c.2 `be4feac` + 3c.3 shipped; **3c.4 shipped 2026-04-26 this session** — parseAttrLine 5-way `<|>` dispatch composer: 31 dispatchers in `Properties/Attributes/Line.agda`, +1 module, 180→181 modules.  3d (messages) next; see `.session-state.md`)
+**Last Updated**: 2026-04-26 (Phase B.3.d pre-gate ✅, layer 1 ✅, layer 2 ✅; layer 3 in_progress — commits 3a `804c584` + 3b `ad111bf` + 3c precursor `3a7c86e`/`c884e69`/`7a44c87` + 3c.0 `2bee3e5`/`cd723f2` + 3c.1 `12175ac` + 3c.2 `be4feac` + 3c.3 + 3c.4 shipped; **3d.1 shipped 2026-04-26 this session** — text-roundtrip WF foundation: `Formatter/WellFormedText.agda` (NoVectorXXXReceiver + WellFormedTextPresence + MasterCoherent + WellFormedTextMessage), +1 module, 181→182 modules.  3d.2+ (messages per-line proofs) next; see `.session-state.md`)
 
 ---
 
@@ -18,7 +18,7 @@ Post-R17 work now follows the parity plan rather than the generic "Phase 6" labe
 - **Phase C** — Idiomatic cancellation / async / `send_frames_iter` / Go `context.Context` / C++ cancellation — **design rounds required** before any code (user rejected prior R17 proposals).
 - **Phase D** — C++/Go doc-example harness mirror of R17 C6 (R17-DEF-6).
 
-**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c + **Phase B.3.d pre-gate + layer 1 + layer 2** complete; **Phase B.3.d layer 3 in_progress** (3a/3b/3c-precursor + 3c.0/3c.1/3c.2 shipped 2026-04-25/26; 3c.3 + 3c.4 (this session, parseAttrLine 5-way composer, 31 dispatchers, +1 module) shipped 2026-04-26; 3d messages next); Layer 4 + Phase B.3.e–j → Phase C/D per plan.
+**Status**: Phase 5.1 + Phase A + Phase B.1/B.1.x + Phase B.2 + Phase B.3.a/b/c + **Phase B.3.d pre-gate + layer 1 + layer 2** complete; **Phase B.3.d layer 3 in_progress** (3a/3b/3c-precursor + 3c.0/3c.1/3c.2 shipped 2026-04-25/26; 3c.3 + 3c.4 + **3d.1 (text-roundtrip WF foundation)** shipped 2026-04-26 this session; 3d.2+ messages per-line proofs next); Layer 4 + Phase B.3.e–j → Phase C/D per plan.
 
 ---
 

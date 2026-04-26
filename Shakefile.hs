@@ -221,6 +221,12 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         agdaWithRTS "Aletheia/DBC/TextParser.agda"
         agdaWithRTS "Aletheia/DBC/TextFormatter.agda"
         agdaWithRTS "Aletheia/DBC/DecRat/RationalRoundtrip.agda"
+        -- B.3.d Layer 3 Commit 3d.1: WellFormedText predicates.  Currently
+        -- unimported (3d.2+ per-construct proofs will pull it in); explicit
+        -- walk root keeps it from bit-rotting per
+        -- `feedback_check_properties_aggregator_walks.md`.  Remove this
+        -- root once a downstream proof imports it.
+        agdaWithRTS "Aletheia/DBC/Formatter/WellFormedText.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
