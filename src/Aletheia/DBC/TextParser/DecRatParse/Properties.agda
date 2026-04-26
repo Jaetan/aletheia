@@ -47,6 +47,7 @@ open import Data.Char.Base using (isDigit; _≈ᵇ_)
 open import Data.Char.Properties using (toℕ-injective)
 open import Data.Empty using (⊥-elim)
 import Data.Empty.Irrelevant as EmptyI
+open import Data.Unit using (⊤; tt)
 open import Data.List using (List; []; _∷_; length; foldl) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-assoc)
   renaming (length-++ to length-++ₗ)
@@ -73,14 +74,23 @@ open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; value; position; remaining;
          advancePosition; advancePositions;
          satisfy; digit; some; many; manyHelper; sameLengthᵇ;
-         char; optional;
+         char; optional; fail;
          _>>=_; pure; _<$>_; _<*>_; _*>_; _<|>_)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (digitChar; showNat-chars; showNat-chars-fuel; showℕ-padded-chars;
          emitMagnitude-chars; showDecRat-dec-chars; showInt-chars)
 open import Aletheia.DBC.TextParser.DecRatParse
   using (charToDigit; parseDigitList; parseDecRat; parseDecRatFrac;
-         parseDecRatBareInt; applySign; buildDecRat)
+         parseDecRatBareInt; applySign; buildDecRat;
+         parseIntDecRat; parseNatDecRat)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRat; intDecRatToℤ; mkIntDecRatFromℤ;
+   mkIntDecRatFromℤ-intDecRatToℤ;
+   isIntegerᵇ; isIntegerᵇ-fromℤ;
+   NatDecRat; mkNatDecRat; natDecRatToℕ; mkNatDecRatFromℕ;
+   mkNatDecRatFromℕ-natDecRatToℕ;
+   isNonNegIntegerᵇ; isNonNegIntegerᵇ-fromℕ)
+open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
 open import Aletheia.DBC.TextParser.Lexer using (parseNatural)
 open import Aletheia.Protocol.JSON.Parse using (digitToNat)
 open import Data.Integer using (ℤ; sign; _◃_; ∣_∣)
@@ -2280,3 +2290,126 @@ parseDecRat-bareInt-roundtrip-suffix z pos suffix ss not-dot =
            pos (showInt-chars z ++ₗ suffix)
            (parseDecRatFrac-fails-bareInt z pos suffix ss not-dot))
         (parseDecRatBareInt-roundtrip z pos suffix ss)
+
+-- ============================================================================
+-- Phase 6.7: Refined-parser roundtrips — parseIntDecRat / parseNatDecRat
+-- ============================================================================
+--
+-- `parseIntDecRat = parseDecRat >>= λ d → ifᵀ isIntegerᵇ d then ...
+--                                        else fail`.  On the wire form
+-- `showInt-chars (intDecRatToℤ v)`, the `parseDecRat` step succeeds via
+-- `parseDecRat-bareInt-roundtrip-suffix` (Phase 6.6) producing
+-- `fromℤ (intDecRatToℤ v)`.  The `ifᵀ` then routes through `isIntegerᵇ-
+-- fromℤ` (always `true`) into the `pure (mkIntDecRat (fromℤ z) wf)`
+-- branch.  Witness collapse: `mkIntDecRat (fromℤ z) wf ≡
+-- mkIntDecRatFromℤ z`, then `mkIntDecRatFromℤ-intDecRatToℤ` recovers
+-- the original `v`.
+--
+-- `parseNatDecRat` mirrors the structure with `isNonNegIntegerᵇ` and
+-- `mkNatDecRatFromℕ-natDecRatToℕ`.
+
+parseIntDecRat-roundtrip-suffix : ∀ v pos suffix
+  → SuffixStops isDigit suffix → '.' ≢ headOr suffix '_'
+  → parseIntDecRat pos (showInt-chars (intDecRatToℤ v) ++ₗ suffix)
+    ≡ just (mkResult v
+              (advancePositions pos (showInt-chars (intDecRatToℤ v)))
+              suffix)
+parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot =
+  trans step-bind (trans step-ifT step-recover-v)
+  where
+    z : ℤ
+    z = intDecRatToℤ v
+
+    pos' : Position
+    pos' = advancePositions pos (showInt-chars z)
+
+    pf : T (isIntegerᵇ (fromℤ z))
+    pf = subst T (sym (isIntegerᵇ-fromℤ z)) tt
+
+    -- bind step: parseDecRat reads `showInt-chars z` via Phase 6.6 and
+    -- threads the resulting `fromℤ z` into the `ifᵀ` continuation.
+    step-bind :
+      parseIntDecRat pos (showInt-chars z ++ₗ suffix)
+      ≡ (ifᵀ isIntegerᵇ (fromℤ z)
+            then (λ wf → pure (mkIntDecRat (fromℤ z) wf))
+            else fail) pos' suffix
+    step-bind =
+      bind-just-step parseDecRat
+        (λ d → ifᵀ isIntegerᵇ d
+                 then (λ wf → pure (mkIntDecRat d wf))
+                 else fail)
+        pos (showInt-chars z ++ₗ suffix)
+        (fromℤ z) pos' suffix
+        (parseDecRat-bareInt-roundtrip-suffix z pos suffix ss not-dot)
+
+    -- ifᵀ step: pin the `T (isIntegerᵇ (fromℤ z))` witness via `pf`,
+    -- collapsing the branch under `cong (_ pos' suffix)`.
+    step-ifT :
+      (ifᵀ isIntegerᵇ (fromℤ z)
+          then (λ wf → pure (mkIntDecRat (fromℤ z) wf))
+          else fail) pos' suffix
+      ≡ pure (mkIntDecRat (fromℤ z) pf) pos' suffix
+    step-ifT =
+      cong (λ p → p pos' suffix)
+           (ifᵀ-witness (λ wf → pure (mkIntDecRat (fromℤ z) wf)) fail pf)
+
+    -- Recover `v`: `mkIntDecRat (fromℤ z) pf ≡ mkIntDecRatFromℤ z`
+    -- (definitional — `mkIntDecRatFromℤ` is exactly that record literal),
+    -- then `mkIntDecRatFromℤ-intDecRatToℤ v` closes.
+    step-recover-v :
+      pure (mkIntDecRat (fromℤ z) pf) pos' suffix
+      ≡ just (mkResult v pos' suffix)
+    step-recover-v =
+      cong (λ x → just (mkResult x pos' suffix))
+           (mkIntDecRatFromℤ-intDecRatToℤ v)
+
+-- `showNat-chars n = showInt-chars (+ n)` definitionally; reuse the
+-- bareInt roundtrip via `(+ natDecRatToℕ v) : ℤ`.  Witness flips to
+-- `isNonNegIntegerᵇ-fromℕ`, recovery via `mkNatDecRatFromℕ-natDecRatToℕ`.
+parseNatDecRat-roundtrip-suffix : ∀ v pos suffix
+  → SuffixStops isDigit suffix → '.' ≢ headOr suffix '_'
+  → parseNatDecRat pos (showNat-chars (natDecRatToℕ v) ++ₗ suffix)
+    ≡ just (mkResult v
+              (advancePositions pos (showNat-chars (natDecRatToℕ v)))
+              suffix)
+parseNatDecRat-roundtrip-suffix v pos suffix ss not-dot =
+  trans step-bind (trans step-ifT step-recover-v)
+  where
+    n : ℕ
+    n = natDecRatToℕ v
+
+    pos' : Position
+    pos' = advancePositions pos (showNat-chars n)
+
+    pf : T (isNonNegIntegerᵇ (fromℤ (ℤ+ n)))
+    pf = subst T (sym (isNonNegIntegerᵇ-fromℕ n)) tt
+
+    step-bind :
+      parseNatDecRat pos (showNat-chars n ++ₗ suffix)
+      ≡ (ifᵀ isNonNegIntegerᵇ (fromℤ (ℤ+ n))
+            then (λ wf → pure (mkNatDecRat (fromℤ (ℤ+ n)) wf))
+            else fail) pos' suffix
+    step-bind =
+      bind-just-step parseDecRat
+        (λ d → ifᵀ isNonNegIntegerᵇ d
+                 then (λ wf → pure (mkNatDecRat d wf))
+                 else fail)
+        pos (showNat-chars n ++ₗ suffix)
+        (fromℤ (ℤ+ n)) pos' suffix
+        (parseDecRat-bareInt-roundtrip-suffix (ℤ+ n) pos suffix ss not-dot)
+
+    step-ifT :
+      (ifᵀ isNonNegIntegerᵇ (fromℤ (ℤ+ n))
+          then (λ wf → pure (mkNatDecRat (fromℤ (ℤ+ n)) wf))
+          else fail) pos' suffix
+      ≡ pure (mkNatDecRat (fromℤ (ℤ+ n)) pf) pos' suffix
+    step-ifT =
+      cong (λ p → p pos' suffix)
+           (ifᵀ-witness (λ wf → pure (mkNatDecRat (fromℤ (ℤ+ n)) wf)) fail pf)
+
+    step-recover-v :
+      pure (mkNatDecRat (fromℤ (ℤ+ n)) pf) pos' suffix
+      ≡ just (mkResult v pos' suffix)
+    step-recover-v =
+      cong (λ x → just (mkResult x pos' suffix))
+           (mkNatDecRatFromℕ-natDecRatToℕ v)
