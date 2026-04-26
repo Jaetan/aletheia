@@ -223,7 +223,78 @@ Plan:
     Plus a composed theorem `parseReceiverList∘strip-roundtrip` that 3d.3 will consume.  Composition pattern mirrors `manyHelper-parseWSIdent-body` from `Topology/Nodes.agda` but with `,` separator (single literal char) instead of `parseWS` (multi-space leading separator) — cleaner because no per-receiver `IdentNameStop`-style precondition is needed (`validIdentifierᵇ` does all the work; `,` is not `isIdentCont`).  Suffix precondition `SuffixStops isReceiverCont suffix` where `isReceiverCont c = isIdentCont c ∨ (c ≈ᵇ ',')` — single predicate captures both inner-many and outer-many stop conditions.  New helper `bind-fail-step` (dual to `bind-just-step`) closes the `(char ',' *> parseIdentifier)` failure path on receiver-stop suffix.  Wired through `Properties/Topology.agda` facade + top-level `TextParser/Properties.agda` (no separate Shakefile walk root needed since the Topology facade is already a check-properties root).  Module count 182 → 183 (+1).
   * **Commit 3d.3a ✅** (2026-04-26, `6f418c4`, this session): parseSignalLine **infrastructure** for the per-MuxMarker shape proof.  New module `Properties/Topology/Signal.agda` (~425 LOC, `--without-K` only) lands: `SignalNameStop` per-signal precondition record (Σ-pair witnessing `isHSpace` non-trigger on the leading char of the identifier name); `expectedRaw : MuxMarker → DBCSignal → ℕ → RawSignal` per-dispatcher result-shape helper (direct field projections except `muxMarker` from dispatcher and `startBit` as the raw `unconvertStartBit` value pre-`% max-physical-bits` clamp); `tailBody-chars` (the 21-segment right-associated `++ₗ` body from `" : "` through `'\n' ∷ []`, matching the formatter's bracketing); `emitSignalLine-chars-shape` (3-step `++ₗ-assoc` reassociation pushing the outer `++ₗ suffix` through the `[" SG_ "] / [<name>] / [<mux marker>] / [<tailBody>]` boundaries); `parseSignalTail : Identifier → MuxMarker → Parser RawSignal` (the 28-step bind chain after `parseMuxMarker`, factored out as a standalone parser); `parseSignalLine-decompose ≡ refl` (validates `parseSignalLine ≡ <head> >>= λ name → parseMuxMarker >>= λ mux → parseSignalTail name mux` by η on the lambda); `TailPositions` parameterized module tracking `pos₁..pos₂₇` cursor after each step; `parseWSOpt-zero` / `parseWSOpt-one-space` helpers (composing `manyHelper-satisfy-exhaust-many isHSpace` with `xs = []` and `xs = [' ']` respectively).  **Layer 2 companion fix:** `Properties/Primitives.agda` `parseMuxMarker-IsMux-roundtrip` had an unused `SuffixStops isHSpace suffix` precondition (proof's internal `parseWS-one-space` discharges against the FIRST char of the inner input — `'M' ∷ suffix` — not `suffix` itself); removed because the precondition is unprovable in the SG_ context where post-mux suffix is `" : ..."` (starts with hspace).  Module count 183 → 184 (+1).
   * **Commit 3d.3b ✅** (2026-04-26, this session, pending commit on top of `6f418c4`): closes 3d.3 fully.  Adds ~1,940 LOC to `Properties/Topology/Signal.agda` (1472 → 2459 LOC) covering: `tailBody-with-suffix` right-associated form pushing `++ suffix` through the 21-segment body; `tailBody-segments` + `buildTail` + `buildTail-++-shift` structural induction (replaces a 11-stage `cong (trans …)` cascade per user feedback "long cong (trans …) usually a sign of poor design"); `tailBody-shape` bridging the two forms; full 28-step `parseSignalTail-roundtrip` (~580 LOC) composing per-step `bind-just-step` with Layer 2 lemmas (parseStringLit, parseDecRat-roundtrip-suffix, parseNatural-showNat-chars, parseByteOrderDigit, parseSignFlag, parseReceiverList∘strip-roundtrip); `walkSegments` + `walkSegments-buildTail` (Position-accumulating analog to buildTail-++-shift); `tail-pos-end-eq` proving `advancePositions pos (tailBody-chars fb sig) ≡ TailPositions.pos₂₇` (closes via walkSegments + closed-string `toList`-reduction; final segment-list ≡ `pos₂₆` step closes by `refl`); `parseMuxMarker-fails-on-colon-tail` Layer 2 helper; `emitSignalLine-chars-with-suffix-shape` one-step input rewrite; three per-dispatcher main theorems `parseSignalLine-roundtrip-{NotMux,IsMux,SelBy}` (~150 LOC each) — each composes `cong` over input shape + `parseSignalLine-decompose` + 4 head bind steps (parseWSOpt + string "SG_" + parseWS + parseIdentifier-roundtrip) + mux-dispatcher Layer 2 lemma + `parseSignalTail-roundtrip` + position alignment via 4× `sym advancePositions-++` chain.  Closed-string reduction relied on `toList " SG_ "`, `toList "SG_"`, `toList " : "` reducing to cons literals under `--safe --without-K`.  **Process correction in-session:** 3d.3 was unilaterally split at first commit (3d.3a infrastructure / 3d.3b deferred); user flagged "I do not want any more of these 'unilateral splits'", which prompted codifying a 2-question pre-commit gate in `AGENTS.md` (`175a6a7`) + new memory `feedback_pre_commit_scope_check.md`, then pushing through 3d.3b in the same session per user's "Please push through the dispatchers." directive.
-  * **Commits 3d.4–3d.6 pending** — `manyHelper-parseSignalLine-body` recursion induction over `List RawSignal` (selects one of NotMux/IsMux/SelBy per element via `WellFormedTextSignal` dispatch on `presence × master`) + signal-list resolution roundtrip (`findMuxName ∘ map unbuild ≡ findMuxMaster` under WF + `resolveSignalList` recovers the original `List DBCSignal`) + `parseMessage-roundtrip` outer composer (BO_ bind chain + `buildCANId/bytesToValidDLC/resolveSignalList` discrimination).  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via aggregator induction over the `DBC` record.
+  * **Sequence remaining (locked 2026-04-26 after 3d.3b ship):** `3d.4` (Identifier de-taint refactor, ~1w) → `3d.5` (Format DSL framework, ~4-6w) → `3d.6`/`3d.7`/`3d.8` (manyHelper / signal-list / parseMessage — were `3d.4`/`3d.5`/`3d.6` in the pre-2026-04-26 plan, renumbered after the framework lands so they ship under DSL and not the current ~500–2000 LOC-per-construct hand-rolled style) → Layer 4 (`parseDBC` aggregator).  Total ~5–7 weeks before Layer 3 closes; ~85% Layer-3 LOC reduction (~25,000 → ~3,500) at full DSL adoption.
+
+  * **Commit 3d.4 pending — Identifier de-tainting (Point 3 from architectural review 2026-04-26).**  Refactor `Aletheia/DBC/Identifier.agda` from `record { name : String; valid : T (validIdentifierᵇ (toList name)) }` → `record { name : List Char; valid : T (validIdentifierᵇ name) }`.  Ripple-through scope:
+    - `src/Aletheia/DBC/TextParser/Lexer.agda` — drop `pure (fromList chars)`; build `Identifier` from the consumed `List Char` directly via `mkIdent (h ∷ t) <validity>`.  Stops importing `Properties/Substrate/Unsafe.agda`.
+    - `src/Aletheia/DBC/Types.agda` — `signalNameStr`, `messageNameStr`, `nodeNameStr`, `valueTableNameStr`, `envVarNameStr` etc. become `fromList ∘ Identifier.name`.  Runtime: one extra `O(name-length)` traversal per accessor call (names typically <30 chars; not on signal-extraction hot path — audit before commit).
+    - JSON ingestion (`mkIdentFromString`) accepts `String`, calls `toList s`, builds the witness directly from `validIdentifierᵇ (toList s)`.  No axiom call.
+    - Per-construct roundtrip proofs (~15 modules under `Properties/`) — replace every `toList (signalNameStr sig)` with `Identifier.name (DBCSignal.name sig)`.  Mechanical search/replace + per-proof re-check.
+    - `Shakefile.hs` allowlist re-verified — the 47-module `--without-K`-only count drops to 1 (just `Substrate/Unsafe.agda` itself, retained for the OUTER `parseText (formatText d) ≡ inj₂ d` wrap via one `toList∘fromList` application).
+
+    **Net effect:** `136 / 184 modules use --safe` becomes `183 / 184 modules use --safe`.  Per-proof LOC reduction ~10–15% across Layer 3.  Substrate.Unsafe.agda's only remaining job becomes the outer parseText/formatText wrap.
+
+    **Gates:** `cabal run shake -- check-properties` green; `check-invariants` allowlist (single Substrate.Unsafe still); all bindings tests green (Python/C++/Go) — JSON parity preserved via accessor wrappers; benchmark signal-extraction hot path within ±2%.
+
+    **Risks:** hidden String-typed Identifier accessors in cross-binding paths (audit step); MAlonzo runtime representation change (newtype-over-String → algebraic data type) could regress JSON encode by `O(n)` per name — measure during audit.
+
+    **Estimate:** ~1 week (3–5 days code + 1–2 days proof re-check + benchmark).
+
+  * **Commit 3d.5 pending — Format DSL framework (Point 1 from architectural review 2026-04-26).**  A single inductive `Format A` GADT with derived `emit`, `parse`, `stopPred`, and a *universal roundtrip theorem* proven once by structural induction.  Each per-line construct becomes a ~10–30 LOC `Format` definition + one `roundtrip` application.  Net Layer-3 LOC reduction ~85%.
+
+    **Sub-phases:**
+
+    1. **3d.5.a — Framework core (~1.5w, ~1,000–1,500 LOC).**  New module `Aletheia/DBC/TextParser/Format.agda` (`--safe --without-K`):
+       - `data Format : Set → Set₁` with constructors: `pure`, `bind`, `literal` (closed `List Char`), `ident`, `natural`, `decRat`, `byteOrder`, `signFlag`, `stringLit`, `sepBy` (List with separator), `altDisj` (two-way alt with `DisjointPrefix` proof), `iso` (refinement-type lift via `A ↔ B`), `caseFmt` (data-driven dispatch).
+       - `emit  : ∀ {A} → Format A → A → List Char` (closed-form by structural recursion).
+       - `parse : ∀ {A} → Format A → Parser A` (structural recursion).
+       - `stopPred : ∀ {A} → Format A → Char → Bool` (computes the "next-char-must-fail" predicate from the format's last emission).
+       - Universal roundtrip theorem
+         ```
+         roundtrip : ∀ {A} (f : Format A) (a : A) (suffix : List Char)
+                   → SuffixStops (stopPred f) suffix
+                   → parse f pos (emit f a ++ suffix)
+                     ≡ just (a , advancePositions pos (emit f a) , suffix)
+         ```
+         proven by induction on `Format` — one case per constructor, composing the existing primitive lemmas (`parseIdentifier-roundtrip`, `parseDecRat-roundtrip-suffix`, etc.).
+
+    2. **3d.5.b — Single-construct validation (~3–5d).**  Re-prove `parseValueTable-roundtrip` (currently 790 LOC across `ValueTables/ValueTable.agda`) under the DSL.  Target: <50 LOC for the `Format` definition + 1-line `roundtrip` application.  **Gate:** if it doesn't shrink to under 100 LOC, framework needs revision before continuing.
+
+    3. **3d.5.c — Pinch-point extensions (~1w).**  Three places where the basic DSL doesn't fit cleanly:
+       - `caseFmt` constructor for `MuxMarker` 3-shape dispatch (`master × signalName × presence` → `Format MuxMarker`).
+       - `iso` lift for `IntDecRat` / `NatDecRat` (proven once per refinement; ~50–100 LOC each).
+       - Asymmetric strip (`parseReceiverList∘strip`) — either via `iso` with WF-conditional inverse, or via a dedicated `withWF` constructor.  Decide during 3d.5.b based on what fits more naturally.
+
+    4. **3d.5.d — Migration of existing 3a–3d.3 proofs (~2–3w).**  Per-construct migration is one PR each so progress is incremental and revertible:
+       - 3a (Preamble: VERSION, BS_, NS_).
+       - 3b (BU_, VAL_TABLE_, EV_, CM_ — CM_ is the heaviest current proof at 2,533 LOC; expected to drop to <100).
+       - 3c (BA_DEF_, BA_DEF_DEF_, BA_, BA_REL_, parseAttrLine — 31 dispatchers under the existing `lift-altK` composer should map cleanly to nested `altDisj`).
+       - 3d.1 (WF foundation — keep as-is, framework consumes it).
+       - 3d.2 (parseReceiverList — replaced by framework's `sepBy` after 3d.5.c).
+       - 3d.3 (parseSignalLine 3 dispatchers — replaced by framework + `caseFmt`).
+
+    5. **3d.5.e — Apply to remaining Layer-3 work (~1w).**  Renumbered targets:
+       - `3d.6` (was `3d.4`): `manyHelper-parseSignalLine-body` becomes the framework's `sepBy` over `Format DBCSignal` (cross-element `WellFormedTextSignal` dispatch enters via `caseFmt`).
+       - `3d.7` (was `3d.5`): signal-list resolution roundtrip composes 3d.6 + master-coherence WF.
+       - `3d.8` (was `3d.6`): `parseMessage-roundtrip` outer composer = `Format DBCMessage`.
+
+    6. **3d.5.f — Layer 4 aggregation (~3–5d).**  `parseDBC-roundtrip` becomes `roundtrip DBC-format` where `DBC-format : Format DBC` is the top-level aggregator.  The owed Layer-4 char-class-disjointness lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) are proven once and consumed by the framework's `stopPred` derivation.
+
+    **Gates** (per sub-phase):
+    - 3d.5.a: framework type-checks, universal roundtrip is proven.  No postulates.
+    - 3d.5.b: `parseValueTable-roundtrip` under DSL <100 LOC, type-checks, all gates green.
+    - 3d.5.c: each pinch-point extension type-checks; pre-existing 3d.3 dispatchers re-provable on the extended framework.
+    - 3d.5.d: each migration commit keeps `check-properties` green and reduces Layer-3 LOC monotonically.
+    - 3d.5.e/f: full universal roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d` ships.
+
+    **Risks:**
+    - `iso` for refinement types may need MORE bookkeeping than a single `A ↔ B` (Σ-typed inverse + invertibility-up-to-WF).  If 3d.5.c blows up here, add a separate `refinementOf` constructor specialized for `T (predicateᵇ value)` records — proven generically once for any predicate that survives `subst T`.
+    - `stopPred` derivation may not compose cleanly across all constructors (e.g., `bind f g`'s stop predicate depends on `g a`, which is data-dependent).  Worst case: weaken precondition to "structural disjointness" — universal roundtrip still proves but takes a heavier WF precondition.
+    - MAlonzo runtime cost of generic `parse <format>` vs. hand-written parsers: deriving `parse` will likely produce code as efficient as the hand-written version (both reduce to the same `>>=` chain), but verify with benchmarks at 3d.5.b gate.  If regression: keep hand-written parser, use DSL for proof only (`parse <format> ≡ existing-parser` lemma per construct, ~30 LOC each).
+
+    **Estimate:** ~4–6 weeks total (3d.5.a 1.5w + 3d.5.b 1w + 3d.5.c 1w + 3d.5.d 2–3w + 3d.5.e 1w + 3d.5.f 0.5w).
+
+  * **Commits 3d.6 / 3d.7 / 3d.8 pending (post-DSL — renumbered from pre-2026-04-26 plan):** `manyHelper-parseSignalLine-body` recursion induction over `List RawSignal` (selects one of NotMux/IsMux/SelBy per element via `WellFormedTextSignal` dispatch on `presence × master`) + signal-list resolution roundtrip (`findMuxName ∘ map unbuild ≡ findMuxMaster` under WF + `resolveSignalList` recovers the original `List DBCSignal`) + `parseMessage-roundtrip` outer composer (BO_ bind chain + `buildCANId/bytesToValidDLC/resolveSignalList` discrimination).  Each ships under the Format DSL (3d.5) — `Format DBCSignal` for SG_, `Format DBCMessage` for BO_ — instead of the hand-rolled ~500–2000 LOC-per-construct style.  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via `roundtrip DBC-format`.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
