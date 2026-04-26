@@ -37,7 +37,7 @@ When the user's message is just `UPD` (case-insensitive, no other content), inte
 - `CLAUDE.md` (Current Session Progress, module-flag breakdown, anything that drifted)
 - `AGENTS.md` (only if a new rule / cross-ref was earned this session)
 
-Apply the 2-question pre-commit gate (`feedback_pre_commit_scope_check.md`) before committing the doc sweep.
+**UPD is a doc-state sync only.** The resulting commit must contain ONLY doc-sweep edits. Pre-existing uncommitted work (refactors, structural cleanups, prior tasks) goes in its own commit at task completion, never bundled into UPD. See `memory/feedback_upd_scope.md`. Apply the 2-question pre-commit gate (`feedback_pre_commit_scope_check.md`) before committing the doc sweep.
 
 ### Agda Module Requirements (MANDATORY)
 
