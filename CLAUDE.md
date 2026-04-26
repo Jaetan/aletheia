@@ -1,490 +1,224 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Project Overview
 
-Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). The core logic is implemented in Agda with correctness proofs, compiled to Haskell, and exposed through Python, C++, and Go APIs.
-
-**Current Phase**: See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status
-
-## Table of Contents
-
-- [Global Project Rules](#global-project-rules)
-- [Common Commands](#common-commands)
-- [Architecture](#architecture-three-layer-design)
-- [Module Structure](#module-structure)
-- [Development Workflow](#development-workflow)
-- [Key Files](#key-files)
-- [Requirements](#requirements)
-- [Important Notes](#important-notes)
-- [Troubleshooting](#troubleshooting)
-- [Performance Considerations](#performance-considerations)
-- [Implementation Phases](#implementation-phases)
-- [Current Session Progress](#current-session-progress)
+Aletheia is a formally verified CAN frame analysis system using Linear Temporal Logic (LTL). Core logic in Agda with correctness proofs, compiled to Haskell, exposed through Python, C++, and Go APIs. Phase status: [PROJECT_STATUS.md](PROJECT_STATUS.md). Mission: [docs/PITCH.md](docs/PITCH.md).
 
 ## Development Environment
 
-**IMPORTANT: These facts must be preserved across session compression.**
+**Must be preserved across session compression.**
 
-- **Agda binary**: `/home/nicolas/.cabal/bin/agda`
-- **Shell**: `/usr/bin/fish`
-- **Shell config**: Source `/home/nicolas/.config/fish/config.fish` when needed
-- **User binaries**: `/home/nicolas/.local/bin` (accessible)
-- **User libraries**: `/home/nicolas/.local/lib` (accessible)
+- Agda binary: `/home/nicolas/.cabal/bin/agda`
+- Shell: `/usr/bin/fish` (config at `/home/nicolas/.config/fish/config.fish`)
+- User binaries: `/home/nicolas/.local/bin`; libraries: `/home/nicolas/.local/lib`
 
-**Type-checking command** (always cap heap to prevent runaway elaboration):
+**Type-check command** (always cap heap):
 ```bash
-/home/nicolas/.cabal/bin/agda +RTS -N32 -M16G -RTS /home/nicolas/dev/agda/aletheia/src/Aletheia/YourModule.agda
+/home/nicolas/.cabal/bin/agda +RTS -N32 -M16G -RTS src/Aletheia/YourModule.agda
 ```
+- `-N32`: parallel GHC; critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout).
+- `-M16G`: heap cap; prevents runaway elaboration on the 62 GiB host. Doubles as a tripwire — bump only when a specific module legitimately needs it.
+- First build compiles stdlib (~20s, cached thereafter).
 
 ## Global Project Rules
 
 ### AGENTS.md as Coding Standards
 
-[AGENTS.md](AGENTS.md) defines per-language categories, guidelines, and verification commands. **Follow these as coding standards when writing code, not only as review checklists.** Before writing or modifying code in any language, consult the relevant language section in AGENTS.md and produce code that already conforms to its categories and guidelines.
+[AGENTS.md](AGENTS.md) defines per-language categories, guidelines, and verification commands. **Follow these as coding standards when writing code, not only as review checklists.** Consult the relevant language section before writing/modifying code.
 
 ### User Shorthands
 
-When the user's message is just `UPD` (case-insensitive, no other content), interpret it as the canonical phrasing **"Update the session state, the memory/feedback, the plan/project status, and CLAUDE.md/AGENTS.md."**  Run the doc sweep across:
-- `.session-state.md` (gitignored — local resume notes; refresh next-session entry point and any in-flight context)
-- `MEMORY.md` + relevant files under `memory/` (open-work pointers, project status, new feedback memories if a generalizable lesson surfaced this session)
+When the user's message is just `UPD` (case-insensitive, no other content), interpret it as **"Update the session state, the memory/feedback, the plan/project status, and CLAUDE.md/AGENTS.md."** Sweep:
+- `.session-state.md` (gitignored — local resume notes)
+- `MEMORY.md` + relevant files under `memory/` (open-work pointers; new feedback memories if a generalizable lesson surfaced)
 - `PROJECT_STATUS.md` and `docs/development/PARITY_PLAN.md` (the two roadmap surfaces — keep in sync)
-- `CLAUDE.md` (this file — Current Session Progress, module-flag breakdown, anything that drifted)
-- `AGENTS.md` (only if a new rule / guideline / cross-ref was earned this session)
+- `CLAUDE.md` (Current Session Progress, module-flag breakdown, anything that drifted)
+- `AGENTS.md` (only if a new rule / cross-ref was earned this session)
 
-Apply the standard 2-question pre-commit gate before committing the doc sweep (`feedback_pre_commit_scope_check.md`).
+Apply the 2-question pre-commit gate (`feedback_pre_commit_scope_check.md`) before committing the doc sweep.
 
 ### Agda Module Requirements (MANDATORY)
 
-**Every Agda module MUST use**:
+Every Agda module MUST start with:
 ```agda
 {-# OPTIONS --safe --without-K #-}
 ```
 
-**Rationale**:
-- `--safe`: Prohibits postulates, unsafe primitives, and non-terminating recursion
-  - Ensures all code is fully verified or uses runtime checks
-  - Prevents accidental holes in production logic
-  - Forces explicit documentation of any assumed properties
-- `--without-K`: Ensures compatibility with Homotopy Type Theory (HoTT)
-  - Makes proofs more general and reusable
-  - Required for certain classes of formal verification
+- `--safe`: no postulates, no unsafe primitives, no non-terminating recursion.
+- `--without-K`: HoTT compatibility (no Streicher's K).
+- Library-level `--erasure` (in `aletheia.agda-lib`) enables `@0` for zero-cost phantom parameters (e.g. `Timestamp μs`).
 
-**Library-level flag** (set in `aletheia.agda-lib`, applies to all modules):
-- `--erasure`: Enables the `@0` (erased) modality for zero-cost type-level information
-  - Used for phantom type parameters (e.g., `Timestamp μs` where `μs` is erased)
-  - Erased arguments are removed at compile time — no runtime overhead
-  - This flag is in the library file, not per-module OPTIONS pragmas
-
-**Exceptions**:
-- If postulate is truly needed (rare), create separate `*.Unsafe.agda` module
-  - Remove `--safe` flag ONLY in that module
-  - Document why postulate is needed
-  - Must be replaced with proof before production use
-
-**Enforcement**:
-- `cabal run shake -- check-invariants` rejects any `^postulate` line or `Unsafe`-named module outside the allowlisted B.3.d substrate
-- CI/CD runs `check-invariants` on every build
-- Code review checklist includes verifying flags
-
-**Current Status**: ✅ 136 of 184 Agda modules use `--safe`; 1 allowlisted Unsafe module (B.3.d substrate) carries the only postulates project-wide; the remaining 48 `--without-K`-only modules transitively import that substrate (47 under `DBC/TextParser/` + the allowlisted Unsafe substrate itself).
+**Exceptions**: postulates require a separate `*.Unsafe.agda` module (drop `--safe` only there); allowlisted by name in `Shakefile.hs`. `cabal run shake -- check-invariants` rejects any other `^postulate` line or `Unsafe`-named module, and CI runs `check-invariants` on every build.
 
 ### Module Safety Flag Breakdown
 
-**By flag combination** (184 total — `cabal run shake -- count-modules`):
-- **132 modules**: `--safe --without-K` (standard safe modules; +1 from 131 post-3c.4: `Aletheia/DBC/Formatter/WellFormedText.agda` landed in 3d.1 2026-04-26 — text-roundtrip-specific WF predicates extending `Formatter/WellFormed.agda`)
-- **4 modules**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
-- **48 modules**: `--without-K` only (no `--safe`) — all under `Aletheia/DBC/TextParser/`. Exactly **1** is the allowlisted Unsafe module: `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) needed to compose the B.3.d universal roundtrip theorem (mirrors stdlib's `Data.String.Unsafe`, proven by `trustMe` under `--with-K`; structurally unprovable in `--safe --without-K` because the Agda String primitives reduce only on closed terms). The other **47** transitively import that substrate via `DBC/TextParser/Lexer.agda` (which uses the bridging axioms to lift `parseIdentifier` from `List Char` to `String`); Agda's `--safe` propagation forces them to the same flag set.  Allowlisted by name in `Shakefile.hs` `check-invariants`; any other Unsafe module or `^postulate` line is rejected.  3d.2 added `Properties/Topology/Receivers.agda` (parseReceiverList-roundtrip primitive + stripVectorPlaceholder lemmas); 3d.3 added `Properties/Topology/Signal.agda` (3d.3a infrastructure: parseSignalTail extraction + decompose lemma + expectedRaw shape + tailBody-chars + emitSignalLine-chars-shape + parseWSOpt helpers + Layer 2 IsMux-precondition fix; 3d.3b proof body: 28-step `parseSignalTail-roundtrip` bind chain + `walkSegments`-based `tail-pos-end-eq` position alignment + `parseMuxMarker-fails-on-colon-tail` failure helper + three per-MuxMarker-shape main theorems `parseSignalLine-roundtrip-{NotMux,IsMux,SelBy}`).
+184 total modules (`cabal run shake -- count-modules`):
+- **132**: `--safe --without-K`
+- **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
+- **48**: `--without-K` only — all under `Aletheia/DBC/TextParser/`. Exactly **one** is the allowlisted Unsafe substrate `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) needed for the B.3.d roundtrip theorem (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms). The other 47 transitively import that substrate via `DBC/TextParser/Lexer.agda`, so `--safe` propagation forces them to the same flag set.
 
-**136 of 184 modules use `--safe`**. No modules require `--sized-types`.
+136 of 184 modules use `--safe`. No modules require `--sized-types`.
 
 ## Common Commands
 
-See [Building Guide](docs/development/BUILDING.md) for comprehensive build instructions, including:
-- Build system commands (Shake via Cabal)
-- Python virtual environment setup
-- Common development workflows
-- Troubleshooting build issues
+See [Building Guide](docs/development/BUILDING.md). Quick reference:
 
-Quick reference for development:
 ```bash
-# Type-check a single Agda module
-cd src && agda +RTS -N32 -RTS Aletheia/YourModule.agda
+# Type-check a single module
+cd src && agda +RTS -N32 -M16G -RTS Aletheia/YourModule.agda
 
-# Build everything
+# Build everything (Agda → Haskell → libaletheia-ffi.so)
 cabal run shake -- build
 
-# Run Python tests
+# Tests (each from the right cwd)
 cd python && python3 -m pytest tests/ -v
-
-# Run type checking (MUST run from python/ directory)
 cd python && basedpyright aletheia/
-
-# Run linting (MUST run from python/ directory)
 cd python && pylint aletheia/
-
-# Build and test C++ binding
 cd cpp && cmake -B build && cmake --build build && ctest --test-dir build
+cd go && go test ./aletheia/ -v -count=1 -race
 
-# Run cross-language benchmarks (requires all bindings built)
+# Cross-language benchmarks
 bash benchmarks/run_all.sh --frames 1000 --runs 5 --bench throughput
 ```
 
-## Architecture (Three-Layer Design)
+## Architecture
 
-See [Architecture Overview](docs/architecture/DESIGN.md) for the three-layer design and critical design principle.
+Three-layer design: [docs/architecture/DESIGN.md](docs/architecture/DESIGN.md).
 
-## Module Structure
-
-Agda modules are organized by package. See [README.md](README.md#project-structure) for the complete file tree.
-
-Core packages:
-- **Parser/**: Parser combinators and string utilities
-- **CAN/**: CAN frame encoding/decoding
-- **DBC/**: DBC file parser
-- **LTL/**: Linear Temporal Logic (Syntax, Incremental, Semantics, Adequacy, Coalgebra, SignalPredicate, SimplifySound, Reachable, JSON)
-- **Trace/**: Trace types and streaming
-- **Protocol/**: JSON protocol and streaming state machine
+Agda packages: **Parser/**, **CAN/**, **DBC/**, **LTL/** (Syntax, Incremental, Semantics, Adequacy, Coalgebra, SignalPredicate, SimplifySound, Reachable, JSON), **Trace/**, **Protocol/**. Full file tree: [README.md](README.md#project-structure).
 
 ## Development Workflow
 
-### Adding New Features
+1. Edit Agda source.
+2. Type-check fast: `cd src && agda +RTS -N32 -M16G -RTS Aletheia/Parser/Combinators.agda`.
+3. Full build: `cabal run shake -- build` (also rebuilds `libaletheia-ffi.so`).
+4. Run tests for affected bindings.
 
-1. **Design in Agda**: Define types and properties in appropriate module
-2. **Implement with proofs**: Write code and prove correctness
-3. **Build and test**: `cabal run shake -- build` then test shared library
-4. **Update language bindings** (if needed): Add convenience functions
-5. **Add examples**: Create test cases in `examples/`
-
-### Typical Iteration Cycle
-
-```bash
-# 1. Edit Agda source
-vim src/Aletheia/Parser/Combinators.agda
-
-# 2. Quick type-check (fast feedback, no compilation)
-cd src && agda +RTS -N32 -M16G -RTS Aletheia/Parser/Combinators.agda
-
-# 3. Full build when ready (also builds FFI shared library)
-cd .. && cabal run shake -- build
-
-# 4. Run Python tests
-cd python && python3 -m pytest tests/ -v
-```
-
-### Incremental Builds
-
-Shake tracks dependencies automatically. After modifying an Agda file, only affected modules are recompiled. First full build takes ~60s (stdlib ~20s + project modules), but subsequent builds are much faster (~5-15s for changes).
+Shake tracks Agda dependencies. First full build ~60s; subsequent ~5–15s.
 
 ## Key Files
 
-- **aletheia.agda-lib**: Agda library configuration (see the file itself for the pinned stdlib version)
-- **Shakefile.hs**: Custom build system orchestrating Agda → Haskell → shared library
-- **haskell-shim/aletheia.cabal**: Haskell package definition (includes `foreign-library aletheia-ffi`)
-- **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++ and Go dlopen)
-- **python/pyproject.toml**: Python package configuration
-- **cpp/CMakeLists.txt**: C++23 binding build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
-- **docs/FEATURE_MATRIX.yaml**: Authoritative cross-binding feature parity matrix; paired structural gate tests in `python/tests/`, `go/aletheia/`, `cpp/tests/` fail CI on silent symbol removal. See `docs/development/PARITY_PLAN.md` for the roadmap.
-
-## Requirements
-
-See [Building Guide](docs/development/BUILDING.md#prerequisites) for detailed requirements and installation instructions.
+- **aletheia.agda-lib**: Agda library config (pinned stdlib version)
+- **Shakefile.hs**: build orchestration (Agda → Haskell → shared library)
+- **haskell-shim/aletheia.cabal**: Haskell package + `foreign-library aletheia-ffi`
+- **haskell-shim/src/AletheiaFFI.hs**: FFI exports (Python ctypes, C++/Go dlopen)
+- **python/pyproject.toml**: Python package config
+- **cpp/CMakeLists.txt**: C++23 build (CMake 3.25+, FetchContent for nlohmann/json + Catch2)
+- **docs/FEATURE_MATRIX.yaml**: cross-binding feature parity matrix; structural gate tests in `python/tests/`, `go/aletheia/`, `cpp/tests/` fail CI on silent symbol removal. Roadmap: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md).
 
 ## Important Notes
 
 ### Agda Compilation
 
-- Always use `--safe --without-K` flags by default (enforced in module headers); the 32-module exception under `DBC/TextParser/` is documented in the Module Safety Flag Breakdown above
-- Four modules use `--no-main` (see Module Safety Flag Breakdown above)
-- Generated MAlonzo code goes to `build/` directory
-- Don't edit generated Haskell code; modify Agda source instead
-- **Performance**: Use parallel GHC with `agda +RTS -N32 -M16G -RTS` for all modules
-  - `-N32` parallelism critical for Protocol/StreamState.agda and Main.agda (17s vs >120s timeout)
-  - `-M16G` heap cap prevents runaway elaboration from thrashing the host (62 GiB total + 16 GiB swap; bump only when a specific module legitimately needs it)
-- **First build**: Standard library compiles on first `agda` invocation (~20s one-time cost, cached thereafter)
+- `--safe --without-K` mandatory (header pragma + `check-invariants`); the 48-module `--without-K`-only exception under `DBC/TextParser/` is documented in the flag breakdown.
+- Generated MAlonzo lives in `build/`; never edit — modify Agda source.
 
-### MAlonzo FFI and Name Mangling
+### MAlonzo FFI Name Mangling
 
-MAlonzo mangles function names (e.g., `processJSONLine` → `d_processJSONLine_4`). The build system auto-detects mismatches and provides exact fix commands:
-
-```bash
-cabal run shake -- build
-# If mismatch: ERROR with sed command to fix it
-```
-
-**When it triggers**: Rarely - only when adding/removing Agda definitions before `processJSONLine` in Main.agda.
-
-**Best Practice**: Keep `AletheiaFFI.hs` minimal, update mangled names when needed. Alternative solutions (COMPILE pragmas) would compromise `--safe` guarantees.
-
-### Virtual Environment
-
-See [BUILDING.md](docs/development/BUILDING.md#2-set-up-python-virtual-environment) for Python virtual environment setup.
-
-Quick reference: Create with `python3 -m venv .venv`, activate with `source .venv/bin/activate`
-
-### C++ Binding
-
-File/test inventory and phase deliverables live in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). This section covers design only.
-
-The C++23 binding lives in `cpp/` and wraps `libaletheia-ffi.so` via `dlopen`:
-- **Design**: `IBackend` interface abstracts FFI boundary; `MockBackend` replays JSON for testing; strong types everywhere (`std::byte`, validated newtypes, `std::expected`)
-- **Observability**: Custom `Logger` class (`log.hpp`, ~90 lines) — callback-based structured logging with 15 event types matching Go's slog; zero-cost when null (default)
-- **RTS cores**: `make_ffi_backend(path, rts_cores)` — default 1; once-per-process with mismatch warning
-- **Build**: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
-- **Style**: `.clang-format` + `.clang-tidy` enforce naming/formatting; C++23, targets g++>=14 and clang>=21
-
-### Go Binding
-
-File/test inventory lives in [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics). This section covers design only.
-
-The Go binding lives in `go/` and wraps `libaletheia-ffi.so` via cgo + dlopen:
-- **Optional Excel package**: `go/excel/` is a separate Go module (separate `go.mod`) that pulls in the heavy `xuri/excelize` dependency chain; depend on it only if you need the Excel loader.
-- **Design**: `Backend` interface abstracts FFI; `MockBackend` replays JSON for testing; `FFIBackend` loads .so via `dlopen`/`dlsym` with C trampolines; strong types (`[]byte` payload with DLC-based validation, validated newtypes for CAN ID / DLC, sealed interfaces for CanID/Predicate/Formula)
-- **Observability**: `slog` structured logging via `WithLogger` option (15 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings
-- **RTS cores**: `NewFFIBackend(path, WithRTSCores(n))` — functional option, once-per-process with mismatch warning
-- **Concurrency**: `Client` is goroutine-safe (`sync.Mutex`), double-close safe, GHC RTS init thread-pinned (`LockOSThread`)
-- **Build/test**: `cd go && go test ./aletheia/ -v -count=1 -race`
-- **Style**: `gofmt` + `go vet` clean; godoc on all exports
+MAlonzo mangles names (e.g., `processJSONLine` → `d_processJSONLine_4`). Build auto-detects mismatches and prints exact `sed` fix commands — just run them. Triggers rarely (only when adding/removing definitions before `processJSONLine` in Main.agda). Keep `AletheiaFFI.hs` minimal; alternatives like COMPILE pragmas would compromise `--safe`.
 
 ### Haskell FFI Layer
 
-The Haskell FFI layer is split across 3 files (~470 lines total):
-- **AletheiaFFI.hs** (~277 lines): `foreign export ccall` wrappers → `libaletheia-ffi.so`
-- **AletheiaFFI/Marshal.hs** (~95 lines): Agda type construction helpers (AgdaFrame, AgdaTime, etc.)
-- **AletheiaFFI/BinaryOutput.hs** (~99 lines): Binary response encoding helpers
+3 files (~470 LOC, no business logic):
+- **AletheiaFFI.hs** (~277 LOC): `foreign export ccall` wrappers around `processJSONLine` (JSON commands) and `processFrameDirect` (binary frames via `aletheia_send_frame`).
+- **AletheiaFFI/Marshal.hs** (~95 LOC): Agda type construction helpers.
+- **AletheiaFFI/BinaryOutput.hs** (~99 LOC): binary response encoding.
 
-**Design**:
-- AletheiaFFI.hs wraps `processJSONLine` (JSON commands) and `processFrameDirect` (binary data frames via `aletheia_send_frame`) with C-callable exports
-- State managed via `StablePtr (IORef StreamState)`
-- All bindings load the `.so` via ctypes/dlopen — no subprocess overhead
-- Never add business logic here
+State managed via `StablePtr (IORef StreamState)`. All bindings load `.so` via ctypes/dlopen — no subprocess overhead.
+
+### C++ Binding (`cpp/`)
+
+Wraps `libaletheia-ffi.so` via `dlopen`. `IBackend` interface; `MockBackend` for tests. Strong types (`std::byte`, validated newtypes, `std::expected`). Custom `Logger` (~90L, callback-based, 15 event types matching Go's slog, zero-cost when null). RTS cores via `make_ffi_backend(path, rts_cores)` (default 1, once-per-process with mismatch warning). C++23, targets g++>=14 / clang>=21. Style: `.clang-format` + `.clang-tidy`. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
+
+### Go Binding (`go/`)
+
+Wraps `libaletheia-ffi.so` via cgo + dlopen. `Backend` / `MockBackend` / `FFIBackend` (with C trampolines). Strong types (`[]byte` payload + DLC validation, validated CAN ID / DLC newtypes, sealed CanID/Predicate/Formula interfaces). `slog` via `WithLogger` option (15 event types); `ViolationEnrichment.CoreReason` carries Agda core reason strings. RTS cores via `WithRTSCores` functional option. `Client` is goroutine-safe (`sync.Mutex`), double-close safe, GHC RTS init thread-pinned (`LockOSThread`). Optional `go/excel/` is a separate Go module pulling `xuri/excelize`; depend on it only for the Excel loader. Inventory: [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics).
 
 ### Module Organization
 
-When adding new Agda modules:
-- Follow existing package structure (Parser, CAN, DBC, LTL, etc.)
-- Include correctness properties alongside implementations
-- Use descriptive module names (e.g., `Properties.agda` for proofs)
-- Update Main.agda if new functionality needs exposure
+Follow existing package structure (Parser, CAN, DBC, LTL, …). Include correctness properties alongside implementations (`Properties.agda`). Update Main.agda if new functionality needs FFI exposure.
 
 ### Import Naming Conventions
 
-When importing stdlib modules with conflicting names, use **subscript suffix** pattern for consistency:
+When stdlib operators clash, use **subscript suffix** for consistency:
+- String: `_++ₛ_`, `_≟ₛ_`
+- List: `_++ₗ_`
+- Rational: `_+ᵣ_`, `_*ᵣ_`, `_-ᵣ_`, `_≤ᵣ_`
 
-**Standard naming:**
-- String operators: `_++ₛ_`, `_≟ₛ_`
-- List operators: `_++ₗ_`
-- Rational operators: `_+ᵣ_`, `_*ᵣ_`, `_-ᵣ_`, `_≤ᵣ_`
-
-**Example:**
 ```agda
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.List using (List) renaming (_++_ to _++ₗ_)
 open import Data.Rational using () renaming (_+_ to _+ᵣ_; _*_ to _*ᵣ_)
 
--- Usage (underscores invisible at call sites)
-result = "hello" ++ₛ "world"   -- NOT _++ₛ_
+result   = "hello" ++ₛ "world"
 combined = list1 ++ₗ list2
 ```
 
-**Important**: Underscores are invisible in infix usage, but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
+Underscores are invisible in infix usage but remain when passing operators as parameters (e.g., `foldr _++ₛ_ ""`).
 
 ## Troubleshooting
 
-_Build-time issues beyond this table are collected in [BUILDING.md § Troubleshooting](docs/development/BUILDING.md#troubleshooting)._
+Build-time issues are catalogued in [BUILDING.md § Troubleshooting](docs/development/BUILDING.md#troubleshooting). Common ones:
 
-**Build failures**: `cabal run shake -- clean && cabal run shake -- build`
-
-**Python issues**: Verify venv active (`which python3` → should show `.../.venv/bin/python3`)
-
-**Agda module not found**: Check `~/.agda/libraries` lists standard-library path and `~/.agda/defaults` contains "standard-library"
-
-**MAlonzo name mismatch**: Build provides exact sed command - just run it
-
-**Type-checking timeout**: Always use `agda +RTS -N32 -M16G -RTS` for parallel GHC + heap cap
-
-**`hs_init` failure at first client start**: Symptom is `aletheia_init() returned null` from Python/C++/Go. Usually means the `.so` was built against a different GHC runtime than what's present at load time. Rebuild the shared library (`cabal run shake -- build` — the Shakefile rebuilds `libaletheia-ffi.so`) and make sure no stale copy is shadowing it in `$LD_LIBRARY_PATH`.
-
-**`.so` load failure (`OSError: cannot open shared object file`)**: The FFI loader looks at `_install_config.LIBRARY_PATH` first, then `LD_LIBRARY_PATH`, then `/usr/local/lib`. If you moved the shared library, regenerate `_install_config.py` via `cabal run shake -- install` or point `ALETHEIA_FFI_PATH` at the new location.
-
-**ctypes signature mismatch (Python)**: Symptoms are segfaults, garbage return codes, or `TypeError` on the first FFI call. Usually means `libaletheia-ffi.so` and `aletheia` package versions have drifted. Confirm both were built from the same commit (`python -m aletheia --version`, `strings libaletheia-ffi.so | grep aletheia-ffi-`), and reinstall the Python package if they differ.
-
-**DBC validation rejects a seemingly valid message**: Check the `ValidationIssue.code` enum — common culprits are `signal_overlaps_another`, `signal_exceeds_message_size`, and `multiplexor_value_conflict`. The human-readable table is in [PROTOCOL.md § Common Error Codes](docs/architecture/PROTOCOL.md#common-error-codes). Run `aletheia validate --dbc <file>` to see every issue, not just the first.
-
-**Property formula parse error**: The JSON schema is strict — `"operator"` must be the exact lowercase tag and predicates must live under `{"operator": "atomic", "predicate": {...}}`. If you hand-wrote a formula, compare against `Signal("X").equals(1).to_dict()` output.
+- **Build failures**: `cabal run shake -- clean && cabal run shake -- build`.
+- **MAlonzo name mismatch**: build prints exact `sed` command — run it.
+- **Type-checking timeout**: always `+RTS -N32 -M16G -RTS`.
+- **`hs_init` failure / `aletheia_init() returned null`**: `.so` built against different GHC than loaded. Rebuild (`cabal run shake -- build`); ensure no stale copy in `$LD_LIBRARY_PATH`.
+- **`.so` load failure**: loader checks `_install_config.LIBRARY_PATH` → `LD_LIBRARY_PATH` → `/usr/local/lib`. Regen via `cabal run shake -- install` or set `ALETHEIA_FFI_PATH`.
+- **ctypes signature mismatch (Python)**: `.so` and Python package versions drifted. Compare `python -m aletheia --version` vs `strings libaletheia-ffi.so | grep aletheia-ffi-`.
+- **DBC validation rejection**: check `ValidationIssue.code` enum — table in [PROTOCOL.md § Common Error Codes](docs/architecture/PROTOCOL.md#common-error-codes). `aletheia validate --dbc <file>` to see all issues.
+- **Property formula parse error**: JSON schema is strict (`"operator"` lowercase, predicates under `{"operator": "atomic", "predicate": {...}}`). Compare against `Signal("X").equals(1).to_dict()` output.
 
 ## Performance Considerations
 
-**Parser Combinators**: Use structural recursion on input length (not fuel-based) to avoid type-checking timeouts. Helper functions avoid `with` patterns in type signatures.
-
-**Type-Checking**: **Always use `agda +RTS -N32 -RTS`** for parallel GHC (17s vs >120s timeout for StreamState/Main). First build caches stdlib (~20s).
+- **Parser combinators**: structural recursion on input length, not fuel — fuel breaks termination or blows up type-checking. See `Parser/Combinators.agda`.
+- **Type-checking**: always `+RTS -N32 -RTS` (StreamState/Main otherwise time out past 120s).
+- **Hot path**: `Dec`-valued predicates allocate proof terms per call in MAlonzo. Replace with `Bool`-valued fast path + equivalence lemma. See `extractSignalCoreFast` for the pattern.
 
 ## Implementation Phases
 
-See [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed phase status, deliverables, and roadmap.
-
-**Current**: Phase 5.1 complete. Binary FFI (4.3x CAN 2.0B, 9.1x CAN-FD), CAN-FD, C++/Go bindings, cross-language benchmarks all complete. Four-tier check interface with full cross-language parity. See PROJECT_STATUS.md for detailed metrics and review history.
+[PROJECT_STATUS.md](PROJECT_STATUS.md). Current state: Phase 5.1 complete (binary FFI 4.3× CAN 2.0B / 9.1× CAN-FD; CAN-FD; C++/Go bindings; cross-language benchmarks; four-tier check interface with full parity). Active track: Phase B.3.d.
 
 ---
 
-## For Human Developers
+## Notes for newcomers
 
-This section provides guidance for developers new to Agda or the Aletheia codebase.
+Start with the [Project Pitch](docs/PITCH.md) for context.
 
-**New to the project?** Start with the [Project Pitch](docs/PITCH.md) to understand why Aletheia exists and what it solves.
-
-### For Agda Newcomers
-
-If you're new to Agda but familiar with Python/typed languages:
-
-**Basic Syntax:**
-- `→` means function arrow (like `->` in types)
-- `∀` means "for all" (universal quantification)
-- `ℕ` is natural numbers (type Nat with `\bN`)
-- `ℚ` is rationals (type with `\bQ`)
-- `≡` is propositional equality (type with `\==`)
-
-**Safety Flags:**
-- `--safe` ensures no undefined behavior (like Rust's borrow checker)
-  - No postulates, no unsafe primitives, all functions terminate
-  - Used in all 143 Aletheia modules
-- `--without-K` disables Streicher's K axiom (uniqueness of identity proofs)
-  - Makes code compatible with Homotopy Type Theory
-  - Required for formal verification
-
-**Dependent Types:**
-Types can depend on values:
-- `Vec Byte 8` - vector of exactly 8 bytes (length in type!)
-- `Fin n` - numbers 0 to n-1 (bounds checking at compile time)
-- `CANId` uses `ℕ` (natural numbers) with range checked at parse time
-
-**Common Patterns:**
-- **Pattern matching with `with`**: Extract intermediate values
-- **Structural recursion**: Functions recurse on structurally smaller inputs
-  - Parser combinators recurse on `length input` (always decreasing)
-  - No fuel needed - termination guaranteed!
-- **Module imports with renaming**: Avoid name clashes (see Import Naming Conventions above)
-
-**Reading Error Messages:**
-- **Yellow highlighting**: Type mismatch - check expected vs actual types
-- **"Not in scope"**: Import missing or wrong module name
-- **"Termination checking failed"**: Function might not terminate
-  - Use structural recursion on input length or add fuel parameter
-  - See Parser/Combinators.agda for examples
-- **"_X_42 is not defined"**: Agda generates metavariables - fill the hole!
-
-**Why formal methods for automotive?**
-- Guarantees correctness (not just testing)
-- Signal extraction bugs can cause safety issues
-- LTL properties prove temporal safety constraints
+**Operational pitfalls** (most are caught by build/lint, but easy to trip on first time):
+- `Dec`-valued predicates on the streaming hot path: MAlonzo allocates per call. Use `Bool`-valued fast path + equivalence lemma (`extractSignalCoreFast`).
+- Fuel-based parser combinators: structural recursion on `length input` only.
+- Type-checking without `+RTS -N32 -RTS`: large modules time out past 120s.
+- Running tools from the repo root: `pytest` / `basedpyright` / `pylint` need `cd python` first (config picks up nearest `pyproject.toml`).
 
 **Key terms used elsewhere in this file:**
-- **MAlonzo**: Agda's Haskell backend. `agda --compile` produces a `MAlonzo/` directory of generated `.hs` files; the Cabal package and FFI shared library are built on top of those. Function names get mangled (e.g., `processJSONLine` → `d_processJSONLine_4`).
-- **stdlib / agda-stdlib**: The Agda standard library (`agda-stdlib`). Pinned to v2.3 in `aletheia.agda-lib`. Provides `Data.Nat`, `Data.List`, `Relation.Binary.PropositionalEquality`, etc.
-- **HoTT (Homotopy Type Theory)**: A foundational framework where types correspond to topological spaces and equalities are paths. `--without-K` makes the codebase compatible with HoTT-style reasoning by forbidding the K axiom (uniqueness of identity proofs).
-- **`Dec A`**: A type expressing decidability: `Dec A = yes (a : A) ⊎ no (¬ A)`. Carries a *proof object* at runtime, which is why `Dec`-valued predicates allocate per call on hot paths — see "Common newcomer mistakes" below for the `Bool` workaround.
-- **Kleene three-valued logic**: A logic with three truth values — true, false, and unknown — used for `FinalVerdict` (`Holds`, `Violated`, `Unsure`) when streaming truncates before a liveness property resolves.
-- **`@0` / erased modality**: Enabled by the library-level `--erasure` flag. Arguments marked `@0` are erased at compile time (zero runtime cost), used for phantom type parameters like `Timestamp μs`.
-- **`hs_init`**: GHC RTS startup function. The FFI shared library calls it once at first client construction; failures usually mean the `.so` was built against a different GHC than is loaded at runtime.
+- **MAlonzo**: Agda's Haskell backend. `agda --compile` produces a `MAlonzo/` directory of generated `.hs` files; the Cabal package and FFI shared library are built on top. Function names get mangled.
+- **`Dec A`**: A type expressing decidability (`yes (a : A) ⊎ no (¬ A)`). Carries a *proof object* at runtime — that's why it allocates on hot paths.
 
-**Resources:**
-- [Agda Documentation](https://agda.readthedocs.io/)
-- [Standard Library](https://agda.github.io/agda-stdlib/)
-- [Agda Tutorial](https://agda.readthedocs.io/en/latest/getting-started/tutorial-list.html)
+**Code style**: per-language conventions live in [AGENTS.md](AGENTS.md). Don't duplicate here.
 
-### Common newcomer mistakes
+**Pre-commit minimum** (doc-only changes): `agda +RTS -N32 -RTS src/Aletheia/Main.agda` → `cabal run shake -- build` → relevant binding tests. For code changes, [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the canonical 4-gate sequence (Agda build → unit tests → lint gates → benchmarks); do not let this section drift from it.
 
-Concrete failure modes the first-time Aletheia contributor tends to hit, and the one-line fix for each:
-
-- **Forgetting `--safe --without-K` on a new module**. The top-of-file pragma is enforced by the build system — a new module without it breaks CI. Copy the header from a neighbour.
-- **Using `with x` where the proof needs to remember what `x` was**. The bare `with` form drops the equation; use `with x in eq` so you can `rewrite eq` (or `subst`) in the branches. Symptom: you can prove the goal in a hole but Agda won't accept the refined LHS.
-- **Using `Dec`-valued predicates on the streaming hot path**. MAlonzo allocates a proof term per call for `Dec`; replace with a `Bool`-valued fast path plus an equivalence lemma. Missing this is what caused the R12 bench regression — see `extractSignalCoreFast` for the pattern.
-- **Editing generated MAlonzo Haskell in `build/`**. The `build/` tree is overwritten on every build; changes must land in the Agda source. If you see a name-mangling mismatch, update `haskell-shim/src/AletheiaFFI.hs` using the exact `sed` command the build emits — don't edit the generated file.
-- **Writing Agda parser combinators that recurse on "fuel" instead of decreasing input length**. Structural recursion on `length input` is what keeps the termination checker happy and the typechecker fast; see `Parser/Combinators.agda`. A fuel argument will either fail termination or blow up typechecking time.
-- **Type-checking without `+RTS -N32 -RTS`**. Large modules (`Protocol/StreamState.agda`, `Main.agda`) time out past 120s without parallel GHC. Always use `agda +RTS -N32 -RTS`.
-- **Running `pytest` / `basedpyright` / `pylint` from the repo root instead of `python/`**. The tools pick up config from the nearest `pyproject.toml`; outside `python/` they either find no tests or the wrong rules. `cd python && ...` before running any of them.
-
-### Code Style
-
-**Agda:**
-- Naming: Follow stdlib conventions
-- Indentation: 2 spaces
-- Line length: Aim for 80 characters, max 100
-
-**Haskell:**
-- Style: Follow standard Haskell style
-- Keep it minimal: Haskell shim should stay minimal (see Haskell FFI Layer section above)
-
-**C++:**
-- Standard: C++23, targets g++>=14 and clang>=21
-- Style: `.clang-format` and `.clang-tidy` in `cpp/`
-- Use `#pragma once` (not `#ifndef` guards)
-
-**Go:**
-- Style: `gofmt` (non-negotiable), `go vet` clean
-- Godoc: One-line comment on all exported types, functions, constants
-- Naming: Go MixedCaps, keep `CanID`/`Dbc` prefix for readability (deliberate acronym casing choice)
-- Tests: `cd go && go test ./aletheia/ -v -count=1 -race`
-
-**Python:**
-- Style: PEP 8
-- Type hints: Use throughout
-- Docstrings: Google style
-
-### Contributing
-
-**Commit Messages:**
-Follow conventional commits:
-```
-feat(CAN): Add multiplexed signal support
-fix(Parser): Handle trailing whitespace in DBC
-docs(BUILDING): Add macOS-specific notes
-```
-
-**Before Committing:**
-
-The minimal pre-commit check (sufficient for documentation-only changes):
-
-1. Ensure code type-checks: `agda +RTS -N32 -RTS src/Aletheia/Main.agda`
-2. Build succeeds: `cabal run shake -- build`
-3. Tests pass:
-   - Python: `cd python && python3 -m pytest tests/ -v`
-   - C++: `cd cpp && cmake -B build && cmake --build build && ctest --test-dir build`
-   - Go: `cd go && go test ./aletheia/ -v -count=1 -race`
-
-For code changes, [AGENTS.md § Step 4: Implement and verify](AGENTS.md#step-4-implement-and-verify) defines the **canonical 4-gate verification sequence** (Agda build → unit tests → lint gates → benchmarks) — that is the authoritative source. The 3-step list above is a doc-only shortcut; do not let it drift from AGENTS.md.
+**Resources**: [Agda Documentation](https://agda.readthedocs.io/), [Standard Library](https://agda.github.io/agda-stdlib/), [Agda Tutorial](https://agda.readthedocs.io/en/latest/getting-started/tutorial-list.html).
 
 ---
 
 ## Current Session Progress
 
-For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d pre-gate) see [PROJECT_STATUS.md](PROJECT_STATUS.md). For the in-flight commit / next steps / resume notes see [.session-state.md](.session-state.md).
+For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d pre-gate, Layers 1–2, Layer 3 commits 3a/3b/3c.0–3c.4/3d.1–3d.3) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
 **Current track:** Phase B.3.d — universal DBC text-parser roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d`. Decomposition in [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md): (1) `List Char` substrate; (2) per-primitive parse/emit lemmas; (3) per-line-construct lemmas; (4) top-level aggregator induction.
 
-**Status (2026-04-26):**
-- **Pre-gate ✅** (`0b7849b`–`1f175ab`, 2026-04-24): ℚ→DecRat migration across every DBC-on-disk numeric field. Universal `fromℚ?-after-toℚ` proven. `mkℚ`-direct `toℚ` runtime optimisation closed a 9–15% CAN-FD Signal Extraction regression and lifted CAN 2.0B +16% cross-binding. `NonTerminatingRational "<field>"` parse error wired cross-binding.
-- **Layer 1 ✅** (`66afc2d`, 2026-04-24): 2-axiom `Properties/Substrate/Unsafe.agda` (`toList∘fromList` + `fromList∘toList`), allowlisted in `check-invariants`. Formatter refactored to `List Char` internals (`formatText = fromList ∘ formatChars`).
-- **Layer 2 ✅** (`9adbc46` + `4559d5c` + `f315c6f`, 2026-04-24/25): Identifier lifted to `record { name ; valid : T (validIdentifierᵇ (toList name)) }` (5–10% Signal Extraction regression accepted; revisit angles in `project_identifier_eq_revisit.md`). `parseIdentifier-roundtrip` template + Tier A (byte-order/sign/scope/string-type) + Tier B (string-literal/mux-marker) primitives.
-- **Layer 3 in_progress** — **Commit 3a `804c584` ✅** (Preamble: VERSION + BS_ + NS_; reusable Newline infrastructure under `Properties/Preamble/Newline.agda`; Properties facade pattern per `feedback_properties_facade_split.md`).  **Commit 3b `ad111bf` ✅** (Option C-broad): all four simple-line constructs land together — `BU_` (Topology/Nodes) + `VAL_TABLE_` (ValueTables/ValueTable) + `EV_` (EnvVars/EnvVar) + `CM_` (Comments/Comment) with full per-construct roundtrips wired through facade modules under `Properties/{Topology,ValueTables,EnvVars,Comments}.agda`.  CM_ proof closes the most complex Layer-3 construct: 5-way `CommentTarget` dispatch via 4-fold `<|>`-chain plus outer `pure CTNetwork` fall-through.  Heap blowup root-caused and fixed: `buildCANId-rawCanIdℕ`'s Extended clause `rewrite n+ext∸ext≡n` over a goal containing nested `ifᵀ`s replaced with pointwise `subst`; type-checks at `-M16G` (was failing at `-M48G`).
-- **Layer 3 Commit 3c precursors ✅** (2026-04-25): three commits unifying every DBC numeric slot to DecRat ahead of the per-line attribute roundtrip proofs.  **`3a7c86e`** introduces `IntDecRat` / `NatDecRat` refinement records (DecRat + `T (predicateᵇ value)` witness, mirroring Identifier T3-fixed pattern) — `Aletheia/DBC/DecRat/Refinement.agda` (~190 LOC) plus migration of `AttrType` / `AttrValue` integer/nat fields, and a new `Properties/Attributes/Common.agda` (~190 LOC) foundation for the per-line proofs.  JSON wire / cantools wire formats preserved by converting at boundaries.  **`c884e69`** subsumes `parseInt` into `parseDecRat = parseDecRatFrac <|> parseDecRatBareInt` (frac form first — `<|>` left-bias keeps `42.5` from being split into bare-int `42` + leftover `.5`).  Internal proofs renamed `parseDecRat-roundtrip-*` → `parseDecRatFrac-roundtrip-*`; new public `parseDecRat-roundtrip-suffix` wraps via `alt-left-just`.  **`7a44c87`** completes the symmetry: `parseIntDecRat` / `parseNatDecRat` (`parseDecRat >>= λ d → ifᵀ predicateᵇ d then mkRefined else fail`) replace `parseInt` / `parseNatural` in `parseIntType` / `parseHexType` — every DBC numeric slot now flows through `parseDecRat`.
-- **Layer 3 Commit 3c.0 foundation ✅** (2026-04-26, `2bee3e5` + `cd723f2`): closes the parser-side roundtrip primitives Common.agda will compose with for 3c per-line attribute proofs.  **`2bee3e5`** ships `parseDecRat-bareInt-roundtrip-suffix : ∀ z pos suffix → SuffixStops isDigit suffix → '.' ≢ headOr suffix '_' → parseDecRat pos (showInt-chars z ++ suffix) ≡ just (mkResult (fromℤ z) ...)` (~430 LOC incl. helpers `headOr`/`≢→≡ᵇ-false-ℕ`/`≢→≈ᵇ-false`/`char-dot-fail-on-non-dot`/`canonicalizeDecRat-zero-exp`/`alt-right-nothing-here`/`bind-nothing-here`/`parseDecRatFrac-fails-+/-neg`/`parseDecRatBareInt-roundtrip-+/-neg`); composes via `alt-right-nothing` over a `parseDecRatFrac` failure (proven by dispatch on `headOr`) and `parseDecRatBareInt` success.  Plus `Refinement.agda` bridge lemmas `fromℤ-intDecRatToℤ` and `fromℕ-natDecRatToℕ` (5-case structural with `()` absurd patterns).  **`cd723f2`** lifts to refined parsers: `parseIntDecRat-roundtrip-suffix` and `parseNatDecRat-roundtrip-suffix` (~135 LOC) via `bind-just-step` ▸ `ifᵀ-witness` (witness pinned via `subst T (sym isIntegerᵇ-fromℤ) tt` / `subst T (sym isNonNegIntegerᵇ-fromℕ) tt`) ▸ `mkIntDecRatFromℤ-intDecRatToℤ` / `mkNatDecRatFromℕ-natDecRatToℕ` recovery.
-- **Layer 3 Commit 3c.1 ✅** (2026-04-26, `12175ac`): `parseAttrDef-roundtrip` (5 standard scopes via `WfAttrDef-NotRel` dispatch) + `parseAttrDefRel-roundtrip` (2 rel scopes via `WfAttrDef-Rel` dispatch).  Three new modules totaling ~2,647 LOC: `Properties/Attributes/Type.agda` (~1,176L per-tag `parseAttrTypeDecl-roundtrip-AT*` for STRING/INT/FLOAT/ENUM/HEX), `Properties/Attributes/Def.agda` (~1,428L), `Properties/Attributes.agda` (43L facade).
-- **Layer 3 Commit 3c.2 ✅** (2026-04-26): `parseRawAttrDefault-roundtrip` (BA_DEF_DEF_).  Three top-level cases by emit shape (RavString, RavDecRat-frac, RavDecRat-bareInt) via 9-step parameterised `parseRawAttrDefault-after-keyword` (~578L `Properties/Attributes/Default.agda`).
-- **Layer 3 Commit 3c.3 ✅** (2026-04-26): `parseRawAttrAssign-roundtrip` + `parseRawAttrRel-roundtrip` — 21 dispatchers (5 standard targets × 3 emit shapes + 2 rel targets × 3 emit shapes).  Per-target sub-files under `Properties/Attributes/Assign/`: **`Common.agda`** (shared head-classify witnesses, value-stops-isHSpace witnesses, showNat-chars-head-stop-isHSpace), **`Network.agda`** (ATgtNetwork × 3; fall-through case via 3-class failure on value head), **`Node.agda`** (ATgtNode × 3; parseNodeTgt-roundtrip via 5-step bind chain + 3 nested alt-left-just composition; carries `IdentNameStop` precondition), **`Message.agda`** (ATgtMessage × 3; wrapMsgTarget-roundtrip via `with buildCANId | refl` K-elim avoidance + 5-step bind chain), **`Signal.agda`** (ATgtSignal × 3; 7-step parseSigTgt + IdentNameStop sig precondition), **`EnvVar.agda`** (ATgtEnvVar × 3; last alt with 3 alt-right-nothings then alt-left-just), **`Rel.agda`** (NodeMsg + NodeSig × 3; parseNodeMsgTgt 7-step + parseNodeSigTgt 11-step bind chain via continuation helpers cont1..cont10).  6 per-target after-keyword helpers + facade `Assign.agda` re-exporting all 21 dispatchers + `IdentNameStop` precondition (Layer 4 will discharge from `validIdentifierᵇ` via the `isIdentStart→¬isHSpace` bridge lemma).  Module count 171 → 180 (+9).
-- **Layer 3 Commit 3c.4 ✅** (2026-04-26): top-level `parseAttrLine-roundtrip` 5-way `<|>` dispatch composer — 31 dispatchers covering every input shape (2 alt1 RawDef-Rel × {NodeMsg, NodeSig} + 3 alt2 RawDefault × 3 emit shapes + 5 alt3 RawDef-NotRel × 5 standard scopes + 6 alt4 RawAssign-Rel × {NodeMsg, NodeSig} × 3 emit shapes + 15 alt5 RawAssign × 5 standard targets × 3 emit shapes).  Single new module `Properties/Attributes/Line.agda` (~1,021 LOC).  Composition pattern: 5 `parseAttrLine-lift-altK` helpers (`infixl 3 _<|>_` left-assoc unfolding `parseAttrLine ≡ ((((P1 <|> P2) <|> P3) <|> P4) <|> P5)`); each lift-altK takes (K-1) `nothing` proofs + 1 `just r` proof and stacks `alt-right-nothing` ▸ `alt-left-just`.  Cross-keyword failure proofs land by `refl` on concrete char-mismatch (e.g. `"BA_REL_"` head fails on input starting with `"BA_DEF_"`).  Each dispatcher composes a lift-altK with the corresponding 3c.1/3c.2/3c.3 lower-level proof via `bind-just-step` over `pure (Wrap d)`.  Default.agda Trace module privacy lifted (was `private`) for alt2 dispatcher result-position references; safe because `Properties.Attributes` re-exports Default with explicit `using (...)` clause that doesn't list Trace.  Module count 180 → 181 (+1).
-- **Layer 3 Commit 3d.1 ✅** (2026-04-26): text-roundtrip WF foundation.  New module `Aletheia/DBC/Formatter/WellFormedText.agda` (~165 LOC, `--safe --without-K`) extends `Formatter/WellFormed.agda` with three text-format-specific constraints: (1) `NoVectorXXXReceiver` — receivers list contains no identifier literally named `"Vector__XXX"` (the formatter emits the placeholder for `[]`, the parser strips it, but a user-supplied `[Vector__XXX]` would collapse on roundtrip); (2) `WellFormedTextPresence` — presence is `Always` or singleton `When m (v ∷ [])` (multi-value mux selectors deferred to SG_MUL_VAL_ integration per `TextParser.Topology` docstring); (3) `MasterCoherent` — if any `When` slave references master `m`, then a signal with name = `m` and presence = `Always` exists in the same message, and every `When` slave references the same master.  Bundled as `WellFormedTextSignal` + `WellFormedTextMessage` (records over `WellFormedMessageRT` plus `senders ≡ []` because BO_TX_BU_ isn't yet emitted) + `WellFormedTextDBC`.  No proofs ship in 3d.1; 3d.x will discharge them in the per-construct roundtrip lemmas.  Foundation pattern follows advisor 2026-04-26: design WF data type before per-line proof.  Shakefile walk root added (3d.x will remove it once the WF type becomes transitively reachable).  Module count 181 → 182 (+1).
-- **Layer 3 Commit 3d.2 ✅** (this session, 2026-04-26): smallest independent piece — `parseReceiverList-roundtrip` primitive + `stripVectorPlaceholder` lemmas.  New module `Aletheia/DBC/TextParser/Properties/Topology/Receivers.agda` (~430 LOC, `--without-K` only — transitively imports `Substrate/Unsafe.agda` via `Lexer.agda`).  Four sub-lemmas (advisor's split): (1) `parseReceiverList-roundtrip-empty` — empty input emits `"Vector__XXX"`, parser recovers `[ident-VectorXXX]`; (2) `parseReceiverList-roundtrip-cons` — non-empty input recovers verbatim; (3) `stripVectorPlaceholder-vectorXXX` — singleton placeholder collapses to `[]` (closes by `refl` since closed-string `≟ₛ` reduces); (4) `stripVectorPlaceholder-no-vectorXXX` — strip is identity on lists with all names ≢ `"Vector__XXX"`.  Plus a composed theorem `parseReceiverList∘strip-roundtrip` for 3d.3 to consume.  Composition mirrors `manyHelper-parseWSIdent-body` from `Topology/Nodes.agda` but with `,` separator (single literal char) instead of `parseWS` — cleaner because no per-receiver `IdentNameStop`-style precondition is needed.  Suffix precondition `SuffixStops isReceiverCont suffix` where `isReceiverCont c = isIdentCont c ∨ (c ≈ᵇ ',')` — single predicate captures both inner-many and outer-many stop conditions.  New helper `bind-fail-step` (dual to `bind-just-step`) closes the failure path on receiver-stop suffix.  Wired through `Properties/Topology.agda` facade + top-level `TextParser/Properties.agda` (no separate Shakefile walk root needed since the Topology facade is already a check-properties root).  Module count 182 → 183 (+1).
-- **Layer 3 Commit 3d.3 ✅** (this session, 2026-04-26; **3d.3a `6f418c4`** + **3d.3b** pending commit on top): per-MuxMarker `parseSignalLine` roundtrip dispatchers fully shipped.  Module `Properties/Topology/Signal.agda` grew to ~2,460 LOC (`--without-K` only, transitively imports `Substrate/Unsafe.agda` via `Lexer.agda`).
-  * **3d.3a infrastructure** (`6f418c4`, ~520 LOC): `SignalNameStop` precondition record; `expectedRaw : MuxMarker → DBCSignal → ℕ → RawSignal` per-dispatcher result-shape helper; `tailBody-chars` (the 21-segment right-associated `++ₗ` body from `" : "` through `'\n' ∷ []`); `emitSignalLine-chars-shape` (3-step `++ₗ-assoc` reassociation); `parseSignalTail : Identifier → MuxMarker → Parser RawSignal` (28-step bind chain factored out); `parseSignalLine-decompose ≡ refl` (validates `parseSignalLine ≡ <head> >>= λ name → parseMuxMarker >>= λ mux → parseSignalTail name mux`); `TailPositions` parameterized module tracking `pos₁..pos₂₇`; `parseWSOpt-zero` / `parseWSOpt-one-space` helpers.  **Layer 2 companion fix:** `Properties/Primitives.agda` `parseMuxMarker-IsMux-roundtrip` had an unused `SuffixStops isHSpace suffix` precondition removed (unprovable in SG_ context where post-mux suffix is `" : ..."` starting with hspace).
-  * **3d.3b proof body** (~1,940 LOC added on top): `tailBody-with-suffix` right-associated form pushing the outer suffix all the way through; `tailBody-segments` + `buildTail` + `buildTail-++-shift` structural induction (replaces the 11-stage `cong (trans …)` cascade flagged earlier this session as "long cong (trans …)" anti-pattern); `tailBody-shape` bridging `tailBody-chars ++ suffix ≡ tailBody-with-suffix`; full 28-step `parseSignalTail-roundtrip` (~580 LOC) composing `bind-just-step` per step + Layer 2 lemmas (parseStringLit, parseDecRat-roundtrip-suffix, parseNatural, parseByteOrderDigit, parseSignFlag, parseReceiverList∘strip-roundtrip); `walkSegments` + `walkSegments-buildTail` (Position-accumulating analog to `buildTail-++-shift`); `tail-pos-end-eq` proving `advancePositions pos (tailBody-chars fb sig) ≡ TailPositions.pos₂₇` (closes via walkSegments + closed-string reductions; final segment-list ≡ `pos₂₆` step closes by `refl`); `parseMuxMarker-fails-on-colon-tail` Layer 2 helper (`parseMuxMarker-left-branch pos (' ' ∷ ':' ∷ rest) ≡ nothing` via `parseWS-one-space` + double `bind-nothing` + `alt-right-nothing`); `emitSignalLine-chars-with-suffix-shape` one-step input rewrite; three per-dispatcher main theorems `parseSignalLine-roundtrip-{NotMux,IsMux,SelBy}` (~150 LOC each), composing `cong` over input shape + `parseSignalLine-decompose` + 4 head bind steps (parseWSOpt + string "SG_" + parseWS + parseIdentifier-roundtrip) + mux-dispatcher Layer 2 lemma + `parseSignalTail-roundtrip` + position alignment (4× `sym advancePositions-++` + `++ₗ-identityʳ`-bracketed `emitSignalLine-chars-shape` over empty suffix).  Closed-string reduction observation: `toList " SG_ "`, `toList "SG_"`, `toList " : "` all reduce to cons literals under `--safe --without-K`; alignment proofs depend on this.  Process correction: 3d.3 was unilaterally split into 3d.3a/3d.3b at first commit; user flagged "I do not want any more of these 'unilateral splits'", which prompted codifying a 2-question pre-commit gate in `AGENTS.md` (`175a6a7`) + new memory `feedback_pre_commit_scope_check.md`, then pushing through 3d.3b in the same session per user's "Please push through the dispatchers." directive.
-- **Architectural plan locked 2026-04-26 (post-3d.3b):** before continuing the per-line proof tree, two refactors land first per `docs/development/PARITY_PLAN.md` §B.3.d:
-  1. **3d.4 Identifier de-tainting (~1w):** `Identifier.name : String → List Char`; Lexer drops the `fromList` + `toList∘fromList` axiom dependency; 47 modules under `DBC/TextParser/` lift from `--without-K` to `--safe --without-K`; `Substrate.Unsafe.agda` retained only for the outer `parseText/formatText` wrap.
-  2. **3d.5 Format DSL framework (~4-6w):** single inductive `Format A` GADT with derived `emit`/`parse`/`stopPred` and a universal roundtrip theorem proven once; per-line constructs collapse from ~500-2000 LOC each to ~10-30 LOC each; ~85% Layer-3 LOC reduction (~25,000 → ~3,500).  Six sub-phases: framework core → single-construct validation (parseValueTable) → pinch-point extensions (caseFmt for mux dispatch, iso for refinement types, asymmetric strip) → migration of 3a-3d.3 → application to renumbered 3d.6-3d.8 → Layer 4 aggregation.
-- **Layer 3 commits 3d.6 / 3d.7 / 3d.8 (renumbered from pre-2026-04-26 plan's 3d.4/3d.5/3d.6) pending — ship under the Format DSL after 3d.5 lands:** `manyHelper-parseSignalLine-body` recursion induction + signal-list resolution roundtrip + `parseMessage-roundtrip` outer composer.
-- **Layer 4 pending** — top-level aggregator induction over the `DBC` record (becomes `roundtrip DBC-format` once Format DSL lands) + the owed char-class-disjointness bridge lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) plus `showInt-chars-head-non-hspace` (locally provable, ~15L).
+**Status (2026-04-26):** Layers 1–2 ✅; Layer 3 through 3d.3 ✅ (commits 3a/3b/3c-precursor/3c.0/3c.1/3c.2/3c.3/3c.4/3d.1/3d.2/3d.3a/3d.3b — per-commit detail in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`).  **3d.4 IN PROGRESS (uncommitted WIP)** — source-side core refactor done (`Identifier.name : List Char`, Substrate.Unsafe trimmed, Lexer lifted to `--safe`, Types accessors via `fromList ∘ Identifier.name`, formatter sub-modules + selected runtime/validator modules updated); ~20 source files + proof-side reshape (esp. `Properties/Primitives.agda` `parseIdentifier-roundtrip` keystone) still pending.  Cannot land partially per pre-commit scope gate.  See `.session-state.md` for the full WIP map and resumption strategy.
 
-**Module count:** 184 Agda modules — see Module Safety Flag Breakdown above.  Net +18 vs 166 post-3b: `Aletheia/DBC/DecRat/Refinement.agda` (`--safe --without-K`) + the Attributes proof tree (`Properties/Attributes/{Common,Type,Def,Default,Line}.agda` + `Properties/Attributes/Assign/{Common,Network,Node,Message,Signal,EnvVar,Rel}.agda` + 2 facades) — all `--without-K` only modulo `Refinement.agda` (transitively import `Substrate/Unsafe.agda` via `Lexer.agda`) — plus `Aletheia/DBC/Formatter/WellFormedText.agda` (`--safe --without-K`, 3d.1 2026-04-26), `Aletheia/DBC/TextParser/Properties/Topology/Receivers.agda` (`--without-K` only, 3d.2 2026-04-26), and `Aletheia/DBC/TextParser/Properties/Topology/Signal.agda` (`--without-K` only, 3d.3 2026-04-26 — grew across 3d.3a `6f418c4` infrastructure + 3d.3b proof body).
+**Architectural plan locked 2026-04-26 (post-3d.3b)** per [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md):
+1. **3d.4 Identifier de-tainting (~1w)**: `Identifier.name : String → List Char`; Lexer drops the `fromList` + `toList∘fromList` axiom dependency; 47 modules under `DBC/TextParser/` lift from `--without-K` to `--safe --without-K`; `Substrate.Unsafe.agda` retained only for the outer `parseText/formatText` wrap.
+2. **3d.5 Format DSL framework (~4–6w)**: single inductive `Format A` GADT with derived `emit`/`parse`/`stopPred` and a universal roundtrip theorem proven once; per-line constructs collapse from ~500–2000 LOC each to ~10–30 LOC each (~85% Layer-3 LOC reduction). Six sub-phases: framework core → single-construct validation (parseValueTable) → pinch-point extensions (caseFmt, iso, asymmetric strip) → migration of 3a–3d.3 → application to renumbered 3d.6–3d.8 → Layer 4 aggregation.
 
-**Cross-binding parity roadmap:** [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..6, B.3.d Layer 4 owed lemmas, B.3.d-gated cantools drop) tracked in memory under `project_*` files.
+**Layer 3 pending (renumbered, ship under Format DSL after 3d.5)**: 3d.6 `manyHelper-parseSignalLine-body` recursion induction; 3d.7 signal-list resolution roundtrip; 3d.8 `parseMessage-roundtrip` outer composer.
+
+**Layer 4 pending**: top-level aggregator induction over `DBC` (becomes `roundtrip DBC-format` once DSL lands) + char-class-disjointness bridge lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) + `showInt-chars-head-non-hspace` (~15L, locally provable).
+
+**Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..6, B.3.d Layer 4 owed lemmas, B.3.d-gated cantools drop) tracked in `memory/project_*.md`.
