@@ -194,3 +194,34 @@ isInt-from-isNat (mkDecRat -[1+ _ ]  _       _       _) ()
 natDecRatToIntDecRat : NatDecRat → IntDecRat
 natDecRatToIntDecRat (mkNatDecRat d wf) =
   mkIntDecRat d (isInt-from-isNat d wf)
+
+-- ============================================================================
+-- Round-trip on the underlying DecRat
+-- ============================================================================
+--
+-- `fromℤ (intDecRatToℤ v) ≡ IntDecRat.value v` — projecting through ℤ and
+-- back recovers the underlying DecRat record.  Per-line attribute proofs
+-- (Layer 3 Commit 3c) lean on this when the parser produces
+-- `RavDecRat (fromℤ z)` from `showInt-chars z` (via
+-- `parseDecRat-bareInt-roundtrip-suffix`) and the rawOf*Value bridge in
+-- `Properties/Attributes/Common.agda` references `IntDecRat.value v`.
+--
+-- All non-absurd cases close by `refl`: the projected canonical witness
+-- in the original record and the freshly-built witness from `fromℤ` are
+-- both `tt : ⊤` (since `IsCanonical _ 0 0 = T (isCanonicalᵇ _ 0 0)
+-- = T true = ⊤`); the irrelevant `.canonical` field doesn't enter
+-- propositional equality.
+
+fromℤ-intDecRatToℤ : ∀ v → fromℤ (intDecRatToℤ v) ≡ IntDecRat.value v
+fromℤ-intDecRatToℤ (mkIntDecRat (mkDecRat (+ zero)    zero    zero    _) _)  = refl
+fromℤ-intDecRatToℤ (mkIntDecRat (mkDecRat (+ suc _)   zero    zero    _) _)  = refl
+fromℤ-intDecRatToℤ (mkIntDecRat (mkDecRat -[1+ _ ]    zero    zero    _) _)  = refl
+fromℤ-intDecRatToℤ (mkIntDecRat (mkDecRat _           zero    (suc _) _) ())
+fromℤ-intDecRatToℤ (mkIntDecRat (mkDecRat _           (suc _) _       _) ())
+
+fromℕ-natDecRatToℕ : ∀ v → fromℤ (+ natDecRatToℕ v) ≡ NatDecRat.value v
+fromℕ-natDecRatToℕ (mkNatDecRat (mkDecRat (+ zero)    zero    zero    _) _)  = refl
+fromℕ-natDecRatToℕ (mkNatDecRat (mkDecRat (+ suc _)   zero    zero    _) _)  = refl
+fromℕ-natDecRatToℕ (mkNatDecRat (mkDecRat (+ _)       zero    (suc _) _) ())
+fromℕ-natDecRatToℕ (mkNatDecRat (mkDecRat (+ _)       (suc _) _       _) ())
+fromℕ-natDecRatToℕ (mkNatDecRat (mkDecRat -[1+ _ ]    _       _       _) ())
