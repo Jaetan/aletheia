@@ -128,8 +128,31 @@ open import Aletheia.DBC.TextParser.Properties.Attributes public
   using ( WfAttrType; WfATInt; WfATFloat; WfATString; WfATEnum; WfATHex
         ; WfAttrDef-NotRel; Wf-Network; Wf-Node; Wf-Message; Wf-Signal; Wf-EnvVar
         ; WfAttrDef-Rel;    Wf-NodeMsg; Wf-NodeSig
+        ; IdentNameStop
         ; parseAttrDef-roundtrip
         ; parseAttrDefRel-roundtrip
         ; parseRawAttrDefault-roundtrip-RavString
         ; parseRawAttrDefault-roundtrip-RavDecRatFrac
-        ; parseRawAttrDefault-roundtrip-RavDecRatBareInt)
+        ; parseRawAttrDefault-roundtrip-RavDecRatBareInt
+        -- Assign dispatchers (3c.3) — 5 standard × 3 + 2 rel × 3 = 21.
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt)

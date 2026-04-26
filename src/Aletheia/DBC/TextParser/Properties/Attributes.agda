@@ -54,3 +54,34 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Default public
         ; parseRawAttrDefault-roundtrip-RavString
         ; parseRawAttrDefault-roundtrip-RavDecRatFrac
         ; parseRawAttrDefault-roundtrip-RavDecRatBareInt)
+
+-- Per-line construct roundtrips (3c.3 — parseRawAttrAssign, BA_; and
+-- parseRawAttrRel, BA_REL_).  21 dispatchers total: 5 standard targets ×
+-- 3 emit shapes + 2 rel targets × 3 emit shapes.  See sub-facade
+-- `Aletheia.DBC.TextParser.Properties.Attributes.Assign` for the full
+-- catalog (per-target sub-files: Network/Node/Message/Signal/EnvVar/Rel).
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign public
+  using ( IdentNameStop
+        -- Standard target dispatchers (parseRawAttrAssign):
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac
+        ; parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt
+        -- Rel target dispatchers (parseRawAttrRel):
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavString
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatFrac
+        ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt)
