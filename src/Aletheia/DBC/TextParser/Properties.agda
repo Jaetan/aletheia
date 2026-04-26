@@ -121,12 +121,15 @@ open import Aletheia.DBC.TextParser.Properties.EnvVars public
 open import Aletheia.DBC.TextParser.Properties.Comments public
   using (parseComment-roundtrip; CommentTargetStop)
 
--- Attribute section (Commit 3c.1: BA_DEF_ + BA_DEF_REL_ per-line
--- constructs).  Future 3c.2–3c.4 commits land BA_DEF_DEF_, BA_/BA_REL_,
--- and the top-level parseAttrLine 5-way <|> composer.
+-- Attribute section (Commit 3c.1: BA_DEF_ + BA_DEF_REL_; Commit 3c.2:
+-- BA_DEF_DEF_).  Future 3c.3–3c.4 land BA_/BA_REL_ and the top-level
+-- parseAttrLine 5-way <|> composer.
 open import Aletheia.DBC.TextParser.Properties.Attributes public
   using ( WfAttrType; WfATInt; WfATFloat; WfATString; WfATEnum; WfATHex
         ; WfAttrDef-NotRel; Wf-Network; Wf-Node; Wf-Message; Wf-Signal; Wf-EnvVar
         ; WfAttrDef-Rel;    Wf-NodeMsg; Wf-NodeSig
         ; parseAttrDef-roundtrip
-        ; parseAttrDefRel-roundtrip)
+        ; parseAttrDefRel-roundtrip
+        ; parseRawAttrDefault-roundtrip-RavString
+        ; parseRawAttrDefault-roundtrip-RavDecRatFrac
+        ; parseRawAttrDefault-roundtrip-RavDecRatBareInt)

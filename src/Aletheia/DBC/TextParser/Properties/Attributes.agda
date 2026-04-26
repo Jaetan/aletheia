@@ -41,3 +41,16 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Def public
         ; WfAttrDef-Rel;    Wf-NodeMsg; Wf-NodeSig
         ; parseAttrDef-roundtrip
         ; parseAttrDefRel-roundtrip)
+
+-- Per-line construct roundtrips (3c.2 — parseRawAttrDefault, BA_DEF_DEF_).
+-- Three top-level cases by emit shape: RavString, RavDecRat-frac,
+-- RavDecRat-bareInt.  Layer 4 dispatches typed AttrValue → raw form via
+-- `Common.rawOfDefaultValue` and the matching value-emit equality.
+open import Aletheia.DBC.TextParser.Properties.Attributes.Default public
+  using ( parseRawAttrValue-roundtrip-RavString
+        ; parseRawAttrValue-roundtrip-RavDecRatFrac
+        ; parseRawAttrValue-roundtrip-RavDecRatBareInt
+        ; parseRawAttrDefault-after-keyword
+        ; parseRawAttrDefault-roundtrip-RavString
+        ; parseRawAttrDefault-roundtrip-RavDecRatFrac
+        ; parseRawAttrDefault-roundtrip-RavDecRatBareInt)
