@@ -28,3 +28,12 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Receivers public
         ; stripVectorPlaceholder-vectorXXX
         ; stripVectorPlaceholder-no-vectorXXX
         ; parseReceiverList∘strip-roundtrip)
+
+-- 3d.3 (in progress): SG_ parseSignalLine roundtrip — see Signal.agda
+-- header.  Currently exposes the `parseSignalTail` extraction +
+-- `parseSignalLine-decompose` lemma (closes by refl) + `expectedRaw`
+-- shape + `SignalNameStop` precondition.  Per-MuxMarker-shape main
+-- theorems land in 3d.3b alongside the 28-step bind-just-step chain.
+open import Aletheia.DBC.TextParser.Properties.Topology.Signal public
+  using ( SignalNameStop; expectedRaw
+        ; parseSignalTail; parseSignalLine-decompose)

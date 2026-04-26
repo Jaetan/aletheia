@@ -105,7 +105,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
          isNSLineStart)
 
 -- Topology section (Commit 3b: BU_ node list; Commit 3d.2: receiver
--- list inside SG_).  Future Layer-3 commits land SG_ / BO_ here.
+-- list inside SG_; Commit 3d.3a: parseSignalLine infrastructure).
+-- Future Layer-3 commits land SG_ proof body / BO_ here.
 open import Aletheia.DBC.TextParser.Properties.Topology public
   using ( parseBU-roundtrip; NodeNameStop
         ; isReceiverCont
@@ -114,7 +115,9 @@ open import Aletheia.DBC.TextParser.Properties.Topology public
         ; parseReceiverList-roundtrip-cons
         ; stripVectorPlaceholder-vectorXXX
         ; stripVectorPlaceholder-no-vectorXXX
-        ; parseReceiverList∘strip-roundtrip)
+        ; parseReceiverList∘strip-roundtrip
+        ; SignalNameStop; expectedRaw
+        ; parseSignalTail; parseSignalLine-decompose)
 
 -- Value-table section (Commit 3b: VAL_TABLE_).
 open import Aletheia.DBC.TextParser.Properties.ValueTables public

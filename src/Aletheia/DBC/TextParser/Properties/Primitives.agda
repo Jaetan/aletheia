@@ -963,11 +963,16 @@ parseStringLit-roundtrip pos s suffix ss =
 -- (precondition: suffix doesn't start with horizontal space so parseWS
 -- doesn't over-consume), then `char 'M'` matches definitionally.
 
+-- The `SuffixStops isHSpace suffix` precondition is structurally
+-- unnecessary — the proof's internal `parseWS-one-space` discharges
+-- against the FIRST character of the inner input (`'M' ∷ suffix`),
+-- whose stop predicate `isHSpace 'M' ≡ false` is closed.  Required by
+-- the SG_ mux roundtrip (3d.3) where the post-mux suffix is `" : ..."`
+-- (starts with hspace), making the original precondition unprovable.
 parseMuxMarker-IsMux-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → SuffixStops isHSpace suffix
   → parseMuxMarker pos (toList " M" ++ₗ suffix)
     ≡ just (mkResult IsMux (advancePositions pos (toList " M")) suffix)
-parseMuxMarker-IsMux-roundtrip pos suffix ss =
+parseMuxMarker-IsMux-roundtrip pos suffix =
   alt-left-just left-branch (pure NotMux) pos
     (' ' ∷ 'M' ∷ suffix) _ step-left
   where
