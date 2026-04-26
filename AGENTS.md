@@ -324,6 +324,13 @@ Each guideline below carries a stable identifier (`G-A1`..`G-A20`) so the step-1
 - Required constraints: (a) **witness field MUST be relevant** (no `.` modality / no `@0` erasure) under `--without-K` — irrelevant witnesses break `_≟_` decidable equality (Identifier T3 incident, see `project_identifier_eq_revisit.md`); (b) the predicate must reduce on closed canonical-form inputs, otherwise `subst T` cannot auto-witness in smart constructors; (c) for parser combinator promotion, use `parseDecRat >>= λ d → ifᵀ predicateᵇ d then mkRefined else fail` — the `ifᵀ` combinator from `Aletheia.Prelude` provides the witness inside the `then` branch automatically (G-A10's bounded-constructor pattern is the inline cousin of this).
 - When NOT to apply: when the base type is genuinely the wrong representation (the refinement carries semantic information beyond a constraint), or when introducing the refinement would create an asymmetric API where some callers see the refined type and others see the base type (per `feedback_no_subsumption_asymmetry.md`, asymmetric subsumption invites pushback — apply across every call site that admits the unification).
 
+**G-A22 — Step back when proof-shape patterns repeat across constructs:**
+- Type-checking is a local correctness signal, not an architectural one.  Per-construct proofs that grow past ~500–1000 LOC and share the *same proof-shape* (long `bind-just-step` chains, deep `cong (trans …)` cascades, repeated `SuffixStops` discharges, position alignment via repeated `advancePositions-++` chains, per-construct shape lemmas doing the same `++ₗ-assoc` reshuffling) are a structural signal that the abstraction layer is wrong.
+- After the 2nd or 3rd per-construct proof in a tree, check: are the same patterns showing up?  If yes, *do not just commit and continue*.  Pause the per-construct grind and surface the question to the user with ≥2 architectural alternatives + concrete LOC cost/savings estimates.
+- The agent must raise this proactively — it is not the user's job to notice the convolution.  See `memory/feedback_step_back_when_proofs_balloon.md` for the canonical statement of this rule.
+- Worked example: B.3.d Layer 3 went 8 constructs deep (3a/3b/3c.1/3c.2/3c.3/3c.4/3d.2/3d.3) at 500–2,500 LOC each before the user asked "Are we missing something?" post-3d.3b on 2026-04-26.  The locked refactor (`3d.4` Identifier de-tainting + `3d.5` Format DSL framework, projected ~85% Layer-3 LOC reduction; see `docs/development/PARITY_PLAN.md` §B.3.d) should have been initiated from the agent side after construct #2 or #3.
+- Anti-pattern to reject: "this construct is also complex, but it type-checks, so I'll commit and move on."
+
 ### Verification
 
 ```bash
