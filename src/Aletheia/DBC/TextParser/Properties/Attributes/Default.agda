@@ -177,8 +177,11 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
 -- Trace module for parseRawAttrDefault bind chain
 -- ============================================================================
 
-private
-  module Trace (pos : Position) (name : String) (value-chars : List Char)
+-- Public so Layer-3 Commit 3c.4 (`Properties/Attributes/Line.agda`) can
+-- reference `Trace.pos8` in `parseAttrLine-roundtrip-RawDefault-Rav*`
+-- result types — the alt2 dispatchers thread end positions through the
+-- 5-way `<|>` lift.
+module Trace (pos : Position) (name : String) (value-chars : List Char)
                (outer-suffix : List Char) where
     cs-name : List Char
     cs-name = quoteStringLit-chars name

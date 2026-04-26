@@ -155,4 +155,39 @@ open import Aletheia.DBC.TextParser.Properties.Attributes public
         ; parseRawAttrRel-roundtrip-ATgtNodeMsg-RavDecRatBareInt
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
-        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt)
+        ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt
+        -- parseAttrLine 5-way `<|>` composer (3c.4) — 31 dispatchers
+        -- across alt1 (RawDef-Rel × 2 scopes), alt2 (RawDefault × 3
+        -- shapes), alt3 (RawDef-NotRel × 5 scopes), alt4 (RawAssign-Rel
+        -- × 6), alt5 (RawAssign × 15).
+        ; parseAttrLine-roundtrip-RawDef-Rel-NodeMsg
+        ; parseAttrLine-roundtrip-RawDef-Rel-NodeSig
+        ; parseAttrLine-roundtrip-RawDefault-RavString
+        ; parseAttrLine-roundtrip-RawDefault-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Network
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Node
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Message
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Signal
+        ; parseAttrLine-roundtrip-RawDef-NotRel-EnvVar
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt)

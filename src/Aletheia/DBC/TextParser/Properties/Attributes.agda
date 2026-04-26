@@ -85,3 +85,42 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign public
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavString
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatFrac
         ; parseRawAttrRel-roundtrip-ATgtNodeSig-RavDecRatBareInt)
+
+-- Per-line construct roundtrips (3c.4 — `parseAttrLine` 5-way `<|>`
+-- dispatch composer).  31 dispatchers covering every input shape:
+-- 2 alt1 (RawDef-Rel × {NodeMsg, NodeSig}), 3 alt2 (RawDefault × 3
+-- emit shapes), 5 alt3 (RawDef-NotRel × {Network/Node/Message/Signal/
+-- EnvVar}), 6 alt4 (RawAssign-Rel × 3 emit shapes), 15 alt5
+-- (RawAssign × 5 standard targets × 3 emit shapes).
+open import Aletheia.DBC.TextParser.Properties.Attributes.Line public
+  using ( parseAttrLine-roundtrip-RawDef-Rel-NodeMsg
+        ; parseAttrLine-roundtrip-RawDef-Rel-NodeSig
+        ; parseAttrLine-roundtrip-RawDefault-RavString
+        ; parseAttrLine-roundtrip-RawDefault-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawDefault-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Network
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Node
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Message
+        ; parseAttrLine-roundtrip-RawDef-NotRel-Signal
+        ; parseAttrLine-roundtrip-RawDef-NotRel-EnvVar
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeMsg-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNodeSig-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNetwork-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtNode-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtMessage-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtSignal-RavDecRatBareInt
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavString
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatFrac
+        ; parseAttrLine-roundtrip-RawAssign-ATgtEnvVar-RavDecRatBareInt)

@@ -191,7 +191,7 @@ Plan:
 
   * **Commit 3c.2 ✅** (`be4feac`, 2026-04-26): `parseRawAttrDefault-roundtrip` (BA_DEF_DEF_) with three top-level cases by emit shape (RavString, RavDecRat-frac, RavDecRat-bareInt) via 9-step parameterised `parseRawAttrDefault-after-keyword` (~578L `Properties/Attributes/Default.agda`).  Layer 4 dispatches typed `AttrValue` → raw form via `Common.rawOfDefaultValue` and the matching value-emit equality.
 
-  * **Commit 3c.3 ✅** (this session, 2026-04-26): `parseRawAttrAssign-roundtrip` + `parseRawAttrRel-roundtrip` covering 21 dispatchers (5 standard targets × 3 emit shapes + 2 rel targets × 3 emit shapes).  Per-target sub-files under `Properties/Attributes/Assign/`:
+  * **Commit 3c.3 ✅** (2026-04-26): `parseRawAttrAssign-roundtrip` + `parseRawAttrRel-roundtrip` covering 21 dispatchers (5 standard targets × 3 emit shapes + 2 rel targets × 3 emit shapes).  Per-target sub-files under `Properties/Attributes/Assign/`:
     - `Common.agda` — shared head-classify (showInt/showDecRat-chars-head-classify with digit-or-dash refinement) + value-stops-isHSpace witnesses + showNat-chars-head-stop-isHSpace.
     - `Network.agda` — ATgtNetwork × 3.  Fall-through case: `parseStandardAttrTarget` fails on `'"'`/`'-'`/digit value-leading char (4-fold `<|>` collapse via 4 `alt-right-nothing`s) → outer `<|> pure ATgtNetwork` falls through.
     - `Node.agda` — ATgtNode × 3.  `parseNodeTgt-roundtrip` via 5-step bind chain (`string "BU_"` + `parseWS` + `parseIdentifier` + `parseWS` + `pure`); composition via 3 nested `alt-left-just`s through the 4-fold `<|>` chain plus 1 outer `alt-left-just`.  Carries `IdentNameStop n` precondition (identifier's first char is non-isHSpace; owed at Layer 4 universally from `validIdentifierᵇ` via the `isIdentStart c → isHSpace c ≡ false` bridge — mirrors `Topology/Nodes.agda`'s `NodeNameStop`).
@@ -202,7 +202,15 @@ Plan:
     - 6 per-target after-keyword helpers (`parseRawAttrAssign-after-keyword-{Network,Node,Message,Signal,EnvVar}` + `parseRawAttrRel-after-keyword-{NodeMsg,NodeSig}`) + facade `Assign.agda` re-exporting all 21 dispatchers + the `IdentNameStop` precondition.
     Module count 171 → 180 (+9; all `--without-K` only).  All gates green.
 
-  * **Commit 3c.4 pending** — top-level `parseAttrLine-roundtrip` (5-way `<|>` dispatch composer combining `parseAttrDefRel <|> parseRawAttrDefault <|> parseAttrDef <|> parseRawAttrRel <|> parseRawAttrAssign`).  3d: messages (BO_ + inner SG_ many).  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via aggregator induction over the `DBC` record.
+  * **Commit 3c.4 ✅** (this session, 2026-04-26): top-level `parseAttrLine-roundtrip` 5-way `<|>` dispatch composer.  Single new module `Properties/Attributes/Line.agda` (~1,021 LOC) ships 31 dispatchers covering every input shape:
+    - 2 alt1: `RawDef-Rel × {NodeMsg, NodeSig}` (composes `parseAttrDefRel-roundtrip` from 3c.1 with no leading-fail proofs).
+    - 3 alt2: `RawDefault × {RavString, RavDecRatFrac, RavDecRatBareInt}` (composes 3c.2 results with 1 leading-fail proof — `parseAttrDefRel` fails on `BA_DEF_DEF_` input by `refl` on the post-`BA_DEF_` keyword mismatch).
+    - 5 alt3: `RawDef-NotRel × {Network, Node, Message, Signal, EnvVar}` (composes 3c.1 results with 2 leading-fail proofs).
+    - 6 alt4: `RawAssign-Rel × {NodeMsg, NodeSig} × 3 emit shapes` (composes 3c.3 results with 3 leading-fail proofs — `BA_DEF_REL_` ≠ `BA_REL_` head, `BA_DEF_DEF_` ≠ `BA_REL_`, `BA_DEF_` ≠ `BA_REL_`).
+    - 15 alt5: `RawAssign × 5 standard targets × 3 emit shapes` (composes 3c.3 results with 4 leading-fail proofs — last alt of 5).
+    Composition pattern: 5 `parseAttrLine-lift-altK` helpers (`infixl 3 _<|>_` left-assoc unfolding `parseAttrLine ≡ ((((P1 <|> P2) <|> P3) <|> P4) <|> P5)`); each lift-altK takes (K-1) `nothing` proofs + 1 `just r` proof and stacks `alt-right-nothing` ▸ `alt-left-just`.  Cross-keyword failure proofs land by `refl` on concrete char-mismatch when input head reduces concretely.  Each dispatcher composes a lift-altK with the corresponding 3c.1/3c.2/3c.3 lower-level proof via `bind-just-step` over `pure (Wrap d)`.  `Default.agda` Trace module privacy lifted (was `private`) for alt2 dispatcher result-position references; safe because `Properties.Attributes` re-exports Default with explicit `using (...)` clause that doesn't list Trace.  Module count 180 → 181 (+1).  All gates green.
+
+  * **Commits 3d pending** — messages (BO_ + inner SG_ many).  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via aggregator induction over the `DBC` record.
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
