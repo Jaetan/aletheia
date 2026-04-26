@@ -1907,15 +1907,17 @@ parseDecRat-roundtrip-suffix d pos suffix ss =
 -- Phase 6.6.1: Local helpers — head-of-list + char-fail bridge
 -- ----------------------------------------------------------------------------
 
-private
-  -- Head of a list, defaulting to `d` on empty.  Used by the public
-  -- precondition `'.' ≢ headOr suffix '_'` to express "the suffix's
-  -- first char (if any) is not `'.'`" in a list-shape-agnostic way
-  -- (`'_'` is an arbitrary non-`'.'` placeholder for the empty case).
-  headOr : ∀ {A : Set} → List A → A → A
-  headOr []      d = d
-  headOr (x ∷ _) _ = x
+-- Head of a list, defaulting to `d` on empty.  Used by the public
+-- precondition `'.' ≢ headOr suffix '_'` to express "the suffix's
+-- first char (if any) is not `'.'`" in a list-shape-agnostic way
+-- (`'_'` is an arbitrary non-`'.'` placeholder for the empty case).
+-- Public so downstream proofs (`Properties/Attributes/Type.agda`) can
+-- discharge the precondition without redefining the helper.
+headOr : ∀ {A : Set} → List A → A → A
+headOr []      d = d
+headOr (x ∷ _) _ = x
 
+private
   -- Nat-level bridge: `m ≢ n ⟹ (m ≡ᵇ n) ≡ false`.  Structural induction
   -- on `m, n` exhausts the four diagonal cases; `(zero, zero)` is the
   -- only one that needs the hypothesis to derive the absurdity.
