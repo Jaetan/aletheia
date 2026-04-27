@@ -237,6 +237,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- proof, 86% reduction).  Same walk-root rationale; 3d.5.d
         -- migration may consolidate by replacing the existing parser.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/ValueTable.agda"
+        -- B.3.d Layer 3 3d.5.c-γ.1: canonical receivers refinement type
+        -- (record + Bool predicate + smart constructor) — lives upstream
+        -- of `Types.agda` so the AST can reference it in γ.2.  Walk-root
+        -- because Main.agda doesn't reach it until γ.2 wires the AST.
+        agdaWithRTS "Aletheia/DBC/CanonicalReceivers.agda"
+        -- B.3.d Layer 3 3d.5.c-γ.1: DSL-side canonical receivers format.
+        -- Refines `List Identifier` to a record carrier excluding the
+        -- singleton-Vector__XXX placeholder; γ.2 retypes
+        -- `DBCSignal.receivers` to use it.  Walk-root for the same
+        -- reason as Format itself — γ.2 wires it in.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
