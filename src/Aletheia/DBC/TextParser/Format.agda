@@ -22,12 +22,14 @@
 -- demands; resist speculative growth.
 module Aletheia.DBC.TextParser.Format where
 
+open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit)
-open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
+open import Data.List using (List; []; _∷_; length; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List.Properties using (length-++) renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ)
+open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _+_; s≤s; z≤n)
+open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; n≤1+n; +-mono-≤)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
@@ -35,7 +37,9 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
-         parseCharsSeq; pure; _>>=_)
+         parseCharsSeq; pure; _>>=_;
+         manyHelper; sameLengthᵇ)
+  renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.TextParser.Lexer
   using (parseIdentifier; parseStringLit; parseNatural)
@@ -47,6 +51,8 @@ open import Aletheia.DBC.TextParser.Properties.Primitives
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
          parseNatural-showNat-chars)
+open import Aletheia.DBC.TextParser.Properties.Preamble.Newline
+  using (manyHelper-prog-cons)
 
 -- ============================================================================
 -- FORMAT TYPE
@@ -75,6 +81,15 @@ data Format : Set → Set₁ where
   stringLit : Format (List Char)
   -- Sequence two formats; emit concatenates, parse runs in order.
   pair    : ∀ {A B} → Format A → Format B → Format (A × B)
+  -- Zero-or-more repetitions of `f`.  `emit (many f)` is concat-map;
+  -- `parse (many f)` delegates to the existing `Combinators.many`
+  -- (renamed `many-parser` to avoid the constructor clash).  Each
+  -- iteration must consume non-empty input (`0 < length (emit f x)`
+  -- carried per-element in `EmitsOK`) so `manyHelper`'s `sameLengthᵇ`
+  -- progress check passes; termination is via a user-provided
+  -- `ParseFailsAt f suffix` certificate that says the trailing input
+  -- doesn't start another `f`-match.
+  many    : ∀ {A} → Format A → Format (List A)
   -- Carrier change via a total bijection.  `φ` lifts the inner value to
   -- the outer carrier (used by `parse`); `ψ` projects back (used by
   -- `emit`); the equation `∀ b → φ (ψ b) ≡ b` is the roundtrip law that
@@ -97,12 +112,13 @@ data Format : Set → Set₁ where
 -- ============================================================================
 
 emit : ∀ {A} → Format A → A → List Char
-emit (literal cs)     tt      = cs
-emit ident            i       = Identifier.name i
-emit nat              n       = showNat-chars n
-emit stringLit        cs      = quoteStringLit-chars cs
-emit (pair f g)       (a , b) = emit f a ++ₗ emit g b
-emit (iso _ ψ _ f)    b       = emit f (ψ b)
+emit (literal cs)     tt       = cs
+emit ident            i        = Identifier.name i
+emit nat              n        = showNat-chars n
+emit stringLit        cs       = quoteStringLit-chars cs
+emit (pair f g)       (a , b)  = emit f a ++ₗ emit g b
+emit (iso _ ψ _ f)    b        = emit f (ψ b)
+emit (many f)         xs       = concatMap (emit f) xs
 
 parse : ∀ {A} → Format A → Parser A
 parse (literal cs)    = parseCharsSeq cs >>= λ _ → pure tt
@@ -111,6 +127,22 @@ parse nat             = parseNatural
 parse stringLit       = parseStringLit
 parse (pair f g)      = parse f >>= λ a → parse g >>= λ b → pure (a , b)
 parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
+parse (many f)        = many-parser (parse f)
+
+-- ============================================================================
+-- PARSE-FAILS-AT — termination certificate for `many`
+-- ============================================================================
+
+-- `ParseFailsAt f suffix` certifies that the parser derived from `f`
+-- rejects `suffix` at every starting position — i.e., no continuation
+-- of a `many f` loop will accept this suffix.  Required for the
+-- `EmitsOK (many f) [] suffix` and the trailing-suffix branch of the
+-- non-empty case.  User-provided per-construct (cannot be derived from
+-- a single `firstChar` predicate — the prototypical depth-2 failure
+-- `parseValueEntry pos (' ' ∷ ';' ∷ rest)` wins on `' '` at the head
+-- but loses two binds in when `parseNatural` rejects `';'`).
+ParseFailsAt : ∀ {A} → Format A → List Char → Set
+ParseFailsAt f suffix = ∀ pos → parse f pos suffix ≡ nothing
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATE
@@ -131,85 +163,221 @@ parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
 -- pointing at the head of `emit g b` — exactly what L4 (below) demands.
 -- When future constructors land (`iso`, `many`, `sepBy`), they add new
 -- lines here and to `roundtrip` below; the universal statement is stable.
+-- Forward declaration: `EmitsOKMany` is defined as an inductive predicate
+-- below.  Splitting the list-induction (`xs`) into its own `data`
+-- bypasses Agda's termination checker confusing the lex (Format size,
+-- list length) recursion when both decrease across `EmitsOK`'s clauses.
+data EmitsOKMany {A : Set} (f : Format A) : List A → List Char → Set
+
 EmitsOK : ∀ {A} → Format A → A → List Char → Set
-EmitsOK (literal cs)   tt      _      = ⊤
-EmitsOK ident          _       suffix = SuffixStops isIdentCont suffix
-EmitsOK nat            _       suffix = SuffixStops isDigit suffix
-EmitsOK stringLit      _       suffix = SuffixStops (λ c → c ≈ᵇ '"') suffix
-EmitsOK (pair f g)     (a , b) suffix =
+EmitsOK (literal cs)   tt       _      = ⊤
+EmitsOK ident          _        suffix = SuffixStops isIdentCont suffix
+EmitsOK nat            _        suffix = SuffixStops isDigit suffix
+EmitsOK stringLit      _        suffix = SuffixStops (λ c → c ≈ᵇ '"') suffix
+EmitsOK (pair f g)     (a , b)  suffix =
   EmitsOK f a (emit g b ++ₗ suffix) × EmitsOK g b suffix
-EmitsOK (iso _ ψ _ f)  b       suffix = EmitsOK f (ψ b) suffix
+EmitsOK (iso _ ψ _ f)  b        suffix = EmitsOK f (ψ b) suffix
+EmitsOK (many f)       xs       suffix = EmitsOKMany f xs suffix
+
+-- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
+-- only; each `∷-cons` constructor carries the per-element well-formedness
+-- (in `EmitsOK f x (...) × NonEmpty`) plus the recursive certificate.
+data EmitsOKMany {A} f where
+  []-fails : ∀ {suffix}
+    → ParseFailsAt f suffix
+    → EmitsOKMany f [] suffix
+  ∷-cons   : ∀ {x xs suffix}
+    → EmitsOK f x (emit (many f) xs ++ₗ suffix)
+    → 0 < length (emit f x)
+    → EmitsOKMany f xs suffix
+    → EmitsOKMany f (x ∷ xs) suffix
 
 -- ============================================================================
--- UNIVERSAL ROUNDTRIP THEOREM
+-- PRIVATE HELPERS — `many`'s roundtrip plumbing
 -- ============================================================================
 
--- Every well-formed (format, value, suffix) triple roundtrips.  Proof
--- recurses structurally on `f`; the literal case delegates to
--- `parseCharsSeq-success`, ident to `parseIdentifier-roundtrip`, and the
--- pair case composes the two recursive calls via the same bind-chain
--- shape as L2–L4 below.
-roundtrip : ∀ {A} (f : Format A) pos (a : A) (suffix : List Char)
-  → EmitsOK f a suffix
-  → parse f pos (emit f a ++ₗ suffix)
-    ≡ just (mkResult a (advancePositions pos (emit f a)) suffix)
-roundtrip (literal cs) pos tt suffix _ =
-  bind-just-step (parseCharsSeq cs)
-                 (λ _ → pure tt)
-                 pos (cs ++ₗ suffix)
-                 cs (advancePositions pos cs) suffix
-                 (parseCharsSeq-success pos cs suffix)
-roundtrip ident        pos i  suffix ss =
-  parseIdentifier-roundtrip pos i suffix ss
-roundtrip nat          pos n  suffix ss =
-  parseNatural-showNat-chars pos n suffix ss
-roundtrip stringLit    pos cs suffix ss =
-  parseStringLit-roundtrip pos cs suffix ss
-roundtrip (iso φ ψ φψ-id f) pos b suffix wf =
-  -- emit (iso φ ψ _ f) b = emit f (ψ b); parse (iso φ _ _ f) is the
-  -- bind chain `parse f >>= λ a → pure (φ a)`.  Bind-step out of f via
-  -- the inner `roundtrip`, then `pure (φ a)` lands the result.  The
-  -- equation `φ (ψ b) ≡ b` (constructor argument) bridges between the
-  -- inner-recovered value `φ (ψ b)` and the outer claim `b`.
-  trans (bind-just-step (parse f)
-                        (λ a → pure (φ a))
-                        pos (emit f (ψ b) ++ₗ suffix)
-                        (ψ b)
-                        (advancePositions pos (emit f (ψ b)))
-                        suffix
-                        (roundtrip f pos (ψ b) suffix wf))
-        (cong (λ x → just (mkResult x (advancePositions pos (emit f (ψ b))) suffix))
-              (φψ-id b))
-roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
-  trans (cong (parse (pair f g) pos)
-              (++ₗ-assoc (emit f a) (emit g b) suffix))
-    (trans step-f
-      (trans step-g
-        (cong (λ p → just (mkResult (a , b) p suffix))
-              (sym (advancePositions-++ pos (emit f a) (emit g b))))))
-  where
-    pos-f = advancePositions pos (emit f a)
-    pos-g = advancePositions pos-f (emit g b)
+private
+  -- `manyHelper` on a parser-failing input returns `[]` regardless of fuel.
+  -- Drives the `[] / suc m'` branch of `manyHelper-roundtrip-list`.
+  manyHelper-fails-stop : ∀ {A} (p : Parser A) (pos : Position)
+                            (input : List Char) (n : ℕ)
+    → p pos input ≡ nothing
+    → manyHelper p pos input n ≡ just (mkResult [] pos input)
+  manyHelper-fails-stop p pos input zero    _  = refl
+  manyHelper-fails-stop p pos input (suc n) eq rewrite eq = refl
 
-    step-f :
-      parse (pair f g) pos (emit f a ++ₗ (emit g b ++ₗ suffix))
-      ≡ (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
-    step-f =
-      bind-just-step (parse f)
-                     (λ a' → parse g >>= λ b' → pure (a' , b'))
-                     pos (emit f a ++ₗ (emit g b ++ₗ suffix))
-                     a pos-f (emit g b ++ₗ suffix)
-                     (roundtrip f pos a (emit g b ++ₗ suffix) wf-f)
+  -- `sameLengthᵇ` on lists of differing length returns `false`.  Mirrors
+  -- the local copies in `Properties/Topology/Receivers.agda` and
+  -- `Properties/ValueTables/ValueTable.agda`; not factored upstream
+  -- because both sites still depend on the layered import order from
+  -- the pre-DSL proofs.  3d.5.d migration may consolidate.
+  sameLengthᵇ-lt : ∀ {A : Set} (xs ys : List A)
+    → length ys < length xs
+    → sameLengthᵇ xs ys ≡ false
+  sameLengthᵇ-lt []       []       ()
+  sameLengthᵇ-lt []       (_ ∷ _)  ()
+  sameLengthᵇ-lt (_ ∷ _)  []       _       = refl
+  sameLengthᵇ-lt (_ ∷ xs) (_ ∷ ys) (s≤s h) = sameLengthᵇ-lt xs ys h
 
-    step-g :
-      (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
-      ≡ just (mkResult (a , b) pos-g suffix)
-    step-g =
-      bind-just-step (parse g)
-                     (λ b' → pure (a , b'))
-                     pos-f (emit g b ++ₗ suffix)
-                     b pos-g suffix
-                     (roundtrip g pos-f b suffix wf-g)
+  -- `cs ++ rest` is strictly longer than `rest` whenever `cs` is non-empty.
+  -- The progress witness `manyHelper`'s `sameLengthᵇ` check needs to
+  -- conclude `false` and continue iteration.
+  ++ₗ-strictly-longer : ∀ {A B : Set} (cs : List A) (rest : List B)
+    → 0 < length cs
+    → length rest < length cs + length rest
+  ++ₗ-strictly-longer []       _    ()
+  ++ₗ-strictly-longer (_ ∷ _)  rest _ = s≤s (m≤n+m (length rest) _)
+
+  -- Lower bound on emit-many length, derived from per-element non-empty
+  -- emit (carried in `EmitsOK (many f)`).  Used to discharge the fuel
+  -- precondition of `manyHelper-roundtrip-list` at the outer call site.
+  length-emit-many-bound : ∀ {A} (f : Format A) (xs : List A) (suffix : List Char)
+    → EmitsOK (many f) xs suffix
+    → length xs ≤ length (emit (many f) xs)
+  length-emit-many-bound f []       suffix _                       = z≤n
+  length-emit-many-bound f (x ∷ xs) suffix (∷-cons _ ne-x wf-xs)
+    rewrite length-++ (emit f x) {emit (many f) xs} =
+      +-mono-≤ ne-x (length-emit-many-bound f xs suffix wf-xs)
+
+-- ============================================================================
+-- UNIVERSAL ROUNDTRIP THEOREM (+ `many`'s manyHelper helper, mutual)
+-- ============================================================================
+
+-- `roundtrip` recurses structurally on `f`; `manyHelper-roundtrip-list`
+-- (the per-list induction underlying the `many` case) calls `roundtrip f`
+-- on the structurally-smaller inner format for each iteration.  The two
+-- live in a `mutual` block so the cyclic call graph is accepted; lex
+-- termination is `(Format size, list length)`.
+mutual
+  -- Every well-formed (format, value, suffix) triple roundtrips.  The
+  -- literal case delegates to `parseCharsSeq-success`, ident to
+  -- `parseIdentifier-roundtrip`, nat to `parseNatural-showNat-chars`,
+  -- stringLit to `parseStringLit-roundtrip`, pair composes via the
+  -- bind-chain shape from L2–L4, iso transports through `φ ∘ ψ ≡ id`,
+  -- and many delegates to `manyHelper-roundtrip-list` below.
+  roundtrip : ∀ {A} (f : Format A) pos (a : A) (suffix : List Char)
+    → EmitsOK f a suffix
+    → parse f pos (emit f a ++ₗ suffix)
+      ≡ just (mkResult a (advancePositions pos (emit f a)) suffix)
+
+  -- `manyHelper`-level roundtrip lemma, parametric over a Format.  Body
+  -- mirrors `manyHelper-parseValueEntry-body` from
+  -- `Properties/ValueTables/ValueTable.agda` but with `roundtrip f` in
+  -- place of the per-construct iter-eq lemma.  Inducts on the list `xs`
+  -- with fuel `m ≥ length xs`.  One iteration via `manyHelper-prog-cons`
+  -- + recursive call on `xs`.
+  manyHelper-roundtrip-list : ∀ {A} (f : Format A)
+    (pos : Position) (xs : List A) (suffix : List Char) (m : ℕ)
+    → length xs ≤ m
+    → EmitsOK (many f) xs suffix
+    → manyHelper (parse f) pos (emit (many f) xs ++ₗ suffix) m
+      ≡ just (mkResult xs (advancePositions pos (emit (many f) xs)) suffix)
+
+  roundtrip (literal cs) pos tt suffix _ =
+    bind-just-step (parseCharsSeq cs)
+                   (λ _ → pure tt)
+                   pos (cs ++ₗ suffix)
+                   cs (advancePositions pos cs) suffix
+                   (parseCharsSeq-success pos cs suffix)
+  roundtrip ident        pos i  suffix ss =
+    parseIdentifier-roundtrip pos i suffix ss
+  roundtrip nat          pos n  suffix ss =
+    parseNatural-showNat-chars pos n suffix ss
+  roundtrip stringLit    pos cs suffix ss =
+    parseStringLit-roundtrip pos cs suffix ss
+  roundtrip (iso φ ψ φψ-id f) pos b suffix wf =
+    trans (bind-just-step (parse f)
+                          (λ a → pure (φ a))
+                          pos (emit f (ψ b) ++ₗ suffix)
+                          (ψ b)
+                          (advancePositions pos (emit f (ψ b)))
+                          suffix
+                          (roundtrip f pos (ψ b) suffix wf))
+          (cong (λ x → just (mkResult x (advancePositions pos (emit f (ψ b))) suffix))
+                (φψ-id b))
+  roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
+    trans (cong (parse (pair f g) pos)
+                (++ₗ-assoc (emit f a) (emit g b) suffix))
+      (trans step-f
+        (trans step-g
+          (cong (λ p → just (mkResult (a , b) p suffix))
+                (sym (advancePositions-++ pos (emit f a) (emit g b))))))
+    where
+      pos-f = advancePositions pos (emit f a)
+      pos-g = advancePositions pos-f (emit g b)
+
+      step-f :
+        parse (pair f g) pos (emit f a ++ₗ (emit g b ++ₗ suffix))
+        ≡ (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
+      step-f =
+        bind-just-step (parse f)
+                       (λ a' → parse g >>= λ b' → pure (a' , b'))
+                       pos (emit f a ++ₗ (emit g b ++ₗ suffix))
+                       a pos-f (emit g b ++ₗ suffix)
+                       (roundtrip f pos a (emit g b ++ₗ suffix) wf-f)
+
+      step-g :
+        (parse g >>= λ b' → pure (a , b')) pos-f (emit g b ++ₗ suffix)
+        ≡ just (mkResult (a , b) pos-g suffix)
+      step-g =
+        bind-just-step (parse g)
+                       (λ b' → pure (a , b'))
+                       pos-f (emit g b ++ₗ suffix)
+                       b pos-g suffix
+                       (roundtrip g pos-f b suffix wf-g)
+  roundtrip (many f) pos xs suffix wf =
+    manyHelper-roundtrip-list f pos xs suffix
+      (length (emit (many f) xs ++ₗ suffix))
+      fuel-bound
+      wf
+    where
+      fuel-bound : length xs ≤ length (emit (many f) xs ++ₗ suffix)
+      fuel-bound =
+        ≤-trans (length-emit-many-bound f xs suffix wf)
+                (subst (λ k → length (emit (many f) xs) ≤ k)
+                       (sym (length-++ (emit (many f) xs) {suffix}))
+                       (m≤m+n (length (emit (many f) xs)) (length suffix)))
+
+  manyHelper-roundtrip-list f pos []       suffix m _ ([]-fails fails) =
+    manyHelper-fails-stop (parse f) pos suffix m (fails pos)
+  manyHelper-roundtrip-list f pos (x ∷ xs) suffix (suc m') (s≤s len-le)
+                            (∷-cons wf-x ne-x wf-xs) =
+    trans (cong (λ inp → manyHelper (parse f) pos inp (suc m')) input-eq)
+      (trans (manyHelper-prog-cons (parse f) pos
+                (emit f x ++ₗ iter-rest) m'
+                x pos-x iter-rest
+                xs (advancePositions pos-x (emit (many f) xs))
+                suffix iter-eq sleq rec-eq)
+        (cong (λ p → just (mkResult (x ∷ xs) p suffix)) pos-out-eq))
+    where
+      pos-x : Position
+      pos-x = advancePositions pos (emit f x)
+
+      iter-rest : List Char
+      iter-rest = emit (many f) xs ++ₗ suffix
+
+      iter-eq : parse f pos (emit f x ++ₗ iter-rest)
+              ≡ just (mkResult x pos-x iter-rest)
+      iter-eq = roundtrip f pos x iter-rest wf-x
+
+      input-eq : emit (many f) (x ∷ xs) ++ₗ suffix
+               ≡ emit f x ++ₗ iter-rest
+      input-eq = ++ₗ-assoc (emit f x) (emit (many f) xs) suffix
+
+      sleq : sameLengthᵇ (emit f x ++ₗ iter-rest) iter-rest ≡ false
+      sleq = sameLengthᵇ-lt (emit f x ++ₗ iter-rest) iter-rest
+               (subst (λ k → length iter-rest < k)
+                      (sym (length-++ (emit f x) {iter-rest}))
+                      (++ₗ-strictly-longer (emit f x) iter-rest ne-x))
+
+      rec-eq : manyHelper (parse f) pos-x iter-rest m'
+             ≡ just (mkResult xs
+                       (advancePositions pos-x (emit (many f) xs)) suffix)
+      rec-eq = manyHelper-roundtrip-list f pos-x xs suffix m' len-le wf-xs
+
+      pos-out-eq : advancePositions pos-x (emit (many f) xs)
+                 ≡ advancePositions pos (emit (many f) (x ∷ xs))
+      pos-out-eq = sym (advancePositions-++ pos (emit f x) (emit (many f) xs))
 
 -- ============================================================================
 -- REGRESSION TESTS — the four concrete proofs that motivated the abstraction
