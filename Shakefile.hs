@@ -248,6 +248,14 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- `DBCSignal.receivers` to use it.  Walk-root for the same
         -- reason as Format itself — γ.2 wires it in.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers.agda"
+        -- B.3.d Layer 3 3d.5.c-γ.3: DSL-based receivers roundtrip
+        -- (86 strict-code-LOC vs the existing 417 strict-code-LOC in
+        -- Properties/Topology/Receivers, ≈80% reduction).  Body is one
+        -- `roundtrip canonicalReceiversFmt` call backed by an EmitsOK
+        -- builder from the SuffixStops precondition.  δ migrates 3d.3
+        -- dispatchers to consume this in place of the existing
+        -- `parseReceiverList∘strip-roundtrip` API.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers/Roundtrip.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
