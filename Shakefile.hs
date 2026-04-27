@@ -227,6 +227,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- `feedback_check_properties_aggregator_walks.md`.  Remove this
         -- root once a downstream proof imports it.
         agdaWithRTS "Aletheia/DBC/Formatter/WellFormedText.agda"
+        -- B.3.d Layer 3 3d.5.a: Format DSL framework core.  Currently
+        -- unimported (3d.5.b will use it for parseValueTable; 3d.5.d will
+        -- migrate 3a–3d.3 proofs onto it); same walk-root rationale as
+        -- WellFormedText above.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
