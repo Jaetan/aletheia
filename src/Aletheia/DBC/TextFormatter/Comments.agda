@@ -53,15 +53,15 @@ emitComment-chars c = body (DBCComment.target c)
     body CTNetwork =
       toList "CM_ " ++ₗ quoted ++ₗ toList ";\n"
     body (CTNode n) =
-      toList "CM_ BU_ " ++ₗ toList (Identifier.name n) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      toList "CM_ BU_ " ++ₗ Identifier.name n ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTMessage cid) =
       toList "CM_ BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
       ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTSignal cid s) =
       toList "CM_ SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList (Identifier.name s) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      ' ' ∷ Identifier.name s ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
     body (CTEnvVar ev) =
-      toList "CM_ EV_ " ++ₗ toList (Identifier.name ev) ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
+      toList "CM_ EV_ " ++ₗ Identifier.name ev ++ₗ ' ' ∷ quoted ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER

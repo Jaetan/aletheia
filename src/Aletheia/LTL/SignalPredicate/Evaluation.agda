@@ -10,6 +10,7 @@
 module Aletheia.LTL.SignalPredicate.Evaluation where
 
 open import Aletheia.Prelude
+open import Data.Char using (Char)
 open import Data.Rational as Rat using (∣_∣; 0ℚ; _≤ᵇ_)
 open import Data.Maybe using (_<∣>_)
 open import Function using (case_of_)
@@ -52,8 +53,9 @@ x ≥ℚ y = y ≤ℚ x
 -- HELPER FUNCTIONS
 -- ============================================================================
 
--- Extract signal value using extraction with multiplexing support
-extractTruthValue : ∀ {n} → String → DBC → CANFrame n → Maybe ℚ
+-- Extract signal value using extraction with multiplexing support.
+-- Signal name is List Char throughout post Path-A.3.
+extractTruthValue : ∀ {n} → List Char → DBC → CANFrame n → Maybe ℚ
 extractTruthValue sigName dbc frame = getValue (extractSignalWithContext dbc frame sigName)
 
 -- Project a cached signal entry to its rational value, or `nothing` on miss.
@@ -66,7 +68,7 @@ cachedSignalValue : Maybe CachedSignal → Maybe ℚ
 cachedSignalValue nothing   = nothing
 cachedSignalValue (just cs) = just (CachedSignal.value cs)
 
-lookupCacheValue : String → SignalCache → Maybe ℚ
+lookupCacheValue : List Char → SignalCache → Maybe ℚ
 lookupCacheValue sigName cache = cachedSignalValue (lookupCache sigName cache)
 
 -- ============================================================================
@@ -97,7 +99,7 @@ evalDeltaPredicate (StableWithin _ tol) prev curr = ∣ curr Rat.- prev ∣ ≤�
 -- ============================================================================
 
 -- Get signal value: try frame first, then cache (via Maybe's _<∣>_ alternative).
-getTruthValue : ∀ {n} → String → DBC → SignalCache → CANFrame n → Maybe ℚ
+getTruthValue : ∀ {n} → List Char → DBC → SignalCache → CANFrame n → Maybe ℚ
 getTruthValue sigName dbc cache frame =
   extractTruthValue sigName dbc frame <∣> lookupCacheValue sigName cache
 

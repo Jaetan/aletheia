@@ -35,9 +35,11 @@ _SKIP_REASON = (
     "``pytest.fail`` stays for structural parse failures."
 )
 
-# Lines like:    ("predicate" , JString "equals") ∷ ("signal" , JString s) ...
+# Lines like:    ("predicate" , JString (toList "equals")) ∷ ("signal" , JString s) ...
+# Post Path-A JSON-mirror: kind-discriminator literals are wrapped in `(toList "…")`
+# because `JString : List Char → JSON`.
 _PREDICATE_TAG_RE = re.compile(
-    r'"predicate"\s*,\s*JString\s+"([^"\n]+)"'
+    r'"predicate"\s*,\s*JString\s+\(toList\s+"([^"\n]+)"\)'
 )
 
 

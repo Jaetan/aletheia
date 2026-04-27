@@ -25,14 +25,16 @@ open import Data.Unit using (tt)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; sym; subst)
 
+open import Data.Char using (Char)
+
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupBool; lookupNat; lookupRational; lookupArray)
+  lookupString; lookupChars; lookupBool; lookupNat; lookupRational; lookupArray)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
 open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
   parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate; validateIdent; validateIdentList;
-  parseOptionalArray; parseStringList)
+  parseOptionalArray; parseCharsList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   PhysicallyValid; pv-LE; pv-BE)
 open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
@@ -142,7 +144,7 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
   with lookupNat "length" obj | eq₁
 ...   | nothing | ()
 ...   | just bl | eq₂
-    with lookupString "byteOrder" obj | eq₂
+    with lookupChars "byteOrder" obj | eq₂
 ...     | nothing | ()
 ...     | just boStr | eq₃
       with parseByteOrder boStr | eq₃
@@ -163,13 +165,13 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
                 with lookupDecRat "maximum" obj | eq₈
 ...                 | inj₁ _ | ()
 ...                 | inj₂ maximum | eq₉
-                  with lookupString "unit" obj | eq₉
+                  with lookupChars "unit" obj | eq₉
 ...                   | nothing | ()
 ...                   | just unit | eq₁₀
                     with parseSignalPresence obj | eq₁₀
 ...                     | inj₁ _ | ()
 ...                     | inj₂ presence | eq₁₁
-                      with parseOptionalArray parseStringList (lookupArray "receivers" obj) | eq₁₁
+                      with parseOptionalArray parseCharsList (lookupArray "receivers" obj) | eq₁₁
 ...                       | inj₁ _ | ()
 ...                       | inj₂ receivers | eq₁₂
                         with validateIdent name | eq₁₂
@@ -205,7 +207,7 @@ parseSignal-wf : ∀ frameBytes ctx obj sig
   → frameBytes ≤ 64
   → parseSignal frameBytes ctx obj ≡ inj₂ sig → WellFormedSignal sig
 parseSignal-wf frameBytes ctx obj sig fb≤64 eq
-  with lookupString "name" obj | eq
+  with lookupChars "name" obj | eq
 ... | nothing | ()
 ... | just name | eq' = parseSignalFields-wf frameBytes _ name obj sig fb≤64 eq'
 
@@ -257,7 +259,7 @@ parseSignal-pv : ∀ frameBytes ctx obj sig
   → frameBytes ≤ 64
   → parseSignal frameBytes ctx obj ≡ inj₂ sig → PhysicallyValid frameBytes sig
 parseSignal-pv frameBytes ctx obj sig fb≤64 eq
-  with lookupString "name" obj | eq
+  with lookupChars "name" obj | eq
 ... | nothing | ()
 ... | just name | eq' = parseSignalFields-pv frameBytes _ name obj sig fb≤64 eq'
 

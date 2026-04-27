@@ -15,14 +15,15 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_)
+import Data.List.Properties as ListProps
 open import Data.List.NonEmpty using (List⁺; toList)
 open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.Relation.Unary.Any using (Any; any?; here; there)
 open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
 open import Aletheia.DBC.DecRat using (_≤ᵈ_; _≤?ᵈ_)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Data.Empty using (⊥-elim)
@@ -55,7 +56,8 @@ canCoexist? Always Always = yes both-always
 canCoexist? Always (When m vs) = yes always-left
 canCoexist? (When m vs) Always = yes always-right
 canCoexist? (When m₁ vs₁) (When m₂ vs₂) =
-    helper (Identifier.name m₁ ≟ₛ Identifier.name m₂) (valuesOverlap? vs₁ vs₂)
+    helper (ListProps.≡-dec _≟ᶜ_ (Identifier.name m₁) (Identifier.name m₂))
+           (valuesOverlap? vs₁ vs₂)
   where
     helper : Dec (Identifier.name m₁ ≡ Identifier.name m₂) → Dec (ValuesOverlap vs₁ vs₂)
       → Dec (CanCoexist (When m₁ vs₁) (When m₂ vs₂))

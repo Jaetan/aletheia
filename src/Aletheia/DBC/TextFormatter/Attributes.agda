@@ -50,16 +50,15 @@
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (attrDefNameStr; attrDefaultNameStr; attrAssignNameStr)
 open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Char using (Char)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
+import Data.List.Properties as ListProps
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.String using (String; toList)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using
@@ -89,17 +88,18 @@ collectDefs (DBCAttrDefault _ ∷ rest) = collectDefs rest
 collectDefs (DBCAttrAssign _  ∷ rest) = collectDefs rest
 
 -- Linear scan (small def counts in practice — single digits in corpus).
-lookupDef : String → List AttrDef → Maybe AttrDef
+-- Both name and AttrDef.name are `List Char` post-3d.4 + JSON-mirror.
+lookupDef : List Char → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =
-  if ⌊ name ≟ₛ attrDefNameStr d ⌋
+  if ⌊ ListProps.≡-dec _≟ᶜ_ name (AttrDef.name d) ⌋
     then just d
     else lookupDef name rest
 
--- Nth element lookup, returns `""` on out-of-bounds (matches the
+-- Nth element lookup, returns `[]` on out-of-bounds (matches the
 -- graceful-degradation contract for `AVEnum` defaults).
-nthLabel : ℕ → List String → String
-nthLabel _       []       = ""
+nthLabel : ℕ → List (List Char) → List Char
+nthLabel _       []       = []
 nthLabel zero    (x ∷ _)  = x
 nthLabel (suc n) (_ ∷ xs) = nthLabel n xs
 
@@ -127,8 +127,9 @@ isRelScope ASNodeSig = true
 isRelScope _         = false
 
 -- Enum labels comma-separated, each quoted.  Matches cantools output of
--- `"Low","Normal","High"` (no spaces around comma).
-emitEnumLabels-chars : List String → List Char
+-- `"Low","Normal","High"` (no spaces around comma).  Labels are `List Char`
+-- (the AST stores `ATEnum : List (List Char) → AttrType`).
+emitEnumLabels-chars : List (List Char) → List Char
 emitEnumLabels-chars []       = []
 emitEnumLabels-chars (x ∷ xs) =
   quoteStringLit-chars x ++ₗ
@@ -163,16 +164,16 @@ emitAssignValue-chars (AVHex n)    = showℕ-dec-chars (natDecRatToℕ n)
 -- Default context: `AVEnum n` → look up the label at index n in the
 -- matching AttrDef's ENUM labels, quoted as a string literal.  Missing
 -- def, non-ENUM def, or OOB index all degrade to `""` (see module header).
-emitDefaultValue-chars : List AttrDef → (attrName : String) → AttrValue → List Char
+emitDefaultValue-chars : List AttrDef → (attrName : List Char) → AttrValue → List Char
 emitDefaultValue-chars _    _  (AVInt z)    = showℤ-dec-chars (intDecRatToℤ z)
 emitDefaultValue-chars _    _  (AVFloat q)  = showDecRat-dec-chars q
 emitDefaultValue-chars _    _  (AVString s) = quoteStringLit-chars s
 emitDefaultValue-chars _    _  (AVHex n)    = showℕ-dec-chars (natDecRatToℕ n)
 emitDefaultValue-chars defs nm (AVEnum n) with lookupDef nm defs
-... | nothing  = quoteStringLit-chars ""
+... | nothing  = quoteStringLit-chars []
 ... | just def with AttrDef.attrType def
 ...   | ATEnum labels = quoteStringLit-chars (nthLabel (natDecRatToℕ n) labels)
-...   | _             = quoteStringLit-chars ""
+...   | _             = quoteStringLit-chars []
 
 -- ============================================================================
 -- LINE EMITTERS
@@ -187,11 +188,11 @@ emitAttrDef-chars : AttrDef → List Char
 emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 ... | true  =
   toList "BA_DEF_REL_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (attrDefNameStr d) ++ₗ
+  quoteStringLit-chars (AttrDef.name d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 ... | false =
   toList "BA_DEF_ " ++ₗ emitScopePrefix-chars (AttrDef.scope d) ++ₗ
-  quoteStringLit-chars (attrDefNameStr d) ++ₗ
+  quoteStringLit-chars (AttrDef.name d) ++ₗ
   ' ' ∷ emitAttrType-chars (AttrDef.attrType d) ++ₗ toList " ;\n"
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.  The
@@ -199,8 +200,8 @@ emitAttrDef-chars d with isRelScope (AttrDef.scope d)
 emitAttrDefault-chars : List AttrDef → AttrDefault → List Char
 emitAttrDefault-chars defs d =
   toList "BA_DEF_DEF_ " ++ₗ
-  quoteStringLit-chars (attrDefaultNameStr d) ++ₗ
-  ' ' ∷ emitDefaultValue-chars defs (attrDefaultNameStr d) (AttrDefault.value d) ++ₗ
+  quoteStringLit-chars (AttrDefault.name d) ++ₗ
+  ' ' ∷ emitDefaultValue-chars defs (AttrDefault.name d) (AttrDefault.value d) ++ₗ
   toList ";\n"
 
 -- `"BA_" ...` vs `"BA_REL_" ...` dispatched on the target.  For each
@@ -212,14 +213,14 @@ emitAttrAssign-chars : AttrAssign → List Char
 emitAttrAssign-chars a = body (AttrAssign.target a)
   where
     qname : List Char
-    qname = quoteStringLit-chars (attrAssignNameStr a)
+    qname = quoteStringLit-chars (AttrAssign.name a)
     vstr : List Char
     vstr = emitAssignValue-chars (AttrAssign.value a)
     body : AttrTarget → List Char
     body ATgtNetwork =
       toList "BA_ " ++ₗ qname ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNode n) =
-      toList "BA_ " ++ₗ qname ++ₗ toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+      toList "BA_ " ++ₗ qname ++ₗ toList " BU_ " ++ₗ Identifier.name n ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtMessage cid) =
       toList "BA_ " ++ₗ qname ++ₗ toList " BO_ " ++ₗ
@@ -228,20 +229,20 @@ emitAttrAssign-chars a = body (AttrAssign.target a)
     body (ATgtSignal cid sig) =
       toList "BA_ " ++ₗ qname ++ₗ toList " SG_ " ++ₗ
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
+      ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtEnvVar ev) =
-      toList "BA_ " ++ₗ qname ++ₗ toList " EV_ " ++ₗ toList (Identifier.name ev) ++ₗ
+      toList "BA_ " ++ₗ qname ++ₗ toList " EV_ " ++ₗ Identifier.name ev ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeMsg n cid) =
       toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_BO_REL_ " ++ₗ
-      toList (Identifier.name n) ++ₗ ' ' ∷
+      Identifier.name n ++ₗ ' ' ∷
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
       ' ' ∷ vstr ++ₗ toList ";\n"
     body (ATgtNodeSig n cid sig) =
       toList "BA_REL_ " ++ₗ qname ++ₗ toList " BU_SG_REL_ " ++ₗ
-      toList (Identifier.name n) ++ₗ toList " SG_ " ++ₗ
+      Identifier.name n ++ₗ toList " SG_ " ++ₗ
       showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-      ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
+      ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ vstr ++ₗ toList ";\n"
 
 -- ============================================================================
 -- SECTION EMITTER

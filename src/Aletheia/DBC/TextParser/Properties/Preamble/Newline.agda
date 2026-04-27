@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Newline-related helpers shared across every Layer-3 commit in B.3.d.
 --

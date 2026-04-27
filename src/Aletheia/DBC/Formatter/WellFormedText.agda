@@ -48,11 +48,12 @@
 -- 3d.2+ will discharge them in the per-construct roundtrip lemmas.
 module Aletheia.DBC.Formatter.WellFormedText where
 
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.String using (String)
+open import Data.String using (toList)
 open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Relation.Nullary using (¬_)
 
@@ -73,7 +74,7 @@ open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 -- `"Vector__XXX"` in any element is the simplest sufficient condition.)
 NoVectorXXXReceiver : DBCSignal → Set
 NoVectorXXXReceiver s =
-  All (λ r → ¬ (Identifier.name r ≡ "Vector__XXX")) (DBCSignal.receivers s)
+  All (λ r → ¬ (Identifier.name r ≡ toList "Vector__XXX")) (DBCSignal.receivers s)
 
 -- Presence is `Always` or a singleton `When m (v ∷ [])` selector.  Multi-
 -- value mux selectors are deferred (see module header §2).
@@ -118,8 +119,10 @@ data MasterCoherent : List DBCSignal → Set where
 
   -- Mux case: one master, every When slave references it.  The master
   -- signal record `masterSig` is exhibited by `Σ`-style witness fields.
+  -- Post-3d.4 + JSON-mirror: `findMuxMaster` returns `Maybe (List Char)`
+  -- (matching `Identifier.name : List Char`).
   mc-mux : ∀ {sigs}
-         → (masterName : String)
+         → (masterName : List Char)
          → findMuxMaster sigs ≡ just masterName
          -- Master existence (some signal in sigs has name = masterName
          -- and presence = Always).  We carry the full signal record so

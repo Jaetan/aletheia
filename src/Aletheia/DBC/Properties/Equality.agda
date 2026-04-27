@@ -16,7 +16,7 @@ open import Data.Nat using (ℕ)
 open import Data.Nat.Properties using (_≟_)
 open import Aletheia.DBC.DecRat using (_≟ᵈ_)
 open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
 open import Relation.Nullary using (Dec; yes; no)
 
@@ -75,7 +75,7 @@ s₁ ≟-DBCSignal s₂
   with DBCSignal.byteOrder s₁ ≟-ByteOrder DBCSignal.byteOrder s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.byteOrder eq))
 ... | yes refl
-  with DBCSignal.unit s₁ ≟ₛ DBCSignal.unit s₂
+  with ≡-dec _≟ᶜ_ (DBCSignal.unit s₁) (DBCSignal.unit s₂)
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.unit eq))
 ... | yes refl
   with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂

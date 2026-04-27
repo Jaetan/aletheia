@@ -125,14 +125,16 @@ showℤ-dec-chars = showInt-chars
 escapeChar-chars : Char → List Char
 escapeChar-chars c = if ⌊ c ≟ᶜ '"' ⌋ then '"' ∷ '"' ∷ [] else c ∷ []
 
--- Wrap a string in `"..."` and escape inner quotes per CSV-style DBC
+-- Wrap a `List Char` in `"..."` and escape inner quotes per CSV-style DBC
 -- escape.  Matches `Lexer.parseStringLit` exactly so roundtrip proofs
 -- in B.3.d compose cleanly.  The right fold accumulates the closing
 -- `"` into the seed so the inner-character expansion sees its own
--- tail naturally.
-quoteStringLit-chars : String → List Char
-quoteStringLit-chars s =
-  '"' ∷ foldr (λ c acc → escapeChar-chars c ++ₗ acc) ('"' ∷ []) (toList s)
+-- tail naturally.  Post 3d.4 + JSON-mirror takes `List Char` directly so
+-- callers (`DBCSignal.unit`, `AVString` payload, attribute names) skip the
+-- `toList` boundary.
+quoteStringLit-chars : List Char → List Char
+quoteStringLit-chars cs =
+  '"' ∷ foldr (λ c acc → escapeChar-chars c ++ₗ acc) ('"' ∷ []) cs
 
 -- ============================================================================
 -- DECIMAL RATIONALS — Shape B emitter (DecRat substrate)

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Topology parsers for the DBC text format (Phase B.3.c.3).
 --
@@ -47,17 +47,18 @@
 --     rejection — leave to the validator per the scope note above.
 module Aletheia.DBC.TextParser.Topology where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Data.String.Properties
 open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (Bool; true; false)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_; map)
+import Data.List.Properties as ListProps
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; suc; _+_; _∸_; _*_; _%_; _^_; _<ᵇ_; _≤ᵇ_)
 open import Data.Rational using (ℚ)
 open import Aletheia.DBC.DecRat using (DecRat)
-open import Data.String using (String)
+open import Data.String as String using (String)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; fail; _>>=_; _<|>_; _*>_;
@@ -175,7 +176,7 @@ record RawSignal : Set where
     offset    : DecRat
     minimum   : DecRat
     maximum   : DecRat
-    unit      : String
+    unit      : List Char
     receivers : List Identifier
 
 -- Comma-separated receiver list (grammar requires at least one).
@@ -190,7 +191,7 @@ parseReceiverList = do
 -- it is the sole entry — a list like `Vector__XXX,NodeA` (which cantools
 -- never emits but third-party tooling might) is preserved verbatim.
 stripVectorPlaceholder : List Identifier → List Identifier
-stripVectorPlaceholder (r ∷ []) with Identifier.name r Data.String.Properties.≟ "Vector__XXX"
+stripVectorPlaceholder (r ∷ []) with ListProps.≡-dec _≟ᶜ_ (Identifier.name r) (String.toList "Vector__XXX")
 ... | yes _ = []
 ... | no _  = r ∷ []
 stripVectorPlaceholder rs = rs

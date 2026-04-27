@@ -11,6 +11,7 @@
 module Aletheia.LTL.SignalPredicate.Types where
 
 open import Aletheia.Prelude
+open import Data.Char using (Char)
 open import Data.Rational using (ℚ)
 
 -- ============================================================================
@@ -65,15 +66,15 @@ fromBool false = False
 
 -- Single-value predicates: evaluated given one signal value (ℚ → Bool)
 data ValuePredicate : Set where
-  Equals             : (signalName : String) → (value : ℚ) → ValuePredicate
-  LessThan           : (signalName : String) → (value : ℚ) → ValuePredicate
-  GreaterThan        : (signalName : String) → (value : ℚ) → ValuePredicate
-  LessThanOrEqual    : (signalName : String) → (value : ℚ) → ValuePredicate
-  GreaterThanOrEqual : (signalName : String) → (value : ℚ) → ValuePredicate
-  Between            : (signalName : String) → (min : ℚ) → (max : ℚ) → ValuePredicate
+  Equals             : (signalName : List Char) → (value : ℚ) → ValuePredicate
+  LessThan           : (signalName : List Char) → (value : ℚ) → ValuePredicate
+  GreaterThan        : (signalName : List Char) → (value : ℚ) → ValuePredicate
+  LessThanOrEqual    : (signalName : List Char) → (value : ℚ) → ValuePredicate
+  GreaterThanOrEqual : (signalName : List Char) → (value : ℚ) → ValuePredicate
+  Between            : (signalName : List Char) → (min : ℚ) → (max : ℚ) → ValuePredicate
 
 -- Extract signal name from a value predicate
-valuePredicateSignal : ValuePredicate → String
+valuePredicateSignal : ValuePredicate → List Char
 valuePredicateSignal (Equals n _)             = n
 valuePredicateSignal (LessThan n _)           = n
 valuePredicateSignal (GreaterThan n _)        = n
@@ -83,11 +84,11 @@ valuePredicateSignal (Between n _ _)          = n
 
 -- Delta predicates: require two values (previous and current)
 data DeltaPredicate : Set where
-  ChangedBy    : (signalName : String) → (delta : ℚ) → DeltaPredicate
-  StableWithin : (signalName : String) → (tolerance : ℚ) → DeltaPredicate
+  ChangedBy    : (signalName : List Char) → (delta : ℚ) → DeltaPredicate
+  StableWithin : (signalName : List Char) → (tolerance : ℚ) → DeltaPredicate
 
 -- Extract signal name from a delta predicate
-deltaPredicateSignal : DeltaPredicate → String
+deltaPredicateSignal : DeltaPredicate → List Char
 deltaPredicateSignal (ChangedBy n _)    = n
 deltaPredicateSignal (StableWithin n _) = n
 

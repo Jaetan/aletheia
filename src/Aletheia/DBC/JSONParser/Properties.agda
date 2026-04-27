@@ -20,7 +20,7 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans)
 
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupArray)
+  lookupChars; lookupArray)
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList;
   parseOptionalArray; parseSignalGroupList; parseEnvironmentVarList; parseValueTableList;
@@ -43,7 +43,7 @@ open import Aletheia.DBC.JSONParser.MessageWF using (parseMessageList-pv)
 parse-wellformed : ∀ j d
   → parseDBCWithErrors j ≡ inj₂ d → WellFormedDBCRT d
 parse-wellformed (JObject obj) d eq
-  with lookupString "version" obj | eq
+  with lookupChars "version" obj | eq
 ... | nothing | ()
 ... | just version | eq₁
   with lookupArray "messages" obj | eq₁

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` and `parseRawAttrRel`
 -- per-line construct roundtrips — facade module.

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseEnvVar-roundtrip` — per-line-construct roundtrip for the DBC
 -- `EV_ <name>: <type> [<min>|<max>] "<unit>" <initial> <env_id>
@@ -65,7 +65,7 @@ open import Aletheia.DBC.TextFormatter.EnvVars using
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showNat-chars; showDecRat-dec-chars; quoteStringLit-chars; digitChar)
 open import Aletheia.DBC.Types using
-  (EnvironmentVar; envVarNameStr; VarType; IntVar; FloatVar; StringVar)
+  (EnvironmentVar; VarType; IntVar; FloatVar; StringVar)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; []-stop; bind-just-step;
@@ -101,7 +101,7 @@ import Aletheia.DBC.TextParser.Properties.EnvVars._Scratch
 EnvVarNameStop : EnvironmentVar → Set
 EnvVarNameStop ev =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (envVarNameStr ev) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name (EnvironmentVar.name ev) ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
 -- Synthesized drop-field identifier values
@@ -114,10 +114,10 @@ EnvVarNameStop ev =
 -- `tt` on the closed `validIdentifierᵇ` definition (canary verified
 -- above).
 ident-DummyNode : Identifier
-ident-DummyNode = mkIdent "DUMMY_NODE_VECTOR0" tt
+ident-DummyNode = mkIdent (toList "DUMMY_NODE_VECTOR0") tt
 
 ident-VectorXXX : Identifier
-ident-VectorXXX = mkIdent "Vector__XXX" tt
+ident-VectorXXX = mkIdent (toList "Vector__XXX") tt
 
 -- ============================================================================
 -- parseVarType-roundtrip
@@ -173,7 +173,7 @@ private
       ∀ (ev : EnvironmentVar) (suffix : List Char)
     → emitEnvVar-chars ev ++ₗ suffix
       ≡ toList "EV_ "
-          ++ₗ (toList (envVarNameStr ev)
+          ++ₗ (Identifier.name (EnvironmentVar.name ev)
                 ++ₗ ':' ∷ ' ' ∷
                      (emitVarType-chars (EnvironmentVar.varType ev)
                        ++ₗ ' ' ∷ '[' ∷
@@ -187,7 +187,7 @@ private
                                                    ++ₗ toList " Vector__XXX"
                                                          ++ₗ ';' ∷ '\n' ∷ suffix)))))
   emitEnvVar-chars-shape ev suffix =
-    let nm-chars  = toList (envVarNameStr ev)
+    let nm-chars  = Identifier.name (EnvironmentVar.name ev)
         vt-chars  = emitVarType-chars (EnvironmentVar.varType ev)
         min-chars = showDecRat-dec-chars (EnvironmentVar.minimum ev)
         max-chars = showDecRat-dec-chars (EnvironmentVar.maximum ev)
@@ -322,7 +322,7 @@ parseEnvVar-roundtrip pos ev suffix
                                                           step-pure)))))))))))))))))))))))))))
   where
     nm-chars : List Char
-    nm-chars = toList (envVarNameStr ev)
+    nm-chars = Identifier.name (EnvironmentVar.name ev)
 
     nm-id : Identifier
     nm-id = EnvironmentVar.name ev
@@ -366,7 +366,7 @@ parseEnvVar-roundtrip pos ev suffix
     p-max      = advancePositions p-pipe max-chars
     p-rbrack   = advancePosition p-max ']'
     p-ws4      = advancePosition p-rbrack ' '
-    p-unit     = advancePositions p-ws4 (quoteStringLit-chars "")
+    p-unit     = advancePositions p-ws4 (quoteStringLit-chars [])
     p-ws5      = advancePosition p-unit ' '
     p-ini      = advancePositions p-ws5 ini-chars
     p-ws6      = advancePosition p-ini ' '
@@ -896,7 +896,7 @@ parseEnvVar-roundtrip pos ev suffix
       many parseNewline >>= λ _ →
       pure (record { name = nm-id; varType = vt; initial = ini'; minimum = min; maximum = max })
 
-    cont-unit : String → Parser EnvironmentVar
+    cont-unit : List Char → Parser EnvironmentVar
     cont-unit _ =
       parseWS >>= λ _ →
       parseDecRat >>= λ ini' →
@@ -1237,13 +1237,13 @@ parseEnvVar-roundtrip pos ev suffix
 
     step-unit :
       cont-WS-4 (' ' ∷ []) p-ws4 in-unit
-      ≡ cont-unit "" p-unit in-ws5
+      ≡ cont-unit [] p-unit in-ws5
     step-unit =
       bind-just-step parseStringLit
                      cont-unit
                      p-ws4 in-unit
-                     "" p-unit in-ws5
-                     (parseStringLit-roundtrip p-ws4 "" in-ws5 unit-quote-ss)
+                     [] p-unit in-ws5
+                     (parseStringLit-roundtrip p-ws4 [] in-ws5 unit-quote-ss)
 
     -- Step 16: parseWS consumes ` ` before ini-chars.  Head of in-ini
     -- is the first char of ini-chars (showDecRat-dec-chars d).  All
@@ -1270,7 +1270,7 @@ parseEnvVar-roundtrip pos ev suffix
                     (sym eq) (∷-stop (digitChar-not-isHSpace k))
 
     step-WS-5 :
-      cont-unit "" p-unit in-ws5
+      cont-unit [] p-unit in-ws5
       ≡ cont-WS-5 (' ' ∷ []) p-ws5 in-ini
     step-WS-5 =
       bind-just-step parseWS

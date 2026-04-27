@@ -11,7 +11,7 @@ open import Data.List using (List; []; _∷_; map)
 open import Data.Rational using (ℚ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JString; JNumber; JBool)
+open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JStringS; JNumber; JBool)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
@@ -36,8 +36,8 @@ open import Aletheia.DBC.Validator using (hasAnyError)
 mkPropertyResult : String → ℕ → List (String × JSON) → JSON
 mkPropertyResult status idx extras =
   JObject (
-    ("type" , JString "property") ∷
-    ("status" , JString status) ∷
+    ("type" , JStringS "property") ∷
+    ("status" , JStringS status) ∷
     ("property_index" , JNumber (ℕtoℚ idx)) ∷
     extras)
 
@@ -46,33 +46,33 @@ formatPropertyResult : PropertyResult → JSON
 formatPropertyResult (PropertyResult.Violation idx counterex) =
   mkPropertyResult "fails" idx
     (("timestamp" , JNumber (ℕtoℚ (tsValue (CounterexampleData.timestamp counterex)))) ∷
-     ("reason" , JString (formatLTLReason (CounterexampleData.reason counterex))) ∷
+     ("reason" , JStringS (formatLTLReason (CounterexampleData.reason counterex))) ∷
      [])
 formatPropertyResult (PropertyResult.Satisfaction idx) =
   mkPropertyResult "holds" idx []
 formatPropertyResult (PropertyResult.Unresolved idx reason) =
   mkPropertyResult "unresolved" idx
-    (("reason" , JString (formatLTLReason reason)) ∷ [])
+    (("reason" , JStringS (formatLTLReason reason)) ∷ [])
 
 -- Format Response as JSON
 formatResponse : Response → JSON
 formatResponse (Success msg) =
   JObject (
-    ("status" , JString "success") ∷
-    ("message" , JString msg) ∷
+    ("status" , JStringS "success") ∷
+    ("message" , JStringS msg) ∷
     [])
 formatResponse (Error err) =
   JObject (
-    ("status"  , JString "error") ∷
-    ("code"    , JString (Err.errorCode err)) ∷
-    ("message" , JString (Err.formatError err)) ∷
+    ("status"  , JStringS "error") ∷
+    ("code"    , JStringS (Err.errorCode err)) ∷
+    ("message" , JStringS (Err.formatError err)) ∷
     [])
 formatResponse (ExtractionResultsResponse values errors absent) =
   JObject (
-    ("status" , JString "success") ∷
+    ("status" , JStringS "success") ∷
     ("values" , formatSignalValues values) ∷
     ("errors" , formatErrors errors) ∷
-    ("absent" , JArray (map JString absent)) ∷
+    ("absent" , JArray (map JStringS absent)) ∷
     [])
   where
     formatSignalValues : List (String × ℚ) → JSON
@@ -80,33 +80,33 @@ formatResponse (ExtractionResultsResponse values errors absent) =
       where
         formatPair : String × ℚ → JSON
         formatPair (name , value) =
-          JObject (("name" , JString name) ∷ ("value" , JNumber value) ∷ [])
+          JObject (("name" , JStringS name) ∷ ("value" , JNumber value) ∷ [])
 
     formatErrors : List (String × String) → JSON
     formatErrors errs = JArray (map formatError errs)
       where
         formatError : String × String → JSON
         formatError (name , msg) =
-          JObject (("name" , JString name) ∷ ("error" , JString msg) ∷ [])
+          JObject (("name" , JStringS name) ∷ ("error" , JStringS msg) ∷ [])
 formatResponse (PropertyResponse result) =
   formatPropertyResult result
 formatResponse Ack =
   JObject (
-    ("status" , JString "ack") ∷
+    ("status" , JStringS "ack") ∷
     [])
 formatResponse (Complete results) =
   JObject (
-    ("status" , JString "complete") ∷
+    ("status" , JStringS "complete") ∷
     ("results" , JArray (map formatPropertyResult results)) ∷
     [])
 formatResponse (DBCResponse dbcJSON) =
   JObject (
-    ("status" , JString "success") ∷
+    ("status" , JStringS "success") ∷
     ("dbc" , dbcJSON) ∷
     [])
 formatResponse (ValidationResponse issues) =
   JObject (
-    ("status"     , JString "validation") ∷
+    ("status"     , JStringS "validation") ∷
     ("has_errors" , JBool (hasAnyError issues)) ∷
     ("issues"     , JArray (map formatValidationIssue issues)) ∷
     [])
@@ -140,7 +140,7 @@ formatResponse (ValidationResponse issues) =
     formatValidationIssue : ValidationIssue → JSON
     formatValidationIssue issue =
       JObject (
-        ("severity" , JString (formatIssueSeverity (ValidationIssue.severity issue))) ∷
-        ("code"     , JString (formatIssueCode (ValidationIssue.code issue))) ∷
-        ("detail"   , JString (ValidationIssue.detail issue)) ∷
+        ("severity" , JStringS (formatIssueSeverity (ValidationIssue.severity issue))) ∷
+        ("code"     , JStringS (formatIssueCode (ValidationIssue.code issue))) ∷
+        ("detail"   , JStringS (ValidationIssue.detail issue)) ∷
         [])

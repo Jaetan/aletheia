@@ -22,14 +22,14 @@ open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst
 open import Data.Nat.Properties using (≡ᵇ⇒≡; m≤m+n; ≤-refl)
 
 open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject;
-  lookupString; lookupNat; lookupArray)
+  lookupString; lookupChars; lookupNat; lookupArray)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; bytesToValidDLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bvd-bytes)
 open import Aletheia.DBC.Types using (DBCMessage)
 open import Aletheia.DBC.JSONParser using (parseMessageId; parseMessageBody;
   parseMessageFields; parseMessage; parseMessageList; parseSignalList;
-  parseOptionalArray; parseStringList; validateIdent; validateIdentList)
+  parseOptionalArray; parseCharsList; validateIdent; validateIdentList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   WellFormedMessage; WellFormedMessageRT; PhysicallyValid)
 open import Aletheia.DBC.JSONParser.SignalWF using (parseSignalList-wf; parseSignalList-pv)
@@ -119,10 +119,10 @@ parseMessageBody-wf ctx name canId obj msg eq
   with bytesToValidDLC rawDlc in bvd-eq | eq₁
 ...   | nothing | ()
 ...   | just dlc | eq₂
-    with lookupString "sender" obj | eq₂
+    with lookupChars "sender" obj | eq₂
 ...     | nothing | ()
 ...     | just sender | eq₃
-      with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
+      with parseOptionalArray parseCharsList (lookupArray "senders" obj) | eq₃
 ...       | inj₁ _ | ()
 ...       | inj₂ senders | eq₃'
         with lookupArray "signals" obj | eq₃'
@@ -167,7 +167,7 @@ parseMessageFields-wf ctx name obj msg eq
 parseMessage-wf : ∀ obj msg
   → parseMessage obj ≡ inj₂ msg → WellFormedMessage msg
 parseMessage-wf obj msg eq
-  with lookupString "name" obj | eq
+  with lookupChars "name" obj | eq
 ... | nothing | ()
 ... | just name | eq' = parseMessageFields-wf _ name obj msg eq'
 
@@ -223,10 +223,10 @@ parseMessageBody-pv ctx name canId obj msg eq
   with bytesToValidDLC rawDlc in bvd-eq | eq₁
 ...   | nothing | ()
 ...   | just dlc | eq₂
-    with lookupString "sender" obj | eq₂
+    with lookupChars "sender" obj | eq₂
 ...     | nothing | ()
 ...     | just sender | eq₃
-      with parseOptionalArray parseStringList (lookupArray "senders" obj) | eq₃
+      with parseOptionalArray parseCharsList (lookupArray "senders" obj) | eq₃
 ...       | inj₁ _ | ()
 ...       | inj₂ senders | eq₃'
         with lookupArray "signals" obj | eq₃'
@@ -266,7 +266,7 @@ parseMessage-pv : ∀ obj msg
   → parseMessage obj ≡ inj₂ msg
   → All (PhysicallyValid (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg)
 parseMessage-pv obj msg eq
-  with lookupString "name" obj | eq
+  with lookupChars "name" obj | eq
 ... | nothing | ()
 ... | just name | eq' = parseMessageFields-pv _ name obj msg eq'
 

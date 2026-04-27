@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Signal-group parser for the DBC text format (Phase B.3.c.7).
 --

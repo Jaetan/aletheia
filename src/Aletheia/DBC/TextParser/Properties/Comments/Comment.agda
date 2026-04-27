@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseComment-roundtrip` — per-line-construct roundtrip for the DBC
 -- `CM_ [<target>] "<text>";\n` line (B.3.d Layer 3 Commit 3b).
@@ -108,7 +108,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 NameStop : Identifier → Set
 NameStop n =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (Identifier.name n) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name n ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
 -- Per-target precondition (DBCComment-level)
@@ -245,7 +245,7 @@ buildCANId-rawCanIdℕ (Extended n pf) =
 private
   name-stop-extends : ∀ (n : Identifier) (rest : List Char)
     → NameStop n
-    → SuffixStops isHSpace (toList (Identifier.name n) ++ₗ rest)
+    → SuffixStops isHSpace (Identifier.name n ++ₗ rest)
   name-stop-extends n rest (c , cs , name-eq , c-non-hspace) =
     subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
           (sym name-eq)
@@ -284,7 +284,7 @@ private
 -- `SuffixStops isHSpace (quoteStringLit-chars s ++ rest)` — head is
 -- `'"'`, so its `isHSpace` reduces to `false`.
 private
-  quoteStringLit-chars-head-isHSpace : ∀ (s : String) (rest : List Char)
+  quoteStringLit-chars-head-isHSpace : ∀ (s : List Char) (rest : List Char)
     → SuffixStops isHSpace (quoteStringLit-chars s ++ₗ rest)
   quoteStringLit-chars-head-isHSpace s rest =
     subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
@@ -304,13 +304,13 @@ parseBUTgt-roundtrip :
   → NameStop n
   → SuffixStops isHSpace rest
   → parseBUTgt pos
-      (toList "BU_" ++ₗ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ rest)
+      (toList "BU_" ++ₗ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ rest)
     ≡ just (mkResult (CTNode n)
              (advancePosition
                (advancePositions
                  (advancePosition
                    (advancePositions pos (toList "BU_")) ' ')
-                 (toList (Identifier.name n))) ' ')
+                 (Identifier.name n)) ' ')
              rest)
 parseBUTgt-roundtrip pos n rest name-stop rest-stop =
   trans step-string-BU
@@ -325,16 +325,16 @@ parseBUTgt-roundtrip pos n rest name-stop rest-stop =
     pos2 = advancePosition pos1 ' '
 
     pos3 : Position
-    pos3 = advancePositions pos2 (toList (Identifier.name n))
+    pos3 = advancePositions pos2 (Identifier.name n)
 
     pos4 : Position
     pos4 = advancePosition pos3 ' '
 
     rest1 : List Char
-    rest1 = ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ rest
+    rest1 = ' ' ∷ Identifier.name n ++ₗ ' ' ∷ rest
 
     rest2 : List Char
-    rest2 = toList (Identifier.name n) ++ₗ ' ' ∷ rest
+    rest2 = Identifier.name n ++ₗ ' ' ∷ rest
 
     rest3 : List Char
     rest3 = ' ' ∷ rest
@@ -406,13 +406,13 @@ parseEVTgt-roundtrip :
   → NameStop n
   → SuffixStops isHSpace rest
   → parseEVTgt pos
-      (toList "EV_" ++ₗ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ rest)
+      (toList "EV_" ++ₗ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ rest)
     ≡ just (mkResult (CTEnvVar n)
              (advancePosition
                (advancePositions
                  (advancePosition
                    (advancePositions pos (toList "EV_")) ' ')
-                 (toList (Identifier.name n))) ' ')
+                 (Identifier.name n)) ' ')
              rest)
 parseEVTgt-roundtrip pos n rest name-stop rest-stop =
   trans step-string-EV
@@ -427,16 +427,16 @@ parseEVTgt-roundtrip pos n rest name-stop rest-stop =
     pos2 = advancePosition pos1 ' '
 
     pos3 : Position
-    pos3 = advancePositions pos2 (toList (Identifier.name n))
+    pos3 = advancePositions pos2 (Identifier.name n)
 
     pos4 : Position
     pos4 = advancePosition pos3 ' '
 
     rest1 : List Char
-    rest1 = ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ rest
+    rest1 = ' ' ∷ Identifier.name n ++ₗ ' ' ∷ rest
 
     rest2 : List Char
-    rest2 = toList (Identifier.name n) ++ₗ ' ' ∷ rest
+    rest2 = Identifier.name n ++ₗ ' ' ∷ rest
 
     rest3 : List Char
     rest3 = ' ' ∷ rest
@@ -650,7 +650,7 @@ parseSGTgt-roundtrip :
   → SuffixStops isHSpace rest
   → parseSGTgt pos
       (toList "SG_" ++ₗ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ rest)
+        ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ rest)
     ≡ just (mkResult (CTSignal cid sig)
              (advancePosition
                (advancePositions
@@ -659,7 +659,7 @@ parseSGTgt-roundtrip :
                      (advancePosition
                        (advancePositions pos (toList "SG_")) ' ')
                      (showℕ-dec-chars (rawCanIdℕ cid))) ' ')
-                 (toList (Identifier.name sig))) ' ')
+                 (Identifier.name sig)) ' ')
              rest)
 parseSGTgt-roundtrip pos cid sig rest name-stop rest-stop =
   trans step-string-SG
@@ -674,7 +674,7 @@ parseSGTgt-roundtrip pos cid sig rest name-stop rest-stop =
     digits = showℕ-dec-chars (rawCanIdℕ cid)
 
     name : List Char
-    name = toList (Identifier.name sig)
+    name = Identifier.name sig
 
     pos1 : Position
     pos1 = advancePositions pos (toList "SG_")
@@ -1052,7 +1052,7 @@ private
 -- and the outer `suffix`.  Five `bind-just-step`s + a final
 -- `cong`-with-`pure`.
 parseStringLit-to-pure-roundtrip :
-    ∀ (pos : Position) (target : CommentTarget) (text : String)
+    ∀ (pos : Position) (target : CommentTarget) (text : List Char)
         (suffix : List Char)
   → SuffixStops isNewlineStart suffix
   → (parseStringLit >>= λ t →
@@ -1104,7 +1104,7 @@ parseStringLit-to-pure-roundtrip pos target text suffix nl-stop =
 
     -- After parseStringLit, all later binds use `text` (the bound
     -- variable).  The continuations capture `text` directly.
-    cont-after-stringLit : String → Parser DBCComment
+    cont-after-stringLit : List Char → Parser DBCComment
     cont-after-stringLit t =
       parseWSOpt >>= λ _ →
       char ';' >>= λ _ →
@@ -1330,7 +1330,7 @@ parseComment-roundtrip pos (mkComment CTNetwork text) suffix _ nl-stop =
       subst (λ q → parseCommentTarget pos2 (q ++ₗ ';' ∷ '\n' ∷ suffix) ≡ nothing)
             (sym (quoteStringLit-chars-shape text))
             (parseCommentTarget-fails-on-quote-prefix pos2
-               (escape-body-chars (toList text) ++ₗ '"' ∷ ';' ∷ '\n' ∷ suffix))
+               (escape-body-chars text ++ₗ '"' ∷ ';' ∷ '\n' ∷ suffix))
 
     dispatch-CTNetwork :
       (parseCommentTarget <|> pure CTNetwork) pos2 rest2
@@ -1408,7 +1408,7 @@ parseComment-roundtrip pos (mkComment (CTNode n) text) suffix name-stop nl-stop 
     quoted = quoteStringLit-chars text
 
     nm : List Char
-    nm = toList (Identifier.name n)
+    nm = Identifier.name n
 
     pos1 : Position
     pos1 = advancePositions pos (toList "CM_")
@@ -1955,7 +1955,7 @@ parseComment-roundtrip pos (mkComment (CTSignal cid s) text) suffix
     digits = showℕ-dec-chars (rawCanIdℕ cid)
 
     name : List Char
-    name = toList (Identifier.name s)
+    name = Identifier.name s
 
     pos1 : Position
     pos1 = advancePositions pos (toList "CM_")
@@ -2267,7 +2267,7 @@ parseComment-roundtrip pos (mkComment (CTEnvVar ev) text) suffix
     quoted = quoteStringLit-chars text
 
     nm : List Char
-    nm = toList (Identifier.name ev)
+    nm = Identifier.name ev
 
     pos1 : Position
     pos1 = advancePositions pos (toList "CM_")

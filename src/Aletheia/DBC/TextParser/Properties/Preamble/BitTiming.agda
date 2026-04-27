@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseBitTiming-roundtrip` — per-line-construct roundtrip for the
 -- `BS_:` preamble line (B.3.d Layer 3).

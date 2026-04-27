@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.1 — `parseAttrTypeDecl` roundtrip.
 --
@@ -787,13 +787,14 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (manyHelper-prog-cons)
 
 private
+  -- Post-3d.4 + JSON-mirror: enum labels are `List Char` (was String).
   -- The body parser consumes one `,"y"` segment and returns y.
-  parseEnumBody : Parser String
+  parseEnumBody : Parser (List Char)
   parseEnumBody = char ',' *> parseWSOpt *> parseStringLit
 
   -- `commaSep-chars (y ∷ ys) = ',' ∷ "y" ∷ commaSep-chars ys`.  Mirrors
   -- the formatter's foldr.
-  commaSep-chars : List String → List Char
+  commaSep-chars : List (List Char) → List Char
   commaSep-chars []       = []
   commaSep-chars (y ∷ ys) = ',' ∷ quoteStringLit-chars y ++ₗ commaSep-chars ys
 
@@ -893,7 +894,7 @@ private
   sameLengthᵇ-lt (_ ∷ _)  []       _       = refl
   sameLengthᵇ-lt (_ ∷ xs) (_ ∷ ys) (s≤s h) = sameLengthᵇ-lt xs ys h
 
-  sameLengthᵇ-after-enum-body : ∀ (y : String) (rest : List Char)
+  sameLengthᵇ-after-enum-body : ∀ (y : List Char) (rest : List Char)
     → sameLengthᵇ
         (',' ∷ quoteStringLit-chars y ++ₗ rest)
         rest
@@ -1072,7 +1073,7 @@ private
               -- plus the quoted string body.  Use `m≤n+m` to absorb
               -- the abstract `length (quoteStringLit-chars y')` into
               -- the upper bound.
-              go : ∀ (xs' : List String)
+              go : ∀ (xs' : List (List Char))
                 → length xs' ≤ length (commaSep-chars xs')
               go []        = z≤n
               go (y' ∷ ys')
@@ -1101,7 +1102,7 @@ private
 -- pure (ATEnum)`.  3-step bind chain; parseEnumLabels-roundtrip-cons
 -- supplies the labels parse.  4-fold outer dispatch via `lift-ENUM`.
 parseAttrTypeDecl-roundtrip-ATEnum :
-  ∀ (x : String) (xs : List String) (pos : Position) (suffix : List Char)
+  ∀ (x : List Char) (xs : List (List Char)) (pos : Position) (suffix : List Char)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
   → SuffixStops (λ c → c ≈ᵇ ',') suffix
   → parseAttrTypeDecl pos (emitAttrType-chars (ATEnum (x ∷ xs)) ++ₗ suffix)
@@ -1170,7 +1171,7 @@ parseAttrTypeDecl-roundtrip-ATEnum x xs pos suffix ssq ssc =
         -- `emitEnumLabels-chars (x ∷ xs)` head is `"` (the leading
         -- quote of x's quoteStringLit).  isHSpace `"` ≡ false.  Use
         -- the shape lemma to reify the head.
-        cs-labels-quote-stop : ∀ (xs : List String) (suffix : List Char)
+        cs-labels-quote-stop : ∀ (xs : List (List Char)) (suffix : List Char)
           → SuffixStops isHSpace (cs-labels ++ₗ suffix)
         cs-labels-quote-stop _ _ = ∷-stop refl
 

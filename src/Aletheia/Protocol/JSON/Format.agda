@@ -7,8 +7,9 @@
 -- uses a constrained JSON subset where strings contain no quotes or escape chars.
 module Aletheia.Protocol.JSON.Format where
 
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.List using (List; []; _∷_)
+open import Data.Char using (Char)
 open import Data.Bool using (true; false)
 open import Data.Nat using (ℕ; zero; suc)
 open import Data.Integer using (ℤ)
@@ -35,7 +36,7 @@ formatJSON JNull = "null"
 formatJSON (JBool true) = "true"
 formatJSON (JBool false) = "false"
 formatJSON (JNumber n) = formatRational n
-formatJSON (JString s) = "\"" ++ₛ s ++ₛ "\""
+formatJSON (JString cs) = "\"" ++ₛ fromList cs ++ₛ "\""
 formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
   where
     formatJSONList : List JSON → String

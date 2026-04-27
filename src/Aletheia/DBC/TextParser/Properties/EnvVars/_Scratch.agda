@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Load-bearing reduction canary for the B.3.d Layer 3 `EV_` proof.
 --

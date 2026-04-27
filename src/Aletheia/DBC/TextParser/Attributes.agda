@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Attribute parsers for the DBC text format (Phase B.3.c.5).
 --
@@ -52,11 +52,12 @@
 -- ordering is longest-first as a readability aid only.
 module Aletheia.DBC.TextParser.Attributes where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (attrDefNameStr)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
+import Data.List.Properties as ListProps
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
@@ -64,8 +65,7 @@ open import Aletheia.DBC.DecRat.Refinement using
   (IntDecRat; mkIntDecRatFromℤ; NatDecRat; mkNatDecRatFromℕ)
 open import Aletheia.DBC.TextParser.DecRatParse using
   (parseDecRat; parseIntDecRat; parseNatDecRat)
-open import Data.String using (String)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.String as String using (String)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
@@ -109,20 +109,23 @@ open import Aletheia.DBC.Types using
 -- There is no `parseRational-roundtrip` and proving it from scratch
 -- (scientific notation, sign + fraction + exponent unrolling) would add
 -- ~1 kLOC of foundation work for B.3.d Layer 3 attribute proofs.
+-- Post 3d.4 + JSON-mirror: `RavString` and `name` carry `List Char`
+-- (matching `parseStringLit : Parser (List Char)` and the AST's
+-- `AttrDefault.name : List Char` / `AttrAssign.name : List Char`).
 data RawAttrValue : Set where
-  RavString : String → RawAttrValue
-  RavDecRat : DecRat → RawAttrValue
+  RavString : List Char → RawAttrValue
+  RavDecRat : DecRat    → RawAttrValue
 
 record RawAttrDefault : Set where
   constructor mkRawAttrDefault
   field
-    name  : String
+    name  : List Char
     value : RawAttrValue
 
 record RawAttrAssign : Set where
   constructor mkRawAttrAssign
   field
-    name   : String
+    name   : List Char
     target : AttrTarget
     value  : RawAttrValue
 
@@ -180,8 +183,9 @@ parseStringType = string "STRING" *> pure ATString
 
 -- Comma-separated enum labels; at least one is required by the grammar.
 -- `parseWSOpt` after the comma tolerates the cantools-observed
--- `"A", "B"` and `"A","B"` forms alike.
-parseEnumLabels : Parser (List String)
+-- `"A", "B"` and `"A","B"` forms alike.  Labels are `List Char` to align
+-- with `ATEnum : List (List Char) → AttrType` post 3d.4 + JSON-mirror.
+parseEnumLabels : Parser (List (List Char))
 parseEnumLabels = do
   h ← parseStringLit
   t ← many (char ',' *> parseWSOpt *> parseStringLit)
@@ -459,10 +463,11 @@ decRatToℕ? (mkDecRat _         _       (suc _) _) = nothing
 -- `refineDefaultValue` to convert an enum-default's string label into
 -- its canonical `AVEnum` index.  Enum-label uniqueness within an AttrDef
 -- is a well-formedness assumption (and corpus invariant); if two labels
--- collide, `findLabel` returns the first match.
-findLabel : String → List String → Maybe ℕ
+-- collide, `findLabel` returns the first match.  `List Char` post 3d.4 +
+-- JSON-mirror to align with `ATEnum : List (List Char) → AttrType`.
+findLabel : List Char → List (List Char) → Maybe ℕ
 findLabel _ []       = nothing
-findLabel s (x ∷ xs) with ⌊ s ≟ₛ x ⌋
+findLabel s (x ∷ xs) with ⌊ ListProps.≡-dec _≟ᶜ_ s x ⌋
 ... | true  = just 0
 ... | false with findLabel s xs
 ...   | just n  = just (suc n)
@@ -515,11 +520,12 @@ collectRawDefs (RawDefault _ ∷ rest) = collectRawDefs rest
 collectRawDefs (RawAssign _  ∷ rest) = collectRawDefs rest
 
 -- Look up an attribute definition by name.  Linear scan; fine for the
--- small def counts seen in practice (corpus: single digits).
-lookupDef : String → List AttrDef → Maybe AttrDef
+-- small def counts seen in practice (corpus: single digits).  Both name and
+-- AttrDef.name are `List Char` post 3d.4 + JSON-mirror.
+lookupDef : List Char → List AttrDef → Maybe AttrDef
 lookupDef _ [] = nothing
 lookupDef name (d ∷ rest) =
-  if ⌊ name ≟ₛ attrDefNameStr d ⌋
+  if ⌊ ListProps.≡-dec _≟ᶜ_ name (AttrDef.name d) ⌋
     then just d
     else lookupDef name rest
 

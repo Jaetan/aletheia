@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseValueTable-roundtrip` — per-line-construct roundtrip for the
 -- DBC `VAL_TABLE_ <name> (<n> "<desc>")* ;` line (B.3.d Layer 3
@@ -48,7 +48,7 @@ open import Aletheia.DBC.TextFormatter.ValueTables using
   (emitValueTable-chars; emitValueEntry-chars)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showℕ-dec-chars; showNat-chars; quoteStringLit-chars; digitChar)
-open import Aletheia.DBC.Types using (ValueTable; valueTableNameStr)
+open import Aletheia.DBC.Types using (ValueTable)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; bind-just-step;
@@ -74,7 +74,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 ValueTableNameStop : ValueTable → Set
 ValueTableNameStop vt =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (valueTableNameStr vt) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name (ValueTable.name vt) ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
 -- Char-class disjointness — `digitChar` is never hspace
@@ -114,7 +114,7 @@ private
 -- The head of `quoteStringLit-chars s ++ rest` is `'"'`, so its
 -- `isHSpace` reduces to `false` (and `_≈ᵇ '"'` reduces to `true`).
 private
-  quoteStringLit-chars-head-isHSpace : ∀ (s : String) (rest : List Char)
+  quoteStringLit-chars-head-isHSpace : ∀ (s : List Char) (rest : List Char)
     → SuffixStops isHSpace (quoteStringLit-chars s ++ₗ rest)
   quoteStringLit-chars-head-isHSpace s rest =
     subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
@@ -127,7 +127,7 @@ private
 
 -- The entries section of the body — one ` <n> "<desc>"` group per
 -- entry, *without* the trailing ` ;\n` terminator.
-entries-chars : List (ℕ × String) → List Char
+entries-chars : List (ℕ × List Char) → List Char
 entries-chars []              = []
 entries-chars ((v , d) ∷ es)  =
   ' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars d ++ₗ entries-chars es
@@ -136,7 +136,7 @@ entries-chars ((v , d) ∷ es)  =
 -- consumes it — `"VAL_TABLE_"` head + `' '` separator + `nm-chars` +
 -- `entries-chars es` body + ` ;\n` tail + outer suffix.
 private
-  emitValueTable-foldr-shape : ∀ (es : List (ℕ × String))
+  emitValueTable-foldr-shape : ∀ (es : List (ℕ × List Char))
     → foldr (λ e acc → emitValueEntry-chars e ++ₗ acc) (toList " ;\n") es
       ≡ entries-chars es ++ₗ toList " ;\n"
   emitValueTable-foldr-shape [] = refl
@@ -160,12 +160,12 @@ private
   emitValueTable-chars-shape : ∀ (vt : ValueTable) (suffix : List Char)
     → emitValueTable-chars vt ++ₗ suffix
       ≡ toList "VAL_TABLE_"
-          ++ₗ ' ' ∷ (toList (valueTableNameStr vt) ++ₗ
+          ++ₗ ' ' ∷ (Identifier.name (ValueTable.name vt) ++ₗ
                        (entries-chars (ValueTable.entries vt) ++ₗ
                           ' ' ∷ ';' ∷ '\n' ∷ suffix))
   emitValueTable-chars-shape vt suffix =
     let es = ValueTable.entries vt
-        nm-chars = toList (valueTableNameStr vt)
+        nm-chars = Identifier.name (ValueTable.name vt)
     in
     -- emitValueTable-chars vt = toList "VAL_TABLE_ " ++ₗ (nm-chars ++ₗ foldr ...)
     -- ⇒ (... ++ₗ suffix) is left-associated at the outer level.
@@ -199,7 +199,7 @@ private
 -- needed by `parseStringLit-roundtrip`.
 private
   parseValueEntry-step :
-      ∀ (pos : Position) (v : ℕ) (d : String) (rest : List Char)
+      ∀ (pos : Position) (v : ℕ) (d : List Char) (rest : List Char)
     → SuffixStops (λ c → c ≈ᵇ '"') rest
     → parseValueEntry pos
         (' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars d ++ₗ rest)
@@ -294,7 +294,7 @@ private
   sameLengthᵇ-lt (_ ∷ _)  []       _       = refl
   sameLengthᵇ-lt (_ ∷ xs) (_ ∷ ys) (s≤s h) = sameLengthᵇ-lt xs ys h
 
-  sameLengthᵇ-entry-iter-fail : ∀ (v : ℕ) (d : String) (rest : List Char)
+  sameLengthᵇ-entry-iter-fail : ∀ (v : ℕ) (d : List Char) (rest : List Char)
     → sameLengthᵇ
         (' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars d ++ₗ rest)
         rest
@@ -325,7 +325,7 @@ private
 -- Position-walk after consuming entries
 -- ============================================================================
 
-afterEntries : Position → List (ℕ × String) → Position
+afterEntries : Position → List (ℕ × List Char) → Position
 afterEntries pos []              = pos
 afterEntries pos ((v , d) ∷ es)  =
   afterEntries
@@ -339,7 +339,7 @@ afterEntries pos ((v , d) ∷ es)  =
     es
 
 private
-  afterEntries-advancePositions : ∀ (pos : Position) (es : List (ℕ × String))
+  afterEntries-advancePositions : ∀ (pos : Position) (es : List (ℕ × List Char))
     → afterEntries pos es ≡ advancePositions pos (entries-chars es)
   afterEntries-advancePositions pos []              = refl
   afterEntries-advancePositions pos ((v , d) ∷ es)  =
@@ -364,7 +364,7 @@ private
 -- ============================================================================
 
 manyHelper-parseValueEntry-body :
-    ∀ (pos : Position) (es : List (ℕ × String)) (suffix : List Char) (m : ℕ)
+    ∀ (pos : Position) (es : List (ℕ × List Char)) (suffix : List Char) (m : ℕ)
   → length es ≤ m
   → manyHelper parseValueEntry pos
       (entries-chars es ++ₗ ' ' ∷ ';' ∷ '\n' ∷ suffix) m
@@ -418,7 +418,7 @@ manyHelper-parseValueEntry-body pos ((v , d) ∷ es) suffix (suc m') (s≤s len-
        (sameLengthᵇ-entry-iter-fail v d iter-rest)
        rec-eq)
   where
-    entries-rest-quote-stop : ∀ (es : List (ℕ × String)) (suffix : List Char)
+    entries-rest-quote-stop : ∀ (es : List (ℕ × List Char)) (suffix : List Char)
       → SuffixStops (λ c → c ≈ᵇ '"')
           (entries-chars es ++ₗ ' ' ∷ ';' ∷ '\n' ∷ suffix)
     entries-rest-quote-stop []              _ = ∷-stop refl
@@ -449,14 +449,14 @@ parseValueTable-roundtrip pos vt suffix
                   (trans step-many-parseNewline
                     step-pure))))))))
   where
-    es : List (ℕ × String)
+    es : List (ℕ × List Char)
     es = ValueTable.entries vt
 
     nm-id : Identifier
     nm-id = ValueTable.name vt
 
     nm-chars : List Char
-    nm-chars = toList (valueTableNameStr vt)
+    nm-chars = Identifier.name (ValueTable.name vt)
 
     -- Intermediate positions.
     pos-vt    = advancePositions pos (toList "VAL_TABLE_")
@@ -523,7 +523,7 @@ parseValueTable-roundtrip pos vt suffix
       many parseNewline >>= λ _ →
       pure (record { name = name ; entries = entries })
 
-    cont-ents : List (ℕ × String) → Parser ValueTable
+    cont-ents : List (ℕ × List Char) → Parser ValueTable
     cont-ents entries =
       parseWSOpt >>= λ _ →
       char ';' >>= λ _ →
@@ -594,7 +594,7 @@ parseValueTable-roundtrip pos vt suffix
     ident-stop-ss = entries-rest-identCont-stop es suffix
       where
         entries-rest-identCont-stop :
-          ∀ (es' : List (ℕ × String)) (suffix' : List Char)
+          ∀ (es' : List (ℕ × List Char)) (suffix' : List Char)
           → SuffixStops isIdentCont
               (entries-chars es' ++ₗ ' ' ∷ ';' ∷ '\n' ∷ suffix')
         entries-rest-identCont-stop []              _ = ∷-stop refl
@@ -633,7 +633,7 @@ parseValueTable-roundtrip pos vt suffix
 
         -- Each entry contributes ≥4 chars to entries-chars; in particular,
         -- `length es ≤ length (entries-chars es)` for any list of entries.
-        length-es-le-entries-chars : ∀ (es' : List (ℕ × String))
+        length-es-le-entries-chars : ∀ (es' : List (ℕ × List Char))
           → length es' ≤ length (entries-chars es')
         length-es-le-entries-chars []              = z≤n
         length-es-le-entries-chars ((v , d) ∷ es') =

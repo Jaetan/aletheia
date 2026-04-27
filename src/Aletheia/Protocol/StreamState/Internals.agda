@@ -12,6 +12,7 @@
 --   frame processing helpers (classifyStepResult, stepProperty, dispatchIterResult).
 module Aletheia.Protocol.StreamState.Internals where
 open import Aletheia.DBC.Types using (signalNameStr)
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -201,7 +202,7 @@ mkPredTable dbc cache atoms n frame =
 updateSignals : ∀ {n} → DBC → CANFrame n → ℕ → List DBCSignal → SignalCache → SignalCache
 updateSignals dbc frame ts [] c = c
 updateSignals dbc frame ts (sig ∷ sigs) c =
-  let sigName = signalNameStr sig
+  let sigName = Identifier.name (DBCSignal.name sig)
   in case extractTruthValue sigName dbc frame of λ where
     nothing  → updateSignals dbc frame ts sigs c
     (just v) → updateSignals dbc frame ts sigs (updateCache sigName v ts c)

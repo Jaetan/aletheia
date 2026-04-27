@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Environment-variable parser for the DBC text format (Phase B.3.c.9).
 --

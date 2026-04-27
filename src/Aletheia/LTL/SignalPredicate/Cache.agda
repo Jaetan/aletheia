@@ -10,11 +10,18 @@
 module Aletheia.LTL.SignalPredicate.Cache where
 
 open import Aletheia.Prelude
+open import Data.Bool using (T)
+open import Data.Char using (Char)
 open import Data.Rational using (ℚ)
-open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.List.Relation.Unary.AllPairs as AP using (AllPairs; []; _∷_)
-open import Relation.Binary.PropositionalEquality using (_≢_)
+open import Data.Unit using (tt)
+open import Relation.Binary.PropositionalEquality using (_≢_; subst)
+
+-- Bool-valued List Char equality (Path-A.5 hot-path Dec-allocation escape).
+-- Soundness/completeness via `Identifier.≡csᵇ-sound` / `≡csᵇ-complete` /
+-- `≡csᵇ-false→≢`; structural and `--safe` (no axioms).
+open import Aletheia.DBC.Identifier using (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-false→≢)
 
 -- Cached signal value with observation timestamp.
 record CachedSignal : Set where
@@ -31,7 +38,7 @@ record CachedSignal : Set where
 
 -- Bare list of cache entries (exported for proof use).
 CacheEntries : Set
-CacheEntries = List (String × CachedSignal)
+CacheEntries = List (List Char × CachedSignal)
 
 -- Key-uniqueness predicate: all pairs of entries have distinct keys.
 UniqueKeys : CacheEntries → Set
@@ -51,42 +58,24 @@ record SignalCache : Set where
 
 -- Lookup a signal in a cache entry list.
 --
--- Deferred Bool fast path (AA-16.3): `⌊ _≟ₛ_ ⌋` allocates a yes/no Dec heap
--- cell per cache entry per atom evaluation — a hot path on the streaming LTL
--- loop. The blocker is structural: `updateEntries-All-neq` (line 100 below)
--- and `updateEntries-unique` (line 111 below) destructure the same `_≟ₛ_`
--- call via `with name ≟ₛ n ... | yes refl`, relying on the `Dec` to give
--- back the propositional equality `name ≡ n` so the `All`-preservation
--- proofs can rewrite `name` for `n` in the head case. A pure `Bool`
--- primitive (`primStringEquality` or any non-Dec equality) cannot supply
--- this `refl` without a soundness postulate
--- `prim-string-eq-sound : primStringEquality a b ≡ true → a ≡ b`, which
--- breaks `--safe`. The proofs are `@0` so they're MAlonzo-erased (no
--- runtime cost in the proof itself), but Agda still type-checks them and
--- blocks the swap.
--- Two refactors that *would* work, both larger than the AA-16 hot-path
--- scope:
---   (1) Promote `UniqueKeys` from an `@0`-erased `AllPairs` to a runtime
---       data structure (e.g. an OrderedMap with O(log n) lookup), which
---       forgoes the propositional-equality requirement entirely.
---   (2) Move the soundness postulate to a separate `*.Unsafe.agda` module
---       and import it only into Cache (the rest of Aletheia stays `--safe`).
--- Left as-is pending a measured Stream LTL regression that justifies the
--- structural change. Post-Round-8 Batch 1 benchmarks show Stream LTL
--- within ±5% of baseline; cache lookups are dominated by `evalPredicate`
--- which AA-16.1 already optimised via `Rat._≤ᵇ_`.
-lookupEntries : String → CacheEntries → Maybe CachedSignal
+-- Bool fast path (`_≡csᵇ_ : List Char → List Char → Bool`): structural
+-- recursion + soundness/completeness in `Identifier.{≡csᵇ-sound, ≡csᵇ-complete,
+-- ≡csᵇ-false→≢, ≡csᵇ-refl-eq}`, all `--safe`. The `@0` proofs below
+-- (`updateEntries-All-neq`, `updateEntries-unique`) bridge from `_≡csᵇ_`'s
+-- Bool result back to propositional `name ≡ n` via `≡csᵇ-sound` in the
+-- `true` branch, so `UniqueKeys` preservation is preserved without a
+-- `prim-string-eq-sound` postulate. Path A.5 confirmed +9–39% Stream LTL
+-- throughput across all bindings vs the prior `_≟ₗᶜ_` form.
+lookupEntries : List Char → CacheEntries → Maybe CachedSignal
 lookupEntries _ [] = nothing
 lookupEntries name ((n , cached) ∷ rest) =
-  if ⌊ name ≟ₛ n ⌋ then just cached else lookupEntries name rest
+  if name ≡csᵇ n then just cached else lookupEntries name rest
 
 -- Update or insert a signal value in a cache entry list.
--- Same Dec allocation hazard as `lookupEntries` above; same blocker via
--- `updateEntries-unique`'s `with name ≟ₛ n | yes refl` pattern.
-updateEntries : String → ℚ → ℕ → CacheEntries → CacheEntries
+updateEntries : List Char → ℚ → ℕ → CacheEntries → CacheEntries
 updateEntries name val ts [] = (name , mkCachedSignal val ts) ∷ []
 updateEntries name val ts ((n , cached) ∷ rest) =
-  if ⌊ name ≟ₛ n ⌋
+  if name ≡csᵇ n
   then (name , mkCachedSignal val ts) ∷ rest
   else (n , cached) ∷ updateEntries name val ts rest
 
@@ -97,25 +86,30 @@ updateEntries name val ts ((n , cached) ∷ rest) =
 -- Helper: updateEntries preserves All-distinct-from-key.
 -- If all keys in es are ≢ key, and key ≢ name, then all keys in the
 -- updated list are still ≢ key.
+--
+-- Proof reasons about the Bool fast path via `with name ≡csᵇ n in eq`,
+-- then bridges to propositional `name ≡ n` via `≡csᵇ-sound` (in the `true`
+-- branch) or to `name ≢ n` via `≡csᵇ-false→≢` (in the `false` branch).
 @0 updateEntries-All-neq : ∀ key name val ts es →
   All (λ p → key ≢ proj₁ p) es →
   key ≢ name →
   All (λ p → key ≢ proj₁ p) (updateEntries name val ts es)
 updateEntries-All-neq key name val ts [] _ key≢name = key≢name ∷ []
 updateEntries-All-neq key name val ts ((n , v) ∷ rest) (key≢n ∷ allRest) key≢name
-  with name ≟ₛ n
-... | yes refl = key≢name ∷ allRest
-... | no  _   = key≢n ∷ updateEntries-All-neq key name val ts rest allRest key≢name
+  with name ≡csᵇ n in eq
+... | true  rewrite ≡csᵇ-sound name n (subst T (sym eq) tt) = key≢name ∷ allRest
+... | false = key≢n ∷ updateEntries-All-neq key name val ts rest allRest key≢name
 
 -- Main preservation: updateEntries preserves key uniqueness.
 @0 updateEntries-unique : ∀ name val ts es →
   UniqueKeys es → UniqueKeys (updateEntries name val ts es)
 updateEntries-unique name val ts [] _ = [] ∷ []
 updateEntries-unique name val ts ((n , v) ∷ rest) (allN ∷ uniqueRest)
-  with name ≟ₛ n
-... | yes refl = allN ∷ uniqueRest
-... | no  ¬p  = updateEntries-All-neq n name val ts rest allN (¬p ∘ sym)
-                ∷ updateEntries-unique name val ts rest uniqueRest
+  with name ≡csᵇ n in eq
+... | true  rewrite ≡csᵇ-sound name n (subst T (sym eq) tt) = allN ∷ uniqueRest
+... | false = updateEntries-All-neq n name val ts rest allN
+                (≡csᵇ-false→≢ name n eq ∘ sym)
+              ∷ updateEntries-unique name val ts rest uniqueRest
 
 -- ============================================================================
 -- RECORD-LEVEL API (for consumers)
@@ -126,10 +120,10 @@ emptyCache : SignalCache
 emptyCache = mkSignalCache [] []
 
 -- Lookup a signal in the cache.
-lookupCache : String → SignalCache → Maybe CachedSignal
+lookupCache : List Char → SignalCache → Maybe CachedSignal
 lookupCache name cache = lookupEntries name (SignalCache.entries cache)
 
 -- Update or insert a signal value, preserving key uniqueness.
-updateCache : String → ℚ → ℕ → SignalCache → SignalCache
+updateCache : List Char → ℚ → ℕ → SignalCache → SignalCache
 updateCache name val ts (mkSignalCache es u) =
   mkSignalCache (updateEntries name val ts es) (updateEntries-unique name val ts es u)

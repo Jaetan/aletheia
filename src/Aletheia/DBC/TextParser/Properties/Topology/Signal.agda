@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseSignalLine-roundtrip-{NotMux,IsMux,SelBy}` — per-MuxMarker-shape
 -- roundtrip lemmas for the SG_ DBC signal line (B.3.d Layer 3 Commit 3d.3).
@@ -83,7 +83,7 @@ open import Aletheia.DBC.TextFormatter.Topology using
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showℕ-dec-chars; showDecRat-dec-chars; quoteStringLit-chars)
 open import Aletheia.DBC.Types using
-  (DBCSignal; SignalPresence; Always; When; signalNameStr)
+  (DBCSignal; SignalPresence; Always; When)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; []-stop; ∷-stop; bind-just-step;
@@ -117,7 +117,7 @@ open import Aletheia.DBC.Formatter.WellFormedText using
 SignalNameStop : DBCSignal → Set
 SignalNameStop sig =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (signalNameStr sig) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name (DBCSignal.name sig) ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 
 -- ============================================================================
@@ -167,7 +167,7 @@ private
   -- Convenience: project all the per-signal show-chars in one place.
   module _ (sig : DBCSignal) (frameBytes : ℕ) where
     nameChars : List Char
-    nameChars = toList (signalNameStr sig)
+    nameChars = Identifier.name (DBCSignal.name sig)
 
     sbChars : List Char
     sbChars = showℕ-dec-chars
@@ -236,28 +236,28 @@ private
 -- through by parser primitives.
 private
   emitSignalLine-chars-shape :
-      ∀ (master : Maybe String) (frameBytes : ℕ) (sig : DBCSignal)
+      ∀ (master : Maybe (List Char)) (frameBytes : ℕ) (sig : DBCSignal)
         (suffix : List Char)
     → emitSignalLine-chars master frameBytes sig ++ₗ suffix
       ≡ toList " SG_ " ++ₗ nameChars sig frameBytes
-          ++ₗ emitMuxMarker-chars master (signalNameStr sig)
+          ++ₗ emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                 (DBCSignal.presence sig)
           ++ₗ tailBody-chars frameBytes sig ++ₗ suffix
   emitSignalLine-chars-shape master frameBytes sig suffix =
     trans (++ₗ-assoc (toList " SG_ ")
-                     (toList (signalNameStr sig) ++ₗ
-                      emitMuxMarker-chars master (signalNameStr sig)
+                     (Identifier.name (DBCSignal.name sig) ++ₗ
+                      emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                         (DBCSignal.presence sig) ++ₗ
                       tailBody-chars frameBytes sig)
                      suffix)
       (cong (toList " SG_ " ++ₗ_)
-        (trans (++ₗ-assoc (toList (signalNameStr sig))
-                          (emitMuxMarker-chars master (signalNameStr sig)
+        (trans (++ₗ-assoc (Identifier.name (DBCSignal.name sig))
+                          (emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                              (DBCSignal.presence sig) ++ₗ
                            tailBody-chars frameBytes sig)
                           suffix)
-          (cong (toList (signalNameStr sig) ++ₗ_)
-            (++ₗ-assoc (emitMuxMarker-chars master (signalNameStr sig)
+          (cong (Identifier.name (DBCSignal.name sig) ++ₗ_)
+            (++ₗ-assoc (emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                           (DBCSignal.presence sig))
                        (tailBody-chars frameBytes sig)
                        suffix))))
@@ -550,7 +550,7 @@ private
 parseSignalTail-roundtrip :
     ∀ (pos : Position) (name : Identifier) (mux : MuxMarker)
       (sig : DBCSignal) (frameBytes : ℕ) (suffix : List Char)
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
   → SuffixStops isHSpace (emitReceivers-chars (DBCSignal.receivers sig)
                           ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
@@ -593,7 +593,8 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
     offd = SignalDef.offset (DBCSignal.signalDef sig)
     mind = SignalDef.minimum (DBCSignal.signalDef sig)
     maxd = SignalDef.maximum (DBCSignal.signalDef sig)
-    unitS : String
+    -- Post-3d.4 + JSON-mirror: `DBCSignal.unit : List Char`.
+    unitS : List Char
     unitS = DBCSignal.unit sig
 
     -- Compose 3d.2's existential to discharge `stripVectorPlaceholder`.
@@ -1352,7 +1353,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               (parseWSOpt-one-space pos₂₁ step22-rest (∷-stop refl))
 
     -- Step 23: parseStringLit unit.
-    cont23 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → String → Parser RawSignal
+    cont23 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → List Char → Parser RawSignal
     cont23 startBit bitLength bo isSigned factor offset minimum maximum unit = do
       _ ← parseWSOpt
       receivers ← parseReceiverList
@@ -1369,7 +1370,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               (parseStringLit-roundtrip pos₂₂ unitS step23-rest (∷-stop refl))
 
     -- Step 24: parseWSOpt consumes ' ' (between unit and receivers).
-    cont24 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → String → List Char → Parser RawSignal
+    cont24 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → List Char → List Char → Parser RawSignal
     cont24 startBit bitLength bo isSigned factor offset minimum maximum unit _ = do
       receivers ← parseReceiverList
       _ ← parseWSOpt
@@ -1385,7 +1386,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               (parseWSOpt-one-space pos₂₃ step24-rest recv-stop)
 
     -- Step 25: parseReceiverList — composes 3d.2's existential.
-    cont25 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → String → List Identifier → Parser RawSignal
+    cont25 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → List Char → List Identifier → Parser RawSignal
     cont25 startBit bitLength bo isSigned factor offset minimum maximum unit receivers = do
       _ ← parseWSOpt
       _ ← parseNewline
@@ -1401,7 +1402,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               parseRcv-eq
 
     -- Step 26: parseWSOpt consumes 0 chars (next is '\n').
-    cont26 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → String → List Identifier → List Char → Parser RawSignal
+    cont26 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → List Char → List Identifier → List Char → Parser RawSignal
     cont26 startBit bitLength bo isSigned factor offset minimum maximum unit receivers _ = do
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
@@ -1416,7 +1417,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               (parseWSOpt-zero pos₂₅ step26-rest (∷-stop refl))
 
     -- Step 27: parseNewline.
-    cont27 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → String → List Identifier → Char → Parser RawSignal
+    cont27 : ℕ → ℕ → ByteOrder → Bool → DecRat → DecRat → DecRat → DecRat → List Char → List Identifier → Char → Parser RawSignal
     cont27 startBit bitLength bo isSigned factor offset minimum maximum unit receivers _ =
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
@@ -1544,7 +1545,7 @@ private
   module HeadPositions
       (pos : Position) (sig : DBCSignal) where
     nameCs : List Char
-    nameCs = toList (signalNameStr sig)
+    nameCs = Identifier.name (DBCSignal.name sig)
 
     -- pos after each head step.
     posH₁  = advancePosition  pos     ' '            -- after parseWSOpt
@@ -1674,17 +1675,17 @@ parseMuxMarker-fails-on-tail-with-suffix pos fb sig suffix =
 -- form the dispatchers consume directly.
 private
   emitSignalLine-chars-with-suffix-shape :
-      ∀ (master : Maybe String) (frameBytes : ℕ) (sig : DBCSignal)
+      ∀ (master : Maybe (List Char)) (frameBytes : ℕ) (sig : DBCSignal)
         (suffix : List Char)
     → emitSignalLine-chars master frameBytes sig ++ₗ suffix
-      ≡ toList " SG_ " ++ₗ toList (signalNameStr sig)
-          ++ₗ emitMuxMarker-chars master (signalNameStr sig)
+      ≡ toList " SG_ " ++ₗ Identifier.name (DBCSignal.name sig)
+          ++ₗ emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                 (DBCSignal.presence sig)
           ++ₗ tailBody-with-suffix frameBytes sig suffix
   emitSignalLine-chars-with-suffix-shape master frameBytes sig suffix =
     trans (emitSignalLine-chars-shape master frameBytes sig suffix)
-      (cong (λ x → toList " SG_ " ++ₗ toList (signalNameStr sig)
-                     ++ₗ emitMuxMarker-chars master (signalNameStr sig)
+      (cong (λ x → toList " SG_ " ++ₗ Identifier.name (DBCSignal.name sig)
+                     ++ₗ emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
                            (DBCSignal.presence sig)
                      ++ₗ x)
             (tailBody-shape frameBytes sig suffix))
@@ -1700,12 +1701,12 @@ private
 -- `muxMarker ≡ IsMux`.
 
 parseSignalLine-roundtrip-IsMux :
-    ∀ (pos : Position) (master : Maybe String) (fb : ℕ)
+    ∀ (pos : Position) (master : Maybe (List Char)) (fb : ℕ)
       (sig : DBCSignal) (suffix : List Char)
-  → emitMuxMarker-chars master (signalNameStr sig) (DBCSignal.presence sig)
+  → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ toList " M"
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
   → SuffixStops isHSpace
       (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
@@ -1733,10 +1734,10 @@ parseSignalLine-roundtrip-IsMux pos master fb sig suffix
       (string-success; alt-right-nothing; bind-nothing)
 
     nameCs-shape : List Char
-    nameCs-shape = toList (signalNameStr sig)
+    nameCs-shape = Identifier.name (DBCSignal.name sig)
 
     muxCs : List Char
-    muxCs = emitMuxMarker-chars master (signalNameStr sig)
+    muxCs = emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
               (DBCSignal.presence sig)
 
     -- Right-associated input form after emitSignalLine-chars-with-suffix-shape.
@@ -1966,12 +1967,12 @@ parseSignalLine-roundtrip-IsMux pos master fb sig suffix
 -- helper above.
 
 parseSignalLine-roundtrip-NotMux :
-    ∀ (pos : Position) (master : Maybe String) (fb : ℕ)
+    ∀ (pos : Position) (master : Maybe (List Char)) (fb : ℕ)
       (sig : DBCSignal) (suffix : List Char)
-  → emitMuxMarker-chars master (signalNameStr sig) (DBCSignal.presence sig)
+  → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ []
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
   → SuffixStops isHSpace
       (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
@@ -1999,10 +2000,10 @@ parseSignalLine-roundtrip-NotMux pos master fb sig suffix
       (string-success)
 
     nameCs-shape : List Char
-    nameCs-shape = toList (signalNameStr sig)
+    nameCs-shape = Identifier.name (DBCSignal.name sig)
 
     muxCs : List Char
-    muxCs = emitMuxMarker-chars master (signalNameStr sig)
+    muxCs = emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
               (DBCSignal.presence sig)
 
     input-shaped : List Char
@@ -2213,12 +2214,12 @@ parseSignalLine-roundtrip-NotMux pos master fb sig suffix
 -- a `RawSignal` with `muxMarker ≡ SelBy v`.
 
 parseSignalLine-roundtrip-SelBy :
-    ∀ (pos : Position) (master : Maybe String) (fb : ℕ)
+    ∀ (pos : Position) (master : Maybe (List Char)) (fb : ℕ)
       (sig : DBCSignal) (v : ℕ) (suffix : List Char)
-  → emitMuxMarker-chars master (signalNameStr sig) (DBCSignal.presence sig)
+  → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ toList " m" ++ₗ showℕ-dec-chars v
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
   → SuffixStops isHSpace
       (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
@@ -2246,10 +2247,10 @@ parseSignalLine-roundtrip-SelBy pos master fb sig v suffix
       (string-success)
 
     nameCs-shape : List Char
-    nameCs-shape = toList (signalNameStr sig)
+    nameCs-shape = Identifier.name (DBCSignal.name sig)
 
     muxCs : List Char
-    muxCs = emitMuxMarker-chars master (signalNameStr sig)
+    muxCs = emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig))
               (DBCSignal.presence sig)
 
     input-shaped : List Char

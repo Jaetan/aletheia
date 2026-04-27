@@ -55,11 +55,11 @@ Every Agda module MUST start with:
 ### Module Safety Flag Breakdown
 
 184 total modules (`cabal run shake -- count-modules`):
-- **132**: `--safe --without-K`
+- **179**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
-- **48**: `--without-K` only — all under `Aletheia/DBC/TextParser/`. Exactly **one** is the allowlisted Unsafe substrate `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) needed for the B.3.d roundtrip theorem (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms). The other 47 transitively import that substrate via `DBC/TextParser/Lexer.agda`, so `--safe` propagation forces them to the same flag set.
+- **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) used only by the outer `parseText/formatText` wrap in DBC (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-136 of 184 modules use `--safe`. No modules require `--sized-types`.
+183 of 184 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`.
 
 ## Common Commands
 

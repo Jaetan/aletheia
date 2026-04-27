@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Foundations for the B.3.d Layer 3 Commit 3c attribute roundtrip
 -- proofs (`BA_DEF_` / `BA_DEF_REL_` / `BA_DEF_DEF_` / `BA_` / `BA_REL_`).
@@ -133,7 +133,7 @@ rawOfDefaultValue _           (AVInt z)    = RavDecRat (IntDecRat.value z)
 rawOfDefaultValue _           (AVFloat d)  = RavDecRat d
 rawOfDefaultValue _           (AVString s) = RavString s
 rawOfDefaultValue (ATEnum ls) (AVEnum n)   = RavString (nthLabel (natDecRatToℕ n) ls)
-rawOfDefaultValue _           (AVEnum _)   = RavString ""
+rawOfDefaultValue _           (AVEnum _)   = RavString []
 rawOfDefaultValue _           (AVHex n)    = RavDecRat (NatDecRat.value n)
 
 -- ============================================================================

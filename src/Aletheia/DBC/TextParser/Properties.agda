@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Correctness properties for the DBC text-format parser — facade
 -- placeholder (Phase B.3.b).
@@ -65,7 +65,7 @@ module Aletheia.DBC.TextParser.Properties where
 open import Aletheia.DBC.TextParser.Properties.Primitives public
   using ( -- Probes + Identifier roundtrip
          parseIdentifier-roundtrip;
-         mkIdentFromCharsUnsafe-on-valid;
+         mkIdentFromChars-on-valid;
          decompose-valid;
          satisfy-success-T;
          buildIdent-eq;

@@ -7,7 +7,7 @@
 -- 2. All-error-severity proofs for each of the 9 error checks
 -- Used by Theorem.agda to derive top-level soundness/completeness.
 module Aletheia.DBC.Validity.Composition where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
@@ -116,7 +116,7 @@ checkFactorZeroSig-allE msgName sig
 checkMuxFoundSig-allE : ∀ msgName sigs sig → All E (checkMuxFoundSig msgName sigs sig)
 checkMuxFoundSig-allE msgName sigs sig with DBCSignal.presence sig
 ... | Always = []
-... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ nameStr muxName) sigs
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 

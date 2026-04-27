@@ -9,7 +9,7 @@
 -- A DBC is valid when all 8 error-severity conditions hold.
 -- Warning-severity checks are advisory and NOT part of ValidDBC.
 module Aletheia.DBC.Validity where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
@@ -70,7 +70,7 @@ nonZeroFactor→factorℚ≢0 {sig} nzf toℚfactor≡0 =
 -- Condition 4: Multiplexor reference resolves (if conditional)
 MuxResolvable : List DBCSignal → SignalPresence → Set
 MuxResolvable _    Always           = ⊤
-MuxResolvable sigs (When muxName _) = Any (λ s → signalNameStr s ≡ Identifier.name muxName) sigs
+MuxResolvable sigs (When muxName _) = Any (λ s → signalNameStr s ≡ nameStr muxName) sigs
 
 -- Condition 5: Multiplexor chain is acyclic.
 -- Defined in terms of walkMux from Validator: starting from a signal's

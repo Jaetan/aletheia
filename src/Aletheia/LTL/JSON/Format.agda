@@ -7,7 +7,7 @@
 -- Role: Foundation for roundtrip correctness proofs in LTL.JSON.Properties.
 module Aletheia.LTL.JSON.Format where
 
-open import Data.String using (String)
+open import Data.String using (String; toList)
 open import Data.List using (List; []; _∷_)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
@@ -23,17 +23,17 @@ open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP;
 -- Format a ValuePredicate as a list of JSON fields (canonical order).
 formatValuePredicateFields : ValuePredicate → List (String × JSON)
 formatValuePredicateFields (Equals s v) =
-  ("predicate" , JString "equals") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "equals")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (LessThan s v) =
-  ("predicate" , JString "lessThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "lessThan")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (GreaterThan s v) =
-  ("predicate" , JString "greaterThan") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "greaterThan")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (LessThanOrEqual s v) =
-  ("predicate" , JString "lessThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "lessThanOrEqual")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (GreaterThanOrEqual s v) =
-  ("predicate" , JString "greaterThanOrEqual") ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
+  ("predicate" , JString (toList "greaterThanOrEqual")) ∷ ("signal" , JString s) ∷ ("value" , JNumber v) ∷ []
 formatValuePredicateFields (Between s min max) =
-  ("predicate" , JString "between") ∷ ("signal" , JString s) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
+  ("predicate" , JString (toList "between")) ∷ ("signal" , JString s) ∷ ("min" , JNumber min) ∷ ("max" , JNumber max) ∷ []
 
 -- ============================================================================
 -- DELTA PREDICATE FORMATTER
@@ -42,9 +42,9 @@ formatValuePredicateFields (Between s min max) =
 -- Format a DeltaPredicate as a list of JSON fields (canonical order).
 formatDeltaPredicateFields : DeltaPredicate → List (String × JSON)
 formatDeltaPredicateFields (ChangedBy s d) =
-  ("predicate" , JString "changedBy") ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
+  ("predicate" , JString (toList "changedBy")) ∷ ("signal" , JString s) ∷ ("delta" , JNumber d) ∷ []
 formatDeltaPredicateFields (StableWithin s t) =
-  ("predicate" , JString "stableWithin") ∷ ("signal" , JString s) ∷ ("tolerance" , JNumber t) ∷ []
+  ("predicate" , JString (toList "stableWithin")) ∷ ("signal" , JString s) ∷ ("tolerance" , JNumber t) ∷ []
 
 -- ============================================================================
 -- SIGNAL PREDICATE FORMATTER
@@ -64,49 +64,49 @@ formatSignalPredicateFields (DeltaP dp) = formatDeltaPredicateFields dp
 -- The formatter never produces "never" or "implies" operators (those are derived forms).
 formatLTL : LTL SignalPredicate → JSON
 formatLTL (LTL.Atomic p) =
-  JObject (("operator" , JString "atomic") ∷
+  JObject (("operator" , JString (toList "atomic")) ∷
            ("predicate" , JObject (formatSignalPredicateFields p)) ∷ [])
 formatLTL (LTL.Not f) =
-  JObject (("operator" , JString "not") ∷
+  JObject (("operator" , JString (toList "not")) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.And f g) =
-  JObject (("operator" , JString "and") ∷
+  JObject (("operator" , JString (toList "and")) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.Or f g) =
-  JObject (("operator" , JString "or") ∷
+  JObject (("operator" , JString (toList "or")) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.Next f) =
-  JObject (("operator" , JString "next") ∷
+  JObject (("operator" , JString (toList "next")) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.WNext f) =
-  JObject (("operator" , JString "weakNext") ∷
+  JObject (("operator" , JString (toList "weakNext")) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.Always f) =
-  JObject (("operator" , JString "always") ∷
+  JObject (("operator" , JString (toList "always")) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.Eventually f) =
-  JObject (("operator" , JString "eventually") ∷
+  JObject (("operator" , JString (toList "eventually")) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.Until f g) =
-  JObject (("operator" , JString "until") ∷
+  JObject (("operator" , JString (toList "until")) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.Release f g) =
-  JObject (("operator" , JString "release") ∷
+  JObject (("operator" , JString (toList "release")) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricEventually n _ f) =
-  JObject (("operator" , JString "metricEventually") ∷
+  JObject (("operator" , JString (toList "metricEventually")) ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricAlways n _ f) =
-  JObject (("operator" , JString "metricAlways") ∷
+  JObject (("operator" , JString (toList "metricAlways")) ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("formula" , formatLTL f) ∷ [])
 formatLTL (LTL.MetricUntil n _ f g) =
-  JObject (("operator" , JString "metricUntil") ∷
+  JObject (("operator" , JString (toList "metricUntil")) ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 formatLTL (LTL.MetricRelease n _ f g) =
-  JObject (("operator" , JString "metricRelease") ∷
+  JObject (("operator" , JString (toList "metricRelease")) ∷
            ("timebound" , JNumber (ℕtoℚ n)) ∷
            ("left" , formatLTL f) ∷ ("right" , formatLTL g) ∷ [])
 

@@ -35,14 +35,14 @@
 -- All emitters are `List Char`-valued (B.3.d Option 3a layer-1 layout —
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.ValueTables where
-open import Aletheia.DBC.Types using (valueTableNameStr)
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Data.String using (String; toList)
+open import Data.String using (toList)
 
+open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using (ValueTable)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showℕ-dec-chars; quoteStringLit-chars)
@@ -54,7 +54,9 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 -- One `nat ws string-lit` pair, preceded by a single space.  Called in a
 -- right fold where the accumulator carries the trailing ` ;\n` terminator,
 -- so each entry slot in the grammar just contributes ` <nat> "<str>"`.
-emitValueEntry-chars : (ℕ × String) → List Char
+-- Post-3d.4 + JSON-mirror: `desc : List Char` (matches `ValueTable.entries
+-- : List (ℕ × List Char)` and `quoteStringLit-chars : List Char → List Char`).
+emitValueEntry-chars : (ℕ × List Char) → List Char
 emitValueEntry-chars (v , desc) =
   ' ' ∷ showℕ-dec-chars v ++ₗ ' ' ∷ quoteStringLit-chars desc
 
@@ -69,7 +71,7 @@ emitValueEntry-chars (v , desc) =
 -- emitter never produces any.
 emitValueTable-chars : ValueTable → List Char
 emitValueTable-chars vt =
-  toList "VAL_TABLE_ " ++ₗ toList (valueTableNameStr vt) ++ₗ
+  toList "VAL_TABLE_ " ++ₗ Identifier.name (ValueTable.name vt) ++ₗ
   foldr (λ e acc → emitValueEntry-chars e ++ₗ acc)
         (toList " ;\n")
         (ValueTable.entries vt)

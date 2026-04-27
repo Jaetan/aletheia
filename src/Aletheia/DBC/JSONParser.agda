@@ -9,6 +9,16 @@
 -- Design: Parses JSON → DBC.Types, validates all required fields, bounded types.
 -- Returns typed ParseError values on parse failures.
 -- Current protocol: Python converts .dbc → JSON, Agda parses JSON → DBC types.
+--
+-- Phase B.3.d 3d.4 + JSON-mirror (2026-04-27): JSON internal strings are
+-- `List Char`.  Identifier-typed JSON fields and AST text fields (unit,
+-- version, comment text, AVString payload, ATEnum labels, value-table
+-- description, attribute names) are extracted via `lookupChars` and stored
+-- directly — no `fromList` round-trip — so per-construct roundtrip lemmas
+-- close axiom-free.  `lookupString` is reserved for kind discriminators
+-- (`"node"`, `"int"`, …) and string-valued enums (`"signed"`/`"unsigned"`,
+-- `"little_endian"`, …) where the parse-side compares against String
+-- literals and there is no roundtrip claim through the result.
 module Aletheia.DBC.JSONParser where
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When;
@@ -21,16 +31,18 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   ATgtNodeMsg; ATgtNodeSig;
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
-open import Aletheia.DBC.Identifier using (Identifier; mkIdentFromString)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdentFromChars)
 open import Aletheia.DBC.DecRat.Refinement using (mkIntDecRatFromℤ; mkNatDecRatFromℕ)
-open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupBool; lookupInt;
+open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupChars; lookupBool; lookupInt;
   lookupNat; lookupRational; lookupObject; lookupArray; getNat)
 open import Aletheia.CAN.DLC using (bytesToValidDLC)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; convertStartBit)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_)
+import Data.List.Properties as ListProps
 open import Data.List.NonEmpty as List⁺ using (List⁺)
-open import Data.String using (String) renaming (_++_ to _++ₛ_)
+open import Data.String as String using (String; fromList) renaming (_++_ to _++ₛ_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (Bool; true; false; if_then_else_)
@@ -55,22 +67,23 @@ open import Aletheia.DBC.DecRat using (DecRat; fromℚ?)
 -- JSON → DBC PARSERS (with typed ParseError)
 -- ============================================================================
 
--- Validate a String as a DBC identifier.  Used at every site where a JSON
--- String field is assigned to an Identifier-typed record field.  Uses
--- `mkIdentFromString`, which keeps the input String literally — the resulting
--- Identifier's `name` is propositionally `≡ s` without any axiom use.
-validateIdent : String → ParseError ⊎ Identifier
-validateIdent s with mkIdentFromString s
+-- Validate a `List Char` as a DBC identifier.  Used at every site where a
+-- JSON String field is assigned to an Identifier-typed record field.  Uses
+-- `mkIdentFromChars`, which checks `validIdentifierᵇ cs` directly — the
+-- resulting Identifier's `name` is exactly the input chars, so the JSON-side
+-- roundtrip lemma closes without any `toList∘fromList` axiom.
+validateIdent : List Char → ParseError ⊎ Identifier
+validateIdent cs with mkIdentFromChars cs
 ... | just id = inj₂ id
-... | nothing = inj₁ (InvalidIdentifier s)
+... | nothing = inj₁ (InvalidIdentifier (fromList cs))
 
--- Validate a list of JSON strings as identifiers (for receivers / senders /
+-- Validate a list of char-string identifiers (for receivers / senders /
 -- signal-group signal references).  Short-circuits on the first invalid one.
-validateIdentList : List String → ParseError ⊎ List Identifier
-validateIdentList []       = inj₂ []
-validateIdentList (s ∷ ss) = validateIdent s >>=ₑ λ i →
-                             validateIdentList ss >>=ₑ λ rest →
-                             inj₂ (i ∷ rest)
+validateIdentList : List (List Char) → ParseError ⊎ List Identifier
+validateIdentList []        = inj₂ []
+validateIdentList (cs ∷ ss) = validateIdent cs >>=ₑ λ i →
+                              validateIdentList ss >>=ₑ λ rest →
+                              inj₂ (i ∷ rest)
 
 -- Combined `lookupRational` + `fromℚ?` for JSON fields that hold a
 -- DBC-decimal.  Returns `MissingField` if the key is absent and
@@ -85,12 +98,19 @@ lookupDecRat key obj with lookupRational key obj
 ...   | nothing = inj₁ (NonTerminatingRational key)
 ...   | just d  = inj₂ d
 
--- Parse ByteOrder from string
-parseByteOrder : String → ParseError ⊎ ByteOrder
-parseByteOrder s =
-  if ⌊ s ≟ₛ"little_endian" ⌋ then inj₂ LittleEndian
-  else if ⌊ s ≟ₛ"big_endian" ⌋ then inj₂ BigEndian
-  else inj₁ (InvalidByteOrder s)
+-- Decidable List Char equality (lifted via stdlib `≡-dec`).  Used by the
+-- byteOrder / scope / kind parsers below to dispatch on closed-form chars.
+_≟-LC_ : (cs ds : List Char) → _
+_≟-LC_ = ListProps.≡-dec _≟ᶜ_
+
+-- Parse ByteOrder from char list.  Takes `List Char` (not `String`) so the
+-- formatter's `formatByteOrder bo : List Char` round-trips without a
+-- `fromList∘toList` axiom slipping in for abstract `bo`.
+parseByteOrder : List Char → ParseError ⊎ ByteOrder
+parseByteOrder cs =
+  if ⌊ cs ≟-LC String.toList "little_endian" ⌋ then inj₂ LittleEndian
+  else if ⌊ cs ≟-LC String.toList "big_endian" ⌋ then inj₂ BigEndian
+  else inj₁ (InvalidByteOrder (fromList cs))
 
 -- Parse a JSON array of naturals into a List ℕ (helper for parseNatList⁺)
 parseNatList : List JSON → ParseError ⊎ List ℕ
@@ -123,7 +143,7 @@ parseSignalPresence obj = tryMux
 
     -- Try to parse multiplexor and multiplex_values fields
     tryMux : ParseError ⊎ SignalPresence
-    tryMux with lookupString "multiplexor" obj
+    tryMux with lookupChars "multiplexor" obj
     ... | nothing = tryPresence  -- No multiplexor, try explicit presence field
     ... | just muxName with lookupArray "multiplex_values" obj
     ...   | nothing = tryPresence  -- Have multiplexor but no values, fall back
@@ -149,13 +169,16 @@ parseSigned obj with lookupBool "signed" obj
 addSignalContext : String → ParseError ⊎ DBCSignal → ParseError ⊎ DBCSignal
 addSignalContext ctx = mapₑ (InContext ctx)
 
--- Parse a list of JSON strings. Hoisted above parseSignalFields so the signal
--- parser can accept the trailing receiver list (SG_ ... : ... : Node1,Node2).
-parseStringList : List JSON → ParseError ⊎ List String
-parseStringList [] = inj₂ []
-parseStringList (JString s ∷ rest) =
-  parseStringList rest >>=ₑ λ ss → inj₂ (s ∷ ss)
-parseStringList (_ ∷ _) = inj₁ (MissingField "string in array")
+-- Parse a list of JSON strings as raw `List Char`.  Hoisted above
+-- parseSignalFields so the signal parser can accept the trailing receiver
+-- list (SG_ ... : ... : Node1,Node2).  Char-level (not String) so callers
+-- can feed validateIdent / store as ATEnum labels without an intervening
+-- fromList∘toList round-trip.
+parseCharsList : List JSON → ParseError ⊎ List (List Char)
+parseCharsList [] = inj₂ []
+parseCharsList (JString cs ∷ rest) =
+  parseCharsList rest >>=ₑ λ ss → inj₂ (cs ∷ ss)
+parseCharsList (_ ∷ _) = inj₁ (MissingField "string in array")
 
 -- Parse optional array field: returns [] if the field is missing.
 parseOptionalArray : {A : Set} → (List JSON → ParseError ⊎ List A)
@@ -187,21 +210,22 @@ physicalGate frameBytes BigEndian   csb bl sig =
 
 -- Parse signal fields from JSON (extracted from parseSignal where-block so proofs can case-split).
 -- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
-parseSignalFields : ℕ → String → String → List (String × JSON) → ParseError ⊎ DBCSignal
+-- `name` is the already-extracted signal name as `List Char`.
+parseSignalFields : ℕ → String → List Char → List (String × JSON) → ParseError ⊎ DBCSignal
 parseSignalFields frameBytes ctx name obj =
   addSignalContext ctx (
     require (MissingField "startBit") (lookupNat "startBit" obj) >>=ₑ λ startBit →
     require (MissingField "length") (lookupNat "length" obj) >>=ₑ λ bitLength →
-    require (MissingField "byteOrder") (lookupString "byteOrder" obj) >>=ₑ λ byteOrderStr →
-    parseByteOrder byteOrderStr >>=ₑ λ byteOrder →
+    require (MissingField "byteOrder") (lookupChars "byteOrder" obj) >>=ₑ λ byteOrderChars →
+    parseByteOrder byteOrderChars >>=ₑ λ byteOrder →
     parseSigned obj >>=ₑ λ isSigned →
     lookupDecRat "factor"  obj >>=ₑ λ factor →
     lookupDecRat "offset"  obj >>=ₑ λ offset →
     lookupDecRat "minimum" obj >>=ₑ λ minimum →
     lookupDecRat "maximum" obj >>=ₑ λ maximum →
-    require (MissingField "unit") (lookupString "unit" obj) >>=ₑ λ unit →
+    require (MissingField "unit") (lookupChars "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
-    parseOptionalArray parseStringList (lookupArray "receivers" obj) >>=ₑ λ receivers →
+    parseOptionalArray parseCharsList (lookupArray "receivers" obj) >>=ₑ λ receivers →
     validateIdent name >>=ₑ λ nameId →
     validateIdentList receivers >>=ₑ λ receiverIds →
     let sb  = startBit % max-physical-bits
@@ -228,8 +252,8 @@ parseSignalFields frameBytes ctx name obj =
 -- frameBytes: the message's DLC byte count, used for convertStartBit on BE signals.
 parseSignal : ℕ → String → List (String × JSON) → ParseError ⊎ DBCSignal
 parseSignal frameBytes context obj =
-  require (InContext context MissingSignalName) (lookupString "name" obj) >>=ₑ λ name →
-  let ctx = context ++ₛ ", signal '" ++ₛ name ++ₛ "'"
+  require (InContext context MissingSignalName) (lookupChars "name" obj) >>=ₑ λ name →
+  let ctx = context ++ₛ ", signal '" ++ₛ fromList name ++ₛ "'"
   in parseSignalFields frameBytes ctx name obj
 
 -- Parse a list of signals from JSON array.
@@ -267,13 +291,14 @@ parseMessageId context obj =
 
 -- Stage 2: Parse remaining message fields given a resolved CAN ID.
 -- Split out for compositional roundtrip proofs (keeps normalization bounded).
-parseMessageBody : String → String → CANId → List (String × JSON) → ParseError ⊎ DBCMessage
+-- `name` is the already-extracted message name as `List Char`.
+parseMessageBody : String → List Char → CANId → List (String × JSON) → ParseError ⊎ DBCMessage
 parseMessageBody context name canId obj =
   require (InContext context (MissingField "dlc")) (lookupNat "dlc" obj) >>=ₑ λ rawDlc →
   require (InContext context (InvalidDLCBytes rawDlc))
           (bytesToValidDLC rawDlc) >>=ₑ λ dlc →
-  require (InContext context (MissingField "sender")) (lookupString "sender" obj) >>=ₑ λ sender →
-  parseOptionalArray parseStringList (lookupArray "senders" obj) >>=ₑ λ senders →
+  require (InContext context (MissingField "sender")) (lookupChars "sender" obj) >>=ₑ λ sender →
+  parseOptionalArray parseCharsList (lookupArray "senders" obj) >>=ₑ λ senders →
   require (InContext context (MissingField "signals")) (lookupArray "signals" obj) >>=ₑ λ signalsJSON →
   parseSignalList rawDlc context signalsJSON 0 >>=ₑ λ signals →
   validateIdent name >>=ₑ λ nameId →
@@ -290,7 +315,8 @@ parseMessageBody context name canId obj =
 
 -- Compose stages into full message field parser.
 -- Exposed at top level for compositional roundtrip proofs.
-parseMessageFields : String → String → List (String × JSON) → ParseError ⊎ DBCMessage
+-- `name` is the already-extracted message name as `List Char`.
+parseMessageFields : String → List Char → List (String × JSON) → ParseError ⊎ DBCMessage
 parseMessageFields context name obj =
   parseMessageId context obj >>=ₑ λ canId →
   parseMessageBody context name canId obj
@@ -298,8 +324,8 @@ parseMessageFields context name obj =
 -- Parse a single message from JSON object
 parseMessage : List (String × JSON) → ParseError ⊎ DBCMessage
 parseMessage obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
-  let context = "message '" ++ₛ name ++ₛ "'"
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
+  let context = "message '" ++ₛ fromList name ++ₛ "'"
   in parseMessageFields context name obj
 
 -- Parse a list of messages from JSON array
@@ -326,9 +352,9 @@ parseVarType _ = inj₁ (MissingField "valid varType")
 -- Parse a single signal group from JSON object
 parseSignalGroup : List (String × JSON) → ParseError ⊎ SignalGroup
 parseSignalGroup obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   require (MissingField "signals") (lookupArray "signals" obj) >>=ₑ λ sigsJSON →
-  parseStringList sigsJSON >>=ₑ λ sigs →
+  parseCharsList sigsJSON >>=ₑ λ sigs →
   validateIdent name >>=ₑ λ nameId →
   validateIdentList sigs >>=ₑ λ sigIds →
   inj₂ (record { name = nameId ; signals = sigIds })
@@ -352,7 +378,7 @@ parseSignalGroupList = parseObjectList "signalGroup" parseSignalGroup 0
 -- Parse a single environment variable from JSON object
 parseEnvironmentVar : List (String × JSON) → ParseError ⊎ EnvironmentVar
 parseEnvironmentVar obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   require (MissingField "varType") (lookupNat "varType" obj) >>=ₑ λ vtNat →
   parseVarType vtNat >>=ₑ λ vt →
   lookupDecRat "initial" obj >>=ₑ λ initial →
@@ -367,19 +393,19 @@ parseEnvironmentVarList : List JSON → ParseError ⊎ List EnvironmentVar
 parseEnvironmentVarList = parseObjectList "environmentVar" parseEnvironmentVar 0
 
 -- Parse a single value table entry from JSON object
-parseValueEntry : List (String × JSON) → ParseError ⊎ (ℕ × String)
+parseValueEntry : List (String × JSON) → ParseError ⊎ (ℕ × List Char)
 parseValueEntry obj =
   require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ val →
-  require (MissingField "description") (lookupString "description" obj) >>=ₑ λ desc →
+  require (MissingField "description") (lookupChars "description" obj) >>=ₑ λ desc →
   inj₂ (val , desc)
 
-parseValueEntryList : List JSON → ParseError ⊎ List (ℕ × String)
+parseValueEntryList : List JSON → ParseError ⊎ List (ℕ × List Char)
 parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
 
 -- Parse a single value table from JSON object
 parseValueTable : List (String × JSON) → ParseError ⊎ ValueTable
 parseValueTable obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   require (MissingField "entries") (lookupArray "entries" obj) >>=ₑ λ entriesJSON →
   parseValueEntryList entriesJSON >>=ₑ λ entries →
   validateIdent name >>=ₑ λ nameId →
@@ -396,7 +422,7 @@ parseValueTableList = parseObjectList "valueTable" parseValueTable 0
 
 parseNode : List (String × JSON) → ParseError ⊎ Node
 parseNode obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   validateIdent name >>=ₑ λ nameId →
   inj₂ (mkNode nameId)
 
@@ -417,7 +443,7 @@ parseCommentTarget obj =
   require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
   (if ⌊ kind ≟ₛ "network" ⌋ then inj₂ CTNetwork
   else if ⌊ kind ≟ₛ "node" ⌋ then
-    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+    (require (MissingField "node") (lookupChars "node" obj) >>=ₑ λ n →
      validateIdent n >>=ₑ λ nId →
      inj₂ (CTNode nId))
   else if ⌊ kind ≟ₛ "message" ⌋ then
@@ -427,11 +453,11 @@ parseCommentTarget obj =
   else if ⌊ kind ≟ₛ "signal" ⌋ then
     (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
      parseCANId "comment target" rawId obj >>=ₑ λ cid →
-     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     require (MissingField "signal") (lookupChars "signal" obj) >>=ₑ λ sig →
      validateIdent sig >>=ₑ λ sigId →
      inj₂ (CTSignal cid sigId))
   else if ⌊ kind ≟ₛ "envVar" ⌋ then
-    (require (MissingField "envVar") (lookupString "envVar" obj) >>=ₑ λ ev →
+    (require (MissingField "envVar") (lookupChars "envVar" obj) >>=ₑ λ ev →
      validateIdent ev >>=ₑ λ evId →
      inj₂ (CTEnvVar evId))
   else inj₁ (InvalidKind "commentTarget" kind))
@@ -440,7 +466,7 @@ parseComment : List (String × JSON) → ParseError ⊎ DBCComment
 parseComment obj =
   require (MissingField "target") (lookupObject "target" obj) >>=ₑ λ tgtObj →
   parseCommentTarget tgtObj >>=ₑ λ target →
-  require (MissingField "text") (lookupString "text" obj) >>=ₑ λ text →
+  require (MissingField "text") (lookupChars "text" obj) >>=ₑ λ text →
   inj₂ (mkComment target text)
 
 parseCommentList : List JSON → ParseError ⊎ List DBCComment
@@ -448,16 +474,20 @@ parseCommentList = parseObjectList "comment" parseComment 0
 
 -- ---- Attributes (BA_*) ----
 
-parseAttrScope : String → ParseError ⊎ AttrScope
-parseAttrScope s =
-  if ⌊ s ≟ₛ "network" ⌋ then inj₂ ASNetwork
-  else if ⌊ s ≟ₛ "node"    ⌋ then inj₂ ASNode
-  else if ⌊ s ≟ₛ "message" ⌋ then inj₂ ASMessage
-  else if ⌊ s ≟ₛ "signal"  ⌋ then inj₂ ASSignal
-  else if ⌊ s ≟ₛ "envVar"  ⌋ then inj₂ ASEnvVar
-  else if ⌊ s ≟ₛ "nodeMsg" ⌋ then inj₂ ASNodeMsg
-  else if ⌊ s ≟ₛ "nodeSig" ⌋ then inj₂ ASNodeSig
-  else inj₁ (InvalidKind "attrScope" s)
+-- Parse AttrScope from char list.  Same axiom-avoidance reasoning as
+-- `parseByteOrder`: the formatter's `formatAttrScope s : List Char` matches
+-- this signature, so `attrDef-roundtrip` closes without a `fromList∘toList`
+-- step on abstract `AttrDef.scope d`.
+parseAttrScope : List Char → ParseError ⊎ AttrScope
+parseAttrScope cs =
+  if ⌊ cs ≟-LC String.toList "network" ⌋ then inj₂ ASNetwork
+  else if ⌊ cs ≟-LC String.toList "node"    ⌋ then inj₂ ASNode
+  else if ⌊ cs ≟-LC String.toList "message" ⌋ then inj₂ ASMessage
+  else if ⌊ cs ≟-LC String.toList "signal"  ⌋ then inj₂ ASSignal
+  else if ⌊ cs ≟-LC String.toList "envVar"  ⌋ then inj₂ ASEnvVar
+  else if ⌊ cs ≟-LC String.toList "nodeMsg" ⌋ then inj₂ ASNodeMsg
+  else if ⌊ cs ≟-LC String.toList "nodeSig" ⌋ then inj₂ ASNodeSig
+  else inj₁ (InvalidKind "attrScope" (fromList cs))
 
 -- Attribute type declaration (RHS of BA_DEF_).
 -- Variants keyed on "kind":
@@ -480,7 +510,7 @@ parseAttrType obj =
   else if ⌊ kind ≟ₛ "string" ⌋ then inj₂ ATString
   else if ⌊ kind ≟ₛ "enum" ⌋ then
     (require (MissingField "values") (lookupArray "values" obj) >>=ₑ λ vs →
-     parseStringList vs >>=ₑ λ labels →
+     parseCharsList vs >>=ₑ λ labels →
      inj₂ (ATEnum labels))
   else if ⌊ kind ≟ₛ "hex" ⌋ then
     (require (MissingField "min") (lookupNat "min" obj) >>=ₑ λ mn →
@@ -505,7 +535,7 @@ parseAttrValue obj =
     (lookupDecRat "value" obj >>=ₑ λ v →
      inj₂ (AVFloat v))
   else if ⌊ kind ≟ₛ "string" ⌋ then
-    (require (MissingField "value") (lookupString "value" obj) >>=ₑ λ v →
+    (require (MissingField "value") (lookupChars "value" obj) >>=ₑ λ v →
      inj₂ (AVString v))
   else if ⌊ kind ≟ₛ "enum" ⌋ then
     (require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ v →
@@ -522,7 +552,7 @@ parseAttrTarget obj =
   require (MissingField "kind") (lookupString "kind" obj) >>=ₑ λ kind →
   (if ⌊ kind ≟ₛ "network" ⌋ then inj₂ ATgtNetwork
   else if ⌊ kind ≟ₛ "node" ⌋ then
-    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+    (require (MissingField "node") (lookupChars "node" obj) >>=ₑ λ n →
      validateIdent n >>=ₑ λ nId →
      inj₂ (ATgtNode nId))
   else if ⌊ kind ≟ₛ "message" ⌋ then
@@ -532,24 +562,24 @@ parseAttrTarget obj =
   else if ⌊ kind ≟ₛ "signal" ⌋ then
     (require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
      parseCANId "attr target" rawId obj >>=ₑ λ cid →
-     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     require (MissingField "signal") (lookupChars "signal" obj) >>=ₑ λ sig →
      validateIdent sig >>=ₑ λ sigId →
      inj₂ (ATgtSignal cid sigId))
   else if ⌊ kind ≟ₛ "envVar" ⌋ then
-    (require (MissingField "envVar") (lookupString "envVar" obj) >>=ₑ λ ev →
+    (require (MissingField "envVar") (lookupChars "envVar" obj) >>=ₑ λ ev →
      validateIdent ev >>=ₑ λ evId →
      inj₂ (ATgtEnvVar evId))
   else if ⌊ kind ≟ₛ "nodeMsg" ⌋ then
-    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+    (require (MissingField "node") (lookupChars "node" obj) >>=ₑ λ n →
      require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
      parseCANId "attr target" rawId obj >>=ₑ λ cid →
      validateIdent n >>=ₑ λ nId →
      inj₂ (ATgtNodeMsg nId cid))
   else if ⌊ kind ≟ₛ "nodeSig" ⌋ then
-    (require (MissingField "node") (lookupString "node" obj) >>=ₑ λ n →
+    (require (MissingField "node") (lookupChars "node" obj) >>=ₑ λ n →
      require (MissingField "id") (lookupNat "id" obj) >>=ₑ λ rawId →
      parseCANId "attr target" rawId obj >>=ₑ λ cid →
-     require (MissingField "signal") (lookupString "signal" obj) >>=ₑ λ sig →
+     require (MissingField "signal") (lookupChars "signal" obj) >>=ₑ λ sig →
      validateIdent n >>=ₑ λ nId →
      validateIdent sig >>=ₑ λ sigId →
      inj₂ (ATgtNodeSig nId cid sigId))
@@ -557,12 +587,13 @@ parseAttrTarget obj =
 
 -- BA_DEF_ / BA_DEF_REL_ — carries name, scope, and type declaration.
 -- Attribute names are quoted strings in DBC wire format (not restricted to the
--- identifier grammar), so no validateIdent here.
+-- identifier grammar); after 3d.4 the AST stores them as `List Char` so the
+-- JSON-side roundtrip lemma can close axiom-free.
 parseAttrDef : List (String × JSON) → ParseError ⊎ AttrDef
 parseAttrDef obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
-  require (MissingField "scope") (lookupString "scope" obj) >>=ₑ λ scopeStr →
-  parseAttrScope scopeStr >>=ₑ λ scope →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
+  require (MissingField "scope") (lookupChars "scope" obj) >>=ₑ λ scopeChars →
+  parseAttrScope scopeChars >>=ₑ λ scope →
   require (MissingField "attrType") (lookupObject "attrType" obj) >>=ₑ λ typeObj →
   parseAttrType typeObj >>=ₑ λ ty →
   inj₂ (mkAttrDef name scope ty)
@@ -570,7 +601,7 @@ parseAttrDef obj =
 -- BA_DEF_DEF_ — default value for a previously-declared attribute.
 parseAttrDefault : List (String × JSON) → ParseError ⊎ AttrDefault
 parseAttrDefault obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   require (MissingField "value") (lookupObject "value" obj) >>=ₑ λ valObj →
   parseAttrValue valObj >>=ₑ λ val →
   inj₂ (mkAttrDefault name val)
@@ -578,7 +609,7 @@ parseAttrDefault obj =
 -- BA_ / BA_REL_ — concrete attribute value assigned to a target entity.
 parseAttrAssign : List (String × JSON) → ParseError ⊎ AttrAssign
 parseAttrAssign obj =
-  require (MissingField "name") (lookupString "name" obj) >>=ₑ λ name →
+  require (MissingField "name") (lookupChars "name" obj) >>=ₑ λ name →
   require (MissingField "target") (lookupObject "target" obj) >>=ₑ λ tgtObj →
   parseAttrTarget tgtObj >>=ₑ λ target →
   require (MissingField "value") (lookupObject "value" obj) >>=ₑ λ valObj →
@@ -606,7 +637,7 @@ parseAttributeList = parseObjectList "attribute" parseAttribute 0
 -- Parse top-level DBC structure from JSON object (with typed errors)
 parseDBCWithErrors : JSON → ParseError ⊎ DBC
 parseDBCWithErrors (JObject obj) =
-  require (MissingField "version") (lookupString "version" obj) >>=ₑ λ version →
+  require (MissingField "version") (lookupChars "version" obj) >>=ₑ λ version →
   require (MissingField "messages") (lookupArray "messages" obj) >>=ₑ λ messagesJSON →
   parseMessageList messagesJSON 0 >>=ₑ λ messages →
   parseOptionalArray parseSignalGroupList (lookupArray "signalGroups" obj) >>=ₑ λ groups →

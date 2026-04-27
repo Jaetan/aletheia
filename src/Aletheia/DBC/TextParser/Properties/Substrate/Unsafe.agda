@@ -24,11 +24,22 @@
 --   ≡ parseTextChars (formatChars d)                        -- by toList∘fromList
 --   ≡ inj₂ d                                                -- by internal theorem
 --
---   Per-primitive identifier roundtrip at the layer-2 proofs additionally
---   needs `fromList (toList name) ≡ name` because every `String`-typed
---   `DBC` field (e.g. `Node.name`, `DBCSignal.name`, `DBCComment.text`)
---   round-trips through `parseIdentifier (toList name) ≡ inj₂ (fromList
---   (toList name)) = inj₂ name` — only collapsible by the second axiom.
+--   Per-primitive identifier roundtrip at layer-2 / layer-3 proofs uses
+--   `toList∘fromList` to bridge `toList (fromList cs) = cs` whenever a
+--   formatter emits `fromList cs` (e.g. namespace identifier emission)
+--   and the parser-side proof needs to recover `cs`.  `fromList∘toList`
+--   bridges the opposite direction for proofs that go from a String s
+--   through `toList s` and back.
+--
+-- Post-3d.4 status (2026-04-26): pre-3d.4 this module also hosted
+-- `mkIdentFromCharsUnsafe`, the helper Lexer.parseIdentifier used to
+-- bridge a char-level `T (validIdentifierᵇ cs)` witness into the
+-- String-internal `T (validIdentifierᵇ (toList name))` witness required
+-- by the old `Identifier.name : String` shape.  After 3d.4 lifted
+-- `Identifier.name : List Char`, that helper is gone; Lexer builds the
+-- Identifier directly via `mkIdentFromChars` (axiom-free) in
+-- `Aletheia.DBC.Identifier`.  This module's surface shrinks to the two
+-- axioms only.
 --
 -- Stdlib reference:
 --   `agda-stdlib v2.3 Data.String.Unsafe` exports the same two lemmas as
@@ -59,15 +70,10 @@
 --   Aletheia inherits the same soundness assumption.
 module Aletheia.DBC.TextParser.Properties.Substrate.Unsafe where
 
-open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
 open import Data.List using (List)
-open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Unit using (tt)
 open import Data.String using (String; toList; fromList)
-open import Relation.Binary.PropositionalEquality using (_≡_; sym; cong; subst)
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
-open import Aletheia.Prelude using (ifᵀ_then_else_)
+open import Relation.Binary.PropositionalEquality using (_≡_)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -76,27 +82,3 @@ open import Aletheia.Prelude using (ifᵀ_then_else_)
 postulate
   toList∘fromList : ∀ (cs : List Char) → toList (fromList cs) ≡ cs
   fromList∘toList : ∀ (s  : String)    → fromList (toList s)  ≡ s
-
--- ============================================================================
--- CHAR-LIST IDENTIFIER CONSTRUCTION (text parser path)
--- ============================================================================
-
--- Build an Identifier from a char list, bridging the char-level bool witness
--- to the `toList name`-level witness required by `Identifier.valid` via the
--- `toList∘fromList` axiom.  This is the text parser's construction path; the
--- axiom use is bounded to this single helper.
---
--- Defined via `ifᵀ_then_else_` (regular function, not `with ... in eq`) so
--- downstream roundtrip proofs (`Properties.Primitives.mkIdentFromCharsUnsafe-
--- on-valid`) can compose without hitting the with-abstraction failure on
--- `valid`'s dependent type.  The `ifᵀ`-witness lemma in `Aletheia.Prelude`
--- converts a `T (validIdentifierᵇ cs)` witness directly into the
--- `just (mkIdent (fromList cs) …)` branch.
-mkIdentFromCharsUnsafe : (cs : List Char) → Maybe Identifier
-mkIdentFromCharsUnsafe cs =
-  ifᵀ validIdentifierᵇ cs
-    then (λ w → just (mkIdent (fromList cs)
-                       (subst T
-                         (cong validIdentifierᵇ (sym (toList∘fromList cs)))
-                         w)))
-    else nothing

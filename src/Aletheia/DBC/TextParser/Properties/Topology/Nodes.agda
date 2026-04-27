@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseBU-roundtrip` — per-line-construct roundtrip for the
 -- `BU_: <node>*` DBC node-list line (B.3.d Layer 3 Commit 3b).
@@ -43,7 +43,7 @@ open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseWS; parseWSOpt; parseNewline; isHSpace)
 open import Aletheia.DBC.TextParser.Topology using (parseBU)
 open import Aletheia.DBC.TextFormatter.Topology using (emitBU-chars)
-open import Aletheia.DBC.Types using (Node; mkNode; nodeNameStr)
+open import Aletheia.DBC.Types using (Node; mkNode)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; ∷-stop; bind-just-step;
@@ -66,21 +66,21 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 nodeNameSep-chars : List Node → List Char
 nodeNameSep-chars []       = []
 nodeNameSep-chars (n ∷ ns) =
-  ' ' ∷ toList (nodeNameStr n) ++ₗ nodeNameSep-chars ns
+  ' ' ∷ Identifier.name (Node.name n) ++ₗ nodeNameSep-chars ns
 
 -- Shape lemmas: `emitBU-chars ns` reassociates as the parser consumes
 -- it — `"BU_:"` head + `nodeNameSep-chars ns` body + `"\n\n"` tail
 -- + outer suffix.
 private
   emitBU-chars-foldr-shape : ∀ (ns : List Node)
-    → foldr (λ n acc → ' ' ∷ toList (nodeNameStr n) ++ₗ acc)
+    → foldr (λ n acc → ' ' ∷ Identifier.name (Node.name n) ++ₗ acc)
             (toList "\n\n") ns
       ≡ nodeNameSep-chars ns ++ₗ toList "\n\n"
   emitBU-chars-foldr-shape [] = refl
   emitBU-chars-foldr-shape (n ∷ ns)
     rewrite emitBU-chars-foldr-shape ns =
       cong (' ' ∷_)
-           (sym (++ₗ-assoc (toList (nodeNameStr n))
+           (sym (++ₗ-assoc (Identifier.name (Node.name n))
                            (nodeNameSep-chars ns)
                            (toList "\n\n")))
 
@@ -127,7 +127,7 @@ open import Data.Product using (Σ; Σ-syntax; _×_; _,_; proj₁; proj₂)
 NodeNameStop : Node → Set
 NodeNameStop n =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (nodeNameStr n) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name (Node.name n) ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
 -- Single-iteration: parseWS *> parseIdentifier on ' ' ∷ toList name ++ ...
@@ -136,23 +136,23 @@ NodeNameStop n =
 private
   parseWSIdent-step :
       ∀ (pos : Position) (n : Node) (rest : List Char)
-    → SuffixStops isHSpace (toList (nodeNameStr n) ++ₗ rest)
+    → SuffixStops isHSpace (Identifier.name (Node.name n) ++ₗ rest)
     → SuffixStops isIdentCont rest
     → (parseWS *> parseIdentifier) pos
-        (' ' ∷ toList (nodeNameStr n) ++ₗ rest)
+        (' ' ∷ Identifier.name (Node.name n) ++ₗ rest)
       ≡ just (mkResult (Node.name n)
                (advancePositions
                   (advancePosition pos ' ')
-                  (toList (nodeNameStr n)))
+                  (Identifier.name (Node.name n)))
                rest)
   parseWSIdent-step pos n rest ws-ss ident-ss =
     trans
       (bind-just-step parseWS (λ _ → parseIdentifier)
-         pos (' ' ∷ toList (nodeNameStr n) ++ₗ rest)
+         pos (' ' ∷ Identifier.name (Node.name n) ++ₗ rest)
          (' ' ∷ []) (advancePosition pos ' ')
-         (toList (nodeNameStr n) ++ₗ rest)
+         (Identifier.name (Node.name n) ++ₗ rest)
          (parseWS-one-space pos
-            (toList (nodeNameStr n) ++ₗ rest)
+            (Identifier.name (Node.name n) ++ₗ rest)
             ws-ss))
       (parseIdentifier-roundtrip
          (advancePosition pos ' ')
@@ -193,14 +193,14 @@ private
   sameLengthᵇ-lt (_ ∷ xs) (_ ∷ ys) (s≤s h) = sameLengthᵇ-lt xs ys h
 
   sameLengthᵇ-name-iter-fail : ∀ (n : Node) (rest : List Char)
-    → sameLengthᵇ (' ' ∷ toList (nodeNameStr n) ++ₗ rest) rest ≡ false
+    → sameLengthᵇ (' ' ∷ Identifier.name (Node.name n) ++ₗ rest) rest ≡ false
   sameLengthᵇ-name-iter-fail n rest =
-    sameLengthᵇ-lt (' ' ∷ toList (nodeNameStr n) ++ₗ rest) rest len-witness
+    sameLengthᵇ-lt (' ' ∷ Identifier.name (Node.name n) ++ₗ rest) rest len-witness
     where
-      len-witness : length rest < length (' ' ∷ toList (nodeNameStr n) ++ₗ rest)
+      len-witness : length rest < length (' ' ∷ Identifier.name (Node.name n) ++ₗ rest)
       len-witness
-        rewrite length-++ (toList (nodeNameStr n)) {rest} =
-          s≤s (m≤n+m (length rest) (length (toList (nodeNameStr n))))
+        rewrite length-++ (Identifier.name (Node.name n)) {rest} =
+          s≤s (m≤n+m (length rest) (length (Identifier.name (Node.name n))))
 
 -- After consuming `nodeNameSep-chars ns`, the cursor advances by
 -- `nodeNameSep-chars ns` chars from the starting position.
@@ -209,7 +209,7 @@ afterNodes pos []       = pos
 afterNodes pos (n ∷ ns) =
   afterNodes (advancePositions
                 (advancePosition pos ' ')
-                (toList (nodeNameStr n))) ns
+                (Identifier.name (Node.name n))) ns
 
 -- The advancePositions / afterNodes alignment lemma — the position
 -- after walking `nodeNameSep-chars ns` from `pos` equals
@@ -224,11 +224,11 @@ private
     trans
       (afterNodes-advancePositions
          (advancePositions (advancePosition pos ' ')
-                           (toList (nodeNameStr n)))
+                           (Identifier.name (Node.name n)))
          ns)
       (sym (advancePositions-++
               (advancePosition pos ' ')
-              (toList (nodeNameStr n))
+              (Identifier.name (Node.name n))
               (nodeNameSep-chars ns)))
 
 -- Body iteration — manyHelper consumes `nodeNameSep-chars ns ++ '\n' ∷
@@ -252,7 +252,7 @@ manyHelper-parseWSIdent-body pos (n ∷ ns) suffix (suc m')
     iter-rest = nodeNameSep-chars ns ++ₗ '\n' ∷ '\n' ∷ suffix
     pos-after-name = advancePositions
                        (advancePosition pos ' ')
-                       (toList (nodeNameStr n))
+                       (Identifier.name (Node.name n))
     -- SuffixStops isIdentCont on the post-name input — head is either
     -- `' '` (start of next iteration's separator) or `'\n'` (body
     -- terminator).  Both have isIdentCont ≡ false.
@@ -261,11 +261,11 @@ manyHelper-parseWSIdent-body pos (n ∷ ns) suffix (suc m')
     -- SuffixStops isHSpace `(toList name ++ iter-rest)` — head is
     -- the first char of the name (non-hspace by precondition).
     full-rest-ss : SuffixStops isHSpace
-                     (toList (nodeNameStr n) ++ₗ iter-rest)
+                     (Identifier.name (Node.name n) ++ₗ iter-rest)
     full-rest-ss = name-stop-extends n iter-rest n-stop
     iter-eq :
       (parseWS *> parseIdentifier) pos
-        (' ' ∷ toList (nodeNameStr n) ++ₗ iter-rest)
+        (' ' ∷ Identifier.name (Node.name n) ++ₗ iter-rest)
       ≡ just (mkResult (Node.name n) pos-after-name iter-rest)
     iter-eq = parseWSIdent-step pos n iter-rest full-rest-ss iter-rest-ss
     -- Recursive call on the tail.
@@ -275,10 +275,10 @@ manyHelper-parseWSIdent-body pos (n ∷ ns) suffix (suc m')
     -- (tail-body ++ '\n\n suffix)`.  Closed by ++-assoc.
     shape-eq :
       nodeNameSep-chars (n ∷ ns) ++ₗ '\n' ∷ '\n' ∷ suffix
-      ≡ ' ' ∷ toList (nodeNameStr n) ++ₗ iter-rest
+      ≡ ' ' ∷ Identifier.name (Node.name n) ++ₗ iter-rest
     shape-eq =
       cong (_∷_ ' ')
-        (++ₗ-assoc (toList (nodeNameStr n))
+        (++ₗ-assoc (Identifier.name (Node.name n))
                    (nodeNameSep-chars ns)
                    ('\n' ∷ '\n' ∷ suffix))
   in
@@ -287,7 +287,7 @@ manyHelper-parseWSIdent-body pos (n ∷ ns) suffix (suc m')
                 manyHelper (parseWS *> parseIdentifier) pos input (suc m'))
             shape-eq)
       (manyHelper-prog-cons (parseWS *> parseIdentifier) pos
-        (' ' ∷ toList (nodeNameStr n) ++ₗ iter-rest) m'
+        (' ' ∷ Identifier.name (Node.name n) ++ₗ iter-rest) m'
         (Node.name n) pos-after-name iter-rest
         (map Node.name ns)
         (afterNodes pos-after-name ns)
@@ -310,7 +310,7 @@ manyHelper-parseWSIdent-body pos (n ∷ ns) suffix (suc m')
     -- via `name-eq`, and `isHSpace c ≡ false` discharges the stop.
     name-stop-extends : ∀ (n : Node) (rest : List Char)
       → NodeNameStop n
-      → SuffixStops isHSpace (toList (nodeNameStr n) ++ₗ rest)
+      → SuffixStops isHSpace (Identifier.name (Node.name n) ++ₗ rest)
     name-stop-extends n rest (c , cs , name-eq , c-non-hspace) =
       subst (λ xs → SuffixStops isHSpace (xs ++ₗ rest))
             (sym name-eq)
@@ -494,7 +494,7 @@ parseBU-roundtrip pos ns suffix node-stops nl-stop =
                 (≤-trans
                    (length-ns-le-nodeNameSep ns')
                    (le-monotone-++
-                      (toList (nodeNameStr n))
+                      (Identifier.name (Node.name n))
                       (nodeNameSep-chars ns')))
               where
                 le-monotone-++ : ∀ (xs ys : List Char)

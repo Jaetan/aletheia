@@ -42,16 +42,15 @@
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Topology where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
-open import Data.Char using (Char)
+open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+import Data.List.Properties as ListProps
 open import Data.List using (List; []; _∷_; foldr) renaming (_++_ to _++ₗ_)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _^_)
 open import Data.String using (String; toList)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.DBC.Types using
@@ -74,7 +73,7 @@ open import Aletheia.DBC.TextFormatter.Emitter using
 emitBU-chars : List Node → List Char
 emitBU-chars ns =
   toList "BU_:" ++ₗ
-  foldr (λ n acc → ' ' ∷ toList (nodeNameStr n) ++ₗ acc) (toList "\n\n") ns
+  foldr (λ n acc → ' ' ∷ Identifier.name (Node.name n) ++ₗ acc) (toList "\n\n") ns
 
 -- ============================================================================
 -- CANID (raw ℕ for BO_ line)
@@ -109,8 +108,8 @@ emitSignFlag-chars false = '+' ∷ []
 emitReceivers-chars : List Identifier → List Char
 emitReceivers-chars []       = toList "Vector__XXX"
 emitReceivers-chars (r ∷ rs) =
-  toList (Identifier.name r)
-    ++ₗ foldr (λ x acc → ',' ∷ toList (Identifier.name x) ++ₗ acc) [] rs
+  Identifier.name r
+    ++ₗ foldr (λ x acc → ',' ∷ Identifier.name x ++ₗ acc) [] rs
 
 -- ============================================================================
 -- MUX RESOLUTION (scan signals for the master)
@@ -120,7 +119,10 @@ emitReceivers-chars (r ∷ rs) =
 -- clause.  Returns `nothing` if no signal references a master (no mux in
 -- this message).  All well-formed `When` clauses in one message reference
 -- the same master (validator invariant), so the first hit is authoritative.
-findMuxMaster : List DBCSignal → Maybe String
+-- 3d.4: returns `Maybe (List Char)` — `Identifier.name : List Char` post
+-- de-tainting, so the result feeds straight into char-list comparison and
+-- emission with no String roundtrip.
+findMuxMaster : List DBCSignal → Maybe (List Char)
 findMuxMaster [] = nothing
 findMuxMaster (s ∷ rest) with DBCSignal.presence s
 ... | Always   = findMuxMaster rest
@@ -135,10 +137,12 @@ findMuxMaster (s ∷ rest) with DBCSignal.presence s
 --                                       emitted faithfully so the
 --                                       validator catches it on the next
 --                                       reparse).
-emitMuxMarker-chars : Maybe String → (thisName : String) → SignalPresence → List Char
+-- 3d.4: thisName / master are `List Char` (the Identifier name field type).
+-- Comparison uses stdlib's lifted list equality (`≡-dec _≟ᶜ_`).
+emitMuxMarker-chars : Maybe (List Char) → (thisName : List Char) → SignalPresence → List Char
 emitMuxMarker-chars nothing       _        Always         = []
 emitMuxMarker-chars (just master) thisName Always         =
-  if ⌊ thisName ≟ₛ master ⌋ then toList " M" else []
+  if ⌊ ListProps.≡-dec _≟ᶜ_ thisName master ⌋ then toList " M" else []
 emitMuxMarker-chars _             _        (When _ (v ∷ _)) =
   toList " m" ++ₗ showℕ-dec-chars v
 
@@ -149,14 +153,16 @@ emitMuxMarker-chars _             _        (When _ (v ∷ _)) =
 -- One SG_ line including its trailing newline.  The message's DLC byte
 -- count is needed by `unconvertStartBit` to de-normalize the start-bit for
 -- BigEndian signals.
-emitSignalLine-chars : (master : Maybe String) (frameBytes : ℕ) → DBCSignal → List Char
+-- 3d.4: master / signal name are `List Char` throughout; no String roundtrip.
+emitSignalLine-chars : (master : Maybe (List Char)) (frameBytes : ℕ) → DBCSignal → List Char
 emitSignalLine-chars master frameBytes sig =
   let def = DBCSignal.signalDef sig
       bo  = DBCSignal.byteOrder sig
       sb  = unconvertStartBit frameBytes bo
               (SignalDef.startBit def) (SignalDef.bitLength def)
-  in toList " SG_ " ++ₗ toList (signalNameStr sig) ++ₗ
-     emitMuxMarker-chars master (signalNameStr sig) (DBCSignal.presence sig) ++ₗ
+      thisName = Identifier.name (DBCSignal.name sig)
+  in toList " SG_ " ++ₗ thisName ++ₗ
+     emitMuxMarker-chars master thisName (DBCSignal.presence sig) ++ₗ
      toList " : " ++ₗ showℕ-dec-chars sb ++ₗ
      '|' ∷ showℕ-dec-chars (SignalDef.bitLength def) ++ₗ
      '@' ∷ emitByteOrderDigit-chars bo ++ₗ
@@ -184,10 +190,10 @@ emitMessage-chars msg =
       sigs   = DBCMessage.signals msg
       master = findMuxMaster sigs
   in toList "BO_ " ++ₗ showℕ-dec-chars (rawCanIdℕ (DBCMessage.id msg)) ++ₗ
-     ' ' ∷ toList (messageNameStr msg) ++ₗ
+     ' ' ∷ Identifier.name (DBCMessage.name msg) ++ₗ
      toList ": " ++ₗ
      showℕ-dec-chars fb ++ₗ
-     ' ' ∷ toList (messageSenderStr msg) ++ₗ
+     ' ' ∷ Identifier.name (DBCMessage.sender msg) ++ₗ
      '\n' ∷
      foldr (λ s acc → emitSignalLine-chars master fb s ++ₗ acc) [] sigs ++ₗ
      '\n' ∷ []

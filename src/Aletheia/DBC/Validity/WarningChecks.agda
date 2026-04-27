@@ -7,7 +7,7 @@
 -- (predicate → check ≡ []) for each warning check, relating the
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr)
 
 open import Aletheia.DBC.Types using
@@ -623,7 +623,7 @@ checkCommentTargetExists-allW : ∀ msgs nodes envVars cm →
   All W (checkCommentTargetExists msgs nodes envVars cm)
 checkCommentTargetExists-allW msgs nodes envVars cm with DBCComment.target cm
 ... | CTNetwork   = []
-... | CTNode nname with any? (λ n → nodeNameStr n ≟ₛ Identifier.name nname) nodes
+... | CTNode nname with any? (λ n → nodeNameStr n ≟ₛ nameStr nname) nodes
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 checkCommentTargetExists-allW msgs _ _ cm | CTMessage mid
@@ -637,7 +637,7 @@ checkCommentTargetExists-allW msgs _ _ cm | CTSignal mid sname
 ...     | just _  = []
 ...     | nothing = refl ∷ []
 checkCommentTargetExists-allW _ _ envVars cm | CTEnvVar evname
-  with any? (λ ev → envVarNameStr ev ≟ₛ Identifier.name evname) envVars
+  with any? (λ ev → envVarNameStr ev ≟ₛ nameStr evname) envVars
 ...   | yes _ = []
 ...   | no  _ = refl ∷ []
 
@@ -677,7 +677,7 @@ checkAllUnknownMessageSenders-allW msgs nodes@(_ ∷ _) =
 checkUnknownReceiver-allW : ∀ nodes msgName sigName r →
   All W (checkUnknownReceiver nodes msgName sigName r)
 checkUnknownReceiver-allW nodes msgName sigName r
-  with any? (λ n → nodeNameStr n ≟ₛ Identifier.name r) nodes
+  with any? (λ n → nodeNameStr n ≟ₛ nameStr r) nodes
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 
@@ -711,7 +711,7 @@ checkAllUnknownSignalReceivers-allW msgs nodes@(_ ∷ _) =
 checkUnknownAdditionalSender-allW : ∀ nodes msgName s →
   All W (checkUnknownAdditionalSender nodes msgName s)
 checkUnknownAdditionalSender-allW nodes msgName s
-  with any? (λ n → nodeNameStr n ≟ₛ Identifier.name s) nodes
+  with any? (λ n → nodeNameStr n ≟ₛ nameStr s) nodes
 ... | yes _ = []
 ... | no  _ = refl ∷ []
 

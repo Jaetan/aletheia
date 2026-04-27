@@ -36,6 +36,7 @@
 module Aletheia.LTL.SignalPredicate.Evaluation.Properties where
 
 open import Aletheia.Prelude
+open import Data.Char using (Char)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (∃-syntax; _,_)
 open import Data.Maybe using (just; nothing)
@@ -54,7 +55,7 @@ open import Aletheia.LTL.SignalPredicate.Evaluation
 -- ============================================================================
 
 -- Associate a SignalPredicate with its target signal name.
-signalOf : SignalPredicate → String
+signalOf : SignalPredicate → List Char
 signalOf (ValueP vp) = valuePredicateSignal vp
 signalOf (DeltaP dp) = deltaPredicateSignal dp
 

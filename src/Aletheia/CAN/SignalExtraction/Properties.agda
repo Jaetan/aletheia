@@ -22,7 +22,7 @@
 --
 -- Runtime cost: zero (proofs erased by MAlonzo compilation).
 module Aletheia.CAN.SignalExtraction.Properties where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)

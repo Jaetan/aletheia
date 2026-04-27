@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Per-line-construct roundtrips for the DBC comment section (B.3.d Layer
 -- 3 Commit 3b) — facade module.

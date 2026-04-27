@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.1 — `parseAttrDef` + `parseAttrDefRel`
 -- per-line-construct roundtrips.
@@ -214,7 +214,7 @@ private
   -- Position trace shared across scope cases.  Parameterised by scope-
   -- specific position after parseOptionalStandardScope.
   module Trace (pos : Position) (scope : AttrScope)
-               (name : String) (ty : AttrType)
+               (name : List Char) (ty : AttrType)
                (outer-suffix : List Char) where
     cs-scope = emitScopePrefix-chars scope
     cs-name  = quoteStringLit-chars name
@@ -290,7 +290,7 @@ private
 -- bind chain composes uniformly.  Each scope case discharges the
 -- witness with its own primitive (parseOptionalStandardScope-AS*-roundtrip).
 parseAttrDef-after-keyword :
-  ∀ pos (scope : AttrScope) (name : String) (ty : AttrType)
+  ∀ pos (scope : AttrScope) (name : List Char) (ty : AttrType)
     (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
@@ -424,7 +424,7 @@ parseAttrDef-after-keyword pos scope name ty outer-suffix wf-ty ss-NL scope-eq =
     --   ASNetwork: head is `'"'` (start of cs-name).
     --   ASNode/...: head is the scope keyword's first char (B/B/S/E),
     --   which is non-hspace.
-    scope-prefix-stops-isHSpace : ∀ (scp : AttrScope) (s : String) (cs-rest : List Char)
+    scope-prefix-stops-isHSpace : ∀ (scp : AttrScope) (s : List Char) (cs-rest : List Char)
       → SuffixStops isHSpace (emitScopePrefix-chars scp ++ₗ quoteStringLit-chars s ++ₗ cs-rest)
     scope-prefix-stops-isHSpace ASNetwork  _ _ = ∷-stop refl
     scope-prefix-stops-isHSpace ASNode     _ _ = ∷-stop refl
@@ -469,7 +469,7 @@ parseAttrDef-after-keyword pos scope name ty outer-suffix wf-ty ss-NL scope-eq =
 -- matches on the scope argument concretely; this side-steps the
 -- `with isRelScope ...` clause that doesn't reduce on `mkAttrDef _ _ _`
 -- with abstract scope (per `feedback_expose_scrutinee_for_external_rewrite`).
-emitAttrDef-NotRel-shape : ∀ (name : String) (scope : AttrScope) (ty : AttrType)
+emitAttrDef-NotRel-shape : ∀ (name : List Char) (scope : AttrScope) (ty : AttrType)
   → isRelScope scope ≡ false
   → emitAttrDef-chars (mkAttrDef name scope ty)
     ≡ toList "BA_DEF_ " ++ₗ emitScopePrefix-chars scope ++ₗ
@@ -489,7 +489,7 @@ private
   -- For non-Network scopes: parseOptionalStandardScope succeeds via
   -- the matching primitive (ASNode / ASMessage / ASSignal / ASEnvVar).
   -- The post-scope input is `quoteStringLit-chars name ++ rest`.
-  scope-stops-quote : ∀ (s : String) (cs-rest : List Char)
+  scope-stops-quote : ∀ (s : List Char) (cs-rest : List Char)
     → SuffixStops isHSpace (quoteStringLit-chars s ++ₗ cs-rest)
   scope-stops-quote _ _ = ∷-stop refl
 
@@ -930,7 +930,7 @@ data WfAttrDef-Rel : AttrDef → Set where
   Wf-NodeSig : ∀ {n ty} → WfAttrType ty → WfAttrDef-Rel (mkAttrDef n ASNodeSig ty)
 
 -- Helper: shape `emitAttrDef-chars d` when scope is rel.
-emitAttrDef-Rel-shape : ∀ (name : String) (scope : AttrScope) (ty : AttrType)
+emitAttrDef-Rel-shape : ∀ (name : List Char) (scope : AttrScope) (ty : AttrType)
   → isRelScope scope ≡ true
   → emitAttrDef-chars (mkAttrDef name scope ty)
     ≡ toList "BA_DEF_REL_ " ++ₗ emitScopePrefix-chars scope ++ₗ
@@ -986,7 +986,7 @@ private
   cs-scope-kw-of _         = []
 
   module TraceRel (pos : Position) (scope : AttrScope)
-                  (name : String) (ty : AttrType)
+                  (name : List Char) (ty : AttrType)
                   (outer-suffix : List Char) where
     cs-scope-kw : List Char
     cs-scope-kw = cs-scope-kw-of scope
@@ -1066,7 +1066,7 @@ private
 -- composes uniformly.  `is-rel` selects the rel-scope cases (head of
 -- cs-scope-kw is 'B', non-hspace).
 parseAttrDefRel-after-keyword :
-  ∀ pos (scope : AttrScope) (name : String) (ty : AttrType)
+  ∀ pos (scope : AttrScope) (name : List Char) (ty : AttrType)
     (outer-suffix : List Char)
   → WfAttrType ty
   → SuffixStops isNewlineStart outer-suffix
@@ -1217,7 +1217,7 @@ parseAttrDefRel-after-keyword pos scope name ty outer-suffix wf-ty ss-NL is-rel 
     -- excluded via absurd patterns on `is-rel`.
     scope-kw-stops-isHSpace : ∀ (scp : AttrScope)
       → isRelScope scp ≡ true
-      → ∀ (s : String)
+      → ∀ (s : List Char)
       → SuffixStops isHSpace
           (cs-scope-kw-of scp ++ₗ
             ' ' ∷ quoteStringLit-chars s ++ₗ ' ' ∷ emitAttrType-chars ty ++ₗ

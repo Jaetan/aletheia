@@ -14,7 +14,8 @@ open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder)
-open import Data.String using (String)
+open import Data.Char using (Char)
+open import Data.String using (String; fromList)
 open import Data.List using (List)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
@@ -50,7 +51,7 @@ record DBCSignal : Set where
     name : Identifier
     signalDef : SignalDef
     byteOrder : ByteOrder
-    unit : String
+    unit : List Char                 -- DBC unit literal; List Char post 3d.4 JSON-mirror
     presence : SignalPresence        -- Conditional presence for multiplexing
     receivers : List Identifier      -- Node names from SG_ trailing receiver list
 
@@ -94,7 +95,7 @@ record EnvironmentVar : Set where
 record ValueTable : Set where
   field
     name : Identifier
-    entries : List (ℕ × String)  -- (numeric value, description)
+    entries : List (ℕ × List Char)  -- (numeric value, description) — List Char post 3d.4 JSON-mirror
 
 -- ============================================================================
 -- NODE (DBC BU_ keyword)
@@ -126,7 +127,7 @@ record DBCComment : Set where
   constructor mkComment
   field
     target : CommentTarget
-    text   : String
+    text   : List Char  -- DBC comment body; List Char post 3d.4 JSON-mirror
 
 -- ============================================================================
 -- ATTRIBUTES (DBC BA_DEF_, BA_DEF_DEF_, BA_, BA_DEF_REL_, BA_REL_)
@@ -151,7 +152,7 @@ data AttrType : Set where
   ATInt    : (min max : IntDecRat) → AttrType
   ATFloat  : (min max : DecRat) → AttrType
   ATString : AttrType
-  ATEnum   : (values : List String) → AttrType
+  ATEnum   : (values : List (List Char)) → AttrType  -- enum labels; List Char post 3d.4 JSON-mirror
   ATHex    : (min max : NatDecRat) → AttrType
 
 -- Concrete attribute value (BA_, BA_REL_, BA_DEF_DEF_).
@@ -159,7 +160,7 @@ data AttrType : Set where
 data AttrValue : Set where
   AVInt    : IntDecRat → AttrValue
   AVFloat  : DecRat → AttrValue
-  AVString : String → AttrValue
+  AVString : List Char → AttrValue  -- DBC string-attribute payload; List Char post 3d.4 JSON-mirror
   AVEnum   : NatDecRat → AttrValue
   AVHex    : NatDecRat → AttrValue
 
@@ -176,11 +177,12 @@ data AttrTarget : Set where
 
 -- BA_DEF_ / BA_DEF_REL_ — attribute type declaration.
 -- `name` is a DBC wire-format quoted string literal (not restricted to the
--- identifier grammar), so kept as String.
+-- identifier grammar).  Stored as `List Char` post 3d.4 JSON-mirror so the
+-- JSON-side roundtrip stays axiom-free.
 record AttrDef : Set where
   constructor mkAttrDef
   field
-    name     : String
+    name     : List Char
     scope    : AttrScope
     attrType : AttrType
 
@@ -188,14 +190,14 @@ record AttrDef : Set where
 record AttrDefault : Set where
   constructor mkAttrDefault
   field
-    name  : String
+    name  : List Char
     value : AttrValue
 
 -- BA_ / BA_REL_ — concrete attribute value assignment.
 record AttrAssign : Set where
   constructor mkAttrAssign
   field
-    name   : String
+    name   : List Char
     target : AttrTarget
     value  : AttrValue
 
@@ -209,7 +211,7 @@ data DBCAttribute : Set where
 
 record DBC : Set where
   field
-    version : String
+    version : List Char  -- DBC VERSION header content; List Char post 3d.4 JSON-mirror
     messages : List DBCMessage
     signalGroups : List SignalGroup
     environmentVars : List EnvironmentVar
@@ -221,42 +223,57 @@ record DBC : Set where
 -- ============================================================================
 -- IDENTIFIER NAME ACCESSORS (convenience helpers — Identifier → String)
 -- ============================================================================
--- These mirror the previous `DBCSignal.name : String` etc. API so callers that
--- only care about the underlying String don't have to write
--- `Identifier.name (DBCSignal.name sig)`.  MAlonzo inlines the newtype cast,
--- so there is zero runtime cost vs. direct field access.
+-- After 3d.4 (2026-04-26) `Identifier.name : List Char`, so each accessor
+-- composes `fromList` to recover the String.  Per-call cost is O(name-length)
+-- and identifier names are <30 chars; not on the per-frame signal-extraction
+-- hot path (called only at JSON serialization and validation sites).
 
 signalNameStr : DBCSignal → String
-signalNameStr = Identifier.name ∘ DBCSignal.name
+signalNameStr = fromList ∘ Identifier.name ∘ DBCSignal.name
 
 messageNameStr : DBCMessage → String
-messageNameStr = Identifier.name ∘ DBCMessage.name
+messageNameStr = fromList ∘ Identifier.name ∘ DBCMessage.name
 
 messageSenderStr : DBCMessage → String
-messageSenderStr = Identifier.name ∘ DBCMessage.sender
+messageSenderStr = fromList ∘ Identifier.name ∘ DBCMessage.sender
 
 nodeNameStr : Node → String
-nodeNameStr = Identifier.name ∘ Node.name
+nodeNameStr = fromList ∘ Identifier.name ∘ Node.name
 
 signalGroupNameStr : SignalGroup → String
-signalGroupNameStr = Identifier.name ∘ SignalGroup.name
+signalGroupNameStr = fromList ∘ Identifier.name ∘ SignalGroup.name
 
 envVarNameStr : EnvironmentVar → String
-envVarNameStr = Identifier.name ∘ EnvironmentVar.name
+envVarNameStr = fromList ∘ Identifier.name ∘ EnvironmentVar.name
 
 valueTableNameStr : ValueTable → String
-valueTableNameStr = Identifier.name ∘ ValueTable.name
+valueTableNameStr = fromList ∘ Identifier.name ∘ ValueTable.name
 
--- Attribute names are free-form quoted strings in DBC wire format; these
--- helpers are identity but kept for naming consistency with other *NameStr.
+-- Attribute names are free-form quoted strings in DBC wire format; post 3d.4
+-- JSON-mirror they are stored as `List Char`, so each accessor composes
+-- `fromList` to recover the String.
 attrDefNameStr : AttrDef → String
-attrDefNameStr = AttrDef.name
+attrDefNameStr = fromList ∘ AttrDef.name
 
 attrDefaultNameStr : AttrDefault → String
-attrDefaultNameStr = AttrDefault.name
+attrDefaultNameStr = fromList ∘ AttrDefault.name
 
 attrAssignNameStr : AttrAssign → String
-attrAssignNameStr = AttrAssign.name
+attrAssignNameStr = fromList ∘ AttrAssign.name
+
+-- ============================================================================
+-- TEXT-TYPED FIELD ACCESSORS (post 3d.4 JSON-mirror — fields are List Char,
+-- callers in String contexts can use these for `fromList ∘ field`)
+-- ============================================================================
+
+unitStr : DBCSignal → String
+unitStr = fromList ∘ DBCSignal.unit
+
+commentTextStr : DBCComment → String
+commentTextStr = fromList ∘ DBCComment.text
+
+versionStr : DBC → String
+versionStr = fromList ∘ DBC.version
 
 -- ============================================================================
 -- VALIDATION ISSUE TYPES

@@ -15,6 +15,7 @@
 -- list and calls parseLTL on the structurally smaller sub-value.
 module Aletheia.LTL.JSON where
 
+open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
 open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
@@ -23,7 +24,7 @@ open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.Prelude using (lookupByKey)
-open import Aletheia.JSON using (JSON; JObject; lookupString; lookupRational; lookupObject; lookupNat)
+open import Aletheia.JSON using (JSON; JObject; lookupString; lookupChars; lookupRational; lookupObject; lookupNat)
 open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
 import Aletheia.LTL.SignalPredicate as SP
@@ -35,50 +36,50 @@ import Aletheia.LTL.SignalPredicate as SP
 private
   parseEquals : List (String × JSON) → Maybe SignalPredicate
   parseEquals obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     value ← lookupRational "value" obj
     just (ValueP (SP.Equals signal value))
 
   parseLessThan : List (String × JSON) → Maybe SignalPredicate
   parseLessThan obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     value ← lookupRational "value" obj
     just (ValueP (SP.LessThan signal value))
 
   parseGreaterThan : List (String × JSON) → Maybe SignalPredicate
   parseGreaterThan obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     value ← lookupRational "value" obj
     just (ValueP (SP.GreaterThan signal value))
 
   parseBetween : List (String × JSON) → Maybe SignalPredicate
   parseBetween obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     minVal ← lookupRational "min" obj
     maxVal ← lookupRational "max" obj
     just (ValueP (SP.Between signal minVal maxVal))
 
   parseLessThanOrEqual : List (String × JSON) → Maybe SignalPredicate
   parseLessThanOrEqual obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     value ← lookupRational "value" obj
     just (ValueP (SP.LessThanOrEqual signal value))
 
   parseGreaterThanOrEqual : List (String × JSON) → Maybe SignalPredicate
   parseGreaterThanOrEqual obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     value ← lookupRational "value" obj
     just (ValueP (SP.GreaterThanOrEqual signal value))
 
   parseChangedBy : List (String × JSON) → Maybe SignalPredicate
   parseChangedBy obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     delta ← lookupRational "delta" obj
     just (DeltaP (SP.ChangedBy signal delta))
 
   parseStableWithin : List (String × JSON) → Maybe SignalPredicate
   parseStableWithin obj = do
-    signal ← lookupString "signal" obj
+    signal ← lookupChars "signal" obj
     tolerance ← lookupRational "tolerance" obj
     just (DeltaP (SP.StableWithin signal tolerance))
 

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- DBC (Database CAN) text format parser — entry point (Phase B.3.c.k).
 --
@@ -192,7 +192,7 @@ data DBCTextParseError : Set where
 -- therefore in source order, matching the JSON pipeline's invariants.
 -- `attributes` carries the refined (resolved-def-reference) list — the
 -- raw two-stage split stays internal to the parser.
-buildDBC : String → List Node → CollectedTop → List DBCAttribute → DBC
+buildDBC : List Char → List Node → CollectedTop → List DBCAttribute → DBC
 buildDBC ver nodes c attrs = record
   { version         = ver
   ; messages        = CollectedTop.messages        c
@@ -208,7 +208,7 @@ buildDBC ver nodes c attrs = record
 -- taxonomy.  Broken out from `parseText` so the three-case dispatch
 -- does not nest inside the `toList` call — easier to read, and the
 -- refinement step is isolated from the outer runner.
-finalizeParse : Maybe (ParseResult (String × List Node × List TopStmt))
+finalizeParse : Maybe (ParseResult (List Char × List Node × List TopStmt))
               → DBCTextParseError ⊎ DBC
 finalizeParse nothing = inj₁ ParseFailure
 finalizeParse (just res) with remaining res

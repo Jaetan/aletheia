@@ -27,7 +27,7 @@ open import Aletheia.Prelude using (ifᵀ-witness)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal; PhysicallyValid;
   getNat-ℕtoJSON)
 open import Aletheia.DBC.Formatter.SignalRoundtrip using (signal-list-roundtrip)
-open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseStringList-roundtrip)
+open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip)
 open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
 
 private
@@ -54,7 +54,7 @@ private
     rewrite getNat-ℕtoJSON (dlcBytes dlc)
           | bytesToValidDLC-roundtrip dlc
           | map-∘-identifier JString senders
-          | parseStringList-roundtrip (map Identifier.name senders)
+          | parseCharsList-roundtrip (map Identifier.name senders)
           | signal-list-roundtrip (dlcBytes dlc) (ctx (Identifier.name n)) signals 0 sigs-wf dlc-bound sigs-pv
           | validateIdent-roundtrip n
           | validateIdent-roundtrip sender

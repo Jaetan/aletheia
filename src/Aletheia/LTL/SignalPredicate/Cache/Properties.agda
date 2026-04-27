@@ -22,17 +22,20 @@ module Aletheia.LTL.SignalPredicate.Cache.Properties where
 open import Aletheia.LTL.SignalPredicate.Cache
   using ( CachedSignal; mkCachedSignal; CacheEntries; SignalCache; mkSignalCache
         ; lookupEntries; updateEntries; lookupCache; updateCache; emptyCache )
+open import Aletheia.DBC.Identifier using
+  (_≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-refl; ≡csᵇ-refl-eq; ≡csᵇ-false→≢)
+open import Data.Bool using (Bool; true; false; T; if_then_else_)
+open import Data.Char using (Char)
 open import Data.Rational using (ℚ)
 open import Data.String using (String)
-open import Data.String.Properties renaming (_≟_ to _≟ₛ_)
 open import Data.List using (List; []; _∷_; length)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
 open import Data.Nat using (ℕ; zero; suc; _≤_; z≤n; s≤s)
 open import Data.Nat.Properties using (≤-refl)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
-open import Relation.Nullary using (yes; no)
+open import Data.Unit using (tt)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; subst)
 
 -- ============================================================================
 -- PREDICATES
@@ -52,19 +55,26 @@ AllTimestamps≤ ts = All (λ e → CachedSignal.lastObserved (proj₂ e) ≤ ts
 --
 -- Uses nested with (not simultaneous) because updateEntries must reduce before
 -- the inner lookupEntries exposes its decision expression for abstraction.
+--
+-- Proofs use the Bool fast path `_≡csᵇ_` (mirrors Cache.agda's runtime
+-- definition) and recover propositional equality via `≡csᵇ-sound` /
+-- `≡csᵇ-refl-eq` at the proof step.
 updateEntries-monotone : ∀ name val ts es name' cached →
   lookupEntries name' es ≡ just cached →
   ∃ λ cached' → lookupEntries name' (updateEntries name val ts es) ≡ just cached'
 updateEntries-monotone name val ts [] name' cached ()
 updateEntries-monotone name val ts ((n , v) ∷ rest) name' cached eq
-  with name ≟ₛ n
-... | yes refl with name' ≟ₛ name
-...   | yes refl = mkCachedSignal val ts , refl
-...   | no _     = cached , eq
+  with name ≡csᵇ n in eq-name
+... | true  with ≡csᵇ-sound name n (subst T (sym eq-name) tt)
+...   | refl with name' ≡csᵇ name in eq-name'
+...     | true  with ≡csᵇ-sound name' name (subst T (sym eq-name') tt)
+...       | refl rewrite ≡csᵇ-refl-eq name' = mkCachedSignal val ts , refl
+updateEntries-monotone name val ts ((.name , v) ∷ rest) name' cached eq
+  | true | refl | false = cached , eq
 updateEntries-monotone name val ts ((n , v) ∷ rest) name' cached eq
-  | no _ with name' ≟ₛ n
-... | yes refl = v , refl
-... | no _     = updateEntries-monotone name val ts rest name' cached eq
+  | false with name' ≡csᵇ n in eq-name'
+... | true  = v , refl
+... | false = updateEntries-monotone name val ts rest name' cached eq
 
 -- Timestamp bound: updating with timestamp ts preserves AllTimestamps≤ ts.
 -- The new/overwritten entry gets exactly ts (≤-refl), others are unchanged.
@@ -73,18 +83,18 @@ updateEntries-timestamps≤ : ∀ name val ts es →
   AllTimestamps≤ ts (updateEntries name val ts es)
 updateEntries-timestamps≤ name val ts [] _ = ≤-refl ∷ []
 updateEntries-timestamps≤ name val ts ((n , v) ∷ rest) (h ∷ t)
-  with name ≟ₛ n
-... | yes _ = ≤-refl ∷ t
-... | no _  = h ∷ updateEntries-timestamps≤ name val ts rest t
+  with name ≡csᵇ n
+... | true  = ≤-refl ∷ t
+... | false = h ∷ updateEntries-timestamps≤ name val ts rest t
 
 -- Size bound: cache never shrinks — length is non-decreasing.
 updateEntries-length≤ : ∀ name val ts es →
   length es ≤ length (updateEntries name val ts es)
 updateEntries-length≤ name val ts [] = z≤n
 updateEntries-length≤ name val ts ((n , v) ∷ rest)
-  with name ≟ₛ n
-... | yes _ = ≤-refl
-... | no _  = s≤s (updateEntries-length≤ name val ts rest)
+  with name ≡csᵇ n
+... | true  = ≤-refl
+... | false = s≤s (updateEntries-length≤ name val ts rest)
 
 -- ============================================================================
 -- RECORD-LEVEL PROPERTIES

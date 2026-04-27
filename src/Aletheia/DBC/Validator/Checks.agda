@@ -8,7 +8,7 @@
 -- Role: Used by Validity proofs (ErrorChecks, WarningChecks) and composed
 --   into validateDBCFull in the parent Validator module.
 module Aletheia.DBC.Validator.Checks where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr)
 
 open import Aletheia.DBC.Types using
@@ -35,6 +35,7 @@ open import Aletheia.DBC.Properties using (signalPairValid?)
 open import Aletheia.CAN.DBCHelpers using (_≟-CANId_; findSignalInList)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes; dlcToBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
@@ -60,7 +61,7 @@ open import Aletheia.DBC.Validity.Combinators using
 -- DECIDABLE HELPERS
 -- ============================================================================
 
-findSignalPresence : String → List DBCSignal → Maybe SignalPresence
+findSignalPresence : List Char → List DBCSignal → Maybe SignalPresence
 findSignalPresence name sigs = mapₘ DBCSignal.presence (findSignalInList name sigs)
 
 -- ============================================================================
@@ -135,11 +136,11 @@ checkAllFactorZero = liftPerSignal checkFactorZeroSig
 checkMuxFoundSig : String → List DBCSignal → DBCSignal → List ValidationIssue
 checkMuxFoundSig msgName allSigs sig with DBCSignal.presence sig
 ... | Always        = []
-... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) allSigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ nameStr muxName) allSigs
 ...   | yes _ = []
 ...   | no  _ = mkIssue IsError MultiplexorNotFound
                   ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ signalNameStr sig
-                   ++ₛ "': multiplexor '" ++ₛ Identifier.name muxName
+                   ++ₛ "': multiplexor '" ++ₛ nameStr muxName
                    ++ₛ "' not found in message") ∷ []
 
 checkAllMuxFound : List DBCMessage → List ValidationIssue
@@ -202,7 +203,7 @@ checkMuxScaling msgName muxName muxSig
 ... | yes _ | yes _ = []
 ... | _     | _     = mkIssue IsWarning MultiplexorNonUnitScaling
                          ("Message '" ++ₛ msgName ++ₛ "': multiplexor '"
-                          ++ₛ Identifier.name muxName
+                          ++ₛ nameStr muxName
                           ++ₛ "' has non-unit scaling (factor≠1 or offset≠0); "
                           ++ₛ "mux value matching may be unreliable") ∷ []
 
@@ -464,9 +465,9 @@ checkCommentTargetExists : List DBCMessage → List Node → List EnvironmentVar
 checkCommentTargetExists msgs nodes envVars cm with DBCComment.target cm
 ... | CTNetwork = []
 ... | CTNode nname =
-        requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name nname) nodes)
+        requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr nname) nodes)
           (mkIssue IsWarning UnknownCommentTarget
-            ("Comment references unknown node '" ++ₛ Identifier.name nname ++ₛ "'"))
+            ("Comment references unknown node '" ++ₛ nameStr nname ++ₛ "'"))
 ... | CTMessage mid with findMessageInList mid msgs
 ...   | just _  = []
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
@@ -475,16 +476,16 @@ checkCommentTargetExists msgs _ _ cm | CTSignal mid sname
   with findMessageInList mid msgs
 ...   | nothing = mkIssue IsWarning UnknownCommentTarget
                     ("Comment references unknown signal '"
-                     ++ₛ Identifier.name sname ++ₛ "' (message not found)") ∷ []
+                     ++ₛ nameStr sname ++ₛ "' (message not found)") ∷ []
 ...   | just m with findSignalInList (Identifier.name sname) (DBCMessage.signals m)
 ...     | just _  = []
 ...     | nothing = mkIssue IsWarning UnknownCommentTarget
-                      ("Comment references unknown signal '" ++ₛ Identifier.name sname
+                      ("Comment references unknown signal '" ++ₛ nameStr sname
                        ++ₛ "' in message '" ++ₛ messageNameStr m ++ₛ "'") ∷ []
 checkCommentTargetExists _ _ envVars cm | CTEnvVar evname =
-  requireDec (any? (λ ev → envVarNameStr ev ≟ₛ Identifier.name evname) envVars)
+  requireDec (any? (λ ev → envVarNameStr ev ≟ₛ nameStr evname) envVars)
     (mkIssue IsWarning UnknownCommentTarget
-      ("Comment references unknown environment variable '" ++ₛ Identifier.name evname ++ₛ "'"))
+      ("Comment references unknown environment variable '" ++ₛ nameStr evname ++ₛ "'"))
 
 checkAllUnknownCommentTargets : List DBCMessage → List Node → List EnvironmentVar
                               → List DBCComment → List ValidationIssue
@@ -520,10 +521,10 @@ checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSend
 
 checkUnknownReceiver : List Node → String → String → Identifier → List ValidationIssue
 checkUnknownReceiver nodes msgName sigName receiver =
-  requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name receiver) nodes)
+  requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr receiver) nodes)
     (mkIssue IsWarning UnknownSignalReceiver
       ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
-       ++ₛ "': receiver '" ++ₛ Identifier.name receiver
+       ++ₛ "': receiver '" ++ₛ nameStr receiver
        ++ₛ "' not declared in BU_ (nodes) list"))
 
 checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
@@ -546,10 +547,10 @@ checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
 
 checkUnknownAdditionalSender : List Node → String → Identifier → List ValidationIssue
 checkUnknownAdditionalSender nodes msgName sender =
-  requireDec (any? (λ n → nodeNameStr n ≟ₛ Identifier.name sender) nodes)
+  requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr sender) nodes)
     (mkIssue IsWarning UnknownMessageSender
       ("Message '" ++ₛ msgName
-       ++ₛ "': additional sender '" ++ₛ Identifier.name sender
+       ++ₛ "': additional sender '" ++ₛ nameStr sender
        ++ₛ "' not declared in BU_ (nodes) list"))
 
 checkAdditionalSendersForMessage : List Node → DBCMessage → List ValidationIssue

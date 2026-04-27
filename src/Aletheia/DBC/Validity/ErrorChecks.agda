@@ -5,7 +5,7 @@
 -- For each error check: checkE args ≡ [] ↔ condition(args)
 -- Proved by case analysis on the Dec used in each check function.
 module Aletheia.DBC.Validity.ErrorChecks where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
 open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
@@ -284,7 +284,7 @@ checkMuxFoundSig-sound : ∀ msgName sigs sig →
   MuxResolvable sigs (DBCSignal.presence sig)
 checkMuxFoundSig-sound msgName sigs sig eq with DBCSignal.presence sig
 ... | Always = tt
-... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ nameStr muxName) sigs
 ...   | yes p = p
 checkMuxFoundSig-sound _ _ _ () | When _ _ | no _
 
@@ -293,7 +293,7 @@ checkMuxFoundSig-complete : ∀ msgName sigs sig →
   checkMuxFoundSig msgName sigs sig ≡ []
 checkMuxFoundSig-complete msgName sigs sig p with DBCSignal.presence sig
 ... | Always = refl
-... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ Identifier.name muxName) sigs
+... | When muxName _ with any? (λ s → signalNameStr s ≟ₛ nameStr muxName) sigs
 ...   | yes _ = refl
 ...   | no ¬a = ⊥-elim (¬a p)
 

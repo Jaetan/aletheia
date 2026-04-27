@@ -8,8 +8,10 @@
 --
 -- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.
 module Aletheia.CAN.SignalExtraction where
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.Types using (signalNameStr)
+open import Data.Char using (Char)
+open import Data.List using (List)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -82,7 +84,7 @@ checkPresenceP zero    _     _   (When _ _)     =
   just MuxChainCycle
 checkPresenceP (suc f) frame msg (When muxName muxValues)
   with findSignalByName (Identifier.name muxName) msg
-... | nothing  = just (MuxSignalNotFound (Identifier.name muxName))
+... | nothing  = just (MuxSignalNotFound (nameStr muxName))
 ... | just muxSig with checkPresenceP f frame msg (DBCSignal.presence muxSig)
 ...   | just reason = just reason
 ...   | nothing     = matchMuxValue frame muxSig muxValues
@@ -112,7 +114,7 @@ extractSignalDirect msg frame sig with checkSignalPresence frame msg sig
 
 -- Extract signal value from frame with full error reporting
 -- This is the primary interface for single signal extraction by name.
-extractSignalWithContext : ∀ {n} → DBC → CANFrame n → String → ExtractionResult
+extractSignalWithContext : ∀ {n} → DBC → CANFrame n → List Char → ExtractionResult
 extractSignalWithContext dbc frame signalName with findMessageById (CANFrame.id frame) dbc
 ... | nothing = SignalNotInDBC
 ... | just msg with findSignalByName signalName msg

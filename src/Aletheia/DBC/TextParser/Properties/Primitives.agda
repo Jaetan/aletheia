@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Per-primitive roundtrip lemmas for the DBC text-format parser
 -- (B.3.d Layer 2).
@@ -29,14 +29,14 @@
 module Aletheia.DBC.TextParser.Properties.Primitives where
 
 open import Data.Bool using (Bool; true; false; T; _∧_)
-open import Data.Bool.Properties using (T-irrelevant)
+open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Relation.Unary.All using (All; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_; ∃-syntax)
-open import Data.String using (String; toList; fromList)
+open import Data.String using (String; toList)
 open import Data.Unit using (⊤; tt)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; cong₂; subst)
@@ -58,7 +58,7 @@ open import Aletheia.Parser.Combinators using
    pure; fail; _>>=_; _<|>_; _*>_; _<*_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; isIdentStart; isIdentCont;
+  (Identifier; mkIdent; mkIdentFromChars; isIdentStart; isIdentCont;
    validIdentifierᵇ; allᵇ)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; buildIdent; fromMaybeIdent;
@@ -76,8 +76,12 @@ open import Aletheia.DBC.TextFormatter.Attributes using
   (emitScopePrefix-chars; emitAttrType-chars)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; escapeChar-chars; showℕ-dec-chars; showNat-chars)
-open import Aletheia.DBC.TextParser.Properties.Substrate.Unsafe using
-  (toList∘fromList; fromList∘toList; mkIdentFromCharsUnsafe)
+-- Post-3d.4 + JSON-mirror: Substrate.Unsafe is no longer imported here.
+-- `mkIdentFromCharsUnsafe-on-valid` (which needed `fromList∘toList`)
+-- becomes `mkIdentFromChars-on-valid` (axiom-free, via `T?` decision).
+-- `parseStringLit-roundtrip` now takes `(cs : List Char)` and parses
+-- back to the same `cs`, so the trailing `fromList∘toList s` cong step
+-- is gone.  This module becomes axiom-free and lifts to `--safe`.
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; []-stop; ∷-stop; bind-just-step;
    manyHelper-satisfy-exhaust-many; sameLengthᵇ-cons;
@@ -122,61 +126,39 @@ decompose-valid (h ∷ t) valid =
   in h , t , refl , ph , T-allᵇ→All isIdentCont t pt
 
 -- ============================================================================
--- Probe 2 — mkIdentFromCharsUnsafe on a valid Identifier's char list
+-- Probe 2 — mkIdentFromChars on a valid Identifier's char list
 -- ============================================================================
 --
--- Given `i : Identifier`, running the text parser's constructor on
--- `toList (Identifier.name i)` returns `just i` propositionally.  Passes
--- through the `fromList∘toList` axiom (to rewrite
--- `fromList (toList name) ≡ name`) and T-irrelevant (to equate the
--- constructed witness with the original `Identifier.valid`).
-
--- Helper: two Identifiers with propositionally equal `name` fields are
--- propositionally equal; `T-irrelevant` closes the field-mismatch on the
--- `valid` witness (T b is proof-irrelevant at any b).
-private
-  mkIdent-≡-by-name : ∀ {s₁ s₂ : String}
-                      (v₁ : T (validIdentifierᵇ (toList s₁)))
-                      (v₂ : T (validIdentifierᵇ (toList s₂)))
-                    → s₁ ≡ s₂
-                    → mkIdent s₁ v₁ ≡ mkIdent s₂ v₂
-  mkIdent-≡-by-name {s₁ = s} v₁ v₂ refl = cong (mkIdent s) (T-irrelevant v₁ v₂)
-
--- mkIdentFromCharsUnsafe unfolded: on chars whose validIdentifierᵇ is
--- known to be true (via `Identifier.valid`), returns
--- `just (mkIdent (fromList chars) witness)`.  Closes via
--- `ifᵀ-witness` (fires the `true` branch given `valid : T …`) plus
--- `fromList∘toList` (for the name field) and `T-irrelevant` (for the
--- witness field, inside `mkIdent-≡-by-name`).
---
--- Uses `ifᵀ` instead of `with validIdentifierᵇ cs in eq` so that the
--- scrutinee never gets abstracted inside `valid`'s dependent type
--- (which would trigger an ill-typed with-abstraction —
--- `validIdentifierᵇ (toList name) != w` — because
--- `mkIdent name valid` demands `T (validIdentifierᵇ (toList name))` on
--- the RHS).  See `feedback_ifT_witness_pattern.md`.
-mkIdentFromCharsUnsafe-on-valid : ∀ (i : Identifier)
-  → mkIdentFromCharsUnsafe (toList (Identifier.name i)) ≡ just i
-mkIdentFromCharsUnsafe-on-valid (mkIdent name valid) =
-  trans (ifᵀ-witness _ nothing valid)
-        (cong just (mkIdent-≡-by-name _ valid (fromList∘toList name)))
+-- Post-3d.4 + JSON-mirror: `Identifier.name : List Char`, so the parser
+-- builds Identifiers via `mkIdentFromChars : List Char → Maybe Identifier`
+-- (`Aletheia.DBC.Identifier`).  No `String ↔ List Char` bridging needed.
+-- The proof mirrors `validateIdent-roundtrip` in `MetadataRoundtrip`:
+-- match the `with T? (validIdentifierᵇ name)` in the function definition
+-- by the same `with` here; the `yes w` branch closes via `T-irrelevant`
+-- on the witness field, and the `no ¬w` branch is absurd (`¬w valid`).
+mkIdentFromChars-on-valid : ∀ (i : Identifier)
+  → mkIdentFromChars (Identifier.name i) ≡ just i
+mkIdentFromChars-on-valid (mkIdent name valid)
+  with T? (validIdentifierᵇ name)
+... | yes w  = cong (λ v → just (mkIdent name v)) (T-irrelevant w valid)
+... | no  ¬w = ⊥-elim (¬w valid)
 
 -- ============================================================================
 -- Probe 3 — position alignment (decomposition consistency)
 -- ============================================================================
 --
--- `toList (Identifier.name i)` IS `h ∷ t` where (h, t) come from
--- `decompose-valid` applied to `Identifier.valid i`.  Follows by refl
--- from the decomposition's first output equation.
+-- `Identifier.name i` IS `h ∷ t` where (h, t) come from `decompose-valid`
+-- applied to `Identifier.valid i`.  Follows by refl from the decomposition's
+-- first output equation.
 
 decompose-valid-matches-name : ∀ (i : Identifier)
-  → let cs = toList (Identifier.name i)
+  → let cs = Identifier.name i
         d  = decompose-valid cs (Identifier.valid i)
         h  = Data.Product.proj₁ d
         t  = Data.Product.proj₁ (Data.Product.proj₂ d)
     in cs ≡ h ∷ t
 decompose-valid-matches-name i
-  with decompose-valid (toList (Identifier.name i)) (Identifier.valid i)
+  with decompose-valid (Identifier.name i) (Identifier.valid i)
 ... | _ , _ , eq , _ , _ = eq
 
 -- ============================================================================
@@ -198,15 +180,15 @@ satisfy-success-T P pos h cs ph rewrite T→true ph = refl
 -- ============================================================================
 --
 -- `buildIdent h t ≡ pure i` follows by `cong fromMaybeIdent` from the
--- `mkIdentFromCharsUnsafe (h ∷ t) ≡ just i` equation (given by
--- `mkIdentFromCharsUnsafe-on-valid` composed with `sym cs-eq` from
+-- `mkIdentFromChars (h ∷ t) ≡ just i` equation (given by
+-- `mkIdentFromChars-on-valid` composed with `sym cs-eq` from
 -- `decompose-valid`).  The Lexer refactor (split into
--- `buildIdent h t = fromMaybeIdent (mkIdentFromCharsUnsafe (h ∷ t))`)
--- is the reason this closes as a one-liner — a top-level `with` in
--- `buildIdent` would have hidden the Maybe from external rewriting.
+-- `buildIdent h t = fromMaybeIdent (mkIdentFromChars (h ∷ t))`) is the
+-- reason this closes as a one-liner — a top-level `with` in `buildIdent`
+-- would have hidden the Maybe from external rewriting.
 
 buildIdent-eq : ∀ (h : Char) (t : List Char) (i : Identifier)
-  → mkIdentFromCharsUnsafe (h ∷ t) ≡ just i
+  → mkIdentFromChars (h ∷ t) ≡ just i
   → buildIdent h t ≡ pure i
 buildIdent-eq _ _ _ eq = cong fromMaybeIdent eq
 
@@ -220,8 +202,10 @@ buildIdent-eq _ _ _ eq = cong fromMaybeIdent eq
 -- `DecRatParse/Properties.parseDecRat-roundtrip-+suc` — two
 -- `bind-just-step`s + one final `buildIdent-eq`-applied step, chained
 -- via `trans`.  `subst` on `sym cs-eq` lifts the concrete-shape proof
--- (`h ∷ t` form) back to the abstract `toList (Identifier.name i)` form
--- the public theorem advertises.
+-- (`h ∷ t` form) back to the abstract `Identifier.name i` form the
+-- public theorem advertises.  Post-3d.4 `Identifier.name : List Char`
+-- means the public statement is in terms of the same `List Char`
+-- substrate the parser machinery operates on — no `toList` wrap needed.
 
 -- Lift `All (T ∘ P) xs` to `All (λ c → P c ≡ true) xs` — the form
 -- `manyHelper-satisfy-exhaust-many` demands.  Trivial pointwise `T→true`.
@@ -236,13 +220,13 @@ parseIdentifier-roundtrip : ∀ (pos : Position) (i : Identifier)
                               (suffix : List Char)
                             → SuffixStops isIdentCont suffix
                             → parseIdentifier pos
-                                (toList (Identifier.name i) ++ₗ suffix)
+                                (Identifier.name i ++ₗ suffix)
                               ≡ just (mkResult i
                                        (advancePositions pos
-                                          (toList (Identifier.name i)))
+                                          (Identifier.name i))
                                        suffix)
 parseIdentifier-roundtrip pos i suffix ss
-  with decompose-valid (toList (Identifier.name i)) (Identifier.valid i)
+  with decompose-valid (Identifier.name i) (Identifier.valid i)
 ... | h , t , cs-eq , start , conts =
       subst (λ cs → parseIdentifier pos (cs ++ₗ suffix)
                       ≡ just (mkResult i (advancePositions pos cs) suffix))
@@ -281,12 +265,12 @@ parseIdentifier-roundtrip pos i suffix ss
                      (manyHelper-satisfy-exhaust-many isIdentCont pos' t suffix
                         (T-All→≡true conts) ss)
 
-    -- buildIdent h t reduces via fromMaybeIdent (mkIdentFromCharsUnsafe (h ∷ t))
+    -- buildIdent h t reduces via fromMaybeIdent (mkIdentFromChars (h ∷ t))
     -- = fromMaybeIdent (just i) = pure i, once we bridge through cs-eq and
-    -- mkIdentFromCharsUnsafe-on-valid.
-    mki-eq : mkIdentFromCharsUnsafe (h ∷ t) ≡ just i
-    mki-eq = trans (cong mkIdentFromCharsUnsafe (sym cs-eq))
-                   (mkIdentFromCharsUnsafe-on-valid i)
+    -- mkIdentFromChars-on-valid.
+    mki-eq : mkIdentFromChars (h ∷ t) ≡ just i
+    mki-eq = trans (cong mkIdentFromChars (sym cs-eq))
+                   (mkIdentFromChars-on-valid i)
 
     step-build :
       buildIdent h t pos'' suffix
@@ -610,11 +594,12 @@ parseStringType-roundtrip pos suffix =
 -- Tier B — string literal roundtrip
 -- ============================================================================
 --
--- `quoteStringLit-chars s = '"' ∷ (body) ++ₗ '"' ∷ []` where the body
+-- `quoteStringLit-chars cs = '"' ∷ (body) ++ₗ '"' ∷ []` where the body
 -- is `foldr` expanding each `"` to `""`.  The parser consumes the
 -- opening quote, `many parseStringChar` expands back to the original
--- chars, then consumes the closing quote, then `fromList` rebuilds
--- the string (closing via `fromList∘toList` axiom).
+-- `cs`, then consumes the closing quote.  Post-3d.4 + JSON-mirror,
+-- `parseStringLit : Parser (List Char)` returns `cs` directly (no
+-- `fromList`); the trailing `fromList∘toList` axiom step is gone.
 --
 -- Bool-form precondition: `SuffixStops (λ c → c ≈ᵇ '"') suffix`.  We
 -- pick `_≈ᵇ_` because every concrete char-dispatch inside the body
@@ -629,13 +614,13 @@ escape-body-chars []       = []
 escape-body-chars (c ∷ cs) = escapeChar-chars c ++ₗ escape-body-chars cs
 
 -- `quoteStringLit-chars` rewritten as explicit open quote + escape
--- body + close quote.  Structural induction on `toList s`; the `cons`
--- step uses `++ₗ-assoc` to relocate the close-quote seed from inside
--- the `foldr` into the list-append chain.
-quoteStringLit-chars-shape : ∀ (s : String)
-  → quoteStringLit-chars s
-    ≡ '"' ∷ escape-body-chars (toList s) ++ₗ '"' ∷ []
-quoteStringLit-chars-shape s = cong ('"' ∷_) (shape (toList s))
+-- body + close quote.  Structural induction on `cs`; the `cons` step
+-- uses `++ₗ-assoc` to relocate the close-quote seed from inside the
+-- `foldr` into the list-append chain.
+quoteStringLit-chars-shape : ∀ (cs : List Char)
+  → quoteStringLit-chars cs
+    ≡ '"' ∷ escape-body-chars cs ++ₗ '"' ∷ []
+quoteStringLit-chars-shape cs = cong ('"' ∷_) (shape cs)
   where
     shape : ∀ (xs : List Char)
       → foldr (λ c acc → escapeChar-chars c ++ₗ acc) ('"' ∷ []) xs
@@ -795,10 +780,10 @@ manyHelper-parseStringChar-exhaust-escape-step pos cs' suffix n' ss len≤
 -- ============================================================================
 --
 -- Compose: opening `"` via `char-matches`, body via
--- `manyHelper-parseStringChar-exhaust` specialised at
--- `length input` fuel, closing `"` via `char-matches`, final
--- `pure (fromList chars)` with the `fromList∘toList` axiom rewrite
--- collapsing `fromList (toList s) ≡ s`.
+-- `manyHelper-parseStringChar-exhaust` specialised at `length input`
+-- fuel, closing `"` via `char-matches`, final `pure cs` (post-3d.4 +
+-- JSON-mirror, `parseStringLit : Parser (List Char)` returns the body
+-- chars directly — no `fromList`, no `fromList∘toList` axiom).
 
 -- Length bound: each char in `cs` contributes ≥ 1 char to
 -- `escape-body-chars cs`.  Induction on `cs`; the mutual-recursion
@@ -823,27 +808,21 @@ private
 -- parseStringLit roundtrip — composition
 -- ============================================================================
 
-parseStringLit-roundtrip : ∀ (pos : Position) (s : String) (suffix : List Char)
+parseStringLit-roundtrip : ∀ (pos : Position) (cs : List Char) (suffix : List Char)
   → SuffixStops (λ c → c ≈ᵇ '"') suffix
-  → parseStringLit pos (quoteStringLit-chars s ++ₗ suffix)
-    ≡ just (mkResult s
-             (advancePositions pos (quoteStringLit-chars s)) suffix)
-parseStringLit-roundtrip pos s suffix ss =
+  → parseStringLit pos (quoteStringLit-chars cs ++ₗ suffix)
+    ≡ just (mkResult cs
+             (advancePositions pos (quoteStringLit-chars cs)) suffix)
+parseStringLit-roundtrip pos cs suffix ss =
   trans (cong (λ input → parseStringLit pos (input ++ₗ suffix))
-              (quoteStringLit-chars-shape s))
+              (quoteStringLit-chars-shape cs))
     (trans input-shape-adjust
       (trans step-open-quote
         (trans step-many
-          (trans step-close-quote
-            (trans step-pure
-              (cong (λ result →
-                       just (mkResult result
-                              (advancePositions pos
-                                 (quoteStringLit-chars s)) suffix))
-                    (fromList∘toList s)))))))
+          (trans step-close-quote step-pure))))
   where
     body-chars : List Char
-    body-chars = escape-body-chars (toList s)
+    body-chars = escape-body-chars cs
 
     rest-after-open : List Char
     rest-after-open = body-chars ++ₗ '"' ∷ suffix
@@ -857,7 +836,7 @@ parseStringLit-roundtrip pos s suffix ss =
     pos3 : Position
     pos3 = advancePosition pos2 '"'
 
-    -- After the shape-rewrite, `(quoteStringLit-chars s) ++ₗ suffix`
+    -- After the shape-rewrite, `(quoteStringLit-chars cs) ++ₗ suffix`
     -- needs one `++ₗ-assoc` to fold the nested append into the form
     -- `'"' ∷ body-chars ++ₗ '"' ∷ suffix`.
     input-shape-adjust :
@@ -871,79 +850,77 @@ parseStringLit-roundtrip pos s suffix ss =
     step-open-quote :
       parseStringLit pos ('"' ∷ body-chars ++ₗ '"' ∷ suffix)
       ≡ (many parseStringChar >>= λ chars →
-           char '"' >>= λ _ → pure (fromList chars))
+           char '"' >>= λ _ → pure chars)
           pos1 rest-after-open
     step-open-quote =
       bind-just-step (char '"')
         (λ _ → many parseStringChar >>= λ chars →
-               char '"' >>= λ _ → pure (fromList chars))
+               char '"' >>= λ _ → pure chars)
         pos ('"' ∷ rest-after-open)
         '"' pos1 rest-after-open
         (char-matches '"' pos rest-after-open)
 
     many-success :
       many parseStringChar pos1 rest-after-open
-      ≡ just (mkResult (toList s) pos2 ('"' ∷ suffix))
+      ≡ just (mkResult cs pos2 ('"' ∷ suffix))
     many-success =
-      manyHelper-parseStringChar-exhaust pos1 (toList s) suffix
+      manyHelper-parseStringChar-exhaust pos1 cs suffix
         (length rest-after-open) ss len-bound
       where
         open import Data.List.Properties
           using () renaming (length-++ to length-++ₗ-prop)
 
-        len-bound : length (toList s) ≤ length rest-after-open
+        len-bound : length cs ≤ length rest-after-open
         len-bound =
-          ≤-trans (length-cs-≤-escape-body (toList s))
+          ≤-trans (length-cs-≤-escape-body cs)
             (subst (λ n → length body-chars ≤ n)
                    (sym (length-++ₗ-prop body-chars {'"' ∷ suffix}))
                    (m≤m+n (length body-chars) (length ('"' ∷ suffix))))
 
     step-many :
       (many parseStringChar >>= λ chars →
-         char '"' >>= λ _ → pure (fromList chars))
+         char '"' >>= λ _ → pure chars)
         pos1 rest-after-open
-      ≡ (char '"' >>= λ _ → pure (fromList (toList s)))
+      ≡ (char '"' >>= λ _ → pure cs)
           pos2 ('"' ∷ suffix)
     step-many =
       bind-just-step (many parseStringChar)
-        (λ chars → char '"' >>= λ _ → pure (fromList chars))
+        (λ chars → char '"' >>= λ _ → pure chars)
         pos1 rest-after-open
-        (toList s) pos2 ('"' ∷ suffix)
+        cs pos2 ('"' ∷ suffix)
         many-success
 
     step-close-quote :
-      (char '"' >>= λ _ → pure (fromList (toList s)))
+      (char '"' >>= λ _ → pure cs)
         pos2 ('"' ∷ suffix)
-      ≡ pure (fromList (toList s)) pos3 suffix
+      ≡ pure cs pos3 suffix
     step-close-quote =
       bind-just-step (char '"')
-        (λ _ → pure (fromList (toList s)))
+        (λ _ → pure cs)
         pos2 ('"' ∷ suffix)
         '"' pos3 suffix
         (char-matches '"' pos2 suffix)
 
     step-pure :
-      pure (fromList (toList s)) pos3 suffix
-      ≡ just (mkResult (fromList (toList s))
-               (advancePositions pos (quoteStringLit-chars s))
+      pure cs pos3 suffix
+      ≡ just (mkResult cs
+               (advancePositions pos (quoteStringLit-chars cs))
                suffix)
-    step-pure = cong (λ p →
-                   just (mkResult (fromList (toList s)) p suffix))
-                  pos3-eq
+    step-pure = cong (λ p → just (mkResult cs p suffix)) pos3-eq
       where
-        -- `pos3 ≡ advancePositions pos (quoteStringLit-chars s)` by
+        -- `pos3 ≡ advancePositions pos (quoteStringLit-chars cs)` by
         -- walking the shape.  `advancePositions` over a cons: advance
         -- one char, then recurse; over `++ₗ`, `advancePositions pos
         -- (xs ++ ys) ≡ advancePositions (advancePositions pos xs) ys`.
         pos3-eq : pos3
-          ≡ advancePositions pos (quoteStringLit-chars s)
+          ≡ advancePositions pos (quoteStringLit-chars cs)
         pos3-eq =
           trans (sym (advancePositions-++
                         (advancePositions pos1 body-chars)
                         ('"' ∷ []) []))
             (trans (sym (advancePositions-++ pos1 body-chars ('"' ∷ [])))
               (cong (advancePositions pos)
-                    (sym (quoteStringLit-chars-shape s))))
+                    (sym (quoteStringLit-chars-shape cs))))
 
 -- ============================================================================
 -- Tier B — mux marker roundtrip

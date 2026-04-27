@@ -25,7 +25,7 @@
 --      from `findSignalInList name sigs ≡ just sig`). At the matching
 --      position: `updateSignals-step-hit` + `lookupCache-updateCache-hit`
 --      + `updateSignals-monotone` (P23). At non-matching positions:
---      case-split on `extractTruthValue (signalNameStr s) dbc frame` and
+--      case-split on `extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame` and
 --      recurse — `updateSignals` reduces in parallel because it
 --      pattern-matches on the same scrutinee.
 --   L2 `updateCacheFromFrame-warms` — decomposes `extractTruthValue ≡ just v`
@@ -43,12 +43,14 @@
 -- step. Callers that need to compose with metric operators will pass
 -- `Monotonic σ` to those lemmas independently.
 --
--- No bridging lemma is needed for the name↔signalNameStr matchup:
--- `updateSignals` pattern-matches on `extractTruthValue (signalNameStr sig)
+-- No bridging lemma is needed for the name↔Identifier.name (DBCSignal.name matchup):
+-- `updateSignals` pattern-matches on `extractTruthValue (Identifier.name (DBCSignal.name sig))
 -- dbc frame` with exactly that syntactic form, so `subst` on the
 -- name-equality suffices to align hypothesis types.
 module Aletheia.Protocol.Adequacy.StreamingWarm where
-open import Aletheia.DBC.Types using (signalNameStr)
+open import Aletheia.DBC.Types using (signalNameStr; DBCSignal)
+open import Aletheia.DBC.Identifier using
+    (Identifier; _≡csᵇ_; ≡csᵇ-sound)
 
 open import Aletheia.Prelude
 open import Data.Empty using (⊥; ⊥-elim)
@@ -56,10 +58,10 @@ open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; ∃-syntax)
+open import Data.Char using (Char)
 open import Data.String using (String)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Bool using (Bool; true; false; T)
 open import Data.Unit using (⊤; tt)
-open import Relation.Nullary using (yes; no)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
@@ -106,24 +108,26 @@ private
 -- Dual to `findSignalInList`'s `just` outcome: every result of
 -- `findSignalInList name sigs ≡ just sig` produces a `SigPresent name sigs`
 -- via `findSignalInList→SigPresent`.
-data SigPresent (name : String) : List DBCSignal → Set where
+data SigPresent (name : List Char) : List DBCSignal → Set where
   here  : ∀ {sig sigs} →
-          signalNameStr sig ≡ name →
+          Identifier.name (DBCSignal.name sig) ≡ name →
           SigPresent name (sig ∷ sigs)
   there : ∀ {sig sigs} →
           SigPresent name sigs →
           SigPresent name (sig ∷ sigs)
 
 -- `findSignalInList` discovery establishes `SigPresent`. The `yes` branch
--- of `findSignalInList` witnesses `name ≡ signalNameStr s`, which is the
+-- of `findSignalInList` witnesses `name ≡ Identifier.name (DBCSignal.name s)`, which is the
 -- `here` case (with `sym` to flip the equation direction). The `no` branch
 -- recurses on the tail, giving the `there` case.
 findSignalInList→SigPresent : ∀ name sigs sig →
   findSignalInList name sigs ≡ just sig →
   SigPresent name sigs
-findSignalInList→SigPresent name (s ∷ ss) sig eq with name ≟ₛ signalNameStr s
-... | yes nameEq = here (sym nameEq)
-... | no  _      = there (findSignalInList→SigPresent name ss sig eq)
+findSignalInList→SigPresent name (s ∷ ss) sig eq
+  with name ≡csᵇ Identifier.name (DBCSignal.name s) in eq-name
+... | true  = here (sym (≡csᵇ-sound name (Identifier.name (DBCSignal.name s))
+                          (subst T (sym eq-name) tt)))
+... | false = there (findSignalInList→SigPresent name ss sig eq)
 
 -- ============================================================================
 -- L1: updateSignals WARMS THE CACHE FOR OBSERVED NAMES
@@ -146,38 +150,38 @@ updateSignals-warms : ∀ {n} dbc (frame : CANFrame n) ts name v sigs cache →
   extractTruthValue name dbc frame ≡ just v →
   ∃[ cs ] lookupCache name (updateSignals dbc frame ts sigs cache) ≡ just cs
 updateSignals-warms dbc frame ts name v (s ∷ ss) cache (here nameEq) ext =
-  let ext' : extractTruthValue (signalNameStr s) dbc frame ≡ just v
+  let ext' : extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame ≡ just v
       ext' = subst (λ n → extractTruthValue n dbc frame ≡ just v) (sym nameEq) ext
 
       step : updateSignals dbc frame ts (s ∷ ss) cache
-           ≡ updateSignals dbc frame ts ss (updateCache (signalNameStr s) v ts cache)
+           ≡ updateSignals dbc frame ts ss (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
       step = updateSignals-step-hit dbc frame ts s ss cache v ext'
 
-      hit₁ : lookupCache (signalNameStr s) (updateCache (signalNameStr s) v ts cache)
+      hit₁ : lookupCache (Identifier.name (DBCSignal.name s)) (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
            ≡ just (mkCachedSignal v ts)
-      hit₁ = lookupCache-updateCache-hit (signalNameStr s) v ts cache
+      hit₁ = lookupCache-updateCache-hit (Identifier.name (DBCSignal.name s)) v ts cache
 
       mono = updateSignals-monotone dbc frame ts ss
-               (updateCache (signalNameStr s) v ts cache)
-               (signalNameStr s) (mkCachedSignal v ts) hit₁
+               (updateCache (Identifier.name (DBCSignal.name s)) v ts cache)
+               (Identifier.name (DBCSignal.name s)) (mkCachedSignal v ts) hit₁
       cs'    = proj₁ mono
       monoEq = proj₂ mono
 
       shifted : lookupCache name
-                  (updateSignals dbc frame ts ss (updateCache (signalNameStr s) v ts cache))
+                  (updateSignals dbc frame ts ss (updateCache (Identifier.name (DBCSignal.name s)) v ts cache))
               ≡ just cs'
       shifted = subst
                   (λ m → lookupCache m
                             (updateSignals dbc frame ts ss
-                               (updateCache (signalNameStr s) v ts cache))
+                               (updateCache (Identifier.name (DBCSignal.name s)) v ts cache))
                           ≡ just cs')
                   nameEq monoEq
   in cs' , trans (cong (lookupCache name) step) shifted
 updateSignals-warms dbc frame ts name v (s ∷ ss) cache (there pres) ext
-  with extractTruthValue (signalNameStr s) dbc frame
+  with extractTruthValue (Identifier.name (DBCSignal.name s)) dbc frame
 ... | nothing = updateSignals-warms dbc frame ts name v ss cache pres ext
 ... | just v' = updateSignals-warms dbc frame ts name v ss
-                  (updateCache (signalNameStr s) v' ts cache) pres ext
+                  (updateCache (Identifier.name (DBCSignal.name s)) v' ts cache) pres ext
 
 -- ============================================================================
 -- STRUCTURE RECOVERY FROM A SUCCESSFUL EXTRACTION
@@ -267,7 +271,7 @@ cacheAfter dbc (tf ∷ σ) cache =
 -- `name` is extracted from some frame in σ. Structural on σ to match the
 -- recursion pattern of `cacheAfter`; existential over the extracted value
 -- is carried inside the `here` constructor.
-data ObservedIn (dbc : DBC) (name : String) : List TimedFrame → Set where
+data ObservedIn (dbc : DBC) (name : List Char) : List TimedFrame → Set where
   here  : ∀ {tf σ v} →
           extractTruthValue name dbc (TimedFrame.frame tf) ≡ just v →
           ObservedIn dbc name (tf ∷ σ)

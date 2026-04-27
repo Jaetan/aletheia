@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Preamble parsers for the DBC text format (Phase B.3.c.2).
 --
@@ -38,7 +38,7 @@ module Aletheia.DBC.TextParser.Preamble where
 
 open import Data.Bool using (not; _∨_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
-open import Data.String using (String)
+open import Data.List using (List)
 open import Data.Unit using (⊤; tt)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
@@ -53,7 +53,10 @@ open import Aletheia.DBC.TextParser.Lexer using
 -- ============================================================================
 
 -- `"VERSION" ws string-lit newline` + any number of trailing blank lines.
-parseVersion : Parser String
+-- Post-3d.4 + JSON-mirror: `parseStringLit : Parser (List Char)` (returns
+-- the body chars directly), and `DBC.version : List Char`, so the public
+-- type aligns without any `String ↔ List Char` bridge.
+parseVersion : Parser (List Char)
 parseVersion = do
   _ ← string "VERSION"
   _ ← parseWS

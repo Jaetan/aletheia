@@ -14,9 +14,9 @@
 --   constraints: 1 ≤ bitLength, startBit + bitLength ∸ 1 < frameBytes * 8,
 --   bitLength ∸ 1 ≤ startBit).
 module Aletheia.DBC.Formatter.SignalRoundtrip where
-open import Aletheia.DBC.Types using (signalNameStr)
 open import Aletheia.DBC.Identifier using (Identifier)
 
+open import Data.Char using (Char)
 open import Data.Nat using (ℕ; _+_; _∸_; _*_; _<_; _≤_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
 open import Data.List using (List; []; _∷_; map)
@@ -28,9 +28,9 @@ open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans)
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; formatDBCSignal; formatByteOrder; formatPresence)
+open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON; formatDBCSignal; formatByteOrder; formatPresence)
 open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList; parseNatList)
-open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseStringList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier)
+open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
@@ -47,7 +47,7 @@ open import Data.Nat.Properties using (≤⇒≤ᵇ)
 -- ============================================================================
 
 private
-  mkSignal : Identifier → SignalDef → ByteOrder → String → SignalPresence → List Identifier → DBCSignal
+  mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → List Identifier → DBCSignal
   mkSignal n sd bo u p rs = record
     { name = n ; signalDef = sd ; byteOrder = bo ; unit = u ; presence = p ; receivers = rs }
 
@@ -59,7 +59,7 @@ private
     let def = DBCSignal.signalDef sig
         bo  = DBCSignal.byteOrder sig
         sb  = unconvertStartBit frameBytes bo (SignalDef.startBit def) (SignalDef.bitLength def)
-    in ("name"      , JString (signalNameStr sig)) ∷
+    in ("name"      , identJSON (DBCSignal.name sig)) ∷
        ("startBit"  , ℕtoJSON sb) ∷
        ("length"    , ℕtoJSON (SignalDef.bitLength def)) ∷
        ("byteOrder" , JString (formatByteOrder (DBCSignal.byteOrder sig))) ∷
@@ -69,7 +69,7 @@ private
        ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
        ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
        ("unit"      , JString (DBCSignal.unit sig)) ∷
-       ("receivers" , JArray (map (λ r → JString (Identifier.name r)) (DBCSignal.receivers sig))) ∷
+       ("receivers" , JArray (map identJSON (DBCSignal.receivers sig))) ∷
        formatPresence (DBCSignal.presence sig)
 
   -- parseNatList roundtrips through map ℕtoJSON
@@ -88,7 +88,7 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
           | map-∘-identifier JString rs
-          | parseStringList-roundtrip (map Identifier.name rs)
+          | parseCharsList-roundtrip (map Identifier.name rs)
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -103,7 +103,7 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
           | map-∘-identifier JString rs
-          | parseStringList-roundtrip (map Identifier.name rs)
+          | parseCharsList-roundtrip (map Identifier.name rs)
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -131,7 +131,7 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
           | map-∘-identifier JString rs
-          | parseStringList-roundtrip (map Identifier.name rs)
+          | parseCharsList-roundtrip (map Identifier.name rs)
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -150,7 +150,7 @@ private
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
           | map-∘-identifier JString rs
-          | parseStringList-roundtrip (map Identifier.name rs)
+          | parseCharsList-roundtrip (map Identifier.name rs)
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)

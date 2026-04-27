@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtMessage
 -- per-line construct roundtrips (3 emit shapes).
@@ -220,7 +220,7 @@ private
 -- TraceMessage
 -- ============================================================================
 
-module TraceMessage (pos : Position) (name : String) (cid : CANId)
+module TraceMessage (pos : Position) (name : List Char) (cid : CANId)
                     (value-chars : List Char) (outer-suffix : List Char) where
   cs-name = quoteStringLit-chars name
   cs-id = showℕ-dec-chars (rawCanIdℕ cid)
@@ -290,7 +290,7 @@ module TraceMessage (pos : Position) (name : String) (cid : CANId)
 -- ============================================================================
 
 parseRawAttrAssign-after-keyword-Message :
-  ∀ pos (name : String) (cid : CANId) (raw-value : RawAttrValue)
+  ∀ pos (name : List Char) (cid : CANId) (raw-value : RawAttrValue)
     (value-chars : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
@@ -423,7 +423,7 @@ parseRawAttrAssign-after-keyword-Message pos name cid raw-value value-chars oute
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavString :
-  ∀ pos (name : String) (cid : CANId) (s : String) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (cid : CANId) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -459,7 +459,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavString pos name cid s outer-suffix s
                  (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac :
-  ∀ pos (name : String) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (cid : CANId) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -498,7 +498,7 @@ parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatFrac pos name cid d outer-suff
                  c tail head-eq c-not-quote
 
 parseRawAttrAssign-roundtrip-ATgtMessage-RavDecRatBareInt :
-  ∀ pos (name : String) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (cid : CANId) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ

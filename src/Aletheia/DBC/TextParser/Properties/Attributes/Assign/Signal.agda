@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtSignal
 -- per-line construct roundtrips (3 emit shapes).
@@ -106,7 +106,7 @@ private
   ident-name-stops-isHSpace :
     ∀ (n : Identifier) (rest : List Char)
     → IdentNameStop n
-    → SuffixStops isHSpace (toList (Identifier.name n) ++ₗ rest)
+    → SuffixStops isHSpace (Identifier.name n ++ₗ rest)
   ident-name-stops-isHSpace n rest (c , cs , cs-eq , c-not-hsp) =
     subst (λ chars → SuffixStops isHSpace (chars ++ₗ rest))
           (sym cs-eq) (∷-stop c-not-hsp)
@@ -117,7 +117,7 @@ parseSigTgt-roundtrip :
   → SuffixStops isHSpace suffix
   → parseSigTgt pos
       ('S' ∷ 'G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix)
+        ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix)
     ≡ just (mkResult (ATgtSignal cid sig)
               (advancePosition
                 (advancePositions
@@ -128,7 +128,7 @@ parseSigTgt-roundtrip :
                         ' ')
                       (showℕ-dec-chars (rawCanIdℕ cid)))
                     ' ')
-                  (toList (Identifier.name sig)))
+                  (Identifier.name sig))
                 ' ')
               suffix)
 parseSigTgt-roundtrip pos cid sig suffix sig-stop ss-suffix =
@@ -189,7 +189,7 @@ parseSigTgt-roundtrip pos cid sig suffix sig-stop ss-suffix =
     digits : List Char
     digits = showℕ-dec-chars (rawCanIdℕ cid)
     sig-chars : List Char
-    sig-chars = toList (Identifier.name sig)
+    sig-chars = Identifier.name sig
     pos1 : Position
     pos1 = advancePositions pos (toList "SG_")
     pos2 : Position
@@ -222,7 +222,7 @@ private
     → SuffixStops isHSpace suffix
     → parseStandardAttrTarget pos
         ('S' ∷ 'G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix)
+          ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix)
       ≡ just (mkResult (ATgtSignal cid sig)
                 (advancePosition
                   (advancePositions
@@ -233,7 +233,7 @@ private
                           ' ')
                         (showℕ-dec-chars (rawCanIdℕ cid)))
                       ' ')
-                    (toList (Identifier.name sig)))
+                    (Identifier.name sig))
                   ' ')
                 suffix)
   parseStandardAttrTarget-on-Signal pos cid sig suffix sig-stop ss-suffix =
@@ -248,16 +248,16 @@ private
                         sig-input
                         (parseNodeTgt-fails-on-S pos
                           ('G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-                            ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix)))
+                            ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix)))
                       (parseMsgTgt-fails-on-S pos
                         ('G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-                          ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix))))
+                          ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix))))
              (parseSigTgt-roundtrip pos cid sig suffix sig-stop ss-suffix))
     where
       sig-input : List Char
       sig-input =
         'S' ∷ 'G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix
+          ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix
 
   optStandardScope-on-Signal :
     ∀ pos (cid : CANId) (sig : Identifier) (suffix : List Char)
@@ -265,7 +265,7 @@ private
     → SuffixStops isHSpace suffix
     → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
         ('S' ∷ 'G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix)
+          ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix)
       ≡ just (mkResult (ATgtSignal cid sig)
                 (advancePosition
                   (advancePositions
@@ -276,13 +276,13 @@ private
                           ' ')
                         (showℕ-dec-chars (rawCanIdℕ cid)))
                       ' ')
-                    (toList (Identifier.name sig)))
+                    (Identifier.name sig))
                   ' ')
                 suffix)
   optStandardScope-on-Signal pos cid sig suffix sig-stop ss-suffix =
     alt-left-just parseStandardAttrTarget (pure ATgtNetwork) pos
       ('S' ∷ 'G' ∷ '_' ∷ ' ' ∷ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ ' ' ∷ suffix)
+        ' ' ∷ Identifier.name sig ++ₗ ' ' ∷ suffix)
       _
       (parseStandardAttrTarget-on-Signal pos cid sig suffix sig-stop ss-suffix)
 
@@ -290,11 +290,11 @@ private
 -- TraceSignal
 -- ============================================================================
 
-module TraceSignal (pos : Position) (name : String) (cid : CANId) (sig : Identifier)
+module TraceSignal (pos : Position) (name : List Char) (cid : CANId) (sig : Identifier)
                    (value-chars : List Char) (outer-suffix : List Char) where
   cs-name = quoteStringLit-chars name
   cs-id = showℕ-dec-chars (rawCanIdℕ cid)
-  cs-sig = toList (Identifier.name sig)
+  cs-sig = Identifier.name sig
 
   pos1 : Position
   pos1 = advancePositions pos (toList "BA_")
@@ -366,7 +366,7 @@ module TraceSignal (pos : Position) (name : String) (cid : CANId) (sig : Identif
 -- ============================================================================
 
 parseRawAttrAssign-after-keyword-Signal :
-  ∀ pos (name : String) (cid : CANId) (sig : Identifier) (raw-value : RawAttrValue)
+  ∀ pos (name : List Char) (cid : CANId) (sig : Identifier) (raw-value : RawAttrValue)
     (value-chars : List Char) (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
@@ -501,14 +501,14 @@ parseRawAttrAssign-after-keyword-Signal pos name cid sig raw-value value-chars o
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtSignal-RavString :
-  ∀ pos (name : String) (cid : CANId) (sig : Identifier) (s : String)
+  ∀ pos (name : List Char) (cid : CANId) (sig : Identifier) (s : List Char)
     (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ
+        ' ' ∷ Identifier.name sig ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavString s))
@@ -527,7 +527,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavString pos name cid sig s outer-suffi
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
           toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ
+          ' ' ∷ Identifier.name sig ++ₗ
           ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
@@ -541,14 +541,14 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavString pos name cid sig s outer-suffi
                  (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
 
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac :
-  ∀ pos (name : String) (cid : CANId) (sig : Identifier) (d : DecRat)
+  ∀ pos (name : List Char) (cid : CANId) (sig : Identifier) (d : DecRat)
     (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ
+        ' ' ∷ Identifier.name sig ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat d))
@@ -569,7 +569,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac pos name cid sig d outer-s
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
           toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ
+          ' ' ∷ Identifier.name sig ++ₗ
           ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
@@ -584,14 +584,14 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatFrac pos name cid sig d outer-s
                  c tail head-eq c-not-quote
 
 parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt :
-  ∀ pos (name : String) (cid : CANId) (sig : Identifier) (z : ℤ)
+  ∀ pos (name : List Char) (cid : CANId) (sig : Identifier) (z : ℤ)
     (outer-suffix : List Char)
   → IdentNameStop sig
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
         toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-        ' ' ∷ toList (Identifier.name sig) ++ₗ
+        ' ' ∷ Identifier.name sig ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtSignal cid sig) (RavDecRat (fromℤ z)))
@@ -612,7 +612,7 @@ parseRawAttrAssign-roundtrip-ATgtSignal-RavDecRatBareInt pos name cid sig z oute
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
           toList " SG_ " ++ₗ showℕ-dec-chars (rawCanIdℕ cid) ++ₗ
-          ' ' ∷ toList (Identifier.name sig) ++ₗ
+          ' ' ∷ Identifier.name sig ++ₗ
           ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)

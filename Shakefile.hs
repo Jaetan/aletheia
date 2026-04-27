@@ -186,7 +186,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
     phony "check-properties" $ do
         putInfo "Type-checking proof-only modules..."
         cores <- liftIO getNumProcessors
-        let rtsFlags = ["+RTS", "-N" ++ show cores, "-M4G", "-RTS"]
+        let rtsFlags = ["+RTS", "-N" ++ show cores, "-M16G", "-RTS"]
         let agdaWithRTS mod' = cmd_ (Cwd "src") "agda" (rtsFlags ++ [mod'])
         -- All Properties modules are explicitly invoked below (20 total).
         -- Parser / top-level JSON

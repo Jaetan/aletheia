@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtNode
 -- per-line construct roundtrips (3 emit shapes).
@@ -87,7 +87,7 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
 IdentNameStop : Identifier → Set
 IdentNameStop n =
   Σ[ c ∈ Char ] Σ[ cs ∈ List Char ]
-    (toList (Identifier.name n) ≡ c ∷ cs) × (isHSpace c ≡ false)
+    (Identifier.name n ≡ c ∷ cs) × (isHSpace c ≡ false)
 
 -- ============================================================================
 -- parseNodeTgt-roundtrip
@@ -101,7 +101,7 @@ private
   ident-name-stops-isHSpace :
     ∀ (n : Identifier) (rest : List Char)
     → IdentNameStop n
-    → SuffixStops isHSpace (toList (Identifier.name n) ++ₗ rest)
+    → SuffixStops isHSpace (Identifier.name n ++ₗ rest)
   ident-name-stops-isHSpace n rest (c , cs , cs-eq , c-not-hsp) =
     subst (λ chars → SuffixStops isHSpace (chars ++ₗ rest))
           (sym cs-eq) (∷-stop c-not-hsp)
@@ -111,14 +111,14 @@ parseNodeTgt-roundtrip :
   → IdentNameStop n
   → SuffixStops isHSpace suffix
   → parseNodeTgt pos
-      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
     ≡ just (mkResult (ATgtNode n)
               (advancePosition
                 (advancePositions
                   (advancePosition
                     (advancePositions pos (toList "BU_"))
                     ' ')
-                  (toList (Identifier.name n)))
+                  (Identifier.name n))
                 ' ')
               suffix)
 parseNodeTgt-roundtrip pos n suffix ident-stop ss-suffix =
@@ -128,23 +128,23 @@ parseNodeTgt-roundtrip pos n suffix ident-stop ss-suffix =
                   parseWS >>= λ _ →
                   pure (ATgtNode ident))
            pos
-           ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
-           "BU_" pos1 (' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+           ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
+           "BU_" pos1 (' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
            (string-success pos "BU_"
-              (' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)))
+              (' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)))
   (trans (bind-just-step parseWS
             (λ _ → parseIdentifier >>= λ ident →
                    parseWS >>= λ _ →
                    pure (ATgtNode ident))
-            pos1 (' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
-            (' ' ∷ []) pos2 (toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+            pos1 (' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
+            (' ' ∷ []) pos2 (Identifier.name n ++ₗ ' ' ∷ suffix)
             (parseWS-one-space pos1
-               (toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+               (Identifier.name n ++ₗ ' ' ∷ suffix)
                (ident-name-stops-isHSpace n (' ' ∷ suffix) ident-stop)))
   (trans (bind-just-step parseIdentifier
             (λ ident → parseWS >>= λ _ →
                        pure (ATgtNode ident))
-            pos2 (toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+            pos2 (Identifier.name n ++ₗ ' ' ∷ suffix)
             n pos3 (' ' ∷ suffix)
             (parseIdentifier-roundtrip pos2 n (' ' ∷ suffix)
                (ws-stops-isIdentCont suffix)))
@@ -160,7 +160,7 @@ parseNodeTgt-roundtrip pos n suffix ident-stop ss-suffix =
     pos2 : Position
     pos2 = advancePosition pos1 ' '
     pos3 : Position
-    pos3 = advancePositions pos2 (toList (Identifier.name n))
+    pos3 = advancePositions pos2 (Identifier.name n)
     pos4 : Position
     pos4 = advancePosition pos3 ' '
 
@@ -178,30 +178,30 @@ private
     → IdentNameStop n
     → SuffixStops isHSpace suffix
     → parseStandardAttrTarget pos
-        ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+        ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
       ≡ just (mkResult (ATgtNode n)
                 (advancePosition
                   (advancePositions
                     (advancePosition
                       (advancePositions pos (toList "BU_"))
                       ' ')
-                    (toList (Identifier.name n)))
+                    (Identifier.name n))
                   ' ')
                 suffix)
   parseStandardAttrTarget-on-Node pos n suffix ident-stop ss-suffix =
     alt-left-just
       ((parseNodeTgt <|> parseMsgTgt) <|> parseSigTgt)
       parseEvTgt pos
-      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
       _
       (alt-left-just
          (parseNodeTgt <|> parseMsgTgt)
          parseSigTgt pos
-         ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+         ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
          _
          (alt-left-just
             parseNodeTgt parseMsgTgt pos
-            ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+            ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
             _
             (parseNodeTgt-roundtrip pos n suffix ident-stop ss-suffix)))
 
@@ -211,19 +211,19 @@ private
     → IdentNameStop n
     → SuffixStops isHSpace suffix
     → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
-        ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+        ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
       ≡ just (mkResult (ATgtNode n)
                 (advancePosition
                   (advancePositions
                     (advancePosition
                       (advancePositions pos (toList "BU_"))
                       ' ')
-                    (toList (Identifier.name n)))
+                    (Identifier.name n))
                   ' ')
                 suffix)
   optStandardScope-on-Node pos n suffix ident-stop ss-suffix =
     alt-left-just parseStandardAttrTarget (pure ATgtNetwork) pos
-      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ toList (Identifier.name n) ++ₗ ' ' ∷ suffix)
+      ('B' ∷ 'U' ∷ '_' ∷ ' ' ∷ Identifier.name n ++ₗ ' ' ∷ suffix)
       _
       (parseStandardAttrTarget-on-Node pos n suffix ident-stop ss-suffix)
 
@@ -231,10 +231,10 @@ private
 -- TraceNode: position trace for parseRawAttrAssign × ATgtNode
 -- ============================================================================
 
-module TraceNode (pos : Position) (name : String) (n : Identifier)
+module TraceNode (pos : Position) (name : List Char) (n : Identifier)
                  (value-chars : List Char) (outer-suffix : List Char) where
   cs-name = quoteStringLit-chars name
-  cs-node = toList (Identifier.name n)
+  cs-node = Identifier.name n
 
   pos1 : Position  -- after string "BA_"
   pos1 = advancePositions pos (toList "BA_")
@@ -313,7 +313,7 @@ module TraceNode (pos : Position) (name : String) (n : Identifier)
 -- ============================================================================
 
 parseRawAttrAssign-after-keyword-Node :
-  ∀ pos (name : String) (n : Identifier) (raw-value : RawAttrValue)
+  ∀ pos (name : List Char) (n : Identifier) (raw-value : RawAttrValue)
     (value-chars : List Char) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
@@ -458,12 +458,12 @@ parseRawAttrAssign-after-keyword-Node pos name n raw-value value-chars outer-suf
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavString :
-  ∀ pos (name : String) (n : Identifier) (s : String) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (n : Identifier) (s : List Char) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+        toList " BU_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode n) (RavString s))
@@ -481,7 +481,7 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavString pos name n s outer-suffix ident-
     input-eq :
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+          toList " BU_ " ++ₗ Identifier.name n ++ₗ
           ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
@@ -495,12 +495,12 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavString pos name n s outer-suffix ident-
                  (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac :
-  ∀ pos (name : String) (n : Identifier) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (n : Identifier) (d : DecRat) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+        toList " BU_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode n) (RavDecRat d))
@@ -520,7 +520,7 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac pos name n d outer-suffix id
     input-eq :
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+          toList " BU_ " ++ₗ Identifier.name n ++ₗ
           ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
@@ -535,12 +535,12 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatFrac pos name n d outer-suffix id
                  c tail head-eq c-not-quote
 
 parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt :
-  ∀ pos (name : String) (n : Identifier) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (n : Identifier) (z : ℤ) (outer-suffix : List Char)
   → IdentNameStop n
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-        toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+        toList " BU_ " ++ₗ Identifier.name n ++ₗ
         ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
     ≡ just (mkResult
               (mkRawAttrAssign name (ATgtNode n) (RavDecRat (fromℤ z)))
@@ -560,7 +560,7 @@ parseRawAttrAssign-roundtrip-ATgtNode-RavDecRatBareInt pos name n z outer-suffix
     input-eq :
       parseRawAttrAssign pos
         (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " BU_ " ++ₗ toList (Identifier.name n) ++ₗ
+          toList " BU_ " ++ₗ Identifier.name n ++ₗ
           ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
       ≡ parseRawAttrAssign pos
         ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)

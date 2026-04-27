@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- DBC DecRat parser — roundtrip proof scaffolding (Phase B.3.d pre-gate,
 -- commit 2/6).  Target theorem:

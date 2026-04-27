@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Top-level aggregator for the DBC text format (Phase B.3.c.k).
 --
@@ -58,6 +58,7 @@
 -- — the B.3.d roundtrip proof composes at that projection level.
 module Aletheia.DBC.TextParser.TopLevel where
 
+open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (String)
@@ -213,7 +214,7 @@ partitionTopStmts (s ∷ rest) = consTop s (partitionTopStmts rest)
 -- Parse the entire DBC file.  NS_/BS_ have no structural payload (see
 -- `TextParser.Preamble` — cantools drops them too); the BU_ node list
 -- and the trailing top-statement list are both kept.
-parseDBCText : Parser (String × List Node × List TopStmt)
+parseDBCText : Parser (List Char × List Node × List TopStmt)
 parseDBCText = do
   ver   ← parseVersion
   _     ← parseNamespace

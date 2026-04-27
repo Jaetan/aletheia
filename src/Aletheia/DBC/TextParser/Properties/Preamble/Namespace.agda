@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseNamespace-roundtrip` — per-line-construct roundtrip for the
 -- `NS_ :` preamble block (B.3.d Layer 3).
@@ -42,7 +42,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _+_; _≤_; _<_; z≤n; s≤s)
 open import Data.Nat.Properties using (n≤1+n; m≤n+m; m≤m+n; ≤-trans; +-suc)
 open import Data.Product using (_×_; _,_; ∃-syntax; proj₁; proj₂)
-open import Data.String using (String; toList; fromList)
+open import Data.String using (String; toList)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
@@ -63,8 +63,9 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   (SuffixStops; []-stop; ∷-stop; bind-just-step;
    manyHelper-satisfy-exhaust-many; sameLengthᵇ-cons;
    advancePositions-++)
-open import Aletheia.DBC.TextParser.Properties.Substrate.Unsafe using
-  (toList∘fromList)
+-- Post-3d.4 + JSON-mirror: `parseIdentifier-consumes` no longer goes
+-- through `toList∘fromList`; `Identifier.name : List Char` lets the
+-- consumer pass `cs` directly into `mkIdent`.
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (char-matches; string-success; alt-left-just; alt-right-nothing;
    bind-nothing; parseIdentifier-roundtrip)
@@ -163,9 +164,12 @@ private
 
 -- Existential form of parseIdentifier-roundtrip: `parseIdentifier`
 -- succeeds on any `cs ++ suffix` where `cs` is a valid-identifier
--- char list and `suffix` is at an identifier-continuation stop.  The
--- returned Identifier is the canonical `mkIdent (fromList cs)` — the
--- `toList∘fromList` axiom bridges `toList (fromList cs) = cs`.
+-- char list and `suffix` is at an identifier-continuation stop.
+-- Post-3d.4, `Identifier.name : List Char` matches `cs` directly —
+-- no `fromList`, no `toList∘fromList` bridge.  The returned Identifier
+-- is `mkIdent cs valid`; `Identifier.name (mkIdent cs valid) ≡ cs`
+-- reduces by record-projection, so `parseIdentifier-roundtrip` closes
+-- the equation in one step.
 --
 -- Used for the 25 NS_ keywords: each `kw` has `validIdentifierᵇ
 -- (toList kw) ≡ true` by reduction, so `T (...) = ⊤` and the
@@ -177,25 +181,7 @@ parseIdentifier-consumes :
   → ∃[ i ] parseIdentifier pos (cs ++ₗ suffix)
            ≡ just (mkResult i (advancePositions pos cs) suffix)
 parseIdentifier-consumes pos cs suffix valid ss =
-  i , eq
-  where
-    valid' : T (validIdentifierᵇ (toList (fromList cs)))
-    valid' = subst (λ xs → T (validIdentifierᵇ xs))
-                   (sym (toList∘fromList cs)) valid
-
-    i : Identifier
-    i = mkIdent (fromList cs) valid'
-
-    name-eq : toList (Identifier.name i) ≡ cs
-    name-eq = toList∘fromList cs
-
-    eq : parseIdentifier pos (cs ++ₗ suffix)
-         ≡ just (mkResult i (advancePositions pos cs) suffix)
-    eq = trans (cong (λ xs → parseIdentifier pos (xs ++ₗ suffix))
-                     (sym name-eq))
-          (trans (parseIdentifier-roundtrip pos i suffix ss)
-            (cong (λ xs → just (mkResult i (advancePositions pos xs) suffix))
-                  name-eq))
+  mkIdent cs valid , parseIdentifier-roundtrip pos (mkIdent cs valid) suffix ss
 
 -- ============================================================================
 -- Hspace-stop lift under validity

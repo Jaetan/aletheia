@@ -7,9 +7,14 @@
 -- bounds constraints (unlike signals/messages which need WellFormed /
 -- PhysicallyValid), so the proofs are unconditional.
 -- Role: Middle layer — used by Properties.agda for the top-level roundtrip.
+--
+-- Phase B.3.d 3d.4 + JSON-mirror (2026-04-27): Identifier-typed JSON fields
+-- and AST text fields go through `JString : List Char → JSON` directly
+-- (formatter emits via `identJSON`/`JString field`, parser uses `lookupChars`
+-- + `validateIdent : List Char → …`).  These proofs are axiom-free —
+-- `validateIdent-roundtrip` no longer goes through `toList`.
 module Aletheia.DBC.Formatter.MetadataRoundtrip where
-open import Aletheia.DBC.Types using (nodeNameStr; signalGroupNameStr; envVarNameStr; valueTableNameStr; attrDefNameStr; attrDefaultNameStr; attrAssignNameStr; messageNameStr)
-open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
+open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ; mkIdentFromChars)
 open import Aletheia.DBC.DecRat.Refinement using
   (intDecRatToℤ; mkIntDecRatFromℤ;
    natDecRatToℕ; mkNatDecRatFromℕ;
@@ -17,10 +22,10 @@ open import Aletheia.DBC.DecRat.Refinement using
 open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
-open import Data.String using (toList)
 open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (T)
+open import Data.Char using (Char)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map)
 open import Data.String using (String)
@@ -43,13 +48,13 @@ open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
   ATgtNodeMsg; ATgtNodeSig;
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON;
+open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; identJSON;
   formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
   formatNode; formatComment; formatCommentTarget;
   formatAttribute; formatAttrScope; formatAttrType;
   formatAttrValue; formatAttrTarget;
   attrDefFields; attrDefaultFields; attrAssignFields)
-open import Aletheia.DBC.JSONParser using (parseStringList; parseVarType;
+open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
   parseSignalGroup; parseSignalGroupList;
   parseEnvironmentVar; parseEnvironmentVarList;
   parseValueEntry; parseValueEntryList;
@@ -62,7 +67,7 @@ open import Aletheia.DBC.JSONParser using (parseStringList; parseVarType;
   parseAttribute; parseAttributeList;
   parseCANId;
   validateIdent; validateIdentList)
-open import Aletheia.JSON using (JSON; JObject; JString; JNumber; JArray)
+open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
@@ -77,21 +82,23 @@ private
   >>=ₑ-congʳ f refl = refl
 
 -- ============================================================================
--- STRING LIST ROUNDTRIP
+-- CHARS LIST ROUNDTRIP
 -- ============================================================================
 
-parseStringList-roundtrip : ∀ ss → parseStringList (map JString ss) ≡ inj₂ ss
-parseStringList-roundtrip [] = refl
-parseStringList-roundtrip (s ∷ ss)
-  rewrite parseStringList-roundtrip ss = refl
+-- Identifier and AST text fields share a JSON wire shape: emitted as
+-- `map JString (xs : List (List Char))`, parsed by `parseCharsList`.
+parseCharsList-roundtrip : ∀ ss → parseCharsList (map JString ss) ≡ inj₂ ss
+parseCharsList-roundtrip [] = refl
+parseCharsList-roundtrip (s ∷ ss)
+  rewrite parseCharsList-roundtrip ss = refl
 
--- Identifier roundtrip: validating the `name` field of a valid Identifier
--- returns the original Identifier.  No axiom — `mkIdentFromString` uses
--- `T?`, so in the `yes w` branch we have a witness and close via
--- `T-irrelevant`; in the `no ¬w` branch, `¬w valid` produces ⊥.
+-- Identifier roundtrip: validating the `name` chars of a valid Identifier
+-- returns the original Identifier.  Axiom-free post-3d.4: `mkIdentFromChars`
+-- runs the `T?` decision on `Identifier.name i : List Char` directly, so the
+-- `yes w` branch closes via `T-irrelevant` and the `no` branch is absurd.
 validateIdent-roundtrip : ∀ (i : Identifier) → validateIdent (Identifier.name i) ≡ inj₂ i
 validateIdent-roundtrip (mkIdent name valid)
-  with T? (validIdentifierᵇ (toList name))
+  with T? (validIdentifierᵇ name)
 ... | yes w  = cong (λ v → inj₂ (mkIdent name v)) (T-irrelevant w valid)
 ... | no  ¬w = ⊥-elim (¬w valid)
 
@@ -99,7 +106,7 @@ validateIdent-roundtrip (mkIdent name valid)
 -- receivers / senders roundtrips where the formatter emits
 -- `map (JString ∘ Identifier.name) xs`.  Exported for SignalRoundtrip /
 -- MessageRoundtrip which need the same lemma for their identifier fields.
-map-∘-identifier : ∀ {A : Set} (f : String → A) (is : List Identifier)
+map-∘-identifier : ∀ {A : Set} (f : List Char → A) (is : List Identifier)
   → map (λ i → f (Identifier.name i)) is ≡ map f (map Identifier.name is)
 map-∘-identifier _ []       = refl
 map-∘-identifier f (_ ∷ is) = cong (_ ∷_) (map-∘-identifier f is)
@@ -129,15 +136,15 @@ parseVarType-roundtrip StringVar = refl
 private
   signalGroupFields : SignalGroup → List (String × JSON)
   signalGroupFields sg =
-    ("name"    , JString (signalGroupNameStr sg)) ∷
-    ("signals" , JArray (map (λ s → JString (Identifier.name s)) (SignalGroup.signals sg))) ∷
+    ("name"    , identJSON (SignalGroup.name sg)) ∷
+    ("signals" , JArray (map identJSON (SignalGroup.signals sg))) ∷
     []
 
 signalGroup-roundtrip : ∀ sg
   → parseSignalGroup (signalGroupFields sg) ≡ inj₂ sg
 signalGroup-roundtrip sg
   rewrite map-∘-identifier JString (SignalGroup.signals sg)
-        | parseStringList-roundtrip (map Identifier.name (SignalGroup.signals sg))
+        | parseCharsList-roundtrip (map Identifier.name (SignalGroup.signals sg))
         | validateIdent-roundtrip (SignalGroup.name sg)
         | validateIdentList-roundtrip (SignalGroup.signals sg) = refl
 
@@ -160,7 +167,7 @@ signalGroup-list-roundtrip = signalGroup-list-go 0
 private
   environmentVarFields : EnvironmentVar → List (String × JSON)
   environmentVarFields ev =
-    ("name"    , JString (envVarNameStr ev)) ∷
+    ("name"    , identJSON (EnvironmentVar.name ev)) ∷
     ("varType" , ℕtoJSON (varTypeToℕ (EnvironmentVar.varType ev))) ∷
     ("initial" , JNumber (toℚ (EnvironmentVar.initial ev))) ∷
     ("minimum" , JNumber (toℚ (EnvironmentVar.minimum ev))) ∷
@@ -194,7 +201,7 @@ environmentVar-list-roundtrip = environmentVar-list-go 0
 -- ============================================================================
 
 private
-  valueEntryFields : ℕ × String → List (String × JSON)
+  valueEntryFields : ℕ × List Char → List (String × JSON)
   valueEntryFields (n , s) =
     ("value"       , ℕtoJSON n) ∷
     ("description" , JString s) ∷
@@ -220,7 +227,7 @@ valueEntryList-roundtrip = valueEntryList-go 0
 private
   valueTableFields : ValueTable → List (String × JSON)
   valueTableFields vt =
-    ("name"    , JString (valueTableNameStr vt)) ∷
+    ("name"    , identJSON (ValueTable.name vt)) ∷
     ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
     []
 
@@ -246,11 +253,11 @@ valueTable-list-roundtrip = valueTable-list-go 0
 -- NODE ROUNDTRIP (Tier 2)
 -- ============================================================================
 
--- Node has a single `name : String` field, so the roundtrip reduces by record
--- eta (`mkNode (nodeNameStr n) ≡ n` definitionally).
+-- Node has a single `name : Identifier` field, so the roundtrip reduces by
+-- record eta after `validateIdent-roundtrip` discharges the identifier.
 private
   nodeFields : Node → List (String × JSON)
-  nodeFields n = ("name" , JString (nodeNameStr n)) ∷ []
+  nodeFields n = ("name" , identJSON (Node.name n)) ∷ []
 
 node-roundtrip : ∀ n → parseNode (nodeFields n) ≡ inj₂ n
 node-roundtrip (mkNode name)
@@ -283,9 +290,10 @@ node-list-roundtrip = node-list-go 0
 -- CommentTarget is a 5-way tagged union keyed on "kind". For the two variants
 -- carrying a CANId (CTMessage, CTSignal), the roundtrip splits further on
 -- Standard/Extended — 7 branches total. Literal string equality reduces
--- definitionally, so the chained `if_then_else_` collapses to the right case
--- automatically; the only non-trivial steps are the ℕ-bridge (for id) and the
--- CANId-ifᵀ-witness (for the bounded proof).
+-- definitionally (closed `toList`/`fromList` of literals collapse), so the
+-- chained `if_then_else_` collapses to the right case automatically; the
+-- only non-trivial steps are the ℕ-bridge (for id) and the CANId-ifᵀ-witness
+-- (for the bounded proof).
 
 commentTarget-roundtrip : ∀ tgt
   → parseCommentTarget (formatCommentTarget tgt) ≡ inj₂ tgt
@@ -352,7 +360,7 @@ attrScope-roundtrip ASEnvVar  = refl
 attrScope-roundtrip ASNodeMsg = refl
 attrScope-roundtrip ASNodeSig = refl
 
--- AttrType: 5 tagged variants. Int uses ℤ bridge, Enum uses parseStringList,
+-- AttrType: 5 tagged variants. Int uses ℤ bridge, Enum uses parseCharsList,
 -- Hex uses ℕ bridge, Float/String are direct `refl` (getRational/getString
 -- on JNumber/JString reduce definitionally).
 attrType-roundtrip : ∀ t → parseAttrType (formatAttrType t) ≡ inj₂ t
@@ -365,7 +373,7 @@ attrType-roundtrip (ATFloat mn mx)
   rewrite fromℚ?-after-toℚ mn | fromℚ?-after-toℚ mx = refl
 attrType-roundtrip ATString      = refl
 attrType-roundtrip (ATEnum labels)
-  rewrite parseStringList-roundtrip labels = refl
+  rewrite parseCharsList-roundtrip labels = refl
 attrType-roundtrip (ATHex mn mx)
   rewrite getNat-ℕtoJSON (natDecRatToℕ mn)
         | getNat-ℕtoJSON (natDecRatToℕ mx)
@@ -448,9 +456,9 @@ attrAssign-roundtrip a
 -- `parseAttrX (attrXFields x)`.
 private
   attributeFields : DBCAttribute → List (String × JSON)
-  attributeFields (DBCAttrDef d)     = ("kind" , JString "definition") ∷ attrDefFields d
-  attributeFields (DBCAttrDefault d) = ("kind" , JString "default")    ∷ attrDefaultFields d
-  attributeFields (DBCAttrAssign a)  = ("kind" , JString "assignment") ∷ attrAssignFields a
+  attributeFields (DBCAttrDef d)     = ("kind" , JStringS "definition") ∷ attrDefFields d
+  attributeFields (DBCAttrDefault d) = ("kind" , JStringS "default")    ∷ attrDefaultFields d
+  attributeFields (DBCAttrAssign a)  = ("kind" , JStringS "assignment") ∷ attrAssignFields a
 
 attribute-roundtrip : ∀ a → parseAttribute (attributeFields a) ≡ inj₂ a
 attribute-roundtrip (DBCAttrDef d)     = >>=ₑ-congʳ _ (attrDef-roundtrip d)

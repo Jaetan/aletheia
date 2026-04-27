@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Lexical primitives for the DBC text format (Phase B.3.c.1).
 --
@@ -19,6 +19,13 @@
 -- `Aletheia.Parser.Lexical` would broaden the blast radius of the code move
 -- beyond B.3.c.1's scope; a future B.3.k cleanup can do that once the DBC
 -- text parser has its own test matrix.
+--
+-- 3d.4 (2026-04-26): `Identifier.name : List Char` now, so this module no
+-- longer needs `Substrate.Unsafe.mkIdentFromCharsUnsafe` to bridge between
+-- the consumed char list and the String-internal Identifier.  The lexer
+-- builds Identifiers directly via `mkIdentFromChars` (axiom-free), which
+-- lets this module — and the 47 modules under `DBC/TextParser/` that
+-- transitively import it — drop back to `--safe`.
 module Aletheia.DBC.TextParser.Lexer where
 
 open import Data.Bool using (Bool; _∨_; not)
@@ -33,9 +40,7 @@ open import Aletheia.Parser.Combinators using
    satisfy; char; string; many; some)
 
 open import Aletheia.DBC.Identifier using
-  (Identifier; mkIdent; isIdentStart; isIdentCont) public
-open import Aletheia.DBC.TextParser.Properties.Substrate.Unsafe
-  using (mkIdentFromCharsUnsafe)
+  (Identifier; mkIdent; isIdentStart; isIdentCont; mkIdentFromChars) public
 
 open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseInt; parseRational) public
 
@@ -57,28 +62,27 @@ isHSpace c = ⌊ c ≟ᶜ ' ' ⌋ ∨ ⌊ c ≟ᶜ '\t' ⌋
 -- ============================================================================
 
 -- Build an Identifier from chars after satisfy accepted the head and `many
--- (satisfy isIdentCont)` accepted every element of the tail.  The `nothing`
--- branch is logically unreachable but must be handled syntactically.
--- T3-fixed: the Identifier's `name` is `fromList (h ∷ t)`; the `.valid`
--- witness bridges from the char-level bool via `toList∘fromList` (the sole
--- axiom use for Identifier construction, confined to `mkIdentFromCharsUnsafe`
--- in `Substrate.Unsafe`).  This module therefore drops `--safe`, as does
--- every downstream TextParser module that imports parseIdentifier.
+-- (satisfy isIdentCont)` accepted every element of the tail.  After 3d.4,
+-- this is axiom-free: `mkIdentFromChars` (in `Aletheia.DBC.Identifier`)
+-- stores the char list directly as the Identifier's `name` field, with the
+-- `T (validIdentifierᵇ (h ∷ t))` witness coming from the `T?` decision.
 --
--- Split into an outer `buildIdent h t = fromMaybeIdent (mkIdentFromCharsUnsafe
--- (h ∷ t))` rather than a top-level `with` so the B.3.d layer-2 roundtrip
--- proof (`Properties.Primitives.parseIdentifier-roundtrip`) can substitute
--- the `mkIdentFromCharsUnsafe`-result via `cong` once `mkIdentFromCharsUnsafe-
--- on-valid` gives the equation — the `with` form's internal case-split is
--- opaque to outer rewrites.  Exposed (not private) so the roundtrip proof
--- in `Aletheia.DBC.TextParser.Properties.Primitives` can name them
--- explicitly in `bind-just-step` continuations.
+-- Split into an outer `buildIdent h t = fromMaybeIdent (mkIdentFromChars
+-- (h ∷ t))` rather than a top-level `with` so the layer-2 roundtrip proof
+-- (`Properties.Primitives.parseIdentifier-roundtrip`) can substitute the
+-- `mkIdentFromChars`-result via `cong` — the `with` form's internal
+-- case-split would be opaque to outer rewrites.  Exposed (not private) so
+-- the roundtrip proof can name them explicitly in `bind-just-step`
+-- continuations.  The `nothing` branch is logically unreachable here (the
+-- structural guarantees of `satisfy isIdentStart >>= many (satisfy
+-- isIdentCont)` imply `validIdentifierᵇ (h ∷ t) = true`) but the parser
+-- machinery still requires a `Maybe`-shaped match.
 fromMaybeIdent : Maybe Identifier → Parser Identifier
 fromMaybeIdent (just i) = pure i
 fromMaybeIdent nothing  = fail
 
 buildIdent : Char → List Char → Parser Identifier
-buildIdent h t = fromMaybeIdent (mkIdentFromCharsUnsafe (h ∷ t))
+buildIdent h t = fromMaybeIdent (mkIdentFromChars (h ∷ t))
 
 parseIdentifier : Parser Identifier
 parseIdentifier =
@@ -98,12 +102,14 @@ parseStringChar =
   (string "\"\"" *> pure '"') <|>
   satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋)
 
-parseStringLit : Parser String
+-- Post 3d.4 + JSON-mirror returns the raw `List Char` body so the roundtrip
+-- composes axiom-free against `quoteStringLit-chars` (also List-Char-valued).
+parseStringLit : Parser (List Char)
 parseStringLit = do
   _ ← char '"'
   chars ← many parseStringChar
   _ ← char '"'
-  pure (fromList chars)
+  pure chars
 
 -- ============================================================================
 -- WHITESPACE & NEWLINES

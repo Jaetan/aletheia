@@ -44,7 +44,9 @@ open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
 -- VERSION
 -- ============================================================================
 
-emitVersion-chars : String → List Char
+-- Post-3d.4 + JSON-mirror: `quoteStringLit-chars : List Char → List Char`
+-- and `DBC.version : List Char`, so the emitter takes raw chars.
+emitVersion-chars : List Char → List Char
 emitVersion-chars v =
   toList "VERSION " ++ₗ quoteStringLit-chars v ++ₗ toList "\n\n"
 

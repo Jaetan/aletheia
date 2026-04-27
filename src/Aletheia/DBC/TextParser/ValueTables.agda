@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- Value-table parsers for the DBC text format (Phase B.3.c.4).
 --
@@ -36,7 +36,7 @@ open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
-open import Data.String using (String)
+open import Data.Char using (Char)
 open import Data.Unit using (⊤; tt)
 
 open import Aletheia.Parser.Combinators using
@@ -56,7 +56,10 @@ open import Aletheia.DBC.Types using (ValueTable)
 -- when the next character is the `;` terminator (the mandatory leading
 -- `parseWS` fails on `;`, so the repetition stops cleanly without a
 -- separator combinator).
-parseValueEntry : Parser (ℕ × String)
+-- Post-3d.4 + JSON-mirror: `parseStringLit : Parser (List Char)` and
+-- `ValueTable.entries : List (ℕ × List Char)`, so the entry pair carries
+-- raw chars throughout.
+parseValueEntry : Parser (ℕ × List Char)
 parseValueEntry = do
   _ ← parseWS
   v ← parseNatural

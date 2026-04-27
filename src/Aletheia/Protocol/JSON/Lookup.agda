@@ -6,8 +6,9 @@
 -- All lookups return Maybe, propagating parse failures.
 module Aletheia.Protocol.JSON.Lookup where
 
-open import Data.String using (String)
+open import Data.String using (String; fromList)
 open import Data.List using (List)
+open import Data.Char using (Char)
 open import Data.Bool using (Bool)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
 open import Data.Nat using (ℕ; zero; suc)
@@ -24,10 +25,23 @@ open import Aletheia.Protocol.JSON.Types using (JSON; JNull; JBool; JNumber; JSt
 -- VALUE EXTRACTORS
 -- ============================================================================
 
--- Get string value from JSON
+-- Get string value from JSON.  Post-3d.4 + JSON-mirror (2026-04-27): JSON
+-- carries `List Char` internally, so this conversion goes through `fromList`.
+-- Use this for sites that compare against String literals (kind discriminators
+-- like "node", "int") where there's no roundtrip claim through the result.
+-- For sites that round-trip an Identifier or AST text field, prefer `getChars`
+-- below — it stays at the `List Char` level and avoids the toList∘fromList
+-- axiom in proofs.
 getString : JSON → Maybe String
-getString (JString s) = just s
+getString (JString cs) = just (fromList cs)
 getString _ = nothing
+
+-- Get the raw `List Char` payload of a JSON string.  Use for paths where the
+-- result will be passed to `validateIdent : List Char → ...` or stored in an
+-- AST text field that is itself `List Char`.  Axiom-free in roundtrip proofs.
+getChars : JSON → Maybe (List Char)
+getChars (JString cs) = just cs
+getChars _ = nothing
 
 -- Get boolean value from JSON
 getBool : JSON → Maybe Bool
@@ -98,6 +112,10 @@ private
 
 lookupString : String → List (String × JSON) → Maybe String
 lookupString = lookupWith getString
+
+-- Char-level lookup — see `getChars` above for when to prefer this.
+lookupChars : String → List (String × JSON) → Maybe (List Char)
+lookupChars = lookupWith getChars
 
 lookupBool : String → List (String × JSON) → Maybe Bool
 lookupBool = lookupWith getBool

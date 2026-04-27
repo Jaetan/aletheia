@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtNetwork
 -- per-line construct roundtrips (3 emit shapes).
@@ -332,7 +332,7 @@ private
 -- Trace module for parseRawAttrAssign with ATgtNetwork target
 -- ============================================================================
 
-module TraceNetwork (pos : Position) (name : String) (value-chars : List Char)
+module TraceNetwork (pos : Position) (name : List Char) (value-chars : List Char)
                     (outer-suffix : List Char) where
   cs-name = quoteStringLit-chars name
 
@@ -396,7 +396,7 @@ module TraceNetwork (pos : Position) (name : String) (value-chars : List Char)
 -- ============================================================================
 
 parseRawAttrAssign-after-keyword-Network :
-  ∀ pos (name : String) (raw-value : RawAttrValue) (value-chars : List Char)
+  ∀ pos (name : List Char) (raw-value : RawAttrValue) (value-chars : List Char)
     (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
@@ -540,7 +540,7 @@ parseRawAttrAssign-after-keyword-Network pos name raw-value value-chars outer-su
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavString :
-  ∀ pos (name : String) (s : String) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -584,7 +584,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
-  ∀ pos (name : String) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -625,7 +625,7 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name d outer-suffix s
 -- ============================================================================
 
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
-  ∀ pos (name : String) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrAssign pos
       (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ

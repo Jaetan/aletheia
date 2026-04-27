@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseVersion-roundtrip` — per-line-construct roundtrip for the
 -- `VERSION "..."` preamble line (B.3.d Layer 3).
@@ -48,8 +48,11 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 -- form the per-step bind chain consumes.  Two ++-assoc applications
 -- peel off the outer and inner append; the remaining equality holds by
 -- closed-string primStringToList reduction.
+-- Post-3d.4 + JSON-mirror: `v : List Char` (was `String`); the parser
+-- returns and the formatter takes the raw chars.  Proof structure is
+-- otherwise unchanged.
 private
-  emitVersion-chars-shape : ∀ (v : String) (suffix : List Char)
+  emitVersion-chars-shape : ∀ (v : List Char) (suffix : List Char)
     → (toList "VERSION " ++ₗ quoteStringLit-chars v ++ₗ toList "\n\n")
         ++ₗ suffix
     ≡ toList "VERSION"
@@ -61,7 +64,7 @@ private
           (cong (λ xs → toList "VERSION " ++ₗ xs)
                 (++ₗ-assoc (quoteStringLit-chars v) (toList "\n\n") suffix))
 
-parseVersion-roundtrip : ∀ (pos : Position) (v : String) (suffix : List Char)
+parseVersion-roundtrip : ∀ (pos : Position) (v : List Char) (suffix : List Char)
   → SuffixStops isNewlineStart suffix
   → parseVersion pos (emitVersion-chars v ++ₗ suffix)
     ≡ just (mkResult v
@@ -107,8 +110,10 @@ parseVersion-roundtrip pos v suffix ss =
     rest-after-LF1 : List Char
     rest-after-LF1 = '\n' ∷ suffix
 
-    -- Parser continuations after each bind.
-    cont-after-VERSION : String → Parser String
+    -- Parser continuations after each bind.  The `Parser` payload is
+    -- `List Char` post-3d.4 + JSON-mirror (parseVersion returns the
+    -- string-literal body chars directly).
+    cont-after-VERSION : String → Parser (List Char)
     cont-after-VERSION _ =
       parseWS >>= λ _ →
       parseStringLit >>= λ v' →
@@ -116,25 +121,25 @@ parseVersion-roundtrip pos v suffix ss =
       many parseNewline >>= λ _ →
       pure v'
 
-    cont-after-WS : List Char → Parser String
+    cont-after-WS : List Char → Parser (List Char)
     cont-after-WS _ =
       parseStringLit >>= λ v' →
       parseNewline >>= λ _ →
       many parseNewline >>= λ _ →
       pure v'
 
-    cont-after-SL : String → Parser String
+    cont-after-SL : List Char → Parser (List Char)
     cont-after-SL v' =
       parseNewline >>= λ _ →
       many parseNewline >>= λ _ →
       pure v'
 
-    cont-after-LF1 : Char → Parser String
+    cont-after-LF1 : Char → Parser (List Char)
     cont-after-LF1 _ =
       many parseNewline >>= λ _ →
       pure v
 
-    cont-after-manyLF : List Char → Parser String
+    cont-after-manyLF : List Char → Parser (List Char)
     cont-after-manyLF _ = pure v
 
     -- Step 1: consume "VERSION" via string-success.

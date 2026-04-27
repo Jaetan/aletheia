@@ -14,6 +14,8 @@
 -- `handleDataFrame` or `stepL`.
 module Aletheia.Protocol.FrameProcessor.Properties.Cache where
 open import Aletheia.DBC.Types using (signalNameStr)
+open import Aletheia.DBC.Identifier using
+    (Identifier; _≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-false→≢; ≡csᵇ-refl-eq)
 
 open import Aletheia.Protocol.StreamState.Internals
     using (updateCacheFromFrame; updateSignals)
@@ -26,14 +28,15 @@ open import Aletheia.LTL.SignalPredicate.Cache.Properties
 open import Aletheia.DBC.Types using (DBCSignal; DBCMessage)
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
+open import Data.Char using (Char)
 open import Data.String using (String)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Bool using (Bool; true; false; T)
+open import Data.Unit using (tt)
 open import Data.Product using (_,_; ∃-syntax)
 open import Data.Maybe using (just; nothing)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.Empty using (⊥-elim)
-open import Relation.Nullary using (yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
 -- ============================================================================
 -- PROPERTY 10: Signal cache update — same name lookup
@@ -41,20 +44,21 @@ open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym
 
 private
   -- Helper: looking up name in (name , v) ∷ rest returns just v.
-  -- Uses Dec-based `with` so ⌊ name ≟ₛ name ⌋ reduces inside lookupEntries.
+  -- Uses Bool fast path: `≡csᵇ-refl-eq name : (name ≡csᵇ name) ≡ true`
+  -- rewrites the `if` to its true branch.
   lookupEntries-head : ∀ name v rest →
     lookupEntries name ((name , v) ∷ rest) ≡ just v
-  lookupEntries-head name v rest with name ≟ₛ name
-  ... | yes _ = refl
-  ... | no ¬p = ⊥-elim (¬p refl)
+  lookupEntries-head name v rest rewrite ≡csᵇ-refl-eq name = refl
 
   -- Helper: looking up name' ≢ name skips the head entry.
+  -- Bool fast path: `with name' ≡csᵇ name in eq` — true branch contradicts neq
+  -- via `≡csᵇ-sound`, false branch reduces the `if` to its else branch.
   lookupEntries-skip : ∀ name' name v rest →
     name' ≢ name →
     lookupEntries name' ((name , v) ∷ rest) ≡ lookupEntries name' rest
-  lookupEntries-skip name' name v rest neq with name' ≟ₛ name
-  ... | yes p = ⊥-elim (neq p)
-  ... | no  _ = refl
+  lookupEntries-skip name' name v rest neq with name' ≡csᵇ name in eq
+  ... | true  = ⊥-elim (neq (≡csᵇ-sound name' name (subst T (sym eq) tt)))
+  ... | false = refl
 
   -- List-level: after updateEntries, looking up the updated name returns the new value.
   lookupEntries-updateEntries-hit : ∀ name val ts (es : CacheEntries) →
@@ -62,9 +66,10 @@ private
   lookupEntries-updateEntries-hit name val ts [] =
     lookupEntries-head name (mkCachedSignal val ts) []
   lookupEntries-updateEntries-hit name val ts ((n , cached) ∷ rest)
-    with name ≟ₛ n
-  ... | yes _ = lookupEntries-head name (mkCachedSignal val ts) rest
-  ... | no ¬a = trans (lookupEntries-skip name n cached (updateEntries name val ts rest) ¬a)
+    with name ≡csᵇ n in eq
+  ... | true  = lookupEntries-head name (mkCachedSignal val ts) rest
+  ... | false = trans (lookupEntries-skip name n cached (updateEntries name val ts rest)
+                         (≡csᵇ-false→≢ name n eq))
                       (lookupEntries-updateEntries-hit name val ts rest)
 
   -- List-level: after updateEntries, looking up a different name is unchanged.
@@ -74,14 +79,16 @@ private
   lookupEntries-updateEntries-miss name name' val ts [] name≢name' =
     lookupEntries-skip name' name (mkCachedSignal val ts) [] (λ p → name≢name' (sym p))
   lookupEntries-updateEntries-miss name name' val ts ((n , cached) ∷ rest) name≢name'
-    with name ≟ₛ n | name' ≟ₛ n
-  ... | yes p | yes q = ⊥-elim (name≢name' (trans p (sym q)))
-  ... | yes _ | no  _ =
+    with name ≡csᵇ n in eq | name' ≡csᵇ n in eq'
+  ... | true  | true  = ⊥-elim (name≢name'
+                          (trans (≡csᵇ-sound name n (subst T (sym eq) tt))
+                                 (sym (≡csᵇ-sound name' n (subst T (sym eq') tt)))))
+  ... | true  | false =
     lookupEntries-skip name' name (mkCachedSignal val ts) rest (λ p → name≢name' (sym p))
-  ... | no  _ | yes refl =
-    lookupEntries-head name' cached (updateEntries name val ts rest)
-  ... | no  _ | no ¬b =
-    trans (lookupEntries-skip name' n cached (updateEntries name val ts rest) ¬b)
+  ... | false | true  rewrite ≡csᵇ-sound name' n (subst T (sym eq') tt) | ≡csᵇ-refl-eq n = refl
+  ... | false | false =
+    trans (lookupEntries-skip name' n cached (updateEntries name val ts rest)
+             (≡csᵇ-false→≢ name' n eq'))
           (lookupEntries-updateEntries-miss name name' val ts rest name≢name')
 
 -- After updateCache, looking up the updated name returns the new value.
@@ -109,14 +116,14 @@ lookupCache-updateCache-miss name name' val ts (mkSignalCache es _) name≢name'
 
 -- When extraction succeeds, updateSignals steps to updateCache + recurse.
 updateSignals-step-hit : ∀ {n} dbc (frame : CANFrame n) ts sig sigs cache v →
-  extractTruthValue (signalNameStr sig) dbc frame ≡ just v →
+  extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame ≡ just v →
   updateSignals dbc frame ts (sig ∷ sigs) cache
-    ≡ updateSignals dbc frame ts sigs (updateCache (signalNameStr sig) v ts cache)
+    ≡ updateSignals dbc frame ts sigs (updateCache (Identifier.name (DBCSignal.name sig)) v ts cache)
 updateSignals-step-hit dbc frame ts sig sigs cache v eq rewrite eq = refl
 
 -- When extraction fails, updateSignals skips the signal.
 updateSignals-step-miss : ∀ {n} dbc (frame : CANFrame n) ts sig sigs cache →
-  extractTruthValue (signalNameStr sig) dbc frame ≡ nothing →
+  extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame ≡ nothing →
   updateSignals dbc frame ts (sig ∷ sigs) cache
     ≡ updateSignals dbc frame ts sigs cache
 updateSignals-step-miss dbc frame ts sig sigs cache eq rewrite eq = refl
@@ -148,11 +155,11 @@ updateSignals-monotone : ∀ {m} dbc (frame : CANFrame m) ts sigs cache name cac
   ∃[ cached' ] lookupCache name (updateSignals dbc frame ts sigs cache) ≡ just cached'
 updateSignals-monotone dbc frame ts [] cache name cached eq = cached , eq
 updateSignals-monotone dbc frame ts (sig ∷ sigs) cache name cached eq
-  with extractTruthValue (signalNameStr sig) dbc frame
+  with extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame
 ... | nothing = updateSignals-monotone dbc frame ts sigs cache name cached eq
 ... | just v  =
-  let (cached₁ , eq₁) = updateCache-monotone (signalNameStr sig) v ts cache name cached eq
-  in updateSignals-monotone dbc frame ts sigs (updateCache (signalNameStr sig) v ts cache)
+  let (cached₁ , eq₁) = updateCache-monotone (Identifier.name (DBCSignal.name sig)) v ts cache name cached eq
+  in updateSignals-monotone dbc frame ts sigs (updateCache (Identifier.name (DBCSignal.name sig)) v ts cache)
        name cached₁ eq₁
 
 -- ============================================================================
@@ -165,11 +172,11 @@ updateSignals-timestamps≤ : ∀ {m} dbc (frame : CANFrame m) ts sigs cache →
   AllTimestamps≤ ts (SignalCache.entries (updateSignals dbc frame ts sigs cache))
 updateSignals-timestamps≤ dbc frame ts [] cache h = h
 updateSignals-timestamps≤ dbc frame ts (sig ∷ sigs) cache h
-  with extractTruthValue (signalNameStr sig) dbc frame
+  with extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame
 ... | nothing = updateSignals-timestamps≤ dbc frame ts sigs cache h
 ... | just v  = updateSignals-timestamps≤ dbc frame ts sigs
-                  (updateCache (signalNameStr sig) v ts cache)
-                  (updateCache-timestamps≤ (signalNameStr sig) v ts cache h)
+                  (updateCache (Identifier.name (DBCSignal.name sig)) v ts cache)
+                  (updateCache-timestamps≤ (Identifier.name (DBCSignal.name sig)) v ts cache h)
 
 -- ============================================================================
 -- PROPERTY 25: updateCacheFromFrame monotonicity — entries survive frame processing
@@ -211,7 +218,7 @@ updateCacheFromFrame-timestamps≤ dbc cache ts frame h
 -- not just a witness of definiteness.
 --
 -- The proof is parameterised over a `prefix ++ₗ sig ∷ suffix` split of the
--- matching message's signal list, with `NotInSignals (signalNameStr sig) suffix`
+-- matching message's signal list, with `NotInSignals (Identifier.name (DBCSignal.name sig)) suffix`
 -- ensuring last-writer-wins semantics: any later signal sharing the same
 -- name would overwrite the cache entry, so we require none. For valid DBCs
 -- (passing `Validator/Checks.checkAllDuplicateSignalName`), this condition
@@ -219,10 +226,10 @@ updateCacheFromFrame-timestamps≤ dbc cache ts frame h
 
 -- Auxiliary predicate: a name does not appear as the name of any signal in
 -- the list. Used to express "this signal is the last with its name".
-data NotInSignals : String → List DBCSignal → Set where
+data NotInSignals : List Char → List DBCSignal → Set where
   []ₙ : ∀ {name} → NotInSignals name []
   _∷ₙ_ : ∀ {name sig sigs} →
-        signalNameStr sig ≢ name →
+        Identifier.name (DBCSignal.name sig) ≢ name →
         NotInSignals name sigs →
         NotInSignals name (sig ∷ sigs)
 
@@ -238,12 +245,12 @@ updateSignals-preserves-hit :
     ≡ just (mkCachedSignal v ts)
 updateSignals-preserves-hit dbc frame ts [] cache name v eq notIn = eq
 updateSignals-preserves-hit dbc frame ts (sig ∷ sigs) cache name v eq (neq ∷ₙ notIn)
-  with extractTruthValue (signalNameStr sig) dbc frame
+  with extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame
 ... | nothing = updateSignals-preserves-hit dbc frame ts sigs cache name v eq notIn
 ... | just v' = updateSignals-preserves-hit dbc frame ts sigs
-                  (updateCache (signalNameStr sig) v' ts cache) name v
+                  (updateCache (Identifier.name (DBCSignal.name sig)) v' ts cache) name v
                   (trans (lookupCache-updateCache-miss
-                            (signalNameStr sig) name v' ts cache neq) eq)
+                            (Identifier.name (DBCSignal.name sig)) name v' ts cache neq) eq)
                   notIn
 
 -- Head case: a signal at the head of the list with successful extraction
@@ -252,16 +259,16 @@ updateSignals-preserves-hit dbc frame ts (sig ∷ sigs) cache name v eq (neq ∷
 -- contain its name).
 updateSignals-coherent-head :
   ∀ {n} dbc (frame : CANFrame n) ts sig sigs cache v →
-  extractTruthValue (signalNameStr sig) dbc frame ≡ just v →
-  NotInSignals (signalNameStr sig) sigs →
-  lookupCache (signalNameStr sig)
+  extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame ≡ just v →
+  NotInSignals (Identifier.name (DBCSignal.name sig)) sigs →
+  lookupCache (Identifier.name (DBCSignal.name sig))
     (updateSignals dbc frame ts (sig ∷ sigs) cache)
     ≡ just (mkCachedSignal v ts)
 updateSignals-coherent-head dbc frame ts sig sigs cache v eq notIn rewrite eq =
   updateSignals-preserves-hit dbc frame ts sigs
-    (updateCache (signalNameStr sig) v ts cache)
-    (signalNameStr sig) v
-    (lookupCache-updateCache-hit (signalNameStr sig) v ts cache)
+    (updateCache (Identifier.name (DBCSignal.name sig)) v ts cache)
+    (Identifier.name (DBCSignal.name sig)) v
+    (lookupCache-updateCache-hit (Identifier.name (DBCSignal.name sig)) v ts cache)
     notIn
 
 -- General position: a signal at any position in the list, given as a
@@ -272,24 +279,24 @@ updateSignals-coherent-head dbc frame ts sig sigs cache v eq notIn rewrite eq =
 -- starting cache.
 updateSignals-coherent-split :
   ∀ {n} dbc (frame : CANFrame n) ts prefix sig suffix cache v →
-  extractTruthValue (signalNameStr sig) dbc frame ≡ just v →
-  NotInSignals (signalNameStr sig) suffix →
-  lookupCache (signalNameStr sig)
+  extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame ≡ just v →
+  NotInSignals (Identifier.name (DBCSignal.name sig)) suffix →
+  lookupCache (Identifier.name (DBCSignal.name sig))
     (updateSignals dbc frame ts (prefix ++ₗ sig ∷ suffix) cache)
     ≡ just (mkCachedSignal v ts)
 updateSignals-coherent-split dbc frame ts [] sig suffix cache v eq notIn =
   updateSignals-coherent-head dbc frame ts sig suffix cache v eq notIn
 updateSignals-coherent-split dbc frame ts (p ∷ prefix) sig suffix cache v eq notIn
-  with extractTruthValue (signalNameStr p) dbc frame
+  with extractTruthValue (Identifier.name (DBCSignal.name p)) dbc frame
 ... | nothing = updateSignals-coherent-split dbc frame ts prefix sig suffix cache v eq notIn
 ... | just v' = updateSignals-coherent-split dbc frame ts prefix sig suffix
-                  (updateCache (signalNameStr p) v' ts cache) v eq notIn
+                  (updateCache (Identifier.name (DBCSignal.name p)) v' ts cache) v eq notIn
 
 -- Top-level cache coherence: for any signal in the matching message of
 -- a frame whose extraction succeeds, looking up its name in the post-update
 -- cache returns exactly that value with the update timestamp. The signal
 -- is identified by a `prefix ++ₗ sig ∷ suffix` decomposition of the message's
--- signal list together with `NotInSignals (signalNameStr sig) suffix`.
+-- signal list together with `NotInSignals (Identifier.name (DBCSignal.name sig)) suffix`.
 --
 -- The proof composes the existing decomposition lemma `updateCacheFromFrame-match`
 -- with `cong` (for the `splitEq` substitution) via `trans`, then transports the
@@ -303,9 +310,9 @@ updateCacheFromFrame-coherent :
   ∀ {n} dbc cache ts (frame : CANFrame n) msg prefix sig suffix v →
   findMessageById (CANFrame.id frame) dbc ≡ just msg →
   DBCMessage.signals msg ≡ prefix ++ₗ sig ∷ suffix →
-  extractTruthValue (signalNameStr sig) dbc frame ≡ just v →
-  NotInSignals (signalNameStr sig) suffix →
-  lookupCache (signalNameStr sig)
+  extractTruthValue (Identifier.name (DBCSignal.name sig)) dbc frame ≡ just v →
+  NotInSignals (Identifier.name (DBCSignal.name sig)) suffix →
+  lookupCache (Identifier.name (DBCSignal.name sig))
     (updateCacheFromFrame dbc cache ts frame)
     ≡ just (mkCachedSignal v ts)
 updateCacheFromFrame-coherent dbc cache ts frame msg prefix sig suffix v
@@ -319,6 +326,6 @@ updateCacheFromFrame-coherent dbc cache ts frame msg prefix sig suffix v
       lhs-eq : updateCacheFromFrame dbc cache ts frame
              ≡ updateSignals dbc frame ts (prefix ++ₗ sig ∷ suffix) cache
       lhs-eq = trans step1 step2
-  in trans (cong (lookupCache (signalNameStr sig)) lhs-eq)
+  in trans (cong (lookupCache (Identifier.name (DBCSignal.name sig))) lhs-eq)
            (updateSignals-coherent-split dbc frame ts prefix sig suffix cache v
               extractEq notIn)

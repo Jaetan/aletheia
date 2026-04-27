@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.3 — shared helpers for the per-target
 -- `parseRawAttrAssign` / `parseRawAttrRel` roundtrip proofs.

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 3 Commit 3c.2 — `parseRawAttrDefault` per-line construct
 -- roundtrip.
@@ -80,17 +80,18 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 
 private
   -- Generic lemma: parseStringLit fails when the head char is not '"'.
+  -- Post-3d.4 + JSON-mirror: `parseStringLit : Parser (List Char)` returns
+  -- the body chars directly — no `fromList` in the inner pure.
   parseStringLit-fail-on-non-quote : ∀ pos c rest
     → (c ≈ᵇ '"') ≡ false
     → parseStringLit pos (c ∷ rest) ≡ nothing
   parseStringLit-fail-on-non-quote pos c rest c-eq =
     bind-nothing (char '"')
       (λ _ → many (Aletheia.DBC.TextParser.Lexer.parseStringChar) >>= λ chars →
-             char '"' >>= λ _ → pure (Data.String.fromList chars))
+             char '"' >>= λ _ → pure chars)
       pos (c ∷ rest)
       char-fails
     where
-      open import Data.String using (fromList)
       char-fails : char '"' pos (c ∷ rest) ≡ nothing
       char-fails rewrite c-eq = refl
 
@@ -181,7 +182,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
 -- reference `Trace.pos8` in `parseAttrLine-roundtrip-RawDefault-Rav*`
 -- result types — the alt2 dispatchers thread end positions through the
 -- 5-way `<|>` lift.
-module Trace (pos : Position) (name : String) (value-chars : List Char)
+module Trace (pos : Position) (name : List Char) (value-chars : List Char)
                (outer-suffix : List Char) where
     cs-name : List Char
     cs-name = quoteStringLit-chars name
@@ -241,7 +242,7 @@ module Trace (pos : Position) (name : String) (value-chars : List Char)
 -- ============================================================================
 
 parseRawAttrDefault-after-keyword :
-  ∀ pos (name : String) (raw-value : RawAttrValue) (value-chars : List Char)
+  ∀ pos (name : List Char) (raw-value : RawAttrValue) (value-chars : List Char)
     (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
@@ -472,7 +473,7 @@ private
 
 -- RavString: emit `quoteStringLit-chars s` for the value.
 parseRawAttrDefault-roundtrip-RavString :
-  ∀ pos (name : String) (s : String) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (s : List Char) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -508,7 +509,7 @@ parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
 
 -- RavDecRat (frac form): emit `showDecRat-dec-chars d`.
 parseRawAttrDefault-roundtrip-RavDecRatFrac :
-  ∀ pos (name : String) (d : DecRat) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
@@ -545,7 +546,7 @@ parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL
 
 -- RavDecRat (bare-int form, fromℤ z): emit `showInt-chars z`.
 parseRawAttrDefault-roundtrip-RavDecRatBareInt :
-  ∀ pos (name : String) (z : ℤ) (outer-suffix : List Char)
+  ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
   → parseRawAttrDefault pos
       (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ

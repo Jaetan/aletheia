@@ -155,7 +155,7 @@ parseString = do
   _ ← char '"'
   chars ← many parseStringChar
   _ ← char '"'
-  pure (JString (fromList chars))
+  pure (JString chars)
 
 -- Parse JSON using input length as termination measure (like 'many' does)
 -- This makes the structural recursion explicit to Agda's termination checker
@@ -217,7 +217,7 @@ parseJSONHelper (suc n) pos input = (spaces *> parseValue <* spaces) pos input
                 pure (key , val)
                 where
                   extractString : JSON → Parser String
-                  extractString (JString s) = pure s
+                  extractString (JString cs) = pure (fromList cs)
                   extractString _ = fail
 
 -- Public API: parseJSON wraps helper with input length

@@ -7,7 +7,7 @@
 -- Approach: Congruence lemmas, structural induction, no character/integer decomposition.
 module Aletheia.Protocol.JSON.Properties where
 
-open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupRational; lookupObject; getNat)
+open import Aletheia.Protocol.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; JObject; formatJSON; parseJSON; lookupString; lookupChars; lookupRational; lookupObject; getNat)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Parser.Combinators using (Parser; ParseResult; Position)
 open import Aletheia.Parser.Properties using (parser-deterministic)
@@ -97,8 +97,10 @@ getNat-ℕtoℚ n with 1 ∣? n
 
 -- DBC File Structure
 -- Proves that DBC files have expected structure (object with version and messages)
+-- Post-3d.4 + JSON-mirror: `JString : List Char → JSON`, so `version` is the
+-- raw `List Char` payload of the JString constructor.
 data DBCFileStructure : JSON → Set where
-  dbc-structure : ∀ (obj : List (String × JSON)) (version : String) (messages : List JSON) →
+  dbc-structure : ∀ (obj : List (String × JSON)) (version : List Char) (messages : List JSON) →
     lookupByKey "version" obj ≡ just (JString version) →
     lookupByKey "messages" obj ≡ just (JArray messages) →
     DBCFileStructure (JObject obj)
@@ -114,6 +116,7 @@ parseDBC-sound : ∀ (input : JSON) (result : DBC)
       (input ≡ JObject obj
        × lookupByKey "version" obj ≡ just (JString version)
        × lookupByKey "messages" obj ≡ just (JArray messages))
+  -- `version` quantifies over `List Char` (JString's payload type post-3d.4).
 parseDBC-sound (JObject obj) result eq with lookupByKey "version" obj in eqVer
 parseDBC-sound (JObject obj) result eq | just (JString version)
   with lookupByKey "messages" obj in eqMsgs
@@ -147,12 +150,23 @@ parseDBC-sound (JArray _) result ()
 -- TYPED LOOKUP LEMMAS (for roundtrip proofs)
 -- ============================================================================
 
--- Typed lookup at head position: lookupString
-lookupString-here : (k : String) (s : String) (rest : List (String × JSON))
-  → lookupString k ((k , JString s) ∷ rest) ≡ just s
-lookupString-here k s rest
-  with lookupByKey k ((k , JString s) ∷ rest) | lookupByKey-here k (JString s) rest
-... | .(just (JString s)) | refl = refl
+-- Typed lookup at head position: lookupString.  Post-3d.4 + JSON-mirror,
+-- `JString` carries `List Char`, so the result is `fromList cs`.
+open import Data.String using (fromList)
+lookupString-here : (k : String) (cs : List Char) (rest : List (String × JSON))
+  → lookupString k ((k , JString cs) ∷ rest) ≡ just (fromList cs)
+lookupString-here k cs rest
+  with lookupByKey k ((k , JString cs) ∷ rest) | lookupByKey-here k (JString cs) rest
+... | .(just (JString cs)) | refl = refl
+
+-- Char-level analogue: lookupChars at head position recovers the raw `List
+-- Char` payload directly.  Used in roundtrip proofs that need to round-trip
+-- the JString chars without going through `fromList ∘ toList`.
+lookupChars-here : (k : String) (cs : List Char) (rest : List (String × JSON))
+  → lookupChars k ((k , JString cs) ∷ rest) ≡ just cs
+lookupChars-here k cs rest
+  with lookupByKey k ((k , JString cs) ∷ rest) | lookupByKey-here k (JString cs) rest
+... | .(just (JString cs)) | refl = refl
 
 -- Typed lookup at head position: lookupRational
 lookupRational-here : (k : String) (r : ℚ) (rest : List (String × JSON))

@@ -1,4 +1,4 @@
-{-# OPTIONS --without-K #-}
+{-# OPTIONS --safe --without-K #-}
 
 -- `parseReceiverList-roundtrip` + `stripVectorPlaceholder` lemmas
 -- (B.3.d Layer 3 Commit 3d.2).
@@ -55,8 +55,9 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; s≤s; z≤n)
 open import Data.Nat.Properties using (≤-trans; ≤-refl; n≤1+n; m≤m+n; m≤n+m)
 open import Data.Product using (∃-syntax; _×_; _,_; proj₁; proj₂)
-open import Data.String using (String; toList) renaming (_++_ to _++ₛ_)
-open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Char using () renaming (_≟_ to _≟ᶜ_)
+open import Data.List.Properties as ListProps using ()
+open import Data.String using (toList)
 open import Data.Unit using (⊤; tt)
 open import Function using (_∘_)
 open import Relation.Binary.PropositionalEquality
@@ -95,11 +96,12 @@ import Aletheia.DBC.TextParser.Properties.EnvVars._Scratch
 -- direction.  `validIdentifierᵇ (toList "Vector__XXX")` reduces to
 -- `true` on the closed-Char path (canary above).
 ident-VectorXXX : Identifier
-ident-VectorXXX = mkIdent "Vector__XXX" tt
+ident-VectorXXX = mkIdent (toList "Vector__XXX") tt
 
 -- The placeholder's name string (definitional; useful as a refl in the
--- strip lemma).
-ident-VectorXXX-name : Identifier.name ident-VectorXXX ≡ "Vector__XXX"
+-- strip lemma).  Post-3d.4: `Identifier.name : List Char`, so the LHS
+-- is `toList "Vector__XXX"` literal directly.
+ident-VectorXXX-name : Identifier.name ident-VectorXXX ≡ toList "Vector__XXX"
 ident-VectorXXX-name = refl
 
 
@@ -152,24 +154,24 @@ isReceiverCont-stop→isIdentCont-stop (c ∷ _) (∷-stop h) =
 commaSep-chars : List Identifier → List Char
 commaSep-chars []       = []
 commaSep-chars (r ∷ rs) =
-  ',' ∷ toList (Identifier.name r) ++ₗ commaSep-chars rs
+  ',' ∷ Identifier.name r ++ₗ commaSep-chars rs
 
 -- Reshape `emitReceivers-chars (r ∷ rs)` to bind-chain-friendly form.
 private
   emitReceivers-chars-foldr-shape : ∀ (rs : List Identifier)
-    → foldr (λ x acc → ',' ∷ toList (Identifier.name x) ++ₗ acc) [] rs
+    → foldr (λ x acc → ',' ∷ Identifier.name x ++ₗ acc) [] rs
       ≡ commaSep-chars rs
   emitReceivers-chars-foldr-shape []       = refl
   emitReceivers-chars-foldr-shape (r ∷ rs) =
     cong (',' ∷_)
-      (cong (toList (Identifier.name r) ++ₗ_)
+      (cong (Identifier.name r ++ₗ_)
             (emitReceivers-chars-foldr-shape rs))
 
 emitReceivers-chars-cons-shape : ∀ (r : Identifier) (rs : List Identifier)
   → emitReceivers-chars (r ∷ rs)
-    ≡ toList (Identifier.name r) ++ₗ commaSep-chars rs
+    ≡ Identifier.name r ++ₗ commaSep-chars rs
 emitReceivers-chars-cons-shape r rs =
-  cong (toList (Identifier.name r) ++ₗ_)
+  cong (Identifier.name r ++ₗ_)
        (emitReceivers-chars-foldr-shape rs)
 
 
@@ -183,7 +185,7 @@ afterReceivers pos (r ∷ rs) =
   afterReceivers
     (advancePositions
        (advancePosition pos ',')
-       (toList (Identifier.name r))) rs
+       (Identifier.name r)) rs
 
 private
   afterReceivers-advancePositions : ∀ (pos : Position) (rs : List Identifier)
@@ -192,11 +194,11 @@ private
   afterReceivers-advancePositions pos (r ∷ rs) =
     trans (afterReceivers-advancePositions
              (advancePositions (advancePosition pos ',')
-                               (toList (Identifier.name r)))
+                               (Identifier.name r))
              rs)
       (sym (advancePositions-++
               (advancePosition pos ',')
-              (toList (Identifier.name r))
+              (Identifier.name r)
               (commaSep-chars rs)))
 
 
@@ -280,20 +282,20 @@ comma-ident-step :
     ∀ (pos : Position) (r : Identifier) (rest : List Char)
   → SuffixStops isIdentCont rest
   → (char ',' *> parseIdentifier) pos
-      (',' ∷ toList (Identifier.name r) ++ₗ rest)
+      (',' ∷ Identifier.name r ++ₗ rest)
     ≡ just (mkResult r
             (advancePositions
                (advancePosition pos ',')
-               (toList (Identifier.name r)))
+               (Identifier.name r))
             rest)
 comma-ident-step pos r rest ident-ss =
   trans
     (bind-just-step (char ',') (λ _ → parseIdentifier)
-       pos (',' ∷ toList (Identifier.name r) ++ₗ rest)
+       pos (',' ∷ Identifier.name r ++ₗ rest)
        ',' (advancePosition pos ',')
-       (toList (Identifier.name r) ++ₗ rest)
+       (Identifier.name r ++ₗ rest)
        (char-comma-success-cons pos
-          (toList (Identifier.name r) ++ₗ rest)))
+          (Identifier.name r ++ₗ rest)))
     (parseIdentifier-roundtrip
        (advancePosition pos ',')
        r rest ident-ss)
@@ -322,17 +324,17 @@ private
   -- Per-iteration progress witness — `',' ∷ name r ++ rest` is strictly
   -- longer than `rest` (it has at least one extra char).
   sameLengthᵇ-comma-iter-fail : ∀ (r : Identifier) (rest : List Char)
-    → sameLengthᵇ (',' ∷ toList (Identifier.name r) ++ₗ rest) rest
+    → sameLengthᵇ (',' ∷ Identifier.name r ++ₗ rest) rest
       ≡ false
   sameLengthᵇ-comma-iter-fail r rest =
     sameLengthᵇ-lt
-      (',' ∷ toList (Identifier.name r) ++ₗ rest) rest len-witness
+      (',' ∷ Identifier.name r ++ₗ rest) rest len-witness
     where
       len-witness :
-        length rest < length (',' ∷ toList (Identifier.name r) ++ₗ rest)
+        length rest < length (',' ∷ Identifier.name r ++ₗ rest)
       len-witness
-        rewrite length-++ₗ (toList (Identifier.name r)) {rest} =
-          s≤s (m≤n+m (length rest) (length (toList (Identifier.name r))))
+        rewrite length-++ₗ (Identifier.name r) {rest} =
+          s≤s (m≤n+m (length rest) (length (Identifier.name r)))
 
   -- The post-many-body input is `commaSep-chars rs ++ suffix`.  Its
   -- head is either `,` (next iter) or the head of suffix
@@ -366,14 +368,14 @@ manyHelper-comma-ident-body pos (r ∷ rs) suffix (suc m')
 
     pos-after-name : Position
     pos-after-name =
-      advancePositions pos-after-comma (toList (Identifier.name r))
+      advancePositions pos-after-comma (Identifier.name r)
 
     iter-rest-ss : SuffixStops isIdentCont iter-rest
     iter-rest-ss = commaSep-isIdentCont-stop rs suffix ss
 
     iter-eq :
       (char ',' *> parseIdentifier) pos
-        (',' ∷ toList (Identifier.name r) ++ₗ iter-rest)
+        (',' ∷ Identifier.name r ++ₗ iter-rest)
       ≡ just (mkResult r pos-after-name iter-rest)
     iter-eq = comma-ident-step pos r iter-rest iter-rest-ss
 
@@ -387,10 +389,10 @@ manyHelper-comma-ident-body pos (r ∷ rs) suffix (suc m')
     -- ≡ ',' ∷ name ++ (commaSep rs ++ suffix)`.
     shape-eq :
       commaSep-chars (r ∷ rs) ++ₗ suffix
-      ≡ ',' ∷ toList (Identifier.name r) ++ₗ iter-rest
+      ≡ ',' ∷ Identifier.name r ++ₗ iter-rest
     shape-eq =
       cong (',' ∷_)
-        (++ₗ-assoc (toList (Identifier.name r))
+        (++ₗ-assoc (Identifier.name r)
                    (commaSep-chars rs)
                    suffix)
   in
@@ -399,7 +401,7 @@ manyHelper-comma-ident-body pos (r ∷ rs) suffix (suc m')
                manyHelper (char ',' *> parseIdentifier) pos input (suc m'))
             shape-eq)
       (manyHelper-prog-cons (char ',' *> parseIdentifier) pos
-        (',' ∷ toList (Identifier.name r) ++ₗ iter-rest) m'
+        (',' ∷ Identifier.name r ++ₗ iter-rest) m'
         r pos-after-name iter-rest
         rs
         (afterReceivers pos-after-name rs)
@@ -482,14 +484,14 @@ parseReceiverList-roundtrip-cons pos r rs suffix ss =
     (cong (λ input → parseReceiverList pos input)
           (trans
             (cong (_++ₗ suffix) (emitReceivers-chars-cons-shape r rs))
-            (++ₗ-assoc (toList (Identifier.name r))
+            (++ₗ-assoc (Identifier.name r)
                        (commaSep-chars rs)
                        suffix)))
     (trans step-parseIdentifier
       (trans step-many step-pure))
   where
     pos-after-name : Position
-    pos-after-name = advancePositions pos (toList (Identifier.name r))
+    pos-after-name = advancePositions pos (Identifier.name r)
 
     pos-after-many : Position
     pos-after-many = afterReceivers pos-after-name rs
@@ -508,11 +510,11 @@ parseReceiverList-roundtrip-cons pos r rs suffix ss =
 
     step-parseIdentifier :
       parseReceiverList pos
-        (toList (Identifier.name r) ++ₗ commaSep-chars rs ++ₗ suffix)
+        (Identifier.name r ++ₗ commaSep-chars rs ++ₗ suffix)
       ≡ cont-after-ident r pos-after-name (commaSep-chars rs ++ₗ suffix)
     step-parseIdentifier =
       bind-just-step parseIdentifier cont-after-ident
-        pos (toList (Identifier.name r) ++ₗ commaSep-chars rs ++ₗ suffix)
+        pos (Identifier.name r ++ₗ commaSep-chars rs ++ₗ suffix)
         r pos-after-name (commaSep-chars rs ++ₗ suffix)
         (parseIdentifier-roundtrip pos r
           (commaSep-chars rs ++ₗ suffix) parseIdent-suffix-ss)
@@ -533,7 +535,7 @@ parseReceiverList-roundtrip-cons pos r rs suffix ss =
             (≤-trans
                (length-rs-le-commaSep rs')
                (le-monotone-++
-                  (toList (Identifier.name r'))
+                  (Identifier.name r')
                   (commaSep-chars rs')))
           where
             le-monotone-++ : ∀ (xs ys : List Char)
@@ -571,7 +573,7 @@ parseReceiverList-roundtrip-cons pos r rs suffix ss =
         (afterReceivers-advancePositions pos-after-name rs)
         (trans
           (sym (advancePositions-++ pos
-                  (toList (Identifier.name r))
+                  (Identifier.name r)
                   (commaSep-chars rs)))
           (cong (advancePositions pos)
                 (sym (emitReceivers-chars-cons-shape r rs))))
@@ -605,11 +607,11 @@ stripVectorPlaceholder-vectorXXX = refl
 -- catch-all clause).
 stripVectorPlaceholder-no-vectorXXX :
     ∀ (rs : List Identifier)
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") rs
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") rs
   → stripVectorPlaceholder rs ≡ rs
 stripVectorPlaceholder-no-vectorXXX []           _              = refl
 stripVectorPlaceholder-no-vectorXXX (r ∷ [])     (¬eq All.∷ All.[])
-  with Identifier.name r ≟ₛ "Vector__XXX"
+  with ListProps.≡-dec _≟ᶜ_ (Identifier.name r) (toList "Vector__XXX")
 ... | yes eq = ⊥-elim (¬eq eq)
 ... | no  _  = refl
 stripVectorPlaceholder-no-vectorXXX (_ ∷ _ ∷ _)  _              = refl
@@ -626,7 +628,7 @@ stripVectorPlaceholder-no-vectorXXX (_ ∷ _ ∷ _)  _              = refl
 -- strip recovery).
 parseReceiverList∘strip-roundtrip :
     ∀ (pos : Position) (rs : List Identifier) (suffix : List Char)
-  → All (λ r → ¬ Identifier.name r ≡ "Vector__XXX") rs
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") rs
   → SuffixStops isReceiverCont suffix
   → ∃[ parsedRs ]
         (parseReceiverList pos (emitReceivers-chars rs ++ₗ suffix)
