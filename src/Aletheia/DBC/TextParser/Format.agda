@@ -22,15 +22,18 @@
 -- demands; resist speculative growth.
 module Aletheia.DBC.TextParser.Format where
 
-open import Data.Bool using (Bool; true; false)
+open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool.Properties using (T?; T-irrelevant)
+open import Relation.Nullary using (yes; no)
 open import Data.Char using (Char; _≈ᵇ_)
 open import Data.Char.Base using (isDigit)
+open import Data.Empty using (⊥-elim)
 open import Data.List using (List; []; _∷_; length; concatMap) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (length-++) renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _+_; s≤s; z≤n)
 open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; n≤1+n; +-mono-≤)
-open import Data.Product using (_×_; _,_; proj₁; proj₂)
+open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
@@ -106,6 +109,25 @@ data Format : Set → Set₁ where
   iso     : ∀ {A B} (φ : A → B) (ψ : B → A)
           → (∀ b → φ (ψ b) ≡ b)
           → Format A → Format B
+  -- Refinement carrier change.  Takes a Boolean predicate `P : A → Bool`
+  -- and produces a Format whose carrier is `Σ A (T ∘ P)` — values paired
+  -- with a witness that the predicate holds.  This is the constructor
+  -- `iso` cannot express: `iso` requires a *total* inverse `φ : A → B`,
+  -- but `A → Σ A (T ∘ P)` is partial — only defined when `P a` holds.
+  --
+  -- `parse` runs the underlying `f`, then decides `P` on the result; on
+  -- `true` it lifts the value with the freshly-derived witness, on `false`
+  -- it fails.  `emit` projects the value and discards the witness (the
+  -- emitted string has no information about the predicate).
+  --
+  -- Universal roundtrip closes the witness slot via `T-irrelevant`: any
+  -- two `T (P a)` proofs are propositionally equal, so the parse-derived
+  -- witness equals the user's original.  Reserved for use through `iso`
+  -- when the consumer wants a named record (e.g. `iso mkIntDecRat ψ
+  -- (refined isIntegerᵇ <DecRat-format>)`); the Σ carrier is the universal
+  -- shape and record-η discharges the iso roundtrip equation.
+  refined : ∀ {A} (P : A → Bool) → Format A
+          → Format (Σ A (λ a → T (P a)))
 
 -- ============================================================================
 -- EMIT / PARSE
@@ -119,6 +141,25 @@ emit stringLit        cs       = quoteStringLit-chars cs
 emit (pair f g)       (a , b)  = emit f a ++ₗ emit g b
 emit (iso _ ψ _ f)    b        = emit f (ψ b)
 emit (many f)         xs       = concatMap (emit f) xs
+emit (refined _ f)    (a , _)  = emit f a
+
+-- `liftRefined` decides the refinement predicate on the value just parsed
+-- by the underlying format, succeeding (with the synthesised witness) when
+-- `P a` holds and failing otherwise.  Factored out of `parse (refined …)`
+-- so that the universal roundtrip case can use `bind-just-step` on the
+-- outer `parse f >>= …` and a separate lemma (`liftRefined-on-witness`,
+-- below in `private`) on the predicate decision step.
+--
+-- Uses `T?` (decidable T) rather than a direct `with P a in eq`: the
+-- `yes wit` branch immediately delivers a `wit : T (P a)`, which the
+-- `Σ A (λ a → T (P a))` carrier accepts without needing to thread an
+-- equation back through `subst T`.  A bare `with P a in eq` doesn't
+-- typecheck because the with-elaboration generalises `P a` to a fresh
+-- `Bool` variable that no longer matches the `Σ` carrier's type.
+liftRefined : ∀ {A} (P : A → Bool) → A → Parser (Σ A (λ a → T (P a)))
+liftRefined P a pos input with T? (P a)
+... | yes wit = just (mkResult (a , wit) pos input)
+... | no  _   = nothing
 
 parse : ∀ {A} → Format A → Parser A
 parse (literal cs)    = parseCharsSeq cs >>= λ _ → pure tt
@@ -128,6 +169,7 @@ parse stringLit       = parseStringLit
 parse (pair f g)      = parse f >>= λ a → parse g >>= λ b → pure (a , b)
 parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
 parse (many f)        = many-parser (parse f)
+parse (refined P f)   = parse f >>= liftRefined P
 
 -- ============================================================================
 -- PARSE-FAILS-AT — termination certificate for `many`
@@ -178,6 +220,7 @@ EmitsOK (pair f g)     (a , b)  suffix =
   EmitsOK f a (emit g b ++ₗ suffix) × EmitsOK g b suffix
 EmitsOK (iso _ ψ _ f)  b        suffix = EmitsOK f (ψ b) suffix
 EmitsOK (many f)       xs       suffix = EmitsOKMany f xs suffix
+EmitsOK (refined _ f)  (a , _)  suffix = EmitsOK f a suffix
 
 -- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
 -- only; each `∷-cons` constructor carries the per-element well-formedness
@@ -239,6 +282,20 @@ private
     rewrite length-++ (emit f x) {emit (many f) xs} =
       +-mono-≤ ne-x (length-emit-many-bound f xs suffix wf-xs)
 
+  -- `liftRefined` succeeds with the user's witness when the predicate
+  -- decision matches.  Mirrors the `with T? (P a)` inside `liftRefined`'s
+  -- definition; the `yes wit'` branch closes via `T-irrelevant` (any two
+  -- `T (P a)` proofs are propositionally equal); the `no ¬wit'` branch
+  -- is absurd because the user supplied a real `wit : T (P a)` that
+  -- contradicts the refutation.
+  liftRefined-on-witness : ∀ {A} (P : A → Bool) (a : A) (wit : T (P a))
+                             (pos : Position) (input : List Char)
+    → liftRefined P a pos input ≡ just (mkResult (a , wit) pos input)
+  liftRefined-on-witness P a wit pos input with T? (P a)
+  ... | yes wit' = cong (λ w' → just (mkResult (a , w') pos input))
+                        (T-irrelevant wit' wit)
+  ... | no  ¬wit = ⊥-elim (¬wit wit)
+
 -- ============================================================================
 -- UNIVERSAL ROUNDTRIP THEOREM (+ `many`'s manyHelper helper, mutual)
 -- ============================================================================
@@ -295,6 +352,14 @@ mutual
                           (roundtrip f pos (ψ b) suffix wf))
           (cong (λ x → just (mkResult x (advancePositions pos (emit f (ψ b))) suffix))
                 (φψ-id b))
+  roundtrip (refined P f) pos (a , w) suffix wf =
+    trans (bind-just-step (parse f)
+                          (liftRefined P)
+                          pos (emit f a ++ₗ suffix)
+                          a (advancePositions pos (emit f a)) suffix
+                          (roundtrip f pos a suffix wf))
+          (liftRefined-on-witness P a w
+                                  (advancePositions pos (emit f a)) suffix)
   roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
     trans (cong (parse (pair f g) pos)
                 (++ₗ-assoc (emit f a) (emit g b) suffix))
@@ -428,3 +493,19 @@ roundtrip-pair-ident-literal : ∀ pos i ds suffix
              suffix)
 roundtrip-pair-ident-literal pos i ds suffix ss =
   roundtrip (pair ident (literal ds)) pos (i , tt) suffix (ss , tt)
+
+-- L5: refined nat with arbitrary predicate `P : ℕ → Bool`.  Witness:
+-- `(ss , wit)` where `ss : SuffixStops isDigit suffix` is the underlying
+-- format's well-formedness, and `wit : T (P n)` is the refinement witness
+-- supplied by the user.  Exercises the `refined` constructor's roundtrip
+-- case end-to-end: parse runs nat, then `liftRefined` (decided via `T?`),
+-- and the witness slot closes via `T-irrelevant`.  If `refined`'s
+-- signature or `liftRefined-on-witness`'s shape drifts, this fails.
+roundtrip-refined-nat : ∀ pos (P : ℕ → Bool) (n : ℕ) (wit : T (P n)) suffix
+  → SuffixStops isDigit suffix
+  → parse (refined P nat) pos (showNat-chars n ++ₗ suffix)
+    ≡ just (mkResult (n , wit)
+             (advancePositions pos (showNat-chars n))
+             suffix)
+roundtrip-refined-nat pos P n wit suffix ss =
+  roundtrip (refined P nat) pos (n , wit) suffix ss
