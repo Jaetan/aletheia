@@ -232,6 +232,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- migrate 3a–3d.3 proofs onto it); same walk-root rationale as
         -- WellFormedText above.
         agdaWithRTS "Aletheia/DBC/TextParser/Format.agda"
+        -- B.3.d Layer 3 3d.5.b: Format DSL gate-target — parseValueTable
+        -- expressed in the DSL (88 code-LOC vs the 613-LOC existing
+        -- proof, 86% reduction).  Same walk-root rationale; 3d.5.d
+        -- migration may consolidate by replacing the existing parser.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/ValueTable.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
