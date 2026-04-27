@@ -34,13 +34,14 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc; _≤_; _<_; _+_; s≤s; z≤n)
 open import Data.Nat.Properties using (≤-trans; m≤m+n; m≤n+m; n≤1+n; +-mono-≤)
 open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
-         parseCharsSeq; pure; _>>=_;
+         parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
          manyHelper; sameLengthᵇ)
   renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
@@ -50,7 +51,8 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (parseCharsSeq-success; parseIdentifier-roundtrip;
-         parseStringLit-roundtrip)
+         parseStringLit-roundtrip;
+         alt-left-just; alt-right-nothing)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
          parseNatural-showNat-chars)
@@ -128,6 +130,23 @@ data Format : Set → Set₁ where
   -- shape and record-η discharges the iso roundtrip equation.
   refined : ∀ {A} (P : A → Bool) → Format A
           → Format (Σ A (λ a → T (P a)))
+  -- Sum-type alternation (caseFmt for binary sums).  Carrier is `A ⊎ B`;
+  -- `emit` dispatches on the constructor (`inj₁ a` ⇒ `emit f a`, `inj₂ b`
+  -- ⇒ `emit g b`), `parse` tries `f` first then falls through to `g`.
+  --
+  -- N-ary case-dispatch (e.g. `MuxMarker` 4-shape) is built by *nesting*
+  -- `altSum` and using `iso` to convert between the nested `⊎` encoding
+  -- and the user's named ADT.  This is the "caseFmt + common-prefix
+  -- combinator" choice from the locked plan: nested `altSum` handles the
+  -- sum dispatch; `withPrefix` (sugar over `iso` + `pair` + `literal`,
+  -- below) handles the shared leading text.
+  --
+  -- WF (`AltSumOK`, defined below): each constructor of the sum carries
+  -- its own per-branch `EmitsOK` *plus* — for the `inj₂` case — a
+  -- parse-disjointness witness `∀ pos → parse f pos (emit g b ++ suffix)
+  -- ≡ nothing` so that the `<|>` falls through cleanly.  The `inj₁` case
+  -- needs no extra witness because `parse f` succeeds first.
+  altSum : ∀ {A B} → Format A → Format B → Format (A ⊎ B)
 
 -- ============================================================================
 -- EMIT / PARSE
@@ -142,6 +161,8 @@ emit (pair f g)       (a , b)  = emit f a ++ₗ emit g b
 emit (iso _ ψ _ f)    b        = emit f (ψ b)
 emit (many f)         xs       = concatMap (emit f) xs
 emit (refined _ f)    (a , _)  = emit f a
+emit (altSum f _)     (inj₁ a) = emit f a
+emit (altSum _ g)     (inj₂ b) = emit g b
 
 -- `liftRefined` decides the refinement predicate on the value just parsed
 -- by the underlying format, succeeding (with the synthesised witness) when
@@ -170,6 +191,7 @@ parse (pair f g)      = parse f >>= λ a → parse g >>= λ b → pure (a , b)
 parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
 parse (many f)        = many-parser (parse f)
 parse (refined P f)   = parse f >>= liftRefined P
+parse (altSum f g)    = (inj₁ <$> parse f) <|> (inj₂ <$> parse g)
 
 -- ============================================================================
 -- PARSE-FAILS-AT — termination certificate for `many`
@@ -221,6 +243,10 @@ EmitsOK (pair f g)     (a , b)  suffix =
 EmitsOK (iso _ ψ _ f)  b        suffix = EmitsOK f (ψ b) suffix
 EmitsOK (many f)       xs       suffix = EmitsOKMany f xs suffix
 EmitsOK (refined _ f)  (a , _)  suffix = EmitsOK f a suffix
+EmitsOK (altSum f g)   (inj₁ a) suffix = EmitsOK f a suffix
+EmitsOK (altSum f g)   (inj₂ b) suffix =
+  EmitsOK g b suffix
+  × (∀ pos → parse f pos (emit g b ++ₗ suffix) ≡ nothing)
 
 -- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
 -- only; each `∷-cons` constructor carries the per-element well-formedness
@@ -234,6 +260,7 @@ data EmitsOKMany {A} f where
     → 0 < length (emit f x)
     → EmitsOKMany f xs suffix
     → EmitsOKMany f (x ∷ xs) suffix
+
 
 -- ============================================================================
 -- PRIVATE HELPERS — `many`'s roundtrip plumbing
@@ -295,6 +322,23 @@ private
   ... | yes wit' = cong (λ w' → just (mkResult (a , w') pos input))
                         (T-irrelevant wit' wit)
   ... | no  ¬wit = ⊥-elim (¬wit wit)
+
+  -- `<$>` step lemmas.  Mirror `bind-just-step` / `bind-nothing` (defined
+  -- in `Properties.Primitives`) but for the functor map over a parser.
+  -- Used in the universal `roundtrip` clause for `altSum`.
+  map-just : ∀ {A B : Set} (g : A → B) (p : Parser A)
+               (pos : Position) (input : List Char) v p' i'
+    → p pos input ≡ just (mkResult v p' i')
+    → (g <$> p) pos input ≡ just (mkResult (g v) p' i')
+  map-just g p pos input v p' i' eq with p pos input | eq
+  ... | just .(mkResult v p' i') | refl = refl
+
+  map-nothing : ∀ {A B : Set} (g : A → B) (p : Parser A)
+                  (pos : Position) (input : List Char)
+    → p pos input ≡ nothing
+    → (g <$> p) pos input ≡ nothing
+  map-nothing g p pos input eq with p pos input | eq
+  ... | nothing | refl = refl
 
 -- ============================================================================
 -- UNIVERSAL ROUNDTRIP THEOREM (+ `many`'s manyHelper helper, mutual)
@@ -360,6 +404,28 @@ mutual
                           (roundtrip f pos a suffix wf))
           (liftRefined-on-witness P a w
                                   (advancePositions pos (emit f a)) suffix)
+  roundtrip (altSum f g) pos (inj₁ a) suffix wf-f =
+    -- emit (altSum f g) (inj₁ a) = emit f a; parse tries f first.
+    -- IH `roundtrip f` succeeds; `(inj₁ <$> parse f)` succeeds; `<|>`
+    -- picks the left branch via `alt-left-just`.
+    alt-left-just (inj₁ <$> parse f) (inj₂ <$> parse g)
+                  pos (emit f a ++ₗ suffix)
+                  (mkResult (inj₁ a) (advancePositions pos (emit f a)) suffix)
+                  (map-just inj₁ (parse f) pos (emit f a ++ₗ suffix)
+                            a (advancePositions pos (emit f a)) suffix
+                            (roundtrip f pos a suffix wf-f))
+  roundtrip (altSum f g) pos (inj₂ b) suffix (wf-g , f-fails) =
+    -- emit (altSum f g) (inj₂ b) = emit g b; parse f fails on this input
+    -- (by `f-fails`), so `<|>` falls through to `parse g`.  IH `roundtrip
+    -- g` then closes the right side.
+    trans (alt-right-nothing (inj₁ <$> parse f) (inj₂ <$> parse g)
+                             pos (emit g b ++ₗ suffix)
+                             (map-nothing inj₁ (parse f) pos
+                                          (emit g b ++ₗ suffix)
+                                          (f-fails pos)))
+          (map-just inj₂ (parse g) pos (emit g b ++ₗ suffix)
+                    b (advancePositions pos (emit g b)) suffix
+                    (roundtrip g pos b suffix wf-g))
   roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
     trans (cong (parse (pair f g) pos)
                 (++ₗ-assoc (emit f a) (emit g b) suffix))
@@ -509,3 +575,31 @@ roundtrip-refined-nat : ∀ pos (P : ℕ → Bool) (n : ℕ) (wit : T (P n)) suf
              suffix)
 roundtrip-refined-nat pos P n wit suffix ss =
   roundtrip (refined P nat) pos (n , wit) suffix ss
+
+-- L6: altSum on the inj₁ branch — literal "X" lifted to `Format (⊤ ⊎ ℕ)`.
+-- Tests the left-branch path through `<|>`: `parse f` succeeds first, so
+-- `(inj₁ <$> parse f) <|> (inj₂ <$> parse g)` returns `inj₁ tt` directly
+-- via `alt-left-just`.  No disjointness witness needed for the left case.
+roundtrip-altSum-inj₁ : ∀ pos suffix
+  → parse (altSum (literal ('X' ∷ [])) nat) pos
+      (('X' ∷ []) ++ₗ suffix)
+    ≡ just (mkResult (inj₁ tt)
+             (advancePositions pos ('X' ∷ []))
+             suffix)
+roundtrip-altSum-inj₁ pos suffix =
+  roundtrip (altSum (literal ('X' ∷ [])) nat) pos (inj₁ tt) suffix tt
+
+-- ============================================================================
+-- DERIVED COMBINATORS
+-- ============================================================================
+
+-- `withPrefix` consumes a fixed leading text then runs the inner format.
+-- Pure sugar over `iso` + `pair` + `literal` (no new DSL constructor
+-- needed) — the locked plan's "consume common prefix, then case-split on
+-- residual" pattern combines this with `altSum` on the residual side.
+-- The iso projects the `⊤` from the literal away, exposing only the
+-- inner carrier `A`.  Equation closes by record-η on the underlying pair
+-- (`proj₂ (tt , a) ≡ a` is `refl`).
+withPrefix : ∀ {A} → List Char → Format A → Format A
+withPrefix cs f =
+  iso proj₂ (λ a → tt , a) (λ _ → refl) (pair (literal cs) f)
