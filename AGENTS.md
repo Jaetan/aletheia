@@ -101,7 +101,7 @@ Agent D takes a whole-program view. These categories cannot be evaluated per-fil
 | Scope | Categories | Guidelines |
 |-------|-----------|------------|
 | Specification | 10 Domain model, 11 Invariants, 12 Property completeness, 13 Assumption audit, 19 Hypothesis propagation | G-A11 Validity predicates (→10, 11), G-A13 Generalization (→10), G-A17 Typed error handling (→11), G-A18 State machine encoding (→11), G-A7 Proof hypothesis discharge (→19) |
-| Architecture | 14 API surface, 15 Module structure, 17 Cross-layer, 30 MAlonzo export surface stability, 31 Stdlib version pinning & API compatibility | G-A19 Binary FFI wire format (→17, 30), G-A20 Module separation (→15) |
+| Architecture | 14 API surface, 15 Module structure, 17 Cross-layer, 30 MAlonzo export surface stability, 31 Stdlib version pinning & API compatibility | G-A19 Binary FFI wire format (→17, 30), G-A20 Module separation (→15), G-A23 Audit all wire boundaries (→14, 17) |
 
 Agent D must concretely:
 - **10 Domain model**: Read all domain type modules (CAN/, DBC/, LTL/, Trace/) and assess whether the type system faithfully models the real-world domain. Identify protocol features, edge cases, or real-world behaviors the model cannot represent.
@@ -233,7 +233,7 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 
 ### Guidelines
 
-Each guideline below carries a stable identifier (`G-A1`..`G-A20`) so the step-1/step-2 agent tables and finding reports can reference it directly. New guidelines should follow the shape: **Rule** (one-line imperative), **Why** (mechanism/incident), **How to apply** (when the reviewer should flag), **Example** (in-tree pointer or worked snippet). Existing guidelines vary in format — they were written over multiple review rounds and use the structure loosely; migrate them toward the shape when adjacent edits land, but do not rewrite en-masse.
+Each guideline below carries a stable identifier (`G-A1`..`G-A23`) so the step-1/step-2 agent tables and finding reports can reference it directly. New guidelines should follow the shape: **Rule** (one-line imperative), **Why** (mechanism/incident), **How to apply** (when the reviewer should flag), **Example** (in-tree pointer or worked snippet). Existing guidelines vary in format — they were written over multiple review rounds and use the structure loosely; migrate them toward the shape when adjacent edits land, but do not rewrite en-masse.
 
 **G-A1 — Import hygiene:**
 - Bare `using ()` with no renaming clause is dead code -- remove the import line entirely.
@@ -330,6 +330,13 @@ Each guideline below carries a stable identifier (`G-A1`..`G-A20`) so the step-1
 - The agent must raise this proactively — it is not the user's job to notice the convolution.  See `memory/feedback_step_back_when_proofs_balloon.md` for the canonical statement of this rule.
 - Worked example: B.3.d Layer 3 went 8 constructs deep (3a/3b/3c.1/3c.2/3c.3/3c.4/3d.2/3d.3) at 500–2,500 LOC each before the user asked "Are we missing something?" post-3d.3b on 2026-04-26.  The locked refactor (`3d.4` Identifier de-tainting + `3d.5` Format DSL framework, projected ~85% Layer-3 LOC reduction; see `docs/development/PARITY_PLAN.md` §B.3.d) should have been initiated from the agent side after construct #2 or #3.
 - Anti-pattern to reject: "this construct is also complex, but it type-checks, so I'll commit and move on."
+
+**G-A23 — Audit ALL wire boundaries when changing a runtime representation:**
+- When a refactor changes a type's internal representation (e.g. `Identifier.name : String → List Char`, or any `record { … }` field whose value crosses a wire format), enumerate **every boundary** the type crosses — text wire, JSON wire, binary FFI wire, accessor API surface — and verify the per-boundary proof obligation BEFORE locking the plan.  Don't analyze only the boundary in front of you.
+- For each boundary, write the per-boundary roundtrip claim and trace whether it reduces definitionally or needs a primitive-bridging axiom (`toList∘fromList`, `fromList∘toList`, etc.).  If any boundary needs an axiom that the plan didn't account for, the plan is incomplete — not "just an extra step at commit time."
+- Before locking, ask the advisor explicitly: "Are there other boundaries this refactor touches that I haven't analyzed?"
+- Worked example: B.3.d 3d.4 plan was authored 2026-04-26 with text-parser-side analysis only.  "Axioms only at the outer parseText/formatText wrap" was correct for the text-parser path but missed that JSON has multiple String boundaries (one per JString site).  Resumption session 2026-04-27 surfaced the gap; replanning committed weeks of additional work (Option 2: mirror 3d.4 fix on JSON side via `JString : List Char → JSON` + DBC AST text fields → List Char).  See `memory/feedback_audit_all_wire_boundaries.md`.
+- Counterexample to the rule "axioms only at outer wrap": any wire format that's structurally heterogeneous (JSON has many `JString` sites) needs either an internal-representation alignment (JSON spine to `List Char`) or accept axioms at each site.  Single-site wires (text-parser entry/exit) localise cleanly; multi-site wires don't.
 
 ### Verification
 
