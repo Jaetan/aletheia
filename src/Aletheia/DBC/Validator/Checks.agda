@@ -9,6 +9,7 @@
 --   into validateDBCFull in the parent Validator module.
 module Aletheia.DBC.Validator.Checks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr)
 
 open import Aletheia.DBC.Types using
@@ -530,7 +531,7 @@ checkUnknownReceiver nodes msgName sigName receiver =
 checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
 checkReceiversForSignal nodes msgName sig =
   concatMap (checkUnknownReceiver nodes msgName (signalNameStr sig))
-            (DBCSignal.receivers sig)
+            (CanonicalReceivers.list (DBCSignal.receivers sig))
 
 checkAllUnknownSignalReceivers : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownSignalReceivers _    []             = []

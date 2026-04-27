@@ -17,6 +17,7 @@
 -- equality is locally provable.
 module Aletheia.DBC.Formatter where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.DecRat.Refinement using (intDecRatToℤ; natDecRatToℕ)
 
 open import Data.String as String using (String; toList)
@@ -100,7 +101,7 @@ formatDBCSignal frameBytes sig =
     ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
     ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
     ("unit"      , JString (DBCSignal.unit sig)) ∷
-    ("receivers" , JArray (map identJSON (DBCSignal.receivers sig))) ∷
+    ("receivers" , JArray (map identJSON (CanonicalReceivers.list (DBCSignal.receivers sig)))) ∷
     formatPresence (DBCSignal.presence sig))
 
 formatDBCMessage : DBCMessage → JSON

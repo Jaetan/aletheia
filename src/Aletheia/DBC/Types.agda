@@ -26,6 +26,7 @@ open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.DecRat.Refinement using (IntDecRat; NatDecRat)
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 -- Signal presence model for multiplexing.
 -- A signal is either always present or conditionally present based on a multiplexor.
@@ -53,7 +54,7 @@ record DBCSignal : Set where
     byteOrder : ByteOrder
     unit : List Char                 -- DBC unit literal; List Char post 3d.4 JSON-mirror
     presence : SignalPresence        -- Conditional presence for multiplexing
-    receivers : List Identifier      -- Node names from SG_ trailing receiver list
+    receivers : CanonicalReceivers   -- Node names from SG_ trailing receiver list (3d.5.c-γ.2: refined to exclude singleton-Vector__XXX)
 
 record DBCMessage : Set where
   field

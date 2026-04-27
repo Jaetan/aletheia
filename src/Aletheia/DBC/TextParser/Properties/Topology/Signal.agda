@@ -63,6 +63,7 @@ open import Aletheia.Parser.Combinators using
    pure; _>>=_; _*>_; _<|>_; string; char; satisfy; many; manyHelper)
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; isIdentStart; isIdentCont; validIdentifierᵇ)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
@@ -152,7 +153,7 @@ expectedRaw mux sig frameBytes = mkRawSignal
     (SignalDef.minimum (DBCSignal.signalDef sig))
     (SignalDef.maximum (DBCSignal.signalDef sig))
     (DBCSignal.unit sig)
-    (DBCSignal.receivers sig)
+    (CanonicalReceivers.list (DBCSignal.receivers sig))
 
 
 -- ============================================================================
@@ -201,7 +202,7 @@ private
     unitChars = quoteStringLit-chars (DBCSignal.unit sig)
 
     recvChars : List Char
-    recvChars = emitReceivers-chars (DBCSignal.receivers sig)
+    recvChars = emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
 
 -- The full body string from `" : "` through `'\n'`, parameterized by
 -- `frameBytes`, `sig`, and the post-receiver suffix.  Pulling the head
@@ -384,7 +385,7 @@ private
     minCs  = showDecRat-dec-chars (SignalDef.minimum (DBCSignal.signalDef sig))
     maxCs  = showDecRat-dec-chars (SignalDef.maximum (DBCSignal.signalDef sig))
     untCs  = quoteStringLit-chars (DBCSignal.unit sig)
-    rcvCs  = emitReceivers-chars (DBCSignal.receivers sig)
+    rcvCs  = emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
 
     pos₁  = advancePosition  pos    ' '
     pos₂  = advancePosition  pos₁   ':'
@@ -550,8 +551,8 @@ private
 parseSignalTail-roundtrip :
     ∀ (pos : Position) (name : Identifier) (mux : MuxMarker)
       (sig : DBCSignal) (frameBytes : ℕ) (suffix : List Char)
-  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
-  → SuffixStops isHSpace (emitReceivers-chars (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (CanonicalReceivers.list (DBCSignal.receivers sig))
+  → SuffixStops isHSpace (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig))
                           ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
   → parseSignalTail name mux pos
@@ -570,7 +571,7 @@ parseSignalTail-roundtrip :
                  (SignalDef.minimum (DBCSignal.signalDef sig))
                  (SignalDef.maximum (DBCSignal.signalDef sig))
                  (DBCSignal.unit sig)
-                 (DBCSignal.receivers sig))
+                 (CanonicalReceivers.list (DBCSignal.receivers sig)))
               (TailPositions.pos₂₇ pos sig frameBytes)
               suffix)
 parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = proof
@@ -603,10 +604,10 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
             (parseReceiverList pos₂₄
               (rcvCs ++ₗ '\n' ∷ suffix)
               ≡ just (mkResult parsedRs pos₂₅ ('\n' ∷ suffix)))
-          × (stripVectorPlaceholder parsedRs ≡ DBCSignal.receivers sig)
+          × (stripVectorPlaceholder parsedRs ≡ CanonicalReceivers.list (DBCSignal.receivers sig))
     receivers-strip-eq =
       parseReceiverList∘strip-roundtrip pos₂₄
-        (DBCSignal.receivers sig) ('\n' ∷ suffix)
+        (CanonicalReceivers.list (DBCSignal.receivers sig)) ('\n' ∷ suffix)
         novecxxx (∷-stop refl)
 
     parsedRs : List Identifier
@@ -617,7 +618,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
                   ≡ just (mkResult parsedRs pos₂₅ ('\n' ∷ suffix))
     parseRcv-eq = proj₁ (proj₂ receivers-strip-eq)
 
-    strip-eq : stripVectorPlaceholder parsedRs ≡ DBCSignal.receivers sig
+    strip-eq : stripVectorPlaceholder parsedRs ≡ CanonicalReceivers.list (DBCSignal.receivers sig)
     strip-eq = proj₂ (proj₂ receivers-strip-eq)
 
     -- Concrete result of the bind chain — name, mux, plus all parsed
@@ -635,7 +636,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       (SignalDef.minimum (DBCSignal.signalDef sig))
       (SignalDef.maximum (DBCSignal.signalDef sig))
       (DBCSignal.unit sig)
-      (DBCSignal.receivers sig)
+      (CanonicalReceivers.list (DBCSignal.receivers sig))
 
     -- Step proofs follow.  Each `step-N` advances one bind in the
     -- 28-step chain, threaded via `bind-just-step`.  The continuation
@@ -1706,9 +1707,9 @@ parseSignalLine-roundtrip-IsMux :
   → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ toList " M"
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (CanonicalReceivers.list (DBCSignal.receivers sig))
   → SuffixStops isHSpace
-      (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
+      (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig)) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
   → parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix)
@@ -1972,9 +1973,9 @@ parseSignalLine-roundtrip-NotMux :
   → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ []
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (CanonicalReceivers.list (DBCSignal.receivers sig))
   → SuffixStops isHSpace
-      (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
+      (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig)) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
   → parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix)
@@ -2219,9 +2220,9 @@ parseSignalLine-roundtrip-SelBy :
   → emitMuxMarker-chars master (Identifier.name (DBCSignal.name sig)) (DBCSignal.presence sig)
     ≡ toList " m" ++ₗ showℕ-dec-chars v
   → SignalNameStop sig
-  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (DBCSignal.receivers sig)
+  → All (λ r → ¬ Identifier.name r ≡ toList "Vector__XXX") (CanonicalReceivers.list (DBCSignal.receivers sig))
   → SuffixStops isHSpace
-      (emitReceivers-chars (DBCSignal.receivers sig) ++ₗ '\n' ∷ suffix)
+      (emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig)) ++ₗ '\n' ∷ suffix)
   → SuffixStops isReceiverCont suffix
   → parseSignalLine pos
       (emitSignalLine-chars master fb sig ++ₗ suffix)

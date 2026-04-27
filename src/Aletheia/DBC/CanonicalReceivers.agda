@@ -29,12 +29,16 @@ open import Data.Bool.Properties using (T?; T-irrelevant)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using (List; []; _∷_)
+import Data.List.Properties as ListProps
 open import Data.String using (toList)
 open import Data.Unit using (⊤; tt)
-open import Relation.Nullary using (yes; no; ¬_)
+open import Relation.Binary.PropositionalEquality
+  using (_≡_; refl; cong)
+open import Relation.Nullary using (Dec; yes; no; ¬_)
 
 open import Aletheia.DBC.Identifier
-  using (Identifier; mkIdent; validIdentifierᵇ; _≡csᵇ_; ≡csᵇ-refl-eq)
+  using (Identifier; mkIdent; validIdentifierᵇ; _≡csᵇ_; ≡csᵇ-refl-eq;
+         _≟ᴵ_)
 
 -- ============================================================================
 -- VECTOR__XXX MAGIC IDENTIFIER
@@ -122,3 +126,35 @@ mkCanonicalFromList (r ∷ []) with T? (isVectorXXXᵇ r)
 ... | yes _   = mkCanonical [] tt
 ... | no  ¬p  = mkCanonical (r ∷ []) (¬T→T-not ¬p)
 mkCanonicalFromList (h ∷ s ∷ rest) = mkCanonical (h ∷ s ∷ rest) tt
+
+-- ============================================================================
+-- IDEMPOTENCY: mkCanonicalFromList ∘ list ≡ id
+-- ============================================================================
+
+-- Wrapping a canonical AST's underlying list back into a CanonicalReceivers
+-- is the identity (up to witness irrelevance).  Used by JSON roundtrip
+-- proofs and the γ.2 cascade — the JSON parser path strips the
+-- refinement (`receiverIds : List Identifier`), then `mkCanonicalFromList`
+-- re-wraps; this lemma closes the resulting `mkCanonicalFromList (.list r)
+-- ≡ r` obligation in roundtrip proofs.
+mkCanonicalFromList-list : ∀ (cr : CanonicalReceivers)
+  → mkCanonicalFromList (CanonicalReceivers.list cr) ≡ cr
+mkCanonicalFromList-list (mkCanonical [] _) = refl
+mkCanonicalFromList-list (mkCanonical (r ∷ []) wit) with T? (isVectorXXXᵇ r)
+... | yes p   = ⊥-elim (T-not-and-T wit p)
+... | no  ¬p  = cong (mkCanonical (r ∷ []))
+                     (T-irrelevant (¬T→T-not ¬p) wit)
+mkCanonicalFromList-list (mkCanonical (r ∷ s ∷ rest) _) = refl
+
+-- ============================================================================
+-- DECIDABLE EQUALITY
+-- ============================================================================
+
+-- Two `CanonicalReceivers` are propositionally equal iff their `list`
+-- char-list-of-identifiers fields are equal.  `T-irrelevant` collapses
+-- the canonical-witness slot.  Used by `Properties.Equality` for
+-- DBCSignal DecEq under γ.2's retyping.
+_≟ᶜʳ_ : (cr₁ cr₂ : CanonicalReceivers) → Dec (cr₁ ≡ cr₂)
+mkCanonical xs w₁ ≟ᶜʳ mkCanonical ys w₂ with ListProps.≡-dec _≟ᴵ_ xs ys
+... | yes refl = yes (cong (mkCanonical xs) (T-irrelevant w₁ w₂))
+... | no  ¬eq  = no λ { refl → ¬eq refl }

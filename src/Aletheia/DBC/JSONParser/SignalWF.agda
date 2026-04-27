@@ -11,6 +11,7 @@
 -- Role: Used by MessageWF for the signal-list component.
 module Aletheia.DBC.JSONParser.SignalWF where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 
 open import Data.Nat using (ℕ; _+_; _*_; _<_; _≤_; _%_; _/_; _≤ᵇ_; _<ᵇ_; suc; zero; z≤n; s≤s; _∸_)
 open import Data.Nat.DivMod using (m%n<n)
@@ -183,7 +184,7 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
                                 postPresence-wf×pv frameBytes ctx nameId bo
                                   (sb % max-physical-bits) (m%n<n sb max-physical-bits)
                                   (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
-                                  isSigned factor offset minimum maximum unit presence receiverIds sig fb≤64 eq₁₄
+                                  isSigned factor offset minimum maximum unit presence (mkCanonicalFromList receiverIds) sig fb≤64 eq₁₄
 
 -- Projections of the combined proof (preserve backward-compatible API).
 parseSignalFields-wf : ∀ frameBytes ctx name obj sig

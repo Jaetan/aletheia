@@ -8,6 +8,7 @@ module Aletheia.DBC.Properties.Equality where
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
+open import Aletheia.DBC.CanonicalReceivers using (_≟ᶜʳ_)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (_≟-ByteOrder_)
 open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
@@ -81,6 +82,6 @@ s₁ ≟-DBCSignal s₂
   with DBCSignal.presence s₁ ≟-SignalPresence DBCSignal.presence s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.presence eq))
 ... | yes refl
-  with ≡-dec _≟ᴵ_ (DBCSignal.receivers s₁) (DBCSignal.receivers s₂)
+  with DBCSignal.receivers s₁ ≟ᶜʳ DBCSignal.receivers s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.receivers eq))
 ... | yes refl = yes refl

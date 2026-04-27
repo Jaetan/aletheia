@@ -8,6 +8,7 @@
 -- validator functions to the predicates in Validity.agda.
 module Aletheia.DBC.Validity.WarningChecks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr)
 
 open import Aletheia.DBC.Types using
@@ -684,7 +685,7 @@ checkUnknownReceiver-allW nodes msgName sigName r
 checkReceiversForSignal-allW : ∀ nodes msgName sig →
   All W (checkReceiversForSignal nodes msgName sig)
 checkReceiversForSignal-allW nodes msgName sig =
-  All-concatMap (go (DBCSignal.receivers sig))
+  All-concatMap (go (CanonicalReceivers.list (DBCSignal.receivers sig)))
   where
     go : ∀ rs → All (λ r → All W (checkUnknownReceiver nodes msgName (signalNameStr sig) r)) rs
     go [] = []

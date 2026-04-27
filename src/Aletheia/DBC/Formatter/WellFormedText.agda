@@ -58,6 +58,7 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 open import Relation.Nullary using (¬_)
 
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
   (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedMessageRT)
@@ -72,9 +73,15 @@ open import Aletheia.DBC.TextFormatter.Topology using (findMuxMaster)
 -- (`[]` is the empty-list case; the formatter emits the placeholder
 -- exactly there and the parser collapses it back to `[]`.  Forbidding
 -- `"Vector__XXX"` in any element is the simplest sufficient condition.)
+-- Post γ.2: `DBCSignal.receivers s : CanonicalReceivers` excludes the
+-- singleton-Vector__XXX placeholder by the type-level invariant.  The
+-- length≥2 case still admits Vector__XXX (rare third-party wire form);
+-- the All-precondition is preserved here for those callers, projected
+-- through `.list`.
 NoVectorXXXReceiver : DBCSignal → Set
 NoVectorXXXReceiver s =
-  All (λ r → ¬ (Identifier.name r ≡ toList "Vector__XXX")) (DBCSignal.receivers s)
+  All (λ r → ¬ (Identifier.name r ≡ toList "Vector__XXX"))
+      (CanonicalReceivers.list (DBCSignal.receivers s))
 
 -- Presence is `Always` or a singleton `When m (v ∷ [])` selector.  Multi-
 -- value mux selectors are deferred (see module header §2).

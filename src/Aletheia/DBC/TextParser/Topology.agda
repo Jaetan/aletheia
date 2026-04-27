@@ -47,6 +47,7 @@
 --     rejection — leave to the validator per the scope note above.
 module Aletheia.DBC.TextParser.Topology where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 open import Relation.Nullary using (yes; no)
 
 open import Data.Bool using (Bool; true; false)
@@ -293,7 +294,7 @@ buildSignal frameBytes master raw
     ; byteOrder = bo
     ; unit      = RawSignal.unit raw
     ; presence  = presence
-    ; receivers = RawSignal.receivers raw
+    ; receivers = mkCanonicalFromList (RawSignal.receivers raw)
     })
 
 -- Resolve all signals in a BO_ block.  Fails (`nothing`) if any signal's

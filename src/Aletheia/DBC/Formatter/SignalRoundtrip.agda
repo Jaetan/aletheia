@@ -15,6 +15,7 @@
 --   bitLength ∸ 1 ≤ startBit).
 module Aletheia.DBC.Formatter.SignalRoundtrip where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers; mkCanonicalFromList-list)
 
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ; _+_; _∸_; _*_; _<_; _≤_)
@@ -47,7 +48,7 @@ open import Data.Nat.Properties using (≤⇒≤ᵇ)
 -- ============================================================================
 
 private
-  mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → List Identifier → DBCSignal
+  mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → CanonicalReceivers → DBCSignal
   mkSignal n sd bo u p rs = record
     { name = n ; signalDef = sd ; byteOrder = bo ; unit = u ; presence = p ; receivers = rs }
 
@@ -69,7 +70,7 @@ private
        ("minimum"   , JNumber (toℚ (SignalDef.minimum def))) ∷
        ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
        ("unit"      , JString (DBCSignal.unit sig)) ∷
-       ("receivers" , JArray (map identJSON (DBCSignal.receivers sig))) ∷
+       ("receivers" , JArray (map identJSON (CanonicalReceivers.list (DBCSignal.receivers sig)))) ∷
        formatPresence (DBCSignal.presence sig)
 
   -- parseNatList roundtrips through map ℕtoJSON
@@ -87,8 +88,8 @@ private
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
-          | map-∘-identifier JString rs
-          | parseCharsList-roundtrip (map Identifier.name rs)
+          | map-∘-identifier JString (CanonicalReceivers.list rs)
+          | parseCharsList-roundtrip (map Identifier.name (CanonicalReceivers.list rs))
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -96,14 +97,15 @@ private
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | validateIdent-roundtrip n
-          | validateIdentList-roundtrip rs
+          | validateIdentList-roundtrip (CanonicalReceivers.list rs)
+          | mkCanonicalFromList-list rs
     = refl
   signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
-          | map-∘-identifier JString rs
-          | parseCharsList-roundtrip (map Identifier.name rs)
+          | map-∘-identifier JString (CanonicalReceivers.list rs)
+          | parseCharsList-roundtrip (map Identifier.name (CanonicalReceivers.list rs))
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -114,7 +116,8 @@ private
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
-          | validateIdentList-roundtrip rs
+          | validateIdentList-roundtrip (CanonicalReceivers.list rs)
+          | mkCanonicalFromList-list rs
     = refl
 
   -- BE roundtrip: uses unconvertSB-bound-BE for % 512 identity,
@@ -130,8 +133,8 @@ private
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
-          | map-∘-identifier JString rs
-          | parseCharsList-roundtrip (map Identifier.name rs)
+          | map-∘-identifier JString (CanonicalReceivers.list rs)
+          | parseCharsList-roundtrip (map Identifier.name (CanonicalReceivers.list rs))
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -143,14 +146,15 @@ private
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
           | validateIdent-roundtrip n
-          | validateIdentList-roundtrip rs
+          | validateIdentList-roundtrip (CanonicalReceivers.list rs)
+          | mkCanonicalFromList-list rs
     = refl
   signal-roundtrip-BE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf fb≤64 len-pos fits msb-ge
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
-          | map-∘-identifier JString rs
-          | parseCharsList-roundtrip (map Identifier.name rs)
+          | map-∘-identifier JString (CanonicalReceivers.list rs)
+          | parseCharsList-roundtrip (map Identifier.name (CanonicalReceivers.list rs))
           | fromℚ?-after-toℚ (SignalDef.factor sd)
           | fromℚ?-after-toℚ (SignalDef.offset sd)
           | fromℚ?-after-toℚ (SignalDef.minimum sd)
@@ -165,7 +169,8 @@ private
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
-          | validateIdentList-roundtrip rs
+          | validateIdentList-roundtrip (CanonicalReceivers.list rs)
+          | mkCanonicalFromList-list rs
     = refl
 
   signal-roundtrip-go : ∀ frameBytes ctx n sd bo u p rs

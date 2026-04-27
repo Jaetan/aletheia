@@ -42,6 +42,7 @@
 -- see `Emitter` module header).
 module Aletheia.DBC.TextFormatter.Topology where
 open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
@@ -174,7 +175,7 @@ emitSignalLine-chars master frameBytes sig =
      '|' ∷ showDecRat-dec-chars (SignalDef.maximum def) ++ₗ
      toList "] " ++ₗ
      quoteStringLit-chars (DBCSignal.unit sig) ++ₗ
-     ' ' ∷ emitReceivers-chars (DBCSignal.receivers sig) ++ₗ
+     ' ' ∷ emitReceivers-chars (CanonicalReceivers.list (DBCSignal.receivers sig)) ++ₗ
      '\n' ∷ []
 
 -- ============================================================================

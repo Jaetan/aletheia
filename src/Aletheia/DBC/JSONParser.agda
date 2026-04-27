@@ -32,6 +32,7 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
   DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdentFromChars)
+open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 open import Aletheia.DBC.DecRat.Refinement using (mkIntDecRatFromℤ; mkNatDecRatFromℕ)
 open import Aletheia.JSON using (JSON; JObject; JString; lookupString; lookupChars; lookupBool; lookupInt;
   lookupNat; lookupRational; lookupObject; lookupArray; getNat)
@@ -245,7 +246,7 @@ parseSignalFields frameBytes ctx name obj =
       ; byteOrder = byteOrder
       ; unit = unit
       ; presence = presence
-      ; receivers = receiverIds
+      ; receivers = mkCanonicalFromList receiverIds
       }))
 
 -- Parse a single signal from JSON object.
