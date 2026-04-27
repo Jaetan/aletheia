@@ -22,10 +22,12 @@
 -- demands; resist speculative growth.
 module Aletheia.DBC.TextParser.Format where
 
-open import Data.Char using (Char)
+open import Data.Char using (Char; _≈ᵇ_)
+open import Data.Char.Base using (isDigit)
 open import Data.List using (List; []; _∷_) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
@@ -35,11 +37,16 @@ open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
          parseCharsSeq; pure; _>>=_)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
-open import Aletheia.DBC.TextParser.Lexer using (parseIdentifier)
+open import Aletheia.DBC.TextParser.Lexer
+  using (parseIdentifier; parseStringLit; parseNatural)
+open import Aletheia.DBC.TextFormatter.Emitter
+  using (showNat-chars; quoteStringLit-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
-  using (parseCharsSeq-success; parseIdentifier-roundtrip)
+  using (parseCharsSeq-success; parseIdentifier-roundtrip;
+         parseStringLit-roundtrip)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
-  using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step)
+  using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
+         parseNatural-showNat-chars)
 
 -- ============================================================================
 -- FORMAT TYPE
@@ -60,22 +67,50 @@ data Format : Set → Set₁ where
   -- Identifier (DBC identifier — `[A-Za-z_][A-Za-z0-9_]*`).  Stops on
   -- the first non-`isIdentCont` char.
   ident   : Format Identifier
+  -- Natural number (decimal digits).  Stops on the first non-digit char.
+  -- Delegates to `parseNatural` / `showNat-chars`.
+  nat     : Format ℕ
+  -- Quoted string literal (`"..."` with CSV-style `""` escape).  Stops
+  -- on `"`.  Delegates to `parseStringLit` / `quoteStringLit-chars`.
+  stringLit : Format (List Char)
   -- Sequence two formats; emit concatenates, parse runs in order.
   pair    : ∀ {A B} → Format A → Format B → Format (A × B)
+  -- Carrier change via a total bijection.  `φ` lifts the inner value to
+  -- the outer carrier (used by `parse`); `ψ` projects back (used by
+  -- `emit`); the equation `∀ b → φ (ψ b) ≡ b` is the roundtrip law that
+  -- makes the universal `roundtrip` discharge.  Used primarily for record
+  -- assembly: `ψ` destructs the record into a tuple, the underlying pair
+  -- structure carries the tuple, and `φ` reconstructs.  Both directions
+  -- are typically `refl` by Agda's record-η rule.
+  --
+  -- Reserved for total bijections.  Refinement-typed carrier changes
+  -- (`IntDecRat`, `NatDecRat`) need `refined : (P : A → Bool) → Format A
+  -- → Format (Σ A (T ∘ P))` instead; asymmetric strips (e.g. discard a
+  -- B-default) need `strip : (default-B : B) → Format (A × B) → Format
+  -- A`.  Adding those when the gate sketch demands them, not before.
+  iso     : ∀ {A B} (φ : A → B) (ψ : B → A)
+          → (∀ b → φ (ψ b) ≡ b)
+          → Format A → Format B
 
 -- ============================================================================
 -- EMIT / PARSE
 -- ============================================================================
 
 emit : ∀ {A} → Format A → A → List Char
-emit (literal cs) tt      = cs
-emit ident        i       = Identifier.name i
-emit (pair f g)   (a , b) = emit f a ++ₗ emit g b
+emit (literal cs)     tt      = cs
+emit ident            i       = Identifier.name i
+emit nat              n       = showNat-chars n
+emit stringLit        cs      = quoteStringLit-chars cs
+emit (pair f g)       (a , b) = emit f a ++ₗ emit g b
+emit (iso _ ψ _ f)    b       = emit f (ψ b)
 
 parse : ∀ {A} → Format A → Parser A
-parse (literal cs) = parseCharsSeq cs >>= λ _ → pure tt
-parse ident        = parseIdentifier
-parse (pair f g)   = parse f >>= λ a → parse g >>= λ b → pure (a , b)
+parse (literal cs)    = parseCharsSeq cs >>= λ _ → pure tt
+parse ident           = parseIdentifier
+parse nat             = parseNatural
+parse stringLit       = parseStringLit
+parse (pair f g)      = parse f >>= λ a → parse g >>= λ b → pure (a , b)
+parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
 
 -- ============================================================================
 -- WELL-FORMEDNESS PREDICATE
@@ -97,10 +132,13 @@ parse (pair f g)   = parse f >>= λ a → parse g >>= λ b → pure (a , b)
 -- When future constructors land (`iso`, `many`, `sepBy`), they add new
 -- lines here and to `roundtrip` below; the universal statement is stable.
 EmitsOK : ∀ {A} → Format A → A → List Char → Set
-EmitsOK (literal cs) tt      _      = ⊤
-EmitsOK ident        _       suffix = SuffixStops isIdentCont suffix
-EmitsOK (pair f g)   (a , b) suffix =
+EmitsOK (literal cs)   tt      _      = ⊤
+EmitsOK ident          _       suffix = SuffixStops isIdentCont suffix
+EmitsOK nat            _       suffix = SuffixStops isDigit suffix
+EmitsOK stringLit      _       suffix = SuffixStops (λ c → c ≈ᵇ '"') suffix
+EmitsOK (pair f g)     (a , b) suffix =
   EmitsOK f a (emit g b ++ₗ suffix) × EmitsOK g b suffix
+EmitsOK (iso _ ψ _ f)  b       suffix = EmitsOK f (ψ b) suffix
 
 -- ============================================================================
 -- UNIVERSAL ROUNDTRIP THEOREM
@@ -123,6 +161,25 @@ roundtrip (literal cs) pos tt suffix _ =
                  (parseCharsSeq-success pos cs suffix)
 roundtrip ident        pos i  suffix ss =
   parseIdentifier-roundtrip pos i suffix ss
+roundtrip nat          pos n  suffix ss =
+  parseNatural-showNat-chars pos n suffix ss
+roundtrip stringLit    pos cs suffix ss =
+  parseStringLit-roundtrip pos cs suffix ss
+roundtrip (iso φ ψ φψ-id f) pos b suffix wf =
+  -- emit (iso φ ψ _ f) b = emit f (ψ b); parse (iso φ _ _ f) is the
+  -- bind chain `parse f >>= λ a → pure (φ a)`.  Bind-step out of f via
+  -- the inner `roundtrip`, then `pure (φ a)` lands the result.  The
+  -- equation `φ (ψ b) ≡ b` (constructor argument) bridges between the
+  -- inner-recovered value `φ (ψ b)` and the outer claim `b`.
+  trans (bind-just-step (parse f)
+                        (λ a → pure (φ a))
+                        pos (emit f (ψ b) ++ₗ suffix)
+                        (ψ b)
+                        (advancePositions pos (emit f (ψ b)))
+                        suffix
+                        (roundtrip f pos (ψ b) suffix wf))
+        (cong (λ x → just (mkResult x (advancePositions pos (emit f (ψ b))) suffix))
+              (φψ-id b))
 roundtrip (pair f g)   pos (a , b) suffix (wf-f , wf-g) =
   trans (cong (parse (pair f g) pos)
               (++ₗ-assoc (emit f a) (emit g b) suffix))
