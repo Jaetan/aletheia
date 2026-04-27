@@ -257,25 +257,24 @@ Plan:
     - Baselines NOT refreshed per user "wait and see" (2026-04-28); pre-Path-A target stays visible so the structural -3-9% Signal Extraction cost remains measurable.
     - COMPILE-pragma escape hatch on `_≡csᵇ_` deferred per user.  If perf becomes a hard blocker, the better escape hatch is `OrderedMap`/`AVL.Map` on `lookupEntries` (O(n) → O(log n)) rather than COMPILE-pragmas (constant-factor recovery only, decouples proof from runtime).  COMPILE pragmas now require explicit user approval per `feedback_no_suppression_without_approval.md`.
 
-  * **Commit 3d.5 pending — Format DSL framework (Point 1 from architectural review 2026-04-26).**  A single inductive `Format A` GADT with derived `emit`, `parse`, `stopPred`, and a *universal roundtrip theorem* proven once by structural induction.  Each per-line construct becomes a ~10–30 LOC `Format` definition + one `roundtrip` application.  Net Layer-3 LOC reduction ~85%.
+  * **Commit 3d.5 — Format DSL framework (Point 1 from architectural review 2026-04-26).**  A single inductive `Format A` GADT with derived `emit`, `parse`, and a *universal roundtrip theorem* proven once by structural induction.  Each per-line construct becomes a ~10–30 LOC `Format` definition + one `roundtrip` application.  Net Layer-3 LOC reduction ~85%.
 
     **Sub-phases:**
 
-    1. **3d.5.a — Framework core (~1.5w, ~1,000–1,500 LOC).**  New module `Aletheia/DBC/TextParser/Format.agda` (`--safe --without-K`):
-       - `data Format : Set → Set₁` with constructors: `pure`, `bind`, `literal` (closed `List Char`), `ident`, `natural`, `decRat`, `byteOrder`, `signFlag`, `stringLit`, `sepBy` (List with separator), `altDisj` (two-way alt with `DisjointPrefix` proof), `iso` (refinement-type lift via `A ↔ B`), `caseFmt` (data-driven dispatch).
-       - `emit  : ∀ {A} → Format A → A → List Char` (closed-form by structural recursion).
-       - `parse : ∀ {A} → Format A → Parser A` (structural recursion).
-       - `stopPred : ∀ {A} → Format A → Char → Bool` (computes the "next-char-must-fail" predicate from the format's last emission).
-       - Universal roundtrip theorem
+    1. **3d.5.a ✅ shipped 2026-04-27 (branch `b3d-3d5-format-dsl`)** — Framework core in three commits totaling ~430 LOC: `b06cc30` (`literal`/`ident`/`pair` + universal roundtrip) + `8ca94e8` (`iso`/`nat`/`stringLit`) + `cc3e5de` (`many`).  Final shape (differs from the original sketch in important ways):
+       - `data Format : Set → Set₁` with constructors `literal` / `ident` / `nat` / `stringLit` / `pair` / `iso` / `many`.  Universe bumped to `Set₁` because `pair` quantifies over `Set` carriers.  No explicit `pure`/`bind` (the framework derives parser binds inside the universal proof, not as user-facing constructors); no explicit `decRat`/`byteOrder`/`signFlag`/`sepBy`/`altDisj`/`caseFmt` (deferred to 3d.5.c if pinch-point analysis shows they're needed).
+       - `emit : ∀ {A} → Format A → A → List Char` and `parse : ∀ {A} → Format A → Parser A` derived structurally.  `emit (many f) xs = concatMap (emit f) xs` (direct recursion `emit f x ++ emit (many f) xs` failed termination check).
+       - **No `stopPred` derivation.**  Empirical: the original plan's per-construct `stopPred f : Char → Bool` derivation didn't compose cleanly through `iso` and the dependent-on-`a` shape of `many`'s emission.  Instead the user supplies `ParseFailsAt f suffix : ∀ pos → parse f pos suffix ≡ nothing` as a witness in `EmitsOKMany`'s `[]-fails` constructor — moves the obligation from "automatic for any `Format`" to "per-construct one-line `refl`" but works.
+       - Universal roundtrip theorem (final shape):
          ```
-         roundtrip : ∀ {A} (f : Format A) (a : A) (suffix : List Char)
-                   → SuffixStops (stopPred f) suffix
+         roundtrip : ∀ {A} (f : Format A) pos (a : A) (suffix : List Char)
+                   → EmitsOK f a suffix
                    → parse f pos (emit f a ++ suffix)
-                     ≡ just (a , advancePositions pos (emit f a) , suffix)
+                     ≡ just (mkResult a (advancePositions pos (emit f a)) suffix)
          ```
-         proven by induction on `Format` — one case per constructor, composing the existing primitive lemmas (`parseIdentifier-roundtrip`, `parseDecRat-roundtrip-suffix`, etc.).
+         where `EmitsOK : Format A → A → List Char → Set` is a recursive Set-valued WF predicate (and `EmitsOKMany` lifted to inductive data type to bypass termination quirks with the `concatMap`-based `emit (many f)`).  Proven by structural induction over `Format` in a `mutual` block with `manyHelper-roundtrip-list` (cyclic recursion through `many`).
 
-    2. **3d.5.b — Single-construct validation (~3–5d).**  Re-prove `parseValueTable-roundtrip` (currently 790 LOC across `ValueTables/ValueTable.agda`) under the DSL.  Target: <50 LOC for the `Format` definition + 1-line `roundtrip` application.  **Gate:** if it doesn't shrink to under 100 LOC, framework needs revision before continuing.
+    2. **3d.5.b ✅ shipped 2026-04-27 (`7ddde8b`)** — Single-construct validation gate.  New module `DBC/TextParser/Format/ValueTable.agda` (165 file-LOC, **88 strict-code-LOC** stripping comments/blanks).  Closes `parseValueTable-format-roundtrip : ∀ pos vt outer-suffix → parse ValueTable-format pos (emit ValueTable-format vt ++ outer-suffix) ≡ just (mkResult vt …)` via one `roundtrip ValueTable-format` call backed by `build-emits-ok`.  Universal proof, fully quantified.  **Gate measurement:** existing `Properties/ValueTables/ValueTable.agda` is 790 file-LOC / 613 strict-code-LOC ⇒ **86% reduction** at strict-code (target was <100 — met at 88, ratio better than the planned <50 stretch goal but the absolute 88 LOC is what the framework delivers).  **Scope honesty:** `parse ValueTable-format` is canonical-only on whitespace; the production `parseValueTable` is more permissive (multi-space, tab tolerance).  3d.5.b validates the framework can express the construct and the proof scales as advertised.  3d.5.d migration phase replaces the production parser with the DSL one.  Walk root added in `Shakefile.hs`; `cabal run shake -- check-properties` clean (7m13s).
 
     3. **3d.5.c — Pinch-point extensions (~1w).**  Three places where the basic DSL doesn't fit cleanly:
        - `caseFmt` constructor for `MuxMarker` 3-shape dispatch (`master × signalName × presence` → `Format MuxMarker`).
@@ -298,8 +297,8 @@ Plan:
     6. **3d.5.f — Layer 4 aggregation (~3–5d).**  `parseDBC-roundtrip` becomes `roundtrip DBC-format` where `DBC-format : Format DBC` is the top-level aggregator.  The owed Layer-4 char-class-disjointness lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) are proven once and consumed by the framework's `stopPred` derivation.
 
     **Gates** (per sub-phase):
-    - 3d.5.a: framework type-checks, universal roundtrip is proven.  No postulates.
-    - 3d.5.b: `parseValueTable-roundtrip` under DSL <100 LOC, type-checks, all gates green.
+    - 3d.5.a ✅: framework type-checks; universal roundtrip is proven; no postulates.  `--safe --without-K` preserved.
+    - 3d.5.b ✅: `parseValueTable-roundtrip` under DSL = 88 strict-code-LOC (target <100); all gates green.
     - 3d.5.c: each pinch-point extension type-checks; pre-existing 3d.3 dispatchers re-provable on the extended framework.
     - 3d.5.d: each migration commit keeps `check-properties` green and reduces Layer-3 LOC monotonically.
     - 3d.5.e/f: full universal roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d` ships.
