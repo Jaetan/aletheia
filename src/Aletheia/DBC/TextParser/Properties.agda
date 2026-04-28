@@ -106,8 +106,10 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
 
 -- Topology section (Commit 3b: BU_ node list; Commit 3d.5.c-η: receiver
 -- list inside SG_ derived from `Format.Receivers`, signal-line
--- dispatchers derived from `Format.SignalLine`).
--- Future Layer-3 commit (3d.6-8) lands many-recursion + parseMessage.
+-- dispatchers derived from `Format.SignalLine`; Commit 3d.6: SG_ block
+-- (`many parseSignalLine`) over a list of DBCSignal under
+-- `WellFormedTextSignal`).  Future Layer-3 commits (3d.7-8) lift to
+-- `resolveSignalList` + parseMessage.
 open import Aletheia.DBC.TextParser.Properties.Topology public
   using ( parseBU-roundtrip; NodeNameStop
         ; isReceiverCont
@@ -115,7 +117,10 @@ open import Aletheia.DBC.TextParser.Properties.Topology public
         ; SignalNameStop; expectedRaw
         ; parseSignalLine-roundtrip-NotMux
         ; parseSignalLine-roundtrip-IsMux
-        ; parseSignalLine-roundtrip-SelBy)
+        ; parseSignalLine-roundtrip-SelBy
+        ; SignalLineWF
+        ; expectedMux; expectedMuxFor; expectedRawOfDBC
+        ; parseSignalLines-roundtrip)
 
 -- Value-table section (Commit 3b: VAL_TABLE_).
 open import Aletheia.DBC.TextParser.Properties.ValueTables public

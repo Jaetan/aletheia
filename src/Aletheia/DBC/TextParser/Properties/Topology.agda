@@ -37,3 +37,11 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Signal public
         ; parseSignalLine-roundtrip-NotMux
         ; parseSignalLine-roundtrip-IsMux
         ; parseSignalLine-roundtrip-SelBy)
+
+-- 3d.6: SG_ block (`many parseSignalLine`) roundtrip — list-level
+-- composition of `signalLine-roundtrip` via the framework's universal
+-- `roundtrip (many signalLineFmt)`.
+open import Aletheia.DBC.TextParser.Properties.Topology.SignalList public
+  using ( SignalLineWF
+        ; expectedMux; expectedMuxFor; expectedRawOfDBC
+        ; parseSignalLines-roundtrip)
