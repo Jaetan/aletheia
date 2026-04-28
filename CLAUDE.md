@@ -39,6 +39,15 @@ When the user's message is just `UPD` (case-insensitive, no other content), inte
 
 **UPD is a doc-state sync only.** The resulting commit must contain ONLY doc-sweep edits. Pre-existing uncommitted work (refactors, structural cleanups, prior tasks) goes in its own commit at task completion, never bundled into UPD. See `memory/feedback_upd_scope.md`. Apply the 2-question pre-commit gate (`feedback_pre_commit_scope_check.md`) before committing the doc sweep.
 
+When the user's message is just `READ` (case-insensitive, no other content), interpret it as **"Read the session state, memory/feedback, plan/project status, CLAUDE.md/AGENTS.md."** Sweep (read-only — no edits):
+- `.session-state.md` (gitignored — local resume notes)
+- `MEMORY.md` + relevant files under `memory/` (open-work pointers, feedback memories)
+- `PROJECT_STATUS.md` and `docs/development/PARITY_PLAN.md` (the two roadmap surfaces)
+- `CLAUDE.md` (already loaded into context)
+- `AGENTS.md` (per-language coding standards)
+
+READ is the read-only counterpart of UPD: rehydrate context at session start, do not write.
+
 ### Agda Module Requirements (MANDATORY)
 
 Every Agda module MUST start with:
