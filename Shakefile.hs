@@ -256,6 +256,17 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- dispatchers to consume this in place of the existing
         -- `parseReceiverList∘strip-roundtrip` API.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/Receivers/Roundtrip.agda"
+        -- B.3.d Layer 3 3d.5.c-η: DSL-side `signalLineFmt` and its
+        -- universal roundtrip.  Both are reachable from Main.agda via
+        -- `Topology.SignalLine` (production parser uses
+        -- `parse signalLineFmt`) and `Properties.Topology.Signal` (slim
+        -- dispatchers use `signalLine-roundtrip`); the explicit walk
+        -- roots match the pattern set for `Format.Receivers` and guard
+        -- against bit-rot if future migration ever detaches them from
+        -- the main walk (per `feedback_check_properties_aggregator_
+        -- walks.md`).
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine.agda"
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"

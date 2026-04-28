@@ -139,28 +139,31 @@ private
 -- WELL-FORMEDNESS BUILDER — top-level EmitsOK canonicalReceiversFmt
 -- ============================================================================
 
-  -- `canonicalReceiversFmt = iso _ ψ _ (pair ident (many (withPrefix
-  -- "," ident)))`.  EmitsOK on iso passes through ψ (= bwd) which
-  -- produces three shapes per `cr.list`:
-  --   * `[]`           → `(vectorXXX-id , [])`
-  --   * `(r ∷ [])`     → `(r , [])`
-  --   * `(r ∷ s ∷ rest)` → `(r , s ∷ rest)`
-  -- All three reduce the ident-step's residual head to: caller's
-  -- suffix (cases 1+2) or `,` (case 3).  Cases 1+2 borrow the
-  -- caller's SuffixStops; case 3 closes via `∷-stop refl` because the
-  -- head is the literal comma.
-  build-emits-ok : ∀ (cr : CanonicalReceivers) (suffix : List Char)
-    → SuffixStops isReceiverCont suffix
-    → EmitsOK canonicalReceiversFmt cr suffix
-  build-emits-ok (mkCanonical [] _) suffix ss =
-    isReceiverCont→isIdentCont suffix ss ,
-    build-tail-EmitsOKMany [] suffix ss
-  build-emits-ok (mkCanonical (r ∷ []) _) suffix ss =
-    isReceiverCont→isIdentCont suffix ss ,
-    build-tail-EmitsOKMany [] suffix ss
-  build-emits-ok (mkCanonical (r ∷ s ∷ rest) _) suffix ss =
-    ∷-stop refl ,
-    build-tail-EmitsOKMany (s ∷ rest) suffix ss
+-- `canonicalReceiversFmt = iso _ ψ _ (pair ident (many (withPrefix
+-- "," ident)))`.  EmitsOK on iso passes through ψ (= bwd) which
+-- produces three shapes per `cr.list`:
+--   * `[]`           → `(vectorXXX-id , [])`
+--   * `(r ∷ [])`     → `(r , [])`
+--   * `(r ∷ s ∷ rest)` → `(r , s ∷ rest)`
+-- All three reduce the ident-step's residual head to: caller's
+-- suffix (cases 1+2) or `,` (case 3).  Cases 1+2 borrow the
+-- caller's SuffixStops; case 3 closes via `∷-stop refl` because the
+-- head is the literal comma.
+--
+-- Public so downstream chunks (e.g. `tailFmt` in `Format.SignalLine`)
+-- can compose it inside larger `EmitsOK` certificates.
+build-emits-ok : ∀ (cr : CanonicalReceivers) (suffix : List Char)
+  → SuffixStops isReceiverCont suffix
+  → EmitsOK canonicalReceiversFmt cr suffix
+build-emits-ok (mkCanonical [] _) suffix ss =
+  isReceiverCont→isIdentCont suffix ss ,
+  build-tail-EmitsOKMany [] suffix ss
+build-emits-ok (mkCanonical (r ∷ []) _) suffix ss =
+  isReceiverCont→isIdentCont suffix ss ,
+  build-tail-EmitsOKMany [] suffix ss
+build-emits-ok (mkCanonical (r ∷ s ∷ rest) _) suffix ss =
+  ∷-stop refl ,
+  build-tail-EmitsOKMany (s ∷ rest) suffix ss
 
 -- ============================================================================
 -- THE GATE: DSL receivers roundtrip

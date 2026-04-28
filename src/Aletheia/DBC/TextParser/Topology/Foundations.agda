@@ -1,6 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Foundations subset of `Aletheia.DBC.TextParser.Topology` (B.3.d ε.2).
+-- Foundations subset of `Aletheia.DBC.TextParser.Topology` (B.3.d ε.2,
+-- extended at η for the Format DSL `signalLineFmt` cycle break).
 --
 -- Hosts the definitions that `Properties.Primitives`, `Attributes`,
 -- `Comments`, and the `Properties.{Attributes.Assign,Comments}` family
@@ -19,9 +20,23 @@
 -- import `Format.Receivers` (the ε.3 prerequisite) without resurrecting
 -- the cycle.  Existing importers continue to use `Topology` as a
 -- re-export facade.
+--
+-- η extension (3d.5.c-η): hosts `RawSignal` + `mkRawSignal` so that
+-- `Format.SignalLine` can build `signalLineFmt : Format RawSignal`
+-- without importing `Topology.SignalLine` (which would resurrect the
+-- cycle once `Topology.SignalLine` calls `parse signalLineFmt` for the
+-- production parser definition).  The `receivers` field is upgraded
+-- from `List Identifier` to `CanonicalReceivers` — the Format DSL iso
+-- requires a total inverse, and `CanonicalReceivers.list /
+-- mkCanonicalFromList` is only a partial bijection on `List Identifier`
+-- (singleton-`Vector__XXX` strips to `[]`).  Pinning the type-level
+-- canonical-form invariant on the raw-signal carrier removes a no-op
+-- `mkCanonicalFromList` call in `Topology.SignalLine.buildSignal`.
 module Aletheia.DBC.TextParser.Topology.Foundations where
 
 open import Data.Bool using (Bool; true; false)
+open import Data.Char using (Char)
+open import Data.List using (List)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _∸_; _^_; _<ᵇ_; _≤ᵇ_)
 
@@ -29,6 +44,9 @@ open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; _<|>_; _*>_; char)
 open import Aletheia.DBC.TextParser.Lexer using
   (parseWS; parseNatural)
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian)
@@ -99,3 +117,29 @@ parseSignFlag : Parser Bool
 parseSignFlag =
   (char '+' *> pure false) <|>
   (char '-' *> pure true)
+
+-- ============================================================================
+-- SG_ RAW FIELDS (pre-mux-resolution)
+-- ============================================================================
+
+-- The 12 fields captured directly from the SG_ line, before mux
+-- resolution and physical-bit clamping.  η: `receivers` is a
+-- `CanonicalReceivers` (the canonical-form invariant is type-level so
+-- `Format.SignalLine.signalLineFmt`'s receivers field can use the iso
+-- `canonicalReceiversFmt : Format CanonicalReceivers` directly without
+-- a partial-bijection workaround).
+record RawSignal : Set where
+  constructor mkRawSignal
+  field
+    name      : Identifier
+    muxMarker : MuxMarker
+    startBit  : ℕ
+    bitLength : ℕ
+    byteOrder : ByteOrder
+    isSigned  : Bool
+    factor    : DecRat
+    offset    : DecRat
+    minimum   : DecRat
+    maximum   : DecRat
+    unit      : List Char
+    receivers : CanonicalReceivers

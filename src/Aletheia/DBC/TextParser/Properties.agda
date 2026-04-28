@@ -104,16 +104,15 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
          parseNamespace-roundtrip;
          isNSLineStart)
 
--- Topology section (Commit 3b: BU_ node list; Commit 3d.2: receiver
--- list inside SG_; Commit 3d.3: parseSignalLine per-MuxMarker dispatchers).
--- Future Layer-3 commit (3d.4-6) lands many-recursion + parseMessage.
+-- Topology section (Commit 3b: BU_ node list; Commit 3d.5.c-η: receiver
+-- list inside SG_ derived from `Format.Receivers`, signal-line
+-- dispatchers derived from `Format.SignalLine`).
+-- Future Layer-3 commit (3d.6-8) lands many-recursion + parseMessage.
 open import Aletheia.DBC.TextParser.Properties.Topology public
   using ( parseBU-roundtrip; NodeNameStop
         ; isReceiverCont
-        ; parseReceiverList-roundtrip
+        ; emit-canonicalReceiversFmt-eq-emitReceivers
         ; SignalNameStop; expectedRaw
-        ; parseSignalTail; parseSignalLine-decompose
-        ; parseSignalTail-roundtrip
         ; parseSignalLine-roundtrip-NotMux
         ; parseSignalLine-roundtrip-IsMux
         ; parseSignalLine-roundtrip-SelBy)

@@ -173,6 +173,16 @@ data Format : Set → Set₁ where
   -- mandatory-separator pair (e.g. `string "BO_" *> ws *> nat *> ws *>
   -- ident *> ws *> ...`).
   ws : Format ⊤
+  -- Canonical-single-space whitespace (parser-permissive zero-or-more).
+  -- Canonical emit is `' ' ∷ []` (matches our formatter's output at
+  -- production parseWSOpt slots); parse is `parseWSOpt` (zero-or-more —
+  -- preserves production parser tolerance).  Used wherever the
+  -- formatter emits exactly one space at a slot the production parser
+  -- treats as optional whitespace (signal-line `" : "`, `" ("`, `") "`,
+  -- `"] "`, post-unit space, post-receiver-list-before-newline does
+  -- NOT use this — that slot keeps `wsOpt` since the formatter emits
+  -- nothing).  EmitsOK requires `SuffixStops isHSpace suffix`.
+  wsCanonOne : Format ⊤
 
 -- ============================================================================
 -- EMIT / PARSE
@@ -192,6 +202,7 @@ emit (altSum _ g)     (inj₂ b) = emit g b
 emit decRat           d        = showDecRat-dec-chars d
 emit wsOpt            tt       = []
 emit ws               tt       = ' ' ∷ []
+emit wsCanonOne       tt       = ' ' ∷ []
 
 -- `liftRefined` decides the refinement predicate on the value just parsed
 -- by the underlying format, succeeding (with the synthesised witness) when
@@ -224,6 +235,7 @@ parse (altSum f g)    = (inj₁ <$> parse f) <|> (inj₂ <$> parse g)
 parse decRat          = parseDecRat
 parse wsOpt           = parseWSOpt >>= λ _ → pure tt
 parse ws              = parseWS    >>= λ _ → pure tt
+parse wsCanonOne      = parseWSOpt >>= λ _ → pure tt
 
 -- ============================================================================
 -- PARSE-FAILS-AT — termination certificate for `many`
@@ -282,6 +294,7 @@ EmitsOK (altSum f g)   (inj₂ b) suffix =
 EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
 EmitsOK wsOpt          tt       suffix = SuffixStops isHSpace suffix
 EmitsOK ws             tt       suffix = SuffixStops isHSpace suffix
+EmitsOK wsCanonOne     tt       suffix = SuffixStops isHSpace suffix
 
 -- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
 -- only; each `∷-cons` constructor carries the per-element well-formedness
@@ -526,6 +539,18 @@ mutual
                    pos (' ' ∷ suffix)
                    (' ' ∷ []) (advancePosition pos ' ') suffix
                    (parseWS-one-space pos suffix ss)
+  -- wsCanonOne: canonical emit is `' ' ∷ []`; parser is `parseWSOpt`
+  -- (the zero-or-more variant).  `parseWSOpt` on `(' ' ∷ suffix)`
+  -- consumes exactly the leading single space and stops because
+  -- `SuffixStops isHSpace suffix` rejects the next char.  Reduces to
+  -- `manyHelper-satisfy-exhaust-many` with `xs = ' ' ∷ []`.
+  roundtrip wsCanonOne pos tt suffix ss =
+    bind-just-step parseWSOpt (λ _ → pure tt)
+                   pos (' ' ∷ suffix)
+                   (' ' ∷ []) (advancePosition pos ' ') suffix
+                   (manyHelper-satisfy-exhaust-many isHSpace pos
+                                                    (' ' ∷ []) suffix
+                                                    (refl All.∷ All.[]) ss)
 
   manyHelper-roundtrip-list f pos []       suffix m _ ([]-fails fails) =
     manyHelper-fails-stop (parse f) pos suffix m (fails pos)

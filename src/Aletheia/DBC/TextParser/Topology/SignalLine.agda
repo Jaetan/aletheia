@@ -20,8 +20,7 @@
 -- header note kept under that name for backwards compatibility.
 module Aletheia.DBC.TextParser.Topology.SignalLine where
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.CanonicalReceivers using
-  (CanonicalReceivers; mkCanonicalFromList)
+open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 
 open import Data.Bool using (Bool)
 open import Data.Char using (Char)
@@ -35,14 +34,15 @@ open import Aletheia.Parser.Combinators using
   (Parser; pure; fail; _>>=_; _<|>_; _*>_; _<$>_;
    char; string; many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural)
-open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
+  (parseIdentifier; parseWS; parseWSOpt; parseNewline; parseNatural)
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (MuxMarker; NotMux; IsMux; SelBy; BothMux;
-   buildCANId; parseMuxMarker; parseByteOrderDigit; parseSignFlag)
+   buildCANId)
+open import Aletheia.DBC.TextParser.Topology.Foundations public using
+  (RawSignal; mkRawSignal)
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.Receivers using (canonicalReceiversFmt)
+open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
@@ -73,72 +73,23 @@ parseBU =
 -- ============================================================================
 -- SG_ RAW FIELDS (pre-mux-resolution)
 -- ============================================================================
+--
+-- η: `RawSignal` + `mkRawSignal` live in `Topology.Foundations` so the
+-- Format DSL `signalLineFmt : Format RawSignal` (under
+-- `Format.SignalLine`) can produce them without resurrecting the import
+-- cycle.  Re-exported above for source-compatibility.
 
-record RawSignal : Set where
-  constructor mkRawSignal
-  field
-    name      : Identifier
-    muxMarker : MuxMarker
-    startBit  : ℕ
-    bitLength : ℕ
-    byteOrder : ByteOrder
-    isSigned  : Bool
-    factor    : DecRat
-    offset    : DecRat
-    minimum   : DecRat
-    maximum   : DecRat
-    unit      : List Char
-    receivers : List Identifier
-
--- Comma-separated receiver list (grammar requires at least one).
--- Post-ε.3: derived from the Format DSL `canonicalReceiversFmt` so the
--- universal `roundtrip` theorem in `Format.agda` discharges the
--- parse-after-emit law without per-element induction.  The DSL's iso
--- `fwd = mkCanonicalFromList` absorbs the `Vector__XXX` strip into the
--- parse output; the outer `<$>` projects the canonical list field.
-parseReceiverList : Parser (List Identifier)
-parseReceiverList = CanonicalReceivers.list <$> parse canonicalReceiversFmt
-
--- Parse one SG_ line into a `RawSignal`.  Leading indent is `parseWSOpt`
--- (cantools emits one space; we tolerate any amount).  Mux resolution is
--- deferred to `resolveSignalList` — this parser records only the marker.
+-- Parse one SG_ line into a `RawSignal`.  Post 3d.5.c-η: derived from
+-- the Format DSL `signalLineFmt`, so the universal `roundtrip` theorem
+-- in `Format.agda` discharges the parse-after-emit law via a single
+-- `EmitsOK` certificate (see `Format.SignalLine.Roundtrip`).  Production
+-- permissiveness (zero-or-more whitespace at every formatter slot, both
+-- LF and CR-LF newline) is preserved by the DSL's `wsOpt`/`wsCanonOne`
+-- and `newlineFmt` (altSum over the two newline literals).  Mux
+-- resolution is deferred to `resolveSignalList` — this parser only
+-- records the marker.
 parseSignalLine : Parser RawSignal
-parseSignalLine = do
-  _ ← parseWSOpt
-  _ ← string "SG_"
-  _ ← parseWS
-  name ← parseIdentifier
-  mux  ← parseMuxMarker
-  _ ← parseWSOpt
-  _ ← char ':'
-  _ ← parseWSOpt
-  startBit ← parseNatural
-  _ ← char '|'
-  bitLength ← parseNatural
-  _ ← char '@'
-  bo ← parseByteOrderDigit
-  isSigned ← parseSignFlag
-  _ ← parseWSOpt
-  _ ← char '('
-  factor ← parseDecRat
-  _ ← char ','
-  offset ← parseDecRat
-  _ ← char ')'
-  _ ← parseWSOpt
-  _ ← char '['
-  minimum ← parseDecRat
-  _ ← char '|'
-  maximum ← parseDecRat
-  _ ← char ']'
-  _ ← parseWSOpt
-  unit ← parseStringLit
-  _ ← parseWSOpt
-  receivers ← parseReceiverList
-  _ ← parseWSOpt
-  _ ← parseNewline
-  pure (mkRawSignal name mux startBit bitLength bo isSigned
-                    factor offset minimum maximum unit
-                    receivers)
+parseSignalLine = parse signalLineFmt
 
 -- ============================================================================
 -- MUX RESOLUTION + DBCSignal BUILDER
@@ -196,7 +147,7 @@ buildSignal frameBytes master raw
     ; byteOrder = bo
     ; unit      = RawSignal.unit raw
     ; presence  = presence
-    ; receivers = mkCanonicalFromList (RawSignal.receivers raw)
+    ; receivers = RawSignal.receivers raw
     })
 
 -- Resolve all signals in a BO_ block.  Fails (`nothing`) if any signal's
