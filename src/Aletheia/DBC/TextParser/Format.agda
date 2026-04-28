@@ -39,23 +39,29 @@ open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong; subst)
 
+open import Data.List.Relation.Unary.All as All using (All)
+
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
          manyHelper; sameLengthᵇ)
   renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.TextParser.Lexer
-  using (parseIdentifier; parseStringLit; parseNatural)
+  using (parseIdentifier; parseStringLit; parseNatural;
+         parseWS; parseWSOpt; isHSpace)
+open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (showNat-chars; quoteStringLit-chars)
+  using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (parseCharsSeq-success; parseIdentifier-roundtrip;
-         parseStringLit-roundtrip;
+         parseStringLit-roundtrip; parseWS-one-space;
          alt-left-just; alt-right-nothing)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
-         parseNatural-showNat-chars)
+         parseNatural-showNat-chars; parseDecRat-roundtrip-suffix;
+         manyHelper-satisfy-exhaust-many)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline
   using (manyHelper-prog-cons)
 
@@ -147,6 +153,26 @@ data Format : Set → Set₁ where
   -- ≡ nothing` so that the `<|>` falls through cleanly.  The `inj₁` case
   -- needs no extra witness because `parse f` succeeds first.
   altSum : ∀ {A B} → Format A → Format B → Format (A ⊎ B)
+  -- DecRat numeric literal (signed, with optional fraction, n/(2^a·5^b)
+  -- canonical form).  Delegates to `parseDecRat` / `showDecRat-dec-chars`.
+  -- Stops on the first non-`isDigit` char of the suffix.  Required for
+  -- SG_ (factor/offset/min/max), EV_ (initial/min/max), and BA_DEF_ FLOAT
+  -- bounds — every numeric DBC slot post the 2026-04-24 ℚ→DecRat pre-gate.
+  decRat : Format DecRat
+  -- Optional intraline whitespace (zero-or-more spaces/tabs).  Canonical
+  -- emit is `[]` (no chars); parse is `parseWSOpt` with the trailing
+  -- `>>= λ _ → pure tt` to discard the consumed chars.  EmitsOK requires
+  -- `SuffixStops isHSpace suffix` so the parser stops at the boundary.
+  -- Used wherever the DBC formatter omits whitespace but the parser
+  -- tolerates it (mux-marker–colon boundary, post-`]`, post-`"`, etc.).
+  wsOpt : Format ⊤
+  -- Mandatory intraline whitespace (one-or-more spaces/tabs).  Canonical
+  -- emit is `' ' ∷ []` (single space — what cantools and our formatter
+  -- emit); parse is `parseWS` with the trailing `>>= λ _ → pure tt`.
+  -- EmitsOK requires `SuffixStops isHSpace suffix`.  Used between every
+  -- mandatory-separator pair (e.g. `string "BO_" *> ws *> nat *> ws *>
+  -- ident *> ws *> ...`).
+  ws : Format ⊤
 
 -- ============================================================================
 -- EMIT / PARSE
@@ -163,6 +189,9 @@ emit (many f)         xs       = concatMap (emit f) xs
 emit (refined _ f)    (a , _)  = emit f a
 emit (altSum f _)     (inj₁ a) = emit f a
 emit (altSum _ g)     (inj₂ b) = emit g b
+emit decRat           d        = showDecRat-dec-chars d
+emit wsOpt            tt       = []
+emit ws               tt       = ' ' ∷ []
 
 -- `liftRefined` decides the refinement predicate on the value just parsed
 -- by the underlying format, succeeding (with the synthesised witness) when
@@ -192,6 +221,9 @@ parse (iso φ _ _ f)   = parse f >>= λ a → pure (φ a)
 parse (many f)        = many-parser (parse f)
 parse (refined P f)   = parse f >>= liftRefined P
 parse (altSum f g)    = (inj₁ <$> parse f) <|> (inj₂ <$> parse g)
+parse decRat          = parseDecRat
+parse wsOpt           = parseWSOpt >>= λ _ → pure tt
+parse ws              = parseWS    >>= λ _ → pure tt
 
 -- ============================================================================
 -- PARSE-FAILS-AT — termination certificate for `many`
@@ -247,6 +279,9 @@ EmitsOK (altSum f g)   (inj₁ a) suffix = EmitsOK f a suffix
 EmitsOK (altSum f g)   (inj₂ b) suffix =
   EmitsOK g b suffix
   × (∀ pos → parse f pos (emit g b ++ₗ suffix) ≡ nothing)
+EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
+EmitsOK wsOpt          tt       suffix = SuffixStops isHSpace suffix
+EmitsOK ws             tt       suffix = SuffixStops isHSpace suffix
 
 -- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
 -- only; each `∷-cons` constructor carries the per-element well-formedness
@@ -468,6 +503,29 @@ mutual
                 (subst (λ k → length (emit (many f) xs) ≤ k)
                        (sym (length-++ (emit (many f) xs) {suffix}))
                        (m≤m+n (length (emit (many f) xs)) (length suffix)))
+  -- DecRat: direct delegation.  `parseDecRat-roundtrip-suffix` already
+  -- produces exactly the universal's RHS, so no `bind-just-step` plumbing
+  -- is needed.
+  roundtrip decRat pos d suffix ss =
+    parseDecRat-roundtrip-suffix d pos suffix ss
+  -- wsOpt: canonical emit is `[]`, so the universal's input reduces to
+  -- `suffix` and its expected RHS to `mkResult tt pos suffix`.  Compose
+  -- via `bind-just-step` over `parseWSOpt`'s zero-consume on a hspace-
+  -- stopped suffix (`manyHelper-satisfy-exhaust-many` with empty `xs`).
+  roundtrip wsOpt pos tt suffix ss =
+    bind-just-step parseWSOpt (λ _ → pure tt)
+                   pos suffix
+                   [] pos suffix
+                   (manyHelper-satisfy-exhaust-many isHSpace pos []
+                                                    suffix All.[] ss)
+  -- ws: canonical emit is `' ' ∷ []`.  `advancePositions pos (' ' ∷ [])`
+  -- reduces definitionally to `advancePosition pos ' '`, matching what
+  -- `parseWS-one-space` returns.  Compose via `bind-just-step`.
+  roundtrip ws pos tt suffix ss =
+    bind-just-step parseWS (λ _ → pure tt)
+                   pos (' ' ∷ suffix)
+                   (' ' ∷ []) (advancePosition pos ' ') suffix
+                   (parseWS-one-space pos suffix ss)
 
   manyHelper-roundtrip-list f pos []       suffix m _ ([]-fails fails) =
     manyHelper-fails-stop (parse f) pos suffix m (fails pos)
@@ -588,6 +646,37 @@ roundtrip-altSum-inj₁ : ∀ pos suffix
              suffix)
 roundtrip-altSum-inj₁ pos suffix =
   roundtrip (altSum (literal ('X' ∷ [])) nat) pos (inj₁ tt) suffix tt
+
+-- L7: decRat — direct delegation through `roundtrip` to
+-- `parseDecRat-roundtrip-suffix`.  Catches drift in the `decRat` clause
+-- of either `emit`/`parse`/`EmitsOK`/`roundtrip`.
+roundtrip-decRat : ∀ pos d suffix
+  → SuffixStops isDigit suffix
+  → parse decRat pos (showDecRat-dec-chars d ++ₗ suffix)
+    ≡ just (mkResult d
+             (advancePositions pos (showDecRat-dec-chars d))
+             suffix)
+roundtrip-decRat pos d suffix ss = roundtrip decRat pos d suffix ss
+
+-- L8: wsOpt — canonical `[]` emit means input reduces to `suffix` and
+-- output position to `pos`.  Catches `parseWSOpt`'s zero-consumption
+-- composition through `bind-just-step`.
+roundtrip-wsOpt : ∀ pos suffix
+  → SuffixStops isHSpace suffix
+  → parse wsOpt pos suffix
+    ≡ just (mkResult tt pos suffix)
+roundtrip-wsOpt pos suffix ss = roundtrip wsOpt pos tt suffix ss
+
+-- L9: ws — canonical `' ' ∷ []` emit; output position is
+-- `advancePosition pos ' '` (which `advancePositions pos (' ' ∷ [])`
+-- reduces to definitionally).  Catches `parseWS-one-space` composition.
+roundtrip-ws : ∀ pos suffix
+  → SuffixStops isHSpace suffix
+  → parse ws pos ((' ' ∷ []) ++ₗ suffix)
+    ≡ just (mkResult tt
+             (advancePositions pos (' ' ∷ []))
+             suffix)
+roundtrip-ws pos suffix ss = roundtrip ws pos tt suffix ss
 
 -- ============================================================================
 -- DERIVED COMBINATORS
