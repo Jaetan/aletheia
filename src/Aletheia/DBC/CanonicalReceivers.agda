@@ -116,10 +116,12 @@ T-not-and-T {false} _ ()
 -- Build a `CanonicalReceivers` from any `List Identifier` by stripping
 -- the singleton-`Vector__XXX` placeholder and synthesising the canonical
 -- witness.  Total — every input list maps to exactly one canonical
--- output.  Replaces the existing `stripVectorPlaceholder` in
--- `TextParser.Topology` (which produced an unwitnessed `List Identifier`)
--- and is the entry point used by `parseSignalLine` and `parseSignalFields`
--- in γ.2 to construct receivers from the parsed raw input.
+-- output.  Subsumes the pre-γ.2 `stripVectorPlaceholder` in
+-- `TextParser.Topology` (which produced an unwitnessed `List Identifier`);
+-- post-ε.3, the unwitnessed strip helper is gone entirely and the DSL
+-- iso `fwd = mkCanonicalFromList` absorbs the strip into
+-- `parseReceiverList` directly.  Used by `parseSignalLine` and
+-- `parseSignalFields` to construct receivers from the parsed raw input.
 mkCanonicalFromList : List Identifier → CanonicalReceivers
 mkCanonicalFromList []           = mkCanonical [] tt
 mkCanonicalFromList (r ∷ []) with T? (isVectorXXXᵇ r)

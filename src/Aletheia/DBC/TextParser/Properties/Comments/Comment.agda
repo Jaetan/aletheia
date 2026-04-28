@@ -68,7 +68,7 @@ open import Aletheia.DBC.TextParser.Comments using
   (parseComment; parseCommentTarget;
    parseBUTgt; parseBOTgt; parseSGTgt; parseEVTgt;
    wrapCTMessage; wrapCTSignal)
-open import Aletheia.DBC.TextParser.Topology using (buildCANId; extFlagBit)
+open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId; extFlagBit)
 open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.DBC.TextFormatter.Comments using (emitComment-chars)

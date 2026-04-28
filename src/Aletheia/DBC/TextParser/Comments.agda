@@ -47,7 +47,7 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
    parseNatural)
-open import Aletheia.DBC.TextParser.Topology using (buildCANId)
+open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
 open import Aletheia.DBC.Types using
   ( CommentTarget; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar

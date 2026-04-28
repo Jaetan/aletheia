@@ -9,14 +9,14 @@
 -- each motivated by a specific lossy region of `TextFormatter.Topology`.
 --
 -- 1. `NoVectorXXXReceiver` — `emitReceivers-chars []` emits the cantools
---    `Vector__XXX` placeholder; `parseReceiverList` parses it back as a
---    singleton list, then `stripVectorPlaceholder` collapses it to `[]`.
---    A user-supplied list `[Identifier "Vector__XXX"]` would also emit
---    `"Vector__XXX"`, parse back to `[Identifier "Vector__XXX"]`, then
---    collapse to `[]` — a non-roundtrip.  We exclude any signal whose
---    receivers list contains an identifier literally named
---    `"Vector__XXX"` (`[]` is fine; `[Vector__XXX]` is not; longer lists
---    cannot contain it either).
+--    `Vector__XXX` placeholder; `parseReceiverList` (post-ε.3, derived
+--    from the Format DSL `canonicalReceiversFmt` via the iso `fwd =
+--    mkCanonicalFromList`) parses it back as `[]` directly.  A
+--    user-supplied list `[Identifier "Vector__XXX"]` would also emit
+--    `"Vector__XXX"`, parse back to `[]` — a non-roundtrip.  We
+--    exclude any signal whose receivers list contains an identifier
+--    literally named `"Vector__XXX"` (`[]` is fine; `[Vector__XXX]`
+--    is not; longer lists cannot contain it either).
 --
 -- 2. `WellFormedTextPresence` — `emitMuxMarker-chars` emits only the
 --    HEAD value of the `When _ (v ∷ vs)` selector list, so `vs ≢ []`

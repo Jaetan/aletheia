@@ -7,17 +7,17 @@
 -- cr ++ suffix) ≡ just (mkResult cr …)` discharged via the framework's
 -- `roundtrip canonicalReceiversFmt` plus an `EmitsOK` constructor.
 --
--- Gate measurement vs the existing per-construct proof in
--- `Properties/Topology/Receivers.agda` (646 LOC).  The DSL proof here
--- collapses the strip lemmas (`stripVectorPlaceholder-vectorXXX`,
--- `stripVectorPlaceholder-no-vectorXXX`) into the iso bijection
--- (γ.1's `fwd-bwd`), and the per-iteration roundtrip into the
--- universal `manyHelper-roundtrip-list` (Format.agda).
+-- Gate measurement vs the pre-ε.3 per-construct proof in
+-- `Properties/Topology/Receivers.agda` (646 file-LOC / 417
+-- strict-code-LOC).  The DSL proof collapses the strip lemmas into
+-- the iso bijection (γ.1's `fwd-bwd`) and the per-iteration roundtrip
+-- into the universal `manyHelper-roundtrip-list` (Format.agda).
 --
--- Co-existence note: this proof is the DSL-side equivalent.  δ migrates
--- the 3d.3 dispatcher consumers from the existing
--- `parseReceiverList∘strip-roundtrip` API to this DSL form, after
--- which the 646-LOC file is dropped.
+-- Post-ε.3, `Properties/Topology/Receivers.agda` is a slim bridge
+-- (~70 strict-code-LOC) that derives a flat `parseReceiverList-
+-- roundtrip` from this DSL theorem; the 3d.3 dispatcher's
+-- receiver-list step uses the bridge directly.  See ε.3 commit notes
+-- for the cycle resolution that enabled the migration.
 module Aletheia.DBC.TextParser.Format.Receivers.Roundtrip where
 
 open import Data.Bool using (Bool; true; false; _∨_)
@@ -47,15 +47,14 @@ open import Aletheia.DBC.TextParser.Format.Receivers
   using (canonicalReceiversFmt)
 
 -- ============================================================================
--- isReceiverCont — local definition to keep this module standalone
+-- isReceiverCont — receivers character predicate
 -- ============================================================================
 
--- The 3d.2 module's character predicate: combined inner-many stop
--- condition (`isIdentCont` for parseIdentifier's inner satisfy-loop)
--- and outer-many stop condition (`,` separator).  The single
--- SuffixStops precondition discharges both.  Mirrors the existing
--- definition in `Properties/Topology/Receivers`; duplicated here so
--- δ can drop the 646-LOC file.
+-- Combined inner-many stop condition (`isIdentCont` for
+-- parseIdentifier's inner satisfy-loop) and outer-many stop condition
+-- (`,` separator).  The single SuffixStops precondition discharges
+-- both.  Re-exported by `Properties/Topology/Receivers` (the post-ε.3
+-- slim bridge) for backwards-compatible facade exports.
 isReceiverCont : Char → Bool
 isReceiverCont c = isIdentCont c ∨ (c ≈ᵇ ',')
 

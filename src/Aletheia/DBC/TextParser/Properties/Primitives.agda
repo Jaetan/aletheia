@@ -64,7 +64,7 @@ open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; buildIdent; fromMaybeIdent;
    parseStringLit; parseStringChar; parseWS; parseWSOpt; isHSpace;
    parseNatural)
-open import Aletheia.DBC.TextParser.Topology using
+open import Aletheia.DBC.TextParser.Topology.Foundations using
   (parseByteOrderDigit; parseSignFlag;
    parseMuxMarker; MuxMarker; NotMux; IsMux; SelBy; BothMux)
 open import Aletheia.DBC.TextParser.Attributes using

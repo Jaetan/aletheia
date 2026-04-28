@@ -48,7 +48,7 @@ open import Aletheia.DBC.TextParser.Attributes
 open import Aletheia.DBC.TextParser.Lexer
   using (parseWS; parseWSOpt; parseStringLit; parseNewline;
          parseIdentifier; parseNatural; isHSpace)
-open import Aletheia.DBC.TextParser.Topology using (buildCANId)
+open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;

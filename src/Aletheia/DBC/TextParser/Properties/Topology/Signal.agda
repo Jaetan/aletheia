@@ -29,17 +29,17 @@
 --   parseReceiverList >>= λ receivers →
 --   parseWSOpt *> parseNewline *>
 --   pure (mkRawSignal name mux sb bl bo isSigned
---                     factor offset minimum maximum unit
---                     (stripVectorPlaceholder receivers))
+--                     factor offset minimum maximum unit receivers)
 --
 -- The mux dispatcher is the only branch with three dispatcher cases
 -- (NotMux / IsMux / SelBy v); BothMux is dead-under-formatter (see G-A6 in
 -- `WellFormedText.agda`'s module header).  All three dispatchers converge
 -- on `" : ..."` post-mux input — the tail proof (steps 6-33) is shared.
 --
--- The receiver-list segment composes 3d.2's
--- `parseReceiverList∘strip-roundtrip`, returning an existential parsedRs
--- together with `stripVectorPlaceholder parsedRs ≡ DBCSignal.receivers sig`.
+-- Post-ε.3: the receiver-list segment composes the flat
+-- `parseReceiverList-roundtrip` (DSL-derived).  The pre-ε existential
+-- `(parsedRs, parse-eq, strip-eq)` is gone — `parsedRs` IS
+-- `CanonicalReceivers.list (DBCSignal.receivers sig)` directly.
 module Aletheia.DBC.TextParser.Properties.Topology.Signal where
 
 open import Data.Bool using (Bool; true; false; T; not; _∨_; _∧_)
@@ -76,7 +76,7 @@ open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextParser.Topology using
   (parseSignalLine; parseMuxMarker;
    parseByteOrderDigit; parseSignFlag;
-   RawSignal; mkRawSignal; stripVectorPlaceholder;
+   RawSignal; mkRawSignal;
    MuxMarker; NotMux; IsMux; SelBy; BothMux)
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitSignalLine-chars; emitMuxMarker-chars; emitReceivers-chars;
@@ -100,7 +100,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives using
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; parseNewline-match-LF)
 open import Aletheia.DBC.TextParser.Properties.Topology.Receivers using
-  (isReceiverCont; parseReceiverList∘strip-roundtrip)
+  (isReceiverCont; parseReceiverList-roundtrip)
 open import Aletheia.DBC.Formatter.WellFormedText using
   (WellFormedTextSignal; WellFormedTextPresence;
    wftp-always; wftp-when-single; NoVectorXXXReceiver)
@@ -134,9 +134,9 @@ SignalNameStop sig =
 --     `unconvertStartBit fb bo (SignalDef.startBit def) (SignalDef.bitLength def)`,
 --     not the post-`% max-physical-bits` clamped value.  The `% / convert`
 --     roundtrip is a 3d.5 / Layer 4 concern.
---   * `RawSignal.receivers` ≡ `DBCSignal.receivers sig` via 3d.2's
---     `parseReceiverList∘strip-roundtrip` discharging the parsed-back list
---     through `stripVectorPlaceholder`.
+--   * `RawSignal.receivers` ≡ `CanonicalReceivers.list (DBCSignal.receivers
+--     sig)` via the flat `parseReceiverList-roundtrip` (post-ε.3, derived
+--     from the DSL `canonicalReceivers-roundtrip`).
 expectedRaw : MuxMarker → DBCSignal → ℕ → RawSignal
 expectedRaw mux sig frameBytes = mkRawSignal
     (DBCSignal.name sig)
@@ -303,7 +303,7 @@ parseSignalTail name mux = do
   _ ← parseNewline
   pure (mkRawSignal name mux startBit bitLength bo isSigned
                     factor offset minimum maximum unit
-                    (stripVectorPlaceholder receivers))
+                    receivers)
   where open import Aletheia.DBC.TextParser.Topology using (parseReceiverList)
 
 -- Verify decomposition holds definitionally.
@@ -355,10 +355,9 @@ open import Aletheia.DBC.TextParser.Topology using (parseReceiverList)
 -- TAIL ROUNDTRIP — 28-step bind chain for the post-mux body
 -- ============================================================================
 
--- The 28-step bind chain after `parseMuxMarker`.  Output uses
--- `DBCSignal.receivers sig` directly (post-`stripVectorPlaceholder`
--- discharge via 3d.2's existential lemma); other fields recovered by
--- composing Layer 2 roundtrip lemmas.
+-- The 28-step bind chain after `parseMuxMarker`.  Post-ε.3: receivers
+-- recovered via the flat `parseReceiverList-roundtrip` (DSL-derived);
+-- other fields recovered by composing Layer 2 roundtrip lemmas.
 --
 -- Tail input starts with `' ' ∷ ':' ∷ ' ' ∷ <sb> ++ '|' ∷ <bl> ++ ...`.
 -- All fixed separators (`':' '|' '@' '(' ',' ')' '[' '|' ']' '\n'`) are
@@ -598,31 +597,22 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
     unitS : List Char
     unitS = DBCSignal.unit sig
 
-    -- Compose 3d.2's existential to discharge `stripVectorPlaceholder`.
-    receivers-strip-eq :
-        ∃[ parsedRs ]
-            (parseReceiverList pos₂₄
-              (rcvCs ++ₗ '\n' ∷ suffix)
-              ≡ just (mkResult parsedRs pos₂₅ ('\n' ∷ suffix)))
-          × (stripVectorPlaceholder parsedRs ≡ CanonicalReceivers.list (DBCSignal.receivers sig))
-    receivers-strip-eq =
-      parseReceiverList∘strip-roundtrip pos₂₄
-        (CanonicalReceivers.list (DBCSignal.receivers sig)) ('\n' ∷ suffix)
-        novecxxx (∷-stop refl)
-
+    -- Post-ε.3: flat receivers roundtrip — `parseReceiverList`'s
+    -- post-strip subsumption (DSL iso `fwd`) means the parsed list IS
+    -- `CanonicalReceivers.list (DBCSignal.receivers sig)` directly, no
+    -- existential needed.
     parsedRs : List Identifier
-    parsedRs = proj₁ receivers-strip-eq
+    parsedRs = CanonicalReceivers.list (DBCSignal.receivers sig)
 
     parseRcv-eq : parseReceiverList pos₂₄
                     (rcvCs ++ₗ '\n' ∷ suffix)
                   ≡ just (mkResult parsedRs pos₂₅ ('\n' ∷ suffix))
-    parseRcv-eq = proj₁ (proj₂ receivers-strip-eq)
-
-    strip-eq : stripVectorPlaceholder parsedRs ≡ CanonicalReceivers.list (DBCSignal.receivers sig)
-    strip-eq = proj₂ (proj₂ receivers-strip-eq)
+    parseRcv-eq =
+      parseReceiverList-roundtrip pos₂₄ parsedRs ('\n' ∷ suffix)
+        novecxxx (∷-stop refl)
 
     -- Concrete result of the bind chain — name, mux, plus all parsed
-    -- field values (using DBCSignal.receivers sig via strip-eq rewrite).
+    -- field values.
     expectedRawHere : RawSignal
     expectedRawHere = mkRawSignal name mux
       (unconvertStartBit fb (DBCSignal.byteOrder sig)
@@ -762,7 +752,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     -- Step 1: parseWSOpt consumes ' ' (head of " : " in the tail).
     step1 : parseSignalTail name mux pos step1-input
@@ -801,7 +791,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step2 : cont1 (' ' ∷ []) pos₁ step1-rest ≡ cont2 ':' pos₂ step2-rest
     step2 = bind-just-step (char ':') cont2 pos₁ step1-rest
@@ -837,7 +827,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step3 : cont2 ':' pos₂ step2-rest ≡ cont3 (' ' ∷ []) pos₃ step3-rest
     step3 = bind-just-step parseWSOpt cont3 pos₂ step2-rest
@@ -873,7 +863,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step4 : cont3 (' ' ∷ []) pos₃ step3-rest ≡ cont4 sb pos₄ step4-rest
     step4 = bind-just-step parseNatural cont4 pos₃ step3-rest
@@ -907,7 +897,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step5 : cont4 sb pos₄ step4-rest ≡ cont5 sb '|' pos₅ step5-rest
     step5 = bind-just-step (char '|') (cont5 sb) pos₄ step4-rest
@@ -940,7 +930,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step6 : cont5 sb '|' pos₅ step5-rest ≡ cont6 sb bl pos₆ step6-rest
     step6 = bind-just-step parseNatural (cont6 sb) pos₅ step5-rest
@@ -972,7 +962,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step7 : cont6 sb bl pos₆ step6-rest ≡ cont7 sb bl '@' pos₇ step7-rest
     step7 = bind-just-step (char '@') (cont7 sb bl) pos₆ step6-rest
@@ -1003,7 +993,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step8 : cont7 sb bl '@' pos₇ step7-rest ≡ cont8 sb bl bo pos₈ step8-rest
     step8 = bind-just-step parseByteOrderDigit (cont8 sb bl) pos₇ step7-rest
@@ -1033,7 +1023,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step9 : cont8 sb bl bo pos₈ step8-rest
           ≡ cont9 sb bl bo isSign pos₉ step9-rest
@@ -1063,7 +1053,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step10 : cont9 sb bl bo isSign pos₉ step9-rest
            ≡ cont10 sb bl bo isSign (' ' ∷ []) pos₁₀ step10-rest
@@ -1092,7 +1082,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step11 : cont10 sb bl bo isSign (' ' ∷ []) pos₁₀ step10-rest
            ≡ cont11 sb bl bo isSign '(' pos₁₁ step11-rest
@@ -1120,7 +1110,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step12 : cont11 sb bl bo isSign '(' pos₁₁ step11-rest
            ≡ cont12 sb bl bo isSign facd pos₁₂ step12-rest
@@ -1147,7 +1137,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step13 : cont12 sb bl bo isSign facd pos₁₂ step12-rest
            ≡ cont13 sb bl bo isSign facd ',' pos₁₃ step13-rest
@@ -1173,7 +1163,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step14 : cont13 sb bl bo isSign facd ',' pos₁₃ step13-rest
            ≡ cont14 sb bl bo isSign facd offd pos₁₄ step14-rest
@@ -1198,7 +1188,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step15 : cont14 sb bl bo isSign facd offd pos₁₄ step14-rest
            ≡ cont15 sb bl bo isSign facd offd ')' pos₁₅ step15-rest
@@ -1222,7 +1212,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step16 : cont15 sb bl bo isSign facd offd ')' pos₁₅ step15-rest
            ≡ cont16 sb bl bo isSign facd offd (' ' ∷ []) pos₁₆ step16-rest
@@ -1245,7 +1235,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step17 : cont16 sb bl bo isSign facd offd (' ' ∷ []) pos₁₆ step16-rest
            ≡ cont17 sb bl bo isSign facd offd '[' pos₁₇ step17-rest
@@ -1267,7 +1257,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step18 : cont17 sb bl bo isSign facd offd '[' pos₁₇ step17-rest
            ≡ cont18 sb bl bo isSign facd offd mind pos₁₈ step18-rest
@@ -1288,7 +1278,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step19 : cont18 sb bl bo isSign facd offd mind pos₁₈ step18-rest
            ≡ cont19 sb bl bo isSign facd offd mind '|' pos₁₉ step19-rest
@@ -1308,7 +1298,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step20 : cont19 sb bl bo isSign facd offd mind '|' pos₁₉ step19-rest
            ≡ cont20 sb bl bo isSign facd offd mind maxd pos₂₀ step20-rest
@@ -1327,7 +1317,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step21 : cont20 sb bl bo isSign facd offd mind maxd pos₂₀ step20-rest
            ≡ cont21 sb bl bo isSign facd offd mind maxd ']' pos₂₁ step21-rest
@@ -1345,7 +1335,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step22 : cont21 sb bl bo isSign facd offd mind maxd ']' pos₂₁ step21-rest
            ≡ cont22 sb bl bo isSign facd offd mind maxd (' ' ∷ []) pos₂₂ step22-rest
@@ -1362,7 +1352,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step23 : cont22 sb bl bo isSign facd offd mind maxd (' ' ∷ []) pos₂₂ step22-rest
            ≡ cont23 sb bl bo isSign facd offd mind maxd unitS pos₂₃ step23-rest
@@ -1378,7 +1368,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step24 : cont23 sb bl bo isSign facd offd mind maxd unitS pos₂₃ step23-rest
            ≡ cont24 sb bl bo isSign facd offd mind maxd unitS (' ' ∷ []) pos₂₄ step24-rest
@@ -1393,7 +1383,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step25 : cont24 sb bl bo isSign facd offd mind maxd unitS (' ' ∷ []) pos₂₄ step24-rest
            ≡ cont25 sb bl bo isSign facd offd mind maxd unitS parsedRs pos₂₅ step25-rest
@@ -1408,7 +1398,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
       _ ← parseNewline
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step26 : cont25 sb bl bo isSign facd offd mind maxd unitS parsedRs pos₂₅ step25-rest
            ≡ cont26 sb bl bo isSign facd offd mind maxd unitS parsedRs [] pos₂₆ step26-rest
@@ -1422,7 +1412,7 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
     cont27 startBit bitLength bo isSigned factor offset minimum maximum unit receivers _ =
       pure (mkRawSignal name mux startBit bitLength bo isSigned
                         factor offset minimum maximum unit
-                        (stripVectorPlaceholder receivers))
+                        receivers)
 
     step27 : cont26 sb bl bo isSign facd offd mind maxd unitS parsedRs [] pos₂₆ step26-rest
            ≡ cont27 sb bl bo isSign facd offd mind maxd unitS parsedRs '\n' pos₂₇ step27-rest
@@ -1431,16 +1421,12 @@ parseSignalTail-roundtrip pos name mux sig fb suffix novecxxx recv-stop ss = pro
               pos₂₆ step26-rest '\n' pos₂₇ step27-rest
               (parseNewline-match-LF pos₂₆ step27-rest)
 
-    -- Step 28: pure.  Closes the chain by `cong` over the receivers
-    -- field — `stripVectorPlaceholder parsedRs ≡ DBCSignal.receivers sig`
-    -- via 3d.2's strip-eq.
+    -- Step 28: pure.  Post-ε.3: closes by `refl` — `parsedRs` is now
+    -- `CanonicalReceivers.list (DBCSignal.receivers sig)` directly,
+    -- definitionally equal to `expectedRawHere`'s receivers field.
     step28 : cont27 sb bl bo isSign facd offd mind maxd unitS parsedRs '\n' pos₂₇ step27-rest
            ≡ just (mkResult expectedRawHere pos₂₇ suffix)
-    step28 = cong
-      (λ rs → just (mkResult
-                       (mkRawSignal name mux sb bl bo isSign facd offd mind maxd unitS rs)
-                       pos₂₇ suffix))
-      strip-eq
+    step28 = refl
 
     proof : parseSignalTail name mux pos step1-input
           ≡ just (mkResult expectedRawHere pos₂₇ suffix)

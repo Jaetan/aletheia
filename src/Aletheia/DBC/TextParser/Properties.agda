@@ -110,12 +110,7 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
 open import Aletheia.DBC.TextParser.Properties.Topology public
   using ( parseBU-roundtrip; NodeNameStop
         ; isReceiverCont
-        ; ident-VectorXXX
-        ; parseReceiverList-roundtrip-empty
-        ; parseReceiverList-roundtrip-cons
-        ; stripVectorPlaceholder-vectorXXX
-        ; stripVectorPlaceholder-no-vectorXXX
-        ; parseReceiverList∘strip-roundtrip
+        ; parseReceiverList-roundtrip
         ; SignalNameStop; expectedRaw
         ; parseSignalTail; parseSignalLine-decompose
         ; parseSignalTail-roundtrip

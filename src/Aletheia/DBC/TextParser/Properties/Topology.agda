@@ -22,12 +22,7 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Nodes public
 
 open import Aletheia.DBC.TextParser.Properties.Topology.Receivers public
   using ( isReceiverCont
-        ; ident-VectorXXX
-        ; parseReceiverList-roundtrip-empty
-        ; parseReceiverList-roundtrip-cons
-        ; stripVectorPlaceholder-vectorXXX
-        ; stripVectorPlaceholder-no-vectorXXX
-        ; parseReceiverList∘strip-roundtrip)
+        ; parseReceiverList-roundtrip)
 
 -- 3d.3: SG_ parseSignalLine per-MuxMarker-shape roundtrip dispatchers.
 -- Three main theorems — one per `MuxMarker` value the parser may recover
