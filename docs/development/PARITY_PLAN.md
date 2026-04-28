@@ -283,10 +283,13 @@ Plan:
 
        **Status post-2026-04-28:** α ✅ + β ✅ + γ.1 ✅ (`a3cdd23` CanonicalReceivers + Format/Receivers) + γ.2 ✅ (`2c786ef` AST retype cascade through 13 files) + γ.3 ✅ (`7118382` Format/Receivers/Roundtrip 86 strict-code-LOC vs 417 existing = **79.4% reduction**) + ε ✅ (`01e004f` Topology split + parseReceiverList DSL migration: cycle Topology→Format→Properties.Primitives→Attributes→Topology broken via `Topology.Foundations` facade; `Properties/Topology/Receivers.agda` shrunk 417→70 strict-code-LOC = **83% reduction**; pre-ε existential collapsed to flat `parseReceiverList-roundtrip`; 28 redundant strip calls + dead helper deleted; module count 189→191) + ζ ✅ (`2c95462` Format DSL +decRat/wsOpt/ws constructors needed by signalLineFmt) + η ✅ (`648fd0b` parseSignalLine DSL migration: production redefined as `parseSignalLine = parse signalLineFmt`; 3 slim dispatchers around universal `signalLine-roundtrip`; **86% strict-code-LOC reduction** Signal.agda 1873→256; new Format/SignalLine.agda + Format/SignalLine/Roundtrip.agda; cycle break via RawSignal moved to Topology.Foundations; +`wsCanonOne` Format DSL constructor for permissive whitespace; module count 191→193).  **δ closed** — its goal (production migration of receivers) achieved via the broader ε work.  3d.3 (parseSignalLine dispatchers) ✅ migrated under η — the lone Layer-3 migration that landed under 3d.5.c rather than 3d.5.d, given how deeply intertwined it was with the Format DSL extensions ζ + η.
 
-    4. **3d.5.d — Migration of existing 3a–3d.3 proofs (~2–3w).**  Per-construct migration is one PR each so progress is incremental and revertible:
+    4. **3d.5.d — Migration of existing 3a–3d.3 proofs (~2–3w, IN PROGRESS).**  Per-construct migration is one PR each so progress is incremental and revertible:
        - 3a (Preamble: VERSION, BS_, NS_).
-       - 3b (BU_, VAL_TABLE_, EV_, CM_ — CM_ is the heaviest current proof at 2,533 LOC; expected to drop to <100).
-       - 3c (BA_DEF_, BA_DEF_DEF_, BA_, BA_REL_, parseAttrLine — 31 dispatchers under the existing `lift-altK` composer should map cleanly to nested `altDisj`).
+       - 3b BU_ (node list, 611L) — pending.
+       - 3b VAL_TABLE_ (parseValueTable) — ✅ shipped 2026-04-28 (`b374217`): production parser `parseValueTable = parse ValueTable-format >>= many parseNewline >>= pure`; Format/ValueTable.agda extended to permissive-whitespace via `withWS`/`withWSCanonOne`/`newlineFmt`; Properties/ValueTables/ValueTable.agda 613→105 strict-code-LOC = **83% production-side reduction**.
+       - 3b EV_ (1,581L) — pending.
+       - 3b CM_ (2,533L; heaviest current proof; expected to drop to <100 under 5-way `altSum CommentTarget` dispatch + `withPrefix`-based per-target wrappers) — pending.
+       - 3c (BA_DEF_, BA_DEF_DEF_, BA_, BA_REL_, parseAttrLine — 31 dispatchers under the existing `lift-altK` composer should map cleanly to nested `altDisj`) — pending.
        - 3d.1 (WF foundation — keep as-is, framework consumes it).
        - 3d.2 (parseReceiverList — ✅ migrated under 3d.5.c-ε).
        - 3d.3 (parseSignalLine 3 dispatchers — ✅ migrated under 3d.5.c-η: `parseSignalLine = parse signalLineFmt`, dispatchers reduced to slim wrappers around `signalLine-roundtrip`).
@@ -302,7 +305,7 @@ Plan:
     - 3d.5.a ✅: framework type-checks; universal roundtrip is proven; no postulates.  `--safe --without-K` preserved.
     - 3d.5.b ✅: `parseValueTable-roundtrip` under DSL = 88 strict-code-LOC (target <100); all gates green.
     - 3d.5.c-α/β/γ.1+γ.2+γ.3+ε+ζ+η ✅: `refined` + `altSum` + CanonicalReceivers refinement carrier + AST retype + receivers DSL roundtrip 86 strict-code-LOC (vs 417 existing = 79.4% reduction) + Topology split + production migration (Receivers.agda 70 strict-code-LOC = 83% reduction) + Format DSL +decRat/wsOpt/ws/wsCanonOne + parseSignalLine DSL migration (Signal.agda 256 strict-code-LOC = 86% reduction).  δ closed (subsumed into ε).  3d.3 dispatchers migrated under η.
-    - 3d.5.d: each migration commit keeps `check-properties` green and reduces Layer-3 LOC monotonically.
+    - 3d.5.d (parseValueTable, `b374217`) ✅: production migration `parseValueTable = parse ValueTable-format >>= many parseNewline >>= pure`; Format/ValueTable.agda 88 → 177 strict-code-LOC (canonical-only gate replaced by permissive-whitespace via `withWS`/`withWSCanonOne`/`newlineFmt`); Properties/ValueTables/ValueTable.agda 613 → 105 strict-code-LOC = **83% production-side reduction**.  Each subsequent migration commit keeps `check-properties` green and reduces Layer-3 LOC monotonically.
     - 3d.5.e/f: full universal roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d` ships.
 
     **Risks:**
