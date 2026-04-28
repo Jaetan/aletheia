@@ -281,14 +281,14 @@ Plan:
        - `iso` lift for `IntDecRat` / `NatDecRat` (proven once per refinement; ~50–100 LOC each) ✅ **shipped as `refined` constructor** (α).
        - Asymmetric strip (`parseReceiverList∘strip`) ✅ **shipped via the `iso` + γ.1's `mkCanonicalFromList` smart constructor** (γ.1+γ.2): the AST is retyped `DBCSignal.receivers : List Identifier → CanonicalReceivers`, so the asymmetric strip is absorbed into the AST type (canonical form by construction).
 
-       **Status post-2026-04-28:** α ✅ + β ✅ + γ.1 ✅ (`a3cdd23` CanonicalReceivers + Format/Receivers) + γ.2 ✅ (`2c786ef` AST retype cascade through 13 files) + γ.3 ✅ (`7118382` Format/Receivers/Roundtrip 86 strict-code-LOC vs 417 existing = **79.4% reduction**).  **δ pending** — 3d.3 dispatcher migration: 3 dispatchers (NotMux, IsMux, SelBy/BothMux variants) at lines 1700-2400 of `TextParser/Properties/Topology/Signal.agda`; advisor recommends spiking the simplest first (NotMux non-multiplexed) and measuring DSL proof shape before committing to the rest.  `signalLineFmt` is the largest Format yet (nested `altSum` 4-way + `refined` for record assembly + ~11 pair compositions); `EmitsOK` builder is the bulk of the work.
+       **Status post-2026-04-28:** α ✅ + β ✅ + γ.1 ✅ (`a3cdd23` CanonicalReceivers + Format/Receivers) + γ.2 ✅ (`2c786ef` AST retype cascade through 13 files) + γ.3 ✅ (`7118382` Format/Receivers/Roundtrip 86 strict-code-LOC vs 417 existing = **79.4% reduction**) + ε ✅ (`01e004f` Topology split + parseReceiverList DSL migration: cycle Topology→Format→Properties.Primitives→Attributes→Topology broken via `Topology.Foundations` facade; `Properties/Topology/Receivers.agda` shrunk 417→70 strict-code-LOC = **83% reduction**; pre-ε existential collapsed to flat `parseReceiverList-roundtrip`; 28 redundant strip calls + dead helper deleted; module count 189→191).  **δ closed** — its goal (production migration of receivers) achieved via the broader ε work.  `signalLineFmt` (the full SG_ Format) and the 3 dispatcher migrations (NotMux/IsMux/SelBy/BothMux variants at lines 1700-2400 of `TextParser/Properties/Topology/Signal.agda`) move to 3d.5.d.
 
     4. **3d.5.d — Migration of existing 3a–3d.3 proofs (~2–3w).**  Per-construct migration is one PR each so progress is incremental and revertible:
        - 3a (Preamble: VERSION, BS_, NS_).
        - 3b (BU_, VAL_TABLE_, EV_, CM_ — CM_ is the heaviest current proof at 2,533 LOC; expected to drop to <100).
        - 3c (BA_DEF_, BA_DEF_DEF_, BA_, BA_REL_, parseAttrLine — 31 dispatchers under the existing `lift-altK` composer should map cleanly to nested `altDisj`).
        - 3d.1 (WF foundation — keep as-is, framework consumes it).
-       - 3d.2 (parseReceiverList — replaced by framework's `sepBy` after 3d.5.c).
+       - 3d.2 (parseReceiverList — ✅ migrated under 3d.5.c-ε).
        - 3d.3 (parseSignalLine 3 dispatchers — replaced by framework + `caseFmt`).
 
     5. **3d.5.e — Apply to remaining Layer-3 work (~1w).**  Renumbered targets:
@@ -301,7 +301,7 @@ Plan:
     **Gates** (per sub-phase):
     - 3d.5.a ✅: framework type-checks; universal roundtrip is proven; no postulates.  `--safe --without-K` preserved.
     - 3d.5.b ✅: `parseValueTable-roundtrip` under DSL = 88 strict-code-LOC (target <100); all gates green.
-    - 3d.5.c-α/β/γ.1+γ.2+γ.3 ✅: `refined` + `altSum` + CanonicalReceivers refinement carrier + AST retype + receivers DSL roundtrip 86 strict-code-LOC (vs 417 existing = 79.4% reduction).  3d.5.c-δ pending — 3d.3 dispatcher migration spike (1 of 3, then plan).
+    - 3d.5.c-α/β/γ.1+γ.2+γ.3+ε ✅: `refined` + `altSum` + CanonicalReceivers refinement carrier + AST retype + receivers DSL roundtrip 86 strict-code-LOC (vs 417 existing = 79.4% reduction) + Topology split + production migration (Receivers.agda 70 strict-code-LOC = 83% reduction).  δ closed (subsumed into ε).
     - 3d.5.d: each migration commit keeps `check-properties` green and reduces Layer-3 LOC monotonically.
     - 3d.5.e/f: full universal roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d` ships.
 
