@@ -45,6 +45,8 @@ open import Aletheia.Parser.Combinators using
 open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
    parseNatural)
+open import Aletheia.DBC.TextParser.Format using (parse)
+open import Aletheia.DBC.TextParser.Format.ValueTable using (ValueTable-format)
 
 open import Aletheia.DBC.Types using (ValueTable)
 
@@ -71,24 +73,21 @@ parseValueEntry = do
 -- VAL_TABLE_ LINE
 -- ============================================================================
 
--- `"VAL_TABLE_" ws identifier entries ws? ";" newline` + optional trailing
--- blank lines.  `parseWSOpt` between the last entry and `;` tolerates the
--- cantools-emitted single-space separator.  `many parseNewline` absorbs
--- any blank lines between tables for hand-written inputs; the Agda
--- `emitValueTable` packs lines directly and emits none, but the parser
--- stays lenient so `many parseValueLine` upstream composes over both
--- packed and spaced-out corpora.
+-- Post 3d.5.c-η/3d.5.d: derived from the Format DSL `ValueTable-format`,
+-- so the universal `roundtrip` theorem in `Format.agda` discharges the
+-- parse-after-emit law via a single `EmitsOK` certificate (see
+-- `Properties/ValueTables/ValueTable.parseValueTable-roundtrip`).  The
+-- DSL handles `"VAL_TABLE_" ws identifier entries ws? ";" newline`
+-- (production-permissive whitespace via `withWS`/`withWSCanonOne`,
+-- both LF and CR-LF newline via `newlineFmt`).  The trailing `many
+-- parseNewline` consumes optional blank lines between tables, mirroring
+-- η's `parseSignalLine` vs `parseMessage` split (line consumes one
+-- terminator, block-level wrapper absorbs blanks).
 parseValueTable : Parser ValueTable
 parseValueTable = do
-  _ ← string "VAL_TABLE_"
-  _ ← parseWS
-  name ← parseIdentifier
-  entries ← many parseValueEntry
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
+  vt ← parse ValueTable-format
   _ ← many parseNewline
-  pure (record { name = name ; entries = entries })
+  pure vt
 
 -- ============================================================================
 -- VAL_ LINE (parsed, discarded)
