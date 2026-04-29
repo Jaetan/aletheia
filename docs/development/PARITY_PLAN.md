@@ -294,10 +294,10 @@ Plan:
        - 3d.2 (parseReceiverList — ✅ migrated under 3d.5.c-ε).
        - 3d.3 (parseSignalLine 3 dispatchers — ✅ migrated under 3d.5.c-η: `parseSignalLine = parse signalLineFmt`, dispatchers reduced to slim wrappers around `signalLine-roundtrip`).
 
-    5. **3d.5.e — Apply to remaining Layer-3 work (~1w).**  Renumbered targets:
-       - `3d.6` (was `3d.4`): `manyHelper-parseSignalLine-body` becomes the framework's `sepBy` over `Format DBCSignal` (cross-element `WellFormedTextSignal` dispatch enters via `caseFmt`).
-       - `3d.7` (was `3d.5`): signal-list resolution roundtrip composes 3d.6 + master-coherence WF.
-       - `3d.8` (was `3d.6`): `parseMessage-roundtrip` outer composer = `Format DBCMessage`.
+    5. **3d.5.e — Apply to remaining Layer-3 work (~1w).**  Renumbered targets — **all three ✅ shipped 2026-04-29**:
+       - `3d.6` (was `3d.4`) ✅ `89e04ee`: `parseSignalLines-roundtrip` for `many parseSignalLine` via the framework's universal `roundtrip (many signalLineFmt)`.  New module `Properties/Topology/SignalList.agda` exposes `expectedRawOfDBC`/`expectedMux`/`expectedMuxFor`/`SignalLineWF`/`MasterCoherent`.
+       - `3d.7` (was `3d.5`) ✅ `42228df`: `resolveSignalList-roundtrip` recovers `List DBCSignal` from formatter-emitted `List RawSignal` under MasterCoherent + per-signal WellFormedSignal + PhysicallyValid + WellFormedTextPresence; new module `Properties/Topology/Resolve.agda`; structural induction on `buildAllRaw` (top-level so `where`-bound names accessible).
+       - `3d.8` (was `3d.6`) ✅ `f25ca5a`: `parseMessage-roundtrip` ships η-style production migration `parseMessage = parse messageHeaderFmt >>= …`; new modules `Format/Message.agda` (91L: `messageHeaderFmt : Format (ℕ × Identifier × ℕ × Identifier)` via inner pair tower glued with `withPrefix "BO_"`/`withWS`/`withWSOpt`/`newlineFmt` + top iso flattening 5-tuple) + `Properties/Topology/Message.agda` (542L: full proof tree with `IdentHeadNonHSpace` precondition + recursive `flatten-spine` over `List (List Char)` for emit decomposition + 4-step `bind-just-step` peel + 2-stage pos-eq bridging to canonical `advancePositions pos (emitMessage-chars msg)` form).  Module count 193→197.  Spine-based decomposition is load-bearing for future BO_-style multi-line composers (BU_, EV_, BO_-internal); was refactored from 6-deep manually-nested trans/cong per user feedback "Careful with the trans-cong piling".
 
     6. **3d.5.f — Layer 4 aggregation (~3–5d).**  `parseDBC-roundtrip` becomes `roundtrip DBC-format` where `DBC-format : Format DBC` is the top-level aggregator.  The owed Layer-4 char-class-disjointness lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) are proven once and consumed by the framework's `stopPred` derivation.
 
@@ -315,7 +315,7 @@ Plan:
 
     **Estimate:** ~4–6 weeks total (3d.5.a 1.5w + 3d.5.b 1w + 3d.5.c 1w + 3d.5.d 2–3w + 3d.5.e 1w + 3d.5.f 0.5w).
 
-  * **Commits 3d.6 / 3d.7 / 3d.8 pending (post-DSL — renumbered from pre-2026-04-26 plan):** `manyHelper-parseSignalLine-body` recursion induction over `List RawSignal` (selects one of NotMux/IsMux/SelBy per element via `WellFormedTextSignal` dispatch on `presence × master`) + signal-list resolution roundtrip (`findMuxName ∘ map unbuild ≡ findMuxMaster` under WF + `resolveSignalList` recovers the original `List DBCSignal`) + `parseMessage-roundtrip` outer composer (BO_ bind chain + `buildCANId/bytesToValidDLC/resolveSignalList` discrimination).  Each ships under the Format DSL (3d.5) — `Format DBCSignal` for SG_, `Format DBCMessage` for BO_ — instead of the hand-rolled ~500–2000 LOC-per-construct style.  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via `roundtrip DBC-format`.
+  * **Commits 3d.6 / 3d.7 / 3d.8 ✅ shipped 2026-04-29 (commits `89e04ee` + `42228df` + `f25ca5a` on branch `b3d-3d5-format-dsl`):** see 3d.5.e bullet above for per-commit detail.  Layer 3 BO_ block fully closed.  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via `roundtrip DBC-format` once the remaining 3d.5.d 3a/3b/3c migrations land (BU_, EV_, CM_, BA_DEF_ family).
 - B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
