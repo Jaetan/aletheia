@@ -44,19 +44,19 @@ open import Data.List.Relation.Unary.All as All using (All)
 open import Aletheia.Parser.Combinators
   using (Position; Parser; mkResult; advancePosition; advancePositions;
          parseCharsSeq; pure; _>>=_; _<|>_; _<$>_;
-         manyHelper; sameLengthᵇ)
+         satisfy; manyHelper; sameLengthᵇ)
   renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat)
 open import Aletheia.DBC.TextParser.Lexer
   using (parseIdentifier; parseStringLit; parseNatural;
-         parseWS; parseWSOpt; isHSpace)
+         parseWS; parseWSOpt; isHSpace; isNonNewline)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (parseCharsSeq-success; parseIdentifier-roundtrip;
-         parseStringLit-roundtrip; parseWS-one-space;
+         parseStringLit-roundtrip; parseWS-one-space; parseWS-one-tab;
          alt-left-just; alt-right-nothing)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
@@ -183,6 +183,23 @@ data Format : Set → Set₁ where
   -- NOT use this — that slot keeps `wsOpt` since the formatter emits
   -- nothing).  EmitsOK requires `SuffixStops isHSpace suffix`.
   wsCanonOne : Format ⊤
+  -- Canonical-single-tab whitespace (parser one-or-more, mirror of `ws`).
+  -- Canonical emit is `'\t' ∷ []` (single tab — matches the NS_ keyword-
+  -- line indent emitted by `emitNamespace-chars`); parse is `parseWS`
+  -- (one-or-more isHSpace — accepts both `' '` and `'\t'`).  EmitsOK
+  -- requires `SuffixStops isHSpace suffix`.  Used by the NS_ keyword-line
+  -- Format leaf (`withWSCanonTab ident`) where the formatter writes a
+  -- single tab but the parser must accept any non-empty hspace run.
+  wsCanonTab : Format ⊤
+  -- Run of zero-or-more non-newline characters; canonical emit `[]`.
+  -- Parser is `many (satisfy isNonNewline)` — accepts any tail that does
+  -- not introduce a newline.  EmitsOK requires `SuffixStops isNonNewline
+  -- suffix` — the suffix's head must be a newline (`'\n'`/`'\r'`) so the
+  -- run terminates immediately after consuming zero chars.  Used by the
+  -- BS_ Format to consume the opaque baud-rate tail without committing
+  -- to its grammar (the corpus always leaves it empty; the parser
+  -- tolerates anything until newline).
+  nonNewlineRun : Format ⊤
 
 -- ============================================================================
 -- EMIT / PARSE
@@ -203,6 +220,8 @@ emit decRat           d        = showDecRat-dec-chars d
 emit wsOpt            tt       = []
 emit ws               tt       = ' ' ∷ []
 emit wsCanonOne       tt       = ' ' ∷ []
+emit wsCanonTab       tt       = '\t' ∷ []
+emit nonNewlineRun    tt       = []
 
 -- `liftRefined` decides the refinement predicate on the value just parsed
 -- by the underlying format, succeeding (with the synthesised witness) when
@@ -236,6 +255,8 @@ parse decRat          = parseDecRat
 parse wsOpt           = parseWSOpt >>= λ _ → pure tt
 parse ws              = parseWS    >>= λ _ → pure tt
 parse wsCanonOne      = parseWSOpt >>= λ _ → pure tt
+parse wsCanonTab      = parseWS    >>= λ _ → pure tt
+parse nonNewlineRun   = many-parser (satisfy isNonNewline) >>= λ _ → pure tt
 
 -- ============================================================================
 -- PARSE-FAILS-AT — termination certificate for `many`
@@ -295,6 +316,8 @@ EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
 EmitsOK wsOpt          tt       suffix = SuffixStops isHSpace suffix
 EmitsOK ws             tt       suffix = SuffixStops isHSpace suffix
 EmitsOK wsCanonOne     tt       suffix = SuffixStops isHSpace suffix
+EmitsOK wsCanonTab     tt       suffix = SuffixStops isHSpace suffix
+EmitsOK nonNewlineRun  tt       suffix = SuffixStops isNonNewline suffix
 
 -- The list-induction of `EmitsOK (many f)`.  Recurses on the list `xs`
 -- only; each `∷-cons` constructor carries the per-element well-formedness
@@ -551,6 +574,24 @@ mutual
                    (manyHelper-satisfy-exhaust-many isHSpace pos
                                                     (' ' ∷ []) suffix
                                                     (refl All.∷ All.[]) ss)
+  -- wsCanonTab: canonical emit `'\t' ∷ []`; parser `parseWS` (one-or-
+  -- more isHSpace, mirror of `ws`).  Reduces to `parseWS-one-tab`.
+  roundtrip wsCanonTab pos tt suffix ss =
+    bind-just-step parseWS (λ _ → pure tt)
+                   pos ('\t' ∷ suffix)
+                   ('\t' ∷ []) (advancePosition pos '\t') suffix
+                   (parseWS-one-tab pos suffix ss)
+  -- nonNewlineRun: canonical emit `[]`, so the universal's input reduces
+  -- to `suffix` and its expected RHS to `mkResult tt pos suffix`.  Compose
+  -- via `bind-just-step` over `many (satisfy isNonNewline)`'s zero-consume
+  -- on a non-newline-stopped suffix (`manyHelper-satisfy-exhaust-many`
+  -- with empty `xs`).
+  roundtrip nonNewlineRun pos tt suffix ss =
+    bind-just-step (many-parser (satisfy isNonNewline)) (λ _ → pure tt)
+                   pos suffix
+                   [] pos suffix
+                   (manyHelper-satisfy-exhaust-many isNonNewline pos []
+                                                    suffix All.[] ss)
 
   manyHelper-roundtrip-list f pos []       suffix m _ ([]-fails fails) =
     manyHelper-fails-stop (parse f) pos suffix m (fails pos)

@@ -55,7 +55,7 @@ open import Relation.Nullary using (¬_)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; ParseResult; mkResult; advancePosition; advancePositions;
-   pure; fail; _>>=_; _<|>_; _*>_; _<*_; satisfy; many; manyHelper;
+   pure; fail; _>>=_; _<|>_; _*>_; _<*_; _<$>_; satisfy; many; manyHelper;
    char; string; parseCharsSeq; sameLengthᵇ)
 open import Aletheia.DBC.Identifier using
   (Identifier; mkIdent; mkIdentFromChars; isIdentStart; isIdentCont;
@@ -419,6 +419,16 @@ bind-nothing : ∀ {A B : Set} (p : Parser A) (f : A → Parser B)
 bind-nothing p f pos input eq with p pos input | eq
 ... | nothing | refl = refl
 
+-- Functor map propagates `nothing` outward.  Mirror of `bind-nothing`
+-- for `_<$>_`.  Both `>>=` and `<$>` are defined by `with p pos input`,
+-- so the proof shape is identical.
+map-nothing : ∀ {A B : Set} (g : A → B) (p : Parser A)
+                (pos : Position) (input : List Char)
+  → p pos input ≡ nothing
+  → (g <$> p) pos input ≡ nothing
+map-nothing g p pos input eq with p pos input | eq
+... | nothing | refl = refl
+
 -- ============================================================================
 -- parseWS on "one horizontal space then non-space suffix"
 -- ============================================================================
@@ -436,6 +446,20 @@ parseWS-one-space : ∀ (pos : Position) (suffix : List Char)
 parseWS-one-space pos suffix ss
   rewrite manyHelper-satisfy-exhaust-many isHSpace
             (advancePosition pos ' ') [] suffix [] ss
+  = refl
+
+-- `parseWS` succeeds with a singleton `'\t'` on a `'\t'`-led input whose
+-- continuation is hspace-stopped.  Mirror of `parseWS-one-space` for the
+-- tab variant; used by the NS_ keyword-line bridge (the formatter emits
+-- `'\t'` for indent) and by the Format DSL's `wsCanonTab` constructor.
+parseWS-one-tab : ∀ (pos : Position) (suffix : List Char)
+  → SuffixStops isHSpace suffix
+  → parseWS pos ('\t' ∷ suffix)
+    ≡ just (mkResult ('\t' ∷ [])
+                     (advancePosition pos '\t') suffix)
+parseWS-one-tab pos suffix ss
+  rewrite manyHelper-satisfy-exhaust-many isHSpace
+            (advancePosition pos '\t') [] suffix [] ss
   = refl
 
 -- ============================================================================

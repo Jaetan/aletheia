@@ -272,6 +272,13 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- roundtrip.  Same defensive walk-root pattern as the other
         -- Format/* modules above.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/Nodes.agda"
+        -- B.3.d Layer 3 3d.5.d-3a: DSL-side preamble formats (VERSION,
+        -- BS_, NS_) and the slim `parseVersion-roundtrip` /
+        -- `parseBitTiming-roundtrip` / `parseNamespace-roundtrip`
+        -- proofs derived via the universal roundtrip.  Reachable from
+        -- Main.agda via `Properties.Preamble`; the explicit walk root
+        -- guards the Format module itself against bit-rot.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/Preamble.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"

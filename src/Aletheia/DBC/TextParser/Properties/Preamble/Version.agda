@@ -1,236 +1,124 @@
 {-# OPTIONS --safe --without-K #-}
 
--- `parseVersion-roundtrip` — per-line-construct roundtrip for the
--- `VERSION "..."` preamble line (B.3.d Layer 3).
+-- B.3.d Layer 3 3d.5.d — slim `parseVersion-roundtrip` derived from
+-- the universal Format DSL roundtrip.
 --
--- First Layer-3 construct; template-validates the bind-chain
--- composition pattern used by every subsequent per-construct lemma.
+-- Pre-3d.5.d (3a): hand-written ~237-line bind-chain proof through
+-- 6 parser primitives.
 --
--- Bind chain (matches `Aletheia.DBC.TextParser.Preamble.parseVersion`):
+-- Post-3d.5.d-3a: `parseVersion = parse versionFmt >>= λ v → many
+-- parseNewline >>= λ _ → pure v` (in `TextParser.Preamble`), and the
+-- roundtrip reduces to:
 --
---   string "VERSION" >>= λ _ →
---   parseWS          >>= λ _ →
---   parseStringLit   >>= λ v →
---   parseNewline     >>= λ _ →
---   many parseNewline >>= λ _ →
---   pure v
---
--- Precondition: `SuffixStops isNewlineStart suffix` — the outer suffix
--- must not start with a newline (otherwise `many parseNewline` would
--- over-consume into the next construct).
+--   1. A bridge `emit-versionFmt-eq-emitVersion-chars-prefix` proving
+--      DSL emit on `v` (plus a trailing `'\n'`) equals existing
+--      `emitVersion-chars v`.
+--   2. The universal `parseVersion-format-roundtrip` (from
+--      `Format.Preamble`).
+--   3. The trailing `many parseNewline` consuming the formatter's
+--      section-blank `\n` (via `many-parseNewline-one-LF-stop`).
+--   4. Position alignment via one `advancePositions-++` application +
+--      the bridge (the 2-stage `pos-eq` pattern from 3d.8 / BU_).
 module Aletheia.DBC.TextParser.Properties.Preamble.Version where
 
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_)
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (just)
-open import Data.String using (String; toList)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
-   pure; _>>=_; string; many)
-open import Aletheia.DBC.TextParser.Lexer using
-  (parseStringLit; parseWS; parseNewline; isHSpace)
+   pure; _>>=_; many)
+open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Preamble using (parseVersion)
 open import Aletheia.DBC.TextFormatter.Preamble using (emitVersion-chars)
-open import Aletheia.DBC.TextFormatter.Emitter using (quoteStringLit-chars)
+
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; ∷-stop; bind-just-step; advancePositions-++)
-open import Aletheia.DBC.TextParser.Properties.Primitives using
-  (string-success; parseWS-one-space; parseStringLit-roundtrip)
+  (SuffixStops; bind-just-step; advancePositions-++)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
-  (isNewlineStart; parseNewline-match-LF; many-parseNewline-one-LF-stop)
+  (isNewlineStart; many-parseNewline-one-LF-stop)
 
--- Shape lemma: reassociate `emitVersion-chars v ++ suffix` into the
--- form the per-step bind chain consumes.  Two ++-assoc applications
--- peel off the outer and inner append; the remaining equality holds by
--- closed-string primStringToList reduction.
--- Post-3d.4 + JSON-mirror: `v : List Char` (was `String`); the parser
--- returns and the formatter takes the raw chars.  Proof structure is
--- otherwise unchanged.
-private
-  emitVersion-chars-shape : ∀ (v : List Char) (suffix : List Char)
-    → (toList "VERSION " ++ₗ quoteStringLit-chars v ++ₗ toList "\n\n")
-        ++ₗ suffix
-    ≡ toList "VERSION"
-        ++ₗ ' ' ∷ (quoteStringLit-chars v ++ₗ '\n' ∷ '\n' ∷ suffix)
-  emitVersion-chars-shape v suffix =
-    trans (++ₗ-assoc (toList "VERSION ")
-                     (quoteStringLit-chars v ++ₗ toList "\n\n")
-                     suffix)
-          (cong (λ xs → toList "VERSION " ++ₗ xs)
-                (++ₗ-assoc (quoteStringLit-chars v) (toList "\n\n") suffix))
+open import Aletheia.DBC.TextParser.Format using
+  (Format; emit; parse)
+open import Aletheia.DBC.TextParser.Format.Preamble as FmtVer using
+  (versionFmt)
 
-parseVersion-roundtrip : ∀ (pos : Position) (v : List Char) (suffix : List Char)
+parseVersion-roundtrip :
+    ∀ (pos : Position) (v : List Char) (suffix : List Char)
   → SuffixStops isNewlineStart suffix
   → parseVersion pos (emitVersion-chars v ++ₗ suffix)
     ≡ just (mkResult v
              (advancePositions pos (emitVersion-chars v))
              suffix)
-parseVersion-roundtrip pos v suffix ss =
-  trans (cong (parseVersion pos) (emitVersion-chars-shape v suffix))
-    (trans step-VERSION
-      (trans step-parseWS
-        (trans step-parseStringLit
-          (trans step-parseNewline
-            (trans step-many-parseNewline
-              step-pure)))))
+parseVersion-roundtrip pos v suffix nl-stop =
+  trans (cong (λ inp → parseVersion pos (inp ++ₗ suffix)) (sym bridge))
+    (trans step-shape
+      (trans step-format
+        (trans step-many-newline
+          step-pure)))
   where
-    -- Intermediate positions after each parser stage.
-    posᵥ : Position
-    posᵥ = advancePositions pos (toList "VERSION")
+    bridge : emit versionFmt v ++ₗ '\n' ∷ [] ≡ emitVersion-chars v
+    bridge = FmtVer.emit-versionFmt-eq-emitVersion-chars-prefix v
 
-    pos-sp : Position
-    pos-sp = advancePosition posᵥ ' '
+    pos-line : Position
+    pos-line = advancePositions pos (emit versionFmt v)
 
-    pos-sl : Position
-    pos-sl = advancePositions pos-sp (quoteStringLit-chars v)
+    pos-after-nl : Position
+    pos-after-nl = advancePosition pos-line '\n'
 
-    pos-lf1 : Position
-    pos-lf1 = advancePosition pos-sl '\n'
+    cont-line : List Char → Parser (List Char)
+    cont-line v' = many parseNewline >>= λ _ → pure v'
 
-    pos-lf2 : Position
-    pos-lf2 = advancePosition pos-lf1 '\n'
+    cont-blanks : List Char → Parser (List Char)
+    cont-blanks _ = pure v
 
-    -- Intermediate inputs after each parser stage.
-    rest-after-VERSION : List Char
-    rest-after-VERSION =
-      ' ' ∷ (quoteStringLit-chars v ++ₗ '\n' ∷ '\n' ∷ suffix)
+    -- Step 0: associativity reshape — push `'\n' ∷ []` from outside
+    -- the bridge into the input prefix.  After this step the input is
+    -- `emit versionFmt v ++ '\n' ∷ suffix`.
+    step-shape :
+      parseVersion pos ((emit versionFmt v ++ₗ '\n' ∷ []) ++ₗ suffix)
+      ≡ parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
+    step-shape = cong (parseVersion pos)
+                      (++ₗ-assoc (emit versionFmt v) ('\n' ∷ []) suffix)
 
-    rest-after-WS : List Char
-    rest-after-WS =
-      quoteStringLit-chars v ++ₗ '\n' ∷ '\n' ∷ suffix
+    -- Step 1: parse versionFmt succeeds via the universal roundtrip.
+    step-format :
+      parseVersion pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
+      ≡ cont-line v pos-line ('\n' ∷ suffix)
+    step-format =
+      bind-just-step (parse versionFmt) cont-line
+                     pos (emit versionFmt v ++ₗ '\n' ∷ suffix)
+                     v pos-line ('\n' ∷ suffix)
+                     (FmtVer.parseVersion-format-roundtrip
+                       pos v ('\n' ∷ suffix))
 
-    rest-after-SL : List Char
-    rest-after-SL = '\n' ∷ '\n' ∷ suffix
-
-    rest-after-LF1 : List Char
-    rest-after-LF1 = '\n' ∷ suffix
-
-    -- Parser continuations after each bind.  The `Parser` payload is
-    -- `List Char` post-3d.4 + JSON-mirror (parseVersion returns the
-    -- string-literal body chars directly).
-    cont-after-VERSION : String → Parser (List Char)
-    cont-after-VERSION _ =
-      parseWS >>= λ _ →
-      parseStringLit >>= λ v' →
-      parseNewline >>= λ _ →
-      many parseNewline >>= λ _ →
-      pure v'
-
-    cont-after-WS : List Char → Parser (List Char)
-    cont-after-WS _ =
-      parseStringLit >>= λ v' →
-      parseNewline >>= λ _ →
-      many parseNewline >>= λ _ →
-      pure v'
-
-    cont-after-SL : List Char → Parser (List Char)
-    cont-after-SL v' =
-      parseNewline >>= λ _ →
-      many parseNewline >>= λ _ →
-      pure v'
-
-    cont-after-LF1 : Char → Parser (List Char)
-    cont-after-LF1 _ =
-      many parseNewline >>= λ _ →
-      pure v
-
-    cont-after-manyLF : List Char → Parser (List Char)
-    cont-after-manyLF _ = pure v
-
-    -- Step 1: consume "VERSION" via string-success.
-    step-VERSION :
-      parseVersion pos
-        (toList "VERSION" ++ₗ rest-after-VERSION)
-      ≡ cont-after-VERSION "VERSION" posᵥ rest-after-VERSION
-    step-VERSION =
-      bind-just-step (string "VERSION")
-                     cont-after-VERSION
-                     pos (toList "VERSION" ++ₗ rest-after-VERSION)
-                     "VERSION" posᵥ rest-after-VERSION
-                     (string-success pos "VERSION" rest-after-VERSION)
-
-    -- Step 2: consume one space via parseWS-one-space.
-    -- `quoteStringLit-chars v` definitionally starts with `'"'` (see
-    -- `Emitter.quoteStringLit-chars`), so `rest-after-WS` also starts
-    -- with `'"'`, and `isHSpace '"' ≡ false` reduces.
-    ws-ss : SuffixStops isHSpace rest-after-WS
-    ws-ss = ∷-stop refl
-
-    step-parseWS :
-      cont-after-VERSION "VERSION" posᵥ rest-after-VERSION
-      ≡ cont-after-WS (' ' ∷ []) pos-sp rest-after-WS
-    step-parseWS =
-      bind-just-step parseWS
-                     cont-after-WS
-                     posᵥ rest-after-VERSION
-                     (' ' ∷ []) pos-sp rest-after-WS
-                     (parseWS-one-space posᵥ rest-after-WS ws-ss)
-
-    -- Step 3: consume the string literal via parseStringLit-roundtrip.
-    sl-ss : SuffixStops (λ c → c ≈ᵇ '"') rest-after-SL
-    sl-ss = ∷-stop refl
-
-    step-parseStringLit :
-      cont-after-WS (' ' ∷ []) pos-sp rest-after-WS
-      ≡ cont-after-SL v pos-sl rest-after-SL
-    step-parseStringLit =
-      bind-just-step parseStringLit
-                     cont-after-SL
-                     pos-sp rest-after-WS
-                     v pos-sl rest-after-SL
-                     (parseStringLit-roundtrip pos-sp v rest-after-SL sl-ss)
-
-    -- Step 4: consume the first '\n' via parseNewline-match-LF.
-    step-parseNewline :
-      cont-after-SL v pos-sl rest-after-SL
-      ≡ cont-after-LF1 '\n' pos-lf1 rest-after-LF1
-    step-parseNewline =
-      bind-just-step parseNewline
-                     cont-after-LF1
-                     pos-sl rest-after-SL
-                     '\n' pos-lf1 rest-after-LF1
-                     (parseNewline-match-LF pos-sl ('\n' ∷ suffix))
-
-    -- Step 5: consume the second '\n' via many parseNewline, then
-    -- terminate on the outer suffix.
-    step-many-parseNewline :
-      cont-after-LF1 '\n' pos-lf1 rest-after-LF1
-      ≡ cont-after-manyLF ('\n' ∷ []) pos-lf2 suffix
-    step-many-parseNewline =
-      bind-just-step (many parseNewline)
-                     cont-after-manyLF
-                     pos-lf1 rest-after-LF1
-                     ('\n' ∷ []) pos-lf2 suffix
+    -- Step 2: many parseNewline consumes the leading `'\n'` from the
+    -- residual `'\n' ∷ suffix` and stops on the outer non-newline-led
+    -- suffix.
+    step-many-newline :
+      cont-line v pos-line ('\n' ∷ suffix)
+      ≡ cont-blanks ('\n' ∷ []) pos-after-nl suffix
+    step-many-newline =
+      bind-just-step (many parseNewline) cont-blanks
+                     pos-line ('\n' ∷ suffix)
+                     ('\n' ∷ []) pos-after-nl suffix
                      (many-parseNewline-one-LF-stop
-                        pos-lf1 suffix (length suffix) ss)
+                       pos-line suffix (length suffix) nl-stop)
 
-    -- Step 6: pure v returns just (mkResult v pos-lf2 suffix).  Align
-    -- the final position with the stated `advancePositions pos
-    -- (emitVersion-chars v)`.
-    final-pos-eq : pos-lf2 ≡ advancePositions pos (emitVersion-chars v)
-    final-pos-eq =
-      trans (sym (advancePositions-++ pos-sl ('\n' ∷ []) ('\n' ∷ [])))
-        (trans (sym (advancePositions-++ pos-sp
-                       (quoteStringLit-chars v) ('\n' ∷ '\n' ∷ [])))
-          (trans (cong (λ p → advancePositions p
-                                (quoteStringLit-chars v ++ₗ '\n' ∷ '\n' ∷ []))
-                       (sym (advancePositions-++ posᵥ (' ' ∷ []) [])))
-            (trans (sym (advancePositions-++ posᵥ
-                           (' ' ∷ [])
-                           (quoteStringLit-chars v ++ₗ '\n' ∷ '\n' ∷ [])))
-              (sym (advancePositions-++ pos
-                      (toList "VERSION")
-                      (' ' ∷ (quoteStringLit-chars v
-                        ++ₗ '\n' ∷ '\n' ∷ [])))))))
+    -- Step 3: pure v returns just (mkResult v pos-after-nl suffix);
+    -- collapse `pos-after-nl` to `advancePositions pos (emitVersion-
+    -- chars v)` via 2-stage pos-eq (BU_ pattern).
+    pos-eq : pos-after-nl ≡ advancePositions pos (emitVersion-chars v)
+    pos-eq =
+      trans
+        (sym (advancePositions-++ pos (emit versionFmt v) ('\n' ∷ [])))
+        (cong (advancePositions pos) bridge)
 
     step-pure :
-      cont-after-manyLF ('\n' ∷ []) pos-lf2 suffix
+      cont-blanks ('\n' ∷ []) pos-after-nl suffix
       ≡ just (mkResult v
                (advancePositions pos (emitVersion-chars v))
                suffix)
-    step-pure = cong (λ p → just (mkResult v p suffix)) final-pos-eq
+    step-pure = cong (λ p → just (mkResult v p suffix)) pos-eq

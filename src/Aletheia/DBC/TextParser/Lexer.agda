@@ -57,6 +57,14 @@ open import Aletheia.Protocol.JSON.Parse using (parseNatural; parseInt; parseRat
 isHSpace : Char → Bool
 isHSpace c = ⌊ c ≟ᶜ ' ' ⌋ ∨ ⌊ c ≟ᶜ '\t' ⌋
 
+-- Non-newline char predicate.  Dual of `isNewlineStart` — `isNonNewline c`
+-- holds iff `c` is neither `'\n'` nor `'\r'`, i.e., the char is safe to
+-- consume inside a single line.  Used by `parseBitTiming`'s opaque-tail
+-- consumer (`many (satisfy isNonNewline)`) and by the Format DSL
+-- `nonNewlineRun` constructor.
+isNonNewline : Char → Bool
+isNonNewline c = not (⌊ c ≟ᶜ '\n' ⌋ ∨ ⌊ c ≟ᶜ '\r' ⌋)
+
 -- ============================================================================
 -- IDENTIFIERS
 -- ============================================================================
