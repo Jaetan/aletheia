@@ -267,6 +267,11 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- walks.md`).
         agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine.agda"
         agdaWithRTS "Aletheia/DBC/TextParser/Format/SignalLine/Roundtrip.agda"
+        -- B.3.d Layer 3 3d.5.d: DSL-side `nodeListFmt` (BU_ node-list line)
+        -- and the slim `parseBU-roundtrip` derived via the universal
+        -- roundtrip.  Same defensive walk-root pattern as the other
+        -- Format/* modules above.
+        agdaWithRTS "Aletheia/DBC/TextParser/Format/Nodes.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"

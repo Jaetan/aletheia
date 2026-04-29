@@ -45,6 +45,7 @@ open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.Receivers using (canonicalReceiversFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
+open import Aletheia.DBC.TextParser.Format.Nodes using (nodeListFmt)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
@@ -60,17 +61,20 @@ open import Aletheia.CAN.Constants using
 -- BU_ (NODES)
 -- ============================================================================
 
--- `BU_:` + zero-or-more `ws identifier` + newline + trailing blanks.
--- `parseWS` before each identifier guarantees the single-space separator
--- required by the grammar; `parseWSOpt` at the end tolerates trailing
--- whitespace on the node line.
+-- `BU_:` + zero-or-more ` <name>` entries + line terminator + trailing
+-- blanks.  Post 3d.5.d: derived from the Format DSL `nodeListFmt`, so
+-- the universal `roundtrip` theorem in `Format.agda` discharges the
+-- header-through-line-terminator parse-after-emit pass in one structural
+-- sweep (see `Properties.Topology.Nodes`).  Production permissiveness
+-- (zero-or-more whitespace at the formatter's `parseWSOpt` slots, both LF
+-- and CR-LF newline) is preserved by the DSL's `wsOpt`/`newlineFmt`.
+-- The trailing `many parseNewline` consumes the formatter's section-blank
+-- `\n` plus any additional blank lines in the input — same pattern as
+-- `parseValueTable` and `parseSignalLine`.
 parseBU : Parser (List Node)
-parseBU =
-  string "BU_" *> parseWSOpt *> char ':' *>
-  many (parseWS *> parseIdentifier) >>= λ names →
-  parseWSOpt *> parseNewline *>
-  many parseNewline *>
-  pure (map mkNode names)
+parseBU = parse nodeListFmt >>= λ ns →
+  many parseNewline >>= λ _ →
+  pure ns
 
 -- ============================================================================
 -- SG_ RAW FIELDS (pre-mux-resolution)
