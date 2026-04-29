@@ -10,22 +10,21 @@
 --   Tier A:
 --     * `parseByteOrderDigit-roundtrip`
 --     * `parseSignFlag-roundtrip`
---     * `parseOptionalStandardScope-roundtrip`  (ASNetwork fallback +
---       4 standard scope tags — `BU_` / `BO_` / `SG_` / `EV_`)
---     * `parseRelScopeWS-roundtrip`             (2 rel scope tags —
---       `BU_BO_REL_` / `BU_SG_REL_`)
---     * `parseStringType-roundtrip`             (bare `ATString` —
---       `"STRING"` keyword)
 --
 --   Tier B:
 --     * `parseStringLit-roundtrip`              (escape body)
 --     * `parseMuxMarker-roundtrip`              (inverse targets
 --       `MuxMarker`, NOT `SignalPresence` — see project memory)
 --
--- `ATInt` / `ATFloat` / `ATHex` / `ATEnum` and `SignalPresence` are
--- reclassified to Layer 3: they're per-line-construct payloads with
--- internal WS separation or post-parse context resolution, not
--- primitives.  See `memory/project_b3d_universal_proof.md`.
+-- Post-3d.5.d 3c-A: the `parseOptionalStandardScope` / `parseRelScopeWS`
+-- / `parseStringType` per-tag roundtrips were dropped — the universal
+-- Format DSL roundtrip in `Format/AttrDef.agda` subsumes them, and the
+-- only consumers were the now-rewritten `Properties/Attributes/{Type,
+-- Def}.agda`.  `ATInt` / `ATFloat` / `ATHex` / `ATEnum` and
+-- `SignalPresence` are reclassified to Layer 3: per-line-construct
+-- payloads with internal WS separation or post-parse context
+-- resolution, not primitives.  See `memory/project_b3d_universal_
+-- proof.md`.
 module Aletheia.DBC.TextParser.Properties.Primitives where
 
 open import Data.Bool using (Bool; true; false; T; _∧_)
@@ -67,13 +66,8 @@ open import Aletheia.DBC.TextParser.Lexer using
 open import Aletheia.DBC.TextParser.Topology.Foundations using
   (parseByteOrderDigit; parseSignFlag;
    parseMuxMarker; MuxMarker; NotMux; IsMux; SelBy; BothMux)
-open import Aletheia.DBC.TextParser.Attributes using
-  (parseStandardScope; parseRelScope; parseOptionalStandardScope;
-   parseStringType)
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitByteOrderDigit-chars; emitSignFlag-chars; emitMuxMarker-chars)
-open import Aletheia.DBC.TextFormatter.Attributes using
-  (emitScopePrefix-chars; emitAttrType-chars)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (quoteStringLit-chars; escapeChar-chars; showℕ-dec-chars; showNat-chars)
 -- Post-3d.4 + JSON-mirror: Substrate.Unsafe is no longer imported here.
@@ -89,9 +83,6 @@ open import Aletheia.DBC.TextParser.DecRatParse.Properties using
 open import Aletheia.Prelude using (ifᵀ-witness; T→true)
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian)
-open import Aletheia.DBC.Types using
-  (AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar;
-   ASNodeMsg; ASNodeSig; AttrType; ATString)
 
 -- ============================================================================
 -- Probe 1 — decompose-valid
@@ -461,158 +452,6 @@ parseWS-one-tab pos suffix ss
   rewrite manyHelper-satisfy-exhaust-many isHSpace
             (advancePosition pos '\t') [] suffix [] ss
   = refl
-
--- ============================================================================
--- Tier A — scope tag roundtrips
--- ============================================================================
---
--- The parser-emitter pair:
---   emitter  `emitScopePrefix-chars` — closed string literals with a
---            trailing space for non-Network scopes.
---   parser   `parseOptionalStandardScope` = `parseStandardScope <*
---            parseWS <|> pure ASNetwork` for standard scopes;
---            `parseRelScope <* parseWS` for BA_DEF_REL_ paths.
---
--- Both the `<|>` chain inside `parseStandardScope` / `parseRelScope`
--- and the outer `<* parseWS` reduce definitionally on closed keyword
--- prefixes.  The only non-refl step is `many (satisfy isHSpace)`'s
--- termination on the suffix, discharged by `manyHelper-satisfy-
--- exhaust-many` under a `SuffixStops isHSpace suffix` precondition.
-
--- Non-network standard scopes — four tags `BU_`, `BO_`, `SG_`, `EV_`.
--- Each emits `<keyword> <space>`; the parser consumes the keyword via
--- the matching `<|>` branch, then `<* parseWS` consumes the trailing
--- space (and stops at the suffix boundary).
-
-parseOptionalStandardScope-ASNode-roundtrip : ∀ (pos : Position)
-                                                  (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseOptionalStandardScope pos (emitScopePrefix-chars ASNode ++ₗ suffix)
-    ≡ just (mkResult ASNode
-             (advancePositions pos (emitScopePrefix-chars ASNode))
-             suffix)
-parseOptionalStandardScope-ASNode-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-               (advancePosition pos 'B') 'U') '_') ' ')
-            [] suffix [] ss = refl
-
-parseOptionalStandardScope-ASMessage-roundtrip : ∀ (pos : Position)
-                                                    (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseOptionalStandardScope pos (emitScopePrefix-chars ASMessage ++ₗ suffix)
-    ≡ just (mkResult ASMessage
-             (advancePositions pos (emitScopePrefix-chars ASMessage))
-             suffix)
-parseOptionalStandardScope-ASMessage-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-               (advancePosition pos 'B') 'O') '_') ' ')
-            [] suffix [] ss = refl
-
-parseOptionalStandardScope-ASSignal-roundtrip : ∀ (pos : Position)
-                                                   (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseOptionalStandardScope pos (emitScopePrefix-chars ASSignal ++ₗ suffix)
-    ≡ just (mkResult ASSignal
-             (advancePositions pos (emitScopePrefix-chars ASSignal))
-             suffix)
-parseOptionalStandardScope-ASSignal-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-               (advancePosition pos 'S') 'G') '_') ' ')
-            [] suffix [] ss = refl
-
-parseOptionalStandardScope-ASEnvVar-roundtrip : ∀ (pos : Position)
-                                                   (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseOptionalStandardScope pos (emitScopePrefix-chars ASEnvVar ++ₗ suffix)
-    ≡ just (mkResult ASEnvVar
-             (advancePositions pos (emitScopePrefix-chars ASEnvVar))
-             suffix)
-parseOptionalStandardScope-ASEnvVar-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-               (advancePosition pos 'E') 'V') '_') ' ')
-            [] suffix [] ss = refl
-
--- Network scope — empty emission; the parser falls through to
--- `pure ASNetwork` when the left branch fails.  Precondition:
--- `parseStandardScope pos suffix ≡ nothing` (no scope keyword at
--- the head of `suffix`).  The `<* parseWS` bind propagates `nothing`
--- via `bind-nothing`, and `<|>` falls through via `alt-right-nothing`.
-
-parseOptionalStandardScope-ASNetwork-roundtrip : ∀ (pos : Position)
-                                                    (suffix : List Char)
-  → parseStandardScope pos suffix ≡ nothing
-  → parseOptionalStandardScope pos (emitScopePrefix-chars ASNetwork ++ₗ suffix)
-    ≡ just (mkResult ASNetwork
-             (advancePositions pos (emitScopePrefix-chars ASNetwork))
-             suffix)
-parseOptionalStandardScope-ASNetwork-roundtrip pos suffix eq =
-  trans (alt-right-nothing (parseStandardScope <* parseWS)
-                           (pure ASNetwork) pos suffix
-          (bind-nothing parseStandardScope _ pos suffix eq))
-    refl
-
--- ============================================================================
--- Tier A — rel scope tag roundtrips (`parseRelScope <* parseWS` path)
--- ============================================================================
-
--- `parseRelScope` pairs with BA_DEF_REL_ contexts.  Emission:
--- `BU_BO_REL_ ` or `BU_SG_REL_ ` (11 chars + trailing space).  The
--- parser `parseRelScope <* parseWS` is the BA_DEF_REL_ caller's
--- concrete wrapping; we prove the pair here at Layer 2.
-
--- `(parseRelScope <* parseWS)` composite parser, named for clarity.
-parseRelScopeWS : Parser AttrScope
-parseRelScopeWS = parseRelScope <* parseWS
-
-parseRelScopeWS-ASNodeMsg-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseRelScopeWS pos (emitScopePrefix-chars ASNodeMsg ++ₗ suffix)
-    ≡ just (mkResult ASNodeMsg
-             (advancePositions pos (emitScopePrefix-chars ASNodeMsg))
-             suffix)
-parseRelScopeWS-ASNodeMsg-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition pos 'B') 'U') '_')
-              'B') 'O') '_') 'R') 'E') 'L') '_') ' ')
-            [] suffix [] ss = refl
-
-parseRelScopeWS-ASNodeSig-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → SuffixStops isHSpace suffix
-  → parseRelScopeWS pos (emitScopePrefix-chars ASNodeSig ++ₗ suffix)
-    ≡ just (mkResult ASNodeSig
-             (advancePositions pos (emitScopePrefix-chars ASNodeSig))
-             suffix)
-parseRelScopeWS-ASNodeSig-roundtrip pos suffix ss
-  rewrite manyHelper-satisfy-exhaust-many isHSpace
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition (advancePosition
-            (advancePosition (advancePosition pos 'B') 'U') '_')
-              'S') 'G') '_') 'R') 'E') 'L') '_') ' ')
-            [] suffix [] ss = refl
-
--- ============================================================================
--- Tier A — `ATString` attr-type tag roundtrip
--- ============================================================================
---
--- `emitAttrType-chars ATString = toList "STRING"`.  The parser
--- `parseStringType = string "STRING" *> pure ATString` is a single
--- keyword match.  Using `string-*>-success`.
-
-parseStringType-roundtrip : ∀ (pos : Position) (suffix : List Char)
-  → parseStringType pos (emitAttrType-chars ATString ++ₗ suffix)
-    ≡ just (mkResult ATString
-             (advancePositions pos (emitAttrType-chars ATString))
-             suffix)
-parseStringType-roundtrip pos suffix =
-  string-*>-success pos "STRING" ATString suffix
 
 -- ============================================================================
 -- Tier B — string literal roundtrip

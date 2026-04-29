@@ -14,11 +14,14 @@
 --   * Properties/Attributes/Common.agda — refinement-types bridges
 --     (IntDecRat / NatDecRat construction lemmas, parseDecRat-suffix
 --     compositions).
---   * Properties/Attributes/Type.agda   — per-tag attribute-type
---     roundtrips for `parseAttrTypeDecl` (5-way dispatch over INT /
---     FLOAT / STRING / ENUM / HEX).
 --   * Properties/Attributes/Def.agda    — `parseAttrDef` and
---     `parseAttrDefRel` per-line construct roundtrips (this commit).
+--     `parseAttrDefRel` per-line construct roundtrips.  Post-3d.5.d
+--     3c-A: slim wrappers around the universal `parseAttrDef-format-
+--     roundtrip` / `parseAttrDefRel-format-roundtrip` (in `Format/
+--     AttrDef.agda`).  The standalone per-tag `parseAttrTypeDecl-
+--     roundtrip-AT*` lemmas (formerly in `Properties/Attributes/
+--     Type.agda`) are subsumed by the universal Format DSL roundtrip;
+--     `Properties/Attributes/Type.agda` was removed in the migration.
 module Aletheia.DBC.TextParser.Properties.Attributes where
 
 -- Refinement-types bridges (3c precursor).  Used by 3c.2 / 3c.3

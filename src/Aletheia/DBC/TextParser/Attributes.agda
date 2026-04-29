@@ -76,6 +76,15 @@ open import Aletheia.DBC.TextParser.Lexer using
    parseNatural)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
+open import Aletheia.DBC.TextParser.Format using (parse)
+open import Aletheia.DBC.TextParser.Format.AttrDef using
+  (attrDefFmt; attrDefRelFmt; liftStdAttrDef; liftRelAttrDef)
+
+-- Re-export the cycle-relevant subset for backward source compatibility.
+open import Aletheia.DBC.TextParser.Attributes.Foundations public using
+  (parseStandardScope; parseRelScope; parseOptionalStandardScope;
+   parseStringType)
+
 open import Aletheia.DBC.Types using
   ( AttrScope; ASNetwork; ASNode; ASMessage; ASSignal; ASEnvVar
   ; ASNodeMsg; ASNodeSig
@@ -137,28 +146,12 @@ data RawDBCAttribute : Set where
 -- ============================================================================
 -- SCOPE / TYPE LEXERS
 -- ============================================================================
-
--- Standard scope keyword (BA_DEF_ payload when scope is non-network).
-parseStandardScope : Parser AttrScope
-parseStandardScope =
-  (string "BU_" *> pure ASNode)    <|>
-  (string "BO_" *> pure ASMessage) <|>
-  (string "SG_" *> pure ASSignal)  <|>
-  (string "EV_" *> pure ASEnvVar)
-
--- Relation scope keyword (BA_DEF_REL_ payload).
-parseRelScope : Parser AttrScope
-parseRelScope =
-  (string "BU_BO_REL_" *> pure ASNodeMsg) <|>
-  (string "BU_SG_REL_" *> pure ASNodeSig)
-
--- BA_DEF_ optional scope: either a standard-scope keyword followed by
--- its own `parseWS` separator, or `ASNetwork` when the scope keyword is
--- absent.  The `<*` chain ensures scope-parsed inputs consume trailing
--- whitespace so the caller can proceed straight to the attribute name.
-parseOptionalStandardScope : Parser AttrScope
-parseOptionalStandardScope =
-  (parseStandardScope <* parseWS) <|> pure ASNetwork
+--
+-- The four scope parsers (`parseStandardScope`, `parseRelScope`,
+-- `parseOptionalStandardScope`, `parseStringType`) live in `Attributes/
+-- Foundations.agda` (cycle-break for the 3d.5.d 3c-A migration; see
+-- `Foundations.agda` header) and are re-exported `public` from this
+-- module's import block.
 
 parseIntType : Parser AttrType
 parseIntType = do
@@ -177,9 +170,6 @@ parseFloatType = do
   _ ← parseWS
   mx ← parseDecRat
   pure (ATFloat mn mx)
-
-parseStringType : Parser AttrType
-parseStringType = string "STRING" *> pure ATString
 
 -- Comma-separated enum labels; at least one is required by the grammar.
 -- `parseWSOpt` after the comma tolerates the cantools-observed
@@ -345,39 +335,24 @@ parseRawAttrValue =
 -- ============================================================================
 
 -- `"BA_DEF_" ws (attr-scope ws)? string-lit ws attr-type ws? ";" newline`.
--- Optional scope handled by `parseOptionalStandardScope` (backtracks to
--- `ASNetwork` when no scope keyword is present).  Each line absorbs its
--- own trailing blanks via `many parseNewline`, so `many parseAttrLine`
--- composes cleanly upstream.
+--
+-- B.3.d Layer 3 3d.5.d 3c-A migration: line-portion expressed via the
+-- Format DSL (`attrDefFmt` in `Format.AttrDef`); the trailing `many
+-- parseNewline` for blank-line padding stays in the production wrapper,
+-- mirroring the η-style wrap of `parseEnvVar` / `parseValueTable` /
+-- `parseBU`.  Pre-3d.5.d (3c.1): hand-written 14-step bind chain.
 parseAttrDef : Parser AttrDef
-parseAttrDef = do
-  _ ← string "BA_DEF_"
-  _ ← parseWS
-  scope ← parseOptionalStandardScope
-  name  ← parseStringLit
-  _ ← parseWS
-  ty ← parseAttrTypeDecl
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure (mkAttrDef name scope ty)
+parseAttrDef =
+  parse attrDefFmt >>= λ result →
+  many parseNewline >>= λ _ →
+  pure (liftStdAttrDef result)
 
 -- `"BA_DEF_REL_" ws rel-scope ws string-lit ws attr-type ws? ";" newline`.
 parseAttrDefRel : Parser AttrDef
-parseAttrDefRel = do
-  _ ← string "BA_DEF_REL_"
-  _ ← parseWS
-  scope ← parseRelScope
-  _ ← parseWS
-  name  ← parseStringLit
-  _ ← parseWS
-  ty ← parseAttrTypeDecl
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure (mkAttrDef name scope ty)
+parseAttrDefRel =
+  parse attrDefRelFmt >>= λ result →
+  many parseNewline >>= λ _ →
+  pure (liftRelAttrDef result)
 
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.
 parseRawAttrDefault : Parser RawAttrDefault

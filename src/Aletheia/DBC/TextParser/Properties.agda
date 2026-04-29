@@ -57,11 +57,13 @@
 module Aletheia.DBC.TextParser.Properties where
 
 -- Layer 2 — per-primitive roundtrips.  Identifier (commit 2b) +
--- Tier A (byte-order / sign / keyword-dispatch scope tags, attr-type
--- STRING tag) + Tier B (string-literal escape body, mux marker with
--- embedded parseNatural).  `ATInt`/`ATFloat`/`ATHex`/`ATEnum` and
--- `SignalPresence` reclassified to Layer 3 (per-line-construct
--- payloads, not primitives — see `memory/project_b3d_universal_proof.md`).
+-- Tier A (byte-order / sign) + Tier B (string-literal escape body, mux
+-- marker with embedded parseNatural).  `ATInt`/`ATFloat`/`ATHex`/
+-- `ATEnum` and `SignalPresence` reclassified to Layer 3 (per-line-
+-- construct payloads, not primitives — see `memory/project_b3d_
+-- universal_proof.md`).  Post-3d.5.d 3c-A, the scope-tag / rel-scope /
+-- ATString roundtrips were dropped — subsumed by the universal Format
+-- DSL roundtrip in `Format/AttrDef.agda`.
 open import Aletheia.DBC.TextParser.Properties.Primitives public
   using ( -- Probes + Identifier roundtrip
          parseIdentifier-roundtrip;
@@ -72,15 +74,6 @@ open import Aletheia.DBC.TextParser.Properties.Primitives public
          -- Tier A primitives
          parseByteOrderDigit-roundtrip;
          parseSignFlag-roundtrip;
-         parseOptionalStandardScope-ASNode-roundtrip;
-         parseOptionalStandardScope-ASMessage-roundtrip;
-         parseOptionalStandardScope-ASSignal-roundtrip;
-         parseOptionalStandardScope-ASEnvVar-roundtrip;
-         parseOptionalStandardScope-ASNetwork-roundtrip;
-         parseRelScopeWS;
-         parseRelScopeWS-ASNodeMsg-roundtrip;
-         parseRelScopeWS-ASNodeSig-roundtrip;
-         parseStringType-roundtrip;
          -- Tier B primitives
          parseStringLit-roundtrip;
          parseMuxMarker-IsMux-roundtrip;

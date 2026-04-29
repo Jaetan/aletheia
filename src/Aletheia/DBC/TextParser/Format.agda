@@ -37,7 +37,7 @@ open import Data.Product using (_×_; _,_; Σ; proj₁; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; _≢_; refl; sym; trans; cong; subst)
 
 open import Data.List.Relation.Unary.All as All using (All)
 
@@ -48,12 +48,16 @@ open import Aletheia.Parser.Combinators
   renaming (many to many-parser)
 open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
 open import Aletheia.DBC.DecRat using (DecRat)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; intDecRatToℤ; NatDecRat; natDecRatToℕ)
 open import Aletheia.DBC.TextParser.Lexer
   using (parseIdentifier; parseStringLit; parseNatural;
          parseWS; parseWSOpt; isHSpace; isNonNewline)
-open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
+open import Aletheia.DBC.TextParser.DecRatParse using
+  (parseDecRat; parseIntDecRat; parseNatDecRat)
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars)
+  using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars;
+         showInt-chars)
 open import Aletheia.DBC.TextParser.Properties.Primitives
   using (parseCharsSeq-success; parseIdentifier-roundtrip;
          parseStringLit-roundtrip; parseWS-one-space; parseWS-one-tab;
@@ -61,7 +65,8 @@ open import Aletheia.DBC.TextParser.Properties.Primitives
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
          parseNatural-showNat-chars; parseDecRat-roundtrip-suffix;
-         manyHelper-satisfy-exhaust-many)
+         parseIntDecRat-roundtrip-suffix; parseNatDecRat-roundtrip-suffix;
+         headOr; manyHelper-satisfy-exhaust-many)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline
   using (manyHelper-prog-cons)
 
@@ -159,6 +164,21 @@ data Format : Set → Set₁ where
   -- SG_ (factor/offset/min/max), EV_ (initial/min/max), and BA_DEF_ FLOAT
   -- bounds — every numeric DBC slot post the 2026-04-24 ℚ→DecRat pre-gate.
   decRat : Format DecRat
+  -- Integer-valued DecRat.  Emit via `showInt-chars (intDecRatToℤ v)`
+  -- (bare-int wire form, NOT the `42.0` frac form `decRat` would emit);
+  -- parse via `parseIntDecRat` (which accepts either bare-int or frac
+  -- form provided the value is integer-valued).  Required for `BA_DEF_
+  -- ... INT mn mx` bounds where the cantools wire format mandates the
+  -- bare-int shape.  EmitsOK requires `SuffixStops isDigit suffix` AND
+  -- `'.' ≢ headOr suffix '_'` — the latter rules out a `.` suffix-head
+  -- that would route the parser through the frac branch and disrupt the
+  -- bare-int roundtrip.
+  intDecRat : Format IntDecRat
+  -- Non-negative-integer DecRat (mirror of `intDecRat`).  Emit via
+  -- `showNat-chars (natDecRatToℕ v)`; parse via `parseNatDecRat`.
+  -- Required for `BA_DEF_ ... HEX mn mx` bounds.  Same EmitsOK shape
+  -- as `intDecRat`.
+  natDecRat : Format NatDecRat
   -- Optional intraline whitespace (zero-or-more spaces/tabs).  Canonical
   -- emit is `[]` (no chars); parse is `parseWSOpt` with the trailing
   -- `>>= λ _ → pure tt` to discard the consumed chars.  EmitsOK requires
@@ -217,6 +237,8 @@ emit (refined _ f)    (a , _)  = emit f a
 emit (altSum f _)     (inj₁ a) = emit f a
 emit (altSum _ g)     (inj₂ b) = emit g b
 emit decRat           d        = showDecRat-dec-chars d
+emit intDecRat        v        = showInt-chars (intDecRatToℤ v)
+emit natDecRat        v        = showNat-chars (natDecRatToℕ v)
 emit wsOpt            tt       = []
 emit ws               tt       = ' ' ∷ []
 emit wsCanonOne       tt       = ' ' ∷ []
@@ -252,6 +274,8 @@ parse (many f)        = many-parser (parse f)
 parse (refined P f)   = parse f >>= liftRefined P
 parse (altSum f g)    = (inj₁ <$> parse f) <|> (inj₂ <$> parse g)
 parse decRat          = parseDecRat
+parse intDecRat       = parseIntDecRat
+parse natDecRat       = parseNatDecRat
 parse wsOpt           = parseWSOpt >>= λ _ → pure tt
 parse ws              = parseWS    >>= λ _ → pure tt
 parse wsCanonOne      = parseWSOpt >>= λ _ → pure tt
@@ -313,6 +337,10 @@ EmitsOK (altSum f g)   (inj₂ b) suffix =
   EmitsOK g b suffix
   × (∀ pos → parse f pos (emit g b ++ₗ suffix) ≡ nothing)
 EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
+EmitsOK intDecRat      _        suffix =
+  SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
+EmitsOK natDecRat      _        suffix =
+  SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
 EmitsOK wsOpt          tt       suffix = SuffixStops isHSpace suffix
 EmitsOK ws             tt       suffix = SuffixStops isHSpace suffix
 EmitsOK wsCanonOne     tt       suffix = SuffixStops isHSpace suffix
@@ -544,6 +572,16 @@ mutual
   -- is needed.
   roundtrip decRat pos d suffix ss =
     parseDecRat-roundtrip-suffix d pos suffix ss
+  -- IntDecRat: direct delegation to `parseIntDecRat-roundtrip-suffix`.
+  -- The two-component EmitsOK (`SuffixStops isDigit × '.' ≢ headOr`) maps
+  -- to the lemma's two preconditions.  `emit intDecRat v = showInt-chars
+  -- (intDecRatToℤ v)` matches the lemma's input shape exactly.
+  roundtrip intDecRat pos v suffix (ss , not-dot) =
+    parseIntDecRat-roundtrip-suffix v pos suffix ss not-dot
+  -- NatDecRat: mirror of `intDecRat`.  `emit natDecRat v = showNat-chars
+  -- (natDecRatToℕ v)`; `parseNatDecRat-roundtrip-suffix` closes directly.
+  roundtrip natDecRat pos v suffix (ss , not-dot) =
+    parseNatDecRat-roundtrip-suffix v pos suffix ss not-dot
   -- wsOpt: canonical emit is `[]`, so the universal's input reduces to
   -- `suffix` and its expected RHS to `mkResult tt pos suffix`.  Compose
   -- via `bind-just-step` over `parseWSOpt`'s zero-consume on a hspace-
