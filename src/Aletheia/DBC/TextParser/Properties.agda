@@ -110,7 +110,8 @@ open import Aletheia.DBC.TextParser.Properties.Preamble public
 -- (`many parseSignalLine`) over a list of DBCSignal under
 -- `WellFormedTextSignal`; Commit 3d.7: `resolveSignalList`-roundtrip
 -- recovering the original DBCSignal list from RawSignals under
--- MasterCoherent).  3d.8 lifts to parseMessage.
+-- MasterCoherent; Commit 3d.8: full `parseMessage`-roundtrip composer
+-- chaining DSL header + 3d.6 + manyHelper-parseNewline-exhaust + 3d.7).
 open import Aletheia.DBC.TextParser.Properties.Topology public
   using ( parseBU-roundtrip; NodeNameStop
         ; isReceiverCont
@@ -123,7 +124,12 @@ open import Aletheia.DBC.TextParser.Properties.Topology public
         ; expectedMux; expectedMuxFor; expectedRawOfDBC
         ; parseSignalLines-roundtrip
         ; SigOK; sigok-always; sigok-when
-        ; resolveSignalList-roundtrip)
+        ; resolveSignalList-roundtrip
+        ; IdentHeadNonHSpace
+        ; emitMessage-chars-decompose
+        ; messageHeader-roundtrip
+        ; buildMessage-roundtrip
+        ; parseMessage-roundtrip)
 
 -- Value-table section (Commit 3b: VAL_TABLE_).
 open import Aletheia.DBC.TextParser.Properties.ValueTables public

@@ -52,3 +52,14 @@ open import Aletheia.DBC.TextParser.Properties.Topology.SignalList public
 open import Aletheia.DBC.TextParser.Properties.Topology.Resolve public
   using ( SigOK; sigok-always; sigok-when
         ; resolveSignalList-roundtrip)
+
+-- 3d.8: `parseMessage`-roundtrip — full BO_ block composer.  Composes
+-- `messageHeader-roundtrip` (DSL universal on `messageHeaderFmt`) +
+-- `parseSignalLines-roundtrip` (3d.6) + `manyHelper-parseNewline-exhaust`
+-- + `buildMessage-roundtrip` (Layer-2 canid/dlc roundtrips + 3d.7).
+open import Aletheia.DBC.TextParser.Properties.Topology.Message public
+  using ( IdentHeadNonHSpace
+        ; emitMessage-chars-decompose
+        ; messageHeader-roundtrip
+        ; buildMessage-roundtrip
+        ; parseMessage-roundtrip)

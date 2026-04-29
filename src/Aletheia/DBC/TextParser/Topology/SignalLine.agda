@@ -28,6 +28,7 @@ open import Data.List using (List; []; _∷_; map)
 open import Data.List.NonEmpty as List⁺ using (List⁺)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _+_; _%_)
+open import Data.Product using (proj₁; proj₂)
 open import Aletheia.DBC.DecRat using (DecRat)
 
 open import Aletheia.Parser.Combinators using
@@ -43,6 +44,7 @@ open import Aletheia.DBC.TextParser.Topology.Foundations public using
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.Receivers using (canonicalReceiversFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
+open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 
 open import Aletheia.DBC.Types using
   (DBCMessage; DBCSignal; SignalPresence; Always; When; Node; mkNode)
@@ -175,6 +177,25 @@ resolveSignalList frameBytes raws =
 -- BO_ BLOCK PARSER
 -- ============================================================================
 
+-- Inner builder (top-level so 3d.8's `parseMessage-roundtrip` proof can
+-- reference it directly; was a `where`-bound helper of `parseMessage`).
+buildMessage : ℕ → Identifier → ℕ → Identifier
+             → List RawSignal → Parser DBCMessage
+buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
+... | nothing = fail
+... | just canId with bytesToValidDLC rawDlc
+...   | nothing = fail
+...   | just dlc with resolveSignalList rawDlc raws
+...     | nothing = fail
+...     | just sigs = pure (record
+          { id      = canId
+          ; name    = msgName
+          ; dlc     = dlc
+          ; sender  = msgSender
+          ; senders = []
+          ; signals = sigs
+          })
+
 -- Parse a BO_ block: header + SG_ lines + trailing blanks.  Fails if:
 --   * the CAN ID is out of range (`buildCANId` returns nothing),
 --   * the DLC byte count doesn't map to a valid `DLC` (CAN-FD aware via
@@ -182,40 +203,22 @@ resolveSignalList frameBytes raws =
 --   * any SG_ line's mux reference can't be resolved.
 -- On any of these the partial consumption is discarded by the outer
 -- `<|>` / `many` — see the module header for the error-semantics note.
+--
+-- Post 3d.8: header chunk derived from the Format DSL `messageHeaderFmt`,
+-- so the universal `roundtrip` theorem in `Format.agda` discharges the
+-- header parse-after-emit pass in one structural sweep (see
+-- `Properties.Topology.Message`).  Production permissiveness (zero-or-more
+-- whitespace at the formatter's `parseWSOpt` slots, both LF and CR-LF
+-- newline) is preserved by the DSL's `wsOpt`/`ws`/`newlineFmt`.
 parseMessage : Parser DBCMessage
-parseMessage = do
-  _ ← string "BO_"
-  _ ← parseWS
-  rawId ← parseNatural
-  _ ← parseWS
-  msgName ← parseIdentifier
-  _ ← parseWSOpt
-  _ ← char ':'
-  _ ← parseWS
-  rawDlc ← parseNatural
-  _ ← parseWS
-  msgSender ← parseIdentifier
-  _ ← parseWSOpt
-  _ ← parseNewline
-  raws ← many parseSignalLine
-  _ ← many parseNewline
-  buildMessage rawId msgName rawDlc msgSender raws
-  where
-    buildMessage : ℕ → Identifier → ℕ → Identifier → List RawSignal → Parser DBCMessage
-    buildMessage rawId msgName rawDlc msgSender raws with buildCANId rawId
-    ... | nothing = fail
-    ... | just canId with bytesToValidDLC rawDlc
-    ...   | nothing = fail
-    ...   | just dlc with resolveSignalList rawDlc raws
-    ...     | nothing = fail
-    ...     | just sigs = pure (record
-              { id      = canId
-              ; name    = msgName
-              ; dlc     = dlc
-              ; sender  = msgSender
-              ; senders = []
-              ; signals = sigs
-              })
+parseMessage = parse messageHeaderFmt >>= λ hdr →
+  let rawId     = proj₁ hdr
+      msgName   = proj₁ (proj₂ hdr)
+      rawDlc    = proj₁ (proj₂ (proj₂ hdr))
+      msgSender = proj₂ (proj₂ (proj₂ hdr))
+  in many parseSignalLine >>= λ raws →
+     many parseNewline *>
+     buildMessage rawId msgName rawDlc msgSender raws
 
 -- Zero-or-more BO_ blocks.  Each `parseMessage` absorbs its own trailing
 -- blanks; `many` composes without an inter-message combinator.
