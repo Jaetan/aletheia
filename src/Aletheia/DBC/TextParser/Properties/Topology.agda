@@ -45,3 +45,10 @@ open import Aletheia.DBC.TextParser.Properties.Topology.SignalList public
   using ( SignalLineWF
         ; expectedMux; expectedMuxFor; expectedRawOfDBC
         ; parseSignalLines-roundtrip)
+
+-- 3d.7: `resolveSignalList`-roundtrip — recovers `List DBCSignal` from
+-- the formatter-emitted `List RawSignal` under MasterCoherent +
+-- per-signal WellFormedSignal + PhysicallyValid + WellFormedTextPresence.
+open import Aletheia.DBC.TextParser.Properties.Topology.Resolve public
+  using ( SigOK; sigok-always; sigok-when
+        ; resolveSignalList-roundtrip)

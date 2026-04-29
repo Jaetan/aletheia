@@ -50,6 +50,7 @@ module Aletheia.DBC.Formatter.WellFormedText where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
+open import Data.List.Membership.Propositional using (_∈_)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.List.Relation.Unary.All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
@@ -133,8 +134,11 @@ data MasterCoherent : List DBCSignal → Set where
          → findMuxMaster sigs ≡ just masterName
          -- Master existence (some signal in sigs has name = masterName
          -- and presence = Always).  We carry the full signal record so
-         -- downstream proofs can refer to it by name.
+         -- downstream proofs can refer to it by name; the `∈` witness
+         -- locates it in `sigs` (3d.7 needs this for the parser-side
+         -- `findMuxName` resolution proof).
          → (masterSig : DBCSignal)
+         → masterSig ∈ sigs
          → Identifier.name (DBCSignal.name masterSig) ≡ masterName
          → DBCSignal.presence masterSig ≡ Always
          -- Every When-clause references masterName.

@@ -154,16 +154,22 @@ buildSignal frameBytes master raw
 -- mux reference can't be resolved — that is the only failure mode, since
 -- CAN ID + DLC are handled in `parseMessage` and the physical gate is
 -- deferred.
+--
+-- Inner walker `buildAllRaw` exposed at top level so 3d.7's `resolveSignalList
+-- -roundtrip` proof can induct on it directly (`where`-bound names aren't
+-- accessible from outside the surrounding definition).
+buildAllRaw : (frameBytes : ℕ) → Maybe Identifier
+            → List RawSignal → Maybe (List DBCSignal)
+buildAllRaw _          _ [] = just []
+buildAllRaw frameBytes m (r ∷ rest) with buildSignal frameBytes m r
+... | nothing = nothing
+... | just s  with buildAllRaw frameBytes m rest
+...   | nothing  = nothing
+...   | just ss  = just (s ∷ ss)
+
 resolveSignalList : (frameBytes : ℕ) → List RawSignal → Maybe (List DBCSignal)
-resolveSignalList frameBytes raws = buildAll (findMuxName raws) raws
-  where
-    buildAll : Maybe Identifier → List RawSignal → Maybe (List DBCSignal)
-    buildAll _ [] = just []
-    buildAll m (r ∷ rest) with buildSignal frameBytes m r
-    ... | nothing = nothing
-    ... | just s  with buildAll m rest
-    ...   | nothing  = nothing
-    ...   | just ss  = just (s ∷ ss)
+resolveSignalList frameBytes raws =
+  buildAllRaw frameBytes (findMuxName raws) raws
 
 -- ============================================================================
 -- BO_ BLOCK PARSER
