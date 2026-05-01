@@ -2107,17 +2107,19 @@ private
                      (char-dot-fail-on-non-dot posAfterNat suffix not-dot)
 
 -- ----------------------------------------------------------------------------
--- Phase 6.6.7: parseDecRatFrac dispatcher
+-- Phase 6.6.7: parseDecRatFrac dispatcher.  Public — used by 3c-B's
+-- `Format/AttrValue.agda` for the inner-altSum disjointness witness when
+-- the wire form is `RavwBareInt` (parseDecRatFrac arm of the inner altSum
+-- must fail on bare-int input so the fall-through to intDecRat fires).
 -- ----------------------------------------------------------------------------
 
-private
-  parseDecRatFrac-fails-bareInt : ∀ z pos suffix →
-    SuffixStops isDigit suffix → '.' ≢ headOr suffix '_' →
-    parseDecRatFrac pos (showInt-chars z ++ₗ suffix) ≡ nothing
-  parseDecRatFrac-fails-bareInt (ℤ+ n)        pos suffix ss not-dot =
-    parseDecRatFrac-fails-+ n pos suffix ss not-dot
-  parseDecRatFrac-fails-bareInt ℤ-[1+ n ]     pos suffix ss not-dot =
-    parseDecRatFrac-fails-neg n pos suffix ss not-dot
+parseDecRatFrac-fails-bareInt : ∀ z pos suffix →
+  SuffixStops isDigit suffix → '.' ≢ headOr suffix '_' →
+  parseDecRatFrac pos (showInt-chars z ++ₗ suffix) ≡ nothing
+parseDecRatFrac-fails-bareInt (ℤ+ n)        pos suffix ss not-dot =
+  parseDecRatFrac-fails-+ n pos suffix ss not-dot
+parseDecRatFrac-fails-bareInt ℤ-[1+ n ]     pos suffix ss not-dot =
+  parseDecRatFrac-fails-neg n pos suffix ss not-dot
 
 -- ----------------------------------------------------------------------------
 -- Phase 6.6.8: parseDecRatBareInt success on the positive wire form

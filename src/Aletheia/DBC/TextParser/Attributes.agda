@@ -58,11 +58,13 @@ open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
 import Data.List.Properties as ListProps
+open import Data.Product using (_,_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
 open import Aletheia.DBC.DecRat.Refinement using
-  (IntDecRat; mkIntDecRatFromℤ; NatDecRat; mkNatDecRatFromℕ)
+  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
+   NatDecRat; mkNatDecRatFromℕ)
 open import Aletheia.DBC.TextParser.DecRatParse using
   (parseDecRat; parseIntDecRat; parseNatDecRat)
 open import Data.String as String using (String)
@@ -76,9 +78,19 @@ open import Aletheia.DBC.TextParser.Lexer using
    parseNatural)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
+open import Data.Product using (proj₁; proj₂)
+
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.AttrDef using
   (attrDefFmt; attrDefRelFmt; liftStdAttrDef; liftRelAttrDef)
+open import Aletheia.DBC.TextParser.Format.AttrValue using
+  (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt)
+open import Aletheia.DBC.TextParser.Format.AttrLine using
+  (attrDefaultFmt; DefaultLineCarrier;
+   attrAssignFmt; AttrAssignCarrier;
+   attrRelFmt; AttrRelCarrier;
+   RawAttrTargetWire; RatwNode; RatwMsg; RatwSig; RatwEv; RatwNet;
+   RawRelTargetWire; RrtNodeMsg; RrtNodeSig)
 
 -- Re-export the cycle-relevant subset for backward source compatibility.
 open import Aletheia.DBC.TextParser.Attributes.Foundations public using
@@ -354,54 +366,120 @@ parseAttrDefRel =
   many parseNewline >>= λ _ →
   pure (liftRelAttrDef result)
 
+-- Lift the 3-emit-shape wire form to the 2-ctor public `RawAttrValue`.
+-- Both numeric wire ctors collapse to `RavDecRat`: `RavwFrac` carries the
+-- DecRat directly (frac wire form preserves DecRat shape), `RavwBareInt`
+-- carries an `IntDecRat` whose underlying DecRat is the bareInt's
+-- canonical form.  Public for 3c-B's per-shape dispatcher proofs in
+-- `Properties/Attributes/Default.agda` (and Assign/Line follow-ups).
+liftRavw : RawAttrValueWire → RawAttrValue
+liftRavw (RavwString s)   = RavString s
+liftRavw (RavwFrac d)     = RavDecRat d
+liftRavw (RavwBareInt z)  = RavDecRat (IntDecRat.value z)
+
+liftDefaultLine : DefaultLineCarrier → RawAttrDefault
+liftDefaultLine (n , wire-val , _) = mkRawAttrDefault n (liftRavw wire-val)
+
 -- `"BA_DEF_DEF_" ws string-lit ws attr-value ws? ";" newline`.
+--
+-- B.3.d Layer 3 3d.5.d 3c-B migration: line-portion expressed via the
+-- Format DSL (`attrDefaultFmt` in `Format.AttrLine`); the trailing `many
+-- parseNewline` for blank-line padding stays in the production wrapper,
+-- mirroring the η-style wrap of `parseAttrDef`.  Pre-3d.5.d (3c.2):
+-- hand-written 9-step bind chain (now ≡ universal roundtrip + many
+-- parseNewline + pure-lift via `liftDefaultLine`).
 parseRawAttrDefault : Parser RawAttrDefault
-parseRawAttrDefault = do
-  _ ← string "BA_DEF_DEF_"
-  _ ← parseWS
-  name ← parseStringLit
-  _ ← parseWS
-  val  ← parseRawAttrValue
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure (mkRawAttrDefault name val)
+parseRawAttrDefault =
+  parse attrDefaultFmt >>= λ result →
+  many parseNewline >>= λ _ →
+  pure (liftDefaultLine result)
+
+-- ============================================================================
+-- WIRE → AST LIFTERS — Maybe-fail at buildCANId
+-- ============================================================================
+--
+-- Mirror of `buildCommentP` (CM_'s 3d.5.d-CM_ precedent).  Pure-target
+-- cases (Network/Node/EnvVar) reduce by `pure (mkRawAttrAssign ...)`.
+-- CAN-ID-bearing cases (Msg/Sig for std; both NodeMsg/NodeSig for rel)
+-- use `with buildCANId`; on `nothing` (out-of-range raw ID) the parser
+-- fails — matching the pre-3d.5.d backtrack-then-fail behaviour of
+-- `wrapMsgTarget` / `wrapSigTarget` / `wrapNodeMsgTarget` / `wrapNodeSigTarget`.
+
+-- Maybe-form lift (used in proofs).  Definitionally equal to the
+-- Parser-form `buildAttrAssignP` after pos/input projection.
+liftStdTarget : RawAttrTargetWire → Maybe AttrTarget
+liftStdTarget RatwNet         = just ATgtNetwork
+liftStdTarget (RatwNode n)    = just (ATgtNode n)
+liftStdTarget (RatwMsg r) with buildCANId r
+... | just cid = just (ATgtMessage cid)
+... | nothing  = nothing
+liftStdTarget (RatwSig r s) with buildCANId r
+... | just cid = just (ATgtSignal cid s)
+... | nothing  = nothing
+liftStdTarget (RatwEv ev)     = just (ATgtEnvVar ev)
+
+liftRelTarget : RawRelTargetWire → Maybe AttrTarget
+liftRelTarget (RrtNodeMsg n r) with buildCANId r
+... | just cid = just (ATgtNodeMsg n cid)
+... | nothing  = nothing
+liftRelTarget (RrtNodeSig n r s) with buildCANId r
+... | just cid = just (ATgtNodeSig n cid s)
+... | nothing  = nothing
+
+-- Parser-form lifter for BA_ assignment lines.  Plugs into the η-style
+-- production wrapper after `parse attrAssignFmt >>= many parseNewline`.
+buildAttrAssignP : List Char → RawAttrTargetWire → RawAttrValueWire
+                 → Parser RawAttrAssign
+buildAttrAssignP n RatwNet         wireVal =
+  pure (mkRawAttrAssign n ATgtNetwork (liftRavw wireVal))
+buildAttrAssignP n (RatwNode i)    wireVal =
+  pure (mkRawAttrAssign n (ATgtNode i) (liftRavw wireVal))
+buildAttrAssignP n (RatwMsg r)     wireVal with buildCANId r
+... | just cid =
+  pure (mkRawAttrAssign n (ATgtMessage cid) (liftRavw wireVal))
+... | nothing  = fail
+buildAttrAssignP n (RatwSig r s)   wireVal with buildCANId r
+... | just cid =
+  pure (mkRawAttrAssign n (ATgtSignal cid s) (liftRavw wireVal))
+... | nothing  = fail
+buildAttrAssignP n (RatwEv ev)     wireVal =
+  pure (mkRawAttrAssign n (ATgtEnvVar ev) (liftRavw wireVal))
+
+-- Parser-form lifter for BA_REL_ relation lines.
+buildAttrRelP : List Char → RawRelTargetWire → RawAttrValueWire
+              → Parser RawAttrAssign
+buildAttrRelP n (RrtNodeMsg i r) wireVal with buildCANId r
+... | just cid =
+  pure (mkRawAttrAssign n (ATgtNodeMsg i cid) (liftRavw wireVal))
+... | nothing  = fail
+buildAttrRelP n (RrtNodeSig i r s) wireVal with buildCANId r
+... | just cid =
+  pure (mkRawAttrAssign n (ATgtNodeSig i cid s) (liftRavw wireVal))
+... | nothing  = fail
 
 -- `"BA_" ws string-lit (ws attr-target)? ws attr-value ws? ";" newline`.
--- When no target keyword follows the name, target defaults to ATgtNetwork.
--- The standard-target branch consumes its own trailing `parseWS`; the
--- network branch doesn't, so we only run the outer `parseWS` before the
--- target alternative (inside `parseStandardAttrTarget` the first token
--- is the keyword, not whitespace).
+--
+-- B.3.d Layer 3 3d.5.d 3c-B migration: line-portion expressed via the
+-- Format DSL (`attrAssignFmt` in `Format.AttrLine`); the trailing `many
+-- parseNewline` for blank-line padding stays in the production wrapper,
+-- mirroring the η-style wrap of `parseAttrDef` / `parseRawAttrDefault`.
+-- Maybe-fail at buildCANId is handled inside `buildAttrAssignP`.
 parseRawAttrAssign : Parser RawAttrAssign
-parseRawAttrAssign = do
-  _ ← string "BA_"
-  _ ← parseWS
-  name ← parseStringLit
-  _ ← parseWS
-  target ← parseStandardAttrTarget <|> pure ATgtNetwork
-  val ← parseRawAttrValue
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure (mkRawAttrAssign name target val)
+parseRawAttrAssign =
+  parse attrAssignFmt >>= λ result →
+  many parseNewline >>= λ _ →
+  buildAttrAssignP (proj₁ result)
+                   (proj₁ (proj₂ result))
+                   (proj₁ (proj₂ (proj₂ result)))
 
 -- `"BA_REL_" ws string-lit ws rel-target ws attr-value ws? ";" newline`.
 parseRawAttrRel : Parser RawAttrAssign
-parseRawAttrRel = do
-  _ ← string "BA_REL_"
-  _ ← parseWS
-  name ← parseStringLit
-  _ ← parseWS
-  target ← parseRelTarget
-  val ← parseRawAttrValue
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure (mkRawAttrAssign name target val)
+parseRawAttrRel =
+  parse attrRelFmt >>= λ result →
+  many parseNewline >>= λ _ →
+  buildAttrRelP (proj₁ result)
+                (proj₁ (proj₂ result))
+                (proj₁ (proj₂ (proj₂ result)))
 
 -- One attribute line.  Longest-keyword-first is a readability choice; the
 -- post-keyword `parseWS` handles the actual prefix disambiguation (see

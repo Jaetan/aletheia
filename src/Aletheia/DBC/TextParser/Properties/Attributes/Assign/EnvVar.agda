@@ -1,432 +1,228 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtEnvVar
--- per-line construct roundtrips (3 emit shapes).
+-- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtEnvVar per-line
+-- construct roundtrips (3 emit shapes), η-style migration onto the
+-- universal `parseAttrAssign-format-roundtrip` lemma.
 --
--- ATgtEnvVar is the `parseEvTgt` branch (last alternative in
--- `parseStandardAttrTarget`).  Line-shape:
---   `BA_<sp>"name"<sp>EV_<sp>EnvVarName<sp>vstr;\n`.
---   parseEvTgt: `string "EV_" *> ws *> parseIdentifier *> ws *>
---                pure (ATgtEnvVar ev)`.
--- Composition: parseStandardAttrTarget = ((Node <|> Msg) <|> Sig) <|> EvTgt;
--- alt-right-nothing through Node/Msg/Sig (all fail on 'E' head), then
--- alt-left-just on parseEvTgt (success).
+-- ATgtEnvVar is the `RatwEv ev` constructor of `RawAttrTargetWire`, routed
+-- through the `evArm` (`"EV_" ++ ws + ident + ws`) of `stdTargetWireFmt`'s
+-- 5-way altSum.  Top-level disjointness against `altSum (altSum nodeArm
+-- msgArm) sigArm` (closed via build-EmitsOK-stdTargetWireFmt-RatwEv).  No
+-- buildCANId step (RatwEv has Identifier, not raw ℕ).
+--
+-- Carries an `IdentNameStop` precondition for `ev` (Layer 4 owes it from
+-- `validIdentifierᵇ`), used by `build-EmitsOK-stdTargetWireFmt-RatwEv`'s
+-- name-stop input.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.EnvVar where
 
 open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
-open import Data.Char.Base using (_≈ᵇ_)
+open import Data.Char.Base using (_≈ᵇ_; isDigit)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc; length-++ to length-++ₗ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (Σ; _×_; _,_)
+open import Data.Product using (∃₂; _,_; Σ; Σ-syntax; _×_; proj₁; proj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.String using (String; toList)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; refl; sym; trans; cong; cong₂; subst; _≢_)
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
-         _>>=_; pure; _<|>_; _*>_; string;
-         char; many; satisfy)
+         _>>=_; pure; _<|>_; _*>_; _<*_; string;
+         char; many; satisfy; fail)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
+   intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using
-  ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar)
-open import Aletheia.DBC.Identifier using (Identifier; isIdentCont)
+  ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
+  ; ATgtNodeMsg; ATgtNodeSig)
+open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Aletheia.DBC.TextParser.Attributes
-  using (parseRawAttrAssign; parseRawAttrValue;
+  using (parseRawAttrAssign;
          RawAttrAssign; mkRawAttrAssign;
          RawAttrValue; RavString; RavDecRat;
-         parseStandardAttrTarget;
-         parseNodeTgt; parseMsgTgt; parseSigTgt; parseEvTgt)
+         liftRavw; buildAttrAssignP)
 open import Aletheia.DBC.TextParser.Lexer
   using (parseWS; parseWSOpt; parseStringLit; parseNewline;
-         parseIdentifier; isHSpace)
+         isHSpace)
 
 open import Aletheia.DBC.TextFormatter.Emitter
   using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars; digitChar)
 
-open import Aletheia.DBC.TextParser.Properties.Primitives using
-  ( parseWS-one-space; parseStringLit-roundtrip; parseIdentifier-roundtrip
-  ; alt-right-nothing; alt-left-just
-  ; string-success)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
-  ; SuffixStops; ∷-stop; []-stop
-  ; manyHelper-satisfy-exhaust-many)
+  ; SuffixStops; ∷-stop; []-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   ( isNewlineStart
-  ; parseNewline-match-LF
   ; manyHelper-parseNewline-exhaust)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Default using
-  ( parseRawAttrValue-roundtrip-RavString
-  ; parseRawAttrValue-roundtrip-RavDecRatFrac
-  ; parseRawAttrValue-roundtrip-RavDecRatBareInt)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
-  ( showInt-chars-head-classify; showDecRat-chars-head-classify
-  ; value-stops-isHSpace-RavString
+  ( value-stops-isHSpace-RavString
   ; value-stops-isHSpace-RavDecRatFrac
   ; value-stops-isHSpace-RavDecRatBareInt)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Node using
   ( IdentNameStop)
 
--- ============================================================================
--- parseEvTgt-roundtrip
--- ============================================================================
-
-private
-  ws-stops-isIdentCont : ∀ rest → SuffixStops isIdentCont (' ' ∷ rest)
-  ws-stops-isIdentCont _ = ∷-stop refl
-
-  ident-name-stops-isHSpace :
-    ∀ (n : Identifier) (rest : List Char)
-    → IdentNameStop n
-    → SuffixStops isHSpace (Identifier.name n ++ₗ rest)
-  ident-name-stops-isHSpace n rest (c , cs , cs-eq , c-not-hsp) =
-    subst (λ chars → SuffixStops isHSpace (chars ++ₗ rest))
-          (sym cs-eq) (∷-stop c-not-hsp)
-
-parseEvTgt-roundtrip :
-  ∀ pos (ev : Identifier) (suffix : List Char)
-  → IdentNameStop ev
-  → SuffixStops isHSpace suffix
-  → parseEvTgt pos
-      ('E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-    ≡ just (mkResult (ATgtEnvVar ev)
-              (advancePosition
-                (advancePositions
-                  (advancePosition
-                    (advancePositions pos (toList "EV_"))
-                    ' ')
-                  (Identifier.name ev))
-                ' ')
-              suffix)
-parseEvTgt-roundtrip pos ev suffix ev-stop ss-suffix =
-  trans (bind-just-step (string "EV_")
-           (λ _ → parseWS >>= λ _ →
-                  parseIdentifier >>= λ ident →
-                  parseWS >>= λ _ →
-                  pure (ATgtEnvVar ident))
-           pos
-           ('E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-           "EV_" pos1 (' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-           (string-success pos "EV_"
-              (' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)))
-  (trans (bind-just-step parseWS
-            (λ _ → parseIdentifier >>= λ ident →
-                   parseWS >>= λ _ →
-                   pure (ATgtEnvVar ident))
-            pos1 (' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-            (' ' ∷ []) pos2 (Identifier.name ev ++ₗ ' ' ∷ suffix)
-            (parseWS-one-space pos1
-               (Identifier.name ev ++ₗ ' ' ∷ suffix)
-               (ident-name-stops-isHSpace ev (' ' ∷ suffix) ev-stop)))
-  (trans (bind-just-step parseIdentifier
-            (λ ident → parseWS >>= λ _ →
-                       pure (ATgtEnvVar ident))
-            pos2 (Identifier.name ev ++ₗ ' ' ∷ suffix)
-            ev pos3 (' ' ∷ suffix)
-            (parseIdentifier-roundtrip pos2 ev (' ' ∷ suffix)
-               (ws-stops-isIdentCont suffix)))
-  (trans (bind-just-step parseWS
-            (λ _ → pure (ATgtEnvVar ev))
-            pos3 (' ' ∷ suffix)
-            (' ' ∷ []) pos4 suffix
-            (parseWS-one-space pos3 suffix ss-suffix))
-    refl)))
-  where
-    pos1 : Position
-    pos1 = advancePositions pos (toList "EV_")
-    pos2 : Position
-    pos2 = advancePosition pos1 ' '
-    pos3 : Position
-    pos3 = advancePositions pos2 (Identifier.name ev)
-    pos4 : Position
-    pos4 = advancePosition pos3 ' '
+open import Aletheia.DBC.TextParser.Format using
+  (Format; emit; parse; EmitsOK)
+open import Aletheia.DBC.TextParser.Format.AttrValue using
+  (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
+   attrValueWireFmt;
+   build-EmitsOK-RavwString;
+   build-EmitsOK-RavwFrac;
+   build-EmitsOK-RavwBareInt)
+open import Aletheia.DBC.TextParser.Format.AttrLine using
+  (attrAssignFmt; AttrAssignCarrier;
+   stdTargetWireFmt; RatwEv;
+   parseAttrAssign-format-roundtrip;
+   emit-attrAssignFmt-RatwEv;
+   emit-attrAssignFmt-RatwEv-with-outer;
+   build-EmitsOK-stdTargetWireFmt-RatwEv)
 
 -- ============================================================================
--- parseStandardAttrTarget composition for ATgtEnvVar (last alt)
--- ============================================================================
-
-private
-  parseNodeTgt-fails-on-E :
-    ∀ pos rest → parseNodeTgt pos ('E' ∷ rest) ≡ nothing
-  parseNodeTgt-fails-on-E _ _ = refl
-
-  parseMsgTgt-fails-on-E :
-    ∀ pos rest → parseMsgTgt pos ('E' ∷ rest) ≡ nothing
-  parseMsgTgt-fails-on-E _ _ = refl
-
-  parseSigTgt-fails-on-E :
-    ∀ pos rest → parseSigTgt pos ('E' ∷ rest) ≡ nothing
-  parseSigTgt-fails-on-E _ _ = refl
-
-  parseStandardAttrTarget-on-EnvVar :
-    ∀ pos (ev : Identifier) (suffix : List Char)
-    → IdentNameStop ev
-    → SuffixStops isHSpace suffix
-    → parseStandardAttrTarget pos
-        ('E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-      ≡ just (mkResult (ATgtEnvVar ev)
-                (advancePosition
-                  (advancePositions
-                    (advancePosition
-                      (advancePositions pos (toList "EV_"))
-                      ' ')
-                    (Identifier.name ev))
-                  ' ')
-                suffix)
-  parseStandardAttrTarget-on-EnvVar pos ev suffix ev-stop ss-suffix =
-    trans (alt-right-nothing
-            ((parseNodeTgt <|> parseMsgTgt) <|> parseSigTgt) parseEvTgt pos
-            ev-input
-            (trans (alt-right-nothing
-                     (parseNodeTgt <|> parseMsgTgt) parseSigTgt pos
-                     ev-input
-                     (trans (alt-right-nothing parseNodeTgt parseMsgTgt pos
-                              ev-input
-                              (parseNodeTgt-fails-on-E pos
-                                ('V' ∷ '_' ∷ ' ' ∷ Identifier.name ev
-                                  ++ₗ ' ' ∷ suffix)))
-                            (parseMsgTgt-fails-on-E pos
-                              ('V' ∷ '_' ∷ ' ' ∷ Identifier.name ev
-                                ++ₗ ' ' ∷ suffix))))
-                   (parseSigTgt-fails-on-E pos
-                     ('V' ∷ '_' ∷ ' ' ∷ Identifier.name ev
-                       ++ₗ ' ' ∷ suffix))))
-          (parseEvTgt-roundtrip pos ev suffix ev-stop ss-suffix)
-    where
-      ev-input : List Char
-      ev-input =
-        'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix
-
-  optStandardScope-on-EnvVar :
-    ∀ pos (ev : Identifier) (suffix : List Char)
-    → IdentNameStop ev
-    → SuffixStops isHSpace suffix
-    → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
-        ('E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-      ≡ just (mkResult (ATgtEnvVar ev)
-                (advancePosition
-                  (advancePositions
-                    (advancePosition
-                      (advancePositions pos (toList "EV_"))
-                      ' ')
-                    (Identifier.name ev))
-                  ' ')
-                suffix)
-  optStandardScope-on-EnvVar pos ev suffix ev-stop ss-suffix =
-    alt-left-just parseStandardAttrTarget (pure ATgtNetwork) pos
-      ('E' ∷ 'V' ∷ '_' ∷ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ suffix)
-      _
-      (parseStandardAttrTarget-on-EnvVar pos ev suffix ev-stop ss-suffix)
-
--- ============================================================================
--- TraceEnvVar
+-- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
 -- ============================================================================
 
 module TraceEnvVar (pos : Position) (name : List Char) (ev : Identifier)
                    (value-chars : List Char) (outer-suffix : List Char) where
+  cs-name : List Char
   cs-name = quoteStringLit-chars name
+
+  cs-ev : List Char
   cs-ev = Identifier.name ev
 
-  pos1 : Position
-  pos1 = advancePositions pos (toList "BA_")
-  pos2 : Position
-  pos2 = advancePosition pos1 ' '
-  pos3 : Position
-  pos3 = advancePositions pos2 cs-name
-  pos4 : Position
-  pos4 = advancePosition pos3 ' '
-  pos4a : Position
-  pos4a = advancePositions pos4 (toList "EV_")
-  pos4b : Position
-  pos4b = advancePosition pos4a ' '
-  pos4c : Position
-  pos4c = advancePositions pos4b cs-ev
-  pos5 : Position
-  pos5 = advancePosition pos4c ' '
-  pos6 : Position
-  pos6 = advancePositions pos5 value-chars
-  pos8 : Position
-  pos8 = advancePosition pos6 ';'
   pos9 : Position
-  pos9 = advancePosition pos8 '\n'
-
-  rest-tail : List Char
-  rest-tail = ';' ∷ '\n' ∷ outer-suffix
-
-  body-after-keyword : List Char
-  body-after-keyword =
-    ' ' ∷ cs-name ++ₗ ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ cs-ev ++ₗ
-      ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-WS1 : List Char
-  body-after-WS1 =
-    cs-name ++ₗ ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ cs-ev ++ₗ
-      ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-name : List Char
-  body-after-name =
-    ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ cs-ev ++ₗ
-      ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-WS2 : List Char
-  body-after-WS2 =
-    'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ cs-ev ++ₗ ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-target : List Char
-  body-after-target = value-chars ++ₗ rest-tail
-
-  body-after-value : List Char
-  body-after-value = rest-tail
-
-  body-after-WSOpt : List Char
-  body-after-WSOpt = ';' ∷ '\n' ∷ outer-suffix
-
-  body-after-semi : List Char
-  body-after-semi = '\n' ∷ outer-suffix
-
-  body-after-NL : List Char
-  body-after-NL = outer-suffix
+  pos9 = advancePositions pos
+           (toList "BA_ " ++ₗ cs-name ++ₗ
+            toList " EV_ " ++ₗ cs-ev ++ₗ
+            ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
 -- ============================================================================
--- Parameterised after-keyword for ATgtEnvVar
+-- BRIDGES — emit form ↔ inline-input shape
 -- ============================================================================
 
-parseRawAttrAssign-after-keyword-EnvVar :
-  ∀ pos (name : List Char) (ev : Identifier) (raw-value : RawAttrValue)
-    (value-chars : List Char) (outer-suffix : List Char)
-  → IdentNameStop ev
-  → SuffixStops isNewlineStart outer-suffix
-  → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  → let open TraceEnvVar pos name ev value-chars outer-suffix in
-    parseRawAttrValue pos5 body-after-target
-      ≡ just (mkResult raw-value pos6 body-after-value)
-  → parseRawAttrAssign pos
-      ('B' ∷ 'A' ∷ '_' ∷
-        TraceEnvVar.body-after-keyword pos name ev value-chars outer-suffix)
-    ≡ just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) raw-value)
-              (TraceEnvVar.pos9 pos name ev value-chars outer-suffix)
-              outer-suffix)
-parseRawAttrAssign-after-keyword-EnvVar pos name ev raw-value value-chars outer-suffix
-  ev-stop ss-NL value-stops-isHSpace value-eq =
-    trans (bind-just-step (string "BA_")
-           (λ _ → parseWS >>= λ _ →
-                  parseStringLit >>= λ qn →
-                  parseWS >>= λ _ →
-                  (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                  parseRawAttrValue >>= λ v →
-                  parseWSOpt >>= λ _ →
-                  char ';' >>= λ _ →
-                  parseNewline >>= λ _ →
-                  many parseNewline >>= λ _ →
-                  pure (mkRawAttrAssign qn t v))
-           pos
-           ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-           "BA_" pos1 body-after-keyword
-           (string-success pos "BA_" body-after-keyword))
-    (trans (bind-just-step parseWS
-              (λ _ → parseStringLit >>= λ qn →
-                     parseWS >>= λ _ →
-                     (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign qn t v))
-              pos1 body-after-keyword
-              (' ' ∷ []) pos2 body-after-WS1
-              (parseWS-one-space pos1 body-after-WS1 (∷-stop refl)))
-    (trans (bind-just-step parseStringLit
-              (λ qn → parseWS >>= λ _ →
-                     (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign qn t v))
-              pos2 body-after-WS1
-              name pos3 body-after-name
-              (parseStringLit-roundtrip pos2 name body-after-name (∷-stop refl)))
-    (trans (bind-just-step parseWS
-              (λ _ → (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name t v))
-              pos3 body-after-name
-              (' ' ∷ []) pos4 body-after-WS2
-              (parseWS-one-space pos3 body-after-WS2 (∷-stop refl)))
-    (trans (bind-just-step (parseStandardAttrTarget <|> pure ATgtNetwork)
-              (λ t → parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name t v))
-              pos4 body-after-WS2
-              (ATgtEnvVar ev) pos5 body-after-target
-              (optStandardScope-on-EnvVar pos4 ev
-                 (value-chars ++ₗ rest-tail) ev-stop value-stops-isHSpace))
-    (trans (bind-just-step parseRawAttrValue
-              (λ v → parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name (ATgtEnvVar ev) v))
-              pos5 body-after-target
-              raw-value pos6 body-after-value
-              value-eq)
-    (trans (bind-just-step parseWSOpt
-              (λ _ → char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name (ATgtEnvVar ev) raw-value))
-              pos6 body-after-value
-              [] pos6 body-after-WSOpt
-              (parseWSOpt-empty pos6 outer-suffix))
-    (trans (bind-just-step (char ';')
-              (λ _ → parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name (ATgtEnvVar ev) raw-value))
-              pos6 body-after-WSOpt
-              ';' pos8 body-after-semi
-              refl)
-    (trans (bind-just-step parseNewline
-              (λ _ → many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name (ATgtEnvVar ev) raw-value))
-              pos8 body-after-semi
-              '\n' pos9 body-after-NL
-              (parseNewline-match-LF pos8 outer-suffix))
-    (trans (bind-just-step (many parseNewline)
-              (λ _ → pure (mkRawAttrAssign name (ATgtEnvVar ev) raw-value))
-              pos9 body-after-NL
-              [] pos9 outer-suffix
-              (manyHelper-parseNewline-exhaust pos9 outer-suffix
-                (length outer-suffix) ss-NL))
-      refl)))))))))
-  where
-    open TraceEnvVar pos name ev value-chars outer-suffix
+private
+  bridge-EnvVar-emit :
+    ∀ (name : List Char) (ev : Identifier)
+      (wireVal : RawAttrValueWire) (outer-suffix : List Char)
+    → emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix
+      ≡ toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
+          ' ' ∷ emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix
+  bridge-EnvVar-emit = emit-attrAssignFmt-RatwEv-with-outer
 
-    parseWSOpt-empty :
-      ∀ (p : Position) (rest : List Char) →
-      parseWSOpt p (';' ∷ '\n' ∷ rest)
-      ≡ just (mkResult [] p (';' ∷ '\n' ∷ rest))
-    parseWSOpt-empty p rest =
-      manyHelper-satisfy-exhaust-many isHSpace
-        p [] (';' ∷ '\n' ∷ rest)
-        AllList.[]
-        (∷-stop refl)
-      where
-        import Data.List.Relation.Unary.All as AllList
+-- ============================================================================
+-- COMMON RAW-LEVEL ROUNDTRIP — EnvVar arm
+-- ============================================================================
+
+private
+  parseRawAttrAssign-format-roundtrip-EnvVar-raw :
+    ∀ (pos : Position) (name : List Char) (ev : Identifier)
+      (wireVal : RawAttrValueWire) (outer-suffix : List Char)
+    → IdentNameStop ev
+    → SuffixStops isNewlineStart outer-suffix
+    → SuffixStops isHSpace
+        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+    → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
+    → parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix)
+      ≡ just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) (liftRavw wireVal))
+                (advancePositions pos
+                  (emit attrAssignFmt (name , RatwEv ev , wireVal , tt)))
+                outer-suffix)
+  parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev wireVal outer-suffix
+                                                 (c , cs , cs-eq , c-not-hsp)
+                                                 ss-NL val-stop l6 =
+    trans step-format
+      (trans step-many-newline step-buildP)
+    where
+      pos-line : Position
+      pos-line = advancePositions pos
+                   (emit attrAssignFmt (name , RatwEv ev , wireVal , tt))
+
+      cont-line : AttrAssignCarrier → Parser RawAttrAssign
+      cont-line c = many parseNewline >>= λ _ →
+                    buildAttrAssignP (proj₁ c)
+                                     (proj₁ (proj₂ c))
+                                     (proj₁ (proj₂ (proj₂ c)))
+
+      cont-blanks : List Char → Parser RawAttrAssign
+      cont-blanks _ = buildAttrAssignP name (RatwEv ev) wireVal
+
+      l4 : SuffixStops isHSpace
+            (emit stdTargetWireFmt (RatwEv ev) ++ₗ
+             emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+      l4 = ∷-stop refl
+
+      name-stop : SuffixStops isHSpace
+        ((Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ
+         (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix))
+      name-stop = subst (λ chars → SuffixStops isHSpace
+                            ((chars ++ₗ ' ' ∷ []) ++ₗ
+                             (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)))
+                        (sym cs-eq) (∷-stop c-not-hsp)
+
+      l5 : EmitsOK stdTargetWireFmt (RatwEv ev)
+            (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+      l5 = build-EmitsOK-stdTargetWireFmt-RatwEv ev
+            (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+            name-stop val-stop
+
+      step-format :
+        parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix)
+        ≡ cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix
+      step-format =
+        bind-just-step (parse attrAssignFmt) cont-line
+          pos
+          (emit attrAssignFmt (name , RatwEv ev , wireVal , tt) ++ₗ outer-suffix)
+          (name , RatwEv ev , wireVal , tt) pos-line outer-suffix
+          (parseAttrAssign-format-roundtrip pos name (RatwEv ev) wireVal
+            outer-suffix l4 l5 l6)
+
+      step-many-newline :
+        cont-line (name , RatwEv ev , wireVal , tt) pos-line outer-suffix
+        ≡ cont-blanks [] pos-line outer-suffix
+      step-many-newline =
+        bind-just-step (many parseNewline) cont-blanks
+          pos-line outer-suffix
+          [] pos-line outer-suffix
+          (manyHelper-parseNewline-exhaust pos-line outer-suffix
+            (length outer-suffix) ss-NL)
+
+      step-buildP :
+        cont-blanks [] pos-line outer-suffix
+        ≡ just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) (liftRavw wireVal))
+                  pos-line outer-suffix)
+      step-buildP = refl
+
+-- ============================================================================
+-- pos-eq helper: emit-attrAssignFmt-RatwEv RHS ↔ TraceEnvVar.pos9 chars
+-- ============================================================================
+--
+-- One ++ₗ-assoc step (over name ev ++ ' ∷ []) bridges the inner EV_ chunk
+-- shape to the canonical " EV_ " ++ name ev ++ ' ∷ value-chars form.
+
+private
+  pos-eq-chars :
+    ∀ (n : List Char) (ev : Identifier) (value-chars : List Char) →
+    toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+      ' ' ∷ (toList "EV_" ++ₗ ' ' ∷ Identifier.name ev ++ₗ ' ' ∷ []) ++ₗ
+        (value-chars ++ₗ ';' ∷ '\n' ∷ [])
+    ≡ toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+        toList " EV_ " ++ₗ Identifier.name ev ++ₗ
+        ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ []
+  pos-eq-chars n ev value-chars =
+    cong (λ z → toList "BA_ " ++ₗ quoteStringLit-chars n ++ₗ
+                   ' ' ∷ 'E' ∷ 'V' ∷ '_' ∷ ' ' ∷ z)
+         (++ₗ-assoc (Identifier.name ev) (' ' ∷ [])
+                    (value-chars ++ₗ ';' ∷ '\n' ∷ []))
 
 -- ============================================================================
 -- Top-level dispatchers: ATgtEnvVar × {RavString, frac, bareInt}
@@ -444,30 +240,33 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString :
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s))
               (TraceEnvVar.pos9 pos name ev (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString pos name ev s outer-suffix ev-stop ss-NL =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-EnvVar pos name ev (RavString s)
-      (quoteStringLit-chars s) outer-suffix ev-stop ss-NL
-      (value-stops-isHSpace-RavString s outer-suffix)
-      value-eq)
+parseRawAttrAssign-roundtrip-ATgtEnvVar-RavString pos name ev s outer-suffix ident-stop ss-NL =
+  trans
+    (cong (parseRawAttrAssign pos)
+          (sym (bridge-EnvVar-emit name ev (RavwString s) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
+        (RavwString s) outer-suffix ident-stop ss-NL
+        (value-stops-isHSpace-RavString s outer-suffix)
+        (build-EmitsOK-RavwString s (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+      result-eq)
   where
-    open TraceEnvVar pos name ev (quoteStringLit-chars s) outer-suffix
-
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
-
-    value-eq :
-      parseRawAttrValue pos5
-        (quoteStringLit-chars s ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavString s) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavString pos5 s
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
+    result-eq :
+      just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev)
+                       (liftRavw (RavwString s)))
+              (advancePositions pos
+                (emit attrAssignFmt (name , RatwEv ev , RavwString s , tt)))
+              outer-suffix)
+      ≡ just (mkResult
+                (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s))
+                (TraceEnvVar.pos9 pos name ev (quoteStringLit-chars s) outer-suffix)
+                outer-suffix)
+    result-eq = cong (λ p → just (mkResult
+                                    (mkRawAttrAssign name (ATgtEnvVar ev) (RavString s))
+                                    p outer-suffix))
+                     (cong (advancePositions pos)
+                           (trans (emit-attrAssignFmt-RatwEv name ev (RavwString s))
+                                  (pos-eq-chars name ev (quoteStringLit-chars s))))
 
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
   ∀ pos (name : List Char) (ev : Identifier) (d : DecRat) (outer-suffix : List Char)
@@ -481,33 +280,33 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac :
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d))
               (TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ev-stop ss-NL
-  with showDecRat-chars-head-classify d
-... | c , tail , head-eq , c-not-quote , _ , _ =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-EnvVar pos name ev (RavDecRat d)
-      (showDecRat-dec-chars d) outer-suffix ev-stop ss-NL
-      (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-      value-eq)
+parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatFrac pos name ev d outer-suffix ident-stop ss-NL =
+  trans
+    (cong (parseRawAttrAssign pos)
+          (sym (bridge-EnvVar-emit name ev (RavwFrac d) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
+        (RavwFrac d) outer-suffix ident-stop ss-NL
+        (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
+        (build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)))
+      result-eq)
   where
-    open TraceEnvVar pos name ev (showDecRat-dec-chars d) outer-suffix
-
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-          ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
-
-    value-eq :
-      parseRawAttrValue pos5
-        (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat d) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatFrac pos5 d
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
-                 c tail head-eq c-not-quote
+    result-eq :
+      just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev)
+                       (liftRavw (RavwFrac d)))
+              (advancePositions pos
+                (emit attrAssignFmt (name , RatwEv ev , RavwFrac d , tt)))
+              outer-suffix)
+      ≡ just (mkResult
+                (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d))
+                (TraceEnvVar.pos9 pos name ev (showDecRat-dec-chars d) outer-suffix)
+                outer-suffix)
+    result-eq = cong (λ p → just (mkResult
+                                    (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat d))
+                                    p outer-suffix))
+                     (cong (advancePositions pos)
+                           (trans (emit-attrAssignFmt-RatwEv name ev (RavwFrac d))
+                                  (pos-eq-chars name ev (showDecRat-dec-chars d))))
 
 parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
   ∀ pos (name : List Char) (ev : Identifier) (z : ℤ) (outer-suffix : List Char)
@@ -521,30 +320,68 @@ parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt :
               (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z)))
               (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ev-stop ss-NL
-  with showInt-chars-head-classify z
-... | c , tail , head-eq , c-not-quote , _ , _ =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-EnvVar pos name ev (RavDecRat (fromℤ z))
-      (showInt-chars z) outer-suffix ev-stop ss-NL
-      (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
-      value-eq)
+parseRawAttrAssign-roundtrip-ATgtEnvVar-RavDecRatBareInt pos name ev z outer-suffix ident-stop ss-NL =
+  trans
+    (cong (parseRawAttrAssign pos) reshape-input)
+    (trans
+      (parseRawAttrAssign-format-roundtrip-EnvVar-raw pos name ev
+        (RavwBareInt z') outer-suffix ident-stop ss-NL
+        l4-rebuilt
+        (build-EmitsOK-RavwBareInt z' (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())))
+      result-eq)
   where
-    open TraceEnvVar pos name ev (showInt-chars z) outer-suffix
+    z' : IntDecRat
+    z' = mkIntDecRatFromℤ z
 
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          toList " EV_ " ++ₗ Identifier.name ev ++ₗ
-          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
+    showInt-eq : showInt-chars (intDecRatToℤ z') ≡ showInt-chars z
+    showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
 
-    value-eq :
-      parseRawAttrValue pos5
-        (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat (fromℤ z)) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatBareInt pos5 z
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())
-                 c tail head-eq c-not-quote
+    reshape-input :
+      toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+        toList " EV_ " ++ₗ Identifier.name ev ++ₗ
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
+      ≡ emit attrAssignFmt (name , RatwEv ev , RavwBareInt z' , tt) ++ₗ outer-suffix
+    reshape-input =
+      trans (cong (λ chars →
+              toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                toList " EV_ " ++ₗ Identifier.name ev ++ₗ
+                ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
+              (sym showInt-eq))
+        (sym (bridge-EnvVar-emit name ev (RavwBareInt z') outer-suffix))
+
+    l4-rebuilt : SuffixStops isHSpace
+      (emit attrValueWireFmt (RavwBareInt z') ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+    l4-rebuilt = subst (λ chars → SuffixStops isHSpace (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix))
+                       (sym showInt-eq)
+                       (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
+
+    result-eq :
+      just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev)
+                       (liftRavw (RavwBareInt z')))
+              (advancePositions pos
+                (emit attrAssignFmt (name , RatwEv ev , RavwBareInt z' , tt)))
+              outer-suffix)
+      ≡ just (mkResult
+                (mkRawAttrAssign name (ATgtEnvVar ev) (RavDecRat (fromℤ z)))
+                (TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix)
+                outer-suffix)
+    result-eq =
+      cong₂ (λ rav fp → just (mkResult (mkRawAttrAssign name (ATgtEnvVar ev) rav)
+                                       fp outer-suffix))
+            value-eq pos-eq
+      where
+        value-eq : liftRavw (RavwBareInt z') ≡ RavDecRat (fromℤ z)
+        value-eq = refl
+
+        pos-eq : advancePositions pos
+                   (emit attrAssignFmt (name , RatwEv ev , RavwBareInt z' , tt))
+               ≡ TraceEnvVar.pos9 pos name ev (showInt-chars z) outer-suffix
+        pos-eq = cong (advancePositions pos)
+          (trans (emit-attrAssignFmt-RatwEv name ev (RavwBareInt z'))
+                 (trans
+                   (pos-eq-chars name ev (showInt-chars (intDecRatToℤ z')))
+                   (cong (λ chars →
+                           toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                             toList " EV_ " ++ₗ Identifier.name ev ++ₗ
+                             ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
+                         showInt-eq)))

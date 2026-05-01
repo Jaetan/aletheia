@@ -3,33 +3,44 @@
 -- B.3.d Layer 3 Commit 3c.2 — `parseRawAttrDefault` per-line construct
 -- roundtrip.
 --
--- `parseRawAttrDefault` consumes
---   `"BA_DEF_DEF_" ws string-lit ws raw-value ws? ";" newline (many newline)`
--- and yields a `RawAttrDefault { name = ... ; value = ... }`.  The line
--- ends with `;\n` (no leading space before `;`, unlike BA_DEF_'s ` ;\n`).
+-- B.3.d Layer 3 3d.5.d 3c-B migration: production parser is now η-style
+-- over `attrDefaultFmt` (`Format/AttrLine.agda`):
 --
--- The roundtrip is parameterised on the `RawAttrValue` shape because
--- `parseRawAttrValue = (parseStringLit *> RavString) <|> (parseDecRat *>
--- RavDecRat)` accepts inputs from three emission shapes:
---   * `RavString s`               — emit `quoteStringLit-chars s`
---   * `RavDecRat d` (frac form)   — emit `showDecRat-dec-chars d`
---   * `RavDecRat (fromℤ z)`       — emit `showInt-chars z` (bare-int)
+--   parseRawAttrDefault =
+--     parse attrDefaultFmt >>= λ result →
+--     many parseNewline   >>= λ _ →
+--     pure (liftDefaultLine result)
 --
--- Layer 4 dispatches on `AttrValue` (AVString / AVFloat / AVInt /
--- AVEnum / AVHex) and picks the matching shape via `rawOfDefaultValue`
--- + the matching value-emit equality.
+--   liftDefaultLine (n, wire-val, _) = mkRawAttrDefault n (liftRavw wire-val)
+--
+-- Each per-emit-shape dispatcher (RavString / RavDecRatFrac /
+-- RavDecRatBareInt) is a thin wrapper over the universal
+-- `parseAttrDefault-format-roundtrip` lemma:
+--   1. Build the matching `RawAttrValueWire` ctor.
+--   2. Build the per-shape `EmitsOK attrValueWireFmt …` via Format/AttrValue's
+--      `build-EmitsOK-Ravw*` builders.
+--   3. Bridge the dispatcher's inline-char input shape to the Format DSL's
+--      canonical `emit attrDefaultFmt ... ++ outer-suffix` (per-shape `cong`
+--      of `++-assoc` chains).
+--   4. Invoke universal `parseAttrDefault-format-roundtrip`.
+--   5. Compose with `bind-just-step` for `many parseNewline → []` (under
+--      `SuffixStops isNewlineStart outer-suffix`).
+--   6. Lift wire→AST via `liftRavw` at the result.
+--
+-- Pre-3d.5.d 3c-B: 582 file-LOC hand-written 9-step bind chain + per-shape
+-- value-roundtrip helpers + head-stop dispatchers (this file).
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Default where
 
-open import Data.Bool using (Bool; true; false; T)
+open import Data.Bool using (false)
 open import Data.Char using (Char)
 open import Data.Char.Base using (_≈ᵇ_; isDigit)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc; length-++ to length-++ₗ)
+open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (∃₂; _,_; Σ; _×_)
+open import Data.Product using (_,_)
 open import Data.String using (String; toList)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
@@ -37,57 +48,61 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
-         _>>=_; pure; _<|>_; _*>_; _<*_; string;
-         char; many; satisfy)
+         _>>=_; pure; many)
 open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
-open import Aletheia.DBC.Types using (AttrType)
-open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
+   intDecRatToℤ-mkIntDecRatFromℤ)
 
 open import Aletheia.DBC.TextParser.Attributes
   using (parseRawAttrDefault; parseRawAttrValue;
+         liftRavw; liftDefaultLine;
          RawAttrDefault; mkRawAttrDefault;
          RawAttrValue; RavString; RavDecRat)
 open import Aletheia.DBC.TextParser.DecRatParse using (parseDecRat)
 open import Aletheia.DBC.TextParser.Lexer
-  using (parseWS; parseWSOpt; parseStringLit; parseNewline; isHSpace)
+  using (parseNewline; parseStringLit; isHSpace)
 
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
-         showNat-chars; digitChar)
+  using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars)
 
-open import Aletheia.DBC.TextParser.Properties.Primitives using
-  ( parseWS-one-space; parseStringLit-roundtrip
-  ; alt-right-nothing; alt-left-just; bind-nothing
-  ; string-success; string-*>-success)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  ( bind-just-step
-  ; SuffixStops; ∷-stop; []-stop
-  ; advancePositions-++
-  ; manyHelper-satisfy-exhaust-many
-  ; parseDecRat-roundtrip-suffix
-  ; parseDecRat-bareInt-roundtrip-suffix
-  ; showNat-chars-head; digitChar-≢-dash
-  ; showDecRat-chars-head-dash; showDecRat-chars-head-digit
-  ; headOr)
+  (bind-just-step; SuffixStops; ∷-stop; []-stop; headOr;
+   parseDecRat-roundtrip-suffix; parseDecRat-bareInt-roundtrip-suffix)
+open import Aletheia.DBC.TextParser.Properties.Primitives using
+  (parseStringLit-roundtrip; alt-left-just; alt-right-nothing; bind-nothing)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
-  ( isNewlineStart
-  ; parseNewline-match-LF
-  ; manyHelper-parseNewline-exhaust)
+  (isNewlineStart; manyHelper-parseNewline-exhaust)
+
+open import Aletheia.DBC.TextParser.Format using
+  (Format; emit; parse; EmitsOK)
+open import Aletheia.DBC.TextParser.Format.AttrValue using
+  (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
+   attrValueWireFmt;
+   build-EmitsOK-RavwString;
+   build-EmitsOK-RavwFrac;
+   build-EmitsOK-RavwBareInt)
+open import Aletheia.DBC.TextParser.Format.AttrLine using
+  (attrDefaultFmt; DefaultLineCarrier;
+   parseAttrDefault-format-roundtrip)
 
 -- ============================================================================
--- parseStringLit failure on non-quote head
+-- parseStringLit failure on non-quote head — used by parseRawAttrValue-
+-- roundtrip-Rav{DecRatFrac,DecRatBareInt} (which dispatch on the alt's
+-- right arm under a non-`'"'` head).
 -- ============================================================================
 
 private
-  -- Generic lemma: parseStringLit fails when the head char is not '"'.
-  -- Post-3d.4 + JSON-mirror: `parseStringLit : Parser (List Char)` returns
-  -- the body chars directly — no `fromList` in the inner pure.
+  open import Aletheia.Parser.Combinators using (char)
+    renaming (many to many-parser)
+  open import Aletheia.DBC.TextParser.Lexer using (parseStringChar)
+
   parseStringLit-fail-on-non-quote : ∀ pos c rest
-    → (c ≈ᵇ '"') ≡ false
+    → (c Data.Char.Base.≈ᵇ '"') ≡ false
     → parseStringLit pos (c ∷ rest) ≡ nothing
   parseStringLit-fail-on-non-quote pos c rest c-eq =
     bind-nothing (char '"')
-      (λ _ → many (Aletheia.DBC.TextParser.Lexer.parseStringChar) >>= λ chars →
+      (λ _ → many-parser parseStringChar >>= λ chars →
              char '"' >>= λ _ → pure chars)
       pos (c ∷ rest)
       char-fails
@@ -96,13 +111,16 @@ private
       char-fails rewrite c-eq = refl
 
 -- ============================================================================
--- parseRawAttrValue per-emit-shape roundtrips
+-- parseRawAttrValue per-emit-shape roundtrips — public for use by
+-- `Properties/Attributes/Assign/*.agda` (which compose them with each
+-- target's bind-chain to handle the value slot of `parseRawAttrAssign` /
+-- `parseRawAttrRel`).
 -- ============================================================================
 
 -- RavString: parseStringLit succeeds, alt-left-just lifts to parseRawAttrValue.
 parseRawAttrValue-roundtrip-RavString :
   ∀ pos s suffix
-  → SuffixStops (λ c → c ≈ᵇ '"') suffix
+  → SuffixStops (λ c → c Data.Char.Base.≈ᵇ '"') suffix
   → parseRawAttrValue pos (quoteStringLit-chars s ++ₗ suffix)
     ≡ just (mkResult (RavString s)
               (advancePositions pos (quoteStringLit-chars s))
@@ -124,7 +142,7 @@ parseRawAttrValue-roundtrip-RavDecRatFrac :
   → SuffixStops isDigit suffix
   → ∀ c tail
   → showDecRat-dec-chars d ≡ c ∷ tail
-  → (c ≈ᵇ '"') ≡ false
+  → (c Data.Char.Base.≈ᵇ '"') ≡ false
   → parseRawAttrValue pos (showDecRat-dec-chars d ++ₗ suffix)
     ≡ just (mkResult (RavDecRat d)
               (advancePositions pos (showDecRat-dec-chars d))
@@ -153,7 +171,7 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt :
   → '.' ≢ headOr suffix '_'
   → ∀ c tail
   → showInt-chars z ≡ c ∷ tail
-  → (c ≈ᵇ '"') ≡ false
+  → (c Data.Char.Base.≈ᵇ '"') ≡ false
   → parseRawAttrValue pos (showInt-chars z ++ₗ suffix)
     ≡ just (mkResult (RavDecRat (fromℤ z))
               (advancePositions pos (showInt-chars z))
@@ -175,300 +193,204 @@ parseRawAttrValue-roundtrip-RavDecRatBareInt pos z suffix ss-digit not-dot c tai
        (parseDecRat-bareInt-roundtrip-suffix z pos suffix ss-digit not-dot))
 
 -- ============================================================================
--- Trace module for parseRawAttrDefault bind chain
+-- TRACE MODULE — public for Layer 3 Commit 3c.4 (`Properties/Attributes/
+-- Line.agda`) to reference end positions in `parseAttrLine-roundtrip-
+-- RawDefault-Rav*` result types.
 -- ============================================================================
 
--- Public so Layer-3 Commit 3c.4 (`Properties/Attributes/Line.agda`) can
--- reference `Trace.pos8` in `parseAttrLine-roundtrip-RawDefault-Rav*`
--- result types — the alt2 dispatchers thread end positions through the
--- 5-way `<|>` lift.
+-- The end position after parsing one BA_DEF_DEF_ line.  Equivalent to
+-- `advancePositions pos (emit attrDefaultFmt (name, wire-val, tt))` for
+-- the matching shape.
 module Trace (pos : Position) (name : List Char) (value-chars : List Char)
                (outer-suffix : List Char) where
     cs-name : List Char
     cs-name = quoteStringLit-chars name
 
-    pos1 : Position  -- after string "BA_DEF_DEF_"
-    pos1 = advancePositions pos (toList "BA_DEF_DEF_")
-
-    pos2 : Position  -- after parseWS (1 space)
-    pos2 = advancePosition pos1 ' '
-
-    pos3 : Position  -- after parseStringLit
-    pos3 = advancePositions pos2 cs-name
-
-    pos4 : Position  -- after parseWS (1 space)
-    pos4 = advancePosition pos3 ' '
-
-    pos5 : Position  -- after parseRawAttrValue
-    pos5 = advancePositions pos4 value-chars
-
-    -- pos6 = pos5 (parseWSOpt consumes 0 spaces — head is ';')
-    pos7 : Position  -- after char ';'
-    pos7 = advancePosition pos5 ';'
-
-    pos8 : Position  -- after parseNewline
-    pos8 = advancePosition pos7 '\n'
-
-    rest-tail : List Char
-    rest-tail = ';' ∷ '\n' ∷ outer-suffix
-
-    body-after-keyword : List Char
-    body-after-keyword =
-      ' ' ∷ cs-name ++ₗ ' ' ∷ value-chars ++ₗ rest-tail
-
-    body-after-WS1 : List Char
-    body-after-WS1 = cs-name ++ₗ ' ' ∷ value-chars ++ₗ rest-tail
-
-    body-after-name : List Char
-    body-after-name = ' ' ∷ value-chars ++ₗ rest-tail
-
-    body-after-WS2 : List Char
-    body-after-WS2 = value-chars ++ₗ rest-tail
-
-    body-after-value : List Char
-    body-after-value = rest-tail
-
-    body-after-WSOpt : List Char
-    body-after-WSOpt = ';' ∷ '\n' ∷ outer-suffix
-
-    body-after-semi : List Char
-    body-after-semi = '\n' ∷ outer-suffix
-
-    body-after-NL : List Char
-    body-after-NL = outer-suffix
+    -- Position after the full line emit, computed in the inline-char form
+    -- mirror of `emit attrDefaultFmt (n, wire-val, tt)` for backward
+    -- compatibility with Layer 4's per-shape line dispatchers.
+    pos8 : Position
+    pos8 = advancePositions pos
+             (toList "BA_DEF_DEF_ " ++ₗ cs-name ++ₗ
+              ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
 -- ============================================================================
--- Parameterised after-keyword bind chain
+-- Per-shape input bridge — emit attrDefaultFmt (n, wire, tt) ≡ <inline>
 -- ============================================================================
-
-parseRawAttrDefault-after-keyword :
-  ∀ pos (name : List Char) (raw-value : RawAttrValue) (value-chars : List Char)
-    (outer-suffix : List Char)
-  → SuffixStops isNewlineStart outer-suffix
-  → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  → let open Trace pos name value-chars outer-suffix in
-    parseRawAttrValue pos4 body-after-WS2
-      ≡ just (mkResult raw-value pos5 body-after-value)
-  → parseRawAttrDefault pos
-      ('B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷
-        Trace.body-after-keyword pos name value-chars outer-suffix)
-    ≡ just (mkResult (mkRawAttrDefault name raw-value)
-              (Trace.pos8 pos name value-chars outer-suffix)
-              outer-suffix)
-parseRawAttrDefault-after-keyword pos name raw-value value-chars outer-suffix
-  ss-NL value-stops-isHSpace value-eq =
-    -- Step 1: string "BA_DEF_DEF_"
-    trans (bind-just-step (string "BA_DEF_DEF_")
-           (λ _ → parseWS >>= λ _ →
-                  parseStringLit >>= λ n →
-                  parseWS >>= λ _ →
-                  parseRawAttrValue >>= λ v →
-                  parseWSOpt >>= λ _ →
-                  char ';' >>= λ _ →
-                  parseNewline >>= λ _ →
-                  many parseNewline >>= λ _ →
-                  pure (mkRawAttrDefault n v))
-           pos
-           ('B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷
-            body-after-keyword)
-           "BA_DEF_DEF_" pos1 body-after-keyword
-           (string-success pos "BA_DEF_DEF_" body-after-keyword))
-    -- Step 2: parseWS consumes ' '.
-    (trans (bind-just-step parseWS
-              (λ _ → parseStringLit >>= λ n →
-                     parseWS >>= λ _ →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault n v))
-              pos1 body-after-keyword
-              (' ' ∷ []) pos2 body-after-WS1
-              (parseWS-one-space pos1 body-after-WS1
-                qsl-stops-isHSpace))
-    -- Step 3: parseStringLit reads name.
-    (trans (bind-just-step parseStringLit
-              (λ n → parseWS >>= λ _ →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault n v))
-              pos2 body-after-WS1
-              name pos3 body-after-name
-              (parseStringLit-roundtrip pos2 name body-after-name (∷-stop refl)))
-    -- Step 4: parseWS consumes ' '.
-    (trans (bind-just-step parseWS
-              (λ _ → parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault name v))
-              pos3 body-after-name
-              (' ' ∷ []) pos4 body-after-WS2
-              (parseWS-one-space pos3 body-after-WS2 value-stops-isHSpace))
-    -- Step 5: parseRawAttrValue (caller's witness).
-    (trans (bind-just-step parseRawAttrValue
-              (λ v → parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault name v))
-              pos4 body-after-WS2
-              raw-value pos5 body-after-value
-              value-eq)
-    -- Step 6: parseWSOpt consumes 0 spaces (head ';' is non-hspace).
-    (trans (bind-just-step parseWSOpt
-              (λ _ → char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault name raw-value))
-              pos5 body-after-value
-              [] pos5 body-after-WSOpt
-              (parseWSOpt-empty pos5 outer-suffix))
-    -- Step 7: char ';'.
-    (trans (bind-just-step (char ';')
-              (λ _ → parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault name raw-value))
-              pos5 body-after-WSOpt
-              ';' pos7 body-after-semi
-              refl)
-    -- Step 8: parseNewline.
-    (trans (bind-just-step parseNewline
-              (λ _ → many parseNewline >>= λ _ →
-                     pure (mkRawAttrDefault name raw-value))
-              pos7 body-after-semi
-              '\n' pos8 body-after-NL
-              (parseNewline-match-LF pos7 outer-suffix))
-    -- Step 9: many parseNewline consumes 0 newlines.
-    (trans (bind-just-step (many parseNewline)
-              (λ _ → pure (mkRawAttrDefault name raw-value))
-              pos8 body-after-NL
-              [] pos8 outer-suffix
-              (manyHelper-parseNewline-exhaust pos8 outer-suffix
-                (length outer-suffix) ss-NL))
-      refl))))))))
-  where
-    open Trace pos name value-chars outer-suffix
-
-    qsl-stops-isHSpace :
-      SuffixStops isHSpace (quoteStringLit-chars name ++ₗ
-        ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-    qsl-stops-isHSpace = ∷-stop refl
-
-    parseWSOpt-empty :
-      ∀ (p : Position) (rest : List Char) →
-      parseWSOpt p (';' ∷ '\n' ∷ rest)
-      ≡ just (mkResult [] p (';' ∷ '\n' ∷ rest))
-    parseWSOpt-empty p rest =
-      manyHelper-satisfy-exhaust-many isHSpace
-        p [] (';' ∷ '\n' ∷ rest)
-        AllList.[]
-        (∷-stop refl)
-      where
-        import Data.List.Relation.Unary.All as AllList
-
-
--- ============================================================================
--- Top-level dispatcher cases — RavString / RavDecRatFrac / RavDecRatBareInt
--- ============================================================================
-
--- For each emit-shape, the top-level proof composes
--- `parseRawAttrDefault-after-keyword` with the matching
--- `parseRawAttrValue-roundtrip-X` witness and the input-list-eq /
--- pos-fold-cong adjustments mirroring `parseAttrDef-roundtrip`'s pattern.
-
--- The shape lemma `emitAttrDefault-shape-X`-style is inlined here as
--- `++ₗ-assoc` chains because the formatter `emitAttrDefault-chars
--- defs d` is typed (takes AttrDefault, threads defs for ENUM lookup).
--- 3c.2 ships the raw-level roundtrip; Layer 4 / 3c.5 will bridge the
--- typed formatter via `Common.refineDefaultValue-rawOfDefault-roundtrip`.
+--
+-- The dispatcher signature uses an inline char-list for the input
+-- (`toList "BA_DEF_DEF_ " ++ ... ++ toList ";\n"`).  The universal
+-- `parseAttrDefault-format-roundtrip` operates on `emit attrDefaultFmt
+-- (n, wire, tt) ++ outer-suffix`.  The bridge converts between the two
+-- via `++-assoc` chains and definitional reduction of `emit (withPrefix
+-- ...)` / `emit (withWS ...)` / `emit (pair ...)` / `emit (iso ...)`.
 
 private
-  -- digitChar d ≢ '"' for d < 10.
-  digitChar-not-quote : ∀ d → d Data.Nat.< 10 → (digitChar d ≈ᵇ '"') ≡ false
-  digitChar-not-quote 0 _ = refl
-  digitChar-not-quote 1 _ = refl
-  digitChar-not-quote 2 _ = refl
-  digitChar-not-quote 3 _ = refl
-  digitChar-not-quote 4 _ = refl
-  digitChar-not-quote 5 _ = refl
-  digitChar-not-quote 6 _ = refl
-  digitChar-not-quote 7 _ = refl
-  digitChar-not-quote 8 _ = refl
-  digitChar-not-quote 9 _ = refl
-  digitChar-not-quote (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-    (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-      (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
+  -- Common prefix shape: BA_DEF_DEF_ + ' ' + name + ' ' + <value-chars>
+  -- + ;\n + outer-suffix.  Both LHS forms reduce to this.
+  inline-input : (name value-chars outer-suffix : List Char) → List Char
+  inline-input name value-chars outer-suffix =
+    toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ' ' ∷ value-chars ++ₗ toList ";\n" ++ₗ outer-suffix
 
-  -- digitChar d is not hspace.
-  digitChar-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
+  -- Bridge per shape: `emit attrDefaultFmt (name, wire, tt) ++ outer-suffix
+  -- ≡ inline-input name <value-chars> outer-suffix`.
+  --
+  -- Each shape uses its specific value-chars: `quoteStringLit-chars s`
+  -- (RavwString), `showDecRat-dec-chars d` (RavwFrac), `showInt-chars
+  -- (intDecRatToℤ z')` (RavwBareInt).
+  --
+  -- LHS reduces (definitionally) to:
+  --   'B' ∷ ... ∷ ' ' ∷ (qsl name ++ ' ' ∷ ((vc ++ ';' ∷ '\n' ∷ []) ++ outer))
+  -- RHS reduces (definitionally) to:
+  --   'B' ∷ ... ∷ ' ' ∷ (qsl name ++ ' ' ∷ (vc ++ ';' ∷ '\n' ∷ outer))
+  -- Difference: `(vc ++ ';' ∷ '\n' ∷ []) ++ outer` vs `vc ++ (';' ∷ '\n' ∷
+  -- outer)` — equal by ++-assoc, NOT definitionally.  Bridge is `cong` of
+  -- the prefix wrapped around `++-assoc vc (';' ∷ '\n' ∷ []) outer`.
 
-  -- showInt-chars head non-quote / non-hspace.
-  showInt-chars-head : ∀ z →
-    ∃₂ λ x tail → showInt-chars z ≡ x ∷ tail × (x ≈ᵇ '"') ≡ false × isHSpace x ≡ false
-  showInt-chars-head (+ n) with showNat-chars-head n
-  ... | d , tail , d<10 , eq =
-        digitChar d , tail , eq , digitChar-not-quote d d<10 , digitChar-not-isHSpace d
-  showInt-chars-head -[1+ _ ] = '-' , _ , refl , refl , refl
+  -- Two ++-assoc steps to rewrite Agda's natural reduction of
+  -- `(emit attrDefaultFmt (name, wire, tt)) ++ outer-suffix` (left-
+  -- associated via the outer `++ outer`) into the inline-input shape
+  -- (right-associated via `toList ";\n" ++ outer`).
+  bridge-tail :
+    ∀ (name : List Char) (value-chars : List Char) (outer-suffix : List Char)
+    → (quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+        ++ₗ outer-suffix
+      ≡ quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+  bridge-tail name value-chars outer-suffix =
+    trans (++ₗ-assoc (quoteStringLit-chars name)
+                     (' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+                     outer-suffix)
+          (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+                (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))
 
-  -- showDecRat-dec-chars head non-quote / non-hspace.
-  showDecRat-chars-head : ∀ d →
-    ∃₂ λ x tail → showDecRat-dec-chars d ≡ x ∷ tail × (x ≈ᵇ '"') ≡ false × isHSpace x ≡ false
-  showDecRat-chars-head (Aletheia.DBC.DecRat.mkDecRat (+ zero) a b cx)
-    with showDecRat-chars-head-digit zero a b cx
-  ... | k , tail , k<10 , eq =
-        digitChar k , tail , eq , digitChar-not-quote k k<10 , digitChar-not-isHSpace k
-  showDecRat-chars-head (Aletheia.DBC.DecRat.mkDecRat (+ suc n) a b cx)
-    with showDecRat-chars-head-digit (suc n) a b cx
-  ... | k , tail , k<10 , eq =
-        digitChar k , tail , eq , digitChar-not-quote k k<10 , digitChar-not-isHSpace k
-  showDecRat-chars-head (Aletheia.DBC.DecRat.mkDecRat -[1+ n ] a b cx)
-    with showDecRat-chars-head-dash n a b cx
-  ... | tail , eq = '-' , tail , eq , refl , refl
+  -- Per-shape bridges: emit attrDefaultFmt (...) ++ outer ≡ inline-input.
+  -- The 12-char "BA_DEF_DEF_ " prefix folds in via definitional ++ on
+  -- closed-Char ∷-tower; the tail is supplied by `bridge-tail`.
 
-  -- SuffixStops witness for the value-chars-prefixed input at step 4.
-  -- Head is the first char of value-chars (which is non-empty for all
-  -- 3 emit shapes); precondition discharged via showInt/showDecRat
-  -- head witnesses + ∷-stop.
-  value-stops-isHSpace-RavString : ∀ s outer-suffix
-    → SuffixStops isHSpace (quoteStringLit-chars s ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  value-stops-isHSpace-RavString _ _ = ∷-stop refl
+  bridge-RavwString :
+    ∀ (name : List Char) (s : List Char) (outer-suffix : List Char)
+    → emit attrDefaultFmt (name , RavwString s , tt) ++ₗ outer-suffix
+      ≡ inline-input name (quoteStringLit-chars s) outer-suffix
+  bridge-RavwString name s outer-suffix =
+    cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷ z)
+         (bridge-tail name (quoteStringLit-chars s) outer-suffix)
 
-  value-stops-isHSpace-RavDecRatFrac : ∀ d outer-suffix
-    → SuffixStops isHSpace (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  value-stops-isHSpace-RavDecRatFrac d outer-suffix
-    with showDecRat-chars-head d
-  ... | x , tail , eq , _ , x-not-hsp =
-    subst (λ chars → SuffixStops isHSpace (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-          (sym eq) (∷-stop x-not-hsp)
+  bridge-RavwFrac :
+    ∀ (name : List Char) (d : DecRat) (outer-suffix : List Char)
+    → emit attrDefaultFmt (name , RavwFrac d , tt) ++ₗ outer-suffix
+      ≡ inline-input name (showDecRat-dec-chars d) outer-suffix
+  bridge-RavwFrac name d outer-suffix =
+    cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷ z)
+         (bridge-tail name (showDecRat-dec-chars d) outer-suffix)
 
-  value-stops-isHSpace-RavDecRatBareInt : ∀ z outer-suffix
-    → SuffixStops isHSpace (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  value-stops-isHSpace-RavDecRatBareInt z outer-suffix
-    with showInt-chars-head z
-  ... | x , tail , eq , _ , x-not-hsp =
-    subst (λ chars → SuffixStops isHSpace (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-          (sym eq) (∷-stop x-not-hsp)
-
+  bridge-RavwBareInt :
+    ∀ (name : List Char) (z' : IntDecRat) (outer-suffix : List Char)
+    → emit attrDefaultFmt (name , RavwBareInt z' , tt) ++ₗ outer-suffix
+      ≡ inline-input name (showInt-chars (intDecRatToℤ z')) outer-suffix
+  bridge-RavwBareInt name z' outer-suffix =
+    cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ ' ' ∷ z)
+         (bridge-tail name (showInt-chars (intDecRatToℤ z')) outer-suffix)
 
 -- ============================================================================
--- Top-level dispatcher: 3 cases by emit shape
+-- Per-shape value-suffix EmitsOK
+-- ============================================================================
+--
+-- After parsing the value, the suffix is `;\n + outer-suffix`.  Each
+-- shape's EmitsOK precondition holds via `∷-stop refl` on the closed `';'`
+-- head: `_≈ᵇ '"'` is false for `';'`, `isDigit` is false for `';'`, and
+-- `'.' ≢ headOr (';' ∷ ...) '_'` is `λ ()`.
+
+private
+  value-suffix : List Char → List Char
+  value-suffix outer-suffix = ';' ∷ '\n' ∷ outer-suffix
+
+  ravwString-emit-OK : ∀ (s : List Char) (outer-suffix : List Char)
+    → EmitsOK attrValueWireFmt (RavwString s) (value-suffix outer-suffix)
+  ravwString-emit-OK s outer-suffix =
+    build-EmitsOK-RavwString s (value-suffix outer-suffix) (∷-stop refl)
+
+  ravwFrac-emit-OK : ∀ (d : DecRat) (outer-suffix : List Char)
+    → EmitsOK attrValueWireFmt (RavwFrac d) (value-suffix outer-suffix)
+  ravwFrac-emit-OK d outer-suffix =
+    build-EmitsOK-RavwFrac d (value-suffix outer-suffix) (∷-stop refl)
+
+  ravwBareInt-emit-OK : ∀ (z : IntDecRat) (outer-suffix : List Char)
+    → EmitsOK attrValueWireFmt (RavwBareInt z) (value-suffix outer-suffix)
+  ravwBareInt-emit-OK z outer-suffix =
+    build-EmitsOK-RavwBareInt z (value-suffix outer-suffix)
+                                 (∷-stop refl) (λ ())
+
+-- ============================================================================
+-- Common pattern — η-style 3-step composition for any shape
+-- ============================================================================
+--
+-- Given:
+--   * `pos` — starting position
+--   * `wire-val` — the RawAttrValueWire ctor
+--   * EmitsOK witness at `attrValueWireFmt`
+--   * `outer-suffix` newline-stopped
+-- Produces: parseRawAttrDefault on `emit attrDefaultFmt (name, wire, tt) ++
+-- outer-suffix` returns just (mkRawAttrDefault name (liftRavw wire), end-pos,
+-- outer-suffix).
+
+private
+  parseRawAttrDefault-format-roundtrip-raw :
+    ∀ (pos : Position) (name : List Char) (wire-val : RawAttrValueWire)
+      (outer-suffix : List Char)
+    → SuffixStops isNewlineStart outer-suffix
+    → EmitsOK attrValueWireFmt wire-val (value-suffix outer-suffix)
+    → parseRawAttrDefault pos
+        (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix)
+      ≡ just (mkResult (mkRawAttrDefault name (liftRavw wire-val))
+                (advancePositions pos
+                  (emit attrDefaultFmt (name , wire-val , tt)))
+                outer-suffix)
+  parseRawAttrDefault-format-roundtrip-raw pos name wire-val outer-suffix
+                                            ss-NL value-emit =
+    trans step-format
+      (trans step-many-newline step-pure)
+    where
+      pos-line : Position
+      pos-line = advancePositions pos
+                   (emit attrDefaultFmt (name , wire-val , tt))
+
+      cont-line : DefaultLineCarrier → Parser RawAttrDefault
+      cont-line c = many parseNewline >>= λ _ → pure (liftDefaultLine c)
+
+      cont-blanks : List Char → Parser RawAttrDefault
+      cont-blanks _ = pure (liftDefaultLine (name , wire-val , tt))
+
+      step-format :
+        parseRawAttrDefault pos
+          (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix)
+        ≡ cont-line (name , wire-val , tt) pos-line outer-suffix
+      step-format =
+        bind-just-step (parse attrDefaultFmt) cont-line
+          pos
+          (emit attrDefaultFmt (name , wire-val , tt) ++ₗ outer-suffix)
+          (name , wire-val , tt) pos-line outer-suffix
+          (parseAttrDefault-format-roundtrip pos name wire-val outer-suffix
+            value-emit)
+
+      step-many-newline :
+        cont-line (name , wire-val , tt) pos-line outer-suffix
+        ≡ cont-blanks [] pos-line outer-suffix
+      step-many-newline =
+        bind-just-step (many parseNewline) cont-blanks
+          pos-line outer-suffix
+          [] pos-line outer-suffix
+          (manyHelper-parseNewline-exhaust pos-line outer-suffix
+            (length outer-suffix) ss-NL)
+
+      step-pure :
+        cont-blanks [] pos-line outer-suffix
+        ≡ just (mkResult (mkRawAttrDefault name (liftRavw wire-val))
+                  pos-line outer-suffix)
+      step-pure = refl
+
+-- ============================================================================
+-- TOP-LEVEL DISPATCHERS — 3 cases by emit shape
 -- ============================================================================
 
 -- RavString: emit `quoteStringLit-chars s` for the value.
@@ -482,32 +404,12 @@ parseRawAttrDefault-roundtrip-RavString :
               (Trace.pos8 pos name (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrDefault-roundtrip-RavString pos name s outer-suffix ss-NL =
-  trans input-eq
-    (parseRawAttrDefault-after-keyword pos name (RavString s)
-      (quoteStringLit-chars s) outer-suffix ss-NL
-      (value-stops-isHSpace-RavString s outer-suffix)
-      value-eq)
-  where
-    open Trace pos name (quoteStringLit-chars s) outer-suffix
-    -- Reshape input: ((BA_DEF_DEF_ ) ++ qsl-name ++ ' ' ∷ qsl-s ++ ";\n") ++ outer
-    -- ≡ 'B' ∷ 'A' ∷ ... ∷ ' ' ∷ qsl-name ++ ' ' ∷ qsl-s ++ ';' ∷ '\n' ∷ outer
-    input-eq :
-      parseRawAttrDefault pos
-        (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrDefault pos
-        ('B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷
-          body-after-keyword)
-    input-eq = refl
+  trans (cong (parseRawAttrDefault pos)
+              (sym (bridge-RavwString name s outer-suffix)))
+    (parseRawAttrDefault-format-roundtrip-raw pos name (RavwString s)
+       outer-suffix ss-NL (ravwString-emit-OK s outer-suffix))
 
-    value-eq :
-      parseRawAttrValue pos4
-        (quoteStringLit-chars s ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavString s) pos5 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavString pos4 s
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
-
--- RavDecRat (frac form): emit `showDecRat-dec-chars d`.
+-- RavDecRat (frac form): emit `showDecRat-dec-chars d` for the value.
 parseRawAttrDefault-roundtrip-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
@@ -517,34 +419,16 @@ parseRawAttrDefault-roundtrip-RavDecRatFrac :
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat d))
               (Trace.pos8 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL
-  with showDecRat-chars-head d
-... | c , tail , head-eq , c-not-quote , _ =
-  trans input-eq
-    (parseRawAttrDefault-after-keyword pos name (RavDecRat d)
-      (showDecRat-dec-chars d) outer-suffix ss-NL
-      (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-      value-eq)
-  where
-    open Trace pos name (showDecRat-dec-chars d) outer-suffix
-    input-eq :
-      parseRawAttrDefault pos
-        (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrDefault pos
-        ('B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷
-          body-after-keyword)
-    input-eq = refl
+parseRawAttrDefault-roundtrip-RavDecRatFrac pos name d outer-suffix ss-NL =
+  trans (cong (parseRawAttrDefault pos)
+              (sym (bridge-RavwFrac name d outer-suffix)))
+    (parseRawAttrDefault-format-roundtrip-raw pos name (RavwFrac d)
+       outer-suffix ss-NL (ravwFrac-emit-OK d outer-suffix))
 
-    value-eq :
-      parseRawAttrValue pos4
-        (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat d) pos5 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatFrac pos4 d
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
-                 c tail head-eq c-not-quote
-
--- RavDecRat (bare-int form, fromℤ z): emit `showInt-chars z`.
+-- RavDecRat (bare-int form, fromℤ z): emit `showInt-chars z`.  Wire form
+-- goes through `RavwBareInt (mkIntDecRatFromℤ z)` which lifts to
+-- `RavDecRat (IntDecRat.value (mkIntDecRatFromℤ z))` ≡ `RavDecRat (fromℤ z)`
+-- by definitional reduction of `mkIntDecRatFromℤ`.
 parseRawAttrDefault-roundtrip-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
@@ -554,29 +438,70 @@ parseRawAttrDefault-roundtrip-RavDecRatBareInt :
     ≡ just (mkResult (mkRawAttrDefault name (RavDecRat (fromℤ z)))
               (Trace.pos8 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL
-  with showInt-chars-head z
-... | c , tail , head-eq , c-not-quote , _ =
-  trans input-eq
-    (parseRawAttrDefault-after-keyword pos name (RavDecRat (fromℤ z))
-      (showInt-chars z) outer-suffix ss-NL
-      (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
-      value-eq)
+parseRawAttrDefault-roundtrip-RavDecRatBareInt pos name z outer-suffix ss-NL =
+  -- For bareInt, the input shape uses `showInt-chars z` directly.  The
+  -- bridge needs `showInt-chars z ≡ showInt-chars (intDecRatToℤ z')`
+  -- where `z' = mkIntDecRatFromℤ z` — closes by
+  -- `intDecRatToℤ-mkIntDecRatFromℤ z`.
+  trans (cong (parseRawAttrDefault pos) reshape-input)
+    (trans (parseRawAttrDefault-format-roundtrip-raw pos name (RavwBareInt z')
+              outer-suffix ss-NL (ravwBareInt-emit-OK z' outer-suffix))
+      result-eq)
   where
-    open Trace pos name (showInt-chars z) outer-suffix
-    input-eq :
-      parseRawAttrDefault pos
-        (toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrDefault pos
-        ('B' ∷ 'A' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷ 'D' ∷ 'E' ∷ 'F' ∷ '_' ∷
-          body-after-keyword)
-    input-eq = refl
+    z' : IntDecRat
+    z' = mkIntDecRatFromℤ z
 
-    value-eq :
-      parseRawAttrValue pos4
-        (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat (fromℤ z)) pos5 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatBareInt pos4 z
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())
-                 c tail head-eq c-not-quote
+    showInt-eq : showInt-chars (intDecRatToℤ z') ≡ showInt-chars z
+    showInt-eq = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
+
+    -- The dispatcher's input shape uses `showInt-chars z`; bridge through
+    -- the wire form `showInt-chars (intDecRatToℤ z')`.  Both are equal
+    -- via `showInt-eq`, so the input bridge is just `cong` applied to
+    -- the shape.
+    reshape-input :
+      toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+        ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
+      ≡ emit attrDefaultFmt (name , RavwBareInt z' , tt) ++ₗ outer-suffix
+    reshape-input =
+      trans (cong (λ chars →
+              toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+                ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
+              (sym showInt-eq))
+        (sym (bridge-RavwBareInt name z' outer-suffix))
+
+    -- Result: `IntDecRat.value z' ≡ fromℤ z` is `refl` by definition of
+    -- `mkIntDecRatFromℤ`, which sets `IntDecRat.value = fromℤ z`.  The
+    -- end-position bridges by structural reduction — `advancePositions
+    -- pos (emit attrDefaultFmt (name, RavwBareInt z', tt))` equals
+    -- `Trace.pos8 pos name (showInt-chars z) outer-suffix` after the
+    -- `showInt-chars (intDecRatToℤ z') ≡ showInt-chars z` rewrite.
+    result-eq :
+      just (mkResult (mkRawAttrDefault name (liftRavw (RavwBareInt z')))
+              (advancePositions pos
+                (emit attrDefaultFmt (name , RavwBareInt z' , tt)))
+              outer-suffix)
+      ≡ just (mkResult (mkRawAttrDefault name (RavDecRat (fromℤ z)))
+              (Trace.pos8 pos name (showInt-chars z) outer-suffix)
+              outer-suffix)
+    result-eq = cong₂ (λ rav fp →
+                        just (mkResult (mkRawAttrDefault name rav)
+                                       fp outer-suffix))
+                       value-eq pos-eq
+      where
+        -- liftRavw (RavwBareInt z') = RavDecRat (IntDecRat.value z')
+        --                           = RavDecRat (fromℤ z)  [definitional]
+        value-eq : liftRavw (RavwBareInt z') ≡ RavDecRat (fromℤ z)
+        value-eq = refl
+
+        -- end-pos = advancePositions pos (emit attrDefaultFmt
+        --   (name, RavwBareInt z', tt)).  Trace.pos8 inlines the same
+        --   chars but uses showInt-chars z (not showInt-chars
+        --   (intDecRatToℤ z')).  Bridge via `showInt-eq`.
+        pos-eq : advancePositions pos
+                   (emit attrDefaultFmt (name , RavwBareInt z' , tt))
+               ≡ Trace.pos8 pos name (showInt-chars z) outer-suffix
+        pos-eq = cong (advancePositions pos)
+          (cong (λ chars →
+            toList "BA_DEF_DEF_ " ++ₗ quoteStringLit-chars name ++ₗ
+              ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
+            showInt-eq)

@@ -1,17 +1,19 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 Commit 3c.3 — `parseRawAttrAssign` × ATgtNetwork
--- per-line construct roundtrips (3 emit shapes).
+-- B.3.d Layer 3 3d.5.d 3c-B — `parseRawAttrAssign` × ATgtNetwork
+-- per-line construct roundtrips (3 emit shapes), η-style migration onto
+-- the universal `parseAttrAssign-format-roundtrip` lemma.
 --
--- ATgtNetwork is the fall-through branch of `parseStandardAttrTarget
--- <|> pure ATgtNetwork`.  The 4-fold `<|>` chain (parseNodeTgt /
--- parseMsgTgt / parseSigTgt / parseEvTgt) fails on any of the 3
--- value-leading char classes (`'"'` / `'-'` / decimal digit), and the
--- outer `<|>` falls through to `pure ATgtNetwork`.
+-- ATgtNetwork is the `RatwNet` constructor of `RawAttrTargetWire`,
+-- emitting `[]` (no keyword body).  The Format DSL routes RatwNet through
+-- the empty arm (`literal []`) of `stdTargetWireFmt`'s 5-way altSum.  The
+-- altSum's `inj₂` disjointness witness needs `parse <4-keyword-chain>
+-- pos (value-emit ++ ;\n+os) ≡ nothing` — for closed-Char value heads
+-- ('"' / digit / '-') this reduces by `refl` after `parseCharsSeq`'s
+-- first-char mismatch fires.
 --
--- Per-target sub-files for the other 4 standard targets and 2 rel
--- targets cascade beside this one (see facade
--- `Properties/Attributes/Assign.agda`).
+-- TraceNetwork module preserved for `Properties/Attributes/Line.agda`'s
+-- per-target-shape line dispatchers.
 
 module Aletheia.DBC.TextParser.Properties.Attributes.Assign.Network where
 
@@ -23,7 +25,7 @@ open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc; length-++ to length-++ₗ)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
-open import Data.Product using (∃₂; _,_; Σ; _×_)
+open import Data.Product using (∃₂; _,_; Σ; _×_; proj₁; proj₂)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.String using (String; toList)
 open import Data.Unit using (⊤; tt)
@@ -34,506 +36,195 @@ open import Aletheia.Parser.Combinators
   using (Position; Parser; ParseResult; mkResult; advancePosition; advancePositions;
          _>>=_; pure; _<|>_; _*>_; _<*_; string;
          char; many; satisfy; fail)
-open import Aletheia.DBC.DecRat using (DecRat; fromℤ)
+open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; IsCanonical; fromℤ)
+open import Aletheia.DBC.DecRat.Refinement using
+  (IntDecRat; mkIntDecRatFromℤ; intDecRatToℤ;
+   intDecRatToℤ-mkIntDecRatFromℤ)
 open import Aletheia.DBC.Types using
   ( AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar
   ; ATgtNodeMsg; ATgtNodeSig)
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Aletheia.DBC.TextParser.Attributes
-  using (parseRawAttrAssign; parseRawAttrValue;
+  using (parseRawAttrAssign;
          RawAttrAssign; mkRawAttrAssign;
          RawAttrValue; RavString; RavDecRat;
-         parseStandardAttrTarget;
-         parseNodeTgt; parseMsgTgt; parseSigTgt; parseEvTgt)
+         liftRavw; buildAttrAssignP)
 open import Aletheia.DBC.TextParser.Lexer
   using (parseWS; parseWSOpt; parseStringLit; parseNewline;
          isHSpace)
 
 open import Aletheia.DBC.TextFormatter.Emitter
-  using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars; digitChar)
+  using (quoteStringLit-chars; showDecRat-dec-chars; showInt-chars;
+         showNat-chars; digitChar)
 
-open import Aletheia.DBC.TextParser.Properties.Primitives using
-  ( parseWS-one-space; parseStringLit-roundtrip
-  ; alt-right-nothing; alt-left-just; bind-nothing
-  ; string-success; string-*>-success)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
   ( bind-just-step
   ; SuffixStops; ∷-stop; []-stop
-  ; manyHelper-satisfy-exhaust-many
-  ; parseDecRat-roundtrip-suffix
-  ; parseDecRat-bareInt-roundtrip-suffix)
+  ; advancePositions-++
+  ; showDecRat-chars-head-digit; showDecRat-chars-head-dash
+  ; showNat-chars-head)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   ( isNewlineStart
-  ; parseNewline-match-LF
   ; manyHelper-parseNewline-exhaust)
-open import Aletheia.DBC.TextParser.Properties.Attributes.Default using
-  ( parseRawAttrValue-roundtrip-RavString
-  ; parseRawAttrValue-roundtrip-RavDecRatFrac
-  ; parseRawAttrValue-roundtrip-RavDecRatBareInt)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
   ( showInt-chars-head-classify; showDecRat-chars-head-classify
   ; value-stops-isHSpace-RavString
   ; value-stops-isHSpace-RavDecRatFrac
-  ; value-stops-isHSpace-RavDecRatBareInt)
+  ; value-stops-isHSpace-RavDecRatBareInt
+  ; digitChar-not-quote; digitChar-not-isHSpace
+  ; digitChar-not-B; digitChar-not-S; digitChar-not-E)
+
+open import Aletheia.DBC.TextParser.Format using
+  (Format; emit; parse; EmitsOK)
+open import Aletheia.DBC.TextParser.Format.AttrValue using
+  (RawAttrValueWire; RavwString; RavwFrac; RavwBareInt;
+   attrValueWireFmt;
+   build-EmitsOK-RavwString;
+   build-EmitsOK-RavwFrac;
+   build-EmitsOK-RavwBareInt)
+open import Aletheia.DBC.TextParser.Format.AttrLine using
+  (attrAssignFmt; AttrAssignCarrier;
+   stdTargetWireFmt; RatwNet;
+   parseAttrAssign-format-roundtrip;
+   parseAttrAssign-format-roundtrip-RatwNet;
+   emit-attrAssignFmt-RatwNet;
+   emit-stdTargetWireFmt-RatwNet-on-quote-head;
+   emit-stdTargetWireFmt-RatwNet-on-dash-head;
+   emit-stdTargetWireFmt-RatwNet-on-digit-head)
 
 -- ============================================================================
--- parseStandardAttrTarget failure on value-leading chars
--- ============================================================================
---
--- For ATgtNetwork case, the input after parseStringLit + parseWS starts
--- with the value's first char ('"', '-', or a digit), not a target
--- keyword.  Each parseXTgt fails on `string "X_"` for the wrong head,
--- and the 3-fold `<|>` collapses to nothing.
-
-private
-  parseNodeTgt-fails-on-quote : ∀ pos rest →
-    parseNodeTgt pos ('"' ∷ rest) ≡ nothing
-  parseNodeTgt-fails-on-quote _ _ = refl
-
-  parseMsgTgt-fails-on-quote : ∀ pos rest →
-    parseMsgTgt pos ('"' ∷ rest) ≡ nothing
-  parseMsgTgt-fails-on-quote _ _ = refl
-
-  parseSigTgt-fails-on-quote : ∀ pos rest →
-    parseSigTgt pos ('"' ∷ rest) ≡ nothing
-  parseSigTgt-fails-on-quote _ _ = refl
-
-  parseEvTgt-fails-on-quote : ∀ pos rest →
-    parseEvTgt pos ('"' ∷ rest) ≡ nothing
-  parseEvTgt-fails-on-quote _ _ = refl
-
-  parseNodeTgt-fails-on-dash : ∀ pos rest →
-    parseNodeTgt pos ('-' ∷ rest) ≡ nothing
-  parseNodeTgt-fails-on-dash _ _ = refl
-
-  parseMsgTgt-fails-on-dash : ∀ pos rest →
-    parseMsgTgt pos ('-' ∷ rest) ≡ nothing
-  parseMsgTgt-fails-on-dash _ _ = refl
-
-  parseSigTgt-fails-on-dash : ∀ pos rest →
-    parseSigTgt pos ('-' ∷ rest) ≡ nothing
-  parseSigTgt-fails-on-dash _ _ = refl
-
-  parseEvTgt-fails-on-dash : ∀ pos rest →
-    parseEvTgt pos ('-' ∷ rest) ≡ nothing
-  parseEvTgt-fails-on-dash _ _ = refl
-
-  parseNodeTgt-fails-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 → parseNodeTgt pos (digitChar d ∷ rest) ≡ nothing
-  parseNodeTgt-fails-on-digit 0 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 1 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 2 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 3 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 4 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 5 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 6 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 7 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 8 _ _ _ = refl
-  parseNodeTgt-fails-on-digit 9 _ _ _ = refl
-  parseNodeTgt-fails-on-digit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-    _ _ (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-      (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
-
-  parseMsgTgt-fails-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 → parseMsgTgt pos (digitChar d ∷ rest) ≡ nothing
-  parseMsgTgt-fails-on-digit 0 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 1 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 2 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 3 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 4 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 5 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 6 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 7 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 8 _ _ _ = refl
-  parseMsgTgt-fails-on-digit 9 _ _ _ = refl
-  parseMsgTgt-fails-on-digit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-    _ _ (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-      (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
-
-  parseSigTgt-fails-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 → parseSigTgt pos (digitChar d ∷ rest) ≡ nothing
-  parseSigTgt-fails-on-digit 0 _ _ _ = refl
-  parseSigTgt-fails-on-digit 1 _ _ _ = refl
-  parseSigTgt-fails-on-digit 2 _ _ _ = refl
-  parseSigTgt-fails-on-digit 3 _ _ _ = refl
-  parseSigTgt-fails-on-digit 4 _ _ _ = refl
-  parseSigTgt-fails-on-digit 5 _ _ _ = refl
-  parseSigTgt-fails-on-digit 6 _ _ _ = refl
-  parseSigTgt-fails-on-digit 7 _ _ _ = refl
-  parseSigTgt-fails-on-digit 8 _ _ _ = refl
-  parseSigTgt-fails-on-digit 9 _ _ _ = refl
-  parseSigTgt-fails-on-digit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-    _ _ (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-      (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
-
-  parseEvTgt-fails-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 → parseEvTgt pos (digitChar d ∷ rest) ≡ nothing
-  parseEvTgt-fails-on-digit 0 _ _ _ = refl
-  parseEvTgt-fails-on-digit 1 _ _ _ = refl
-  parseEvTgt-fails-on-digit 2 _ _ _ = refl
-  parseEvTgt-fails-on-digit 3 _ _ _ = refl
-  parseEvTgt-fails-on-digit 4 _ _ _ = refl
-  parseEvTgt-fails-on-digit 5 _ _ _ = refl
-  parseEvTgt-fails-on-digit 6 _ _ _ = refl
-  parseEvTgt-fails-on-digit 7 _ _ _ = refl
-  parseEvTgt-fails-on-digit 8 _ _ _ = refl
-  parseEvTgt-fails-on-digit 9 _ _ _ = refl
-  parseEvTgt-fails-on-digit (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
-    _ _ (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
-      (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
-
-  -- Compose: parseStandardAttrTarget = ((parseNodeTgt <|> parseMsgTgt)
-  -- <|> parseSigTgt) <|> parseEvTgt (left-associative via `infixl 3`)
-  -- fails on '"'/'-'/digit head.
-
-  parseStandardAttrTarget-fails-on-quote : ∀ pos rest →
-    parseStandardAttrTarget pos ('"' ∷ rest) ≡ nothing
-  parseStandardAttrTarget-fails-on-quote pos rest =
-    trans (alt-right-nothing
-            ((parseNodeTgt <|> parseMsgTgt) <|> parseSigTgt)
-            parseEvTgt pos ('"' ∷ rest)
-            (trans (alt-right-nothing
-                     (parseNodeTgt <|> parseMsgTgt)
-                     parseSigTgt pos ('"' ∷ rest)
-                     (trans (alt-right-nothing
-                              parseNodeTgt parseMsgTgt pos ('"' ∷ rest)
-                              (parseNodeTgt-fails-on-quote pos rest))
-                            (parseMsgTgt-fails-on-quote pos rest)))
-                   (parseSigTgt-fails-on-quote pos rest)))
-          (parseEvTgt-fails-on-quote pos rest)
-
-  parseStandardAttrTarget-fails-on-dash : ∀ pos rest →
-    parseStandardAttrTarget pos ('-' ∷ rest) ≡ nothing
-  parseStandardAttrTarget-fails-on-dash pos rest =
-    trans (alt-right-nothing
-            ((parseNodeTgt <|> parseMsgTgt) <|> parseSigTgt)
-            parseEvTgt pos ('-' ∷ rest)
-            (trans (alt-right-nothing
-                     (parseNodeTgt <|> parseMsgTgt)
-                     parseSigTgt pos ('-' ∷ rest)
-                     (trans (alt-right-nothing
-                              parseNodeTgt parseMsgTgt pos ('-' ∷ rest)
-                              (parseNodeTgt-fails-on-dash pos rest))
-                            (parseMsgTgt-fails-on-dash pos rest)))
-                   (parseSigTgt-fails-on-dash pos rest)))
-          (parseEvTgt-fails-on-dash pos rest)
-
-  parseStandardAttrTarget-fails-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 →
-    parseStandardAttrTarget pos (digitChar d ∷ rest) ≡ nothing
-  parseStandardAttrTarget-fails-on-digit d pos rest d<10 =
-    trans (alt-right-nothing
-            ((parseNodeTgt <|> parseMsgTgt) <|> parseSigTgt)
-            parseEvTgt pos (digitChar d ∷ rest)
-            (trans (alt-right-nothing
-                     (parseNodeTgt <|> parseMsgTgt)
-                     parseSigTgt pos (digitChar d ∷ rest)
-                     (trans (alt-right-nothing
-                              parseNodeTgt parseMsgTgt pos (digitChar d ∷ rest)
-                              (parseNodeTgt-fails-on-digit d pos rest d<10))
-                            (parseMsgTgt-fails-on-digit d pos rest d<10)))
-                   (parseSigTgt-fails-on-digit d pos rest d<10)))
-          (parseEvTgt-fails-on-digit d pos rest d<10)
-
--- ============================================================================
--- (parseStandardAttrTarget <|> pure ATgtNetwork) on value-leading chars
--- ============================================================================
-
-private
-  optStandardScope-Network-on-quote : ∀ pos rest →
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos ('"' ∷ rest)
-    ≡ just (mkResult ATgtNetwork pos ('"' ∷ rest))
-  optStandardScope-Network-on-quote pos rest =
-    trans (alt-right-nothing parseStandardAttrTarget
-             (pure ATgtNetwork) pos ('"' ∷ rest)
-             (parseStandardAttrTarget-fails-on-quote pos rest))
-          refl
-
-  optStandardScope-Network-on-dash : ∀ pos rest →
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos ('-' ∷ rest)
-    ≡ just (mkResult ATgtNetwork pos ('-' ∷ rest))
-  optStandardScope-Network-on-dash pos rest =
-    trans (alt-right-nothing parseStandardAttrTarget
-             (pure ATgtNetwork) pos ('-' ∷ rest)
-             (parseStandardAttrTarget-fails-on-dash pos rest))
-          refl
-
-  optStandardScope-Network-on-digit : ∀ d pos rest →
-    d Data.Nat.< 10 →
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos (digitChar d ∷ rest)
-    ≡ just (mkResult ATgtNetwork pos (digitChar d ∷ rest))
-  optStandardScope-Network-on-digit d pos rest d<10 =
-    trans (alt-right-nothing parseStandardAttrTarget
-             (pure ATgtNetwork) pos (digitChar d ∷ rest)
-             (parseStandardAttrTarget-fails-on-digit d pos rest d<10))
-          refl
-
-  -- target-eq helper: given a head classification (digit or dash) for
-  -- the first char of value-chars, optStandardScope-Network falls
-  -- through.  Shared by frac and bareInt cases.
-  optStandardScope-Network-on-classified :
-    ∀ pos x tail outer-suffix
-    → ((Σ ℕ λ k → x ≡ digitChar k × k Data.Nat.< 10) ⊎ (x ≡ '-'))
-    → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
-        (x ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult ATgtNetwork pos
-                (x ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-  optStandardScope-Network-on-classified pos x tail outer-suffix (inj₁ (k , x≡dig , k<10)) =
-    subst (λ y → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
-                    (y ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-                  ≡ just (mkResult ATgtNetwork pos
-                            (y ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)))
-          (sym x≡dig)
-          (optStandardScope-Network-on-digit k pos
-             (tail ++ₗ ';' ∷ '\n' ∷ outer-suffix) k<10)
-  optStandardScope-Network-on-classified pos x tail outer-suffix (inj₂ x≡dash) =
-    subst (λ y → (parseStandardAttrTarget <|> pure ATgtNetwork) pos
-                    (y ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-                  ≡ just (mkResult ATgtNetwork pos
-                            (y ∷ tail ++ₗ ';' ∷ '\n' ∷ outer-suffix)))
-          (sym x≡dash)
-          (optStandardScope-Network-on-dash pos
-             (tail ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-
-  target-eq-Network-DecRat-frac :
-    ∀ pos4 d outer-suffix →
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos4
-      (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-    ≡ just (mkResult ATgtNetwork pos4
-              (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-  target-eq-Network-DecRat-frac pos4 d outer-suffix
-    with showDecRat-chars-head-classify d
-  ... | x , tail , head-eq , _ , _ , inj-or-dash =
-    subst (λ chars → (parseStandardAttrTarget <|> pure ATgtNetwork) pos4
-                        (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-                      ≡ just (mkResult ATgtNetwork pos4
-                                (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)))
-          (sym head-eq)
-          (optStandardScope-Network-on-classified pos4 x tail outer-suffix inj-or-dash)
-
-  target-eq-Network-DecRat-bareInt :
-    ∀ pos4 z outer-suffix →
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos4
-      (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-    ≡ just (mkResult ATgtNetwork pos4
-              (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix))
-  target-eq-Network-DecRat-bareInt pos4 z outer-suffix
-    with showInt-chars-head-classify z
-  ... | x , tail , head-eq , _ , _ , inj-or-dash =
-    subst (λ chars → (parseStandardAttrTarget <|> pure ATgtNetwork) pos4
-                        (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-                      ≡ just (mkResult ATgtNetwork pos4
-                                (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)))
-          (sym head-eq)
-          (optStandardScope-Network-on-classified pos4 x tail outer-suffix inj-or-dash)
-
--- ============================================================================
--- Trace module for parseRawAttrAssign with ATgtNetwork target
+-- TRACE MODULE — kept for `Properties/Attributes/Line.agda` compatibility
 -- ============================================================================
 
 module TraceNetwork (pos : Position) (name : List Char) (value-chars : List Char)
                     (outer-suffix : List Char) where
+  cs-name : List Char
   cs-name = quoteStringLit-chars name
 
-  pos1 : Position  -- after string "BA_"
-  pos1 = advancePositions pos (toList "BA_")
-
-  pos2 : Position  -- after parseWS
-  pos2 = advancePosition pos1 ' '
-
-  pos3 : Position  -- after parseStringLit
-  pos3 = advancePositions pos2 cs-name
-
-  pos4 : Position  -- after parseWS
-  pos4 = advancePosition pos3 ' '
-
-  -- pos5 = pos4 (no consumption for ATgtNetwork via fall-through)
-  pos6 : Position  -- after parseRawAttrValue
-  pos6 = advancePositions pos4 value-chars
-
-  -- pos7 = pos6 (parseWSOpt 0 iter on ';' head)
-  pos8 : Position  -- after char ';'
-  pos8 = advancePosition pos6 ';'
-
-  pos9 : Position  -- after parseNewline
-  pos9 = advancePosition pos8 '\n'
-
-  rest-tail : List Char
-  rest-tail = ';' ∷ '\n' ∷ outer-suffix
-
-  body-after-keyword : List Char
-  body-after-keyword = ' ' ∷ cs-name ++ₗ ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-WS1 : List Char
-  body-after-WS1 = cs-name ++ₗ ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-name : List Char
-  body-after-name = ' ' ∷ value-chars ++ₗ rest-tail
-
-  body-after-WS2 : List Char
-  body-after-WS2 = value-chars ++ₗ rest-tail
-
-  -- (parseStandardAttrTarget <|> pure ATgtNetwork) — ATgtNetwork case
-  -- consumes nothing.
-  body-after-target : List Char
-  body-after-target = body-after-WS2
-
-  body-after-value : List Char
-  body-after-value = rest-tail
-
-  body-after-WSOpt : List Char
-  body-after-WSOpt = ';' ∷ '\n' ∷ outer-suffix
-
-  body-after-semi : List Char
-  body-after-semi = '\n' ∷ outer-suffix
-
-  body-after-NL : List Char
-  body-after-NL = outer-suffix
+  -- Single advancePositions call over the full inline-line shape.
+  -- Mirrors Default.agda's `Trace.pos8` pattern — definitionally equal
+  -- to `advancePositions pos (emit attrAssignFmt (name, RatwNet, wireVal,
+  -- tt))` after the public `emit-attrAssignFmt-RatwNet` bridge.
+  pos9 : Position
+  pos9 = advancePositions pos
+           (toList "BA_ " ++ₗ cs-name ++ₗ
+            ' ' ∷ value-chars ++ₗ ';' ∷ '\n' ∷ [])
 
 -- ============================================================================
--- Parameterised after-keyword for ATgtNetwork case
+-- BRIDGES — emit form ↔ inline-input shape
+-- ============================================================================
+--
+-- Mirror of Default.agda's bridge structure.  Two-step ++-assoc bridge:
+--   (qsl(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ [])) ++ outer-suffix
+-- ↔ qsl(name) ++ ' ' ∷ (value-chars ++ ';' ∷ '\n' ∷ outer-suffix)
+
+private
+  bridge-tail :
+    ∀ (name : List Char) (value-chars : List Char) (outer-suffix : List Char)
+    → (quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+        ++ₗ outer-suffix
+      ≡ quoteStringLit-chars name ++ₗ ' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+  bridge-tail name value-chars outer-suffix =
+    trans (++ₗ-assoc (quoteStringLit-chars name)
+                     (' ' ∷ (value-chars ++ₗ ';' ∷ '\n' ∷ []))
+                     outer-suffix)
+          (cong (λ z → quoteStringLit-chars name ++ₗ ' ' ∷ z)
+                (++ₗ-assoc value-chars (';' ∷ '\n' ∷ []) outer-suffix))
+
+  -- Per-shape bridge: emit attrAssignFmt (...) ++ outer ≡ inline-input.
+  -- Uses the public `emit-attrAssignFmt-RatwNet` lemma to lift the deep
+  -- iso/pair structure to a flat closed-Char + qsl ++ ' ' ∷ value form,
+  -- then ++ₗ-assoc bridges the trailing `;\n` slot.
+  bridge-Network-emit :
+    ∀ (name : List Char) (wireVal : RawAttrValueWire) (outer-suffix : List Char)
+    → emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix
+      ≡ 'B' ∷ 'A' ∷ '_' ∷ ' ' ∷ quoteStringLit-chars name ++ₗ
+          ' ' ∷ (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+  bridge-Network-emit name wireVal outer-suffix =
+    trans
+      (cong (_++ₗ outer-suffix)
+            (emit-attrAssignFmt-RatwNet name wireVal))
+      (cong (λ z → 'B' ∷ 'A' ∷ '_' ∷ ' ' ∷ z)
+            (bridge-tail name (emit attrValueWireFmt wireVal) outer-suffix))
+
+-- ============================================================================
+-- COMMON RAW-LEVEL ROUNDTRIP — Network arm
 -- ============================================================================
 
-parseRawAttrAssign-after-keyword-Network :
-  ∀ pos (name : List Char) (raw-value : RawAttrValue) (value-chars : List Char)
-    (outer-suffix : List Char)
-  → SuffixStops isNewlineStart outer-suffix
-  → SuffixStops isHSpace (value-chars ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-  → let open TraceNetwork pos name value-chars outer-suffix in
-    (parseStandardAttrTarget <|> pure ATgtNetwork) pos4 body-after-WS2
-      ≡ just (mkResult ATgtNetwork pos4 body-after-target)
-  → parseRawAttrValue pos4 body-after-target
-      ≡ just (mkResult raw-value pos6 body-after-value)
-  → parseRawAttrAssign pos
-      ('B' ∷ 'A' ∷ '_' ∷ TraceNetwork.body-after-keyword pos name value-chars outer-suffix)
-    ≡ just (mkResult (mkRawAttrAssign name ATgtNetwork raw-value)
-              (TraceNetwork.pos9 pos name value-chars outer-suffix)
-              outer-suffix)
-parseRawAttrAssign-after-keyword-Network pos name raw-value value-chars outer-suffix
-  ss-NL value-stops-isHSpace target-eq value-eq =
-    -- Step 1: string "BA_"
-    trans (bind-just-step (string "BA_")
-           (λ _ → parseWS >>= λ _ →
-                  parseStringLit >>= λ n →
-                  parseWS >>= λ _ →
-                  (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                  parseRawAttrValue >>= λ v →
-                  parseWSOpt >>= λ _ →
-                  char ';' >>= λ _ →
-                  parseNewline >>= λ _ →
-                  many parseNewline >>= λ _ →
-                  pure (mkRawAttrAssign n t v))
-           pos
-           ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-           "BA_" pos1 body-after-keyword
-           (string-success pos "BA_" body-after-keyword))
-    -- Step 2: parseWS consumes ' '.
-    (trans (bind-just-step parseWS
-              (λ _ → parseStringLit >>= λ n →
-                     parseWS >>= λ _ →
-                     (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign n t v))
-              pos1 body-after-keyword
-              (' ' ∷ []) pos2 body-after-WS1
-              (parseWS-one-space pos1 body-after-WS1 (∷-stop refl)))
-    -- Step 3: parseStringLit reads name.
-    (trans (bind-just-step parseStringLit
-              (λ n → parseWS >>= λ _ →
-                     (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign n t v))
-              pos2 body-after-WS1
-              name pos3 body-after-name
-              (parseStringLit-roundtrip pos2 name body-after-name (∷-stop refl)))
-    -- Step 4: parseWS consumes ' '.
-    (trans (bind-just-step parseWS
-              (λ _ → (parseStandardAttrTarget <|> pure ATgtNetwork) >>= λ t →
-                     parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name t v))
-              pos3 body-after-name
-              (' ' ∷ []) pos4 body-after-WS2
-              (parseWS-one-space pos3 body-after-WS2 value-stops-isHSpace))
-    -- Step 5: (parseStandardAttrTarget <|> pure ATgtNetwork) — falls through.
-    (trans (bind-just-step (parseStandardAttrTarget <|> pure ATgtNetwork)
-              (λ t → parseRawAttrValue >>= λ v →
-                     parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name t v))
-              pos4 body-after-WS2
-              ATgtNetwork pos4 body-after-target
-              target-eq)
-    -- Step 6: parseRawAttrValue.
-    (trans (bind-just-step parseRawAttrValue
-              (λ v → parseWSOpt >>= λ _ →
-                     char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name ATgtNetwork v))
-              pos4 body-after-target
-              raw-value pos6 body-after-value
-              value-eq)
-    -- Step 7: parseWSOpt consumes 0 spaces.
-    (trans (bind-just-step parseWSOpt
-              (λ _ → char ';' >>= λ _ →
-                     parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name ATgtNetwork raw-value))
-              pos6 body-after-value
-              [] pos6 body-after-WSOpt
-              (parseWSOpt-empty pos6 outer-suffix))
-    -- Step 8: char ';'.
-    (trans (bind-just-step (char ';')
-              (λ _ → parseNewline >>= λ _ →
-                     many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name ATgtNetwork raw-value))
-              pos6 body-after-WSOpt
-              ';' pos8 body-after-semi
-              refl)
-    -- Step 9: parseNewline.
-    (trans (bind-just-step parseNewline
-              (λ _ → many parseNewline >>= λ _ →
-                     pure (mkRawAttrAssign name ATgtNetwork raw-value))
-              pos8 body-after-semi
-              '\n' pos9 body-after-NL
-              (parseNewline-match-LF pos8 outer-suffix))
-    -- Step 10: many parseNewline 0 iterations.
-    (trans (bind-just-step (many parseNewline)
-              (λ _ → pure (mkRawAttrAssign name ATgtNetwork raw-value))
-              pos9 body-after-NL
-              [] pos9 outer-suffix
-              (manyHelper-parseNewline-exhaust pos9 outer-suffix
-                (length outer-suffix) ss-NL))
-      refl)))))))))
-  where
-    open TraceNetwork pos name value-chars outer-suffix
+-- B.3.d 3d.5.d 3c-B Path 1 — RatwNet helper now uses the specialized
+-- `parseAttrAssign-format-roundtrip-RatwNet` (head-class witness) rather
+-- than the universal lemma + EmitsOK obligation.  See
+-- `feedback_emitsok_inj2_deep_pattern.md` for the rationale: the
+-- universal-lemma path's L5 (`EmitsOK stdTargetWireFmt RatwNet …`) blows
+-- -M16G at the inj₂-deep altSum position with abstract input.  The head
+-- witness (head Char + 3 inequalities `(x ≈ᵇ 'B') ≡ false`, `'S'`, `'E'`)
+-- is small and locally derivable in the per-shape dispatchers.
+private
+  parseRawAttrAssign-format-roundtrip-Network-raw :
+    ∀ (pos : Position) (name : List Char) (wireVal : RawAttrValueWire)
+      (outer-suffix : List Char)
+      (x : Char) (tail : List Char)
+    → SuffixStops isNewlineStart outer-suffix
+    → SuffixStops isHSpace
+        (emit attrValueWireFmt wireVal ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+    → EmitsOK attrValueWireFmt wireVal (';' ∷ '\n' ∷ outer-suffix)
+    → emit attrValueWireFmt wireVal ≡ x ∷ tail
+    → (x Data.Char.Base.≈ᵇ 'B') ≡ false
+    → (x Data.Char.Base.≈ᵇ 'S') ≡ false
+    → (x Data.Char.Base.≈ᵇ 'E') ≡ false
+    → parseRawAttrAssign pos
+        (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix)
+      ≡ just (mkResult (mkRawAttrAssign name ATgtNetwork (liftRavw wireVal))
+                (advancePositions pos
+                  (emit attrAssignFmt (name , RatwNet , wireVal , tt)))
+                outer-suffix)
+  parseRawAttrAssign-format-roundtrip-Network-raw pos name wireVal outer-suffix
+                                                  x tail ss-NL l4 l6
+                                                  val-eq x≢B x≢S x≢E =
+    trans step-format
+      (trans step-many-newline step-buildP)
+    where
+      pos-line : Position
+      pos-line = advancePositions pos
+                   (emit attrAssignFmt (name , RatwNet , wireVal , tt))
 
-    parseWSOpt-empty :
-      ∀ (p : Position) (rest : List Char) →
-      parseWSOpt p (';' ∷ '\n' ∷ rest)
-      ≡ just (mkResult [] p (';' ∷ '\n' ∷ rest))
-    parseWSOpt-empty p rest =
-      manyHelper-satisfy-exhaust-many isHSpace
-        p [] (';' ∷ '\n' ∷ rest)
-        AllList.[]
-        (∷-stop refl)
-      where
-        import Data.List.Relation.Unary.All as AllList
+      cont-line : AttrAssignCarrier → Parser RawAttrAssign
+      cont-line c = many parseNewline >>= λ _ →
+                    buildAttrAssignP (proj₁ c)
+                                     (proj₁ (proj₂ c))
+                                     (proj₁ (proj₂ (proj₂ c)))
+
+      cont-blanks : List Char → Parser RawAttrAssign
+      cont-blanks _ = buildAttrAssignP name RatwNet wireVal
+
+      step-format :
+        parseRawAttrAssign pos
+          (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix)
+        ≡ cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix
+      step-format =
+        bind-just-step (parse attrAssignFmt) cont-line
+          pos
+          (emit attrAssignFmt (name , RatwNet , wireVal , tt) ++ₗ outer-suffix)
+          (name , RatwNet , wireVal , tt) pos-line outer-suffix
+          (parseAttrAssign-format-roundtrip-RatwNet pos name wireVal
+            outer-suffix x tail l4 l6 val-eq x≢B x≢S x≢E)
+
+      step-many-newline :
+        cont-line (name , RatwNet , wireVal , tt) pos-line outer-suffix
+        ≡ cont-blanks [] pos-line outer-suffix
+      step-many-newline =
+        bind-just-step (many parseNewline) cont-blanks
+          pos-line outer-suffix
+          [] pos-line outer-suffix
+          (manyHelper-parseNewline-exhaust pos-line outer-suffix
+            (length outer-suffix) ss-NL)
+
+      step-buildP :
+        cont-blanks [] pos-line outer-suffix
+        ≡ just (mkResult (mkRawAttrAssign name ATgtNetwork (liftRavw wireVal))
+                  pos-line outer-suffix)
+      step-buildP = refl
 
 -- ============================================================================
 -- Top-level dispatcher: ATgtNetwork × RavString
@@ -550,39 +241,109 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavString :
               (TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer-suffix)
               outer-suffix)
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavString pos name s outer-suffix ss-NL =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-Network pos name (RavString s)
-      (quoteStringLit-chars s) outer-suffix ss-NL
-      (value-stops-isHSpace-RavString s outer-suffix)
-      target-eq
-      value-eq)
+  trans
+    (cong (parseRawAttrAssign pos) (sym (bridge-Network-emit name (RavwString s) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwString s) outer-suffix _ _ ss-NL l4 l6 refl refl refl refl)
+      result-eq)
   where
-    open TraceNetwork pos name (quoteStringLit-chars s) outer-suffix
+    l4 : SuffixStops isHSpace
+           (emit attrValueWireFmt (RavwString s) ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+    l4 = value-stops-isHSpace-RavString s outer-suffix
 
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ quoteStringLit-chars s ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
+    l6 : EmitsOK attrValueWireFmt (RavwString s) (';' ∷ '\n' ∷ outer-suffix)
+    l6 = build-EmitsOK-RavwString s (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
 
-    target-eq :
-      (parseStandardAttrTarget <|> pure ATgtNetwork) pos4 body-after-WS2
-      ≡ just (mkResult ATgtNetwork pos4 body-after-target)
-    target-eq = optStandardScope-Network-on-quote pos4 _
+    result-eq :
+      just (mkResult (mkRawAttrAssign name ATgtNetwork
+                       (liftRavw (RavwString s)))
+              (advancePositions pos
+                (emit attrAssignFmt (name , RatwNet , RavwString s , tt)))
+              outer-suffix)
+      ≡ just (mkResult
+                (mkRawAttrAssign name ATgtNetwork (RavString s))
+                (TraceNetwork.pos9 pos name (quoteStringLit-chars s) outer-suffix)
+                outer-suffix)
+    result-eq = cong (λ p → just (mkResult
+                                    (mkRawAttrAssign name ATgtNetwork (RavString s))
+                                    p outer-suffix))
+                     (cong (advancePositions pos)
+                           (emit-attrAssignFmt-RatwNet name (RavwString s)))
 
-    value-eq :
-      parseRawAttrValue pos4
-        (quoteStringLit-chars s ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavString s) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavString pos4 s
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
+-- ============================================================================
+-- L5 DISJOINTNESS — sourced from Format/AttrLine.agda
+-- ============================================================================
+--
+-- The L5 obligation of `parseAttrAssign-format-roundtrip` for `RatwNet`
+-- reduces to `⊤ × (∀ pos → parse <left-keyword-chain> pos input ≡ nothing)`.
+-- The keyword chain is private to Format/AttrLine.agda — so the public
+-- `emit-stdTargetWireFmt-RatwNet-on-{quote,dash,digit}-head` helpers
+-- (defined where left-chain is in scope) take an `input ≡ <head> ∷ tail`
+-- equality and pattern-match `refl` to expose the closed head locally,
+-- closing the disjointness without `subst` over the (huge) `EmitsOK …`
+-- predicate.  Caller dispatches on `showDecRat-chars-head-classify` /
+-- `showInt-chars-head-classify` and forwards the head-eq.
+--
+-- The dispatcher's input shape `showXxx-chars w ++ rest` is bridged to
+-- `<head> ∷ tail ++ rest` via `cong (_++ₗ rest)` on the head-classify eq —
+-- a small `cong`, not a `subst` over the EmitsOK predicate.
 
 -- ============================================================================
 -- ATgtNetwork × RavDecRat-frac dispatcher
 -- ============================================================================
+--
+-- B.3.d 3d.5.d 3c-B Path 1: dispatch on `showDecRat-chars-head-classify`'s
+-- digit-or-dash sum, deriving the 3 keyword inequalities (x ≢ 'B' / 'S'
+-- / 'E') for each head class.  Calls the head-witness-aware helper.
 
+-- B.3.d 3d.5.d 3c-B Path 1 — hoisted per-shape helpers.  See
+-- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis
+-- 2026-05-01: when each `with`-arm of the Frac/BareInt dispatchers had
+-- its own where-block defining `l4`/`l6`/`result-eq`/etc., Agda type-
+-- checked each duplicate separately, forcing per-arm reduction of
+-- `EmitsOK attrValueWireFmt (Ravw{Frac,BareInt} _) ...` over abstract
+-- d/z (inj₂-position altSum element → 9-deep `Σ × Π` chain).  Doubling
+-- the work blew -M16G.  Module-level helpers type-check once.
+
+private
+  l4-RavwFrac : ∀ (d : DecRat) (outer-suffix : List Char) →
+    SuffixStops isHSpace
+      (emit attrValueWireFmt (RavwFrac d) ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+  l4-RavwFrac d outer-suffix = value-stops-isHSpace-RavDecRatFrac d outer-suffix
+
+  l6-RavwFrac : ∀ (d : DecRat) (outer-suffix : List Char) →
+    EmitsOK attrValueWireFmt (RavwFrac d) (';' ∷ '\n' ∷ outer-suffix)
+  l6-RavwFrac d outer-suffix =
+    build-EmitsOK-RavwFrac d (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
+
+  result-eq-Frac :
+    ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char) →
+    just (mkResult (mkRawAttrAssign name ATgtNetwork
+                     (liftRavw (RavwFrac d)))
+            (advancePositions pos
+              (emit attrAssignFmt (name , RatwNet , RavwFrac d , tt)))
+            outer-suffix)
+    ≡ just (mkResult
+              (mkRawAttrAssign name ATgtNetwork (RavDecRat d))
+              (TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
+              outer-suffix)
+  result-eq-Frac pos name d outer-suffix =
+    cong (λ p → just (mkResult
+                        (mkRawAttrAssign name ATgtNetwork (RavDecRat d))
+                        p outer-suffix))
+         (cong (advancePositions pos)
+               (emit-attrAssignFmt-RatwNet name (RavwFrac d)))
+
+-- B.3.d 3d.5.d 3c-B Path 1 — Frac dispatcher refactored to constructor
+-- pattern-match + projection-based head-witness extraction.  See
+-- `feedback_with_abstraction_traps.md` rule #2 + advisor diagnosis 2026-05-01.
+-- The original `with showDecRat-chars-head-classify d` over abstract DecRat
+-- triggered goal-rebuild thrashing on the wide ∃₂ × _⊎_ result type at
+-- inj₂-deep value position of attrValueWireFmt's altSum, blowing -M16G.
+-- Pattern-matching on `mkDecRat`'s 3 numerator constructors + projecting
+-- the head witness from `showDecRat-chars-head-digit` / `-dash` (no `with`)
+-- eliminates the goal-rebuild cycle.
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
   ∀ pos (name : List Char) (d : DecRat) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
@@ -593,37 +354,142 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac :
               (mkRawAttrAssign name ATgtNetwork (RavDecRat d))
               (TraceNetwork.pos9 pos name (showDecRat-dec-chars d) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name d outer-suffix ss-NL
-  with showDecRat-chars-head-classify d
-... | c , tail , head-eq , c-not-quote , _ , _ =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-Network pos name (RavDecRat d)
-      (showDecRat-dec-chars d) outer-suffix ss-NL
-      (value-stops-isHSpace-RavDecRatFrac d outer-suffix)
-      (target-eq-Network-DecRat-frac pos4 d outer-suffix)
-      value-eq)
-  where
-    open TraceNetwork pos name (showDecRat-dec-chars d) outer-suffix
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ showDecRat-dec-chars d ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
-
-    value-eq :
-      parseRawAttrValue pos4
-        (showDecRat-dec-chars d ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat d) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatFrac pos4 d
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl)
-                 c tail head-eq c-not-quote
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
+  (mkDecRat (+ zero) a b cx) outer-suffix ss-NL =
+  let d-this = mkDecRat (+ zero) a b cx
+      classify = showDecRat-chars-head-digit zero a b cx
+      k = proj₁ classify
+      subtail = proj₁ (proj₂ classify)
+      k<10 = proj₁ (proj₂ (proj₂ classify))
+      eq = proj₂ (proj₂ (proj₂ classify))
+  in trans
+    (cong (parseRawAttrAssign pos)
+          (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwFrac d-this) outer-suffix
+        (digitChar k) subtail ss-NL
+        (l4-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix)
+        eq
+        (digitChar-not-B k k<10)
+        (digitChar-not-S k k<10)
+        (digitChar-not-E k k<10))
+      (result-eq-Frac pos name d-this outer-suffix))
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
+  (mkDecRat (+ suc n) a b cx) outer-suffix ss-NL =
+  let d-this = mkDecRat (+ suc n) a b cx
+      classify = showDecRat-chars-head-digit (suc n) a b cx
+      k = proj₁ classify
+      subtail = proj₁ (proj₂ classify)
+      k<10 = proj₁ (proj₂ (proj₂ classify))
+      eq = proj₂ (proj₂ (proj₂ classify))
+  in trans
+    (cong (parseRawAttrAssign pos)
+          (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwFrac d-this) outer-suffix
+        (digitChar k) subtail ss-NL
+        (l4-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix)
+        eq
+        (digitChar-not-B k k<10)
+        (digitChar-not-S k k<10)
+        (digitChar-not-E k k<10))
+      (result-eq-Frac pos name d-this outer-suffix))
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatFrac pos name
+  (mkDecRat -[1+ n ] a b cx) outer-suffix ss-NL =
+  let d-this = mkDecRat -[1+ n ] a b cx
+      dash-witness = showDecRat-chars-head-dash n a b cx
+      subtail = proj₁ dash-witness
+      eq = proj₂ dash-witness
+  in trans
+    (cong (parseRawAttrAssign pos)
+          (sym (bridge-Network-emit name (RavwFrac d-this) outer-suffix)))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwFrac d-this) outer-suffix
+        '-' subtail ss-NL
+        (l4-RavwFrac d-this outer-suffix)
+        (l6-RavwFrac d-this outer-suffix)
+        eq
+        refl refl refl)
+      (result-eq-Frac pos name d-this outer-suffix))
 
 -- ============================================================================
 -- ATgtNetwork × RavDecRat-bareInt dispatcher
 -- ============================================================================
 
+private
+  -- Hoisted helpers (mirror of the Frac block above).  See note before the
+  -- Frac dispatcher's `private` block — module-level helpers type-check once,
+  -- avoiding the per-`with`-arm duplication that blows -M16G.
+  showInt-eq-BareInt : ∀ (z : ℤ) →
+    showInt-chars (intDecRatToℤ (mkIntDecRatFromℤ z)) ≡ showInt-chars z
+  showInt-eq-BareInt z = cong showInt-chars (intDecRatToℤ-mkIntDecRatFromℤ z)
+
+  reshape-input-BareInt :
+    ∀ (name : List Char) (z : ℤ) (outer-suffix : List Char) →
+    toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+      ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix
+    ≡ emit attrAssignFmt (name , RatwNet , RavwBareInt (mkIntDecRatFromℤ z) , tt)
+        ++ₗ outer-suffix
+  reshape-input-BareInt name z outer-suffix =
+    trans (cong (λ chars →
+            toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+              ' ' ∷ chars ++ₗ toList ";\n" ++ₗ outer-suffix)
+            (sym (showInt-eq-BareInt z)))
+      (sym (bridge-Network-emit name (RavwBareInt (mkIntDecRatFromℤ z)) outer-suffix))
+
+  l4-RavwBareInt : ∀ (z : ℤ) (outer-suffix : List Char) →
+    SuffixStops isHSpace
+      (emit attrValueWireFmt (RavwBareInt (mkIntDecRatFromℤ z))
+        ++ₗ ';' ∷ '\n' ∷ outer-suffix)
+  l4-RavwBareInt z outer-suffix =
+    subst (λ chars → SuffixStops isHSpace (chars ++ₗ ';' ∷ '\n' ∷ outer-suffix))
+          (sym (showInt-eq-BareInt z))
+          (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
+
+  l6-RavwBareInt : ∀ (z : ℤ) (outer-suffix : List Char) →
+    EmitsOK attrValueWireFmt (RavwBareInt (mkIntDecRatFromℤ z))
+      (';' ∷ '\n' ∷ outer-suffix)
+  l6-RavwBareInt z outer-suffix =
+    build-EmitsOK-RavwBareInt (mkIntDecRatFromℤ z) (';' ∷ '\n' ∷ outer-suffix)
+                              (∷-stop refl) (λ ())
+
+  result-eq-BareInt :
+    ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char) →
+    just (mkResult (mkRawAttrAssign name ATgtNetwork
+                     (liftRavw (RavwBareInt (mkIntDecRatFromℤ z))))
+            (advancePositions pos
+              (emit attrAssignFmt
+                (name , RatwNet , RavwBareInt (mkIntDecRatFromℤ z) , tt)))
+            outer-suffix)
+    ≡ just (mkResult
+              (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z)))
+              (TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
+              outer-suffix)
+  result-eq-BareInt pos name z outer-suffix =
+    cong₂ (λ rav fp → just (mkResult (mkRawAttrAssign name ATgtNetwork rav)
+                                     fp outer-suffix))
+          refl
+          (cong (advancePositions pos)
+                 (trans (emit-attrAssignFmt-RatwNet name
+                          (RavwBareInt (mkIntDecRatFromℤ z)))
+                        (cong (λ chars →
+                                toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
+                                  ' ' ∷ chars ++ₗ ';' ∷ '\n' ∷ [])
+                              (showInt-eq-BareInt z))))
+
+-- B.3.d 3d.5.d 3c-B Path 1 — BareInt dispatcher refactored to constructor
+-- pattern-match on `z : ℤ` + projection-based head-witness extraction
+-- (mirror of Frac's refactor, same rationale).  For `z = + n`, head is
+-- digit `digitChar k` derived from `showNat-chars-head n` (since
+-- `showInt-chars (+ n) = showNat-chars n` and the lemma
+-- `intDecRatToℤ-mkIntDecRatFromℤ z` lets us bridge from `showInt-chars
+-- (intDecRatToℤ z') = showInt-chars z`).  For `z = -[1+ n ]`, head is
+-- closed `'-'`.
 parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
   ∀ pos (name : List Char) (z : ℤ) (outer-suffix : List Char)
   → SuffixStops isNewlineStart outer-suffix
@@ -634,29 +500,42 @@ parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt :
               (mkRawAttrAssign name ATgtNetwork (RavDecRat (fromℤ z)))
               (TraceNetwork.pos9 pos name (showInt-chars z) outer-suffix)
               outer-suffix)
-parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name z outer-suffix ss-NL
-  with showInt-chars-head-classify z
-... | c , tail , head-eq , c-not-quote , _ , _ =
-  trans input-eq
-    (parseRawAttrAssign-after-keyword-Network pos name (RavDecRat (fromℤ z))
-      (showInt-chars z) outer-suffix ss-NL
-      (value-stops-isHSpace-RavDecRatBareInt z outer-suffix)
-      (target-eq-Network-DecRat-bareInt pos4 z outer-suffix)
-      value-eq)
-  where
-    open TraceNetwork pos name (showInt-chars z) outer-suffix
-    input-eq :
-      parseRawAttrAssign pos
-        (toList "BA_ " ++ₗ quoteStringLit-chars name ++ₗ
-          ' ' ∷ showInt-chars z ++ₗ toList ";\n" ++ₗ outer-suffix)
-      ≡ parseRawAttrAssign pos
-        ('B' ∷ 'A' ∷ '_' ∷ body-after-keyword)
-    input-eq = refl
-
-    value-eq :
-      parseRawAttrValue pos4
-        (showInt-chars z ++ₗ ';' ∷ '\n' ∷ outer-suffix)
-      ≡ just (mkResult (RavDecRat (fromℤ z)) pos6 (';' ∷ '\n' ∷ outer-suffix))
-    value-eq = parseRawAttrValue-roundtrip-RavDecRatBareInt pos4 z
-                 (';' ∷ '\n' ∷ outer-suffix) (∷-stop refl) (λ ())
-                 c tail head-eq c-not-quote
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name (+ n) outer-suffix ss-NL =
+  let nat-witness = showNat-chars-head n
+      k = proj₁ nat-witness
+      subtail = proj₁ (proj₂ nat-witness)
+      k<10 = proj₁ (proj₂ (proj₂ nat-witness))
+      nat-eq = proj₂ (proj₂ (proj₂ nat-witness))
+      -- bridge from `showNat-chars n ≡ digitChar k ∷ subtail` to
+      -- `emit attrValueWireFmt (RavwBareInt (mkIntDecRatFromℤ (+ n)))
+      --   ≡ digitChar k ∷ subtail`.
+      val-eq = trans (showInt-eq-BareInt (+ n)) nat-eq
+  in trans
+    (cong (parseRawAttrAssign pos) (reshape-input-BareInt name (+ n) outer-suffix))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwBareInt (mkIntDecRatFromℤ (+ n))) outer-suffix
+        (digitChar k) subtail ss-NL
+        (l4-RavwBareInt (+ n) outer-suffix)
+        (l6-RavwBareInt (+ n) outer-suffix)
+        val-eq
+        (digitChar-not-B k k<10)
+        (digitChar-not-S k k<10)
+        (digitChar-not-E k k<10))
+      (result-eq-BareInt pos name (+ n) outer-suffix))
+parseRawAttrAssign-roundtrip-ATgtNetwork-RavDecRatBareInt pos name -[1+ n ] outer-suffix ss-NL =
+  -- For `-[1+ n ]`, `showInt-chars` emits `'-' ∷ showNat-chars (suc n)`
+  -- so `showInt-chars-eq` is `'-' ∷ showNat-chars (suc n) ≡ '-' ∷ rest`,
+  -- closed dash head.
+  let val-eq = showInt-eq-BareInt -[1+ n ]
+  in trans
+    (cong (parseRawAttrAssign pos) (reshape-input-BareInt name -[1+ n ] outer-suffix))
+    (trans
+      (parseRawAttrAssign-format-roundtrip-Network-raw pos name
+        (RavwBareInt (mkIntDecRatFromℤ -[1+ n ])) outer-suffix
+        '-' (showNat-chars (suc n)) ss-NL
+        (l4-RavwBareInt -[1+ n ] outer-suffix)
+        (l6-RavwBareInt -[1+ n ] outer-suffix)
+        val-eq
+        refl refl refl)
+      (result-eq-BareInt pos name -[1+ n ] outer-suffix))

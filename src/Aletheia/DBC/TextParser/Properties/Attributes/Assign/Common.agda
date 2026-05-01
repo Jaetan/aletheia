@@ -66,6 +66,54 @@ digitChar-not-isHSpace 8 = refl
 digitChar-not-isHSpace 9 = refl
 digitChar-not-isHSpace (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
 
+-- B.3.d 3d.5.d 3c-B Path 1: keyword-first-char inequalities used by
+-- ATgtNetwork dispatchers' head-class witness construction.  Each of
+-- 'B', 'S', 'E' has codepoint distinct from any digitChar d (d < 10).
+digitChar-not-B : ∀ d → d Data.Nat.< 10 → (digitChar d ≈ᵇ 'B') ≡ false
+digitChar-not-B 0 _ = refl
+digitChar-not-B 1 _ = refl
+digitChar-not-B 2 _ = refl
+digitChar-not-B 3 _ = refl
+digitChar-not-B 4 _ = refl
+digitChar-not-B 5 _ = refl
+digitChar-not-B 6 _ = refl
+digitChar-not-B 7 _ = refl
+digitChar-not-B 8 _ = refl
+digitChar-not-B 9 _ = refl
+digitChar-not-B (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
+  (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
+    (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
+
+digitChar-not-S : ∀ d → d Data.Nat.< 10 → (digitChar d ≈ᵇ 'S') ≡ false
+digitChar-not-S 0 _ = refl
+digitChar-not-S 1 _ = refl
+digitChar-not-S 2 _ = refl
+digitChar-not-S 3 _ = refl
+digitChar-not-S 4 _ = refl
+digitChar-not-S 5 _ = refl
+digitChar-not-S 6 _ = refl
+digitChar-not-S 7 _ = refl
+digitChar-not-S 8 _ = refl
+digitChar-not-S 9 _ = refl
+digitChar-not-S (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
+  (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
+    (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
+
+digitChar-not-E : ∀ d → d Data.Nat.< 10 → (digitChar d ≈ᵇ 'E') ≡ false
+digitChar-not-E 0 _ = refl
+digitChar-not-E 1 _ = refl
+digitChar-not-E 2 _ = refl
+digitChar-not-E 3 _ = refl
+digitChar-not-E 4 _ = refl
+digitChar-not-E 5 _ = refl
+digitChar-not-E 6 _ = refl
+digitChar-not-E 7 _ = refl
+digitChar-not-E 8 _ = refl
+digitChar-not-E 9 _ = refl
+digitChar-not-E (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _))))))))))
+  (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s
+    (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s (Data.Nat.s≤s ()))))))))))
+
 -- ============================================================================
 -- Head-classify witnesses for the 3 emit shapes
 -- ============================================================================

@@ -54,7 +54,7 @@ open import Aletheia.DBC.TextParser.Lexer
   using (parseIdentifier; parseStringLit; parseNatural;
          parseWS; parseWSOpt; isHSpace; isNonNewline)
 open import Aletheia.DBC.TextParser.DecRatParse using
-  (parseDecRat; parseIntDecRat; parseNatDecRat)
+  (parseDecRat; parseDecRatFrac; parseIntDecRat; parseNatDecRat)
 open import Aletheia.DBC.TextFormatter.Emitter
   using (showNat-chars; quoteStringLit-chars; showDecRat-dec-chars;
          showInt-chars)
@@ -65,6 +65,7 @@ open import Aletheia.DBC.TextParser.Properties.Primitives
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (SuffixStops; []-stop; ∷-stop; advancePositions-++; bind-just-step;
          parseNatural-showNat-chars; parseDecRat-roundtrip-suffix;
+         parseDecRatFrac-roundtrip-suffix;
          parseIntDecRat-roundtrip-suffix; parseNatDecRat-roundtrip-suffix;
          headOr; manyHelper-satisfy-exhaust-many)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline
@@ -164,6 +165,14 @@ data Format : Set → Set₁ where
   -- SG_ (factor/offset/min/max), EV_ (initial/min/max), and BA_DEF_ FLOAT
   -- bounds — every numeric DBC slot post the 2026-04-24 ℚ→DecRat pre-gate.
   decRat : Format DecRat
+  -- Frac-only DecRat — parser delegates to `parseDecRatFrac` (requires a
+  -- '.' separator), emit to `showDecRat-dec-chars d`.  Distinct from
+  -- `decRat` (which is the union `parseDecRatFrac <|> parseDecRatBareInt`
+  -- and accepts either form).  Used by `attrValueWireFmt` (3c-B BA_/BA_REL_/
+  -- BA_DEF_DEF_ value) where the 3-way altSum needs the frac arm to FAIL
+  -- on bare-int input — `parseDecRatFrac` does so structurally (no '.').
+  -- EmitsOK requires `SuffixStops isDigit suffix`.
+  decRatFrac : Format DecRat
   -- Integer-valued DecRat.  Emit via `showInt-chars (intDecRatToℤ v)`
   -- (bare-int wire form, NOT the `42.0` frac form `decRat` would emit);
   -- parse via `parseIntDecRat` (which accepts either bare-int or frac
@@ -237,6 +246,7 @@ emit (refined _ f)    (a , _)  = emit f a
 emit (altSum f _)     (inj₁ a) = emit f a
 emit (altSum _ g)     (inj₂ b) = emit g b
 emit decRat           d        = showDecRat-dec-chars d
+emit decRatFrac       d        = showDecRat-dec-chars d
 emit intDecRat        v        = showInt-chars (intDecRatToℤ v)
 emit natDecRat        v        = showNat-chars (natDecRatToℕ v)
 emit wsOpt            tt       = []
@@ -274,6 +284,7 @@ parse (many f)        = many-parser (parse f)
 parse (refined P f)   = parse f >>= liftRefined P
 parse (altSum f g)    = (inj₁ <$> parse f) <|> (inj₂ <$> parse g)
 parse decRat          = parseDecRat
+parse decRatFrac      = parseDecRatFrac
 parse intDecRat       = parseIntDecRat
 parse natDecRat       = parseNatDecRat
 parse wsOpt           = parseWSOpt >>= λ _ → pure tt
@@ -337,6 +348,7 @@ EmitsOK (altSum f g)   (inj₂ b) suffix =
   EmitsOK g b suffix
   × (∀ pos → parse f pos (emit g b ++ₗ suffix) ≡ nothing)
 EmitsOK decRat         _        suffix = SuffixStops isDigit suffix
+EmitsOK decRatFrac     _        suffix = SuffixStops isDigit suffix
 EmitsOK intDecRat      _        suffix =
   SuffixStops isDigit suffix × ('.' ≢ headOr suffix '_')
 EmitsOK natDecRat      _        suffix =
@@ -572,6 +584,12 @@ mutual
   -- is needed.
   roundtrip decRat pos d suffix ss =
     parseDecRat-roundtrip-suffix d pos suffix ss
+  -- DecRatFrac: direct delegation to `parseDecRatFrac-roundtrip-suffix`.
+  -- Same emit shape as `decRat` (`showDecRat-dec-chars d`) but the parser
+  -- is the frac-only inner — for use by 3c-B's `attrValueWireFmt` 3-way
+  -- altSum where the frac arm must reject bare-int input.
+  roundtrip decRatFrac pos d suffix ss =
+    parseDecRatFrac-roundtrip-suffix d pos suffix ss
   -- IntDecRat: direct delegation to `parseIntDecRat-roundtrip-suffix`.
   -- The two-component EmitsOK (`SuffixStops isDigit × '.' ≢ headOr`) maps
   -- to the lemma's two preconditions.  `emit intDecRat v = showInt-chars
