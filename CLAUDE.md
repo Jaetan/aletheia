@@ -63,12 +63,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-204 total modules (`cabal run shake -- count-modules`):
-- **199**: `--safe --without-K`
+209 total modules (`cabal run shake -- count-modules`):
+- **204**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) used only by the outer `parseText/formatText` wrap in DBC (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-203 of 204 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
+208 of 209 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
 
 ## Common Commands
 
@@ -220,7 +220,7 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 
 **Current track:** Phase B.3.d — universal DBC text-parser roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d`. Decomposition in [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md): (1) `List Char` substrate; (2) per-primitive parse/emit lemmas; (3) per-line-construct lemmas; (4) top-level aggregator induction.
 
-**Status (2026-05-01):** Layers 1–2 ✅; Layer 3 BA_DEF_ family complete (3c-A + 3c-B both shipped). Active branch: `b3d-3d5-format-dsl`. Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
+**Status (2026-05-01):** Layers 1–2 ✅; Layer 3 ✅ (all per-line constructs migrated to Format DSL); **Layer 4a ✅ (`70766cd`, SignalGroup DSL migration + 4 char-class disjointness lemmas) + Layer 4b ✅ (`7b17da6`, polymorphic `many-η-roundtrip` helper + 5 list-level lifts: SignalGroups / ValueTables / EnvVars / Comments / Messages)**.  Active branch: `b3d-3d5-format-dsl`.  Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
 
 **Layer 3 construct status** (✅ migrated to Format DSL via η-style wrap `parse <leafFmt> >>= many parseNewline >>= …`; % = strict-LOC reduction on production-side):
 - BO_ block ✅ — 3d.6 + 3d.7 + 3d.8 (commits `89e04ee` + `42228df` + `f25ca5a`); spine-based `emitMessage-chars-decompose` + 2-stage `pos-eq` patterns established here for future multi-line composers.
@@ -232,8 +232,10 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 - BA_DEF_ / BA_DEF_REL_ ✅ — 3d.5.d-3c-A (`27aaa8c`, 56% combined / 82% Properties-side); deleted `Properties/Attributes/Type.agda` entirely; introduced `intDecRat` / `natDecRat` DSL constructors; cycle break via `Attributes/Foundations.agda`; 5-case-cong-bridge pattern (vs 25-case enumeration); `concatMap-foldr-bridge` structural induction.
 - BA_ / BA_REL_ / BA_DEF_DEF_ ✅ — 3d.5.d-3c-B (`3ab805e`, 4% combined / 29% Properties-side); 7 Properties files refactored (Network/Node/Msg/Sig/EV/Rel/Default; 4044 → 2884 strict-LOC); new modules Format/AttrLine.agda + Format/AttrValue.agda + Properties/Attributes/Assign/Common.agda; specialized `parseAttrAssign-format-roundtrip-RatwNet` for inj₂-deep target position (avoids universal-lemma's L5 EmitsOK obligation that OOMs at -M16G); per-shape numeric dispatchers use **constructor pattern-match + `proj₁`/`proj₂` projections, NOT `with`** (the `with`-abstraction over wide ∃₂ × _⊎_ Σ-types triggers goal-rebuild thrash through inj₂-deep `EmitsOK` reduction even with hoisted helpers — 6+ min OOM → 13s after fix; see `feedback_with_abstraction_traps.md`).  `parseAttrLine` top-level dispatcher unchanged — its 5-way `<|>` chain consumes the migrated sub-parsers transparently.
 
-**Pending**:
-- **Layer 4** — top-level `roundtrip DBC-format` aggregator induction; owes char-class-disjointness bridge lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) + `showInt-chars-head-non-hspace` (~15L, locally provable). Tracked in [memory/project_b3d_layer4_owed_lemmas.md](memory/project_b3d_layer4_owed_lemmas.md).
+**Layer 4 progress**:
+- 4a ✅ — `Format/SignalGroup.agda` (last per-line construct migrated to DSL) + `Properties/CharClassDisjoint.agda` (the 4 owed bridge lemmas `isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`, `showInt-chars-head-non-hspace` all discharged).
+- 4b ✅ — `Properties/ManyRoundtrip.agda` (polymorphic `many-η-roundtrip` helper, 283L) + 5 list-level lifts (SignalGroups / ValueTables / EnvVars / Comments / Messages); `MessageWF` record bundles parseMessage's 9 preconditions + `signalLineFmt-fails-on-newline = refl` discharges the extra `ParseFailsAt` precondition uniformly.
+- 4c (NEXT) — Attributes list-level (typed/raw bridge: `emit + refineAttributes` adapter; the polymorphic helper expects parsed-X = input-X but attributes' inverse is `parse + refineAttributes`) + `parseTopStmt`-dispatch + `partitionTopStmts` + `buildDBC` + universal aggregator `parseDBCText (formatChars d) ≡ inj₂ d`.
 
 **Format DSL toolkit** (post-3c-A, in `DBC/TextParser/Format.agda`):
 - Core constructors: `literal` / `ident` / `nat` / `stringLit` / `pair` / `iso` / `many` / `refined` / `altSum` / `withPrefix`.
@@ -246,6 +248,6 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 
 **Architectural plan locked 2026-04-26 (post-3d.3b) + amended 2026-04-27 (JSON-mirror addition)** per [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md):
 1. 3d.4 + JSON-mirror + Path A ✅ shipped 2026-04-28 (`320c5a9`).
-2. 3d.5 Format DSL framework: (a) framework core ✅; (b) single-construct validation gate ✅; (c) pinch-point extensions ✅ (α `refined` / β `altSum` + `withPrefix` / γ `CanonicalReceivers` / ε Topology split / ζ `decRat` + `ws`-family / η `parseSignalLine`); **(d) migration of remaining 3a–3d.3 proofs onto DSL ✅ COMPLETE:** ValueTable / BU_ / EV_ / CM_ / Preamble / BA_DEF_ / BA_/BA_REL_/Default. (e) renumbered 3d.6–3d.8 ✅. (f) Layer 4 aggregation (~3-5d, NEXT).
+2. 3d.5 Format DSL framework: (a) framework core ✅; (b) single-construct validation gate ✅; (c) pinch-point extensions ✅ (α `refined` / β `altSum` + `withPrefix` / γ `CanonicalReceivers` / ε Topology split / ζ `decRat` + `ws`-family / η `parseSignalLine`); **(d) migration of remaining 3a–3d.3 proofs onto DSL ✅ COMPLETE:** ValueTable / BU_ / EV_ / CM_ / Preamble / BA_DEF_ / BA_/BA_REL_/Default. (e) renumbered 3d.6–3d.8 ✅. (f) Layer 4 aggregation: 4a ✅ / 4b ✅ / 4c NEXT.
 
 **Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..6, B.3.d Layer 4 owed lemmas, B.3.d-gated cantools drop) tracked in `memory/project_*.md`.
