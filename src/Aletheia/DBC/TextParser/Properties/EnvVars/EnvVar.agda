@@ -29,8 +29,10 @@
 module Aletheia.DBC.TextParser.Properties.EnvVars.EnvVar where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
-open import Data.Maybe using (Maybe; just)
+open import Data.List using (List; []; _∷_; foldr; length) renaming (_++_ to _++ₗ_)
+open import Data.List.Relation.Unary.All as All using (All)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (_<_; s≤s; z≤n)
 open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
@@ -45,7 +47,7 @@ open import Aletheia.DBC.TextParser.EnvVars using (parseEnvVar)
 open import Aletheia.DBC.TextFormatter.EnvVars using (emitEnvVar-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; bind-just-step)
+  (SuffixStops; bind-just-step; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
@@ -159,3 +161,46 @@ parseEnvVar-roundtrip pos ev suffix nameStop nl-stop =
     step-pure =
       cong (λ p → just (mkResult ev p suffix))
            (cong (advancePositions pos) bridge)
+
+
+-- ============================================================================
+-- LIST-LEVEL ROUNDTRIP — `many parseEnvVar` over an EV_ block
+-- ============================================================================
+
+-- `0 < length (emitEnvVar-chars ev)` — the literal `"EV_ "` prefix gives
+-- a 4-byte head.
+emitEnvVar-chars-nonzero : ∀ (ev : EnvironmentVar)
+  → 0 < length (emitEnvVar-chars ev)
+emitEnvVar-chars-nonzero _ = s≤s z≤n
+
+-- Head of `emitEnvVar-chars ev` is `'E'` — not a newline-start.
+emitEnvVar-chars-head-not-newline :
+    ∀ (ev : EnvironmentVar) (suffix : List Char)
+  → SuffixStops isNewlineStart (emitEnvVar-chars ev ++ₗ suffix)
+emitEnvVar-chars-head-not-newline _ _ = ∷-stop refl
+
+
+parseEnvVars-roundtrip :
+    ∀ (pos : Position) (evs : List EnvironmentVar) (outer-suffix : List Char)
+  → All EnvVarNameStop evs
+  → SuffixStops isNewlineStart outer-suffix
+  → (∀ (pos' : Position) → parseEnvVar pos' outer-suffix ≡ nothing)
+  → many parseEnvVar pos
+      (foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) [] evs ++ₗ outer-suffix)
+    ≡ just (mkResult evs
+             (advancePositions pos
+               (foldr (λ ev acc → emitEnvVar-chars ev ++ₗ acc) [] evs))
+             outer-suffix)
+parseEnvVars-roundtrip pos evs outer-suffix evs-stops os pf =
+  many-η-roundtrip
+    parseEnvVar
+    emitEnvVar-chars
+    EnvVarNameStop
+    (λ pos₁ ev suffix nameStop nl-stop →
+       parseEnvVar-roundtrip pos₁ ev suffix nameStop nl-stop)
+    emitEnvVar-chars-nonzero
+    emitEnvVar-chars-head-not-newline
+    pos evs outer-suffix evs-stops os pf
+  where
+    open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
+      (many-η-roundtrip)

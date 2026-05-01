@@ -28,7 +28,7 @@ open import Data.List using (List; []; _∷_; foldr; length; map)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
 open import Data.Maybe using (Maybe; just; nothing)
-open import Data.Nat using (ℕ; _≤_)
+open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Unit using (⊤; tt)
@@ -539,4 +539,106 @@ parseMessage-roundtrip pos msg outer-suffix
       trans (buildMessage-roundtrip msg pos-after-nl outer-suffix
               senders-empty fb≤64 wf-sigs pvs wfps mc)
             (cong (λ p → just (mkResult msg p outer-suffix)) pos-eq)
+
+
+-- ============================================================================
+-- LIST-LEVEL ROUNDTRIP — `many parseMessage` over a BO_ block
+-- ============================================================================
+
+-- All 9 per-message preconditions consumed by `parseMessage-roundtrip`.
+-- Bundled so the polymorphic `many-η-roundtrip` helper sees a single
+-- `Stop : DBCMessage → Set`.
+record MessageWF (msg : DBCMessage) : Set where
+  field
+    senders-empty : DBCMessage.senders msg ≡ []
+    fb-bound      : dlcBytes (DBCMessage.dlc msg) ≤ 64
+    wf-sigs       : All WellFormedSignal (DBCMessage.signals msg)
+    pvs           : All (PhysicallyValid (dlcBytes (DBCMessage.dlc msg)))
+                       (DBCMessage.signals msg)
+    wfps          : All (λ s → WellFormedTextPresence (DBCSignal.presence s))
+                       (DBCMessage.signals msg)
+    mc            : MasterCoherent (DBCMessage.signals msg)
+    name-pre      : IdentHeadNonHSpace (DBCMessage.name msg)
+    send-pre      : IdentHeadNonHSpace (DBCMessage.sender msg)
+    item-pres     : All SignalLineWF (DBCMessage.signals msg)
+
+
+-- `parse signalLineFmt pos ('\n' ∷ s) ≡ nothing` for any `s, pos` —
+-- `signalLineFmt` opens with `withWSCanonOne (withPrefix "SG_" …)` and
+-- the `withPrefix "SG_"` consumer rejects `'\n'` immediately after the
+-- (zero-or-more) leading whitespace step.  Closes by Agda reduction —
+-- both `withWSCanonOne` (zero-iteration kleene) and `withPrefix` reduce
+-- on the literal `'\n'` cons.
+signalLineFmt-fails-on-newline :
+    ∀ (pos : Position) (s : List Char)
+  → parse signalLineFmt pos ('\n' ∷ s) ≡ nothing
+signalLineFmt-fails-on-newline _ _ = refl
+
+
+-- `0 < length (emitMessage-chars msg)` — the literal `"BO_ "` prefix
+-- gives a 4-byte head.
+emitMessage-chars-nonzero : ∀ (msg : DBCMessage)
+  → 0 < length (emitMessage-chars msg)
+emitMessage-chars-nonzero _ = s≤s z≤n
+
+
+-- Head of `emitMessage-chars msg` is `'B'` — not a newline-start.
+emitMessage-chars-head-not-newline :
+    ∀ (msg : DBCMessage) (suffix : List Char)
+  → SuffixStops isNewlineStart (emitMessage-chars msg ++ₗ suffix)
+emitMessage-chars-head-not-newline _ _ = ∷-stop refl
+
+
+-- Wrapper: same shape as `parseMessage-roundtrip` but with all 9 per-
+-- message preconditions bundled into `MessageWF` and the
+-- `ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)` precondition
+-- discharged universally via `signalLineFmt-fails-on-newline`.  The
+-- polymorphic helper sees only `Stop = MessageWF` + the standard
+-- `SuffixStops isNewlineStart` outer condition.
+parseMessage-roundtrip-bundled :
+    ∀ (pos : Position) (msg : DBCMessage) (outer-suffix : List Char)
+  → MessageWF msg
+  → SuffixStops isNewlineStart outer-suffix
+  → parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix)
+    ≡ just (mkResult msg
+             (advancePositions pos (emitMessage-chars msg))
+             outer-suffix)
+parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
+  parseMessage-roundtrip pos msg outer-suffix
+    (MessageWF.senders-empty wf)
+    (MessageWF.fb-bound      wf)
+    (MessageWF.wf-sigs       wf)
+    (MessageWF.pvs           wf)
+    (MessageWF.wfps          wf)
+    (MessageWF.mc            wf)
+    (MessageWF.name-pre      wf)
+    (MessageWF.send-pre      wf)
+    (MessageWF.item-pres     wf)
+    (λ pos₁ → signalLineFmt-fails-on-newline pos₁ outer-suffix)
+    nl-stop
+
+
+parseMessages-roundtrip :
+    ∀ (pos : Position) (msgs : List DBCMessage) (outer-suffix : List Char)
+  → All MessageWF msgs
+  → SuffixStops isNewlineStart outer-suffix
+  → (∀ (pos' : Position) → parseMessage pos' outer-suffix ≡ nothing)
+  → many parseMessage pos
+      (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs ++ₗ outer-suffix)
+    ≡ just (mkResult msgs
+             (advancePositions pos
+               (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs))
+             outer-suffix)
+parseMessages-roundtrip pos msgs outer-suffix msgs-stops os pf =
+  many-η-roundtrip
+    parseMessage
+    emitMessage-chars
+    MessageWF
+    parseMessage-roundtrip-bundled
+    emitMessage-chars-nonzero
+    emitMessage-chars-head-not-newline
+    pos msgs outer-suffix msgs-stops os pf
+  where
+    open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
+      (many-η-roundtrip)
 

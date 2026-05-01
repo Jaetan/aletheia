@@ -25,10 +25,12 @@
 module Aletheia.DBC.TextParser.Properties.ValueTables.ValueTable where
 
 open import Data.Char using (Char)
-open import Data.List using (List; []; _∷_; foldr; concatMap) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; foldr; concatMap; length)
+  renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (++-identityʳ) renaming (++-assoc to ++ₗ-assoc)
-open import Data.Maybe using (Maybe; just)
-open import Data.Nat using (ℕ)
+open import Data.List.Relation.Unary.All as All using (All)
+open import Data.Maybe using (Maybe; just; nothing)
+open import Data.Nat using (ℕ; _<_; s≤s; z≤n)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (String; toList)
 open import Relation.Binary.PropositionalEquality
@@ -47,7 +49,7 @@ open import Aletheia.DBC.TextFormatter.ValueTables using
 open import Aletheia.DBC.Types using (ValueTable)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; bind-just-step)
+  (SuffixStops; bind-just-step; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
@@ -187,3 +189,46 @@ parseValueTable-roundtrip pos vt suffix nameStop nl-stop =
     step-pure =
       cong (λ p → just (mkResult vt p suffix))
            (cong (advancePositions pos) bridge)
+
+
+-- ============================================================================
+-- LIST-LEVEL ROUNDTRIP — `many parseValueTable` over a VAL_TABLE_ block
+-- ============================================================================
+
+-- `0 < length (emitValueTable-chars vt)` — the literal `"VAL_TABLE_ "`
+-- prefix gives an 11-byte head.
+emitValueTable-chars-nonzero : ∀ (vt : ValueTable)
+  → 0 < length (emitValueTable-chars vt)
+emitValueTable-chars-nonzero _ = s≤s z≤n
+
+-- Head of `emitValueTable-chars vt` is `'V'` — not a newline-start.
+emitValueTable-chars-head-not-newline :
+    ∀ (vt : ValueTable) (suffix : List Char)
+  → SuffixStops isNewlineStart (emitValueTable-chars vt ++ₗ suffix)
+emitValueTable-chars-head-not-newline _ _ = ∷-stop refl
+
+
+parseValueTables-roundtrip :
+    ∀ (pos : Position) (vts : List ValueTable) (outer-suffix : List Char)
+  → All ValueTableNameStop vts
+  → SuffixStops isNewlineStart outer-suffix
+  → (∀ (pos' : Position) → parseValueTable pos' outer-suffix ≡ nothing)
+  → many parseValueTable pos
+      (foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) [] vts ++ₗ outer-suffix)
+    ≡ just (mkResult vts
+             (advancePositions pos
+               (foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) [] vts))
+             outer-suffix)
+parseValueTables-roundtrip pos vts outer-suffix vts-stops os pf =
+  many-η-roundtrip
+    parseValueTable
+    emitValueTable-chars
+    ValueTableNameStop
+    (λ pos₁ vt suffix nameStop nl-stop →
+       parseValueTable-roundtrip pos₁ vt suffix nameStop nl-stop)
+    emitValueTable-chars-nonzero
+    emitValueTable-chars-head-not-newline
+    pos vts outer-suffix vts-stops os pf
+  where
+    open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
+      (many-η-roundtrip)

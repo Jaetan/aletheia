@@ -9,4 +9,5 @@
 module Aletheia.DBC.TextParser.Properties.SignalGroups where
 
 open import Aletheia.DBC.TextParser.Properties.SignalGroups.SignalGroup public
-  using (parseSignalGroup-roundtrip; SignalGroupNameStop; SigNameStop)
+  using (parseSignalGroup-roundtrip; SignalGroupNameStop; SigNameStop;
+         SignalGroupWF; parseSignalGroups-roundtrip)

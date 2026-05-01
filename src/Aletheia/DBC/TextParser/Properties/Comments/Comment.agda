@@ -34,11 +34,12 @@ module Aletheia.DBC.TextParser.Properties.Comments.Comment where
 open import Data.Bool using (Bool; true; false; T)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_; length) renaming (_++_ to _++ₗ_)
+open import Data.List using (List; []; _∷_; foldr; length) renaming (_++_ to _++ₗ_)
+open import Data.List.Relation.Unary.All as All using (All)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using
-  (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_)
+  (ℕ; zero; suc; _≤_; _<_; _≤ᵇ_; _<ᵇ_; _+_; _∸_; s≤s; z≤n)
 open import Data.Nat.Properties using
   (<-trans; ≤ᵇ⇒≤; ≤⇒≤ᵇ; <ᵇ⇒<; <⇒≱; m≤n+m; m+n∸n≡m)
 open import Data.Product using (_×_; _,_; proj₁; proj₂)
@@ -70,7 +71,7 @@ open import Aletheia.DBC.Types using
 open import Aletheia.Prelude using (ifᵀ_then_else_; ifᵀ-witness)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; bind-just-step)
+  (SuffixStops; bind-just-step; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
@@ -361,3 +362,56 @@ parseComment-roundtrip pos c suffix tgtStop nl-stop =
       trans (buildCommentP-roundtrip c pos-line suffix)
             (cong (λ p → just (mkResult c p suffix))
                   (cong (advancePositions pos) bridge))
+
+
+-- ============================================================================
+-- LIST-LEVEL ROUNDTRIP — `many parseComment` over a CM_ block
+-- ============================================================================
+
+-- `0 < length (emitComment-chars c)` — the literal `"CM_ "` prefix is
+-- shared across all 5 target shapes; case-split on `c.target` to expose
+-- the cons.
+emitComment-chars-nonzero : ∀ (c : DBCComment)
+  → 0 < length (emitComment-chars c)
+emitComment-chars-nonzero (mkComment CTNetwork      _) = s≤s z≤n
+emitComment-chars-nonzero (mkComment (CTNode _)     _) = s≤s z≤n
+emitComment-chars-nonzero (mkComment (CTMessage _)  _) = s≤s z≤n
+emitComment-chars-nonzero (mkComment (CTSignal _ _) _) = s≤s z≤n
+emitComment-chars-nonzero (mkComment (CTEnvVar _)   _) = s≤s z≤n
+
+-- Head of `emitComment-chars c` is `'C'` — not a newline-start.
+-- Per-target case-split mirrors the formatter's `body` dispatcher.
+emitComment-chars-head-not-newline :
+    ∀ (c : DBCComment) (suffix : List Char)
+  → SuffixStops isNewlineStart (emitComment-chars c ++ₗ suffix)
+emitComment-chars-head-not-newline (mkComment CTNetwork      _) _ = ∷-stop refl
+emitComment-chars-head-not-newline (mkComment (CTNode _)     _) _ = ∷-stop refl
+emitComment-chars-head-not-newline (mkComment (CTMessage _)  _) _ = ∷-stop refl
+emitComment-chars-head-not-newline (mkComment (CTSignal _ _) _) _ = ∷-stop refl
+emitComment-chars-head-not-newline (mkComment (CTEnvVar _)   _) _ = ∷-stop refl
+
+
+parseComments-roundtrip :
+    ∀ (pos : Position) (cs : List DBCComment) (outer-suffix : List Char)
+  → All CommentTargetStop cs
+  → SuffixStops isNewlineStart outer-suffix
+  → (∀ (pos' : Position) → parseComment pos' outer-suffix ≡ nothing)
+  → many parseComment pos
+      (foldr (λ c acc → emitComment-chars c ++ₗ acc) [] cs ++ₗ outer-suffix)
+    ≡ just (mkResult cs
+             (advancePositions pos
+               (foldr (λ c acc → emitComment-chars c ++ₗ acc) [] cs))
+             outer-suffix)
+parseComments-roundtrip pos cs outer-suffix cs-stops os pf =
+  many-η-roundtrip
+    parseComment
+    emitComment-chars
+    CommentTargetStop
+    (λ pos₁ c suffix tgtStop nl-stop →
+       parseComment-roundtrip pos₁ c suffix tgtStop nl-stop)
+    emitComment-chars-nonzero
+    emitComment-chars-head-not-newline
+    pos cs outer-suffix cs-stops os pf
+  where
+    open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
+      (many-η-roundtrip)

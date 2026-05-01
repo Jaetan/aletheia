@@ -62,4 +62,8 @@ open import Aletheia.DBC.TextParser.Properties.Topology.Message public
         ; emitMessage-chars-decompose
         ; messageHeader-roundtrip
         ; buildMessage-roundtrip
-        ; parseMessage-roundtrip)
+        ; parseMessage-roundtrip
+        -- 4b: list-level lift via the polymorphic `many-η-roundtrip`.
+        ; MessageWF; parseMessage-roundtrip-bundled
+        ; signalLineFmt-fails-on-newline
+        ; parseMessages-roundtrip)

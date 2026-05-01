@@ -12,4 +12,5 @@
 module Aletheia.DBC.TextParser.Properties.ValueTables where
 
 open import Aletheia.DBC.TextParser.Properties.ValueTables.ValueTable public
-  using (parseValueTable-roundtrip; ValueTableNameStop)
+  using (parseValueTable-roundtrip; ValueTableNameStop;
+         parseValueTables-roundtrip)

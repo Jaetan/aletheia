@@ -11,4 +11,5 @@
 module Aletheia.DBC.TextParser.Properties.EnvVars where
 
 open import Aletheia.DBC.TextParser.Properties.EnvVars.EnvVar public
-  using (parseEnvVar-roundtrip; EnvVarNameStop)
+  using (parseEnvVar-roundtrip; EnvVarNameStop;
+         parseEnvVars-roundtrip)

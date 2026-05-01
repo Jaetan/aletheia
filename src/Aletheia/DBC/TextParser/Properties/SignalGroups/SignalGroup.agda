@@ -26,11 +26,12 @@
 module Aletheia.DBC.TextParser.Properties.SignalGroups.SignalGroup where
 
 open import Data.Char using (Char)
+open import Data.Nat using (_<_; s≤s; z≤n)
 open import Data.List using (List; []; _∷_; foldr; concatMap; length; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using () renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
-open import Data.Maybe using (Maybe; just)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_,_)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; refl; sym; trans; cong)
@@ -46,7 +47,7 @@ open import Aletheia.DBC.TextFormatter.SignalGroups
   using (emitSignalGroup-chars; emitSignalNames-chars)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; bind-just-step)
+  (SuffixStops; bind-just-step; ∷-stop)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
   (isNewlineStart; manyHelper-parseNewline-exhaust)
 
@@ -207,3 +208,67 @@ parseSignalGroup-roundtrip pos sg suffix nameStop sigs-stops nl-stop =
     step-pure =
       cong (λ p → just (mkResult sg p suffix))
            (cong (advancePositions pos) bridge)
+
+
+-- ============================================================================
+-- LIST-LEVEL ROUNDTRIP — `many parseSignalGroup` over a SIG_GROUP_ block
+-- ============================================================================
+
+-- Bundle of per-element preconditions consumed by `parseSignalGroup-
+-- roundtrip`.  Lifted to `All SignalGroupWF sgs` at the call site so the
+-- polymorphic `many-η-roundtrip` helper can pull a single `Stop : X → Set`.
+record SignalGroupWF (sg : SignalGroup) : Set where
+  field
+    name-stop  : SignalGroupNameStop sg
+    sigs-stops : All SigNameStop (SignalGroup.signals sg)
+
+-- `0 < length (emitSignalGroup-chars sg)` — the literal `"SIG_GROUP_"`
+-- prefix gives a 10-byte head.  Pattern-match on `sg` to expose the
+-- `mkSignalGroup` projection so Agda reduces the `toList` literal.
+emitSignalGroup-chars-nonzero : ∀ (sg : SignalGroup)
+  → 0 < length (emitSignalGroup-chars sg)
+emitSignalGroup-chars-nonzero _ = s≤s z≤n
+
+-- Head of `emitSignalGroup-chars sg` is `'S'` — not a newline-start.
+-- `SuffixStops isNewlineStart (emitSignalGroup-chars sg ++ suffix)`
+-- discharges by `∷-stop refl` after Agda reduces the literal cons.
+emitSignalGroup-chars-head-not-newline :
+    ∀ (sg : SignalGroup) (suffix : List Char)
+  → SuffixStops isNewlineStart (emitSignalGroup-chars sg ++ₗ suffix)
+emitSignalGroup-chars-head-not-newline _ _ = ∷-stop refl
+
+
+parseSignalGroups-roundtrip :
+    ∀ (pos : Position) (sgs : List SignalGroup) (outer-suffix : List Char)
+  → All SignalGroupWF sgs
+  → SuffixStops isNewlineStart outer-suffix
+  → (∀ (pos' : Position) → parseSignalGroup pos' outer-suffix ≡ nothing)
+  → many parseSignalGroup pos
+      (foldr (λ sg acc → emitSignalGroup-chars sg ++ₗ acc) [] sgs ++ₗ outer-suffix)
+    ≡ just (mkResult sgs
+             (advancePositions pos
+               (foldr (λ sg acc → emitSignalGroup-chars sg ++ₗ acc) [] sgs))
+             outer-suffix)
+parseSignalGroups-roundtrip pos sgs outer-suffix sgs-wfs os pf =
+  many-η-roundtrip
+    parseSignalGroup
+    emitSignalGroup-chars
+    SignalGroupWF
+    rt
+    emitSignalGroup-chars-nonzero
+    emitSignalGroup-chars-head-not-newline
+    pos sgs outer-suffix sgs-wfs os pf
+  where
+    open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
+      (many-η-roundtrip)
+
+    rt : ∀ (pos₁ : Position) (sg : SignalGroup) (suffix : List Char)
+       → SignalGroupWF sg
+       → SuffixStops isNewlineStart suffix
+       → parseSignalGroup pos₁ (emitSignalGroup-chars sg ++ₗ suffix)
+         ≡ just (mkResult sg (advancePositions pos₁ (emitSignalGroup-chars sg)) suffix)
+    rt pos₁ sg suffix wf nl-stop =
+      parseSignalGroup-roundtrip pos₁ sg suffix
+        (SignalGroupWF.name-stop wf)
+        (SignalGroupWF.sigs-stops wf)
+        nl-stop

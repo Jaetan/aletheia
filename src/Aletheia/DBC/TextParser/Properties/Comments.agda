@@ -18,4 +18,5 @@ module Aletheia.DBC.TextParser.Properties.Comments where
 
 open import Aletheia.DBC.TextParser.Properties.Comments.Comment public
   using (parseComment-roundtrip; NameStop; CommentTargetStop;
-         buildCANId-rawCanIdℕ)
+         buildCANId-rawCanIdℕ;
+         parseComments-roundtrip)

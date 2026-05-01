@@ -122,25 +122,43 @@ open import Aletheia.DBC.TextParser.Properties.Topology public
         ; emitMessage-chars-decompose
         ; messageHeader-roundtrip
         ; buildMessage-roundtrip
-        ; parseMessage-roundtrip)
+        ; parseMessage-roundtrip
+        -- 4b: list-level `many parseMessage` over BO_ blocks.
+        ; MessageWF; parseMessage-roundtrip-bundled
+        ; signalLineFmt-fails-on-newline
+        ; parseMessages-roundtrip)
 
 -- Value-table section (Commit 3b: VAL_TABLE_).
 open import Aletheia.DBC.TextParser.Properties.ValueTables public
-  using (parseValueTable-roundtrip; ValueTableNameStop)
+  using (parseValueTable-roundtrip; ValueTableNameStop;
+         -- 4b: list-level `many parseValueTable`.
+         parseValueTables-roundtrip)
 
 -- Environment-variable section (Commit 3b: EV_).
 open import Aletheia.DBC.TextParser.Properties.EnvVars public
-  using (parseEnvVar-roundtrip; EnvVarNameStop)
+  using (parseEnvVar-roundtrip; EnvVarNameStop;
+         -- 4b: list-level `many parseEnvVar`.
+         parseEnvVars-roundtrip)
 
 -- Comment section (Commit 3b: CM_ — 5-way CommentTarget dispatch).
 open import Aletheia.DBC.TextParser.Properties.Comments public
-  using (parseComment-roundtrip; CommentTargetStop)
+  using (parseComment-roundtrip; CommentTargetStop;
+         -- 4b: list-level `many parseComment`.
+         parseComments-roundtrip)
 
 -- Signal-group section (Commit 4a: Layer 3 carry-over — SignalGroup
 -- migrated to Format DSL via `Format/SignalGroup.agda` + slim η-style
--- wrap).
+-- wrap).  4b adds list-level lift.
 open import Aletheia.DBC.TextParser.Properties.SignalGroups public
-  using (parseSignalGroup-roundtrip; SignalGroupNameStop; SigNameStop)
+  using (parseSignalGroup-roundtrip; SignalGroupNameStop; SigNameStop;
+         SignalGroupWF; parseSignalGroups-roundtrip)
+
+-- 4b: polymorphic `many-η-roundtrip` helper that lifts each per-element
+-- η-style slim (the 5 simple sections above + the BO_ block) to its
+-- list-level analogue.  Re-exported so Layer-4c composers pull a single
+-- facade.
+open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip public
+  using (many-η-roundtrip)
 
 -- Char-class disjointness (Commit 4a): bridge lemmas the universal
 -- aggregator owes to discharge each Layer 3 construct's `*NameStop`
