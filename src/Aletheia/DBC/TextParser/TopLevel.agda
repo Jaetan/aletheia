@@ -60,6 +60,7 @@ module Aletheia.DBC.TextParser.TopLevel where
 
 open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (String)
 open import Data.Unit using (⊤; tt)
@@ -144,21 +145,67 @@ data TopStmt : Set where
 -- ============================================================================
 -- TOP-STATEMENT DISPATCH
 -- ============================================================================
+--
+-- Head-character dispatch.  Each top-level construct begins with a unique
+-- 1- or 2-char keyword prefix:
+--
+--     'V'      → VAL_TABLE_   / VAL_         (parseValueTable / parseValueDescription)
+--     'B' 'A'  → BA_DEF_*     / BA_*         (parseAttrLine — its own internal chain)
+--     'B' 'O'  → BO_TX_BU_    / BO_<digit>   (parseBOTxBu    / parseMessage)
+--     'S' 'I'  → SIG_VALTYPE_ / SIG_GROUP_   (parseSigValType / parseSignalGroup)
+--     'S' 'G'  → SG_MUL_VAL_                 (parseSigMulVal)
+--     'E' 'V'  → EV_                         (parseEnvVar)
+--     'C' 'M'  → CM_                         (parseComment)
+--     other    → fail
+--
+-- Semantically equivalent to the prior 10-way `<|>` chain in longest-first
+-- prefix order: every cross-class comparison fails on the first mismatching
+-- character (head-disjointness already proved in `Properties/Aggregator/
+-- Dispatcher/HeadFails.agda`), so the chain at any concrete head reduces
+-- to its head-class bucket.  Same-class collisions still resolve via inner
+-- `<|>` (e.g. VAL_TABLE_ vs VAL_, BO_TX_BU_ vs BO_<digit>).
+--
+-- Why head-dispatch (vs `<|>` chain): elaborating `parseTopStmt pos
+-- (emitX-chars x ++ outer) ≡ just r` at concrete-prefix input forces Agda
+-- to walk through every leading-fail of the chain (15.7 GB residency
+-- measured for one dispatcher under the 10-way variant).  Head-dispatch
+-- reduces in a single pattern-match step, keeping per-dispatcher
+-- elaboration bounded.
+private
+  parseTopStmt-V : Parser TopStmt
+  parseTopStmt-V = (parseValueTable       >>= λ vt → pure (TSValueTable vt))
+               <|> (parseValueDescription *> pure TSValueDesc)
 
--- Try each per-construct parser in longest-first order where prefixes
--- collide.  See module header for the full ordering rationale.
+  parseTopStmt-BA : Parser TopStmt
+  parseTopStmt-BA = parseAttrLine >>= λ a → pure (TSAttribute a)
+
+  parseTopStmt-BO : Parser TopStmt
+  parseTopStmt-BO = (parseBOTxBu  *> pure TSBOTxBu)
+                <|> (parseMessage >>= λ m → pure (TSMessage m))
+
+  parseTopStmt-SI : Parser TopStmt
+  parseTopStmt-SI = (parseSigValType  *> pure TSSigValType)
+                <|> (parseSignalGroup >>= λ g → pure (TSSignalGroup g))
+
+  parseTopStmt-SG : Parser TopStmt
+  parseTopStmt-SG = parseSigMulVal *> pure TSSigMulVal
+
+  parseTopStmt-EV : Parser TopStmt
+  parseTopStmt-EV = parseEnvVar >>= λ e → pure (TSEnvVar e)
+
+  parseTopStmt-CM : Parser TopStmt
+  parseTopStmt-CM = parseComment >>= λ c → pure (TSComment c)
+
 parseTopStmt : Parser TopStmt
-parseTopStmt =
-  (parseAttrLine         >>= λ a  → pure (TSAttribute a))     <|>
-  (parseValueTable       >>= λ vt → pure (TSValueTable vt))   <|>
-  (parseValueDescription *> pure TSValueDesc)                 <|>
-  (parseBOTxBu           *> pure TSBOTxBu)                    <|>
-  (parseMessage          >>= λ m  → pure (TSMessage m))       <|>
-  (parseSignalGroup      >>= λ g  → pure (TSSignalGroup g))   <|>
-  (parseSigValType       *> pure TSSigValType)                <|>
-  (parseSigMulVal        *> pure TSSigMulVal)                 <|>
-  (parseEnvVar           >>= λ e  → pure (TSEnvVar e))        <|>
-  (parseComment          >>= λ c  → pure (TSComment c))
+parseTopStmt pos []                   = nothing
+parseTopStmt pos ('V' ∷ rest)         = parseTopStmt-V  pos ('V' ∷ rest)
+parseTopStmt pos ('B' ∷ 'A' ∷ rest)   = parseTopStmt-BA pos ('B' ∷ 'A' ∷ rest)
+parseTopStmt pos ('B' ∷ 'O' ∷ rest)   = parseTopStmt-BO pos ('B' ∷ 'O' ∷ rest)
+parseTopStmt pos ('S' ∷ 'I' ∷ rest)   = parseTopStmt-SI pos ('S' ∷ 'I' ∷ rest)
+parseTopStmt pos ('S' ∷ 'G' ∷ rest)   = parseTopStmt-SG pos ('S' ∷ 'G' ∷ rest)
+parseTopStmt pos ('E' ∷ 'V' ∷ rest)   = parseTopStmt-EV pos ('E' ∷ 'V' ∷ rest)
+parseTopStmt pos ('C' ∷ 'M' ∷ rest)   = parseTopStmt-CM pos ('C' ∷ 'M' ∷ rest)
+parseTopStmt _   _                    = nothing
 
 -- ============================================================================
 -- PARTITION INTO PER-FIELD BUCKETS

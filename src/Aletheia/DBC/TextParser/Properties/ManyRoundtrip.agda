@@ -26,7 +26,7 @@ module Aletheia.DBC.TextParser.Properties.ManyRoundtrip where
 open import Data.Bool using (Bool; true; false)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥-elim)
-open import Data.List using (List; []; _∷_; foldr; length)
+open import Data.List using (List; []; _∷_; foldr; length; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties using (length-++)
   renaming (++-assoc to ++ₗ-assoc)
@@ -276,6 +276,134 @@ many-η-roundtrip :
                outer-suffix)
 many-η-roundtrip P E Stop rt nz hns pos xs outer xs-stops os pf =
   many-η-roundtrip-helper P E Stop rt nz hns
+    pos xs outer (length input) (length-xs-≤-bytes E nz xs outer)
+    xs-stops os pf
+  where
+    input : List Char
+    input = foldr (λ x acc → E x ++ₗ acc) [] xs ++ₗ outer
+
+
+-- ============================================================================
+-- LIFT-AWARE VARIANT (B.3.d Layer 4c) — `many P` over a foldr-emit where
+-- the parser yields `O` and the emitter consumes `I`, with a lift `L : I
+-- → O`.  The result list is `map L xs`.  The 4b `many-η-roundtrip` is
+-- the special case `I = O`, `L = id`.
+--
+-- Used by Layer 4c to lift `many parseTopStmt` over the body bytes
+-- emitted from a `List TopStmtTyped` (typed shadow), where
+-- `liftTopStmt defs : TopStmtTyped → TopStmt` routes attributes through
+-- `rawOf defs`.  The 4b helper does not apply directly because parsed-
+-- type ≠ input-type for attributes (parser yields RawDBCAttribute,
+-- emitter consumes typed DBCAttribute via `emitAttribute-chars defs`).
+-- ============================================================================
+
+many-η-roundtrip-with-lift-helper :
+    ∀ {I O : Set}
+      (P : Parser O) (E : I → List Char) (Stop : I → Set) (L : I → O)
+    → (P-on-emit :
+          ∀ (pos : Position) (i : I) (suffix : List Char)
+        → Stop i
+        → SuffixStops isNewlineStart suffix
+        → P pos (E i ++ₗ suffix)
+          ≡ just (mkResult (L i) (advancePositions pos (E i)) suffix))
+    → (E-nonzero : ∀ (i : I) → 0 < length (E i))
+    → (E-head-not-newline :
+          ∀ (i : I) (suffix : List Char)
+        → SuffixStops isNewlineStart (E i ++ₗ suffix))
+    → ∀ (pos : Position) (xs : List I) (outer-suffix : List Char) (n : ℕ)
+    → length xs ≤ n
+    → All Stop xs
+    → SuffixStops isNewlineStart outer-suffix
+    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
+    → manyHelper P pos
+                 (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix)
+                 n
+      ≡ just (mkResult (map L xs)
+               (advancePositions pos
+                 (foldr (λ i acc → E i ++ₗ acc) [] xs))
+               outer-suffix)
+many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
+                                  pos [] outer n _ [] os pf =
+  manyHelper-P-fails P pos outer n (pf pos)
+many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
+                                  pos (i ∷ rest) outer (suc n') (s≤s rest≤n')
+                                  (sx ∷ srest) os pf =
+  trans
+    (cong (λ inp → manyHelper P pos inp (suc n'))
+          (++ₗ-assoc (E i) rest-input outer))
+    (trans
+      (manyHelper-prog-cons P pos (E i ++ₗ (rest-input ++ₗ outer)) n'
+        (L i) posx (rest-input ++ₗ outer) (map L rest) pos-out outer
+        peq sleq hpeq)
+      (cong (λ p → just (mkResult (L i ∷ map L rest) p outer)) pos-bridge))
+  where
+    rest-input : List Char
+    rest-input = foldr (λ y acc → E y ++ₗ acc) [] rest
+
+    posx : Position
+    posx = advancePositions pos (E i)
+
+    pos-out : Position
+    pos-out = advancePositions posx rest-input
+
+    inner-stop-aux : (ys : List _) →
+      SuffixStops isNewlineStart
+        (foldr (λ y acc → E y ++ₗ acc) [] ys ++ₗ outer)
+    inner-stop-aux []           = os
+    inner-stop-aux (next ∷ ys') =
+      subst (SuffixStops isNewlineStart)
+            (sym (++ₗ-assoc (E next)
+                   (foldr (λ y acc → E y ++ₗ acc) [] ys') outer))
+            (hns next (foldr (λ y acc → E y ++ₗ acc) [] ys' ++ₗ outer))
+
+    inner-stop : SuffixStops isNewlineStart (rest-input ++ₗ outer)
+    inner-stop = inner-stop-aux rest
+
+    peq : P pos (E i ++ₗ (rest-input ++ₗ outer))
+          ≡ just (mkResult (L i) posx (rest-input ++ₗ outer))
+    peq = rt pos i (rest-input ++ₗ outer) sx inner-stop
+
+    sleq : sameLengthᵇ (E i ++ₗ (rest-input ++ₗ outer))
+                       (rest-input ++ₗ outer)
+           ≡ false
+    sleq = sameLengthᵇ-app-nz (E i) (rest-input ++ₗ outer) (nz i)
+
+    hpeq : manyHelper P posx (rest-input ++ₗ outer) n'
+           ≡ just (mkResult (map L rest) pos-out outer)
+    hpeq = many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
+             posx rest outer n' rest≤n' srest os pf
+
+    pos-bridge : pos-out
+      ≡ advancePositions pos
+          (foldr (λ y acc → E y ++ₗ acc) [] (i ∷ rest))
+    pos-bridge = sym (advancePositions-++ pos (E i) rest-input)
+
+
+many-η-roundtrip-with-lift :
+    ∀ {I O : Set}
+      (P : Parser O) (E : I → List Char) (Stop : I → Set) (L : I → O)
+    → (P-on-emit :
+          ∀ (pos : Position) (i : I) (suffix : List Char)
+        → Stop i
+        → SuffixStops isNewlineStart suffix
+        → P pos (E i ++ₗ suffix)
+          ≡ just (mkResult (L i) (advancePositions pos (E i)) suffix))
+    → (E-nonzero : ∀ (i : I) → 0 < length (E i))
+    → (E-head-not-newline :
+          ∀ (i : I) (suffix : List Char)
+        → SuffixStops isNewlineStart (E i ++ₗ suffix))
+    → ∀ (pos : Position) (xs : List I) (outer-suffix : List Char)
+    → All Stop xs
+    → SuffixStops isNewlineStart outer-suffix
+    → (∀ (pos' : Position) → P pos' outer-suffix ≡ nothing)
+    → many P pos
+        (foldr (λ i acc → E i ++ₗ acc) [] xs ++ₗ outer-suffix)
+      ≡ just (mkResult (map L xs)
+               (advancePositions pos
+                 (foldr (λ i acc → E i ++ₗ acc) [] xs))
+               outer-suffix)
+many-η-roundtrip-with-lift P E Stop L rt nz hns pos xs outer xs-stops os pf =
+  many-η-roundtrip-with-lift-helper P E Stop L rt nz hns
     pos xs outer (length input) (length-xs-≤-bytes E nz xs outer)
     xs-stops os pf
   where
