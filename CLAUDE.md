@@ -63,12 +63,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-202 total modules (`cabal run shake -- count-modules`):
-- **197**: `--safe --without-K`
+204 total modules (`cabal run shake -- count-modules`):
+- **199**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) used only by the outer `parseText/formatText` wrap in DBC (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-201 of 202 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
+203 of 204 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
 
 ## Common Commands
 
@@ -220,7 +220,7 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 
 **Current track:** Phase B.3.d — universal DBC text-parser roundtrip `∀ d → parseText (formatText d) ≡ inj₂ d`. Decomposition in [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md): (1) `List Char` substrate; (2) per-primitive parse/emit lemmas; (3) per-line-construct lemmas; (4) top-level aggregator induction.
 
-**Status (2026-04-29):** Layers 1–2 ✅; Layer 3 — Format DSL migration in progress. Active branch: `b3d-3d5-format-dsl`. Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
+**Status (2026-05-01):** Layers 1–2 ✅; Layer 3 BA_DEF_ family complete (3c-A + 3c-B both shipped). Active branch: `b3d-3d5-format-dsl`. Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
 
 **Layer 3 construct status** (✅ migrated to Format DSL via η-style wrap `parse <leafFmt> >>= many parseNewline >>= …`; % = strict-LOC reduction on production-side):
 - BO_ block ✅ — 3d.6 + 3d.7 + 3d.8 (commits `89e04ee` + `42228df` + `f25ca5a`); spine-based `emitMessage-chars-decompose` + 2-stage `pos-eq` patterns established here for future multi-line composers.
@@ -230,9 +230,7 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 - CM_ ✅ — 3d.5.d-CM_ (`7c27100`, 88.6%; heaviest L3 at 2,533L pre-migration); introduced `shift-trail-space` ++ₗ-assoc bridge for `withWSAfter`-baked trailing-space slots; CAN-ID K-elim avoidance via `with buildCANId | buildCANId-rawCanIdℕ ; just .cid | refl = refl`.
 - Preamble (VERSION / BS_ / NS_) ✅ — 3d.5.d-3a (`c5b34fb`, 76% combined; Namespace alone 91%); introduced `wsCanonTab` + `nonNewlineRun` DSL constructors; discard-iso pattern over `many nsLineFmt` for fixed-body emit; spec-drift catch via advisor (`withWSCanonOne` vs `withWS` parser permissiveness).
 - BA_DEF_ / BA_DEF_REL_ ✅ — 3d.5.d-3c-A (`27aaa8c`, 56% combined / 82% Properties-side); deleted `Properties/Attributes/Type.agda` entirely; introduced `intDecRat` / `natDecRat` DSL constructors; cycle break via `Attributes/Foundations.agda`; 5-case-cong-bridge pattern (vs 25-case enumeration); `concatMap-foldr-bridge` structural induction.
-
-**In progress**:
-- **3c-B** (BA_DEF_DEF_ / BA_ / BA_REL_ / parseAttrLine, ~5,000L combined) — η-style migration started 2026-04-30, **uncommitted, build broken**.  Network.agda (439L) ✅ compiles; Format/AttrLine.agda (~870L, keyword-target builders for Node/Msg/Sig/Ev/RrtNodeMsg/RrtNodeSig) ✅ compiles; Format/AttrValue.agda (3-way altSum: RavString/RavDecRatFrac/RavDecRatBareInt with `decRatFrac` FIRST) ✅ compiles; Properties/Attributes/Assign/Node.agda ❌ bridge-proof cycling (resume via `-with-outer` lemma fix in Format/AttrLine.agda — bake outer-suffix into RHS at lemma definition site where private altSum reduces locally; closes by `refl`-pattern-match).  Msg/Sig/Ev/Rel/Line not started — replicate Network.agda pattern.  See `.session-state.md` for full resume plan.
+- BA_ / BA_REL_ / BA_DEF_DEF_ ✅ — 3d.5.d-3c-B (`3ab805e`, 4% combined / 29% Properties-side); 7 Properties files refactored (Network/Node/Msg/Sig/EV/Rel/Default; 4044 → 2884 strict-LOC); new modules Format/AttrLine.agda + Format/AttrValue.agda + Properties/Attributes/Assign/Common.agda; specialized `parseAttrAssign-format-roundtrip-RatwNet` for inj₂-deep target position (avoids universal-lemma's L5 EmitsOK obligation that OOMs at -M16G); per-shape numeric dispatchers use **constructor pattern-match + `proj₁`/`proj₂` projections, NOT `with`** (the `with`-abstraction over wide ∃₂ × _⊎_ Σ-types triggers goal-rebuild thrash through inj₂-deep `EmitsOK` reduction even with hoisted helpers — 6+ min OOM → 13s after fix; see `feedback_with_abstraction_traps.md`).  `parseAttrLine` top-level dispatcher unchanged — its 5-way `<|>` chain consumes the migrated sub-parsers transparently.
 
 **Pending**:
 - **Layer 4** — top-level `roundtrip DBC-format` aggregator induction; owes char-class-disjointness bridge lemmas (`isIdentStart→¬isHSpace`, `isIdentCont→¬isHSpace`, `isIdentCont→¬isNewlineStart`) + `showInt-chars-head-non-hspace` (~15L, locally provable). Tracked in [memory/project_b3d_layer4_owed_lemmas.md](memory/project_b3d_layer4_owed_lemmas.md).
@@ -244,10 +242,10 @@ For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d 
 - Sugar: `discardFmt` (wire-only fields), `nonNewlineRun` (opaque-tail consumer), `newlineFmt` (LF/CRLF).
 - Cycle-break pattern (3d.5.c-ε / 3d.5.d-3c-A): when a Format module would close a cycle, extract cycle-relevant subset to a `Foundations.agda` submodule.
 
-**Path A profile** (post-3d.4 + JSON-mirror, runtime impact retained from `320c5a9`): Stream LTL +12-38% across bindings (Bool fast path); Signal Extraction -2-9% / Frame Building -1-7% (Path A structural cost). All 3d.5+ Format DSL work is proof-only and runtime-neutral on the streaming hot path — the migrated parsers (`parseSignalLine`, `parseValueTable`, `parseMessage`, `parseBU`, `parseEnvVar`, `parseComment`, `parseVersion`, `parseBitTiming`, `parseNamespace`, `parseAttrDef`, `parseAttrDefRel`) all run at DBC config time only. Baselines NOT refreshed per user "wait and see" 2026-04-28; COMPILE-pragma escape hatch deferred (requires explicit user approval per `feedback_no_suppression_without_approval`).
+**Path A profile** (post-3d.4 + JSON-mirror, runtime impact retained from `320c5a9`): Stream LTL +12-38% across bindings (Bool fast path); Signal Extraction -2-9% / Frame Building -1-7% (Path A structural cost). All 3d.5+ Format DSL work is proof-only and runtime-neutral on the streaming hot path — the migrated parsers (`parseSignalLine`, `parseValueTable`, `parseMessage`, `parseBU`, `parseEnvVar`, `parseComment`, `parseVersion`, `parseBitTiming`, `parseNamespace`, `parseAttrDef`, `parseAttrDefRel`, `parseRawAttrAssign`, `parseRawAttrRel`, `parseRawAttrDefault`) all run at DBC config time only. Baselines NOT refreshed per user "wait and see" 2026-04-28; COMPILE-pragma escape hatch deferred (requires explicit user approval per `feedback_no_suppression_without_approval`).
 
 **Architectural plan locked 2026-04-26 (post-3d.3b) + amended 2026-04-27 (JSON-mirror addition)** per [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md):
 1. 3d.4 + JSON-mirror + Path A ✅ shipped 2026-04-28 (`320c5a9`).
-2. 3d.5 Format DSL framework: (a) framework core ✅; (b) single-construct validation gate ✅; (c) pinch-point extensions ✅ (α `refined` / β `altSum` + `withPrefix` / γ `CanonicalReceivers` / ε Topology split / ζ `decRat` + `ws`-family / η `parseSignalLine`); **(d) migration of remaining 3a–3d.3 proofs onto DSL — IN PROGRESS:** ValueTable / BU_ / EV_ / CM_ / Preamble / BA_DEF_ ✅; **3c-B BA_/BA_REL_ in progress 2026-04-30 (Network done; Node bridge cycling; Msg/Sig/Ev/Rel/Line not started)**. (e) renumbered 3d.6–3d.8 ✅. (f) Layer 4 aggregation (~3-5d).
+2. 3d.5 Format DSL framework: (a) framework core ✅; (b) single-construct validation gate ✅; (c) pinch-point extensions ✅ (α `refined` / β `altSum` + `withPrefix` / γ `CanonicalReceivers` / ε Topology split / ζ `decRat` + `ws`-family / η `parseSignalLine`); **(d) migration of remaining 3a–3d.3 proofs onto DSL ✅ COMPLETE:** ValueTable / BU_ / EV_ / CM_ / Preamble / BA_DEF_ / BA_/BA_REL_/Default. (e) renumbered 3d.6–3d.8 ✅. (f) Layer 4 aggregation (~3-5d, NEXT).
 
 **Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..6, B.3.d Layer 4 owed lemmas, B.3.d-gated cantools drop) tracked in `memory/project_*.md`.
