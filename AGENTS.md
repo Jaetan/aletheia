@@ -233,7 +233,7 @@ Scope: ALL Agda modules -- production code and proofs alike. Never skip a file b
 
 ### Guidelines
 
-Each guideline below carries a stable identifier (`G-A1`..`G-A23`) so the step-1/step-2 agent tables and finding reports can reference it directly. New guidelines should follow the shape: **Rule** (one-line imperative), **Why** (mechanism/incident), **How to apply** (when the reviewer should flag), **Example** (in-tree pointer or worked snippet). Existing guidelines vary in format — they were written over multiple review rounds and use the structure loosely; migrate them toward the shape when adjacent edits land, but do not rewrite en-masse.
+Each guideline below carries a stable identifier (`G-A1`..`G-A24`) so the step-1/step-2 agent tables and finding reports can reference it directly. New guidelines should follow the shape: **Rule** (one-line imperative), **Why** (mechanism/incident), **How to apply** (when the reviewer should flag), **Example** (in-tree pointer or worked snippet). Existing guidelines vary in format — they were written over multiple review rounds and use the structure loosely; migrate them toward the shape when adjacent edits land, but do not rewrite en-masse.
 
 **G-A1 — Import hygiene:**
 - Bare `using ()` with no renaming clause is dead code -- remove the import line entirely.
@@ -337,6 +337,13 @@ Each guideline below carries a stable identifier (`G-A1`..`G-A23`) so the step-1
 - Before locking, ask the advisor explicitly: "Are there other boundaries this refactor touches that I haven't analyzed?"
 - Worked example: B.3.d 3d.4 plan was authored 2026-04-26 with text-parser-side analysis only.  "Axioms only at the outer parseText/formatText wrap" was correct for the text-parser path but missed that JSON has multiple String boundaries (one per JString site).  Resumption session 2026-04-27 surfaced the gap; replanning committed weeks of additional work (Option 2: mirror 3d.4 fix on JSON side via `JString : List Char → JSON` + DBC AST text fields → List Char).  See `memory/feedback_audit_all_wire_boundaries.md`.
 - Counterexample to the rule "axioms only at outer wrap": any wire format that's structurally heterogeneous (JSON has many `JString` sites) needs either an internal-representation alignment (JSON spine to `List Char`) or accept axioms at each site.  Single-site wires (text-parser entry/exit) localise cleanly; multi-site wires don't.
+
+**G-A24 — Head-dispatch over chain when navigating large `<|>` parsers at concrete-prefix input:**
+- When a parser is defined as a K-way `<|>` chain and proofs need to discharge `parser pos (emitX-chars x ++ outer) ≡ just r` at concrete-prefix inputs, the chain elaboration cost is **non-linear in K**.  Empirical (B.3.d Layer 4c, 2026-05-01): 5-way chain (`parseAttrLine`) → 31 dispatchers in one module at ~500 MB total residency; 10-way chain (`parseTopStmt` before refactor) → ONE dispatcher at 15.7 GB residency / 273s wall, projected ~3 hours wall + per-module residency at the `-M16G` tripwire across 5 simples + ~33 TAT sub-cases.
+- For K > 5, **restructure the parser definition to head-character pattern dispatch** — partition alts into per-head buckets (1-2 alts each), pattern-match on input's first 1-2 chars at the parser's top level, and let each bucket reduce in 1 step.  Per-bucket `<|>` proofs use existing `alt-left-just` / `alt-right-nothing` primitives.  Behavioral equivalence to the chain holds when inter-bucket prefixes are disjoint (which is normally already proven for the head-fail leading lemmas a chain composer needs anyway).
+- For K = 3-5 with prefix-disjoint alts: the existing `lift-altK` composer pattern (`feedback_lift_altK_composer.md`, mirrored in `Properties/Attributes/Line.agda`) is fine.
+- The cost localizes to dispatcher BODIES, not types or helpers — type-only stub at 448 MB; AltChain helpers alone at 2.3 GB; HeadFails leading-fails alone at 500 MB.  Even monolithic single-module variants (everything inlined) reproduce the cost — module splitting doesn't help.
+- Worked example: `parseTopStmt` refactored from 10-way chain to 7-bucket head-dispatch in commit `cf091d8`; TVT pilot 15.7 GB / 273s → 443 MB / 14s (35× memory, 19× speedup).  See `memory/feedback_chain_dispatch_at_concrete_input.md`.
 
 ### Verification
 
