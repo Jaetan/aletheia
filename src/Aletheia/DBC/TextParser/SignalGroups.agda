@@ -27,56 +27,32 @@
 -- grammar-allowed; `emitSignalGroup` mirrors this on the output side so
 -- B.3.d composes.
 module Aletheia.DBC.TextParser.SignalGroups where
-open import Aletheia.DBC.Identifier using (Identifier)
-
-open import Data.String using (String)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; _>>=_;
-   char; string; many)
-open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseWS; parseWSOpt; parseNewline;
-   parseNatural)
+  (Parser; pure; _>>=_; many)
+open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
+open import Aletheia.DBC.TextParser.Format using (parse)
+open import Aletheia.DBC.TextParser.Format.SignalGroup using (signalGroupFmt)
 
 open import Aletheia.DBC.Types using (SignalGroup)
-
--- ============================================================================
--- SIGNAL ENTRY PARSER
--- ============================================================================
-
--- One `ws identifier` pair.  Called under `many`, which terminates when
--- the next character is the `;` terminator (the mandatory leading
--- `parseWS` fails on `;`, so the repetition stops cleanly without a
--- separator combinator).  Mirrors `parseValueEntry` in
--- `TextParser.ValueTables`.
-parseSigNameEntry : Parser Identifier
-parseSigNameEntry = do
-  _ ← parseWS
-  parseIdentifier
 
 -- ============================================================================
 -- SIG_GROUP_ LINE
 -- ============================================================================
 
--- `"SIG_GROUP_" ws nat ws identifier ws nat ws? ":" entries ws? ";" newline`
--- + optional trailing blank lines.  Both nats (CAN ID and repetitions)
--- are parsed then discarded — see module header.  `parseWSOpt` on either
--- side of `:` and `;` tolerates cantools' single-space emission as well
--- as tighter hand-written forms.
+-- Post 3d.5.d-4a: derived from the Format DSL `signalGroupFmt`, so the
+-- universal `roundtrip` theorem in `Format.agda` discharges the
+-- parse-after-emit law via a single `EmitsOK` certificate (see
+-- `Properties/SignalGroups/SignalGroup.parseSignalGroup-roundtrip`).
+-- The DSL handles `"SIG_GROUP_" ws nat ws identifier ws nat ws? ":"
+-- entries ws? ";" newline` (production-permissive whitespace via
+-- `withWS`/`withWSCanonOne`/`withWSOpt`, both LF and CR-LF newline via
+-- `newlineFmt`).  The trailing `many parseNewline` consumes optional
+-- blank lines between groups, mirroring η's `parseSignalLine` vs
+-- `parseMessage` split (line consumes one terminator, block-level
+-- wrapper absorbs blanks).
 parseSignalGroup : Parser SignalGroup
 parseSignalGroup = do
-  _ ← string "SIG_GROUP_"
-  _ ← parseWS
-  _ ← parseNatural      -- message CAN ID, discarded
-  _ ← parseWS
-  name ← parseIdentifier
-  _ ← parseWS
-  _ ← parseNatural      -- repetitions, discarded
-  _ ← parseWSOpt
-  _ ← char ':'
-  sigs ← many parseSigNameEntry
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
+  sg ← parse signalGroupFmt
   _ ← many parseNewline
-  pure (record { name = name ; signals = sigs })
+  pure sg

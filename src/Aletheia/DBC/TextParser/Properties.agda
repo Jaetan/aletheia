@@ -136,6 +136,22 @@ open import Aletheia.DBC.TextParser.Properties.EnvVars public
 open import Aletheia.DBC.TextParser.Properties.Comments public
   using (parseComment-roundtrip; CommentTargetStop)
 
+-- Signal-group section (Commit 4a: Layer 3 carry-over — SignalGroup
+-- migrated to Format DSL via `Format/SignalGroup.agda` + slim η-style
+-- wrap).
+open import Aletheia.DBC.TextParser.Properties.SignalGroups public
+  using (parseSignalGroup-roundtrip; SignalGroupNameStop; SigNameStop)
+
+-- Char-class disjointness (Commit 4a): bridge lemmas the universal
+-- aggregator owes to discharge each Layer 3 construct's `*NameStop`
+-- precondition from `validIdentifierᵇ`.  Imported for re-export so
+-- Layer 4b/c proofs can pull a single facade.
+open import Aletheia.DBC.TextParser.Properties.CharClassDisjoint public
+  using (isIdentStart→¬isHSpace;
+         isIdentCont→¬isHSpace;
+         isIdentCont→¬isNewlineStart;
+         showInt-chars-head-non-hspace)
+
 -- Attribute section (Commit 3c.1: BA_DEF_ + BA_DEF_REL_; Commit 3c.2:
 -- BA_DEF_DEF_).  Future 3c.3–3c.4 land BA_/BA_REL_ and the top-level
 -- parseAttrLine 5-way <|> composer.
