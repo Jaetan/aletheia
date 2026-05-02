@@ -598,6 +598,20 @@ refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n def
 ...   | just v  = just (DBCAttrAssign (mkAttrAssign n tgt v))
 ...   | nothing = nothing
 
+-- Inner refinement walk over a precomputed AttrDef table.  Lifted from
+-- `refineAttributes`'s where-block so Layer-4c proofs (under
+-- `Properties.Aggregator.Refine`) can reason about `refineAll defs xs`
+-- with `defs` ≢ `collectRawDefs xs` — the WF-bridged path uses
+-- `defs = collectDefs (typed-attrs)` while the input is the rawified
+-- typed list.
+refineAll : List AttrDef → List RawDBCAttribute → Maybe (List DBCAttribute)
+refineAll _    [] = just []
+refineAll defs (r ∷ rest) with refineAttribute defs r
+... | nothing = nothing
+... | just ref with refineAll defs rest
+...   | nothing = nothing
+...   | just rs = just (ref ∷ rs)
+
 -- Walk a raw attribute list and refine each entry.  Two-pass: first
 -- collect all defs, then refine against the complete def table.  Fails
 -- with `nothing` if any default/assignment references an unknown
@@ -605,11 +619,3 @@ refineAttribute defs (RawAssign (mkRawAttrAssign n tgt rv)) with lookupDef n def
 -- declared type.
 refineAttributes : List RawDBCAttribute → Maybe (List DBCAttribute)
 refineAttributes raws = refineAll (collectRawDefs raws) raws
-  where
-    refineAll : List AttrDef → List RawDBCAttribute → Maybe (List DBCAttribute)
-    refineAll _    [] = just []
-    refineAll defs (r ∷ rest) with refineAttribute defs r
-    ... | nothing = nothing
-    ... | just ref with refineAll defs rest
-    ...   | nothing = nothing
-    ...   | just rs = just (ref ∷ rs)

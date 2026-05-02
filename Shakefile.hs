@@ -280,25 +280,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- guards the Format module itself against bit-rot.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/Preamble.agda"
         -- B.3.d Layer 4c: TopStmt-level aggregator dispatcher tree
-        -- (parseDBC universal roundtrip).  Currently leaf modules — no
-        -- downstream importer yet (Layer 4c-(b)..(e) will wire them into
-        -- the universal aggregator + finalizeParse closure).  Three
-        -- explicit walk roots together cover the whole Aggregator
-        -- subtree:
-        --   * `Dispatcher/Simple.agda` re-exports the 5 simple section
-        --     dispatchers (TVT/TM/TSG/TEV/TCM) + transitively pulls in
-        --     `Dispatcher/Attribute.agda`'s `parseTopStmt-on-BA-head`.
-        --   * `BodyBridge.agda` bridges body bytes to TopStmtTyped fold;
-        --     covers `Aggregator/Foundations.agda` transitively.
-        --   * `Dispatcher/Attribute/TopStmt.agda` is the 3-way TAT
-        --     façade; covers `Universal` / `Def` / `Default` / `Assign`
-        --     / `Assign/{BareInt,Frac,String}` / `Foundations` /
-        --     `PrefixHead` / `TopStmt/{Def,Default,Assign}`.
+        -- (parseDBC universal roundtrip).  After 4c task E shipped, the
+        -- universal `parseText-on-formatText` lives in
+        -- `Substrate/Unsafe.agda` (the SOLE non-`--safe` module in the
+        -- project, by deliberate policy: the String-level wrap is the
+        -- ONLY consumer of `toList∘fromList`, so co-locating it with
+        -- the axiom keeps the trusted-surface count at one).  This walk
+        -- root transitively covers the entire Aggregator subtree:
+        --   * `Substrate/Unsafe` → `Aggregator/Universal` (`--safe`,
+        --     full `parseTextChars-on-formatChars` proof).
+        --   * `Universal` → `Dispatcher` / `ManyTopStmts` / `Partition`
+        --     / `Refine` / `BodyBridge` / `Foundations`.
+        --   * `Dispatcher` → `Dispatcher/Simple` (5 simple dispatchers)
+        --     + `Dispatcher/Attribute/TopStmt` (3-way TAT façade) +
+        --     `Dispatcher/Attribute/PrefixHead` (β prefix witness).
+        -- One walk root therefore covers what previously took 3.
         -- Walk-root rationale per
         -- `feedback_check_properties_aggregator_walks.md`.
-        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/Dispatcher/Simple.agda"
-        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/BodyBridge.agda"
-        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/Dispatcher/Attribute/TopStmt.agda"
+        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"

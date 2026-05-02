@@ -73,7 +73,17 @@ module Aletheia.DBC.TextParser.Properties.Substrate.Unsafe where
 open import Data.Char using (Char)
 open import Data.List using (List)
 open import Data.String using (String; toList; fromList)
-open import Relation.Binary.PropositionalEquality using (_≡_)
+open import Data.Sum using (_⊎_; inj₂)
+open import Relation.Binary.PropositionalEquality
+  using (_≡_; trans; cong)
+
+open import Aletheia.DBC.Types using (DBC)
+open import Aletheia.DBC.TextParser using (parseText; parseTextChars)
+open import Aletheia.DBC.TextFormatter using (formatText)
+open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
+
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
+  (WellFormedDBC; parseTextChars-on-formatChars)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -82,3 +92,30 @@ open import Relation.Binary.PropositionalEquality using (_≡_)
 postulate
   toList∘fromList : ∀ (cs : List Char) → toList (fromList cs) ≡ cs
   fromList∘toList : ∀ (s  : String)    → fromList (toList s)  ≡ s
+
+-- ============================================================================
+-- B.3.d UNIVERSAL ROUNDTRIP — parseText ∘ formatText ≡ inj₂ at WF DBC
+-- ============================================================================
+--
+-- Closes Phase B.3.d.  Lives in this module (and not a separate
+-- `Aggregator/UniversalText.agda`) by deliberate policy: the `parseText`/
+-- `formatText` String-level wrap is the SOLE consumer of `toList∘fromList`
+-- in the project, and adding a second non-`--safe` module would expand
+-- the trusted-axiom-consuming surface beyond the one allowlisted here.
+-- Keeping the consumer co-located with the axioms preserves the "1
+-- allowlisted Unsafe module" policy stated in CLAUDE.md and AGENTS.md
+-- G-A8.
+--
+-- Composition (one step):
+--
+--     parseText (formatText d)
+--   = parseTextChars (toList (fromList (formatChars d)))   -- by defn
+--   ≡ parseTextChars (formatChars d)                        -- by toList∘fromList
+--   ≡ inj₂ d                                                -- by parseTextChars-on-formatChars
+
+parseText-on-formatText :
+    ∀ (d : DBC) → WellFormedDBC d
+  → parseText (formatText d) ≡ inj₂ d
+parseText-on-formatText d wf =
+  trans (cong parseTextChars (toList∘fromList (formatChars d)))
+        (parseTextChars-on-formatChars d wf)
