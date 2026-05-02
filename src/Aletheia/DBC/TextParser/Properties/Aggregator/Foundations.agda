@@ -88,6 +88,8 @@ open import Aletheia.DBC.TextParser.Properties.Attributes.Common using
   ; refineDefaultValue-rawOfDefault-roundtrip-AVHex
   ; refineDefaultValue-rawOfDefault-roundtrip-AVEnum
   )
+open import Aletheia.DBC.TextParser.Properties.Attributes.Def using
+  (WfAttrType)
 
 -- ============================================================================
 -- WHOLE-ATTRIBUTE TYPED → RAW LIFT
@@ -151,7 +153,7 @@ DefaultEnumOK (ATEnum labels) (AVEnum n) =
 DefaultEnumOK _               _          = ⊤
 
 data WFAttribute (defs : List AttrDef) : DBCAttribute → Set where
-  wfDef     : ∀ d → WFAttribute defs (DBCAttrDef d)
+  wfDef     : ∀ d → WfAttrType (AttrDef.attrType d) → WFAttribute defs (DBCAttrDef d)
   wfDefault :
       ∀ d def
     → ParserAttrs.lookupDef (AttrDefault.name d) defs ≡ just def

@@ -279,6 +279,26 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Main.agda via `Properties.Preamble`; the explicit walk root
         -- guards the Format module itself against bit-rot.
         agdaWithRTS "Aletheia/DBC/TextParser/Format/Preamble.agda"
+        -- B.3.d Layer 4c: TopStmt-level aggregator dispatcher tree
+        -- (parseDBC universal roundtrip).  Currently leaf modules — no
+        -- downstream importer yet (Layer 4c-(b)..(e) will wire them into
+        -- the universal aggregator + finalizeParse closure).  Three
+        -- explicit walk roots together cover the whole Aggregator
+        -- subtree:
+        --   * `Dispatcher/Simple.agda` re-exports the 5 simple section
+        --     dispatchers (TVT/TM/TSG/TEV/TCM) + transitively pulls in
+        --     `Dispatcher/Attribute.agda`'s `parseTopStmt-on-BA-head`.
+        --   * `BodyBridge.agda` bridges body bytes to TopStmtTyped fold;
+        --     covers `Aggregator/Foundations.agda` transitively.
+        --   * `Dispatcher/Attribute/TopStmt.agda` is the 3-way TAT
+        --     façade; covers `Universal` / `Def` / `Default` / `Assign`
+        --     / `Assign/{BareInt,Frac,String}` / `Foundations` /
+        --     `PrefixHead` / `TopStmt/{Def,Default,Assign}`.
+        -- Walk-root rationale per
+        -- `feedback_check_properties_aggregator_walks.md`.
+        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/Dispatcher/Simple.agda"
+        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/BodyBridge.agda"
+        agdaWithRTS "Aletheia/DBC/TextParser/Properties/Aggregator/Dispatcher/Attribute/TopStmt.agda"
         -- LTL
         agdaWithRTS "Aletheia/LTL/JSON/Properties.agda"
         agdaWithRTS "Aletheia/LTL/Adequacy.agda"
