@@ -1,11 +1,20 @@
-"""Unit tests for DBC converter (cantools → JSON)
+"""Unit tests for the cantools-backed DBC converter path (B.3.g target).
 
 Tests cover:
 - signal_to_json: Basic signals, multiplexing, byte order, signed/unsigned
 - message_to_json: Messages with signals, extended frames, senders
-- dbc_to_json: Full DBC conversion
-- convert_dbc_file: File I/O
+- dbc_to_json (parser="cantools"): Full DBC conversion via cantools
+- convert_dbc_file (parser="cantools"): File I/O
 - Error handling: Invalid inputs, missing files
+
+The Agda-backed default path (``parser="agda"``) is exercised end-to-end by
+``test_dbc_corpus_parity.py`` — that's the integration gate for B.3.f. This
+file only stays alive as long as the cantools fallback exists; it disappears
+together with ``aletheia._dbc_to_json_cantools`` when B.3.g lands.
+
+The module-level ``_force_cantools_parser`` autouse fixture sets
+``ALETHEIA_DBC_PARSER=cantools`` so every ``dbc_to_json`` / ``convert_dbc_file``
+call resolves through the cantools dispatch arm without per-call edits.
 """
 
 import json
@@ -17,13 +26,19 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from aletheia.dbc_converter import (
-    signal_to_json,
-    message_to_json,
-    dbc_to_json,
-    convert_dbc_file
-)
+from aletheia._dbc_to_json_cantools import message_to_json, signal_to_json
+from aletheia.dbc_converter import convert_dbc_file, dbc_to_json
 from aletheia.protocols import DBCSignalAlways, DBCSignalMultiplexed
+
+
+@pytest.fixture(autouse=True)
+def _force_cantools_parser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin every ``dbc_to_json`` / ``convert_dbc_file`` call in this file to
+    the cantools backend so the existing ``@patch('cantools.database.load_file')``
+    mocks stay effective regardless of the default parser flip in B.3.f."""
+    monkeypatch.setenv("ALETHEIA_DBC_PARSER", "cantools")
 
 
 def _apply_tier2_defaults(db: Mock) -> None:

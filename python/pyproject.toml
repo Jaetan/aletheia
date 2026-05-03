@@ -25,20 +25,16 @@ classifiers = [
 ]
 # The core package has no runtime dependencies outside the standard library —
 # the Agda-compiled Haskell shared library is loaded via ``ctypes`` at import
-# time. Loaders for .dbc files (cantools), CAN logs (python-can), YAML rule
-# files (pyyaml), and Excel rule sheets (openpyxl) are opt-in via extras so
-# that users who only need the core streaming/LTL path don't pull in
-# cantools' numpy/matplotlib closure. Install with:
-#   pip install aletheia               # core only
-#   pip install aletheia[dbc]          # + .dbc file loader
+# time, and the default ``dbc_to_json`` path uses the verified Agda parser
+# end-to-end (no third-party Python deps). Optional extras gate the cantools
+# fallback (B.3.g target — slated for removal), CAN log reader (python-can),
+# YAML rule loader (pyyaml), and Excel rule loader (openpyxl). Install with:
+#   pip install aletheia               # core only (Agda DBC parser included)
+#   pip install aletheia[dbc]          # + cantools fallback (B.3.g target)
 #   pip install aletheia[can]          # + CAN log reader
 #   pip install aletheia[yaml]         # + YAML rule loader
 #   pip install aletheia[excel]        # + Excel rule/DBC loader
 #   pip install aletheia[all]          # everything
-# Re-evaluation trigger: if a lighter full-DBC parser (no numpy/matplotlib
-# closure) becomes available, reconsider whether ``cantools`` should still
-# be the default ``[dbc]`` backend. Until then the closure cost is accepted
-# in exchange for round-trip fidelity.
 dependencies = []
 
 [project.scripts]

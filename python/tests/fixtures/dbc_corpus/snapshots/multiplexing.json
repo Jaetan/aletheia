@@ -14,22 +14,10 @@
           "length": 4,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 15,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 15,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -42,22 +30,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -77,14 +53,8 @@
             "numerator": 1,
             "denominator": 10
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
+          "minimum": 0,
           "maximum": {
             "numerator": 13107,
             "denominator": 2
@@ -104,22 +74,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": true,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": -128,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 127,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": -128,
+          "maximum": 127,
           "unit": "degC",
           "receivers": [
             "Gateway"
@@ -135,22 +93,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 255,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 255,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -172,22 +118,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 255,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 255,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -200,22 +134,10 @@
           "length": 4,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 15,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 15,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -228,22 +150,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -261,22 +171,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [
             "Gateway"

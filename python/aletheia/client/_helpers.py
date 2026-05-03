@@ -40,16 +40,22 @@ _NUMERIC_ENV_VAR_FIELDS = ("initial", "minimum", "maximum")
 
 
 class FractionJSONEncoder(json.JSONEncoder):
-    """JSONEncoder that serializes Fraction as {"numerator": n, "denominator": d}.
+    """JSONEncoder that serializes Fraction in Agda's canonical rational form.
 
-    Matches Agda's rational wire format — parseRational accepts integer
+    Mirrors ``Aletheia.Format.Rational.formatRational``: emit a bare integer
+    when the denominator is 1, otherwise the ``{"numerator": n,
+    "denominator": d}`` dict. Agda's ``parseRational`` accepts integer
     literals, rational dicts, and decimal floats, so this preserves exact
-    precision on any DBCDefinition round-trip path.
+    precision on any DBCDefinition round-trip path while staying
+    byte-identical to Go's ``serializeRational`` and C++'s
+    ``serialize_rational`` — the cross-binding canonical form B.3.j gates on.
     """
 
     @override
     def default(self, o: object) -> object:
         if isinstance(o, Fraction):
+            if o.denominator == 1:
+                return o.numerator
             return {"numerator": o.numerator, "denominator": o.denominator}
         return super().default(o)
 

@@ -36,8 +36,14 @@ def _snapshot_path(dbc_path: Path) -> Path:
 
 @pytest.mark.parametrize("dbc_path", _corpus_files(), ids=lambda p: p.name)
 def test_corpus_matches_cantools_snapshot(dbc_path: Path) -> None:
-    """Each corpus DBC round-trips through dbc_to_json identically to the committed snapshot."""
-    actual = dump_json(dbc_to_json(dbc_path), indent=2) + "\n"
+    """Each corpus DBC round-trips through dbc_to_json identically to the committed snapshot.
+
+    Pinned to ``parser="cantools"`` because this snapshot file is the
+    cantools-baseline regression — the Agda parser's canonical output is
+    diffed in ``test_dbc_corpus_parity.py`` against ``parity_snapshots/``,
+    not against this directory.
+    """
+    actual = dump_json(dbc_to_json(dbc_path, parser="cantools"), indent=2) + "\n"
     snapshot = _snapshot_path(dbc_path)
     if os.environ.get("ALETHEIA_UPDATE_SNAPSHOTS") == "1":
         snapshot.parent.mkdir(parents=True, exist_ok=True)

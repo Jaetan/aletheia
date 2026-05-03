@@ -14,22 +14,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -49,22 +37,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -85,22 +61,10 @@
           "length": 32,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 4294967295,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 4294967295,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -120,22 +84,10 @@
           "length": 32,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 4294967295,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 4294967295,
           "unit": "",
           "receivers": [],
           "presence": "always"

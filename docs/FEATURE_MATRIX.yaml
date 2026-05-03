@@ -79,12 +79,12 @@ features:
   - id: dbc_text_parse
     name: Parse .dbc text
     description: Parse a raw .dbc text file (cantools-compatible) into a DbcDefinition.
-    related: R17-DEF-4, B.3, B.3.e
+    related: R17-DEF-4, B.3, B.3.e, B.3.f
     bindings:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.parse_dbc_text
-        notes: "B.3.e — verified Agda parseText composed with the runtime validator; cantools dependency dropped from this entry point."
+        notes: "B.3.e/B.3.f — verified Agda parseText composed with the runtime validator. As of B.3.f, ``aletheia.dbc_converter.dbc_to_json`` defaults to this Agda path (``parser=\"agda\"``); the cantools fallback (``parser=\"cantools\"``) lives in ``aletheia._dbc_to_json_cantools`` and is slated for removal in B.3.g."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#parse_dbc_text"

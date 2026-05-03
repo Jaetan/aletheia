@@ -14,22 +14,10 @@
           "length": 4,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 15,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 15,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -40,22 +28,10 @@
           "length": 1,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 1,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 1,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -66,22 +42,10 @@
           "length": 2,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 3,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 3,
           "unit": "",
           "receivers": [],
           "presence": "always"

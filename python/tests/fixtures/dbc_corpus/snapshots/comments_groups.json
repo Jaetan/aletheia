@@ -18,14 +18,8 @@
             "numerator": 1,
             "denominator": 1000
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
+          "minimum": 0,
           "maximum": {
             "numerator": 2305843008676823,
             "denominator": 536870912
@@ -46,10 +40,7 @@
             "numerator": 1,
             "denominator": 1000
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
           "minimum": {
             "numerator": -1152921504606847,
             "denominator": 536870912
@@ -83,10 +74,7 @@
             "numerator": 1,
             "denominator": 100000
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
           "minimum": {
             "numerator": -3911839376925,
             "denominator": 182159216
@@ -111,10 +99,7 @@
             "numerator": 1,
             "denominator": 100000
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
           "minimum": {
             "numerator": -3911839376925,
             "denominator": 182159216
@@ -152,18 +137,9 @@
     {
       "name": "TestRigMode",
       "varType": 0,
-      "initial": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 2,
-        "denominator": 1
-      }
+      "initial": 0,
+      "minimum": 0,
+      "maximum": 2
     }
   ],
   "valueTables": [],

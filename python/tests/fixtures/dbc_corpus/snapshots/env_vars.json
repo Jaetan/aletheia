@@ -14,22 +14,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 255,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 255,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -42,50 +30,23 @@
     {
       "name": "SimulationTime",
       "varType": 1,
-      "initial": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 86400,
-        "denominator": 1
-      }
+      "initial": 0,
+      "minimum": 0,
+      "maximum": 86400
     },
     {
       "name": "ActiveScenario",
       "varType": 0,
-      "initial": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 255,
-        "denominator": 1
-      }
+      "initial": 0,
+      "minimum": 0,
+      "maximum": 255
     },
     {
       "name": "ScenarioLabel",
       "varType": 2,
-      "initial": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 0,
-        "denominator": 1
-      }
+      "initial": 0,
+      "minimum": 0,
+      "maximum": 0
     }
   ],
   "valueTables": [],

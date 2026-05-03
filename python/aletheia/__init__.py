@@ -78,6 +78,10 @@ from .client import (
     dlc_to_bytes,
 )
 from .checks import Check, CheckResult
+# dbc_converter no longer requires cantools at import time — the default
+# Agda parser path has no third-party deps. ``parser="cantools"`` lazily
+# imports the cantools-backed sub-module on demand.
+from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .error_codes import ErrorCode
 from .protocols import (
@@ -99,8 +103,8 @@ from .dbc_queries import (
 )
 
 # Optional-dependency modules: available when the corresponding extras are
-# installed (``pip install aletheia[dbc]``, ``[can]``, ``[yaml]``, ``[excel]``,
-# or ``[all]``).  Missing optional packages produce ImportError at call time,
+# installed (``pip install aletheia[can]``, ``[yaml]``, ``[excel]``, or
+# ``[all]``).  Missing optional packages produce ImportError at call time,
 # not at import time, so the core client is always usable.
 #
 # Each try/except narrows to the specific optional dependency via
@@ -110,12 +114,6 @@ from .dbc_queries import (
 def _missing_pkg(exc: ImportError, pkg: str) -> bool:
     return (exc.name or "").split(".", 1)[0] == pkg
 
-
-try:
-    from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
-except ImportError as _e:
-    if not _missing_pkg(_e, "cantools"):
-        raise
 
 try:
     from .can_log import load_can_log, iter_can_log
@@ -186,7 +184,8 @@ __all__ = [
     "infinitely_often",
     "eventually_always",
     "never",
-    # Optional: aletheia[dbc]
+    # DBC text/JSON conversion (no optional deps for the default Agda path;
+    # ``parser="cantools"`` lazily imports the cantools fallback)
     "convert_dbc_file",
     "dbc_to_json",
     "dbc_to_text",

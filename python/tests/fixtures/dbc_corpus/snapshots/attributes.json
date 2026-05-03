@@ -14,22 +14,10 @@
           "length": 16,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 65535,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 65535,
           "unit": "",
           "receivers": [
             "Sensor"
@@ -42,22 +30,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 255,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 255,
           "unit": "",
           "receivers": [
             "Sensor"
@@ -72,18 +48,9 @@
     {
       "name": "Monitor",
       "varType": 0,
-      "initial": {
-        "numerator": 50,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 100,
-        "denominator": 1
-      }
+      "initial": 50,
+      "minimum": 0,
+      "maximum": 100
     }
   ],
   "valueTables": [],
@@ -111,14 +78,8 @@
       "scope": "node",
       "attrType": {
         "kind": "float",
-        "min": {
-          "numerator": 0,
-          "denominator": 1
-        },
-        "max": {
-          "numerator": 100,
-          "denominator": 1
-        }
+        "min": 0,
+        "max": 100
       }
     },
     {
@@ -187,10 +148,7 @@
       "name": "NodeBusLoad",
       "value": {
         "kind": "float",
-        "value": {
-          "numerator": 0,
-          "denominator": 1
-        }
+        "value": 0
       }
     },
     {

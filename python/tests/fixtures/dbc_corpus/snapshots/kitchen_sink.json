@@ -20,18 +20,9 @@
             "numerator": 1,
             "denominator": 4
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 8000,
-            "denominator": 1
-          },
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 8000,
           "unit": "rpm",
           "receivers": [
             "Gateway"
@@ -44,22 +35,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": true,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": -40,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": -40,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 215,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": -40,
+          "minimum": -40,
+          "maximum": 215,
           "unit": "degC",
           "receivers": [
             "Gateway"
@@ -72,22 +51,10 @@
           "length": 1,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 1,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 1,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -109,22 +76,10 @@
           "length": 4,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 15,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 15,
           "unit": "",
           "receivers": [
             "Gateway"
@@ -141,14 +96,8 @@
             "numerator": 1,
             "denominator": 10
           },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
+          "offset": 0,
+          "minimum": 0,
           "maximum": {
             "numerator": 13107,
             "denominator": 2
@@ -168,22 +117,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 100,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 100,
           "unit": "%",
           "receivers": [
             "Gateway"
@@ -208,22 +145,10 @@
           "length": 8,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 255,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 255,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -234,22 +159,10 @@
           "length": 32,
           "byteOrder": "little_endian",
           "signed": false,
-          "factor": {
-            "numerator": 1,
-            "denominator": 1
-          },
-          "offset": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "minimum": {
-            "numerator": 0,
-            "denominator": 1
-          },
-          "maximum": {
-            "numerator": 4294967295,
-            "denominator": 1
-          },
+          "factor": 1,
+          "offset": 0,
+          "minimum": 0,
+          "maximum": 4294967295,
           "unit": "",
           "receivers": [],
           "presence": "always"
@@ -272,18 +185,9 @@
     {
       "name": "RigTime",
       "varType": 1,
-      "initial": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "minimum": {
-        "numerator": 0,
-        "denominator": 1
-      },
-      "maximum": {
-        "numerator": 86400,
-        "denominator": 1
-      }
+      "initial": 0,
+      "minimum": 0,
+      "maximum": 86400
     }
   ],
   "valueTables": [
@@ -364,14 +268,8 @@
       "scope": "node",
       "attrType": {
         "kind": "float",
-        "min": {
-          "numerator": 0,
-          "denominator": 1
-        },
-        "max": {
-          "numerator": 100,
-          "denominator": 1
-        }
+        "min": 0,
+        "max": 100
       }
     },
     {
@@ -440,10 +338,7 @@
       "name": "NodeLoad",
       "value": {
         "kind": "float",
-        "value": {
-          "numerator": 0,
-          "denominator": 1
-        }
+        "value": 0
       }
     },
     {

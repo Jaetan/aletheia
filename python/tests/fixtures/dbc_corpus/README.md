@@ -6,9 +6,12 @@ inventory row is exercised by at least one corpus file.
 
 Two snapshot trees live here, each a separate gate:
 
-- `snapshots/` — cantools-baseline regression for `dbc_to_json`. Insertion
-  order, all rationals emitted as `{"numerator","denominator"}` dicts.
-  Driven by `test_dbc_corpus_baseline.py`.
+- `snapshots/` — cantools-baseline regression for `dbc_to_json(parser="cantools")`.
+  Insertion order (no `sort_keys`); rational fields share the same
+  "emit int when denominator=1" rule as `parity_snapshots/` (B.3.f
+  canonicalised `FractionJSONEncoder` to match Agda's `formatRational`).
+  Driven by `test_dbc_corpus_baseline.py`. Slated for removal alongside the
+  cantools fallback in B.3.g.
 - `parity_snapshots/` — B.3.j cross-binding parity oracle for the
   Agda-backed `parse_dbc_text` (shipped in B.3.e). Sorted keys, "emit int
   when denominator=1" rule, `presence: always` always explicit, `extended`
@@ -17,11 +20,12 @@ Two snapshot trees live here, each a separate gate:
   (`go/aletheia/dbc_corpus_parity_test.go`) parity tests all assert
   byte-equality against the same files.
 
-The two trees deliberately use different canonicalization choices so each
-gate is loud about its own concern: cantools regressions vs cross-binding
-DbcDefinition drift. The Agda parser correctness itself is not under test
-in either gate — that is established by the universal roundtrip theorem
-in `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d).
+The two trees differ only on `sort_keys` (parity sorts, baseline preserves
+insertion order). Each gate is loud about its own concern: cantools
+regressions vs cross-binding DbcDefinition drift. The Agda parser
+correctness itself is not under test in either gate — that is established
+by the universal roundtrip theorem in
+`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d).
 
 ## Coverage map
 

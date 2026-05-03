@@ -14,7 +14,6 @@ from typing import cast
 
 from ..protocols import (
     AckResponse,
-    DBCDefinition,
     ErrorResponse,
     ParsedDBCResponse,
     PropertyResultEntry,
@@ -23,8 +22,9 @@ from ..protocols import (
     SuccessResponse,
     ValidationIssue,
     is_object_list,
+    is_str_dict,
 )
-from ._helpers import validate_rational
+from ._helpers import normalize_dbc, validate_rational
 from ._log import LogEvent, log_event
 from ._types import ProtocolError
 
@@ -107,7 +107,7 @@ def parse_parsed_dbc_response(
     if status == "success":
         dbc_field = response.get("dbc")
         warnings_field = response.get("warnings", [])
-        if not isinstance(dbc_field, dict):
+        if not is_str_dict(dbc_field):
             raise ProtocolError(
                 "parseDBC success response missing 'dbc' object"
             )
@@ -116,9 +116,17 @@ def parse_parsed_dbc_response(
                 "parseDBC success response 'warnings' must be a list of objects"
             )
         warnings = cast(list[ValidationIssue], list(warnings_field))
+        # Agda emits non-integer rationals on the wire as
+        # ``{"numerator": n, "denominator": d}`` dicts; ``normalize_dbc``
+        # converts those back to ``Fraction`` so callers see a real
+        # ``DBCDefinition`` instead of a typed-cast lie. This is the
+        # symmetry of ``FractionJSONEncoder`` on the request side, and
+        # mirrors what Go's ``parseRational`` and the C++ JSON deserialiser
+        # already do — the asymmetry was a Python-side bug surfaced by
+        # B.3.f's switch to the Agda-backed ``dbc_to_json`` default.
         return {
             "status": "success",
-            "dbc": cast(DBCDefinition, dbc_field),
+            "dbc": normalize_dbc(dbc_field),
             "warnings": validate_issue_severities(warnings),
         }
 
