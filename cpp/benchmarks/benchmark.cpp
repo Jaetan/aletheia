@@ -500,19 +500,19 @@ static auto bench_streaming(const fs::path& lib, const DbcDefinition& dbc,
                             const FramePayload& frame, int num_frames) -> double {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
-    (void)client.set_properties(properties);
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, properties);
+    (void)client.start_stream(std::stop_token{});
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        (void)client.send_frame(Timestamp{i}, id, dlc, frame);
+        (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
     auto end = std::chrono::high_resolution_clock::now();
 
-    (void)client.end_stream();
+    (void)client.end_stream(std::stop_token{});
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
     return static_cast<double>(num_frames) / elapsed;
@@ -522,14 +522,14 @@ static auto bench_extraction(const fs::path& lib, const DbcDefinition& dbc, CanI
                              const FramePayload& frame, int num_frames) -> double {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        (void)client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
     auto end = std::chrono::high_resolution_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -540,14 +540,14 @@ static auto bench_building(const fs::path& lib, const DbcDefinition& dbc, CanId 
                            const std::vector<SignalValue>& signals, int num_frames) -> double {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
 
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_frames; ++i)
-        (void)client.build_frame(id, dlc, signals);
+        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
     auto end = std::chrono::high_resolution_clock::now();
 
     auto elapsed = std::chrono::duration<double>(end - start).count();
@@ -701,29 +701,29 @@ static auto bench_latency_streaming(const fs::path& lib, const DbcDefinition& db
     -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
-    (void)client.set_properties(properties);
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, properties);
+    (void)client.start_stream(std::stop_token{});
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        (void)client.send_frame(Timestamp{i}, id, dlc, frame);
+        (void)client.send_frame(std::stop_token{}, Timestamp{i}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        (void)client.send_frame(Timestamp{warmup + i}, id, dlc, frame);
+        (void)client.send_frame(std::stop_token{}, Timestamp{warmup + i}, id, dlc, frame);
         auto end = std::chrono::high_resolution_clock::now();
         auto us = std::chrono::duration<double, std::micro>(end - start).count();
         latencies.push_back(us);
     }
 
-    (void)client.end_stream();
+    (void)client.end_stream(std::stop_token{});
     return compute_latency_stats(latencies);
 }
 
@@ -732,21 +732,21 @@ static auto bench_latency_extraction(const fs::path& lib, const DbcDefinition& d
     -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        (void)client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        (void)client.extract_signals(id, dlc, frame);
+        (void)client.extract_signals(std::stop_token{}, id, dlc, frame);
         auto end = std::chrono::high_resolution_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }
@@ -759,21 +759,21 @@ static auto bench_latency_building(const fs::path& lib, const DbcDefinition& dbc
     -> LatencyStats {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
-    auto parse_result = client.parse_dbc(dbc);
+    auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
     if (!parse_result)
         throw std::runtime_error("parse_dbc failed: " +
                                  std::string(parse_result.error().message()));
 
     // Warmup
     for (int i = 0; i < warmup; ++i)
-        (void)client.build_frame(id, dlc, signals);
+        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
 
     // Measure
     std::vector<double> latencies;
     latencies.reserve(ops);
     for (int i = 0; i < ops; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
-        (void)client.build_frame(id, dlc, signals);
+        (void)client.build_frame(std::stop_token{}, id, dlc, signals);
         auto end = std::chrono::high_resolution_clock::now();
         latencies.push_back(std::chrono::duration<double, std::micro>(end - start).count());
     }

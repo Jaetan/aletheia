@@ -103,7 +103,7 @@ TEST_CASE("parse DBC via real FFI", "[integration]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.parse_dbc(make_integration_dbc());
+    auto result = client.parse_dbc(std::stop_token{}, make_integration_dbc());
     CHECK(result.has_value());
 }
 
@@ -132,8 +132,8 @@ TEST_CASE("Tier 1 DBC metadata round-trips through real FFI", "[integration][dbc
                     DbcValueEntry{.value = 2, .description = "Reverse"}},
     });
 
-    REQUIRE(client.parse_dbc(dbc).has_value());
-    auto round_tripped = client.format_dbc();
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
+    auto round_tripped = client.format_dbc(std::stop_token{});
     REQUIRE(round_tripped.has_value());
 
     REQUIRE(round_tripped->signal_groups.size() == 1);
@@ -172,7 +172,7 @@ TEST_CASE("env var with non-terminating rational is rejected") {
         .maximum = Rational{1, 1},
     });
 
-    auto result = client.parse_dbc(dbc);
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
 }
@@ -194,7 +194,7 @@ TEST_CASE("signal with non-terminating rational factor is rejected") {
     // Override the first signal's factor to a repeating rational.
     dbc.messages[0].signals[0].factor = RationalFactor{Rational{1, 3}};
 
-    auto result = client.parse_dbc(dbc);
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseNonTerminatingRational);
 }
@@ -205,7 +205,7 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
     AletheiaClient client(std::move(backend));
 
     auto dbc = make_integration_dbc();
-    REQUIRE(client.parse_dbc(dbc).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, dbc).has_value());
 
     // Speed = 1000 raw * 0.1 factor = 100.0 km/h
     // RPM   = 3000 raw * 1.0 factor = 3000 rpm
@@ -215,7 +215,7 @@ TEST_CASE("extract signals via real FFI", "[integration]") {
                       std::byte{0xB8}, std::byte{0x0B}, // 3000 LE
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
 
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2);
     CHECK(result->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(100.0));
@@ -227,7 +227,7 @@ TEST_CASE("build frame via real FFI", "[integration]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
@@ -235,7 +235,7 @@ TEST_CASE("build frame via real FFI", "[integration]") {
         {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},  // raw = 3000
     };
 
-    auto result = client.build_frame(id, Dlc::create(8).value(), signals);
+    auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE(result.has_value());
     // Speed: 1000 = 0x03E8 LE → [0xE8, 0x03]
     CHECK((*result)[0] == std::byte{0xE8});
@@ -250,7 +250,7 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     std::vector<SignalValue> signals{
@@ -258,10 +258,10 @@ TEST_CASE("build then extract round-trip via real FFI", "[integration]") {
         {SignalName{"RPM"}, PhysicalValue{Rational{1500, 1}}},
     };
 
-    auto built = client.build_frame(id, Dlc::create(8).value(), signals);
+    auto built = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
     REQUIRE(built.has_value());
 
-    auto extracted = client.extract_signals(id, Dlc::create(8).value(), *built);
+    auto extracted = client.extract_signals(std::stop_token{}, id, Dlc::create(8).value(), *built);
     REQUIRE(extracted.has_value());
     // Round-trip: values should match (within quantization)
     CHECK(extracted->get(SignalName{"Speed"}).get().to_double() == Catch::Approx(42.5).margin(0.1));
@@ -273,7 +273,7 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     // Property: always(Speed < 200)
     auto formula = ltl::always(
@@ -281,8 +281,8 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
@@ -298,12 +298,12 @@ TEST_CASE("streaming LTL check via real FFI — property holds", "[integration]"
                           std::byte{0},
                           std::byte{0},
                           std::byte{0}};
-        auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+        auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         CHECK(std::holds_alternative<Ack>(*result));
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -314,7 +314,7 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     // Property: always(Speed < 120) — will be violated by Speed=150
     auto formula = ltl::always(
@@ -322,8 +322,8 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
@@ -339,13 +339,13 @@ TEST_CASE("streaming LTL check via real FFI — property violated", "[integratio
                           std::byte{0},
                           std::byte{0},
                           std::byte{0}};
-        auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+        auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
         REQUIRE(result.has_value());
         if (std::holds_alternative<Violation>(*result))
             got_violation = true;
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 
     // Either got a mid-stream violation or end-of-stream violation
@@ -362,15 +362,15 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{500, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
@@ -378,26 +378,26 @@ TEST_CASE("non-monotonic timestamp rejected by Agda via real FFI", "[integration
                          std::byte{0},  std::byte{0}, std::byte{0}, std::byte{0}};
 
     // First frame at t=5000 µs — accepted.
-    auto ok = client.send_frame(Timestamp{5000}, id, dlc, payload);
+    auto ok = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
     REQUIRE(ok.has_value());
     CHECK(std::holds_alternative<Ack>(*ok));
 
     // Regressing to t=4999 µs — rejected by Agda.
-    auto err = client.send_frame(Timestamp{4999}, id, dlc, payload);
+    auto err = client.send_frame(std::stop_token{}, Timestamp{4999}, id, dlc, payload);
     REQUIRE_FALSE(err.has_value());
     CHECK(err.error().code() == ErrorCode::HandlerNonMonotonicTimestamp);
 
     // Same-timestamp frames (≥, not >) are accepted.
-    auto eq = client.send_frame(Timestamp{5000}, id, dlc, payload);
+    auto eq = client.send_frame(std::stop_token{}, Timestamp{5000}, id, dlc, payload);
     REQUIRE(eq.has_value());
     CHECK(std::holds_alternative<Ack>(*eq));
 
     // Anchor unchanged after rejection — next ≥ 5000 still accepted.
-    auto fwd = client.send_frame(Timestamp{6000}, id, dlc, payload);
+    auto fwd = client.send_frame(std::stop_token{}, Timestamp{6000}, id, dlc, payload);
     REQUIRE(fwd.has_value());
     CHECK(std::holds_alternative<Ack>(*fwd));
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }
 
@@ -406,7 +406,7 @@ TEST_CASE("validate DBC via real FFI", "[integration]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.validate_dbc(make_integration_dbc());
+    auto result = client.validate_dbc(std::stop_token{}, make_integration_dbc());
     REQUIRE(result.has_value());
     // Our test DBC is well-formed — no errors expected
     CHECK_FALSE(result->has_errors);
@@ -452,7 +452,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
 
             // Step 1: parse DBC
             auto dbc = make_integration_dbc();
-            auto parse_result = client.parse_dbc(dbc);
+            auto parse_result = client.parse_dbc(std::stop_token{}, dbc);
             if (!parse_result.has_value()) {
                 out.error = "parse_dbc failed";
                 sync.arrive_and_drop();
@@ -464,7 +464,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
             auto formula = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, threshold)));
             std::vector<LtlFormula> props;
             props.push_back(std::move(formula));
-            if (!client.set_properties(props).has_value()) {
+            if (!client.set_properties(std::stop_token{}, props).has_value()) {
                 out.error = "set_properties failed";
                 sync.arrive_and_drop();
                 return;
@@ -472,7 +472,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
             sync.arrive_and_wait();
 
             // Step 3: start stream
-            if (!client.start_stream().has_value()) {
+            if (!client.start_stream(std::stop_token{}).has_value()) {
                 out.error = "start_stream failed";
                 sync.arrive_and_drop();
                 return;
@@ -491,7 +491,8 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
                               std::byte{0},
                               std::byte{0},
                               std::byte{0}};
-            auto send_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+            auto send_result =
+                client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
             if (!send_result.has_value()) {
                 out.error = "send_frame failed";
                 sync.arrive_and_drop();
@@ -500,7 +501,7 @@ TEST_CASE("concurrent clients have independent state via real FFI", "[integratio
             sync.arrive_and_wait();
 
             // Step 5: end stream and capture verdict
-            auto end = client.end_stream();
+            auto end = client.end_stream(std::stop_token{});
             if (!end.has_value() || end->results.empty()) {
                 out.error = "end_stream failed or empty results";
                 return;
@@ -622,7 +623,7 @@ TEST_CASE("nested mux DBC validates clean via real FFI", "[integration][nested_m
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    auto result = client.validate_dbc(make_nested_mux_dbc());
+    auto result = client.validate_dbc(std::stop_token{}, make_nested_mux_dbc());
     REQUIRE(result.has_value());
     CHECK_FALSE(result->has_errors);
 }
@@ -632,7 +633,7 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_nested_mux_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=3, SubMode=7, Detail=0xABCD (43981)
     auto id = CanId{StandardId::create(0x300).value()};
@@ -640,7 +641,7 @@ TEST_CASE("nested mux full chain match extracts leaf via real FFI", "[integratio
     FramePayload data{std::byte{0x03}, std::byte{0x07}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 3);
     CHECK(result->absent.empty());
@@ -654,7 +655,7 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_nested_mux_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=3 (matches), SubMode=5 (≠7) — Detail should be reported absent.
     auto id = CanId{StandardId::create(0x300).value()};
@@ -662,7 +663,7 @@ TEST_CASE("nested mux inner mismatch marks leaf absent via real FFI", "[integrat
     FramePayload data{std::byte{0x03}, std::byte{0x05}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 2); // Mode and SubMode extracted
     CHECK(result->absent.size() == 1);
@@ -677,7 +678,7 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_nested_mux_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_nested_mux_dbc()).has_value());
 
     // Mode=2 (≠3) — both SubMode and Detail should be reported absent.
     auto id = CanId{StandardId::create(0x300).value()};
@@ -685,7 +686,7 @@ TEST_CASE("nested mux outer mismatch marks inner and leaf absent via real FFI",
     FramePayload data{std::byte{0x02}, std::byte{0x07}, std::byte{0xCD}, std::byte{0xAB},
                       std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0}};
 
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1); // only Mode extracted
     CHECK(result->absent.size() == 2);
@@ -747,7 +748,7 @@ TEST_CASE("mux cycle rejected by validator via real FFI", "[integration][nested_
         }},
     };
 
-    auto result = client.validate_dbc(cycle_dbc);
+    auto result = client.validate_dbc(std::stop_token{}, cycle_dbc);
     REQUIRE(result.has_value());
     REQUIRE(result->has_errors);
     bool found_cycle = std::ranges::any_of(result->issues, [](const auto& issue) {
@@ -847,22 +848,22 @@ TEST_CASE("end_stream: Always on never-observed signal after 1 frame → Unresol
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
-    auto ack = client.send_frame(Timestamp{0}, rpm_id, dlc, bytes_of(5));
+    auto ack = client.send_frame(std::stop_token{}, Timestamp{0}, rpm_id, dlc, bytes_of(5));
     REQUIRE(ack.has_value());
     CHECK(std::holds_alternative<Ack>(*ack));
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -877,23 +878,24 @@ TEST_CASE("end_stream: Always on never-observed signal after 5 frames → Unreso
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 5; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -909,21 +911,21 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula =
         ltl::always(ltl::negate(ltl::atomic(ltl::changed_by(SignalName{"Speed"}, Delta{0.0}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto speed_id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
-    auto ack = client.send_frame(Timestamp{0}, speed_id, dlc, bytes_of(10));
+    auto ack = client.send_frame(std::stop_token{}, Timestamp{0}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack.has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -939,23 +941,24 @@ TEST_CASE("end_stream: Eventually on never-observed signal → Unresolved (regre
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::eventually(
         ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 5; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -970,16 +973,16 @@ TEST_CASE("end_stream: Eventually on 0 frames still finalizes to Fails",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::eventually(
         ltl::atomic(ltl::greater_than(SignalName{"Speed"}, PhysicalValue{Rational{10, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Fails);
@@ -995,16 +998,16 @@ TEST_CASE("end_stream: 0 frames + Always(missing) → Holds (vacuous)",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -1019,14 +1022,14 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto speed_id = CanId{StandardId::create(0x100).value()};
     auto rpm_id = CanId{StandardId::create(0x200).value()};
@@ -1034,16 +1037,17 @@ TEST_CASE("end_stream: signal recovers after missing → Holds", "[integration][
 
     // Three frames of Msg512 (Speed absent).
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
     // Two frames of Msg256 with Speed = 10 (< 100).
-    auto ack1 = client.send_frame(Timestamp{3000}, speed_id, dlc, bytes_of(10));
+    auto ack1 = client.send_frame(std::stop_token{}, Timestamp{3000}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack1.has_value());
-    auto ack2 = client.send_frame(Timestamp{4000}, speed_id, dlc, bytes_of(10));
+    auto ack2 = client.send_frame(std::stop_token{}, Timestamp{4000}, speed_id, dlc, bytes_of(10));
     REQUIRE(ack2.has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Holds);
@@ -1058,7 +1062,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto lhs = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
@@ -1066,17 +1070,18 @@ TEST_CASE("end_stream: K3 combination — Unresolved And Holds = Unresolved",
         ltl::atomic(ltl::less_than(SignalName{"Rpm"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::both(std::move(lhs), std::move(rhs)));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -1106,7 +1111,7 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto lhs = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
@@ -1114,17 +1119,18 @@ TEST_CASE("end_stream: K3 combination — Unresolved Or Fails = Unresolved",
         ltl::atomic(ltl::greater_than(SignalName{"Rpm"}, PhysicalValue{Rational{999999, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(ltl::either(std::move(lhs), std::move(rhs)));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     CHECK(end->results[0].verdict == Verdict::Unresolved);
@@ -1139,23 +1145,24 @@ TEST_CASE("end_stream: Unresolved result carries enrichment when diagnostics pre
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_two_message_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{100, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto rpm_id = CanId{StandardId::create(0x200).value()};
     auto dlc = Dlc::create(8).value();
     for (std::uint64_t i = 0; i < 3; ++i) {
-        auto ack = client.send_frame(Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
+        auto ack =
+            client.send_frame(std::stop_token{}, Timestamp{i * 1000}, rpm_id, dlc, bytes_of(5));
         REQUIRE(ack.has_value());
     }
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
     REQUIRE(end->results.size() == 1);
     const auto& pr = end->results[0];
@@ -1226,7 +1233,7 @@ TEST_CASE("parse DBC: BigEndian signal with length=0 → parse_signal_bit_length
     // BE signal, length=0 → physicalGate's `1 ≤ᵇ bl` check fails → SignalBitLengthZero.
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/0, /*dlc_bytes=*/1);
 
-    auto result = client.parse_dbc(dbc);
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseSignalBitLengthZero);
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -1244,7 +1251,7 @@ TEST_CASE("parse DBC: BigEndian signal overflowing frame → parse_signal_overfl
     // Mirrors python/tests/test_dbc_validator.py::test_big_endian_signal_exceeds_dlc.
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/7, /*bit_length=*/33, /*dlc_bytes=*/4);
 
-    auto result = client.parse_dbc(dbc);
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseSignalOverflowsFrame);
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -1263,7 +1270,7 @@ TEST_CASE(
     // bl − 1 ≤ csb → 1 ≤ 0 is false → SignalMSBBelowBitLength.
     auto dbc = make_single_be_signal_dbc(/*start_bit=*/0, /*bit_length=*/2, /*dlc_bytes=*/1);
 
-    auto result = client.parse_dbc(dbc);
+    auto result = client.parse_dbc(std::stop_token{}, dbc);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().code() == ErrorCode::ParseSignalMsbBelowBitLength);
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -1308,7 +1315,7 @@ TEST_CASE("validate DBC: LittleEndian signal with length=0 bypasses physicalGate
     };
 
     // validate_dbc: the parser accepts the LE signal, validator flags it.
-    auto validation = client.validate_dbc(dbc);
+    auto validation = client.validate_dbc(std::stop_token{}, dbc);
     REQUIRE(validation.has_value());
     CHECK(validation->has_errors);
     bool found_zero_length = false;
@@ -1445,16 +1452,16 @@ TEST_CASE("send_error returns ack via real FFI", "[integration][event_ack]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
-    REQUIRE(client.set_properties({}).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, {}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     // send_error carries only a timestamp; the real FFI must return
     // {"status":"ack"} and the Client must accept it.
-    auto r = client.send_error(Timestamp{1'000});
+    auto r = client.send_error(std::stop_token{}, Timestamp{1'000});
     REQUIRE(r.has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }
 
@@ -1463,16 +1470,16 @@ TEST_CASE("send_remote returns ack via real FFI", "[integration][event_ack]") {
     auto backend = make_ffi_backend(lib);
     AletheiaClient client(std::move(backend));
 
-    REQUIRE(client.parse_dbc(make_integration_dbc()).has_value());
-    REQUIRE(client.set_properties({}).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_integration_dbc()).has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, {}).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     // send_remote carries a timestamp + CAN id; the real FFI must return
     // {"status":"ack"} and the Client must accept it.
     auto id = CanId{StandardId::create(0x100).value()};
-    auto r = client.send_remote(Timestamp{1'000}, id);
+    auto r = client.send_remote(std::stop_token{}, Timestamp{1'000}, id);
     REQUIRE(r.has_value());
 
-    auto end = client.end_stream();
+    auto end = client.end_stream(std::stop_token{});
     REQUIRE(end.has_value());
 }

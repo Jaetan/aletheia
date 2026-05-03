@@ -77,7 +77,7 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
-    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
 
     // Verify by triggering enrichment: start_stream, send_frame (violation), extraction
     mock_ptr->queue_response(R"({"status": "success"})");
@@ -92,12 +92,12 @@ TEST_CASE("set_properties auto-derives diagnostics", "[client][enrich]") {
         "errors": [], "absent": []
     })");
 
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xF5}, std::byte{0x00}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
 
@@ -136,13 +136,13 @@ TEST_CASE("send_frame multi-signal enrichment", "[client][enrich]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
     REQUIRE(v.enrichment.has_value());
@@ -179,18 +179,18 @@ TEST_CASE("extraction caching: same frame extracts once", "[client][enrich]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    auto r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
     CHECK(std::get<Violation>(*r1).enrichment.has_value());
 
-    auto r2 = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto r2 = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -231,15 +231,15 @@ TEST_CASE("end_stream enriches failed verdicts", "[client][enrich]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream();
+    auto end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     CHECK(end_result->results[0].verdict == Verdict::Fails);
@@ -289,20 +289,20 @@ TEST_CASE("start_stream clears extraction cache", "[client][enrich]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
-    auto r1 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    auto r1 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r1.has_value());
-    REQUIRE(client.end_stream().has_value());
+    REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
     // Second stream: same frame data but cache cleared
-    REQUIRE(client.start_stream().has_value());
-    auto r2 = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
+    auto r2 = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(r2.has_value());
     CHECK(std::get<Violation>(*r2).enrichment.has_value());
 
@@ -328,7 +328,7 @@ TEST_CASE("no enrichment without set_properties", "[client][enrich]") {
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
@@ -359,13 +359,13 @@ TEST_CASE("violation enrichment omits core_reason when empty", "[client][enrich]
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     auto& v = std::get<Violation>(*result);
@@ -419,17 +419,17 @@ TEST_CASE("end_stream enrichment includes last-known signal values", "[client][e
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xF5}, std::byte{0}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
-    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
-    REQUIRE(client.send_frame(Timestamp{2'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data).has_value());
 
-    auto end_result = client.end_stream();
+    auto end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     REQUIRE(end_result->results[0].enrichment.has_value());
@@ -477,18 +477,18 @@ TEST_CASE("end_stream enrichment uses last-frame tracking, not just cache", "[cl
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     // Send a frame that gets ack (no violation, so no extraction cache entry)
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    auto frame_result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
     CHECK(std::holds_alternative<Ack>(*frame_result));
 
-    auto end_result = client.end_stream();
+    auto end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     REQUIRE(end_result->results.size() == 1);
     REQUIRE(end_result->results[0].enrichment.has_value());
@@ -523,13 +523,13 @@ TEST_CASE("violation with OOB property_index skips enrichment", "[client][enrich
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));

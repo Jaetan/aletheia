@@ -41,7 +41,7 @@ TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][m
     mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client(std::move(mock));
-    auto result = client.parse_dbc(make_test_dbc());
+    auto result = client.parse_dbc(std::stop_token{}, make_test_dbc());
 
     CHECK(result.has_value());
     REQUIRE(mock_ptr->captured().size() == 1);
@@ -57,7 +57,7 @@ TEST_CASE("client parse_dbc handles error response", "[client][mock]") {
         R"({"status": "error", "code": "handler_validation_failed", "message": "Invalid DBC"})");
 
     AletheiaClient client(std::move(mock));
-    auto result = client.parse_dbc(make_test_dbc());
+    auto result = client.parse_dbc(std::stop_token{}, make_test_dbc());
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::Protocol);
@@ -78,7 +78,7 @@ TEST_CASE("client extract_signals round-trip", "[client][mock]") {
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0xE8}, std::byte{0x03}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0},    std::byte{0}, std::byte{0}};
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1);
@@ -106,7 +106,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
     })");
 
     AletheiaClient client(std::move(mock));
-    REQUIRE(client.parse_dbc(make_test_dbc()).has_value());
+    REQUIRE(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     // With the signal-name cache populated, Client tries the binary path
     // first; MockBackend's inherited default returns BinaryUnsupported, and
@@ -115,7 +115,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
     auto dlc = Dlc::create(8).value();
     FramePayload data{std::byte{0x37}, std::byte{0}, std::byte{0}, std::byte{0},
                       std::byte{0},    std::byte{0}, std::byte{0}, std::byte{0}};
-    auto result = client.extract_signals(id, dlc, data);
+    auto result = client.extract_signals(std::stop_token{}, id, dlc, data);
 
     REQUIRE(result.has_value());
     CHECK(result->values.size() == 1);
@@ -129,7 +129,7 @@ TEST_CASE("client build_frame requires loaded DBC", "[client][mock]") {
     std::vector<SignalValue> signals{
         {SignalName{"Speed"}, PhysicalValue{Rational{100, 1}}},
     };
-    auto result = client.build_frame(id, Dlc::create(8).value(), signals);
+    auto result = client.build_frame(std::stop_token{}, id, Dlc::create(8).value(), signals);
 
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::State);
@@ -158,17 +158,17 @@ TEST_CASE("client streaming workflow", "[client][mock]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    CHECK(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    CHECK(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto frame_result = client.send_frame(Timestamp{1'000'000}, id, dlc, data);
+    auto frame_result = client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data);
     REQUIRE(frame_result.has_value());
     CHECK(std::holds_alternative<Ack>(*frame_result));
 
-    auto end_result = client.end_stream();
+    auto end_result = client.end_stream(std::stop_token{});
     REQUIRE(end_result.has_value());
     CHECK(end_result->results.size() == 1);
     CHECK(end_result->results[0].verdict == Verdict::Holds);
@@ -192,7 +192,7 @@ TEST_CASE("client validate_dbc round-trip", "[client][mock]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto result = client.validate_dbc(make_test_dbc());
+    auto result = client.validate_dbc(std::stop_token{}, make_test_dbc());
 
     REQUIRE(result.has_value());
     CHECK_FALSE(result->has_errors);
@@ -220,7 +220,7 @@ TEST_CASE("client format_dbc round-trip", "[client][mock]") {
     })");
 
     AletheiaClient client(std::move(mock));
-    auto result = client.format_dbc();
+    auto result = client.format_dbc(std::stop_token{});
 
     REQUIRE(result.has_value());
     CHECK(result->version == "1.0");
@@ -241,7 +241,7 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    auto result = client.send_frame(Timestamp{2'000'000}, id, dlc, data);
+    auto result = client.send_frame(std::stop_token{}, Timestamp{2'000'000}, id, dlc, data);
 
     REQUIRE(result.has_value());
     REQUIRE(std::holds_alternative<Violation>(*result));
@@ -257,10 +257,10 @@ TEST_CASE("client is movable", "[client]") {
     mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client1(std::move(mock));
-    CHECK(client1.parse_dbc(make_test_dbc()).has_value());
+    CHECK(client1.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     AletheiaClient client2 = std::move(client1);
-    CHECK(client2.parse_dbc(make_test_dbc()).has_value());
+    CHECK(client2.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
         AletheiaClient source(std::move(mock));
         {
             AletheiaClient target = std::move(source);
-            CHECK(target.parse_dbc(make_test_dbc()).has_value());
+            CHECK(target.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
         } // target destructor closes state_
         // source destructor runs here — state_ is already nullptr from the
         // move; the guard in ~AletheiaClient prevents a double close.
@@ -307,14 +307,14 @@ TEST_CASE("move-assignment releases current state before taking new", "[client][
     mock_b->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client_a(std::move(mock_a));
-    CHECK(client_a.parse_dbc(make_test_dbc()).has_value());
+    CHECK(client_a.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     AletheiaClient client_b(std::move(mock_b));
     // Overwrite client_a — the state_ from mock_a must be closed by the
     // move-assignment operator before client_a adopts mock_b's state.
     client_a = std::move(client_b);
     // Subsequent operations on client_a must use mock_b's queued responses.
-    CHECK(client_a.parse_dbc(make_test_dbc()).has_value());
+    CHECK(client_a.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     // client_b is now in moved-from state — destructor is a no-op (tested
     // implicitly by the lack of crash at end of scope).
 }
@@ -329,7 +329,7 @@ TEST_CASE("sequential clients in same scope work independently", "[client][lifec
         auto mock = std::make_unique<MockBackend>();
         mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient client(std::move(mock));
-        CHECK(client.parse_dbc(make_test_dbc()).has_value());
+        CHECK(client.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     } // Each iteration's destructor closes its state_ cleanly.
 }
 
@@ -343,17 +343,17 @@ TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]"
     mock_outer->queue_response(parsed_dbc_response_for(make_test_dbc())); // second outer op
 
     AletheiaClient outer(std::move(mock_outer));
-    CHECK(outer.parse_dbc(make_test_dbc()).has_value());
+    CHECK(outer.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 
     {
         auto mock_inner = std::make_unique<MockBackend>();
         mock_inner->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient inner(std::move(mock_inner));
-        CHECK(inner.parse_dbc(make_test_dbc()).has_value());
+        CHECK(inner.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
     } // inner destructed
 
     // Outer client must still be functional after inner's destruction.
-    CHECK(outer.parse_dbc(make_test_dbc()).has_value());
+    CHECK(outer.parse_dbc(std::stop_token{}, make_test_dbc()).has_value());
 }
 
 // ===========================================================================
@@ -371,7 +371,7 @@ TEST_CASE("client update_frame requires loaded DBC", "[client][mock]") {
         {SignalName{"RPM"}, PhysicalValue{Rational{3000, 1}}},
     };
 
-    auto result = client.update_frame(id, dlc, data, signals);
+    auto result = client.update_frame(std::stop_token{}, id, dlc, data, signals);
     CHECK_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::State);
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("no DBC loaded"));
@@ -391,8 +391,8 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -402,7 +402,7 @@ TEST_CASE("send_frames all ack", "[client][batch]") {
         {Timestamp{2000}, CanId{sid}, dlc, data},
     };
 
-    auto result = client.send_frames(frames);
+    auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE_FALSE(result.has_error());
     REQUIRE(result.responses.size() == 2);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
@@ -419,8 +419,8 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -431,7 +431,7 @@ TEST_CASE("send_frames stops on error with partial results", "[client][batch]") 
         {Timestamp{2000}, CanId{sid}, dlc, bad},
     };
 
-    auto result = client.send_frames(frames);
+    auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
     CHECK(result.error->message().find("payload") != std::string::npos);
     // Partial results: frame 1 succeeded before frame 2 failed.
@@ -454,8 +454,8 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -466,7 +466,7 @@ TEST_CASE("send_frames with violation continues", "[client][batch]") {
         {Timestamp{3000}, CanId{sid}, dlc, data},
     };
 
-    auto result = client.send_frames(frames);
+    auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE_FALSE(result.has_error());
     REQUIRE(result.responses.size() == 3);
     CHECK(std::holds_alternative<Ack>(result.responses[0]));
@@ -483,8 +483,8 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
     auto dlc = Dlc::create(8).value();
     auto sid = StandardId::create(0x100).value();
@@ -494,7 +494,7 @@ TEST_CASE("send_frames negative timestamp", "[client][batch]") {
         {Timestamp{-1}, CanId{sid}, dlc, data},
     };
 
-    auto result = client.send_frames(frames);
+    auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
     CHECK(result.error->message().find("non-negative") != std::string::npos);
     REQUIRE(result.responses.size() == 1);
@@ -510,8 +510,8 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
     auto sid = CanId{StandardId::create(0x100).value()};
     auto dlc8 = Dlc::create(8).value();
@@ -525,7 +525,7 @@ TEST_CASE("send_frames payload validation mid-batch reports frame index", "[clie
         {Timestamp{2000}, sid, dlc4, FramePayload(bad.begin(), bad.end())}); // mismatch
     frames.push_back({Timestamp{3000}, sid, dlc8, FramePayload(good.begin(), good.end())});
 
-    auto result = client.send_frames(frames);
+    auto result = client.send_frames(std::stop_token{}, frames);
     REQUIRE(result.has_error());
     CHECK(result.responses.size() == 1); // frame 0 succeeded
     auto msg = std::string(result.error->message());
@@ -541,10 +541,10 @@ TEST_CASE("send_frames empty", "[client][batch]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)client.set_properties(std::span{&prop, 1});
-    (void)client.start_stream();
+    (void)client.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)client.start_stream(std::stop_token{});
 
-    auto result = client.send_frames({});
+    auto result = client.send_frames(std::stop_token{}, {});
     REQUIRE_FALSE(result.has_error());
     CHECK(result.responses.empty());
 }
@@ -563,8 +563,8 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
 
     auto prop = ltl::always(
         ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{300, 1}})));
-    (void)a.set_properties(std::span{&prop, 1});
-    (void)a.start_stream();
+    (void)a.set_properties(std::stop_token{}, std::span{&prop, 1});
+    (void)a.start_stream(std::stop_token{});
 
     // Target client: separate backend (will be destroyed on assignment).
     auto backend_b = std::make_unique<MockBackend>();
@@ -576,7 +576,7 @@ TEST_CASE("move-assignment transfers client state", "[client]") {
     auto id = StandardId::create(0x100).value();
     auto dlc = Dlc::create(8).value();
     std::array<std::byte, 8> data{};
-    auto resp = b.send_frame(Timestamp{1000}, CanId{id}, dlc, data);
+    auto resp = b.send_frame(std::stop_token{}, Timestamp{1000}, CanId{id}, dlc, data);
     REQUIRE(resp.has_value());
     CHECK(std::holds_alternative<Ack>(resp.value()));
 }
@@ -603,8 +603,8 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
@@ -615,8 +615,8 @@ TEST_CASE("extraction cache full still works on 257th frame", "[client][enrich][
         // Vary first two bytes to make each frame key unique
         data[0] = static_cast<std::byte>(i & 0xFF);
         data[1] = static_cast<std::byte>((i >> 8) & 0xFF);
-        auto result =
-            client.send_frame(Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
+        auto result = client.send_frame(
+            std::stop_token{}, Timestamp{static_cast<std::int64_t>(i) * 1000}, id, dlc, data);
         REQUIRE(result.has_value());
         CHECK(std::holds_alternative<Ack>(*result));
     }

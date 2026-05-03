@@ -183,7 +183,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_validation.cpp
         tests/unit_tests_check.cpp
         tests/unit_tests_dbc.cpp
-        tests/unit_tests_log.cpp)
+        tests/unit_tests_log.cpp
+        tests/unit_tests_cancel.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)

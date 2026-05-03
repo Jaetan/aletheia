@@ -46,14 +46,14 @@ TEST_CASE("logger captures streaming events", "[client][log]") {
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
 
-    REQUIRE(client.set_properties(props).has_value());
-    REQUIRE(client.start_stream().has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
+    REQUIRE(client.start_stream(std::stop_token{}).has_value());
 
     auto id = CanId{StandardId::create(0x100).value()};
     auto dlc = Dlc::create(8).value();
     FramePayload data(8, std::byte{0});
-    REQUIRE(client.send_frame(Timestamp{1'000'000}, id, dlc, data).has_value());
-    REQUIRE(client.end_stream().has_value());
+    REQUIRE(client.send_frame(std::stop_token{}, Timestamp{1'000'000}, id, dlc, data).has_value());
+    REQUIRE(client.end_stream(std::stop_token{}).has_value());
 
     // Verify event sequence
     REQUIRE(events.size() >= 4);
@@ -93,7 +93,7 @@ TEST_CASE("null logger has zero overhead", "[client][log]") {
     props.push_back(std::move(formula));
 
     // Should not crash or produce output
-    REQUIRE(client.set_properties(props).has_value());
+    REQUIRE(client.set_properties(std::stop_token{}, props).has_value());
 }
 
 // Backend subclass that reports a synthetic RTS mismatch so the Client's

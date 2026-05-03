@@ -254,7 +254,7 @@ TEST_CASE("add_checks sends properties to backend", "[check][client]") {
     checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
     checks.push_back(Check::signal("Voltage").stays_between(PhysicalValue{Rational{23, 2}},
                                                             PhysicalValue{Rational{29, 2}}));
-    auto result = client.add_checks(std::move(checks));
+    auto result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
 }
 
@@ -270,6 +270,6 @@ TEST_CASE("default_checks are prepended in add_checks", "[check][client]") {
 
     std::vector<CheckResult> checks;
     checks.push_back(Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}}));
-    auto result = client.add_checks(std::move(checks));
+    auto result = client.add_checks(std::stop_token{}, std::move(checks));
     REQUIRE(result.has_value());
 }

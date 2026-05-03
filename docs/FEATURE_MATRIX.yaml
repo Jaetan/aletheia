@@ -376,8 +376,9 @@ features:
         status: planned
         notes: "C.1 — AsyncAletheiaClient + asyncio.CancelledError; design locked, implementation pending."
       cpp:
-        status: planned
-        notes: "C.4 — std::stop_token first-param + ErrorKind::Cancellation; design locked, implementation pending."
+        status: implemented
+        entry: "aletheia/client.hpp#send_frame"
+        notes: "C.4 (2026-05-03): every AletheiaClient operation method takes std::stop_token as its first parameter; new ErrorKind::Cancellation surfaces the cooperative-at-FFI-boundaries result. Default-constructed std::stop_token{} is the no-cancellation form (mirrors Go's context.Background()). See docs/architecture/CANCELLATION.md."
       go:
         status: implemented
         entry: Client.SendFrame

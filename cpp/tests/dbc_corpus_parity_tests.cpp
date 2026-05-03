@@ -85,7 +85,7 @@ auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     return parsed.at("dbc").dump(2) + "\n";
 }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
           "[integration][parity][dbc]") {
@@ -108,7 +108,7 @@ TEST_CASE("DBC corpus parity — Agda parse_dbc_text matches Python oracle",
     for (const auto& dbc_path : dbc_files) {
         DYNAMIC_SECTION("corpus DBC: " << dbc_path.filename().string()) {
             auto text = read_file(dbc_path);
-            auto result = client.parse_dbc_text(text);
+            auto result = client.parse_dbc_text(std::stop_token{}, text);
             REQUIRE(result.has_value());
 
             auto actual = canonical_dbc_json(result->dbc);

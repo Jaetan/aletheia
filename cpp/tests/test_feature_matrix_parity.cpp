@@ -34,8 +34,8 @@
 
 namespace {
 
-constexpr std::array<std::string_view, 3> kValidStatuses = {
-    "implemented", "not_applicable", "planned"};
+constexpr std::array<std::string_view, 3> kValidStatuses = {"implemented", "not_applicable",
+                                                            "planned"};
 
 constexpr std::array<std::string_view, 3> kBindings = {"python", "cpp", "go"};
 

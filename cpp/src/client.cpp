@@ -19,7 +19,9 @@
 #include <set>
 #include <span>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -36,6 +38,15 @@ auto validate_payload(Dlc dlc, std::span<const std::byte> data) -> Result<void> 
                           std::format("payload length {} does not match DLC {} (expected {} bytes)",
                                       data.size(), dlc.value(), expected)});
     return {};
+}
+
+// Cancellation error helper. Constructed when a method's pre-FFI guard sees
+// stop.stop_requested() and short-circuits before making the FFI call. The
+// message includes the method name to mirror Go's
+// `fmt.Errorf("method_name: %w", ctx.Err())` wrapping convention.
+auto make_cancellation_error(std::string_view method) -> AletheiaError {
+    return AletheiaError{ErrorKind::Cancellation,
+                         std::format("{} cancelled by stop_token", method)};
 }
 
 } // namespace
@@ -138,7 +149,10 @@ void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
     }
 }
 
-auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<ParsedDBC> {
+auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
+    -> Result<ParsedDBC> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("parse_dbc"));
     auto cmd = detail::serialize_parse_dbc(dbc);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
@@ -151,7 +165,10 @@ auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<ParsedDBC> {
     return result;
 }
 
-auto AletheiaClient::parse_dbc_text(std::string_view text) -> Result<ParsedDBC> {
+auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
+    -> Result<ParsedDBC> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("parse_dbc_text"));
     auto cmd = detail::serialize_parse_dbc_text(text);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_parsed_dbc(resp);
@@ -164,13 +181,18 @@ auto AletheiaClient::parse_dbc_text(std::string_view text) -> Result<ParsedDBC> 
     return result;
 }
 
-auto AletheiaClient::validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult> {
+auto AletheiaClient::validate_dbc(std::stop_token stop, const DbcDefinition& dbc)
+    -> Result<ValidationResult> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("validate_dbc"));
     auto cmd = detail::serialize_validate_dbc(dbc);
     auto resp = backend_->process(state_, cmd);
     return detail::parse_validation(resp);
 }
 
-auto AletheiaClient::format_dbc() -> Result<DbcDefinition> {
+auto AletheiaClient::format_dbc(std::stop_token stop) -> Result<DbcDefinition> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("format_dbc"));
     auto resp = backend_->format_dbc_binary(state_);
     return detail::parse_dbc_response(resp);
 }
@@ -269,8 +291,10 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
 
 } // namespace
 
-auto AletheiaClient::extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
-    -> Result<ExtractionResult> {
+auto AletheiaClient::extract_signals(std::stop_token stop, CanId id, Dlc dlc,
+                                     std::span<const std::byte> data) -> Result<ExtractionResult> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("extract_signals"));
     if (auto v = validate_payload(dlc, data); !v.has_value())
         return std::unexpected(v.error());
 
@@ -328,8 +352,10 @@ auto AletheiaClient::resolve_signals(CanId id, std::span<const SignalValue> sign
     return resolved;
 }
 
-auto AletheiaClient::build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
-    -> Result<FramePayload> {
+auto AletheiaClient::build_frame(std::stop_token stop, CanId id, Dlc dlc,
+                                 std::span<const SignalValue> signals) -> Result<FramePayload> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("build_frame"));
     if (signal_index_.empty()) {
         return std::unexpected(
             AletheiaError{ErrorKind::State, "build_frame: no DBC loaded (call parse_dbc first)"});
@@ -342,8 +368,11 @@ auto AletheiaClient::build_frame(CanId id, Dlc dlc, std::span<const SignalValue>
     return backend_->build_frame_bin(state_, id, dlc, inj, dlc_to_bytes(dlc));
 }
 
-auto AletheiaClient::update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
+auto AletheiaClient::update_frame(std::stop_token stop, CanId id, Dlc dlc,
+                                  std::span<const std::byte> data,
                                   std::span<const SignalValue> signals) -> Result<FramePayload> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("update_frame"));
     if (auto v = validate_payload(dlc, data); !v.has_value()) {
         return std::unexpected(v.error());
     }
@@ -363,7 +392,10 @@ auto AletheiaClient::update_frame(CanId id, Dlc dlc, std::span<const std::byte> 
 // Streaming
 // ---------------------------------------------------------------------------
 
-auto AletheiaClient::set_properties(std::span<const LtlFormula> properties) -> Result<void> {
+auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFormula> properties)
+    -> Result<void> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("set_properties"));
     auto cmd = detail::serialize_set_properties(properties);
     auto resp = backend_->process(state_, cmd);
     auto result = detail::parse_success(resp);
@@ -379,7 +411,10 @@ auto AletheiaClient::set_properties(std::span<const LtlFormula> properties) -> R
     return result;
 }
 
-auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void> {
+auto AletheiaClient::add_checks(std::stop_token stop, std::vector<CheckResult> checks)
+    -> Result<void> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("add_checks"));
     try {
         std::vector<LtlFormula> formulas;
         formulas.reserve(default_checks_.size() + checks.size());
@@ -401,13 +436,15 @@ auto AletheiaClient::add_checks(std::vector<CheckResult> checks) -> Result<void>
             if (!r)
                 return r;
         }
-        return set_properties(formulas);
+        return set_properties(stop, formulas);
     } catch (const std::exception& e) {
         return std::unexpected(AletheiaError{ErrorKind::Validation, e.what()});
     }
 }
 
-auto AletheiaClient::start_stream() -> Result<void> {
+auto AletheiaClient::start_stream(std::stop_token stop) -> Result<void> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("start_stream"));
     auto resp = backend_->start_stream_binary(state_);
     auto result = detail::parse_success(resp);
     if (result.has_value()) {
@@ -419,8 +456,10 @@ auto AletheiaClient::start_stream() -> Result<void> {
     return result;
 }
 
-auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
-    -> Result<FrameResponse> {
+auto AletheiaClient::send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
+                                std::span<const std::byte> data) -> Result<FrameResponse> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("send_frame"));
     if (ts.count() < 0)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
@@ -453,15 +492,29 @@ auto AletheiaClient::send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const
     return result;
 }
 
-auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
+auto AletheiaClient::send_frames(std::stop_token stop, std::span<const Frame> frames)
+    -> BatchResult {
     BatchResult batch;
     batch.responses.reserve(frames.size());
     for (std::size_t i = 0; i < frames.size(); ++i) {
-        auto r = send_frame(frames[i]);
+        // Per-frame check between FFI calls — the cancellation boundary for
+        // batch ops. The most recent FFI call (if one was in flight when stop
+        // fired) ran to completion and its response is in `responses`.
+        if (stop.stop_requested()) [[unlikely]] {
+            batch.error = make_cancellation_error("send_frames");
+            return batch;
+        }
+        auto r = send_frame(stop, frames[i]);
         if (!r.has_value()) {
             auto& e = r.error();
-            batch.error =
-                AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
+            // Cancellation propagates as-is so callers see ErrorKind::Cancellation
+            // rather than a misleading "frame N: ..." wrap.
+            if (e.kind() == ErrorKind::Cancellation) {
+                batch.error = e;
+            } else {
+                batch.error =
+                    AletheiaError{e.kind(), std::format("frame {}: {}", i, e.message()), e.code()};
+            }
             return batch;
         }
         batch.responses.push_back(std::move(*r));
@@ -469,7 +522,9 @@ auto AletheiaClient::send_frames(std::span<const Frame> frames) -> BatchResult {
     return batch;
 }
 
-auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
+auto AletheiaClient::send_error(std::stop_token stop, Timestamp ts) -> Result<void> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("send_error"));
     if (ts.count() < 0)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
@@ -482,7 +537,9 @@ auto AletheiaClient::send_error(Timestamp ts) -> Result<void> {
     return r;
 }
 
-auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
+auto AletheiaClient::send_remote(std::stop_token stop, Timestamp ts, CanId id) -> Result<void> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("send_remote"));
     if (ts.count() < 0)
         return std::unexpected(
             AletheiaError{ErrorKind::Validation, "timestamp must be non-negative"});
@@ -500,7 +557,9 @@ auto AletheiaClient::send_remote(Timestamp ts, CanId id) -> Result<void> {
     return r;
 }
 
-auto AletheiaClient::end_stream() -> Result<StreamResult> {
+auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("end_stream"));
     auto resp = backend_->end_stream_binary(state_);
     auto result = detail::parse_stream_result(resp);
     if (result.has_value()) {

@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -44,6 +45,14 @@ namespace aletheia {
 // The GHC RTS is initialized once (hs_init is ref-counted and thread-safe).
 // Individual aletheia_process() calls go through independent StablePtrs, so
 // there is no contention between clients.
+//
+// Cancellation: every operation method takes a [std::stop_token] as its first
+// parameter and honors cancellation cooperatively at FFI boundaries — see
+// docs/architecture/CANCELLATION.md for the full contract. Callers who do not
+// care about cancellation pass a default-constructed `std::stop_token{}`,
+// which never reports stop_requested (mirrors Go's `context.Background()`).
+// Construction and destruction do NOT take stop_token (synchronous and
+// uncancellable by design).
 class AletheiaClient {
 public:
     explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
@@ -59,27 +68,33 @@ public:
     // Both parse paths run the structural validator alongside the parser.
     // On success the returned ParsedDBC carries the canonical body plus any
     // non-error issues (warnings).  Errors short-circuit to Result<>::error.
-    [[nodiscard]] auto parse_dbc(const DbcDefinition& dbc) -> Result<ParsedDBC>;
-    [[nodiscard]] auto parse_dbc_text(std::string_view text) -> Result<ParsedDBC>;
-    [[nodiscard]] auto validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult>;
-    [[nodiscard]] auto format_dbc() -> Result<DbcDefinition>;
+    [[nodiscard]] auto parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
+        -> Result<ParsedDBC>;
+    [[nodiscard]] auto parse_dbc_text(std::stop_token stop, std::string_view text)
+        -> Result<ParsedDBC>;
+    [[nodiscard]] auto validate_dbc(std::stop_token stop, const DbcDefinition& dbc)
+        -> Result<ValidationResult>;
+    [[nodiscard]] auto format_dbc(std::stop_token stop) -> Result<DbcDefinition>;
 
     // --- Signals ---
     // Payload length must match dlc_to_bytes(dlc); returns Validation error otherwise.
-    [[nodiscard]] auto extract_signals(CanId id, Dlc dlc, std::span<const std::byte> data)
-        -> Result<ExtractionResult>;
-    [[nodiscard]] auto build_frame(CanId id, Dlc dlc, std::span<const SignalValue> signals)
-        -> Result<FramePayload>;
-    [[nodiscard]] auto update_frame(CanId id, Dlc dlc, std::span<const std::byte> data,
+    [[nodiscard]] auto extract_signals(std::stop_token stop, CanId id, Dlc dlc,
+                                       std::span<const std::byte> data) -> Result<ExtractionResult>;
+    [[nodiscard]] auto build_frame(std::stop_token stop, CanId id, Dlc dlc,
+                                   std::span<const SignalValue> signals) -> Result<FramePayload>;
+    [[nodiscard]] auto update_frame(std::stop_token stop, CanId id, Dlc dlc,
+                                    std::span<const std::byte> data,
                                     std::span<const SignalValue> signals) -> Result<FramePayload>;
 
     // --- Streaming ---
     // Expected workflow: set_properties → start_stream → send_frame* → end_stream.
     // start_stream() resets the extraction cache and last-frame tracking.
     // set_properties() may be called again after end_stream() to install new properties.
-    [[nodiscard]] auto set_properties(std::span<const LtlFormula> properties) -> Result<void>;
-    [[nodiscard]] auto add_checks(std::vector<CheckResult> checks) -> Result<void>;
-    [[nodiscard]] auto start_stream() -> Result<void>;
+    [[nodiscard]] auto set_properties(std::stop_token stop, std::span<const LtlFormula> properties)
+        -> Result<void>;
+    [[nodiscard]] auto add_checks(std::stop_token stop, std::vector<CheckResult> checks)
+        -> Result<void>;
+    [[nodiscard]] auto start_stream(std::stop_token stop) -> Result<void>;
     // On violation, the returned Violation includes an optional ViolationEnrichment
     // with extracted signal values and a formatted reason string (requires
     // set_properties() to have been called to install diagnostics).
@@ -87,24 +102,28 @@ public:
     // CAN-FD note: BRS/ESI flags are not part of the FFI protocol and are silently
     // dropped.  The Agda core operates on payload bytes + DLC only.
     // For batch operations, see send_frames().
-    [[nodiscard]] auto send_frame(Timestamp ts, CanId id, Dlc dlc, std::span<const std::byte> data)
-        -> Result<FrameResponse>;
+    [[nodiscard]] auto send_frame(std::stop_token stop, Timestamp ts, CanId id, Dlc dlc,
+                                  std::span<const std::byte> data) -> Result<FrameResponse>;
     // Convenience: send a Frame directly.
-    [[nodiscard]] auto send_frame(const Frame& f) -> Result<FrameResponse> {
-        return send_frame(f.timestamp, f.id, f.dlc, f.data);
+    [[nodiscard]] auto send_frame(std::stop_token stop, const Frame& f) -> Result<FrameResponse> {
+        return send_frame(stop, f.timestamp, f.id, f.dlc, f.data);
     }
     // CAN error event (no ID, no payload). Acknowledged without LTL evaluation.
-    [[nodiscard]] auto send_error(Timestamp ts) -> Result<void>;
+    [[nodiscard]] auto send_error(std::stop_token stop, Timestamp ts) -> Result<void>;
     // CAN remote frame (ID but no payload, CAN 2.0B only). Acknowledged without LTL evaluation.
-    [[nodiscard]] auto send_remote(Timestamp ts, CanId id) -> Result<void>;
+    [[nodiscard]] auto send_remote(std::stop_token stop, Timestamp ts, CanId id) -> Result<void>;
     // Send multiple frames in a single batch. A Violation is a normal response
     // and does not stop the batch. Processing stops at the first transport or
     // validation error; earlier successful responses are returned via
-    // BatchResult::responses alongside the error.
-    [[nodiscard]] auto send_frames(std::span<const Frame> frames) -> BatchResult;
+    // BatchResult::responses alongside the error. Cancellation observed at
+    // frame boundaries (commit-prefix-and-report per CANCELLATION.md §3.3): if
+    // stop fires mid-batch, BatchResult::responses holds the committed prefix
+    // and BatchResult::error carries ErrorKind::Cancellation.
+    [[nodiscard]] auto send_frames(std::stop_token stop, std::span<const Frame> frames)
+        -> BatchResult;
     // Properties with Verdict::Fails include an optional ViolationEnrichment
     // populated from the last-known frame values for each relevant CAN ID.
-    [[nodiscard]] auto end_stream() -> Result<StreamResult>;
+    [[nodiscard]] auto end_stream(std::stop_token stop) -> Result<StreamResult>;
 
 private:
     // Signal-to-index resolution for binary FFI build/update paths.
