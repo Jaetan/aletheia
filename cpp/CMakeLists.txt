@@ -196,6 +196,18 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE aletheia-cpp Threads::Threads Catch2::Catch2WithMain)
     add_test(NAME integration_tests COMMAND integration_tests)
 
+    # Layer 3b: B.3.j cross-binding parity gate (real .so, Catch2, nlohmann_json,
+    # detail/json.hpp). Reads python/tests/fixtures/dbc_corpus/*.dbc through the
+    # real-FFI parse_dbc_text and asserts byte-identical canonical output
+    # against the committed parity snapshots. The Python and Go counterparts
+    # use the same snapshots; together the three gates pin cross-binding
+    # DbcDefinition shape.
+    add_executable(dbc_corpus_parity_tests tests/dbc_corpus_parity_tests.cpp)
+    target_include_directories(dbc_corpus_parity_tests PRIVATE src)
+    target_link_libraries(dbc_corpus_parity_tests
+        PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
+    add_test(NAME dbc_corpus_parity_tests COMMAND dbc_corpus_parity_tests)
+
     # Layer 4: YAML loader tests (yaml-cpp, Catch2)
     add_executable(yaml_tests tests/yaml_tests.cpp)
     target_link_libraries(yaml_tests

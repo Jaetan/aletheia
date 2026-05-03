@@ -2,11 +2,26 @@
 
 This directory holds the regression corpus for the Phase B.3 Agda DBC text
 parser (`docs/development/PARITY_PLAN.md` §B.3). Every B.3 construct
-inventory row is exercised by at least one corpus file. The
-`test_dbc_corpus_baseline.py` gate runs each file through the current
-`cantools`-backed `dbc_to_json` and snapshots the result — when the Agda
-text parser ships (B.3.e / B.3.f), its output must match the same
-snapshots after switchover (see "Snapshot refresh policy" below).
+inventory row is exercised by at least one corpus file.
+
+Two snapshot trees live here, each a separate gate:
+
+- `snapshots/` — cantools-baseline regression for `dbc_to_json`. Insertion
+  order, all rationals emitted as `{"numerator","denominator"}` dicts.
+  Driven by `test_dbc_corpus_baseline.py`.
+- `parity_snapshots/` — B.3.j cross-binding parity oracle for the
+  Agda-backed `parse_dbc_text` (shipped in B.3.e). Sorted keys, "emit int
+  when denominator=1" rule, `presence: always` always explicit, `extended`
+  omitted on standard CAN frames. The Python (`test_dbc_corpus_parity.py`),
+  C++ (`cpp/tests/dbc_corpus_parity_tests.cpp`), and Go
+  (`go/aletheia/dbc_corpus_parity_test.go`) parity tests all assert
+  byte-equality against the same files.
+
+The two trees deliberately use different canonicalization choices so each
+gate is loud about its own concern: cantools regressions vs cross-binding
+DbcDefinition drift. The Agda parser correctness itself is not under test
+in either gate — that is established by the universal roundtrip theorem
+in `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d).
 
 ## Coverage map
 
@@ -23,20 +38,26 @@ snapshots after switchover (see "Snapshot refresh policy" below).
 
 ## Snapshot refresh policy
 
-Snapshots live under `snapshots/` and are compared byte-for-byte. The test
-fails closed when output drifts.
+Snapshots in both trees are compared byte-for-byte. The tests fail closed
+when output drifts.
 
-**When to regenerate:**
+**When to regenerate `snapshots/` (cantools baseline):**
 - A corpus `.dbc` is intentionally edited or added.
 - The `dbc_to_json` wire shape changes (B.1.x-style widening).
-- B.3.f switches `parse_dbc` to the Agda core and matches pre-computed
-  structural equivalents of these snapshots.
-
-**How to regenerate:**
 
 ```bash
 cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
   tests/test_dbc_corpus_baseline.py::test_corpus_matches_cantools_snapshot
+```
+
+**When to regenerate `parity_snapshots/` (Agda-backed cross-binding oracle):**
+- A corpus `.dbc` is intentionally edited or added.
+- Agda's wire shape for the parsed DBC body changes (rare — would touch
+  `Aletheia/Protocol/ResponseFormat.agda` or `formatDBC` paths).
+
+```bash
+cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
+  tests/test_dbc_corpus_parity.py::test_corpus_parses_to_parity_snapshot
 ```
 
 ## Known divergences from the B.3 construct inventory

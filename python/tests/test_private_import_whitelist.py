@@ -112,6 +112,14 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._helpers",
         "dump_json",
     ),
+    # B.3.j cross-binding parity gate — Python is the oracle that Go and
+    # C++ canonical output is diffed against. Same justification as the
+    # baseline test above; user code never round-trips DBCDefinition.
+    (
+        "test_dbc_corpus_parity.py",
+        "aletheia.client._helpers",
+        "FractionJSONEncoder",
+    ),
     # Enrichment helpers — pure functions used by the client to attach
     # ``enrichment`` metadata to violation results; kept internal because
     # they depend on ``_diags``/``_caches`` state that is client-owned.

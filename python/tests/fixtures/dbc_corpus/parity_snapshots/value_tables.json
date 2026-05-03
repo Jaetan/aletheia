@@ -1,0 +1,105 @@
+{
+  "attributes": [],
+  "comments": [],
+  "environmentVars": [],
+  "messages": [
+    {
+      "dlc": 8,
+      "id": 300,
+      "name": "Transmission",
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 4,
+          "maximum": 15,
+          "minimum": 0,
+          "name": "Gear",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 1,
+          "maximum": 1,
+          "minimum": 0,
+          "name": "ShiftInProgress",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 4,
+          "unit": ""
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 2,
+          "maximum": 3,
+          "minimum": 0,
+          "name": "EngineState",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 8,
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "ECU"
+    }
+  ],
+  "signalGroups": [],
+  "valueTables": [
+    {
+      "entries": [
+        {
+          "description": "Neutral",
+          "value": 0
+        },
+        {
+          "description": "First",
+          "value": 1
+        },
+        {
+          "description": "Second",
+          "value": 2
+        },
+        {
+          "description": "Third",
+          "value": 3
+        },
+        {
+          "description": "Reverse",
+          "value": 4
+        }
+      ],
+      "name": "GearPosition"
+    },
+    {
+      "entries": [
+        {
+          "description": "Off",
+          "value": 0
+        },
+        {
+          "description": "On",
+          "value": 1
+        }
+      ],
+      "name": "OnOff"
+    }
+  ],
+  "version": ""
+}

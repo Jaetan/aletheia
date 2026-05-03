@@ -1,0 +1,149 @@
+{
+  "attributes": [],
+  "comments": [],
+  "environmentVars": [],
+  "messages": [
+    {
+      "dlc": 8,
+      "id": 256,
+      "name": "EngineStatus",
+      "sender": "Engine",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": {
+            "denominator": 4,
+            "numerator": 1
+          },
+          "length": 16,
+          "maximum": 8000,
+          "minimum": 0,
+          "name": "EngineSpeed",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Gateway",
+            "Brake"
+          ],
+          "signed": false,
+          "startBit": 0,
+          "unit": "rpm"
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 8,
+          "maximum": 215,
+          "minimum": -40,
+          "name": "EngineTemp",
+          "offset": -40,
+          "presence": "always",
+          "receivers": [
+            "Gateway"
+          ],
+          "signed": false,
+          "startBit": 16,
+          "unit": "degC"
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 8,
+          "maximum": 255,
+          "minimum": 0,
+          "name": "CoolantLevel",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 24,
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "dlc": 4,
+      "id": 512,
+      "name": "BrakeStatus",
+      "sender": "Brake",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "big_endian",
+          "factor": {
+            "denominator": 10,
+            "numerator": 1
+          },
+          "length": 16,
+          "maximum": {
+            "denominator": 2,
+            "numerator": 13107
+          },
+          "minimum": 0,
+          "name": "BrakePressure",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Gateway"
+          ],
+          "signed": false,
+          "startBit": 7,
+          "unit": "bar"
+        },
+        {
+          "byteOrder": "big_endian",
+          "factor": {
+            "denominator": 2,
+            "numerator": 1
+          },
+          "length": 8,
+          "maximum": {
+            "denominator": 2,
+            "numerator": 127
+          },
+          "minimum": -64,
+          "name": "BrakePedalPct",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Gateway"
+          ],
+          "signed": true,
+          "startBit": 23,
+          "unit": "%"
+        },
+        {
+          "byteOrder": "big_endian",
+          "factor": 1,
+          "length": 1,
+          "maximum": 1,
+          "minimum": 0,
+          "name": "BrakeWarning",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Gateway"
+          ],
+          "signed": false,
+          "startBit": 31,
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Engine"
+    },
+    {
+      "name": "Brake"
+    },
+    {
+      "name": "Gateway"
+    }
+  ],
+  "signalGroups": [],
+  "valueTables": [],
+  "version": "1.0"
+}

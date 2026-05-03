@@ -1,0 +1,211 @@
+{
+  "attributes": [
+    {
+      "attrType": {
+        "kind": "enum",
+        "values": [
+          "StandardCAN",
+          "ExtendedCAN",
+          "reserved",
+          "reserved",
+          "StandardCAN_FD",
+          "ExtendedCAN_FD"
+        ]
+      },
+      "kind": "definition",
+      "name": "VFrameFormat",
+      "scope": "message"
+    },
+    {
+      "attrType": {
+        "kind": "string"
+      },
+      "kind": "definition",
+      "name": "BusType",
+      "scope": "network"
+    },
+    {
+      "kind": "default",
+      "name": "VFrameFormat",
+      "value": {
+        "kind": "enum",
+        "value": 0
+      }
+    },
+    {
+      "kind": "default",
+      "name": "BusType",
+      "value": {
+        "kind": "string",
+        "value": ""
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "BusType",
+      "target": {
+        "kind": "network"
+      },
+      "value": {
+        "kind": "string",
+        "value": "CAN FD"
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "VFrameFormat",
+      "target": {
+        "id": 256,
+        "kind": "message"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 0
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "VFrameFormat",
+      "target": {
+        "extended": true,
+        "id": 256,
+        "kind": "message"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 1
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "VFrameFormat",
+      "target": {
+        "id": 512,
+        "kind": "message"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 4
+      }
+    },
+    {
+      "kind": "assignment",
+      "name": "VFrameFormat",
+      "target": {
+        "extended": true,
+        "id": 257,
+        "kind": "message"
+      },
+      "value": {
+        "kind": "enum",
+        "value": 5
+      }
+    }
+  ],
+  "comments": [],
+  "environmentVars": [],
+  "messages": [
+    {
+      "dlc": 8,
+      "id": 256,
+      "name": "Std",
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 16,
+          "maximum": 65535,
+          "minimum": 0,
+          "name": "PayloadStd",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "dlc": 8,
+      "extended": true,
+      "id": 256,
+      "name": "Ext",
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 16,
+          "maximum": 65535,
+          "minimum": 0,
+          "name": "PayloadExt",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "dlc": 16,
+      "id": 512,
+      "name": "StdFD",
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 32,
+          "maximum": 4294967295,
+          "minimum": 0,
+          "name": "PayloadFD",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        }
+      ]
+    },
+    {
+      "dlc": 64,
+      "extended": true,
+      "id": 257,
+      "name": "ExtFD",
+      "sender": "ECU",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 32,
+          "maximum": 4294967295,
+          "minimum": 0,
+          "name": "PayloadExtFD",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "ECU"
+    }
+  ],
+  "signalGroups": [],
+  "valueTables": [],
+  "version": ""
+}

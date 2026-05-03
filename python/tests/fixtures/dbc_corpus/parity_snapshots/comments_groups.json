@@ -1,0 +1,192 @@
+{
+  "attributes": [],
+  "comments": [
+    {
+      "target": {
+        "kind": "network"
+      },
+      "text": "Top-level network description."
+    },
+    {
+      "target": {
+        "kind": "node",
+        "node": "Alpha"
+      },
+      "text": "Primary data producer."
+    },
+    {
+      "target": {
+        "id": 500,
+        "kind": "message"
+      },
+      "text": "Voltage/current telemetry from Alpha."
+    },
+    {
+      "target": {
+        "id": 501,
+        "kind": "signal",
+        "signal": "GyroX"
+      },
+      "text": "Body-frame angular rate about the X axis."
+    },
+    {
+      "target": {
+        "envVar": "TestRigMode",
+        "kind": "envVar"
+      },
+      "text": "Rig mode: 0=idle, 1=run, 2=fault."
+    }
+  ],
+  "environmentVars": [
+    {
+      "initial": 0,
+      "maximum": 2,
+      "minimum": 0,
+      "name": "TestRigMode",
+      "varType": 0
+    }
+  ],
+  "messages": [
+    {
+      "dlc": 8,
+      "id": 500,
+      "name": "TelemetryA",
+      "sender": "Alpha",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": {
+            "denominator": 1000,
+            "numerator": 1
+          },
+          "length": 32,
+          "maximum": {
+            "denominator": 200,
+            "numerator": 858993459
+          },
+          "minimum": 0,
+          "name": "Voltage",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Beta"
+          ],
+          "signed": false,
+          "startBit": 0,
+          "unit": "V"
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": {
+            "denominator": 1000,
+            "numerator": 1
+          },
+          "length": 32,
+          "maximum": {
+            "denominator": 1000,
+            "numerator": 2147483647
+          },
+          "minimum": {
+            "denominator": 125,
+            "numerator": -268435456
+          },
+          "name": "Current",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Beta"
+          ],
+          "signed": true,
+          "startBit": 32,
+          "unit": "A"
+        }
+      ]
+    },
+    {
+      "dlc": 8,
+      "id": 501,
+      "name": "TelemetryB",
+      "sender": "Beta",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": {
+            "denominator": 100000,
+            "numerator": 1
+          },
+          "length": 32,
+          "maximum": {
+            "denominator": 100000,
+            "numerator": 2147483647
+          },
+          "minimum": {
+            "denominator": 3125,
+            "numerator": -67108864
+          },
+          "name": "GyroX",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Alpha"
+          ],
+          "signed": true,
+          "startBit": 0,
+          "unit": "rad/s"
+        },
+        {
+          "byteOrder": "little_endian",
+          "factor": {
+            "denominator": 100000,
+            "numerator": 1
+          },
+          "length": 32,
+          "maximum": {
+            "denominator": 100000,
+            "numerator": 2147483647
+          },
+          "minimum": {
+            "denominator": 3125,
+            "numerator": -67108864
+          },
+          "name": "GyroY",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [
+            "Alpha"
+          ],
+          "signed": true,
+          "startBit": 32,
+          "unit": "rad/s"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Alpha"
+    },
+    {
+      "name": "Beta"
+    }
+  ],
+  "signalGroups": [
+    {
+      "name": "Electrical",
+      "signals": [
+        "Voltage",
+        "Current"
+      ]
+    },
+    {
+      "name": "IMURates",
+      "signals": [
+        "GyroX",
+        "GyroY"
+      ]
+    }
+  ],
+  "valueTables": [],
+  "version": "net-1"
+}

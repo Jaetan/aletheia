@@ -1,0 +1,60 @@
+{
+  "attributes": [],
+  "comments": [],
+  "environmentVars": [
+    {
+      "initial": 0,
+      "maximum": 86400,
+      "minimum": 0,
+      "name": "SimulationTime",
+      "varType": 1
+    },
+    {
+      "initial": 0,
+      "maximum": 255,
+      "minimum": 0,
+      "name": "ActiveScenario",
+      "varType": 0
+    },
+    {
+      "initial": 0,
+      "maximum": 0,
+      "minimum": 0,
+      "name": "ScenarioLabel",
+      "varType": 2
+    }
+  ],
+  "messages": [
+    {
+      "dlc": 1,
+      "id": 600,
+      "name": "Dummy",
+      "sender": "Host",
+      "senders": [],
+      "signals": [
+        {
+          "byteOrder": "little_endian",
+          "factor": 1,
+          "length": 8,
+          "maximum": 255,
+          "minimum": 0,
+          "name": "Tag",
+          "offset": 0,
+          "presence": "always",
+          "receivers": [],
+          "signed": false,
+          "startBit": 0,
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "Host"
+    }
+  ],
+  "signalGroups": [],
+  "valueTables": [],
+  "version": ""
+}
