@@ -268,7 +268,8 @@ class AletheiaClient:
     def parse_dbc_text(self, text: str) -> ParsedDBCResponse | ErrorResponse:
         """Parse and validate a DBC from raw .dbc file text via the Agda text parser.
 
-        Mirrors :meth:`parse_dbc`'s response shape — no cantools dependency.
+        Mirrors :meth:`parse_dbc`'s response shape; both routes share the
+        same Agda core post-B.3.f.
         """
         cmd: ParseDBCTextCommand = {"type": "command", "command": "parseDBCText", "text": text}
         return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))

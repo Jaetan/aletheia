@@ -40,7 +40,7 @@ following table summarizes feature availability per binding:
 | YAML loader | ✅ (`load_checks`) | ✅ (`aletheia::yaml::load_checks`) | ✅ (`yaml.LoadChecks`) |
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
 | DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
-| DBC text (`.dbc`) parsing | ✅ (via `cantools`) | ❌ (see workaround below) | ❌ (see workaround below) |
+| DBC text (`.dbc`) parsing | ✅ (`parse_dbc_text` / `dbc_to_json`) | ✅ (`parse_dbc_text`) | ✅ (`ParseDBCText`) |
 | Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
 
 The same call, side by side across the three bindings:
@@ -103,17 +103,11 @@ response, err := client.SendFrame(ts, canID, dlc, data)
 
 These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.
 
-**`.dbc` text-format workaround for C++/Go.** Only Python parses `.dbc` text directly (via the `cantools` library). C++ and Go consume DBC content as a JSON document instead. Two routes are supported:
-
-1. **Convert ahead of time with Python**:
-   ```bash
-   python3 -m aletheia signals --dbc vehicle.dbc --json > vehicle.json
-   ```
-   then load `vehicle.json` from C++ or Go and pass the parsed object to `parse_dbc(...)`.
-
-2. **Use the Excel loader** (`.xlsx` workbook with a DBC sheet) — supported natively by all three bindings, no Python detour required.
-
-Native `.dbc` parsing in C++ and Go is on the roadmap; until then, route through one of the above.
+**`.dbc` text parsing across bindings.** All three bindings parse `.dbc`
+text directly via the verified Agda parser (`parse_dbc_text` /
+`ParseDBCText`); the JSON-detour and Excel-sheet workarounds are no
+longer needed. The Excel loader remains available for sheet-based
+authoring workflows, but is no longer the only cross-binding option.
 
 For language-specific entry points, see:
 

@@ -102,16 +102,6 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._response_parsers",
         "build_error_response",
     ),
-    # B.3 DBC-text-parser corpus snapshot gate uses ``dump_json`` to
-    # serialize the TypedDict shape produced by ``dbc_to_json`` against a
-    # byte-identical JSON baseline. The Fraction-aware encoder lives in
-    # ``_helpers``; kept internal because user code passes Fractions in
-    # directly and never has to serialize ``DBCDefinition`` wire shapes.
-    (
-        "test_dbc_corpus_baseline.py",
-        "aletheia.client._helpers",
-        "dump_json",
-    ),
     # B.3.j cross-binding parity gate — Python is the oracle that Go and
     # C++ canonical output is diffed against. Same justification as the
     # baseline test above; user code never round-trips DBCDefinition.

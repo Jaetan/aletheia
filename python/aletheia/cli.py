@@ -63,9 +63,9 @@ if TYPE_CHECKING:
 # Optional-dependency loaders: each CLI helper resolves its target via
 # ``importlib.import_module`` at the point of use so that subcommands whose
 # code paths don't need a given optional package (e.g. ``aletheia signals
-# --dbc foo.json`` needs neither cantools nor python-can) can still run
-# without the corresponding extras installed. Using ``importlib`` (rather
-# than a function-scoped ``from .X import Y``) keeps pylint's
+# --dbc foo.json`` needs no python-can) can still run without the
+# corresponding extras installed. Using ``importlib`` (rather than a
+# function-scoped ``from .X import Y``) keeps pylint's
 # ``import-outside-toplevel`` check happy without suppressions.
 def _lazy_dbc_to_json() -> Callable[[str | Path], DBCDefinition]:
     mod = importlib.import_module(".dbc_converter", __package__)

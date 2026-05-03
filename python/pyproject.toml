@@ -25,12 +25,11 @@ classifiers = [
 ]
 # The core package has no runtime dependencies outside the standard library —
 # the Agda-compiled Haskell shared library is loaded via ``ctypes`` at import
-# time, and the default ``dbc_to_json`` path uses the verified Agda parser
-# end-to-end (no third-party Python deps). Optional extras gate the cantools
-# fallback (B.3.g target — slated for removal), CAN log reader (python-can),
-# YAML rule loader (pyyaml), and Excel rule loader (openpyxl). Install with:
+# time, and ``dbc_to_json`` runs end-to-end through the verified Agda parser
+# (no third-party Python deps). Optional extras gate the CAN log reader
+# (python-can), YAML rule loader (pyyaml), and Excel rule loader (openpyxl).
+# Install with:
 #   pip install aletheia               # core only (Agda DBC parser included)
-#   pip install aletheia[dbc]          # + cantools fallback (B.3.g target)
 #   pip install aletheia[can]          # + CAN log reader
 #   pip install aletheia[yaml]         # + YAML rule loader
 #   pip install aletheia[excel]        # + Excel rule/DBC loader
@@ -56,14 +55,13 @@ include = ["aletheia", "aletheia.*"]
 aletheia = ["py.typed", "*.pyi"]
 
 [project.optional-dependencies]
-dbc = ["cantools>=39.0"]
 can = ["python-can>=4.0"]
 yaml = ["pyyaml>=6.0"]
 excel = ["openpyxl>=3.1"]
 # Self-reference the individual extras so version pins live in exactly one
-# place (SSOT). Editing dbc/can/yaml/excel above automatically flows through
+# place (SSOT). Editing can/yaml/excel above automatically flows through
 # to ``aletheia[all]`` without manual string duplication.
-all = ["aletheia[dbc,can,yaml,excel]"]
+all = ["aletheia[can,yaml,excel]"]
 dev = [
     "aletheia[all]",
     # Upper bounds guard against the next major — AGENTS.md hard-gates the
@@ -117,10 +115,10 @@ source-roots = ["."]
 # directly.  pytest adds the test dir to ``sys.path`` automatically;
 # pylint needs this ``init-hook`` to do the same.
 init-hook = 'import sys; sys.path.insert(0, "tests")'
-# ctypes and cantools lack full stubs; pyright handles the real type checks,
-# so silence pylint's redundant no-member/import-error noise for them.
-# Revisit if either upstream gains complete type stubs — at that point
-# pylint can infer members directly and this allow-list becomes dead weight.
+# ctypes lacks full stubs; pyright handles the real type checks, so silence
+# pylint's redundant no-member/import-error noise for it. Revisit if upstream
+# gains complete type stubs — at that point pylint can infer members directly
+# and this allow-list becomes dead weight.
 extension-pkg-allow-list = ["ctypes"]
 
 [tool.pylint.format]

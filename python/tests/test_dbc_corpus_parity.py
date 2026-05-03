@@ -24,14 +24,9 @@ all three match the same bytes, the bindings have observed identical
 ``DbcDefinition`` structure for every fixture.
 
 Canonical form: ``json.dumps(..., sort_keys=True, indent=2)`` with
-``FractionJSONEncoder`` + a trailing newline. Sorted keys + the existing
-"emit int when denominator=1" rule (already shared by all three bindings'
+``FractionJSONEncoder`` + a trailing newline. Sorted keys + the
+"emit int when denominator=1" rule (shared by all three bindings'
 internal serializers) make the three outputs byte-identical.
-
-The cantools-baseline snapshots in ``fixtures/dbc_corpus/snapshots/``
-remain the cantools regression oracle for ``test_dbc_corpus_baseline``;
-they intentionally use insertion order + unconditional rational dicts and
-are NOT the B.3.j oracle.
 
 Set ``ALETHEIA_UPDATE_SNAPSHOTS=1`` to refresh the parity snapshots after
 an intentional Agda wire-shape change.

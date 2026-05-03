@@ -357,7 +357,7 @@ Error frames and remote frames are skipped by default. Frame data is normalized 
 
 ### DBC Sources
 
-- `.dbc` — standard Vector DBC file (parsed by cantools)
+- `.dbc` — standard Vector DBC file (parsed by the verified Agda DBC text parser)
 - `.xlsx` — Excel workbook with a DBC sheet (see [Interface Guide](INTERFACES.md#excel-loader))
 
 ### Check Sources

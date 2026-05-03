@@ -686,7 +686,8 @@ frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
 
 ## Converting .dbc Files
 
-`cantools` is installed automatically as a dependency:
+`dbc_to_json` is a thin wrapper over the verified Agda DBC parser; no
+third-party dependency is required.
 
 ```python
 from aletheia.dbc_converter import dbc_to_json

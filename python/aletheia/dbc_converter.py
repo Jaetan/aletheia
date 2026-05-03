@@ -1,22 +1,17 @@
 """Convert between .dbc files, JSON, and DBC text format.
 
-* ``dbc_to_json``: parse a .dbc file to the Agda wire format. Defaults to
-  the verified Agda text parser (``parser="agda"``); pass
-  ``parser="cantools"`` (or set ``ALETHEIA_DBC_PARSER=cantools``) to fall
-  back to the legacy cantools path while it remains.
-* ``dbc_to_text``: convert a JSON dict back to .dbc text. Pure Python; no
-  cantools.
+* ``dbc_to_json``: parse a .dbc file to the Agda wire format via the
+  verified Agda text parser (no third-party Python deps).
+* ``dbc_to_text``: convert a JSON dict back to .dbc text (pure Python).
 * ``convert_dbc_file``: ``dbc_to_json`` + write JSON to disk.
 
-The default Agda path requires the FFI shared library (``libaletheia-ffi.so``)
-but no third-party Python deps. Cantools is only loaded when
-``parser="cantools"`` is selected.
+All three are pure-Python wrappers over ``AletheiaClient.parse_dbc_text``
+and the in-tree text formatter; the FFI shared library (``libaletheia-ffi.so``)
+is the only runtime requirement.
 """
 
-import os
 from fractions import Fraction
 from pathlib import Path
-from typing import Literal, cast
 
 from .client import AletheiaClient
 from .client._helpers import dump_json
@@ -26,37 +21,25 @@ from .protocols import DBCDefinition, DBCSignal, ErrorResponse, ParsedDBCRespons
 # IDs from 11-bit standard IDs in .dbc file format.
 _CAN_EFF_FLAG = 0x80000000
 
-DBCParser = Literal["agda", "cantools"]
-_VALID_PARSERS: frozenset[str] = frozenset({"agda", "cantools"})
-_PARSER_ENV_VAR = "ALETHEIA_DBC_PARSER"
 
+def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
+    """Convert a .dbc file to JSON format via the verified Agda parser.
 
-def _resolve_parser(explicit: DBCParser | None) -> DBCParser:
-    """Resolve which parser to use (precedence: kwarg → env var → ``agda``).
+    Args:
+        dbc_path: Path to the .dbc file.
 
-    A bad env-var value raises ``ValueError`` rather than silently falling
-    back, so a typo in CI config surfaces as a hard failure instead of
-    routing through a different parser than the operator expects.
-    """
-    if explicit is not None:
-        return explicit
-    env_value = os.environ.get(_PARSER_ENV_VAR)
-    if env_value is None:
-        return "agda"
-    if env_value not in _VALID_PARSERS:
-        raise ValueError(
-            f"{_PARSER_ENV_VAR}={env_value!r} not in {sorted(_VALID_PARSERS)}"
-        )
-    return cast(DBCParser, env_value)
+    Returns:
+        DBC definition in the format expected by Aletheia.DBC.JSONParser.
 
+    Raises:
+        OSError: If the file cannot be read.
+        ValueError: If the file is not a valid DBC.
 
-def _dbc_to_json_agda(dbc_path: str | Path) -> DBCDefinition:
-    """Parse a .dbc file via the Agda text parser (verified roundtrip).
-
-    Each call spins up an ``AletheiaClient`` (GHC RTS init) just to run
-    ``parseDBCText`` and shuts it down again. That is acceptable for ad-hoc
-    conversions; if you call this in a tight loop, drive ``parse_dbc_text``
-    on a long-lived ``AletheiaClient`` directly instead.
+    Note:
+        Each call starts a temporary ``AletheiaClient`` (GHC RTS init) just
+        to run ``parseDBCText`` and shuts it down again — fine for ad-hoc
+        conversions. For tight loops, drive ``parse_dbc_text`` on a
+        long-lived ``AletheiaClient`` directly instead.
     """
     text = Path(dbc_path).read_text(encoding="utf-8")
     with AletheiaClient() as client:
@@ -68,51 +51,13 @@ def _dbc_to_json_agda(dbc_path: str | Path) -> DBCDefinition:
     return response["dbc"]
 
 
-def dbc_to_json(
-    dbc_path: str | Path,
-    *,
-    parser: DBCParser | None = None,
-) -> DBCDefinition:
-    """Convert a .dbc file to JSON format.
-
-    Args:
-        dbc_path: Path to the .dbc file.
-        parser: ``"agda"`` (default, verified) or ``"cantools"`` (legacy).
-            If ``None``, the ``ALETHEIA_DBC_PARSER`` env var is consulted;
-            absent that, defaults to ``"agda"``.
-
-    Returns:
-        DBC definition in the format expected by Aletheia.DBC.JSONParser.
-
-    Raises:
-        OSError: If the file cannot be read.
-        ValueError: If the file is not a valid DBC, or ``parser`` /
-            ``ALETHEIA_DBC_PARSER`` names an unknown backend.
-        ImportError: If ``parser="cantools"`` is selected but the optional
-            ``cantools`` dependency is not installed.
-
-    Note:
-        ``parser="agda"`` runs through the verified Agda text parser and
-        starts a temporary ``AletheiaClient`` per call; the FFI shared
-        library must be available. ``parser="cantools"`` is slated for
-        removal in B.3.g.
-    """
-    effective = _resolve_parser(parser)
-    if effective == "agda":
-        return _dbc_to_json_agda(dbc_path)
-    # parser="cantools" — import lazily so the cantools dep is only
-    # required by callers who explicitly opt in.
-    from . import _dbc_to_json_cantools  # pylint: disable=import-outside-toplevel
-    return _dbc_to_json_cantools.dbc_to_json_cantools(dbc_path)
-
-
 def _format_number(value: float | Fraction) -> str:
     """Format a numeric signal field for DBC output.
 
     Fractions exactly representable as integers emit as ``"int"``; other
     Fractions emit as a 15-digit decimal via float conversion (DBC's text
     format is decimal-only, so exact rational preservation is impossible
-    at this layer — this matches cantools' .dbc output convention).
+    at this layer).
     """
     if isinstance(value, Fraction):
         if value.denominator == 1:
@@ -230,8 +175,6 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
 def convert_dbc_file(
     dbc_path: str | Path,
     output_path: str | Path | None = None,
-    *,
-    parser: DBCParser | None = None,
 ) -> str:
     """Convert a .dbc file to JSON and optionally write to file.
 
@@ -239,12 +182,11 @@ def convert_dbc_file(
         dbc_path: Path to the .dbc file.
         output_path: Optional path to write JSON output. If None, returns
             JSON string.
-        parser: Forwarded to :func:`dbc_to_json`.
 
     Returns:
         JSON string representation of the DBC file.
     """
-    dbc_json = dbc_to_json(dbc_path, parser=parser)
+    dbc_json = dbc_to_json(dbc_path)
     json_str = dump_json(dbc_json, indent=2)
 
     if output_path:

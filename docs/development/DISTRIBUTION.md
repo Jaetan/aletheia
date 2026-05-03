@@ -83,7 +83,7 @@ All bindings share the same Agda core and JSON protocol, but surface coverage di
 | YAML loader | — | ✅ | ✅ | ✅ |
 | Excel loader | — | ✅ | ✅ | ✅ (separate `go/excel/` module) |
 | DBC JSON input | ✅ | ✅ | ✅ | ✅ |
-| DBC text (`.dbc`) parsing | — | ✅ (via `cantools`) | ❌ | ❌ |
+| DBC text (`.dbc`) parsing | — | ✅ | ✅ | ✅ |
 
 C consumers get the raw JSON/binary FFI surface — higher-level conveniences (Check API, loaders, DBC text parsing) live in the language bindings.
 

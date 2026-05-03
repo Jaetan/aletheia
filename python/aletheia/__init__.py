@@ -78,9 +78,6 @@ from .client import (
     dlc_to_bytes,
 )
 from .checks import Check, CheckResult
-# dbc_converter no longer requires cantools at import time — the default
-# Agda parser path has no third-party deps. ``parser="cantools"`` lazily
-# imports the cantools-backed sub-module on demand.
 from .dbc_converter import convert_dbc_file, dbc_to_json, dbc_to_text
 from .dsl import Signal, Predicate, Property, infinitely_often, eventually_always, never
 from .error_codes import ErrorCode
@@ -184,8 +181,7 @@ __all__ = [
     "infinitely_often",
     "eventually_always",
     "never",
-    # DBC text/JSON conversion (no optional deps for the default Agda path;
-    # ``parser="cantools"`` lazily imports the cantools fallback)
+    # DBC text/JSON conversion via the verified Agda parser (no optional deps)
     "convert_dbc_file",
     "dbc_to_json",
     "dbc_to_text",

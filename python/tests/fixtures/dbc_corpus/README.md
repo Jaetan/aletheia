@@ -4,28 +4,19 @@ This directory holds the regression corpus for the Phase B.3 Agda DBC text
 parser (`docs/development/PARITY_PLAN.md` §B.3). Every B.3 construct
 inventory row is exercised by at least one corpus file.
 
-Two snapshot trees live here, each a separate gate:
+The `parity_snapshots/` tree is the B.3.j cross-binding parity oracle for
+the Agda-backed `parse_dbc_text`. Sorted keys, "emit int when
+denominator=1" rule, `presence: always` always explicit, `extended` omitted
+on standard CAN frames. The Python (`test_dbc_corpus_parity.py`), C++
+(`cpp/tests/dbc_corpus_parity_tests.cpp`), and Go
+(`go/aletheia/dbc_corpus_parity_test.go`) parity tests all assert
+byte-equality against the same files.
 
-- `snapshots/` — cantools-baseline regression for `dbc_to_json(parser="cantools")`.
-  Insertion order (no `sort_keys`); rational fields share the same
-  "emit int when denominator=1" rule as `parity_snapshots/` (B.3.f
-  canonicalised `FractionJSONEncoder` to match Agda's `formatRational`).
-  Driven by `test_dbc_corpus_baseline.py`. Slated for removal alongside the
-  cantools fallback in B.3.g.
-- `parity_snapshots/` — B.3.j cross-binding parity oracle for the
-  Agda-backed `parse_dbc_text` (shipped in B.3.e). Sorted keys, "emit int
-  when denominator=1" rule, `presence: always` always explicit, `extended`
-  omitted on standard CAN frames. The Python (`test_dbc_corpus_parity.py`),
-  C++ (`cpp/tests/dbc_corpus_parity_tests.cpp`), and Go
-  (`go/aletheia/dbc_corpus_parity_test.go`) parity tests all assert
-  byte-equality against the same files.
-
-The two trees differ only on `sort_keys` (parity sorts, baseline preserves
-insertion order). Each gate is loud about its own concern: cantools
-regressions vs cross-binding DbcDefinition drift. The Agda parser
-correctness itself is not under test in either gate — that is established
-by the universal roundtrip theorem in
-`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d).
+The Agda parser correctness itself is not under test here — that is
+established by the universal roundtrip theorem in
+`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda` (B.3.d). What
+this corpus catches is binding-layer drift: wire-to-native mismatches in
+how each language deserializes the Agda JSON envelope.
 
 ## Coverage map
 
@@ -42,19 +33,10 @@ by the universal roundtrip theorem in
 
 ## Snapshot refresh policy
 
-Snapshots in both trees are compared byte-for-byte. The tests fail closed
-when output drifts.
+Snapshots in `parity_snapshots/` are compared byte-for-byte. The tests fail
+closed when output drifts.
 
-**When to regenerate `snapshots/` (cantools baseline):**
-- A corpus `.dbc` is intentionally edited or added.
-- The `dbc_to_json` wire shape changes (B.1.x-style widening).
-
-```bash
-cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
-  tests/test_dbc_corpus_baseline.py::test_corpus_matches_cantools_snapshot
-```
-
-**When to regenerate `parity_snapshots/` (Agda-backed cross-binding oracle):**
+**When to regenerate `parity_snapshots/`:**
 - A corpus `.dbc` is intentionally edited or added.
 - Agda's wire shape for the parsed DBC body changes (rare — would touch
   `Aletheia/Protocol/ResponseFormat.agda` or `formatDBC` paths).
@@ -64,6 +46,9 @@ cd python && ALETHEIA_UPDATE_SNAPSHOTS=1 python3 -m pytest \
   tests/test_dbc_corpus_parity.py::test_corpus_parses_to_parity_snapshot
 ```
 
+The cantools-baseline `snapshots/` tree was retired in B.3.g together with
+the cantools fallback.
+
 ## Known divergences from the B.3 construct inventory
 
 Two rows in the B.3 inventory are *in the DBC* but not yet reflected in
@@ -72,20 +57,13 @@ coverage when these rows get wired:
 
 - **`SIG_VALTYPE_`** — `comments_groups.dbc` declares float32/float64 via
   `SIG_VALTYPE_ <msg_id> <sig> : 1;` (or `: 2;`). The current
-  `dbc_converter` doesn't emit the float-width into `DBCSignal`. B.3.e
+  `dbc_converter` doesn't emit the float-width into `DBCSignal`. Future
   scope: decide whether to surface this as a `DBCSignal` field or leave
   encoding implicit in `factor`/`length`.
 - **`EV_DATA_` / `ENVVAR_DATA_`** — declared in `NS_` (keyword support)
-  but never emitted as statements; cantools' grammar doesn't accept them
+  but never emitted as statements; the Agda grammar doesn't accept them
   as statements either. If a real-world DBC ever uses them as statements,
-  both our parser and cantools will fail the same way.
-
-One observed cantools normalization (in `dbc_to_json`):
-
-- **Empty `VERSION ""` → `"1.0"`** — `dbc_to_json` substitutes `"1.0"`
-  when `db.version` is empty. The Agda parser must mirror this on the
-  wire-shape path (applied post-parse, not during tokenization), or the
-  snapshot gate will fail after switchover.
+  the parser will reject them at the same point cantools used to.
 
 ## License
 

@@ -78,13 +78,13 @@ features:
 
   - id: dbc_text_parse
     name: Parse .dbc text
-    description: Parse a raw .dbc text file (cantools-compatible) into a DbcDefinition.
-    related: R17-DEF-4, B.3, B.3.e, B.3.f
+    description: Parse a raw .dbc text file into a DbcDefinition via the verified Agda parser.
+    related: R17-DEF-4, B.3, B.3.e, B.3.f, B.3.g
     bindings:
       python:
         status: implemented
         entry: aletheia.AletheiaClient.parse_dbc_text
-        notes: "B.3.e/B.3.f — verified Agda parseText composed with the runtime validator. As of B.3.f, ``aletheia.dbc_converter.dbc_to_json`` defaults to this Agda path (``parser=\"agda\"``); the cantools fallback (``parser=\"cantools\"``) lives in ``aletheia._dbc_to_json_cantools`` and is slated for removal in B.3.g."
+        notes: "B.3.e/B.3.f/B.3.g — verified Agda parseText composed with the runtime validator. ``aletheia.dbc_converter.dbc_to_json`` is a thin wrapper over ``parse_dbc_text``; the cantools fallback was dropped in B.3.g (no third-party Python dep required)."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#parse_dbc_text"
@@ -102,7 +102,7 @@ features:
       python:
         status: implemented
         entry: aletheia.protocols.DBCSignalGroup
-        notes: "Tier 1 TypedDicts (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) land as NotRequired fields on DBCDefinition; populated by dbc_to_json from cantools and round-tripped via format_dbc."
+        notes: "Tier 1 TypedDicts (DBCSignalGroup, DBCEnvironmentVar, DBCValueTable) land as NotRequired fields on DBCDefinition; populated by the Agda parser via dbc_to_json and round-tripped via format_dbc."
       cpp:
         status: implemented
         entry: "aletheia/dbc.hpp#DbcSignalGroup"
@@ -138,7 +138,7 @@ features:
       python:
         status: implemented
         entry: aletheia.protocols.DBCSignalAlways
-        notes: "DBCSignalAlways/Multiplexed gain a NotRequired receivers: list[str]; dbc_to_json populates it from cantools and strips Vector__XXX; _signal_to_dbc_line re-emits Vector__XXX when empty."
+        notes: "DBCSignalAlways/Multiplexed gain a NotRequired receivers: list[str]; populated by the Agda parser via dbc_to_json (Vector__XXX is treated as an empty list at the wire boundary); _signal_to_dbc_line re-emits Vector__XXX when empty."
       cpp:
         status: implemented
         entry: "aletheia/dbc.hpp#DbcSignal"
@@ -156,7 +156,7 @@ features:
       python:
         status: implemented
         entry: aletheia.protocols.DBCMessage
-        notes: "DBCMessage gains a NotRequired senders: list[str]; dbc_to_json splits cantools' merged message.senders into primary (index 0) + additional (index 1:)."
+        notes: "DBCMessage gains a NotRequired senders: list[str]; the Agda parser surfaces ``BO_TX_BU_`` additional transmitters in this list while ``sender`` carries the primary BO_ transmitter."
       cpp:
         status: implemented
         entry: "aletheia/dbc.hpp#DbcMessage"
@@ -420,7 +420,7 @@ features:
       python:
         status: implemented
         entry: aletheia.iter_can_log
-        notes: "Via python-can (LGPL); same LGPL contingency as cantools — see project_lgpl_contingency.md."
+        notes: "Via python-can (LGPL); LGPL contingency tracked in project_lgpl_contingency.md."
       cpp:
         status: planned
         notes: "Not yet in backlog; pending user decision — may move to not_applicable if judged a host-application concern."
