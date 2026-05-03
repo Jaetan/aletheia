@@ -103,6 +103,36 @@ with AletheiaClient() as client:
     modified = client.update_frame(can_id=0x100, dlc=8, frame=frame, signals={"Speed": 130.0})
 ```
 
+### Async client and lazy iter
+
+For asyncio code, ``aletheia.asyncio.AletheiaClient`` mirrors the sync surface
+as ``async def`` methods, cancellable via ``asyncio.CancelledError``. Both
+clients expose ``send_frames_iter`` for processing frames lazily one at a
+time — useful when the source is a live producer (queue, socket, generator)
+and full materialization is wasteful or impossible.
+
+```python
+import asyncio
+from aletheia.asyncio import AletheiaClient
+
+async def watch(timeout_s: float):
+    async with AletheiaClient() as client:
+        await client.parse_dbc(dbc_json)
+        await client.set_properties([prop.to_dict()])
+        await client.start_stream()
+        try:
+            async with asyncio.timeout(timeout_s):
+                async for r in client.send_frames_iter(live_frames()):
+                    if r.violation is not None:
+                        handle(r.violation)
+        except TimeoutError:
+            pass  # committed prefix is durable
+        await client.end_stream()
+```
+
+See [Cancellation contract](docs/architecture/CANCELLATION.md) for the
+behavioral parity guarantees Python / Go / C++ all share.
+
 ## Project Structure
 
 ```

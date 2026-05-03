@@ -373,8 +373,9 @@ features:
     related: C.0, C.1, C.3, C.4
     bindings:
       python:
-        status: planned
-        notes: "C.1 — AsyncAletheiaClient + asyncio.CancelledError; design locked, implementation pending."
+        status: implemented
+        entry: "aletheia.asyncio.AletheiaClient.send_frame"
+        notes: "C.1 (2026-05-03): aletheia.asyncio.AletheiaClient mirrors the sync surface as async def methods wrapping each FFI call through asyncio.to_thread; cancellation surfaces as asyncio.CancelledError at await boundaries. Sync AletheiaClient is uncancellable by design (Python has no native sync-method cancellation primitive); the only sync cancel surface is send_frames_iter via generator.close()/break. See docs/architecture/CANCELLATION.md §2.1."
       cpp:
         status: implemented
         entry: "aletheia/client.hpp#send_frame"
@@ -390,14 +391,15 @@ features:
     related: R17-DEF-3, C.2
     bindings:
       python:
-        status: planned
-        notes: "send_frames_iter; bundled with C.1 async design round."
+        status: implemented
+        entry: "aletheia.AletheiaClient.send_frames_iter"
+        notes: "C.2 (2026-05-03): sync AletheiaClient.send_frames_iter is a Generator[FrameResult] that yields one frame at a time; cancel via consumer break / generator.close(). Async aletheia.asyncio.AletheiaClient.send_frames_iter is the async-iter analog with asyncio.CancelledError at frame boundaries. See docs/architecture/CANCELLATION.md §3.1."
       cpp:
-        status: planned
-        notes: "Design open — may or may not be needed depending on Phase C outcome (C.5)."
+        status: not_applicable
+        reason: "Equivalent affordance is delivered by send_frames(stop, span) + commit-prefix-and-report on stop_token — span is materialized by the caller. A C++ coroutine-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
       go:
-        status: planned
-        notes: "Design open — may or may not be needed depending on Phase C outcome (C.5)."
+        status: not_applicable
+        reason: "Equivalent affordance is delivered by SendFrames(ctx, []Frame) + commit-prefix-and-report on ctx — slice is materialized by the caller. A channel-based iter would be additive and is not part of the cancellation contract; revisit only if a concrete consumer asks for it."
 
   # =====================================================================
   # Distribution / infrastructure

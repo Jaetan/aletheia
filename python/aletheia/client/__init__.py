@@ -47,6 +47,7 @@ from ._types import (
     BatchError,
     CANFrameTuple,
     FrameResponse,
+    FrameResult,
     ProcessError,
     PropertyDiagnostic,
     ProtocolError,
@@ -60,7 +61,7 @@ from ._types import (
 # response TypedDicts, and the byte/DLC converters.
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
-    "CANFrameTuple", "dlc_to_bytes", "FrameResponse",
+    "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "FrameResult",
     "ProcessError", "PropertyDiagnostic", "ProtocolError",
     "RTSState", "SignalExtractionResult",
 ]

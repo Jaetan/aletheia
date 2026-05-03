@@ -1,11 +1,11 @@
 """Client types, exceptions, and result containers."""
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
-from typing import NamedTuple, override
+from typing import NamedTuple, cast, override
 
 from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
 
@@ -51,14 +51,15 @@ class ProtocolError(AletheiaError):
 
 
 class BatchError(AletheiaError):
-    """Raised by send_frames when a frame fails mid-batch.
+    """Raised by send_frames / send_frames_iter when a frame fails or is cancelled mid-batch.
 
     Attributes:
         cause: The underlying exception that caused the batch to stop.
-        partial_results: Successfully-processed frame responses *before* the
-            failure. The ErrorResponse (if any) for the offending frame is
-            exposed via ``cause`` and ``frame_index``, not mixed into this
-            list — mirrors the Go and C++ bindings.
+        partial_results: Frame responses the caller has not already received.
+            For ``send_frames`` (batch) this is the full committed prefix.
+            For ``send_frames_iter`` (sync gen / async iter) this is **empty**
+            because every committed result was already yielded to the consumer
+            — duplicating them here would invite double-handling.
         frame_index: Zero-based index of the frame that caused the error.
     """
 
@@ -76,6 +77,99 @@ class BatchError(AletheiaError):
         self.cause = cause
         self.partial_results = partial_results
         self.frame_index = frame_index
+
+
+def raise_on_error_response(
+    resp: FrameResponse,
+    partial: Sequence[AckResponse | PropertyViolationResponse],
+    frame_index: int,
+) -> AckResponse | PropertyViolationResponse:
+    """Raise :class:`BatchError` if ``resp`` is an ErrorResponse; else return it narrowed.
+
+    Shared between sync ``send_frames`` / ``send_frames_iter`` and the async
+    counterparts on :class:`aletheia.asyncio.AletheiaClient`. Iter-mode
+    callers pass ``partial=[]`` since their committed prefix has already
+    been yielded to the consumer; batch-mode callers pass the live results
+    list. See the ``BatchError`` docstring for the per-call contract.
+    """
+    if resp["status"] == "error":
+        err = ProcessError(
+            f"error code={resp['code']}: {resp['message']}",
+            code=resp["code"],
+        )
+        raise BatchError(err, partial, frame_index=frame_index) from err
+    return resp
+
+
+def call_send_frame(
+    send_fn: Callable[..., FrameResponse],
+    frame_index: int,
+    frame: "CANFrameTuple",
+    partial: Sequence[AckResponse | PropertyViolationResponse],
+) -> AckResponse | PropertyViolationResponse:
+    """Send one frame via ``send_fn`` and return the committed response.
+
+    ``send_fn`` is the underlying ``send_frame`` (sync) or sync-via-
+    ``asyncio.to_thread`` callable. Raises :class:`BatchError` with
+    ``partial`` (committed prefix for batch mode, ``[]`` for iter mode)
+    on a Python exception or an ``ErrorResponse`` from the FFI; returns
+    the narrowed AckResponse / PropertyViolationResponse otherwise.
+    """
+    try:
+        resp = send_fn(frame.timestamp, frame.can_id, frame.dlc, frame.data,
+                       extended=frame.extended)
+    except Exception as exc:
+        raise BatchError(exc, partial, frame_index=frame_index) from exc
+    return raise_on_error_response(resp, partial, frame_index)
+
+
+def validate_payload_length(dlc: int, data: bytes | bytearray) -> int:
+    """Return ``dlc_to_bytes(dlc)``; raise :class:`ProcessError` on mismatch.
+
+    Shared between ``send_frame`` / ``extract_signals`` / ``update_frame``
+    so the validation + error message stay in lock-step at every payload
+    boundary.
+    """
+    expected_bytes = dlc_to_bytes(dlc)
+    if len(data) != expected_bytes:
+        raise ProcessError(
+            f"payload length {len(data)} does not match DLC {dlc}"
+            + f" (expected {expected_bytes} bytes)"
+        )
+    return expected_bytes
+
+
+@dataclass(slots=True, frozen=True)
+class FrameResult:
+    """Per-frame outcome yielded by ``send_frames_iter``.
+
+    Carries the index, timestamp, and CAN-ID identity of the source frame
+    plus its outcome — not the full payload, since the consumer already
+    holds the input ``CANFrameTuple`` if it needs the bytes back. Mirrors
+    the partial-results semantics of ``BatchError`` and the per-frame
+    response carried in C++ ``BatchResult.responses[i]`` / Go's
+    ``[]FrameResponse``.
+
+    The ``violation`` property returns the response only when it is a
+    ``fails`` verdict, supporting the canonical iter pattern from
+    docs/architecture/CANCELLATION.md §4.1::
+
+        async for result in client.send_frames_iter(frames):
+            if result.violation is not None:
+                handle(result.violation)
+    """
+    frame_index: int
+    timestamp: int
+    can_id: int
+    extended: bool
+    response: AckResponse | PropertyViolationResponse
+
+    @property
+    def violation(self) -> PropertyViolationResponse | None:
+        """The PropertyViolationResponse if this frame violated a property, else None."""
+        if self.response.get("status") == "fails":
+            return cast(PropertyViolationResponse, self.response)
+        return None
 
 
 class SignalExtractionResult:

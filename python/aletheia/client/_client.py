@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
-from collections.abc import Mapping
+from collections.abc import Generator, Iterable, Mapping
 from fractions import Fraction
 from typing import TYPE_CHECKING, Self, override, cast
 
@@ -27,9 +27,8 @@ from ..protocols import (
     ValidationResponse,
     ParsedDBCResponse,
     is_str_dict,
-    is_object_list,
 )
-from ._client_bin import BinaryFFI, FrameIdentity, SignalValues
+from ._client_bin import FrameIdentity, SignalValues
 from ._enrichment import build_diagnostic, format_enriched_reason
 from ._ffi import (
     parse_json_object,
@@ -41,9 +40,6 @@ from ._helpers import (
     coerce_to_rational,
     dump_json,
     normalize_dbc,
-    parse_absent_list,
-    parse_errors_list,
-    parse_values_list,
 )
 from ._log import LogEvent, log_event
 from ._response_parsers import (
@@ -55,10 +51,11 @@ from ._response_parsers import (
     parse_success_or_error,
     validate_issue_severities,
 )
+from ._signal_ops import SignalOpsMixin
 from ._types import (
     AletheiaError,
-    BatchError,
     CANFrameTuple,
+    FrameResult,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
@@ -66,8 +63,9 @@ from ._types import (
     SignalLookup,
     StreamCaches,
     MAX_EXTRACT_CACHE,
-    dlc_to_bytes,
+    call_send_frame,
     validate_can_id,
+    validate_payload_length,
 )
 
 if TYPE_CHECKING:
@@ -83,7 +81,7 @@ def _rational_index(r: RationalNumber, context: str) -> int:
     return r["numerator"] // r["denominator"]
 
 
-class AletheiaClient:
+class AletheiaClient(SignalOpsMixin):
     """Client for streaming LTL checking and signal operations.
 
     Uses ctypes to load libaletheia-ffi.so and call Haskell/Agda functions
@@ -520,12 +518,7 @@ class AletheiaClient:
         if timestamp < 0:
             raise ValueError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
-        expected_bytes = dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
-        if len(data) != expected_bytes:
-            raise ProcessError(
-                f"payload length {len(data)} does not match DLC {dlc}"
-                + f" (expected {expected_bytes} bytes)"
-            )
+        validate_payload_length(dlc, data)  # validates dlc is in [0, 15]
 
         # Binary FFI: pass frame components directly (no JSON serialization)
         data_array = (ctypes.c_uint8 * len(data))(*data)
@@ -609,22 +602,52 @@ class AletheiaClient:
         """
         results: list[AckResponse | PropertyViolationResponse] = []
         for i, (ts, cid, dlc, d, ext) in enumerate(frames):
-            try:
-                resp = self.send_frame(ts, cid, dlc, d, extended=ext)
-            except Exception as exc:
-                raise BatchError(exc, results, frame_index=i) from exc
-            if resp["status"] == "error":
-                err = ProcessError(
-                    f"error code={resp['code']}: {resp['message']}",
-                    code=resp["code"],
-                )
-                # Partial results contain only successfully-processed frames;
-                # the error response for frame `i` is surfaced via ``err`` and
-                # ``frame_index`` on the BatchError rather than being mixed
-                # into the partial results list, matching the Go/C++ bindings.
-                raise BatchError(err, results, frame_index=i) from err
-            results.append(resp)
+            results.append(call_send_frame(
+                self.send_frame, i, CANFrameTuple(ts, cid, dlc, d, ext), results,
+            ))
         return results
+
+    def send_frames_iter(
+        self,
+        frames: Iterable[CANFrameTuple],
+    ) -> Generator[FrameResult, None, None]:
+        """Send frames lazily, yielding per-frame ``FrameResult`` outcomes.
+
+        Streams the source iterable one frame at a time — useful when the
+        source is a live producer (queue, socket, generator) and full
+        materialization is wasteful or impossible. Cancellation is observed
+        at frame boundaries via the standard generator protocol: when the
+        consumer breaks the ``for`` loop or calls ``.close()`` on the
+        returned generator, the next yield raises ``GeneratorExit`` and the
+        loop exits. Every ``FrameResult`` already yielded is committed and
+        durable in the client's stream state — this is the
+        commit-prefix-and-report contract from
+        docs/architecture/CANCELLATION.md §3.1.
+
+        Violations are normal yielded results (``result.violation is not
+        None`` exposes the underlying ``PropertyViolationResponse``) and do
+        not stop the iteration. ``send_frame`` errors raise ``BatchError``
+        with ``partial_results=[]`` (the committed prefix was already
+        yielded; duplicating would invite double-handling) and
+        ``frame_index`` pointing at the offending frame.
+
+        Args:
+            frames: Iterable of ``CANFrameTuple``.
+
+        Yields:
+            ``FrameResult`` per accepted frame.
+
+        Raises:
+            BatchError: On non-cancellation errors (e.g., non-monotonic
+                timestamp); ``partial_results`` is empty.
+        """
+        for i, (ts, cid, dlc, d, ext) in enumerate(frames):
+            yield FrameResult(
+                frame_index=i, timestamp=ts, can_id=cid, extended=ext,
+                response=call_send_frame(
+                    self.send_frame, i, CANFrameTuple(ts, cid, dlc, d, ext), [],
+                ),
+            )
 
     def send_error(self, timestamp: int) -> AckResponse:
         """Send a CAN error event (no ID, no payload).
@@ -822,173 +845,9 @@ class AletheiaClient:
         }
 
     # =========================================================================
-    # Signal Operations (available anytime after DBC loaded)
+    # Signal Operations — extract_signals / update_frame / build_frame —
+    # are implemented in :mod:`._signal_ops` (mixin class).
     # =========================================================================
-
-    def extract_signals(
-        self, can_id: int, dlc: int, data: bytes | bytearray,
-        *, extended: bool = False,
-    ) -> SignalExtractionResult:
-        """Extract all signals from a CAN frame.
-
-        Works both inside and outside streaming mode.
-
-        Args:
-            can_id: CAN message ID
-            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
-            data: Frame payload
-            extended: True for 29-bit extended CAN ID, False for 11-bit standard
-
-        Returns:
-            SignalExtractionResult with values/errors/absent partitioning
-
-        Raises:
-            ProcessError: If extraction fails
-            ValueError: If dlc is outside 0-15
-        """
-        if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
-        expected_bytes = dlc_to_bytes(dlc)  # validates dlc is in [0, 15]
-        if len(data) != expected_bytes:
-            raise ProcessError(
-                f"payload length {len(data)} does not match DLC {dlc}"
-                + f" (expected {expected_bytes} bytes)"
-            )
-        validate_can_id(can_id, extended=extended)
-        data_array = (ctypes.c_uint8 * len(data))(*data)
-
-        # Use binary path when signal name cache is populated
-        lookup = self._signal_lookup.get((can_id, extended))
-        if lookup is not None:
-            return BinaryFFI(self._lib, self._state).extract_signals(
-                FrameIdentity(can_id, extended, dlc),
-                data_array,
-                lookup.names,
-            )
-
-        # Fallback: JSON path
-        result_ptr = self._lib.aletheia_extract_signals(
-            self._state,
-            ctypes.c_uint32(can_id),
-            ctypes.c_uint8(1 if extended else 0),
-            ctypes.c_uint8(dlc),
-            data_array,
-            ctypes.c_uint8(len(data)),
-        )
-        try:
-            response = self._parse_ffi_result(result_ptr)
-        except (ProcessError, ProtocolError) as exc:
-            log_event(
-                _logger, logging.WARNING, LogEvent.EXTRACTION_PROCESS_FAILED,
-                canId=can_id, error=str(exc),
-            )
-            raise
-
-        if response.get("status") == "error":
-            error_msg = response.get("message", "Unknown error")
-            error_code_raw = response.get("code")
-            error_code = error_code_raw if isinstance(error_code_raw, str) else None
-            log_event(
-                _logger, logging.WARNING, LogEvent.EXTRACTION_PARSE_FAILED,
-                canId=can_id, error=error_msg,
-            )
-            # Forward the Agda wire ``code`` so callers can branch on e.g.
-            # ``extraction_bit_extraction_failed`` vs ``frame_signal_not_found``
-            # without parsing the message string (matches Go / C++ bindings).
-            raise ProcessError(
-                f"extract_signals failed: {error_msg}", code=error_code,
-            )
-        if response.get("status") != "success":
-            raise ProtocolError(f"Unexpected status: {response.get('status')}")
-
-        # Parse response — validate list types, then delegate to helpers
-        for key in ("values", "errors", "absent"):
-            if not is_object_list(response.get(key, [])):
-                raise ProtocolError(f"Expected '{key}' to be a list")
-        return SignalExtractionResult(
-            values=parse_values_list(response.get("values", [])),
-            errors=parse_errors_list(response.get("errors", [])),
-            absent=tuple(parse_absent_list(response.get("absent", []))),
-        )
-
-    def update_frame(  # pylint: disable=too-many-arguments
-        self,
-        can_id: int,
-        dlc: int,
-        frame: bytes | bytearray,
-        signals: Mapping[str, float | Fraction],
-        *,
-        extended: bool = False,
-    ) -> bytearray:
-        """Update specific signals in an existing frame.
-
-        Works both inside and outside streaming mode.
-        Immutable - returns new frame, original unchanged.
-
-        Args:
-            can_id: CAN message ID
-            dlc: DLC code (0-8 for CAN 2.0B, 0-15 for CAN-FD)
-            frame: Existing frame data
-            signals: Signal updates (name -> value)
-            extended: True for 29-bit extended CAN ID, False for 11-bit standard
-
-        Returns:
-            New frame with updated signals
-
-        Raises:
-            ProcessError: If update fails
-            ValueError: If dlc is outside 0-15
-        """
-        if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
-        expected_bytes = dlc_to_bytes(dlc)
-        if len(frame) != expected_bytes:
-            raise ProcessError(
-                f"payload length {len(frame)} does not match DLC {dlc}"
-                + f" (expected {expected_bytes} bytes)"
-            )
-        validate_can_id(can_id, extended=extended)
-        sig_values = self._resolve_signal_indices(
-            signals, can_id, extended, "update_frame",
-        )
-        frame_array = (ctypes.c_uint8 * len(frame))(*frame)
-        return BinaryFFI(self._lib, self._state).update_frame(
-            FrameIdentity(can_id, extended, dlc),
-            frame_array,
-            sig_values,
-            expected_bytes,
-        )
-
-    def build_frame(
-        self, can_id: int, dlc: int, signals: Mapping[str, float | Fraction], *,
-        extended: bool = False,
-    ) -> bytearray:
-        """Build a CAN frame from signal values (zero-filled base).
-
-        Args:
-            can_id: CAN message ID
-            dlc: Data Length Code (0-15).
-            signals: Signal values to encode (name -> value)
-            extended: True for 29-bit extended CAN ID, False for 11-bit standard
-
-        Returns:
-            CAN frame payload (length = dlc_to_bytes(dlc))
-
-        Raises:
-            ProcessError: If frame building fails
-            ValueError: If dlc is outside 0-15
-        """
-        if self._lib is None or self._state is None:
-            raise ProcessError("Client not initialized — use 'with' statement")
-        validate_can_id(can_id, extended=extended)
-        sig_values = self._resolve_signal_indices(
-            signals, can_id, extended, "build_frame",
-        )
-        return BinaryFFI(self._lib, self._state).build_frame(
-            FrameIdentity(can_id, extended, dlc),
-            sig_values,
-            dlc_to_bytes(dlc),
-        )
 
     @override
     def __repr__(self) -> str:
