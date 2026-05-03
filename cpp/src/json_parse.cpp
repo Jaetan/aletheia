@@ -839,8 +839,8 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
                 } else if (sev_str == "warning") {
                     severity = IssueSeverity::Warning;
                 } else {
-                    return std::unexpected(make_error(
-                        ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
+                    return std::unexpected(
+                        make_error(ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
                 }
                 warnings.push_back({
                     .severity = severity,

@@ -85,8 +85,8 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
     Json msg = {
-        {"id", can_id_numeric(m.id)}, {"name", m.name.get()},   {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()},   {"senders", m.senders},   {"signals", std::move(sigs)},
+        {"id", can_id_numeric(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()},   {"senders", m.senders}, {"signals", std::move(sigs)},
     };
     // Mirror the Agda wire form: emit "extended" only when the CAN ID is
     // extended (29-bit). Agda omits the field for standard 11-bit frames;
