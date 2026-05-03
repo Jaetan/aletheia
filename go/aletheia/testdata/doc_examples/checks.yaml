@@ -1,0 +1,8 @@
+checks:
+  - signal: Speed
+    condition: never_exceeds
+    value: 220
+  - signal: Voltage
+    condition: stays_between
+    min: 11.5
+    max: 14.5

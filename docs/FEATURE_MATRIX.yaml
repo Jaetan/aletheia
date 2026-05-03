@@ -445,5 +445,6 @@ features:
         status: planned
         notes: "D.1 — catch2 harness extracting cpp fences from tracked markdown files."
       go:
-        status: planned
-        notes: "D.2 — go test helper extracting Go fences from tracked markdown files."
+        status: implemented
+        entry: Client
+        notes: "D.2 (2026-05-04) — TestDocExamples in go/aletheia/doc_examples_test.go walks tracked markdown, wraps each fence as `package main` in a per-fence tempdir (with `replace`-directive go.mod), runs via `go run` with t.Parallel. Companion structural gate TestNoNotestGoFences bans `<!-- go notest -->` escapes — non-runnable fences must use the `text` info string. The `Client` entry parallels Python's `aletheia.AletheiaClient` — the runtime class doc fences exercise."

@@ -63,7 +63,7 @@ The two clients share the same underlying `StablePtr` to the Agda `StreamState`,
 
 Go's cancellation idiom is `context.Context`, and Aletheia threads it through every operation method on the `Client`. The convention follows the standard library: `ctx context.Context` is the first parameter of every method that does work.
 
-```go
+```text
 func (c *Client) SendFrame(ctx context.Context,
                             ts Timestamp, id CanID, dlc DLC, data FramePayload,
                           ) (FrameResponse, error)
@@ -186,7 +186,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/aletheia/go/aletheia"
+    "github.com/aletheia-automotive/aletheia-go/aletheia"
 )
 
 func processBatch(ctx context.Context, client *aletheia.Client,

@@ -43,7 +43,7 @@ Aletheia provides:
    Check::signal("Speed").never_exceeds(PhysicalValue{220});         // C++
    ```
    ```go
-   CheckSignal("Speed").NeverExceeds(220)                            // Go
+   aletheia.CheckSignal("Speed").NeverExceeds(220)                   // Go
    ```
 
 2. **Formally verified core**: Signal extraction and LTL checking implemented in Agda with mathematical proofs of correctness
@@ -165,10 +165,11 @@ auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalVal
 Go:
 ```go
 aletheia.CheckSignal("Speed").NeverExceeds(220)
-aletheia.LoadChecksFromYAML("checks.yaml")
-aletheia.LoadChecksFromExcel("tests.xlsx")
-// LTL formulas via ltl package (compositional):
-f := ltl.Always(ltl.Atomic(ltl.LessThan("Speed", 220)))
+_, _ = aletheia.LoadChecksFromYAMLFile("checks.yaml")
+_, _ = excel.LoadChecks("tests.xlsx")
+// LTL formulas via struct-based AST (compositional, not fluent DSL):
+f := aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+_ = f
 ```
 
 **Streaming workflow** (Python shown; C++ and Go follow the same pattern):

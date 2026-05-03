@@ -64,7 +64,7 @@ Signal("Speed").less_than(220).always()
 aletheia::ltl::always(aletheia::ltl::less_than("Speed", aletheia::PhysicalValue{220}));
 ```
 ```go
-aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
+_ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
 ```
 
 **YAML loader** — load a check file:
@@ -75,7 +75,8 @@ checks = load_checks("checks.yaml")
 auto checks = aletheia::yaml::load_checks("checks.yaml");
 ```
 ```go
-checks, err := yaml.LoadChecks("checks.yaml")
+checks, err := aletheia.LoadChecksFromYAMLFile("checks.yaml")
+_, _ = checks, err
 ```
 
 **Excel loader** — load checks from a workbook:
@@ -88,6 +89,7 @@ auto checks = aletheia::excel::load_checks("checks.xlsx");
 ```go
 // requires the separate go/excel/ module
 checks, err := excel.LoadChecks("checks.xlsx")
+_, _ = checks, err
 ```
 
 **Streaming** — feed a frame to the verified core:
@@ -98,7 +100,8 @@ response = client.send_frame(ts, can_id, dlc, data)
 auto response = client.send_frame(ts, can_id, dlc, data);
 ```
 ```go
-response, err := client.SendFrame(ts, canID, dlc, data)
+response, err := client.SendFrame(ctx, ts, canID, dlc, data)
+_, _ = response, err
 ```
 
 These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.
