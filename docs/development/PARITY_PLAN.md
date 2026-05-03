@@ -336,16 +336,16 @@ Plan:
     **Estimate:** ~4–6 weeks total (3d.5.a 1.5w + 3d.5.b 1w + 3d.5.c 1w + 3d.5.d 2–3w + 3d.5.e 1w + 3d.5.f 0.5w).
 
   * **Commits 3d.6 / 3d.7 / 3d.8 ✅ shipped 2026-04-29 (commits `89e04ee` + `42228df` + `f25ca5a` on branch `b3d-3d5-format-dsl`):** see 3d.5.e bullet above for per-commit detail.  Layer 3 BO_ block fully closed.  Layer 4 then closes the universal `parseText (formatText d) ≡ inj₂ d` via `roundtrip DBC-format` once the remaining 3d.5.d 3c-B migration lands — post-3c-A (`27aaa8c`, 2026-04-29) the remaining list is **3c-B BA_DEF_DEF_ + BA_/BA_REL_ + parseAttrLine** (~5,000L combined).
-- B.3.e Add JSON protocol command `{"command": "parse_dbc_text", "text": "..."}`.
+- B.3.e ✅ shipped 2026-05-03 commit `bc7a5fc` — JSON protocol command `{"command": "parseDBCText", "text": "..."}` plus `ParsedDBCResponse` envelope (parsed body + warnings) on both `parseDBC` and `parseDBCText` success paths.  New `Aletheia/Protocol/Handlers/ParseDBCText.agda` submodule isolates parseText's ~30-module transitive import closure (importing it directly into `Handlers.agda` exhausts -M16G during the StreamCommand → Handlers → Main compile chain — see `memory/feedback_heavy_import_handler_split.md`).  `Protocol/JSON/Parse.agda` extended to decode the ASCII-range escape sequences emitted by Python `json` / Go `encoding/json` / JavaScript `JSON.stringify` (`\" \\ \/ \n \t \r \b \f`); `\uXXXX` intentionally unsupported (DBC text and the rest of the protocol stay within ASCII).  Module count 236 → 237.
 - B.3.f Python: switch `parse_dbc` to Agda core. Keep the cantools path behind a single feature flag for the transition window.
 - B.3.g Drop cantools dep once the corpus passes and a time-boxed grace window elapses with no regressions (see Risks §4). LGPL win per `project_lgpl_contingency.md`.
-- B.3.h C++ `parse_dbc_text` API.
-- B.3.i Go `ParseDBCText` API.
+- B.3.h ✅ shipped alongside B.3.e in commit `bc7a5fc` — C++ `parse_dbc_text(std::string_view) → Result<ParsedDBC>` plus `parse_dbc` upgraded to the same `ParsedDBC` carrier (`{dbc, warnings}`).  `parsed_dbc_response_for(dbc)` test helper added so MockBackend callers can feed the canonical envelope without hand-writing JSON.
+- B.3.i ✅ shipped alongside B.3.e in commit `bc7a5fc` — Go `ParseDBCText(text string) (*ParsedDBC, error)` plus `ParseDBC` widened to `(*ParsedDBC, error)`.  New `RespondParseDBC(dbc, warnings...)` mock helper.
 - B.3.j Cross-binding parity test: same DBC text → byte-identical `DbcDefinition` across all three.
 
 **Estimate: 3–6 weeks of Agda work + proofs.** Driven primarily by the attribute subsystem and mux edge cases. The lower bound assumes clean real-world DBCs; the upper bound covers encoding quirks (signed value tables, bit-ordering subtleties, Motorola-endianness × mux).
 
-**Matrix row:** `dbc_text_parse` (python=implemented/cpp,go=planned → all three=implemented after B.3.j).
+**Matrix row:** `dbc_text_parse` flipped 2026-05-03 (`bc7a5fc`): all three bindings now `implemented` (Python via `aletheia.AletheiaClient.parse_dbc_text`, C++ via `aletheia/client.hpp#parse_dbc_text`, Go via `Client.ParseDBCText`).  B.3.j is the residual cross-binding byte-equality gate.
 
 ### Phase C — Idiomatic Ergonomics (Part 2) — Design Rounds First
 

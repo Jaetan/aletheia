@@ -63,12 +63,12 @@ Every Agda module MUST start with:
 
 ### Module Safety Flag Breakdown
 
-236 total modules (`cabal run shake -- count-modules`):
-- **231**: `--safe --without-K`
+237 total modules (`cabal run shake -- count-modules`):
+- **232**: `--safe --without-K`
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer (post-Layer 4c task E, 2026-05-03) — co-located in this single module to keep the trusted-axiom-consuming surface at one allowlisted module by name (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-235 of 236 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
+236 of 237 modules use `--safe`. No modules require `--sized-types`. Path A.4 (3d.4 + JSON-mirror, 2026-04-27) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` by retyping `Identifier.name`, JSON `JString`, DBC AST text fields, and LTL signal names from `String` to `List Char`. Per-commit module-count drift since 3d.5 is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md`.
 
 ## Common Commands
 
@@ -218,13 +218,15 @@ Start with the [Project Pitch](docs/PITCH.md) for context.
 
 For history (R6–R17, Path G, Phase 5.1, Phases A/B.1/B.1.x/B.2/B.3.a-c, B.3.d pre-gate, Layers 1–2, Layer 3 commits 3a/3b/3c.0–3c.4/3d.1–3d.3) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives for 3d.4–3d.8 + 3d.5.a–3d.5.d sub-phases live in [PROJECT_STATUS.md](PROJECT_STATUS.md) and [memory/project_b3d_universal_proof.md](memory/project_b3d_universal_proof.md). Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
-**Current track:** Phase B.3.d — universal DBC text-parser roundtrip target REFINED to `∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d` (Layer 4c, 2026-05-01: advisor flagged naked `∀ d` is **literally false** because `refineAttribute` can fail on unknown name / OOB AVEnum index / type mismatch; user locked option (a) — WF precondition). Decomposition in [PARITY_PLAN.md §B.3.d](docs/development/PARITY_PLAN.md): (1) `List Char` substrate; (2) per-primitive parse/emit lemmas; (3) per-line-construct lemmas; (4) top-level aggregator induction.
+**Current track:** Phase B.3.e ✅ shipped 2026-05-03 commit `bc7a5fc` on branch `b3d-3d5-format-dsl` — universal DBC text-parser exposed via JSON command and bound across all three bindings.  Phase B.3.d (universal roundtrip theorem) closed 2026-05-03 via `bca99f2`.
+
+**Status (2026-05-03): Phase B.3.e COMPLETE.**  Verified Agda `parseText` is now bound through the JSON wire protocol with the new `ParseDBCText : String → StreamCommand` constructor and `Response.ParsedDBCResponse : DBC → List ValidationIssue → Response` envelope.  `handleParseDBC` upgraded to the same envelope (parsed body + warnings); validation errors short-circuit to typed `Response.Error`.  JSON parser (`Protocol/JSON/Parse.agda`) extended to decode the ASCII-range escape sequences emitted by Python `json` / Go `encoding/json` / JavaScript `JSON.stringify` (`\" \\ \/ \n \t \r \b \f`).  All three bindings (Python `parse_dbc_text`, C++ `parse_dbc_text`, Go `ParseDBCText`) wired with matching `ParsedDBC` carrier types and mock helpers.  `docs/FEATURE_MATRIX.yaml` `dbc_text_parse` row flipped: Python now resolves to `aletheia.AletheiaClient.parse_dbc_text`, C++/Go marked `implemented`.  Module count 236 → 237 (+1: `Aletheia/Protocol/Handlers/ParseDBCText.agda`, isolated to keep parseText's transitive closure out of `Handlers.agda` — see `memory/feedback_heavy_import_handler_split.md`).  Active branch: `b3d-3d5-format-dsl`.
 
 **Status (2026-05-03): Phase B.3.d COMPLETE.**  Universal target
 
     ∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d
 
-proven in `Substrate/Unsafe.agda` (sole consumer of the two stdlib-equivalent bridging axioms; co-located with the axioms by Unsafe-module-policy — see `memory/feedback_unsafe_module_policy.md`).  Layers 1–2 ✅; Layer 3 ✅ (all per-line constructs migrated to Format DSL); Layer 4a ✅ (`70766cd`) + 4b ✅ (`7b17da6`) + 4c-(a) ✅ (`cf091d8`) + 4c-(b) ✅ (`6c7ade3`) + 4c task E ✅ (`bca99f2`, 2026-05-03) — closes B.3.d.  Active branch: `b3d-3d5-format-dsl`.  Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
+proven in `Substrate/Unsafe.agda` (sole consumer of the two stdlib-equivalent bridging axioms; co-located with the axioms by Unsafe-module-policy — see `memory/feedback_unsafe_module_policy.md`).  Layers 1–2 ✅; Layer 3 ✅ (all per-line constructs migrated to Format DSL); Layer 4a ✅ (`70766cd`) + 4b ✅ (`7b17da6`) + 4c-(a) ✅ (`cf091d8`) + 4c-(b) ✅ (`6c7ade3`) + 4c task E ✅ (`bca99f2`, 2026-05-03) — closes B.3.d.  Path A.4 (3d.4 + JSON-mirror, commit `320c5a9` on `b3d-3d4-json-detaint`) lifted the prior 47-module `--without-K`-only cluster to `--safe --without-K` and shipped Path A.5 Bool fast path on `Cache.lookupEntries` / `DBCHelpers.findSignalInList`.
 
 **Layer 3 construct status** (✅ migrated to Format DSL via η-style wrap `parse <leafFmt> >>= many parseNewline >>= …`; % = strict-LOC reduction on production-side):
 - BO_ block ✅ — 3d.6 + 3d.7 + 3d.8 (commits `89e04ee` + `42228df` + `f25ca5a`); spine-based `emitMessage-chars-decompose` + 2-stage `pos-eq` patterns established here for future multi-line composers.
