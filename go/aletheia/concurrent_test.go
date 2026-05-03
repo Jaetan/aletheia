@@ -35,12 +35,12 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 	defer c.Close()
 
 	// ParseDBC populates signalNames — the binary path is now active.
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
-	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("ExtractSignals fell through to a real failure: %v", err)
 	}
@@ -54,7 +54,9 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 // one Client while a terminator goroutine calls Close repeatedly. The
 // MockBackend is preloaded with enough canned success responses to absorb
 // every call's JSON exchange — run this with `go test -race` to validate both
-// the sync.Mutex serialization and the double-close guarantee.
+// the channel-based semaphore serialization and the double-close guarantee.
+// (Cancel-while-waiting-on-lock semantics are tested separately in
+// cancel_test.go's TestClient_CancelWhileWaitingOnLock.)
 func TestClient_Concurrent(t *testing.T) {
 	const workers = 8
 	const iterationsPerWorker = 4
@@ -86,7 +88,7 @@ func TestClient_Concurrent(t *testing.T) {
 				// closed client returns an *aletheia.Error with ErrState, not
 				// a panic. The invariant under test is that the Client never
 				// data-races or panics, not that every call succeeds.
-				_ = c.AddChecks(checks)
+				_ = c.AddChecks(ctx, checks)
 			}
 		}()
 	}

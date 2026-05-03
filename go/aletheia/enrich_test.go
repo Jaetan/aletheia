@@ -240,7 +240,7 @@ func TestSetProperties_AutoDerive(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
@@ -264,20 +264,20 @@ func TestSendFrame_EnrichedViolation(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatalf("StartStream: %v", err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.And{
 			Left:  aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}},
 			Right: aletheia.Atomic{Predicate: aletheia.GreaterThan{Signal: "RPM", Value: 500}},
@@ -327,14 +327,14 @@ func TestSendFrame_MultiSignalEnrichment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetProperties: %v", err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatalf("StartStream: %v", err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("SendFrame: %v", err)
 	}
@@ -373,13 +373,13 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +387,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
 
-	resp1, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data)
+	resp1, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestSendFrame_ExtractionCaching(t *testing.T) {
 		t.Fatal("expected enriched violation 1")
 	}
 
-	resp2, err := c.SendFrame(aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
+	resp2, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,13 +439,13 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestSendFrame_CacheBounded(t *testing.T) {
 	for i := 0; i < 257; i++ {
 		sid, _ := aletheia.NewStandardID(uint16(i % 2048))
 		data := aletheia.FramePayload{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 0}
-		resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+		resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 		if err != nil {
 			t.Fatalf("SendFrame %d: %v", i, err)
 		}
@@ -485,25 +485,25 @@ func TestEndStream_Enriched(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	_, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	sr, err := c.EndStream()
+	sr, err := c.EndStream(ctx)
 	if err != nil {
 		t.Fatalf("EndStream: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
@@ -559,13 +559,13 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	}
 
 	// First stream
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xF5, 0x09, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,17 +573,17 @@ func TestStartStream_ClearsCache(t *testing.T) {
 	if v1.Enrichment == nil || v1.Enrichment.Signals["Speed"] != 100 {
 		t.Fatalf("stream 1: expected Speed=100, got %v", v1.Enrichment)
 	}
-	_, err = c.EndStream()
+	_, err = c.EndStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Second stream (cache cleared by StartStream)
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err = c.SendFrame(aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
+	resp, err = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 2000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -630,22 +630,22 @@ func TestEndStream_EnrichmentExtractionFailure(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
 		t.Fatal(err)
 	}
 
-	sr, err := c.EndStream()
+	sr, err := c.EndStream(ctx)
 	if err != nil {
 		t.Fatalf("EndStream: %v", err)
 	}
@@ -690,13 +690,13 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.StartStream()
+	err = c.StartStream(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,7 +708,7 @@ func TestConcurrent_WithDiagnostics(t *testing.T) {
 			defer wg.Done()
 			sid, _ := aletheia.NewStandardID(uint16(0x100 + idx))
 			data := aletheia.FramePayload{byte(idx), 0, 0, 0, 0, 0, 0, 0}
-			_, _ = c.SendFrame(aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
+			_, _ = c.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(idx * 1000)}, sid, dlc8(), data)
 		}(i)
 	}
 	wg.Wait()

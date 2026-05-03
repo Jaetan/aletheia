@@ -374,13 +374,14 @@ features:
     bindings:
       python:
         status: planned
-        notes: "SFP-2 async path; design round gated on C.0 outcome."
+        notes: "C.1 — AsyncAletheiaClient + asyncio.CancelledError; design locked, implementation pending."
       cpp:
         status: planned
-        notes: "C.4 — std::stop_token candidate; new backlog item surfaced by the parity plan."
+        notes: "C.4 — std::stop_token first-param + ErrorKind::Cancellation; design locked, implementation pending."
       go:
-        status: planned
-        notes: "R17-DEF-5; design round required per project_go_features_to_explore.md."
+        status: implemented
+        entry: Client.SendFrame
+        notes: "C.3 (2026-05-03): every Client operation method takes ctx context.Context as its first parameter; sync.Mutex replaced with 1-deep channel-based semaphore so a goroutine waiting on the lock can be cancelled by ctx. See docs/architecture/CANCELLATION.md."
 
   - id: lazy_streaming_batch
     name: Lazy batch frame send

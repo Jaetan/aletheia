@@ -285,7 +285,7 @@ func TestAddChecks(t *testing.T) {
 		CheckSignal("Speed").NeverExceeds(220),
 		staysBetween,
 	}
-	if err := client.AddChecks(checks); err != nil {
+	if err := client.AddChecks(ctx, checks); err != nil {
 		t.Errorf("AddChecks: %v", err)
 	}
 }
@@ -306,7 +306,7 @@ func TestAddChecksWithDefaults(t *testing.T) {
 	sessionChecks := []CheckResult{
 		CheckSignal("Speed").NeverExceeds(220),
 	}
-	if err := client.AddChecks(sessionChecks); err != nil {
+	if err := client.AddChecks(ctx, sessionChecks); err != nil {
 		t.Errorf("AddChecks with defaults: %v", err)
 	}
 }

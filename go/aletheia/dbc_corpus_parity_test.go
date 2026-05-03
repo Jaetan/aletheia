@@ -133,7 +133,7 @@ func TestDBCCorpusParity(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read %s: %v", name, err)
 			}
-			parsed, err := client.ParseDBCText(string(text))
+			parsed, err := client.ParseDBCText(ctx, string(text))
 			if err != nil {
 				t.Fatalf("ParseDBCText(%s): %v", name, err)
 			}

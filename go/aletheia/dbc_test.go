@@ -19,7 +19,7 @@ func TestParseDBC(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(ctx, testDBC())
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestValidateDBC_NoErrors(t *testing.T) {
 	}
 	defer c.Close()
 
-	result, err := c.ValidateDBC(testDBC())
+	result, err := c.ValidateDBC(ctx, testDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestValidateDBC_WithIssues(t *testing.T) {
 	}
 	defer c.Close()
 
-	result, err := c.ValidateDBC(testDBC())
+	result, err := c.ValidateDBC(ctx, testDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestValidateDBC_UnknownSeverityRejected(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.ValidateDBC(testDBC())
+	_, err = c.ValidateDBC(ctx, testDBC())
 	if err == nil {
 		t.Fatal("expected error for unknown severity, got nil")
 	}
@@ -141,7 +141,7 @@ func TestFormatDBC(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestFormatDBC_Success(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestFormatDBC_AfterClose(t *testing.T) {
 	}
 	c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error after Close")
 	}
@@ -279,7 +279,7 @@ func TestExtractSignals(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x123)
-	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0})
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{0xDE, 0xAD, 0xBE, 0xEF, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestExtractSignals_RationalValue(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x100)
-	result, err := c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0})
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -355,12 +355,12 @@ func TestBuildFrame(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(sid, []aletheia.SignalValue{
+	payload, err := c.BuildFrame(ctx, sid, []aletheia.SignalValue{
 		{Name: "Speed", Value: 120.5},
 	}, dlc)
 	if err != nil {
@@ -386,12 +386,12 @@ func TestUpdateFrame(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	payload, err := c.UpdateFrame(sid, dlc8(), data, []aletheia.SignalValue{
+	payload, err := c.UpdateFrame(ctx, sid, dlc8(), data, []aletheia.SignalValue{
 		{Name: "Speed", Value: 100.0},
 	})
 	if err != nil {
@@ -421,7 +421,7 @@ func TestExtendedIDInDBC(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.ParseDBC(dbc)
+	_, err = c.ParseDBC(ctx, dbc)
 	if err != nil {
 		t.Fatalf("ParseDBC with extended ID: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestMultiplexedSignal(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.ParseDBC(dbc)
+	_, err = c.ParseDBC(ctx, dbc)
 	if err != nil {
 		t.Fatalf("ParseDBC with mux: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestFormatDBC_ExtendedID(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestFormatDBC_Multiplexed(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestExtractSignals_Errors(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	result, err := c.ExtractSignals(sid, dlc8(), data)
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestChangedByPredicate(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Atomic{Predicate: aletheia.ChangedBy{Signal: "RPM", Delta: 500}},
 	})
 	if err != nil {
@@ -619,7 +619,7 @@ func TestBetweenPredicate(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: -40, Max: 120}},
 	})
 	if err != nil {
@@ -654,7 +654,7 @@ func TestZeroDenominatorRational(t *testing.T) {
 	defer c.Close()
 
 	sid, _ := aletheia.NewStandardID(0x100)
-	_, err = c.ExtractSignals(sid, dlc8(), aletheia.FramePayload{})
+	_, err = c.ExtractSignals(ctx, sid, dlc8(), aletheia.FramePayload{})
 	if err == nil {
 		t.Fatal("expected error for zero denominator")
 	}
@@ -671,12 +671,12 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	_, err = c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
+	_, err = c.BuildFrame(ctx, sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
 	requireErrorContains(t, err, "out of range")
 }
 
@@ -691,12 +691,12 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	payload, err := c.BuildFrame(sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
+	payload, err := c.BuildFrame(ctx, sid, []aletheia.SignalValue{{Name: "Speed", Value: 100}}, dlc)
 	if err != nil {
 		t.Fatalf("BuildFrame: %v", err)
 	}
@@ -716,12 +716,12 @@ func TestExtractSignals_InvalidStatus(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.ExtractSignals(sid, dlc8(), data)
+	_, err = c.ExtractSignals(ctx, sid, dlc8(), data)
 	requireErrorContains(t, err, "expected success")
 }
 
@@ -736,12 +736,12 @@ func TestExtractSignals_NonStringAbsent(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.ExtractSignals(sid, dlc8(), data)
+	_, err = c.ExtractSignals(ctx, sid, dlc8(), data)
 	requireErrorContains(t, err, "expected string in absent")
 }
 
@@ -769,7 +769,7 @@ func TestFormatDBC_InvalidByteOrder(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for invalid byteOrder")
 	}
@@ -801,7 +801,7 @@ func TestFormatDBC_NegativeID(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for negative ID")
 	}
@@ -836,7 +836,7 @@ func TestFormatDBC_MissingSignalName(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for missing signal name")
 	}
@@ -857,7 +857,7 @@ func TestBetween_MinExceedsMax(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.SetProperties([]aletheia.Formula{
+	err = c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Atomic{Predicate: aletheia.Between{Signal: "Temp", Min: 100, Max: 50}},
 	})
 	if err == nil {
@@ -896,7 +896,7 @@ func TestFormatDBC_StartBitOutOfRange(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for startBit=600")
 	}
@@ -932,7 +932,7 @@ func TestFormatDBC_LengthZero(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for length=0")
 	}
@@ -968,7 +968,7 @@ func TestFormatDBC_LengthExcessive(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for length=65")
 	}
@@ -1001,7 +1001,7 @@ func TestExtractSignals_EmptySignalName(t *testing.T) {
 
 	sid, _ := aletheia.NewStandardID(0x100)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	_, err = c.ExtractSignals(sid, dlc8(), data)
+	_, err = c.ExtractSignals(ctx, sid, dlc8(), data)
 	if err == nil {
 		t.Fatal("expected error for empty signal name in extraction")
 	}
@@ -1033,7 +1033,7 @@ func TestFormatDBC_EmptyMessageName(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for empty message name")
 	}

@@ -1,10 +1,16 @@
 package aletheia
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 )
+
+// ctx is the default context for internal-package tests that don't exercise
+// cancellation. Tests that DO exercise cancellation create their own
+// context.WithCancel or context.WithTimeout in-test.
+var ctx = context.Background()
 
 // requireErrorContains asserts err is a non-nil *Error whose message
 // contains substr. Uses errors.As for proper unwrapping (G-6 review finding).

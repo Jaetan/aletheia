@@ -61,7 +61,7 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(dbc); err != nil {
+	if _, err := c.ParseDBC(ctx, dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(dbc); err != nil {
+	if _, err := c.ParseDBC(ctx, dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestFormatDBC_AcceptsTier1Metadata(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestFormatDBC_AcceptsMissingTier1Keys(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestFormatDBC_RejectsUnknownVarType(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for unknown varType, got nil")
 	}
@@ -294,7 +294,7 @@ func TestFormatDBC_EnvVarPreservesExactRationals(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	}
 	defer sendClient.Close()
 
-	if _, err := sendClient.ParseDBC(original); err != nil {
+	if _, err := sendClient.ParseDBC(ctx, original); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	}
 	defer parseClient.Close()
 
-	decoded, err := parseClient.FormatDBC()
+	decoded, err := parseClient.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}

@@ -114,7 +114,7 @@ func TestSerializeDBC_Tier2RoundtripThroughMock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -136,7 +136,7 @@ func TestSerializeDBC_Tier2RoundtripThroughMock(t *testing.T) {
 	}
 	defer parseClient.Close()
 
-	decoded, err := parseClient.FormatDBC()
+	decoded, err := parseClient.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestFormatDBC_AcceptsMissingTier2Keys(t *testing.T) {
 	}
 	defer c.Close()
 
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestFormatDBC_RejectsUnknownCommentTargetKind(t *testing.T) {
 	}
 	defer c.Close()
 
-	_, err = c.FormatDBC()
+	_, err = c.FormatDBC(ctx)
 	if err == nil {
 		t.Fatal("expected error for unknown comment target kind, got nil")
 	}
@@ -363,7 +363,7 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -405,7 +405,7 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 	}
 	defer parseClient.Close()
 
-	decoded, err := parseClient.FormatDBC()
+	decoded, err := parseClient.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -445,7 +445,7 @@ func TestDbcSignalReceivers_EmptyWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if _, err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(ctx, fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -519,7 +519,7 @@ func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
 	}
 	defer parseClient.Close()
 
-	decoded, err := parseClient.FormatDBC()
+	decoded, err := parseClient.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestDbcMessageSenders_EmptyWhenAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	dbc, err := c.FormatDBC()
+	dbc, err := c.FormatDBC(ctx)
 	if err != nil {
 		t.Fatalf("FormatDBC: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(dbc); err != nil {
+	if _, err := c.ParseDBC(ctx, dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 

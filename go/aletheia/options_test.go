@@ -28,22 +28,22 @@ func TestWithLogger(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := c.EndStream(); err != nil {
+	if _, err := c.EndStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,22 +79,22 @@ func TestWithLogger_Enrichment(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0xFF, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := c.EndStream(); err != nil {
+	if _, err := c.EndStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,18 +122,18 @@ func TestWithoutLogger(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	if _, err := c.SendFrame(aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
+	if _, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 1000}, sid, dlc8(), data); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -156,18 +156,18 @@ func TestWithLogger_ExtractionError(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	sid, _ := aletheia.NewStandardID(0x123)
 	data := aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}
-	resp, err := c.SendFrame(aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
+	resp, err := c.SendFrame(ctx, aletheia.Timestamp{Microseconds: 5000}, sid, dlc8(), data)
 	if err != nil {
 		t.Fatal(err)
 	}

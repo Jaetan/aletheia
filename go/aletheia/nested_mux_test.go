@@ -76,7 +76,7 @@ func TestNestedMux_ParseDBCAccepted(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(nestedMuxDBC()); err != nil {
+	if _, err := c.ParseDBC(ctx, nestedMuxDBC()); err != nil {
 		t.Fatalf("ParseDBC with nested mux: %v", err)
 	}
 }
@@ -97,7 +97,7 @@ func TestNestedMux_ValidateClean(t *testing.T) {
 	}
 	defer c.Close()
 
-	result, err := c.ValidateDBC(nestedMuxDBC())
+	result, err := c.ValidateDBC(ctx, nestedMuxDBC())
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestNestedMux_FullChainMatch_ExtractsLeaf(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x300)
 	// Mode=3, SubMode=7, Detail=0xABCD (43981)
 	data := aletheia.FramePayload{0x03, 0x07, 0xCD, 0xAB, 0, 0, 0, 0}
-	result, err := c.ExtractSignals(sid, dlc8(), data)
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestNestedMux_InnerMismatch_LeafAbsent(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x300)
 	// Mode=3, SubMode=5 (≠7), Detail bytes ignored
 	data := aletheia.FramePayload{0x03, 0x05, 0xCD, 0xAB, 0, 0, 0, 0}
-	result, err := c.ExtractSignals(sid, dlc8(), data)
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestNestedMux_OuterMismatch_BothLeavesAbsent(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x300)
 	// Mode=2 (≠3), SubMode/Detail bytes ignored
 	data := aletheia.FramePayload{0x02, 0x07, 0xCD, 0xAB, 0, 0, 0, 0}
-	result, err := c.ExtractSignals(sid, dlc8(), data)
+	result, err := c.ExtractSignals(ctx, sid, dlc8(), data)
 	if err != nil {
 		t.Fatalf("ExtractSignals: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestNestedMux_CycleRejected(t *testing.T) {
 		}},
 	}
 
-	result, err := c.ValidateDBC(cycleDBC)
+	result, err := c.ValidateDBC(ctx, cycleDBC)
 	if err != nil {
 		t.Fatalf("ValidateDBC: %v", err)
 	}

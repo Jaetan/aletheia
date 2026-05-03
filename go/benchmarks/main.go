@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,6 +23,10 @@ import (
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
+
+// ctx is the benchmark default context. Benchmarks measure unconditional
+// throughput; cancellation is exercised in the test suite, not here.
+var ctx = context.Background()
 
 // ---------------------------------------------------------------------------
 // Library discovery
@@ -293,25 +298,25 @@ func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return 0, err
 	}
-	if err := client.SetProperties(props); err != nil {
+	if err := client.SetProperties(ctx, props); err != nil {
 		return 0, err
 	}
-	if err := client.StartStream(); err != nil {
+	if err := client.StartStream(ctx); err != nil {
 		return 0, err
 	}
 
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.SendFrame(aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
 			return 0, err
 		}
 	}
 	elapsed := time.Since(start)
 
-	if _, err := client.EndStream(); err != nil {
+	if _, err := client.EndStream(ctx); err != nil {
 		return 0, err
 	}
 	return float64(numFrames) / elapsed.Seconds(), nil
@@ -324,13 +329,13 @@ func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinitio
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return 0, err
 	}
 
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.ExtractSignals(id, dlc, frame); err != nil {
+		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
 			return 0, err
 		}
 	}
@@ -345,13 +350,13 @@ func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition,
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return 0, err
 	}
 
 	start := time.Now()
 	for i := 0; i < numFrames; i++ {
-		if _, err := client.BuildFrame(id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
 			return 0, err
 		}
 	}
@@ -481,19 +486,19 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefini
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return nil, err
 	}
-	if err := client.SetProperties(props); err != nil {
+	if err := client.SetProperties(ctx, props); err != nil {
 		return nil, err
 	}
-	if err := client.StartStream(); err != nil {
+	if err := client.StartStream(ctx); err != nil {
 		return nil, err
 	}
 
 	// Warmup.
 	for i := 0; i < warmup; i++ {
-		if _, err := client.SendFrame(aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(i)}, id, dlc, frame); err != nil {
 			return nil, err
 		}
 	}
@@ -502,13 +507,13 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefini
 	latencies := make([]float64, 0, numOps)
 	for i := 0; i < numOps; i++ {
 		start := time.Now()
-		if _, err := client.SendFrame(aletheia.Timestamp{Microseconds: int64(warmup + i)}, id, dlc, frame); err != nil {
+		if _, err := client.SendFrame(ctx, aletheia.Timestamp{Microseconds: int64(warmup + i)}, id, dlc, frame); err != nil {
 			return nil, err
 		}
 		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0) // microseconds
 	}
 
-	if _, err := client.EndStream(); err != nil {
+	if _, err := client.EndStream(ctx); err != nil {
 		return nil, err
 	}
 	return latencies, nil
@@ -521,12 +526,12 @@ func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDe
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return nil, err
 	}
 
 	for i := 0; i < warmup; i++ {
-		if _, err := client.ExtractSignals(id, dlc, frame); err != nil {
+		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
 			return nil, err
 		}
 	}
@@ -534,7 +539,7 @@ func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDe
 	latencies := make([]float64, 0, numOps)
 	for i := 0; i < numOps; i++ {
 		start := time.Now()
-		if _, err := client.ExtractSignals(id, dlc, frame); err != nil {
+		if _, err := client.ExtractSignals(ctx, id, dlc, frame); err != nil {
 			return nil, err
 		}
 		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)
@@ -549,12 +554,12 @@ func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinit
 	}
 	defer client.Close()
 
-	if _, err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(ctx, dbc); err != nil {
 		return nil, err
 	}
 
 	for i := 0; i < warmup; i++ {
-		if _, err := client.BuildFrame(id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
 			return nil, err
 		}
 	}
@@ -562,7 +567,7 @@ func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinit
 	latencies := make([]float64, 0, numOps)
 	for i := 0; i < numOps; i++ {
 		start := time.Now()
-		if _, err := client.BuildFrame(id, signals, dlc); err != nil {
+		if _, err := client.BuildFrame(ctx, id, signals, dlc); err != nil {
 			return nil, err
 		}
 		latencies = append(latencies, float64(time.Since(start).Nanoseconds())/1000.0)

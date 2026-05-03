@@ -14,10 +14,17 @@
 //	if err != nil { log.Fatal(err) }
 //	defer client.Close()
 //
-//	parsed, err := client.ParseDBC(dbc)
+//	ctx := context.Background()
+//	parsed, err := client.ParseDBC(ctx, dbc)
 //	if err != nil { log.Fatal(err) }
 //	_ = parsed.Warnings // non-fatal validation issues, if any
-//	result, err := client.ExtractSignals(canID, dlc, frameData)
+//	result, err := client.ExtractSignals(ctx, canID, dlc, frameData)
+//
+// Cancellation: every operation method takes a context.Context as its first
+// parameter and honors cancellation cooperatively at FFI boundaries — see
+// docs/architecture/CANCELLATION.md for the full contract. NewClient and
+// Close do NOT take ctx (construction and teardown are synchronous and
+// uncancellable by design).
 //
 // Functional options:
 //

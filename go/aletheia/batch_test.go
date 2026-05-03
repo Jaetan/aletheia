@@ -20,12 +20,12 @@ func TestSendFrames_AllAck(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,7 +36,7 @@ func TestSendFrames_AllAck(t *testing.T) {
 		{Timestamp: aletheia.Timestamp{Microseconds: 3000}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload{2, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
-	results, err := c.SendFrames(frames)
+	results, err := c.SendFrames(ctx, frames)
 	if err != nil {
 		t.Fatalf("SendFrames: %v", err)
 	}
@@ -71,12 +71,12 @@ func TestSendFrames_WithViolation(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 220}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +87,7 @@ func TestSendFrames_WithViolation(t *testing.T) {
 		{Timestamp: aletheia.Timestamp{Microseconds: 3000}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
-	results, err := c.SendFrames(frames)
+	results, err := c.SendFrames(ctx, frames)
 	if err != nil {
 		t.Fatalf("SendFrames: %v", err)
 	}
@@ -125,12 +125,12 @@ func TestSendFrames_StopsOnError(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestSendFrames_StopsOnError(t *testing.T) {
 		{Timestamp: aletheia.Timestamp{Microseconds: 3000}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
-	results, err := c.SendFrames(frames)
+	results, err := c.SendFrames(ctx, frames)
 	requireErrorContains(t, err, "payload length")
 	// First frame succeeded before the error.
 	if len(results) != 1 {
@@ -160,16 +160,16 @@ func TestSendFrames_Empty(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
-	results, err := c.SendFrames(nil)
+	results, err := c.SendFrames(ctx, nil)
 	if err != nil {
 		t.Fatalf("SendFrames(nil): %v", err)
 	}
@@ -189,12 +189,12 @@ func TestSendFrames_NegativeTimestamp(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.SetProperties([]aletheia.Formula{
+	if err := c.SetProperties(ctx, []aletheia.Formula{
 		aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: 300}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.StartStream(); err != nil {
+	if err := c.StartStream(ctx); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,7 +203,7 @@ func TestSendFrames_NegativeTimestamp(t *testing.T) {
 		{Timestamp: aletheia.Timestamp{Microseconds: -1}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
-	results, err := c.SendFrames(frames)
+	results, err := c.SendFrames(ctx, frames)
 	if err == nil {
 		t.Fatal("expected error for negative timestamp")
 	}
@@ -225,6 +225,6 @@ func TestSendFrames_AfterClose(t *testing.T) {
 		{Timestamp: aletheia.Timestamp{Microseconds: 1000}, ID: sid, DLC: dlc8(), Data: aletheia.FramePayload{0, 0, 0, 0, 0, 0, 0, 0}},
 	}
 
-	_, err = c.SendFrames(frames)
+	_, err = c.SendFrames(ctx, frames)
 	requireErrorContains(t, err, "closed")
 }

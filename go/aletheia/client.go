@@ -30,13 +30,20 @@ func WithDefaultChecks(checks ...CheckResult) ClientOption {
 }
 
 // Client provides Aletheia operations over a Backend.
+//
 // A Client is safe for concurrent use from multiple goroutines; calls are
 // serialized internally because the underlying LTL automaton is sequential.
+// The serializing primitive is a 1-deep channel-based semaphore — a goroutine
+// waiting for the lock may be cancelled by its [context.Context] without ever
+// acquiring the lock, a behavior [sync.Mutex] cannot express. Every operation
+// method takes a [context.Context] as its first parameter; see
+// docs/architecture/CANCELLATION.md for the cancellation contract.
+//
 // Create with [NewClient] and close with [Client.Close] (implements [io.Closer]).
 type Client struct {
 	backend       Backend
 	state         unsafe.Pointer
-	mu            sync.Mutex
+	lockCh        chan struct{} // 1-deep semaphore: empty=unlocked, full=locked
 	closeOnce     sync.Once
 	closed        bool
 	logger        *slog.Logger              // nil = no logging
@@ -50,12 +57,21 @@ type Client struct {
 
 // NewClient creates a Client backed by the given Backend.
 // It calls backend.Init() to create a session.
+//
+// NewClient does NOT take a [context.Context]: construction is synchronous
+// (CGO + GHC RTS init); there is no I/O to wait on, so cancellation has no
+// meaningful effect. Mirrors sql.Open / grpc.NewClient. See
+// docs/architecture/CANCELLATION.md §5.1.
 func NewClient(backend Backend, opts ...ClientOption) (*Client, error) {
 	state, err := backend.Init()
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{backend: backend, state: state}
+	c := &Client{
+		backend: backend,
+		state:   state,
+		lockCh:  make(chan struct{}, 1),
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -64,10 +80,17 @@ func NewClient(backend Backend, opts ...ClientOption) (*Client, error) {
 
 // Close finalizes the session. The Client must not be used after Close.
 // Close is safe to call concurrently or multiple times.
+//
+// Close does NOT take a [context.Context]: teardown is best-effort,
+// idempotent, and double-close safe — matches db.Close / resp.Body.Close
+// precedent. If an FFI call is in flight, Close blocks until it returns;
+// cancellation cannot preempt the GHC RTS. See CANCELLATION.md §5.1.
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
+		// Bare-channel acquire (no ctx). Blocks until any in-flight FFI
+		// call returns its lock; cooperative cleanup, not preemptive.
+		c.lockCh <- struct{}{}
+		defer func() { <-c.lockCh }()
 		if c.state != nil {
 			c.backend.Close(c.state)
 			c.state = nil
@@ -77,14 +100,26 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// process sends input to the backend under the client mutex, rejecting calls after Close.
-func (c *Client) process(input string) (string, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.processLocked(input)
+// lock acquires the client lock with ctx-aware cancellation. Returns
+// ctx.Err() if ctx is already cancelled or fires while waiting on the
+// lock, in which case the lock is NOT held and the caller must NOT
+// call unlock. Cooperative-at-FFI-boundaries per CANCELLATION.md §1.1.
+func (c *Client) lock(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case c.lockCh <- struct{}{}:
+		return nil
+	}
 }
 
-// processLocked sends input to the backend. Caller must hold c.mu.
+// unlock releases the client lock. Caller must have successfully called
+// lock first.
+func (c *Client) unlock() {
+	<-c.lockCh
+}
+
+// processLocked sends input to the backend. Caller must hold the client lock.
 func (c *Client) processLocked(input string) (string, error) {
 	if c.closed {
 		return "", stateError("client is closed")
@@ -181,7 +216,12 @@ func (c *Client) populateSignalLookup(dbc DbcDefinition) {
 // Returns the parsed body plus any non-error validation issues (warnings);
 // validation errors short-circuit to the error half of the tuple.
 // Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
-func (c *Client) ParseDBC(dbc DbcDefinition) (*ParsedDBC, error) {
+//
+// Honors ctx cancellation: if ctx is cancelled before lock acquisition (or
+// while waiting), returns the wrapped ctx.Err() without making the FFI call.
+// If ctx fires during an in-flight FFI call, the call runs to completion and
+// returns its real result; the next call fails fast.
+func (c *Client) ParseDBC(ctx context.Context, dbc DbcDefinition) (*ParsedDBC, error) {
 	dbcMap, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
@@ -192,8 +232,13 @@ func (c *Client) ParseDBC(dbc DbcDefinition) (*ParsedDBC, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("ParseDBC: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("ParseDBC: %w", err)
+	}
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -213,15 +258,22 @@ func (c *Client) ParseDBC(dbc DbcDefinition) (*ParsedDBC, error) {
 // parser, which validates the parse and returns a typed body plus any
 // non-error issues (warnings).  Mirrors ParseDBC's success-path shape.
 // Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
-func (c *Client) ParseDBCText(text string) (*ParsedDBC, error) {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, error) {
 	cmd, err := serializeCommand("parseDBCText", map[string]any{
 		"text": text,
 	})
 	if err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("ParseDBCText: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("ParseDBCText: %w", err)
+	}
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
@@ -239,7 +291,9 @@ func (c *Client) ParseDBCText(text string) (*ParsedDBC, error) {
 
 // ValidateDBC checks a DBC definition for structural issues (overlapping signals,
 // factor-zero, DLC violations, etc.) and returns all found issues.
-func (c *Client) ValidateDBC(dbc DbcDefinition) (*ValidationResult, error) {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) ValidateDBC(ctx context.Context, dbc DbcDefinition) (*ValidationResult, error) {
 	dbcMap, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
@@ -250,7 +304,14 @@ func (c *Client) ValidateDBC(dbc DbcDefinition) (*ValidationResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.process(cmd)
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("ValidateDBC: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("ValidateDBC: %w", err)
+	}
+	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -259,9 +320,16 @@ func (c *Client) ValidateDBC(dbc DbcDefinition) (*ValidationResult, error) {
 
 // FormatDBC returns the currently loaded DBC definition as parsed by the Agda core.
 // Call ParseDBC first.
-func (c *Client) FormatDBC() (*DbcDefinition, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) FormatDBC(ctx context.Context) (*DbcDefinition, error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("FormatDBC: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("FormatDBC: %w", err)
+	}
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -275,12 +343,19 @@ func (c *Client) FormatDBC() (*DbcDefinition, error) {
 // --- Signal operations ---
 
 // ExtractSignals decodes all signals from a CAN frame using the loaded DBC.
-func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*ExtractionResult, error) {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) ExtractSignals(ctx context.Context, id CanID, dlc DLC, data FramePayload) (*ExtractionResult, error) {
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("ExtractSignals: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("ExtractSignals: %w", err)
+	}
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -310,9 +385,16 @@ func (c *Client) ExtractSignals(id CanID, dlc DLC, data FramePayload) (*Extracti
 
 // BuildFrame encodes signal values into a CAN frame payload.
 // Requires a prior ParseDBC call to populate the signal index.
-func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayload, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) BuildFrame(ctx context.Context, id CanID, signals []SignalValue, dlc DLC) (FramePayload, error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("BuildFrame: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("BuildFrame: %w", err)
+	}
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -329,12 +411,19 @@ func (c *Client) BuildFrame(id CanID, signals []SignalValue, dlc DLC) (FramePayl
 
 // UpdateFrame modifies specific signals in an existing CAN frame.
 // Requires a prior ParseDBC call to populate the signal index.
-func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []SignalValue) (FramePayload, error) {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) UpdateFrame(ctx context.Context, id CanID, dlc DLC, data FramePayload, signals []SignalValue) (FramePayload, error) {
 	if err := validatePayload(dlc, data); err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("UpdateFrame: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("UpdateFrame: %w", err)
+	}
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -358,7 +447,9 @@ func (c *Client) UpdateFrame(id CanID, dlc DLC, data FramePayload, signals []Sig
 // SetProperties installs LTL properties for stream monitoring.
 // Automatically derives diagnostic metadata from the formula structure for
 // violation enrichment.
-func (c *Client) SetProperties(properties []Formula) error {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) SetProperties(ctx context.Context, properties []Formula) error {
 	props := make([]map[string]any, 0, len(properties))
 	for _, f := range properties {
 		m, err := serializeFormula(f)
@@ -375,8 +466,13 @@ func (c *Client) SetProperties(properties []Formula) error {
 	}
 	// Hold lock for both the backend call and the diagnostics update
 	// to prevent SendFrame from seeing stale diags between the two.
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return fmt.Errorf("SetProperties: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("SetProperties: %w", err)
+	}
 	resp, err := c.processLocked(cmd)
 	if err != nil {
 		return err
@@ -397,7 +493,9 @@ func (c *Client) SetProperties(properties []Formula) error {
 
 // AddChecks extracts formulas from the given checks, prepends any default checks
 // set via WithDefaultChecks, and calls SetProperties.
-func (c *Client) AddChecks(checks []CheckResult) error {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) AddChecks(ctx context.Context, checks []CheckResult) error {
 	all := make([]Formula, 0, len(c.defaultChecks)+len(checks))
 	for _, dc := range c.defaultChecks {
 		all = append(all, dc.Formula())
@@ -405,16 +503,23 @@ func (c *Client) AddChecks(checks []CheckResult) error {
 	for _, ch := range checks {
 		all = append(all, ch.Formula())
 	}
-	return c.SetProperties(all)
+	return c.SetProperties(ctx, all)
 }
 
 // StartStream begins a new LTL monitoring stream.
 // SetProperties must be called before StartStream.
-func (c *Client) StartStream() error {
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) StartStream(ctx context.Context) error {
 	// Hold lock for both the backend call and the cache clear
 	// to prevent SendFrame from using a stale cache.
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if err := c.lock(ctx); err != nil {
+		return fmt.Errorf("StartStream: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("StartStream: %w", err)
+	}
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -446,22 +551,47 @@ func (c *Client) StartStream() error {
 // Violations are automatically enriched with signal values and a human-readable
 // formula description when diagnostics are available.
 // For batch operations, see [Client.SendFrames].
-func (c *Client) SendFrame(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) SendFrame(ctx context.Context, ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("SendFrame: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("SendFrame: %w", err)
+	}
 	return c.sendFrameLocked(ts, id, dlc, data)
 }
 
-// SendFrames sends multiple CAN frames in a single batch, amortizing mutex
+// SendFrames sends multiple CAN frames in a single batch, amortizing lock
 // acquisition. The batch is atomic: no other goroutine can interleave frames
 // between members. Returns a response for each frame. A [Violation] is a normal
 // response and does not stop the batch. Processing stops at the first transport
 // or validation error; earlier successful responses are still returned.
-func (c *Client) SendFrames(frames []Frame) ([]FrameResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation at frame boundaries (commit-prefix-and-report per
+// CANCELLATION.md §3.2): if ctx fires mid-batch, the returned slice contains
+// the responses for the committed prefix and the wrapped ctx.Err() is the
+// returned error. The remaining frames after the cancellation point are NOT
+// sent to the FFI; the caller can resume by re-calling SendFrames with the
+// uncommitted suffix.
+func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameResponse, error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("SendFrames: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("SendFrames: %w", err)
+	}
 	results := make([]FrameResponse, 0, len(frames))
 	for i, f := range frames {
+		// Per-frame ctx check between FFI calls — the cancellation
+		// boundary in batch mode. The most recent FFI call (if one was
+		// in flight when ctx fired) ran to completion and was appended.
+		if err := ctx.Err(); err != nil {
+			return results, fmt.Errorf("SendFrames: %w", err)
+		}
 		resp, err := c.sendFrameLocked(f.Timestamp, f.ID, f.DLC, f.Data)
 		if err != nil {
 			return results, fmt.Errorf("frame %d: %w", i, err)
@@ -474,9 +604,16 @@ func (c *Client) SendFrames(frames []Frame) ([]FrameResponse, error) {
 // SendError sends a CAN error event (no ID, no payload). Error frames signal
 // a bus error detected by a CAN controller and are acknowledged without LTL
 // evaluation — they carry no payload for signal extraction.
-func (c *Client) SendError(ts Timestamp) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) SendError(ctx context.Context, ts Timestamp) error {
+	if err := c.lock(ctx); err != nil {
+		return fmt.Errorf("SendError: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("SendError: %w", err)
+	}
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -491,7 +628,7 @@ func (c *Client) SendError(ts Timestamp) error {
 		return err
 	}
 	if c.logger != nil {
-		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "error_event.sent",
+		c.logger.LogAttrs(ctx, slog.LevelDebug, "error_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.String("response", "ack"))
 	}
 	return nil
@@ -500,9 +637,16 @@ func (c *Client) SendError(ts Timestamp) error {
 // SendRemote sends a CAN remote frame event (ID but no payload). Remote frames
 // request transmission of the data frame with a matching ID (CAN 2.0B only;
 // deprecated in CAN-FD). Acknowledged without LTL evaluation.
-func (c *Client) SendRemote(ts Timestamp, id CanID) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CanID) error {
+	if err := c.lock(ctx); err != nil {
+		return fmt.Errorf("SendRemote: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("SendRemote: %w", err)
+	}
 	if c.closed {
 		return stateError("client is closed")
 	}
@@ -517,14 +661,15 @@ func (c *Client) SendRemote(ts Timestamp, id CanID) error {
 		return err
 	}
 	if c.logger != nil {
-		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "remote_event.sent",
+		c.logger.LogAttrs(ctx, slog.LevelDebug, "remote_event.sent",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
 	}
 	return nil
 }
 
-// sendFrameLocked is the inner implementation of SendFrame. Caller must hold c.mu.
+// sendFrameLocked is the inner implementation of SendFrame. Caller must hold
+// the client lock.
 func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
@@ -571,9 +716,16 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 // Failed and Unresolved verdicts are enriched with signal names, formula description,
 // and the most recent signal values per CAN ID when available. Earlier frames in the
 // stream are not retained.
-func (c *Client) EndStream() (*StreamResult, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
+	if err := c.lock(ctx); err != nil {
+		return nil, fmt.Errorf("EndStream: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("EndStream: %w", err)
+	}
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -609,7 +761,8 @@ func (c *Client) EndStream() (*StreamResult, error) {
 	return sr, nil
 }
 
-// enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold c.mu.
+// enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold
+// the client lock.
 func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayload) {
 	idx := int(v.PropertyIndex)
 	if idx >= len(c.diags) {
@@ -631,7 +784,8 @@ func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayl
 }
 
 // enrichPropertyResult adds a ViolationEnrichment to a failed PropertyResult,
-// including last-known signal values from tracked frames. Caller must hold c.mu.
+// including last-known signal values from tracked frames. Caller must hold
+// the client lock.
 func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 	idx := int(pr.PropertyIndex)
 	if idx >= len(c.diags) {
@@ -653,7 +807,7 @@ func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 }
 
 // extractLastKnownValues extracts signal values from the last-seen frames for
-// all signals referenced in a diagnostic. Caller must hold c.mu.
+// all signals referenced in a diagnostic. Caller must hold the client lock.
 func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]PhysicalValue {
 	if len(c.lastFrames) == 0 || len(diag.Signals) == 0 {
 		return nil
@@ -699,7 +853,7 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 }
 
 // extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.
-// Caller must hold c.mu.
+// Caller must hold the client lock.
 func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC, data FramePayload) map[SignalName]PhysicalValue {
 	if c.cache == nil {
 		return nil
@@ -743,7 +897,8 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 	return values
 }
 
-// extractSignalsLocked performs signal extraction via binary FFI. Caller must hold c.mu.
+// extractSignalsLocked performs signal extraction via binary FFI. Caller must
+// hold the client lock.
 //
 // Mirrors the ErrBinaryPathUnsupported fallback contract in the public
 // [Client.ExtractSignals]: only that sentinel triggers the JSON fallback —

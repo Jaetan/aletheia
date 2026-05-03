@@ -1,12 +1,18 @@
 package aletheia_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/aletheia-automotive/aletheia-go/aletheia"
 )
+
+// ctx is the default context for tests that don't exercise cancellation.
+// Tests that DO exercise cancellation create their own context.WithCancel
+// or context.WithTimeout in-test.
+var ctx = context.Background()
 
 // requireErrorContains asserts err is a non-nil *aletheia.Error whose message
 // contains substr. Uses errors.As for proper unwrapping (G-6 review finding).
