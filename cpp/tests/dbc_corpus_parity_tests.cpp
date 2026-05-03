@@ -73,61 +73,16 @@ auto read_file(const fs::path& p) -> std::string {
     return buf.str();
 }
 
-// drop_extended_false strips "extended": false entries from message
-// envelopes. Agda's wire format and Python's parity snapshot both omit
-// "extended" for standard CAN frames; the message-level serializer in
-// json_serialize.cpp currently emits "extended": false unconditionally for
-// inputs (Agda accepts both forms). Comment / attribute targets already
-// follow the omit-when-false convention via attach_can_id, so this only
-// needs to walk the top-level messages array.
-void drop_extended_false(nlohmann::json& dbc) {
-    auto it = dbc.find("messages");
-    if (it == dbc.end() || !it->is_array())
-        return;
-    for (auto& msg : *it) {
-        auto ext = msg.find("extended");
-        if (ext != msg.end() && ext->is_boolean() && !ext->get<bool>())
-            msg.erase(ext);
-    }
-}
-
-// add_presence_always inserts "presence": "always" into signal entries that
-// lack both "presence" and "multiplexor". Agda's wire format and the
-// Python parity snapshot include the explicit "presence": "always" for
-// always-present signals; presence_to_json in json_serialize.cpp omits the
-// key when the variant is AlwaysPresent (the parser infers always-present
-// from the absence of "multiplexor"). Both forms round-trip through Agda
-// unchanged. Add the explicit key here so the canonical comparison matches
-// the Agda-emitted form preserved by the other two bindings.
-void add_presence_always(nlohmann::json& dbc) {
-    auto msgs = dbc.find("messages");
-    if (msgs == dbc.end() || !msgs->is_array())
-        return;
-    for (auto& msg : *msgs) {
-        auto sigs = msg.find("signals");
-        if (sigs == msg.end() || !sigs->is_array())
-            continue;
-        for (auto& sig : *sigs) {
-            if (sig.find("presence") == sig.end()
-                && sig.find("multiplexor") == sig.end()) {
-                sig["presence"] = "always";
-            }
-        }
-    }
-}
-
 auto canonical_dbc_json(const DbcDefinition& dbc) -> std::string {
     // Round-trip via the existing detail::serialize_parsed_dbc_response so
     // we don't duplicate the dbc_to_json walker; extract the "dbc" field
-    // back out, normalize asymmetric optional-field choices to the
-    // Agda-emitted canonical form, then dump(2) which produces sorted keys
-    // naturally (nlohmann::json is std::map-backed).
+    // back out and dump(2). nlohmann::json is std::map-backed so dump
+    // produces sorted keys naturally; json_serialize.cpp already mirrors
+    // the Agda wire form for "extended" (omitted on standard frames) and
+    // "presence" (explicit "always"), so no post-processing is needed.
     auto envelope = detail::serialize_parsed_dbc_response(dbc);
     auto parsed = nlohmann::json::parse(envelope);
-    auto& body = parsed.at("dbc");
-    drop_extended_false(body);
-    add_presence_always(body);
-    return body.dump(2) + "\n";
+    return parsed.at("dbc").dump(2) + "\n";
 }
 
 }  // namespace

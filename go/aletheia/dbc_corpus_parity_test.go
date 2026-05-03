@@ -65,39 +65,17 @@ func findFFILibForParityTest() string {
 	return ""
 }
 
-// dropExtendedFalse removes "extended": false entries from message envelopes
-// in the serialized DBC map. Agda's wire format and Python's parity snapshot
-// both omit "extended" for standard CAN frames; the message-level serializer
-// in serializeDBC currently emits "extended": false unconditionally for
-// inputs (Agda accepts both forms). Comment / attribute targets already use
-// attachCanID, which has the omit-when-false behaviour, so this only needs
-// to walk the top-level messages slice.
-func dropExtendedFalse(dbc map[string]any) {
-	msgsAny, ok := dbc["messages"]
-	if !ok {
-		return
-	}
-	msgs, ok := msgsAny.([]map[string]any)
-	if !ok {
-		return
-	}
-	for _, msg := range msgs {
-		if ext, ok := msg["extended"].(bool); ok && !ext {
-			delete(msg, "extended")
-		}
-	}
-}
-
 // canonicalDBCJSON canonical-encodes a DbcDefinition for the parity test. The
 // shape mirrors the Python FractionJSONEncoder + sort_keys=True + indent=2
 // output. json.MarshalIndent on map[string]any sorts keys alphabetically by
-// design (Go 1.12+).
+// design (Go 1.12+); serializeDBC already mirrors the Agda wire form for
+// "extended" (omitted on standard frames) and "presence" (explicit
+// "always"), so no post-processing is needed.
 func canonicalDBCJSON(dbc DbcDefinition) ([]byte, error) {
 	m, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err
 	}
-	dropExtendedFalse(m)
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return nil, err

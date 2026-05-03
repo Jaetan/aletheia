@@ -145,15 +145,19 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		if senders == nil {
 			senders = []string{}
 		}
+		// Mirror the Agda wire form: emit "extended" only when the CAN ID is
+		// extended (29-bit). Agda omits the field for standard 11-bit frames;
+		// its parser accepts both forms but the omit-when-false shape is
+		// canonical (matches attachCanID used for comment / attribute targets,
+		// and the same convention enforced by the Python and C++ bindings — B.3.j).
 		m := map[string]any{
-			"id":       msg.ID.Value(),
-			"extended": msg.ID.IsExtended(),
-			"name":     string(msg.Name),
-			"dlc":      msg.DLC.ToBytes(),
-			"sender":   string(msg.Sender),
-			"senders":  senders,
-			"signals":  sigs,
+			"name":    string(msg.Name),
+			"dlc":     msg.DLC.ToBytes(),
+			"sender":  string(msg.Sender),
+			"senders": senders,
+			"signals": sigs,
 		}
+		attachCanID(m, msg.ID.Value(), msg.ID.IsExtended())
 		msgs = append(msgs, m)
 	}
 

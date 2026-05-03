@@ -49,7 +49,8 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(msg["name"] == "VehicleSpeed");
     CHECK(msg["dlc"] == 8);
     CHECK(msg["sender"] == "ECU1");
-    CHECK(msg["extended"] == false);
+    // "extended" is omitted on standard 11-bit frames (Agda wire convention).
+    CHECK_FALSE(msg.contains("extended"));
 
     auto& sig = msg["signals"][0];
     CHECK(sig["name"] == "Speed");
@@ -63,7 +64,8 @@ TEST_CASE("serialize_parse_dbc produces valid JSON", "[json][serialize]") {
     CHECK(sig["minimum"] == 0);
     CHECK(sig["maximum"] == 300);
     CHECK(sig["unit"] == "km/h");
-    CHECK_FALSE(sig.contains("presence"));
+    // Always-present signals carry the explicit "presence": "always".
+    CHECK(sig["presence"] == "always");
 }
 
 TEST_CASE("serialize_extract_signals produces correct JSON", "[json][serialize]") {

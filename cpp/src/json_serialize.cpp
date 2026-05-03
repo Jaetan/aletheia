@@ -38,12 +38,17 @@ static auto rational_to_json(const Rational& r) -> Json {
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
+    // Mirror the Agda wire form: emit "presence": "always" explicitly for
+    // AlwaysPresent signals; emit "multiplexor" + "multiplex_values" for
+    // Multiplexed. Cross-binding parity: Python and Go both emit the
+    // explicit "presence": "always", and parse_dbc_text returns it on the
+    // wire. Agda's parser accepts the absence-of-multiplexor shorthand
+    // too, but the explicit form is the canonical one (B.3.j).
     std::visit(
         [&sig](auto&& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, AlwaysPresent>) {
-                // AlwaysPresent is the default — no "presence" key needed.
-                // The parser determines presence by checking for "multiplexor".
+                sig["presence"] = "always";
             } else if constexpr (std::is_same_v<T, Multiplexed>) {
                 sig["multiplexor"] = v.multiplexor.get();
                 auto arr = Json::array();
@@ -79,11 +84,18 @@ static auto message_to_json(const DbcMessage& m) -> Json {
     Json sigs = Json::array();
     for (const auto& s : m.signals)
         sigs.push_back(signal_def_to_json(s));
-    return {
-        {"id", can_id_numeric(m.id)}, {"name", m.name.get()}, {"dlc", dlc_to_bytes(m.dlc)},
-        {"sender", m.sender.get()},   {"senders", m.senders}, {"extended", can_id_extended(m.id)},
-        {"signals", std::move(sigs)},
+    Json msg = {
+        {"id", can_id_numeric(m.id)}, {"name", m.name.get()},   {"dlc", dlc_to_bytes(m.dlc)},
+        {"sender", m.sender.get()},   {"senders", m.senders},   {"signals", std::move(sigs)},
     };
+    // Mirror the Agda wire form: emit "extended" only when the CAN ID is
+    // extended (29-bit). Agda omits the field for standard 11-bit frames;
+    // its parser accepts both forms but the omit-when-false shape is
+    // canonical (matches attach_can_id used for comment / attribute targets,
+    // and the same convention enforced by the Python and Go bindings — B.3.j).
+    if (can_id_extended(m.id))
+        msg["extended"] = true;
+    return msg;
 }
 
 static auto signal_group_to_json(const DbcSignalGroup& g) -> Json {
