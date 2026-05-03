@@ -10,6 +10,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -426,6 +427,15 @@ static auto formula_to_json(const LtlFormula& f, int depth = 0) -> Json {
 
 auto serialize_parse_dbc(const DbcDefinition& dbc) -> std::string {
     return Json{{"type", "command"}, {"command", "parseDBC"}, {"dbc", dbc_to_json(dbc)}}.dump();
+}
+
+auto serialize_parse_dbc_text(std::string_view text) -> std::string {
+    return Json{{"type", "command"}, {"command", "parseDBCText"}, {"text", text}}.dump();
+}
+
+auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string {
+    return Json{{"status", "success"}, {"dbc", dbc_to_json(dbc)}, {"warnings", Json::array()}}
+        .dump();
 }
 
 auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {

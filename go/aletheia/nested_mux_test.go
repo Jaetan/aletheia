@@ -68,7 +68,7 @@ func nestedMuxDBC() aletheia.DbcDefinition {
 // confirm the chain serializes correctly.
 func TestNestedMux_ParseDBCAccepted(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(nestedMuxDBC()),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestNestedMux_ParseDBCAccepted(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(nestedMuxDBC()); err != nil {
+	if _, err := c.ParseDBC(nestedMuxDBC()); err != nil {
 		t.Fatalf("ParseDBC with nested mux: %v", err)
 	}
 }

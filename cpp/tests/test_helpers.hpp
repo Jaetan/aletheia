@@ -11,7 +11,17 @@
 
 #include <aletheia/aletheia.hpp>
 
+#include "../src/detail/json.hpp"
+
 namespace aletheia::test {
+
+// parsed_dbc_response_for(dbc) — render the canonical
+// `{"status":"success","dbc":...,"warnings":[]}` wire image so MockBackend
+// callers can feed it as a parse_dbc / parse_dbc_text response without
+// hand-writing JSON.
+inline auto parsed_dbc_response_for(const ::aletheia::DbcDefinition& dbc) -> std::string {
+    return ::aletheia::detail::serialize_parsed_dbc_response(dbc);
+}
 
 // make_test_dbc() — minimal single-message DBC with one always-present signal.
 // Used by the JSON serialize tests, the mock-backend client tests, enrichment

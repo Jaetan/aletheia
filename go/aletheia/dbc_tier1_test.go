@@ -26,13 +26,6 @@ func extractDbcObject(t *testing.T, raw string) map[string]any {
 // --- serialize ---
 
 func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "EngineData", dlc, "ECU", nil, nil)
@@ -61,8 +54,14 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 			},
 		},
 	}
+	mock := aletheia.NewMockBackend(aletheia.RespondParseDBC(dbc))
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
 
-	if err := c.ParseDBC(dbc); err != nil {
+	if _, err := c.ParseDBC(dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -112,13 +111,6 @@ func TestSerializeDBC_EmitsTier1Metadata(t *testing.T) {
 }
 
 func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
@@ -127,8 +119,14 @@ func TestSerializeDBC_EmitsEmptyArraysWhenMetadataAbsent(t *testing.T) {
 		Messages: []aletheia.DbcMessage{msg},
 		// Tier 1 slices left nil
 	}
+	mock := aletheia.NewMockBackend(aletheia.RespondParseDBC(dbc))
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
 
-	if err := c.ParseDBC(dbc); err != nil {
+	if _, err := c.ParseDBC(dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -322,13 +320,6 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 	// Build a DBC, serialize via ParseDBC, capture the envelope, feed the
 	// serialized dbc sub-object back through a second client as a formatDBC
 	// response. Checks that the wire representation is self-compatible.
-	originalSend := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
-	sendClient, err := aletheia.NewClient(originalSend)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sendClient.Close()
-
 	id, _ := aletheia.NewStandardID(100)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "Test", dlc, "X", nil, nil)
@@ -348,7 +339,14 @@ func TestSerializeDBC_RoundtripThroughMock(t *testing.T) {
 			{Name: "V", Entries: []aletheia.DbcValueEntry{{Value: 42, Description: "answer"}}},
 		},
 	}
-	if err := sendClient.ParseDBC(original); err != nil {
+	originalSend := aletheia.NewMockBackend(aletheia.RespondParseDBC(original))
+	sendClient, err := aletheia.NewClient(originalSend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sendClient.Close()
+
+	if _, err := sendClient.ParseDBC(original); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 

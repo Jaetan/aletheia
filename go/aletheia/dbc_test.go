@@ -11,7 +11,7 @@ import (
 
 func TestParseDBC(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(testDBC()),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -19,7 +19,7 @@ func TestParseDBC(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestExtractSignals_RationalValue(t *testing.T) {
 
 func TestBuildFrame(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // ParseDBC
+		aletheia.RespondParseDBC(testDBC()), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
 			"data":[222,173,190,239,0,0,0,0]
@@ -355,7 +355,7 @@ func TestBuildFrame(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -374,7 +374,7 @@ func TestBuildFrame(t *testing.T) {
 
 func TestUpdateFrame(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // ParseDBC
+		aletheia.RespondParseDBC(testDBC()), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
 			"data":[0,100,0,0,0,0,0,0]
@@ -386,7 +386,7 @@ func TestUpdateFrame(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -403,15 +403,6 @@ func TestUpdateFrame(t *testing.T) {
 }
 
 func TestExtendedIDInDBC(t *testing.T) {
-	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
-	)
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
 	eid, _ := aletheia.NewExtendedID(0x18FEF100)
 	dlc, _ := aletheia.NewDLC(8)
 	dbc := aletheia.DbcDefinition{
@@ -421,15 +412,8 @@ func TestExtendedIDInDBC(t *testing.T) {
 			Signals: nil,
 		}},
 	}
-	err = c.ParseDBC(dbc)
-	if err != nil {
-		t.Fatalf("ParseDBC with extended ID: %v", err)
-	}
-}
-
-func TestMultiplexedSignal(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(dbc),
 	)
 	c, err := aletheia.NewClient(mock)
 	if err != nil {
@@ -437,6 +421,13 @@ func TestMultiplexedSignal(t *testing.T) {
 	}
 	defer c.Close()
 
+	_, err = c.ParseDBC(dbc)
+	if err != nil {
+		t.Fatalf("ParseDBC with extended ID: %v", err)
+	}
+}
+
+func TestMultiplexedSignal(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x200)
 	dlc, _ := aletheia.NewDLC(8)
 	dbc := aletheia.DbcDefinition{
@@ -458,7 +449,16 @@ func TestMultiplexedSignal(t *testing.T) {
 			},
 		}},
 	}
-	err = c.ParseDBC(dbc)
+	mock := aletheia.NewMockBackend(
+		aletheia.RespondParseDBC(dbc),
+	)
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.ParseDBC(dbc)
 	if err != nil {
 		t.Fatalf("ParseDBC with mux: %v", err)
 	}
@@ -662,7 +662,7 @@ func TestZeroDenominatorRational(t *testing.T) {
 
 func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(testDBC()),
 		aletheia.Respond(`{"status":"success","data":[256,0,0,0,0,0,0,0]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -671,7 +671,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -682,7 +682,7 @@ func TestBuildFrame_ByteOutOfRange(t *testing.T) {
 
 func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(testDBC()),
 		aletheia.Respond(`{"status":"success","data":[1,2,3,4,5,6,7]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -691,7 +691,7 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -707,7 +707,7 @@ func TestBuildFrame_VariableLengthPayload(t *testing.T) {
 
 func TestExtractSignals_InvalidStatus(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(testDBC()),
 		aletheia.Respond(`{"status":"validation","values":[],"errors":[],"absent":[]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -716,7 +716,7 @@ func TestExtractSignals_InvalidStatus(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)
@@ -727,7 +727,7 @@ func TestExtractSignals_InvalidStatus(t *testing.T) {
 
 func TestExtractSignals_NonStringAbsent(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`),
+		aletheia.RespondParseDBC(testDBC()),
 		aletheia.Respond(`{"status":"success","values":[],"errors":[],"absent":[123]}`),
 	)
 	c, err := aletheia.NewClient(mock)
@@ -736,7 +736,7 @@ func TestExtractSignals_NonStringAbsent(t *testing.T) {
 	}
 	defer c.Close()
 
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatal(err)
 	}
 	sid, _ := aletheia.NewStandardID(0x123)

@@ -116,32 +116,50 @@ AletheiaClient& AletheiaClient::operator=(AletheiaClient&& other) noexcept {
 // DBC
 // ---------------------------------------------------------------------------
 
-auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<void> {
+// Refresh signal name → index cache from a parsed DBC.  Shared between
+// parse_dbc (DBC-as-JSON input) and parse_dbc_text (raw DBC text input).
+void AletheiaClient::populate_signal_lookup(const DbcDefinition& dbc) {
+    signal_index_.clear();
+    signal_names_.clear();
+    for (const auto& msg : dbc.messages) {
+        auto id_value =
+            std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
+        auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
+        std::vector<std::string> names;
+        names.reserve(msg.signals.size());
+        for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
+            signal_index_.emplace(detail::SignalKey{.id_value = id_value,
+                                                    .is_extended = is_extended,
+                                                    .signal_name = msg.signals[i].name.get()},
+                                  i);
+            names.emplace_back(msg.signals[i].name.get());
+        }
+        signal_names_.emplace(detail::MessageKey{id_value, is_extended}, std::move(names));
+    }
+}
+
+auto AletheiaClient::parse_dbc(const DbcDefinition& dbc) -> Result<ParsedDBC> {
     auto cmd = detail::serialize_parse_dbc(dbc);
     auto resp = backend_->process(state_, cmd);
-    auto result = detail::parse_success(resp);
+    auto result = detail::parse_parsed_dbc(resp);
     if (result.has_value()) {
-        // Populate signal name → index cache from the DBC definition.
-        signal_index_.clear();
-        signal_names_.clear();
-        for (const auto& msg : dbc.messages) {
-            auto id_value =
-                std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, msg.id);
-            auto is_extended = std::holds_alternative<ExtendedId>(msg.id);
-            std::vector<std::string> names;
-            names.reserve(msg.signals.size());
-            for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(msg.signals.size()); ++i) {
-                signal_index_.emplace(detail::SignalKey{.id_value = id_value,
-                                                        .is_extended = is_extended,
-                                                        .signal_name = msg.signals[i].name.get()},
-                                      i);
-                names.emplace_back(msg.signals[i].name.get());
-            }
-            signal_names_.emplace(detail::MessageKey{id_value, is_extended}, std::move(names));
-        }
+        populate_signal_lookup(result->dbc);
         if (logger_)
             logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::int64_t>(dbc.messages.size())}});
+                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
+    }
+    return result;
+}
+
+auto AletheiaClient::parse_dbc_text(std::string_view text) -> Result<ParsedDBC> {
+    auto cmd = detail::serialize_parse_dbc_text(text);
+    auto resp = backend_->process(state_, cmd);
+    auto result = detail::parse_parsed_dbc(resp);
+    if (result.has_value()) {
+        populate_signal_lookup(result->dbc);
+        if (logger_)
+            logger_.info("dbc.parsed",
+                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
     }
     return result;
 }

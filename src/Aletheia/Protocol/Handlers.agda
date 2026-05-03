@@ -25,14 +25,14 @@ open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Rational using (ℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues)
+open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; emptyCache)
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
-open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC)
+open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Trace.Time using (Timestamp; μs; mkTs)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
@@ -89,13 +89,22 @@ private
 -- COMMAND HANDLERS
 -- ============================================================================
 
--- Parse DBC command: parse DBC from JSON, validate, and update state
+-- Parse DBC command: parse DBC from JSON, validate, and update state.
+-- Success path emits ParsedDBCResponse carrying the parsed body and any
+-- non-error issues (warnings) — option 6b: warnings flow through, never
+-- silently dropped.  Same shape as ParseDBCText for binding-side parity.
 handleParseDBC : JSON → StreamState → StreamState × Response
 handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
   let issues = validateDBCFull dbc
   in if hasAnyError issues
      then (state , Response.Error (WithContext "ParseDBC" (HandlerErr (ValidationFailed (errorIssues issues)))))
-     else (ReadyToStream dbc [] emptyCache , Response.Success "DBC parsed and validated successfully")
+     else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
+
+-- ParseDBCText handler isolated in its own submodule to keep parseText's
+-- transitive import closure (~30 modules: TopLevel → Attributes → …) out
+-- of this module's elaborator state.  Pre-split, importing parseText here
+-- exhausted the 16 GiB heap during the StreamCommand → Handlers → Main chain.
+open import Aletheia.Protocol.Handlers.ParseDBCText using (handleParseDBCText)
 
 -- Parse property list (extracted from where-block for proof access)
 parseAllProperties : StreamState → DBC → List JSON → ℕ → List PropertyState → StreamState × Response
@@ -187,3 +196,4 @@ processStreamCommand (ExtractAllSignals canId dlc bytes) state = handleExtractAl
 processStreamCommand EndStream state = handleEndStream state
 processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC dbcJSON state
 processStreamCommand FormatDBC state = handleFormatDBC state
+processStreamCommand (ParseDBCText text) state = handleParseDBCText text state

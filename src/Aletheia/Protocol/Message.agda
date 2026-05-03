@@ -53,6 +53,11 @@ data StreamCommand : Set where
   -- Format the currently-loaded DBC back to JSON
   FormatDBC : StreamCommand
 
+  -- Parse DBC from raw DBC text using the verified Agda text parser
+  -- (Phase B.3.e — exposes parseText + validateDBCFull as one operation).
+  -- Args: DBC text image (e.g. the contents of a .dbc file)
+  ParseDBCText : String → StreamCommand
+
 -- ============================================================================
 -- RESPONSE TYPES
 -- ============================================================================
@@ -83,3 +88,8 @@ data Response : Set where
 
   -- Formatted DBC as JSON (for FormatDBC command)
   DBCResponse : JSON → Response
+
+  -- Parsed-and-validated DBC: the parsed body plus any non-error issues
+  -- (warnings).  Used by ParseDBC and ParseDBCText on the success path
+  -- (option 6b: warnings are NOT silently dropped on success).
+  ParsedDBCResponse : JSON → List ValidationIssue → Response

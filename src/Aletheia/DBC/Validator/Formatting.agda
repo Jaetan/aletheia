@@ -3,7 +3,7 @@
 -- DBC validator output formatting and filtering.
 --
 -- Purpose: Utilities for processing ValidationIssue lists after validation.
--- Exports: hasAnyError, formatIssuesText, errorIssues.
+-- Exports: hasAnyError, formatIssuesText, errorIssues, warningIssues.
 -- Role: Used by Protocol.Handlers and Protocol.ResponseFormat to present
 --   validation results to the user.
 module Aletheia.DBC.Validator.Formatting where
@@ -22,6 +22,11 @@ private
   ... | IsError   = true
   ... | IsWarning = false
 
+  isWarning : ValidationIssue → Bool
+  isWarning i with ValidationIssue.severity i
+  ... | IsError   = false
+  ... | IsWarning = true
+
 -- Check if any issue in a list is an error
 hasAnyError : List ValidationIssue → Bool
 hasAnyError = any isError
@@ -35,3 +40,7 @@ formatIssuesText (i ∷ rest) = ValidationIssue.detail i ++ₛ "; " ++ₛ format
 -- Filter only error-severity issues
 errorIssues : List ValidationIssue → List ValidationIssue
 errorIssues = filterᵇ isError
+
+-- Filter only warning-severity issues
+warningIssues : List ValidationIssue → List ValidationIssue
+warningIssues = filterᵇ isWarning

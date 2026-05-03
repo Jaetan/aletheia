@@ -293,7 +293,7 @@ func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return 0, err
 	}
 	if err := client.SetProperties(props); err != nil {
@@ -324,7 +324,7 @@ func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinitio
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return 0, err
 	}
 
@@ -345,7 +345,7 @@ func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition,
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return 0, err
 	}
 
@@ -481,7 +481,7 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefini
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return nil, err
 	}
 	if err := client.SetProperties(props); err != nil {
@@ -521,7 +521,7 @@ func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDe
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return nil, err
 	}
 
@@ -549,7 +549,7 @@ func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinit
 	}
 	defer client.Close()
 
-	if err := client.ParseDBC(dbc); err != nil {
+	if _, err := client.ParseDBC(dbc); err != nil {
 		return nil, err
 	}
 

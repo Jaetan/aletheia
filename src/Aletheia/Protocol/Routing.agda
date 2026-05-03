@@ -22,7 +22,7 @@ open import Relation.Nullary using (yes; no)
 open import Aletheia.Prelude using (lookupByKey; require; _>>=ₑ_; mapₑ; ifᵀ_then_else_)
 open import Aletheia.Protocol.JSON using (JSON; JObject; lookupString; lookupNat; lookupArray; getInt)
 open import Aletheia.DBC.JSONParser using (parseCANId)
-open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC)
+open import Aletheia.Protocol.Message using (StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText)
 open import Aletheia.CAN.Frame using (CANFrame; Byte; CANId)
 open import Aletheia.CAN.DLC using (DLC; mkDLC; dlcBytes; maxDLC-FD)
 open import Aletheia.Error using
@@ -134,6 +134,12 @@ private
   tryFormatDBC : List (String × JSON) → RouteError ⊎ StreamCommand
   tryFormatDBC _ = inj₂ FormatDBC
 
+  -- Parse ParseDBCText command (raw DBC text image)
+  tryParseDBCText : List (String × JSON) → RouteError ⊎ StreamCommand
+  tryParseDBCText obj with lookupString "text" obj
+  ... | nothing   = inj₁ (InContext "ParseDBCText" (RouteMissingField "text"))
+  ... | just text = inj₂ (ParseDBCText text)
+
   -- Dispatch table for command parsers
   commandDispatchTable : List (String × (List (String × JSON) → RouteError ⊎ StreamCommand))
   commandDispatchTable =
@@ -144,6 +150,7 @@ private
     ("endStream" , tryEndStream) ∷
     ("validateDBC" , tryValidateDBC) ∷
     ("formatDBC" , tryFormatDBC) ∷
+    ("parseDBCText" , tryParseDBCText) ∷
     []
 
   -- Dispatch using table lookup

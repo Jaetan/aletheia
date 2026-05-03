@@ -713,8 +713,15 @@ class ValidateDBCCommand(TypedDict):
     dbc: DBCDefinition
 
 
+class ParseDBCTextCommand(TypedDict):
+    """Parse DBC from raw DBC text using the verified Agda text parser"""
+    type: Literal["command"]
+    command: Literal["parseDBCText"]
+    text: str
+
+
 # Union type for JSON-path commands (binary FFI operations are not represented here).
-Command = ParseDBCCommand | SetPropertiesCommand | ValidateDBCCommand
+Command = ParseDBCCommand | SetPropertiesCommand | ValidateDBCCommand | ParseDBCTextCommand
 
 
 class SuccessResponse(TypedDict):
@@ -811,6 +818,19 @@ class ValidationResponse(TypedDict):
     issues: list[ValidationIssue]
 
 
+class ParsedDBCResponse(TypedDict):
+    """Response from parseDBC and parseDBCText commands.
+
+    Carries the parsed body (canonical Agda-side ``DBCDefinition``) plus any
+    non-error validation issues (warnings).  Errors short-circuit to
+    ``ErrorResponse``; this shape is only emitted when the parsed DBC passes
+    every error-severity check.
+    """
+    status: Literal["success"]
+    dbc: DBCDefinition
+    warnings: list[ValidationIssue]
+
+
 # Union type for all responses
 Response = (
     SuccessResponse |
@@ -820,7 +840,8 @@ Response = (
     CompleteResponse |
     ExtractSignalsResponse |
     FormatDBCResponse |
-    ValidationResponse
+    ValidationResponse |
+    ParsedDBCResponse
 )
 
 
@@ -920,6 +941,7 @@ __all__ = [
     "ParseDBCCommand",
     "SetPropertiesCommand",
     "ValidateDBCCommand",
+    "ParseDBCTextCommand",
     # Responses
     "Response",
     "SuccessResponse",
@@ -933,4 +955,5 @@ __all__ = [
     "FormatDBCResponse",
     "ValidationIssue",
     "ValidationResponse",
+    "ParsedDBCResponse",
 ]

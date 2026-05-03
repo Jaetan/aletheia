@@ -20,7 +20,7 @@ import (
 // regression here would reproduce the private-method bug.
 func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 	mock := aletheia.NewMockBackend(
-		aletheia.Respond(`{"status":"success"}`), // ParseDBC
+		aletheia.RespondParseDBC(testDBC()), // ParseDBC
 		aletheia.Respond(`{
 			"status":"success",
 			"values":[{"name":"Speed","value":150.0}],
@@ -35,7 +35,7 @@ func TestExtractSignals_MockBinaryFallthrough(t *testing.T) {
 	defer c.Close()
 
 	// ParseDBC populates signalNames — the binary path is now active.
-	if err := c.ParseDBC(testDBC()); err != nil {
+	if _, err := c.ParseDBC(testDBC()); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 

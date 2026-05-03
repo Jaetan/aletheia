@@ -14,7 +14,9 @@
 //	if err != nil { log.Fatal(err) }
 //	defer client.Close()
 //
-//	if err = client.ParseDBC(dbc); err != nil { log.Fatal(err) }
+//	parsed, err := client.ParseDBC(dbc)
+//	if err != nil { log.Fatal(err) }
+//	_ = parsed.Warnings // non-fatal validation issues, if any
 //	result, err := client.ExtractSignals(canID, dlc, frameData)
 //
 // Functional options:

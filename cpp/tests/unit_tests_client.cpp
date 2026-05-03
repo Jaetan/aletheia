@@ -28,6 +28,7 @@
 using namespace aletheia;
 using json = nlohmann::json;
 using aletheia::test::make_test_dbc;
+using aletheia::test::parsed_dbc_response_for;
 using Catch::Matchers::ContainsSubstring;
 
 // ===========================================================================
@@ -37,7 +38,7 @@ using Catch::Matchers::ContainsSubstring;
 TEST_CASE("client parse_dbc sends correct JSON and handles success", "[client][mock]") {
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get(); // retain for inspection
-    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client(std::move(mock));
     auto result = client.parse_dbc(make_test_dbc());
@@ -95,7 +96,7 @@ TEST_CASE("client extract_signals falls back to JSON after parse_dbc with MockBa
     auto mock = std::make_unique<MockBackend>();
     auto* mock_ptr = mock.get();
     // First response: parse_dbc success (populates signal_names_ cache).
-    mock_ptr->queue_response(R"({"status": "success"})");
+    mock_ptr->queue_response(parsed_dbc_response_for(make_test_dbc()));
     // Second response: extract_signals JSON fallback.
     mock_ptr->queue_response(R"({
         "status": "success",
@@ -252,8 +253,8 @@ TEST_CASE("client send_frame violation with enrichment fields", "[client][mock]"
 
 TEST_CASE("client is movable", "[client]") {
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success"})");
-    mock->queue_response(R"({"status": "success"})");
+    mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
+    mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client1(std::move(mock));
     CHECK(client1.parse_dbc(make_test_dbc()).has_value());
@@ -280,7 +281,7 @@ TEST_CASE("moved-from client destructor is safe", "[client][lifecycle]") {
     // transferred to the target, and the source is left in a valid-but-
     // moved-from state whose destructor is a no-op.
     auto mock = std::make_unique<MockBackend>();
-    mock->queue_response(R"({"status": "success"})");
+    mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     {
         AletheiaClient source(std::move(mock));
@@ -301,9 +302,9 @@ TEST_CASE("move-assignment releases current state before taking new", "[client][
     // before adopting the source's state. The guard at client.cpp:73
     // (`if (backend_ != nullptr && state_ != nullptr)`) enforces this.
     auto mock_a = std::make_unique<MockBackend>();
-    mock_a->queue_response(R"({"status": "success"})");
+    mock_a->queue_response(parsed_dbc_response_for(make_test_dbc()));
     auto mock_b = std::make_unique<MockBackend>();
-    mock_b->queue_response(R"({"status": "success"})");
+    mock_b->queue_response(parsed_dbc_response_for(make_test_dbc()));
 
     AletheiaClient client_a(std::move(mock_a));
     CHECK(client_a.parse_dbc(make_test_dbc()).has_value());
@@ -326,7 +327,7 @@ TEST_CASE("sequential clients in same scope work independently", "[client][lifec
     // AletheiaClient owns its own StablePtr on the Haskell side.
     for (int i = 0; i < 3; ++i) {
         auto mock = std::make_unique<MockBackend>();
-        mock->queue_response(R"({"status": "success"})");
+        mock->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient client(std::move(mock));
         CHECK(client.parse_dbc(make_test_dbc()).has_value());
     } // Each iteration's destructor closes its state_ cleanly.
@@ -338,15 +339,15 @@ TEST_CASE("nested client scopes leave outer state intact", "[client][lifecycle]"
     // bugs where the backend's close() logic somehow touches global state
     // that another live client depends on.
     auto mock_outer = std::make_unique<MockBackend>();
-    mock_outer->queue_response(R"({"status": "success"})"); // first outer op
-    mock_outer->queue_response(R"({"status": "success"})"); // second outer op
+    mock_outer->queue_response(parsed_dbc_response_for(make_test_dbc())); // first outer op
+    mock_outer->queue_response(parsed_dbc_response_for(make_test_dbc())); // second outer op
 
     AletheiaClient outer(std::move(mock_outer));
     CHECK(outer.parse_dbc(make_test_dbc()).has_value());
 
     {
         auto mock_inner = std::make_unique<MockBackend>();
-        mock_inner->queue_response(R"({"status": "success"})");
+        mock_inner->queue_response(parsed_dbc_response_for(make_test_dbc()));
         AletheiaClient inner(std::move(mock_inner));
         CHECK(inner.parse_dbc(make_test_dbc()).has_value());
     } // inner destructed

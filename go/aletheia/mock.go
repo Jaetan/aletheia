@@ -1,6 +1,7 @@
 package aletheia
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -53,6 +54,36 @@ func Respond(jsonStr string) MockResponse {
 // RespondErr is a convenience for adding an error response.
 func RespondErr(err error) MockResponse {
 	return MockResponse{Err: err}
+}
+
+// RespondParseDBC builds a successful ParseDBC / ParseDBCText response that
+// mirrors the Agda core's ParsedDBCResponse shape (status + dbc body +
+// warnings).  Tests use this when they want ParseDBC's signal-name lookup
+// populated from a known body without standing up the real FFI core.
+// Marshalling failures are surfaced as MockResponse.Err so the test fails
+// loudly rather than racing through a malformed canned reply.
+func RespondParseDBC(dbc DbcDefinition, warnings ...ValidationIssue) MockResponse {
+	dbcMap, err := serializeDBC(dbc)
+	if err != nil {
+		return MockResponse{Err: fmt.Errorf("RespondParseDBC: serialize DBC: %w", err)}
+	}
+	wireWarnings := make([]map[string]any, 0, len(warnings))
+	for _, w := range warnings {
+		wireWarnings = append(wireWarnings, map[string]any{
+			"severity": w.Severity.String(),
+			"code":     string(w.Code),
+			"detail":   w.Detail,
+		})
+	}
+	raw, err := json.Marshal(map[string]any{
+		"status":   "success",
+		"dbc":      dbcMap,
+		"warnings": wireWarnings,
+	})
+	if err != nil {
+		return MockResponse{Err: fmt.Errorf("RespondParseDBC: marshal JSON: %w", err)}
+	}
+	return MockResponse{JSON: string(raw)}
 }
 
 // mockSentinel provides a non-nil address for Init's return value. The Backend

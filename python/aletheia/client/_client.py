@@ -15,6 +15,7 @@ from ..protocols import (
     Response,
     RationalNumber,
     ParseDBCCommand,
+    ParseDBCTextCommand,
     SetPropertiesCommand,
     ValidateDBCCommand,
     SuccessResponse,
@@ -24,6 +25,7 @@ from ..protocols import (
     CompleteResponse,
     ErrorResponse,
     ValidationResponse,
+    ParsedDBCResponse,
     is_str_dict,
     is_object_list,
 )
@@ -49,6 +51,8 @@ from ._response_parsers import (
     parse_event_response,
     parse_finalization_results,
     parse_frame_response,
+    parse_parsed_dbc_response,
+    parse_success_or_error,
     validate_issue_severities,
 )
 from ._types import (
@@ -223,59 +227,51 @@ class AletheiaClient:
             indices=tuple(indices), numerators=tuple(nums), denominators=tuple(dens),
         )
 
-    def _success_or_error(self, response: Response) -> SuccessResponse | ErrorResponse:
-        """Parse a response that should be success or error."""
-        status = response.get("status")
-
-        if status == "success":
-            result: SuccessResponse = {"status": "success"}
-            message = response.get("message")
-            if isinstance(message, str):
-                result["message"] = message
-            return result
-
-        if status == "error":
-            return build_error_response(response)
-
-        raise ProtocolError(
-            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
-        )
+    def _populate_signal_lookup(self, dbc: DBCDefinition) -> None:
+        """Refresh the per-message signal name/index cache from a DBC body."""
+        self._signal_lookup.clear()
+        for msg in dbc["messages"]:
+            msg_ext = bool(msg.get("extended", False))
+            sig_map: dict[str, int] = {}
+            names: list[str] = []
+            for i, sig in enumerate(msg["signals"]):
+                sig_map[sig["name"]] = i
+                names.append(sig["name"])
+            key = (msg["id"], msg_ext)
+            self._signal_lookup[key] = SignalLookup(names=tuple(names), indices=sig_map)
 
     # =========================================================================
     # DBC and Properties
     # =========================================================================
 
-    def parse_dbc(self, dbc: DBCDefinition) -> SuccessResponse | ErrorResponse:
-        """Parse DBC file. Must be called first.
-
-        Args:
-            dbc: DBC structure (use dbc_converter.dbc_to_json())
-
-        Returns:
-            SuccessResponse or ErrorResponse
-        """
-        cmd: ParseDBCCommand = {
-            "type": "command",
-            "command": "parseDBC",
-            "dbc": dbc
-        }
-        result = self._success_or_error(self._send_command(cmd))
+    def _finalize_parsed_dbc(
+        self, result: ParsedDBCResponse | ErrorResponse,
+    ) -> ParsedDBCResponse | ErrorResponse:
+        """Log + populate the signal-name cache when the parse succeeded."""
         if result["status"] == "success":
             log_event(
                 _logger, logging.INFO, LogEvent.DBC_PARSED,
-                messages=len(dbc["messages"]),
+                messages=len(result["dbc"]["messages"]),
             )
-            self._signal_lookup.clear()
-            for msg in dbc["messages"]:
-                msg_ext = bool(msg.get("extended", False))
-                sig_map: dict[str, int] = {}
-                names: list[str] = []
-                for i, sig in enumerate(msg["signals"]):
-                    sig_map[sig["name"]] = i
-                    names.append(sig["name"])
-                key = (msg["id"], msg_ext)
-                self._signal_lookup[key] = SignalLookup(names=tuple(names), indices=sig_map)
+            self._populate_signal_lookup(result["dbc"])
         return result
+
+    def parse_dbc(self, dbc: DBCDefinition) -> ParsedDBCResponse | ErrorResponse:
+        """Parse and validate a DBC definition. Must be called first.
+
+        Returns the canonical parsed body plus any non-error issues
+        (warnings); validation errors short-circuit to ``ErrorResponse``.
+        """
+        cmd: ParseDBCCommand = {"type": "command", "command": "parseDBC", "dbc": dbc}
+        return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))
+
+    def parse_dbc_text(self, text: str) -> ParsedDBCResponse | ErrorResponse:
+        """Parse and validate a DBC from raw .dbc file text via the Agda text parser.
+
+        Mirrors :meth:`parse_dbc`'s response shape — no cantools dependency.
+        """
+        cmd: ParseDBCTextCommand = {"type": "command", "command": "parseDBCText", "text": text}
+        return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))
 
     def validate_dbc(self, dbc: DBCDefinition) -> ValidationResponse:
         """Run structural validation on a DBC definition.
@@ -364,7 +360,7 @@ class AletheiaClient:
             "command": "setProperties",
             "properties": properties
         }
-        response = self._success_or_error(self._send_command(cmd))
+        response = parse_success_or_error(self._send_command(cmd))
         if response["status"] == "success":
             self._diags.clear()
             self._caches.clear()
@@ -406,7 +402,7 @@ class AletheiaClient:
         """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
-        response = self._success_or_error(
+        response = parse_success_or_error(
             self._parse_ffi_result(self._lib.aletheia_start_stream(self._state)),
         )
         if response["status"] == "success":

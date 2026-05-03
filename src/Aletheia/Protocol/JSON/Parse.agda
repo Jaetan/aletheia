@@ -11,7 +11,7 @@ open import Data.String using (String; toList; fromList)
 open import Data.List using (List; []; _∷_; foldl; length)
 open import Data.Char using (Char; toℕ) renaming (_≟_ to _≟ᶜ_)
 open import Data.Char.Base using (isDigit)
-open import Data.Bool using (true; false; not)
+open import Data.Bool using (true; false; not; _∧_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (_>>=_ to _>>=ₘ_; map to mapₘ)
 open import Data.Nat using (ℕ; zero; suc; _*_; _+_; _∸_)
 open import Data.Integer using (ℤ; +_; -[1+_])
@@ -145,10 +145,40 @@ parseRational = do
 parseNumber : Parser JSON
 parseNumber = JNumber <$> parseRational
 
--- Parse a single character inside a JSON string
--- Accepts all characters except quotes (escape sequences intentionally unsupported)
+-- Parse a literal (non-escape) character inside a JSON string.
+-- Excludes the closing quote and the escape introducer.
+parseLiteralStringChar : Parser Char
+parseLiteralStringChar = satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋ ∧ not ⌊ c ≟ᶜ '\\' ⌋)
+
+-- Decode the second character of a JSON escape sequence.
+-- Supports the ASCII-range escapes JSON.stringify (Python json, Go
+-- encoding/json, JavaScript) emits: \" \\ \/ \n \t \r \b \f.  Unicode
+-- \uXXXX escapes are intentionally unsupported — DBC text and the rest
+-- of the protocol stay within ASCII.
+decodeEscape : Char → Parser Char
+decodeEscape '"'  = pure '"'
+decodeEscape '\\' = pure '\\'
+decodeEscape '/'  = pure '/'
+decodeEscape 'n'  = pure '\n'
+decodeEscape 't'  = pure '\t'
+decodeEscape 'r'  = pure '\r'
+decodeEscape 'b'  = pure '\b'
+decodeEscape 'f'  = pure '\f'
+decodeEscape _    = fail
+
+-- Parse a JSON escape sequence: '\' followed by one of the recognised
+-- second chars; consumes 2 input chars and produces the decoded char.
+parseEscapeChar : Parser Char
+parseEscapeChar = do
+  _ ← char '\\'
+  c ← satisfy (λ _ → true)
+  decodeEscape c
+
+-- Parse a single character inside a JSON string — either an escape
+-- sequence or a literal char.  Termination: each branch consumes ≥1
+-- input char, so `many parseStringChar` makes progress.
 parseStringChar : Parser Char
-parseStringChar = satisfy (λ c → not ⌊ c ≟ᶜ '"' ⌋)
+parseStringChar = parseEscapeChar <|> parseLiteralStringChar
 
 parseString : Parser JSON
 parseString = do

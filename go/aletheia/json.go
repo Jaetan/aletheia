@@ -1190,6 +1190,60 @@ func parseDbcResponse(raw string) (*DbcDefinition, error) {
 	return parseDbcDefinition(dbcRaw)
 }
 
+// parseParsedDBCResponse decodes a parseDBC / parseDBCText success response
+// into typed (*ParsedDBC) form: the parsed body plus any non-error issues
+// (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
+// error half.
+func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
+	m, err := parseResponse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return nil, err
+	}
+	status := getString(m, "status")
+	if status != "success" {
+		return nil, protocolError(fmt.Sprintf("expected success response, got status: %q", status))
+	}
+
+	dbcRaw := getObject(m, "dbc")
+	if dbcRaw == nil {
+		return nil, protocolError("missing 'dbc' field in parseDBC response")
+	}
+	dbc, err := parseDbcDefinition(dbcRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	var warnings []ValidationIssue
+	for _, item := range getArray(m, "warnings") {
+		issue, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in warnings array")
+		}
+		var sev IssueSeverity
+		switch s := getString(issue, "severity"); s {
+		case "error":
+			sev = SeverityError
+		case "warning":
+			sev = SeverityWarning
+		default:
+			return nil, protocolError(fmt.Sprintf("unknown validation severity: %q", s))
+		}
+		code := IssueCode(getString(issue, "code"))
+		if code == "" {
+			code = IssueUnknown
+		}
+		warnings = append(warnings, ValidationIssue{
+			Severity: sev,
+			Code:     code,
+			Detail:   getString(issue, "detail"),
+		})
+	}
+	return &ParsedDBC{DBC: *dbc, Warnings: warnings}, nil
+}
+
 // parseDbcDefinition decodes the "dbc" sub-object of a formatDBC
 // response into its typed DbcDefinition form. Tier 1 metadata arrays
 // (signalGroups / environmentVars / valueTables) are optional on the

@@ -156,30 +156,11 @@ func (c *Client) resolveSignalIndices(signals []SignalValue, id CanID, cmdName s
 
 // --- DBC operations ---
 
-// ParseDBC sends a DBC definition to the Agda core for parsing and loading.
-// Subsequent signal extraction and frame building use this parsed definition.
-// Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
-func (c *Client) ParseDBC(dbc DbcDefinition) error {
-	dbcMap, err := serializeDBC(dbc)
-	if err != nil {
-		return err
-	}
-	cmd, err := serializeCommand("parseDBC", map[string]any{
-		"dbc": dbcMap,
-	})
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	resp, err := c.processLocked(cmd)
-	if err != nil {
-		return err
-	}
-	if err := parseSuccessResponse(resp); err != nil {
-		return err
-	}
-	// Build signal name -> index cache from the DBC definition.
+// populateSignalLookup rebuilds the name-to-index lookup from a parsed DBC.
+// Both ParseDBC and ParseDBCText call this after the Agda core returns
+// a validated body so subsequent BuildFrame/UpdateFrame calls can resolve
+// signal names against the canonical (post-validation) DBC.
+func (c *Client) populateSignalLookup(dbc DbcDefinition) {
 	c.signalIndex = make(map[uint64]map[string]int, len(dbc.Messages))
 	c.signalNames = make(map[uint64][]string, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
@@ -193,10 +174,67 @@ func (c *Client) ParseDBC(dbc DbcDefinition) error {
 		c.signalIndex[key] = sigMap
 		c.signalNames[key] = names
 	}
-	if c.logger != nil {
-		c.logger.Info("dbc.parsed", "messages", len(dbc.Messages))
+}
+
+// ParseDBC sends a DBC definition to the Agda core for parsing and loading.
+// Subsequent signal extraction and frame building use this parsed definition.
+// Returns the parsed body plus any non-error validation issues (warnings);
+// validation errors short-circuit to the error half of the tuple.
+// Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
+func (c *Client) ParseDBC(dbc DbcDefinition) (*ParsedDBC, error) {
+	dbcMap, err := serializeDBC(dbc)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	cmd, err := serializeCommand("parseDBC", map[string]any{
+		"dbc": dbcMap,
+	})
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp, err := c.processLocked(cmd)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := parseParsedDBCResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	c.populateSignalLookup(parsed.DBC)
+	if c.logger != nil {
+		c.logger.Info("dbc.parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
+	}
+	return parsed, nil
+}
+
+// ParseDBCText sends raw DBC source text to the Agda core's verified text
+// parser, which validates the parse and returns a typed body plus any
+// non-error issues (warnings).  Mirrors ParseDBC's success-path shape.
+// Populates the signal name-to-index cache for BuildFrame/UpdateFrame.
+func (c *Client) ParseDBCText(text string) (*ParsedDBC, error) {
+	cmd, err := serializeCommand("parseDBCText", map[string]any{
+		"text": text,
+	})
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	resp, err := c.processLocked(cmd)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := parseParsedDBCResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	c.populateSignalLookup(parsed.DBC)
+	if c.logger != nil {
+		c.logger.Info("dbc.text_parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
+	}
+	return parsed, nil
 }
 
 // ValidateDBC checks a DBC definition for structural issues (overlapping signals,

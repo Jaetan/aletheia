@@ -77,6 +77,9 @@ open import Aletheia.DBC.TextParser.TopLevel using
 open import Aletheia.DBC.TextParser.Attributes using
   (refineAttributes)
 
+open import Aletheia.Error public using
+  (DBCTextParseError; ParseFailure; TrailingInput; AttributeRefinementFailed)
+
 -- ============================================================================
 -- GRAMMAR (BNF)
 -- ============================================================================
@@ -174,14 +177,9 @@ open import Aletheia.DBC.TextParser.Attributes using
 -- ERROR TAXONOMY
 -- ============================================================================
 
--- Local error ADT for DBC-text parsing.  Kept separate from
--- `Aletheia.Error.ParseError` (the JSON-protocol parser error) because the
--- two vocabularies do not overlap; each can evolve independently.  See the
--- module header for the rationale behind each constructor.
-data DBCTextParseError : Set where
-  ParseFailure              : DBCTextParseError
-  TrailingInput             : Position → DBCTextParseError
-  AttributeRefinementFailed : String   → DBCTextParseError
+-- Error ADT for DBC-text parsing lives in `Aletheia.Error.DBCTextParseError`
+-- (Phase B.3.e).  Re-exported via the top-level `Error` sum so callers and
+-- the JSON envelope share the same vocabulary as the JSON-protocol parser.
 
 -- ============================================================================
 -- ENTRY POINT

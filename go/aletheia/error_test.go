@@ -40,7 +40,7 @@ func TestBackendError(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected error from backend")
 	}
@@ -54,7 +54,7 @@ func TestMockBackendExhaustion(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected error when mock exhausted")
 	}
@@ -71,7 +71,7 @@ func TestUseAfterClose(t *testing.T) {
 	c.Close()
 
 	// Calling after Close should return a state error, not crash.
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected error after Close")
 	}
@@ -150,7 +150,7 @@ func TestParseError_SignalBitLengthZero(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -180,7 +180,7 @@ func TestParseError_SignalOverflowsFrame(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -210,7 +210,7 @@ func TestParseError_SignalMSBBelowBitLength(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -270,7 +270,7 @@ func TestParseError_NonTerminatingRational(t *testing.T) {
 	}
 	defer c.Close()
 
-	err = c.ParseDBC(testDBC())
+	_, err = c.ParseDBC(testDBC())
 	if err == nil {
 		t.Fatal("expected parse error")
 	}

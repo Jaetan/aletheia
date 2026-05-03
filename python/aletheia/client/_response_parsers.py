@@ -14,11 +14,15 @@ from typing import cast
 
 from ..protocols import (
     AckResponse,
+    DBCDefinition,
     ErrorResponse,
+    ParsedDBCResponse,
     PropertyResultEntry,
     PropertyViolationResponse,
     Response,
+    SuccessResponse,
     ValidationIssue,
+    is_object_list,
 )
 from ._helpers import validate_rational
 from ._log import LogEvent, log_event
@@ -66,6 +70,64 @@ def build_error_response(response: Response) -> ErrorResponse:
             + f" got {type(message).__name__}"
         )
     return {"status": "error", "code": code, "message": message}
+
+
+def parse_success_or_error(
+    response: Response,
+) -> SuccessResponse | ErrorResponse:
+    """Parse a response that should be success or error."""
+    status = response.get("status")
+
+    if status == "success":
+        result: SuccessResponse = {"status": "success"}
+        message = response.get("message")
+        if isinstance(message, str):
+            result["message"] = message
+        return result
+
+    if status == "error":
+        return build_error_response(response)
+
+    raise ProtocolError(
+        f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+    )
+
+
+def parse_parsed_dbc_response(
+    response: Response,
+) -> ParsedDBCResponse | ErrorResponse:
+    """Parse a response from parseDBC / parseDBCText.
+
+    On success the Agda core emits ``ParsedDBCResponse`` carrying the
+    canonical parsed body plus any non-error issues (warnings).  On
+    failure it emits ``ErrorResponse`` with a typed code.
+    """
+    status = response.get("status")
+
+    if status == "success":
+        dbc_field = response.get("dbc")
+        warnings_field = response.get("warnings", [])
+        if not isinstance(dbc_field, dict):
+            raise ProtocolError(
+                "parseDBC success response missing 'dbc' object"
+            )
+        if not is_object_list(warnings_field):
+            raise ProtocolError(
+                "parseDBC success response 'warnings' must be a list of objects"
+            )
+        warnings = cast(list[ValidationIssue], list(warnings_field))
+        return {
+            "status": "success",
+            "dbc": cast(DBCDefinition, dbc_field),
+            "warnings": validate_issue_severities(warnings),
+        }
+
+    if status == "error":
+        return build_error_response(response)
+
+    raise ProtocolError(
+        f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+    )
 
 
 def parse_frame_response(

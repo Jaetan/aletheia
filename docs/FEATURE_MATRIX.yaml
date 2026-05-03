@@ -79,18 +79,20 @@ features:
   - id: dbc_text_parse
     name: Parse .dbc text
     description: Parse a raw .dbc text file (cantools-compatible) into a DbcDefinition.
-    related: R17-DEF-4, B.3
+    related: R17-DEF-4, B.3, B.3.e
     bindings:
       python:
         status: implemented
-        entry: aletheia.dbc_to_json
-        notes: "Currently via cantools (LGPL). Transitioning to Agda core per B.3; dep drops at B.3.g."
+        entry: aletheia.AletheiaClient.parse_dbc_text
+        notes: "B.3.e — verified Agda parseText composed with the runtime validator; cantools dependency dropped from this entry point."
       cpp:
-        status: planned
-        notes: "Blocked on B.3.h — awaits Agda-core parser reaching cantools equivalence."
+        status: implemented
+        entry: "aletheia/client.hpp#parse_dbc_text"
+        notes: "B.3.e — same Agda core via FFI; returns ParsedDBC carrying body + warnings."
       go:
-        status: planned
-        notes: "Blocked on B.3.i — awaits Agda-core parser reaching cantools equivalence."
+        status: implemented
+        entry: Client.ParseDBCText
+        notes: "B.3.e — same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
 
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)

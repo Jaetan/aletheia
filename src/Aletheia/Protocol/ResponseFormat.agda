@@ -7,14 +7,16 @@
 module Aletheia.Protocol.ResponseFormat where
 
 open import Data.String using (String)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.Rational using (ℚ)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
+open import Aletheia.Parser.Combinators using (Position)
 open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JStringS; JNumber; JBool)
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error;
-  ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
+  ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
+  ParsedDBCResponse)
 import Aletheia.Error as Err
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
@@ -54,6 +56,54 @@ formatPropertyResult (PropertyResult.Unresolved idx reason) =
   mkPropertyResult "unresolved" idx
     (("reason" , JStringS (formatLTLReason reason)) ∷ [])
 
+-- Validation issue → JSON.  Hoisted from `formatResponse (ValidationResponse …)`'s
+-- where block so `formatResponse (ParsedDBCResponse …)` can reuse the same shape
+-- for the warnings list it carries on success.
+formatIssueSeverity : IssueSeverity → String
+formatIssueSeverity IsError   = "error"
+formatIssueSeverity IsWarning = "warning"
+
+formatIssueCode : IssueCode → String
+formatIssueCode DuplicateMessageId          = "duplicate_message_id"
+formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
+formatIssueCode FactorZero                  = "factor_zero"
+formatIssueCode MultiplexorNotFound         = "multiplexor_not_found"
+formatIssueCode MultiplexorCycle            = "multiplexor_cycle"
+formatIssueCode GlobalNameCollision         = "global_name_collision"
+formatIssueCode MinExceedsMax               = "min_exceeds_max"
+formatIssueCode SignalExceedsDLC            = "signal_exceeds_dlc"
+formatIssueCode SignalOverlap               = "signal_overlap"
+formatIssueCode BitLengthZero               = "bit_length_zero"
+formatIssueCode DuplicateMessageName        = "duplicate_message_name"
+formatIssueCode OffsetScaleRange            = "offset_scale_range"
+formatIssueCode EmptyMessage                = "empty_message"
+formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"
+formatIssueCode BitLengthExcessive          = "bit_length_excessive"
+formatIssueCode MultiplexorNonUnitScaling   = "multiplexor_non_unit_scaling"
+formatIssueCode DuplicateAttributeName      = "duplicate_attribute_name"
+formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
+formatIssueCode UnknownMessageSender        = "unknown_message_sender"
+formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
+
+formatValidationIssue : ValidationIssue → JSON
+formatValidationIssue issue =
+  JObject (
+    ("severity" , JStringS (formatIssueSeverity (ValidationIssue.severity issue))) ∷
+    ("code"     , JStringS (formatIssueCode (ValidationIssue.code issue))) ∷
+    ("detail"   , JStringS (ValidationIssue.detail issue)) ∷
+    [])
+
+-- Per-error structured fields appended to the Error JSON envelope.  Today
+-- only `DBCTextParseErr (TrailingInput pos)` carries extras (line + column);
+-- `WithContext` is transparent so wrappers do not hide structured payloads.
+errorExtras : Err.Error → List (String × JSON)
+errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos)) =
+  ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
+  ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
+  []
+errorExtras (Err.WithContext _ inner) = errorExtras inner
+errorExtras _                         = []
+
 -- Format Response as JSON
 formatResponse : Response → JSON
 formatResponse (Success msg) =
@@ -66,7 +116,7 @@ formatResponse (Error err) =
     ("status"  , JStringS "error") ∷
     ("code"    , JStringS (Err.errorCode err)) ∷
     ("message" , JStringS (Err.formatError err)) ∷
-    [])
+    errorExtras err)
 formatResponse (ExtractionResultsResponse values errors absent) =
   JObject (
     ("status" , JStringS "success") ∷
@@ -110,37 +160,9 @@ formatResponse (ValidationResponse issues) =
     ("has_errors" , JBool (hasAnyError issues)) ∷
     ("issues"     , JArray (map formatValidationIssue issues)) ∷
     [])
-  where
-    formatIssueSeverity : IssueSeverity → String
-    formatIssueSeverity IsError   = "error"
-    formatIssueSeverity IsWarning = "warning"
-
-    formatIssueCode : IssueCode → String
-    formatIssueCode DuplicateMessageId          = "duplicate_message_id"
-    formatIssueCode DuplicateSignalName         = "duplicate_signal_name"
-    formatIssueCode FactorZero                  = "factor_zero"
-    formatIssueCode MultiplexorNotFound         = "multiplexor_not_found"
-    formatIssueCode MultiplexorCycle            = "multiplexor_cycle"
-    formatIssueCode GlobalNameCollision         = "global_name_collision"
-    formatIssueCode MinExceedsMax               = "min_exceeds_max"
-    formatIssueCode SignalExceedsDLC            = "signal_exceeds_dlc"
-    formatIssueCode SignalOverlap               = "signal_overlap"
-    formatIssueCode BitLengthZero               = "bit_length_zero"
-    formatIssueCode DuplicateMessageName        = "duplicate_message_name"
-    formatIssueCode OffsetScaleRange            = "offset_scale_range"
-    formatIssueCode EmptyMessage                = "empty_message"
-    formatIssueCode StartBitOutOfRange          = "start_bit_out_of_range"
-    formatIssueCode BitLengthExcessive          = "bit_length_excessive"
-    formatIssueCode MultiplexorNonUnitScaling   = "multiplexor_non_unit_scaling"
-    formatIssueCode DuplicateAttributeName      = "duplicate_attribute_name"
-    formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
-    formatIssueCode UnknownMessageSender        = "unknown_message_sender"
-    formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
-
-    formatValidationIssue : ValidationIssue → JSON
-    formatValidationIssue issue =
-      JObject (
-        ("severity" , JStringS (formatIssueSeverity (ValidationIssue.severity issue))) ∷
-        ("code"     , JStringS (formatIssueCode (ValidationIssue.code issue))) ∷
-        ("detail"   , JStringS (ValidationIssue.detail issue)) ∷
-        [])
+formatResponse (ParsedDBCResponse dbcJSON warnings) =
+  JObject (
+    ("status"   , JStringS "success") ∷
+    ("dbc"      , dbcJSON) ∷
+    ("warnings" , JArray (map formatValidationIssue warnings)) ∷
+    [])

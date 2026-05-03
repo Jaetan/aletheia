@@ -3,8 +3,8 @@
 -- JSON streaming protocol entry points.
 --
 -- Purpose: Process line-delimited JSON requests and emit JSON responses.
--- Protocol: parse_dbc → set_properties → start_stream → data_frames* → end_stream,
---   plus build_frame, extract_all_signals, update_frame, validate_dbc, format_dbc
+-- Protocol: parseDBC → setProperties → startStream → data_frames* → endStream,
+--   plus extractAllSignals, validateDBC, formatDBC, parseDBCText.
 -- Exports: processJSONLine (JSON commands).
 module Aletheia.Main.JSON where
 

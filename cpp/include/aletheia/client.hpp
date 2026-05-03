@@ -56,7 +56,11 @@ public:
     AletheiaClient& operator=(AletheiaClient&& other) noexcept;
 
     // --- DBC ---
-    [[nodiscard]] auto parse_dbc(const DbcDefinition& dbc) -> Result<void>;
+    // Both parse paths run the structural validator alongside the parser.
+    // On success the returned ParsedDBC carries the canonical body plus any
+    // non-error issues (warnings).  Errors short-circuit to Result<>::error.
+    [[nodiscard]] auto parse_dbc(const DbcDefinition& dbc) -> Result<ParsedDBC>;
+    [[nodiscard]] auto parse_dbc_text(std::string_view text) -> Result<ParsedDBC>;
     [[nodiscard]] auto validate_dbc(const DbcDefinition& dbc) -> Result<ValidationResult>;
     [[nodiscard]] auto format_dbc() -> Result<DbcDefinition>;
 
@@ -123,6 +127,10 @@ private:
     auto extract_signals_internal(CanId id, Dlc dlc, std::span<const std::byte> data,
                                   std::uint32_t id_value, bool is_extended)
         -> std::optional<ExtractionResult>;
+
+    // Refresh signal name → index cache from a parsed DBC.  Shared between
+    // parse_dbc() and parse_dbc_text(); both paths land here on success.
+    void populate_signal_lookup(const DbcDefinition& dbc);
 
     std::unique_ptr<IBackend> backend_;
     void* state_ = nullptr;

@@ -108,13 +108,13 @@ func TestSerializeDBC_Tier2RoundtripThroughMock(t *testing.T) {
 	// survive the round-trip unchanged.
 	fixture := buildTier2Fixture(t)
 
-	sendMock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
+	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
 	sendClient, err := aletheia.NewClient(sendMock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -357,13 +357,13 @@ func TestDbcSignalReceivers_RoundtripThroughMock(t *testing.T) {
 		Messages: []aletheia.DbcMessage{msg},
 	}
 
-	sendMock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
+	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
 	sendClient, err := aletheia.NewClient(sendMock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -476,13 +476,13 @@ func TestDbcMessageSenders_RoundtripThroughMock(t *testing.T) {
 		Messages: []aletheia.DbcMessage{msg},
 	}
 
-	sendMock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
+	sendMock := aletheia.NewMockBackend(aletheia.RespondParseDBC(fixture))
 	sendClient, err := aletheia.NewClient(sendMock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sendClient.Close()
-	if err := sendClient.ParseDBC(fixture); err != nil {
+	if _, err := sendClient.ParseDBC(fixture); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 
@@ -562,13 +562,6 @@ func TestDbcMessageSenders_EmptyWhenAbsent(t *testing.T) {
 }
 
 func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
-	mock := aletheia.NewMockBackend(aletheia.Respond(`{"status":"success"}`))
-	c, err := aletheia.NewClient(mock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
 	id, _ := aletheia.NewStandardID(256)
 	dlc, _ := aletheia.BytesToDLC(8)
 	msg := aletheia.NewDbcMessage(id, "MinimalMsg", dlc, "ECU", nil, nil)
@@ -578,7 +571,14 @@ func TestSerializeDBC_EmitsEmptyTier2ArraysWhenMetadataAbsent(t *testing.T) {
 		// All Tier 1 & Tier 2 slices left nil — every key must still
 		// land on the wire as an empty array.
 	}
-	if err := c.ParseDBC(dbc); err != nil {
+	mock := aletheia.NewMockBackend(aletheia.RespondParseDBC(dbc))
+	c, err := aletheia.NewClient(mock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err := c.ParseDBC(dbc); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 

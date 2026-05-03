@@ -815,4 +815,44 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition> {
     }
 }
 
+auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
+    try {
+        auto j = Json::parse(input);
+        auto status = j.value("status", "");
+        if (status == "error")
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
+        if (status != "success")
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Unexpected parsed-DBC status: " + status));
+        if (!j.contains("dbc"))
+            return std::unexpected(
+                make_error(ErrorKind::Protocol, "Missing 'dbc' field in parsed-DBC response"));
+        auto dbc = parse_dbc_definition(j.at("dbc"));
+
+        std::vector<ValidationIssue> warnings;
+        if (j.contains("warnings")) {
+            for (const auto& issue : j.at("warnings")) {
+                auto sev_str = issue.value("severity", "");
+                IssueSeverity severity{};
+                if (sev_str == "error") {
+                    severity = IssueSeverity::Error;
+                } else if (sev_str == "warning") {
+                    severity = IssueSeverity::Warning;
+                } else {
+                    return std::unexpected(make_error(
+                        ErrorKind::Protocol, "Unknown validation severity: " + sev_str));
+                }
+                warnings.push_back({
+                    .severity = severity,
+                    .code = parse_issue_code(issue.value("code", "")),
+                    .detail = issue.value("detail", ""),
+                });
+            }
+        }
+        return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};
+    } catch (const std::exception& e) {
+        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
+    }
+}
+
 } // namespace aletheia::detail

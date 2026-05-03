@@ -18,6 +18,7 @@ open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
+open import Aletheia.Parser.Combinators using (Position)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda)
@@ -328,32 +329,61 @@ dispatchErrorCode InvalidJSON            = "dispatch_invalid_json"
 dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 
 -- ============================================================================
+-- DBC TEXT PARSE ERRORS (DBC/TextParser.agda)
+-- ============================================================================
+
+-- Errors emitted by the DBC text parser (Phase B.3.e entry point).  Kept
+-- separate from `ParseError` (the JSON-protocol parser) because the
+-- vocabularies do not overlap; each evolves independently.
+data DBCTextParseError : Set where
+  ParseFailure              : DBCTextParseError
+  TrailingInput             : Position → DBCTextParseError
+  AttributeRefinementFailed : String   → DBCTextParseError
+
+formatDBCTextParseError : DBCTextParseError → String
+formatDBCTextParseError ParseFailure =
+  "DBC text parse failed"
+formatDBCTextParseError (TrailingInput pos) =
+  "trailing input after parse at line " ++ₛ showℕ (Position.line pos)
+    ++ₛ ", column " ++ₛ showℕ (Position.column pos)
+formatDBCTextParseError (AttributeRefinementFailed detail) =
+  "attribute refinement failed: " ++ₛ detail
+
+dbcTextParseErrorCode : DBCTextParseError → String
+dbcTextParseErrorCode ParseFailure                  = "dbc_text_parse_failure"
+dbcTextParseErrorCode (TrailingInput _)             = "dbc_text_trailing_input"
+dbcTextParseErrorCode (AttributeRefinementFailed _) = "dbc_text_attribute_refinement_failed"
+
+-- ============================================================================
 -- TOP-LEVEL ERROR SUM
 -- ============================================================================
 
 data Error : Set where
-  ParseErr       : ParseError → Error
-  FrameErr       : FrameError → Error
-  ExtractionErr  : ExtractionError → Error
-  RouteErr       : RouteError → Error
-  HandlerErr     : HandlerError → Error
-  DispatchErr    : DispatchError → Error
-  WithContext    : String → Error → Error
+  ParseErr        : ParseError → Error
+  FrameErr        : FrameError → Error
+  ExtractionErr   : ExtractionError → Error
+  RouteErr        : RouteError → Error
+  HandlerErr      : HandlerError → Error
+  DispatchErr     : DispatchError → Error
+  DBCTextParseErr : DBCTextParseError → Error
+  WithContext     : String → Error → Error
 
 formatError : Error → String
-formatError (ParseErr pe)         = formatParseError pe
-formatError (FrameErr fe)         = formatFrameError fe
-formatError (ExtractionErr ee)    = formatExtractionError ee
-formatError (RouteErr re)         = formatRouteError re
-formatError (HandlerErr he)       = formatHandlerError he
-formatError (DispatchErr de)      = formatDispatchError de
+formatError (ParseErr pe)           = formatParseError pe
+formatError (FrameErr fe)           = formatFrameError fe
+formatError (ExtractionErr ee)      = formatExtractionError ee
+formatError (RouteErr re)           = formatRouteError re
+formatError (HandlerErr he)         = formatHandlerError he
+formatError (DispatchErr de)        = formatDispatchError de
+formatError (DBCTextParseErr de)    = formatDBCTextParseError de
 formatError (WithContext ctx inner) = ctx ++ₛ ": " ++ₛ formatError inner
 
 errorCode : Error → String
-errorCode (ParseErr pe)    = parseErrorCode pe
-errorCode (FrameErr fe)    = frameErrorCode fe
-errorCode (ExtractionErr ee) = extractionErrorCode ee
-errorCode (RouteErr re)    = routeErrorCode re
-errorCode (HandlerErr he)  = handlerErrorCode he
-errorCode (DispatchErr de) = dispatchErrorCode de
+errorCode (ParseErr pe)         = parseErrorCode pe
+errorCode (FrameErr fe)         = frameErrorCode fe
+errorCode (ExtractionErr ee)    = extractionErrorCode ee
+errorCode (RouteErr re)         = routeErrorCode re
+errorCode (HandlerErr he)       = handlerErrorCode he
+errorCode (DispatchErr de)      = dispatchErrorCode de
+errorCode (DBCTextParseErr de)  = dbcTextParseErrorCode de
 errorCode (WithContext _ inner) = errorCode inner

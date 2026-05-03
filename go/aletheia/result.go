@@ -165,3 +165,15 @@ type ValidationResult struct {
 	HasErrors bool
 	Issues    []ValidationIssue
 }
+
+// ParsedDBC is the success-path result of ParseDBC and ParseDBCText.
+//
+// Both paths run the structural validator alongside the parser; if the
+// parsed DBC has zero error-severity issues, the Agda core emits this
+// shape carrying the canonical body plus any non-error issues
+// (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
+// error half.
+type ParsedDBC struct {
+	DBC      DbcDefinition
+	Warnings []ValidationIssue
+}
