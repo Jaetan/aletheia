@@ -40,7 +40,7 @@ Aletheia provides:
    Check.signal("Speed").never_exceeds(220)                          # Python
    ```
    ```cpp
-   Check::signal("Speed").never_exceeds(PhysicalValue{220});         // C++
+   Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});  // C++
    ```
    ```go
    aletheia.CheckSignal("Speed").NeverExceeds(220)                   // Go
@@ -155,11 +155,11 @@ Signal("Speed").less_than(220).always()              # Full DSL
 
 C++:
 ```cpp
-Check::signal("Speed").never_exceeds(PhysicalValue{220});
-load_checks_from_yaml("checks.yaml");
-load_checks_from_excel("tests.xlsx");
+Check::signal("Speed").never_exceeds(PhysicalValue{Rational{220, 1}});
+[[maybe_unused]] auto _yaml  = load_checks_from_yaml("checks.yaml");
+[[maybe_unused]] auto _excel = load_checks_from_excel("tests.xlsx");
 // LTL formulas via ltl:: namespace (compositional, not fluent DSL):
-auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{220})));
+auto f = ltl::always(ltl::atomic(ltl::less_than(SignalName{"Speed"}, PhysicalValue{Rational{220, 1}})));
 ```
 
 Go:

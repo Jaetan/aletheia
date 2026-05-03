@@ -81,7 +81,7 @@ Errors from cancellation are wrapped with caller context: `fmt.Errorf("send_fram
 
 C++'s cancellation idiom is `std::stop_token` (paired with `std::stop_source` and, when threading is in play, `std::jthread`). Aletheia threads `std::stop_token` through every operation method on `AletheiaClient`, as the first parameter:
 
-```cpp
+```text
 auto send_frame(std::stop_token stop,
                 Timestamp ts, CanId id, Dlc dlc,
                 std::span<const std::byte> data) -> Result<FrameResponse>;
@@ -223,9 +223,9 @@ What the contract guarantees here:
 
 ### 4.3 C++ — streaming session via `std::jthread` + `stop_token`
 
-A worker thread that streams frames from a producer queue, cancellable from outside via the `std::jthread` interface.
+A worker thread that streams frames from a producer queue, cancellable from outside via the `std::jthread` interface. Sketch — references `FrameProducer`, `properties_path`, `handle_error`, and `log_committed_count` as caller-supplied surface; not a self-contained runnable example.
 
-```cpp
+```text
 #include <stop_token>
 #include <thread>
 #include <queue>
@@ -235,7 +235,7 @@ A worker thread that streams frames from a producer queue, cancellable from outs
 void streaming_worker(std::stop_token stop,
                       aletheia::AletheiaClient& client,
                       FrameProducer& producer) {
-    auto start_result = client.start_stream(stop, properties_path);
+    auto start_result = client.start_stream(stop);
     if (!start_result) { handle_error(start_result.error()); return; }
 
     std::size_t committed = 0;

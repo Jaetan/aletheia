@@ -232,6 +232,37 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
 
+    # Layer 7: Phase D.1 doc-example harness (R17-DEF-6).
+    #
+    # Mirror of python/tests/test_doc_examples_harness.py + repo-root
+    # conftest.py and go/aletheia/doc_examples_test.go. Every ```cpp fence
+    # in the tracked user-facing markdown files is extracted, wrapped,
+    # compiled by ${CMAKE_CXX_COMPILER}, and executed end-to-end. Failing
+    # fences (compile or runtime) report `file:Lline` precision through
+    # Catch2's DYNAMIC_SECTION. Skipped automatically when libaletheia-ffi.so
+    # is missing.
+    #
+    # The harness shells out to ${CMAKE_CXX_COMPILER} per fence rather than
+    # treating fences as additional sources of this target — each fence
+    # ships its own `int main()` (or one synthesized by the wrapper), so a
+    # single-binary link would conflict on `main`. The TARGET_FILE generator
+    # expressions below capture aletheia-cpp + the static yaml-cpp / OpenXLSX
+    # archives so the subprocess link line resolves the transitive symbol
+    # closure that aletheia-cpp's PRIVATE deps would normally provide.
+    add_executable(doc_example_tests tests/doc_example_tests.cpp)
+    target_link_libraries(doc_example_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(doc_example_tests
+        PRIVATE
+            ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+            ALETHEIA_DOC_CXX="${CMAKE_CXX_COMPILER}"
+            ALETHEIA_DOC_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/include"
+            ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
+            ALETHEIA_DOC_YAML_LIB="$<TARGET_FILE:yaml-cpp::yaml-cpp>"
+            ALETHEIA_DOC_OPENXLSX_LIB="$<TARGET_FILE:OpenXLSX::OpenXLSX>"
+            ALETHEIA_DOC_CXX_STD="23")
+    add_test(NAME doc_example_tests COMMAND doc_example_tests)
+
     # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
     # loaded via dlopen. The CMake build will succeed without the .so, but the
     # resulting binary will fail at startup with a dlopen error. Build the

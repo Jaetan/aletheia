@@ -537,6 +537,23 @@ clang-format --dry-run -Werror include/aletheia/*.hpp src/*.cpp src/detail/*.hpp
 clang-tidy -p build src/*.cpp
 ```
 
+The `ctest` battery includes the Phase D.1 doc-example harness
+(`doc_example_tests`) — every ```cpp fence across `README.md`,
+`docs/PITCH.md`, `docs/architecture/CANCELLATION.md`,
+`docs/reference/INTERFACES.md`, and `docs/development/DISTRIBUTION.md`
+is extracted, wrapped (3 shapes — full `int main()` / `#include` block
++ decls / body fragment with `using namespace aletheia` and
+predeclared `client`/`backend`/`ts`/`can_id`/`dlc`/`data`/`frames`),
+compiled by `${CMAKE_CXX_COMPILER}` (linked against
+`$<TARGET_FILE:aletheia-cpp>` plus the static yaml-cpp / OpenXLSX
+archives), and executed end-to-end. The companion structural gates
+ban `<!-- cpp notest -->` annotations and enforce a `≥6` collective
+fence floor — non-runnable fences must use the `text` info string,
+mirroring the Python and Go ban. Adding a new user-facing markdown
+file means adding it to `kDocFiles` in
+`cpp/tests/doc_example_tests.cpp`. Skipped automatically when
+`libaletheia-ffi.so` is missing (run `cabal run shake -- build` first).
+
 ---
 
 ## Python (33 categories)
@@ -612,7 +629,7 @@ Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`.
 
 30. **Determinism & reproducibility** -- no reliance on `dict`/`set` iteration order where output is user-visible, stable sort keys, no timestamp-dependent output in library code, explicit `random.Random(seed)` rather than module-level `random`, no `datetime.now()` in serialization paths.
 31. **Packaging hygiene** -- `pyproject.toml` version pin policy (minimum versions, not exact pins for library code), entry points declared correctly, optional dependency groups (`[project.optional-dependencies]`), wheel/sdist symmetry, `[tool.*]` section consistency (pylint, basedpyright, pytest all configured here).
-32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every ```python fence across the user-facing docs (`README.md`, `docs/PITCH.md`, `docs/guides/{QUICKSTART,COOKBOOK}.md`, `docs/reference/{CLI,PYTHON_API,INTERFACES}.md`, `docs/architecture/{DESIGN,PROTOCOL}.md`, `python/README.md`, `examples/README.md`) must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate test `python/tests/test_doc_examples_harness.py` rejects this tag so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` parametrises over the doc-file list above and fails on any `python notest` fence — this runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the markdown-docs invocation below exercises every live `python` fence against the real FFI. Mirroring this harness to the C++ binding remains the open part of R17-DEF-6 (Phase D.1); the Go mirror shipped 2026-05-04 in `go/aletheia/doc_examples_test.go` (Phase D.2) — see Go § Verification.
+32. **Doctest & example validity** -- docstring `>>>` examples actually run (`pytest --doctest-modules`), README snippets type-check and execute, tutorial code in `docs/` stays in sync with the actual API, no stale imports or removed symbols in examples. **Doc-example harness (runtime gate)**: every ```python fence across the user-facing docs (`README.md`, `docs/PITCH.md`, `docs/guides/{QUICKSTART,COOKBOOK}.md`, `docs/reference/{CLI,PYTHON_API,INTERFACES}.md`, `docs/architecture/{DESIGN,PROTOCOL}.md`, `python/README.md`, `examples/README.md`) must execute end-to-end under `pytest --markdown-docs` against the real FFI. The repo-root `conftest.py` injects globals (pre-built `dbc`, entered `client`, loader fakes for `dbc_to_json`/`iter_can_log`/`load_checks`/`load_checks_from_excel`/`load_dbc_from_excel`/`create_template`) so doc prose stays readable while still exercising live code. Fence tagging conventions: use ```text (not ```python) for pseudo-signatures, JSON return-value shapes, and class-body-shape sketches; use ```python continuation for fences that chain onto a prior runnable fence's namespace; never use ```python notest (the structural gate test `python/tests/test_doc_examples_harness.py` rejects this tag so the "skipped" state is unambiguous). **Structural gate (static)**: `python/tests/test_doc_examples_harness.py` parametrises over the doc-file list above and fails on any `python notest` fence — this runs inside the default `pytest tests/` battery. **Runtime gate (executes the fences)**: the markdown-docs invocation below exercises every live `python` fence against the real FFI. Both cross-binding mirrors closed Phase D: Go via `go/aletheia/doc_examples_test.go` (D.2, 2026-05-04 — see Go § Verification) and C++ via `cpp/tests/doc_example_tests.cpp` (D.1, 2026-05-04 — see C++ § Verification). R17-DEF-6 is fully closed.
 
 ### Command-line Interface (1)
 

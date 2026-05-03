@@ -442,8 +442,9 @@ features:
         entry: "aletheia.AletheiaClient"
         notes: "R17 C6 — pytest --markdown-docs with repo-root conftest.py; 103 fence runs."
       cpp:
-        status: planned
-        notes: "D.1 — catch2 harness extracting cpp fences from tracked markdown files."
+        status: implemented
+        entry: "aletheia/client.hpp#AletheiaClient"
+        notes: "D.1 (2026-05-04) — Catch2 harness in cpp/tests/doc_example_tests.cpp walks tracked markdown, wraps each fence (3 shapes: full int main / #include + decls / body fragment with using-namespace globals), shells out to ${CMAKE_CXX_COMPILER} per fence, links against $<TARGET_FILE:aletheia-cpp> + yaml-cpp + OpenXLSX statics, and runs the binary. Companion structural gates ban `<!-- cpp notest -->` escapes and enforce a ≥6 collective minimum. The `AletheiaClient` entry parallels Python's `aletheia.AletheiaClient` and Go's `Client`."
       go:
         status: implemented
         entry: Client

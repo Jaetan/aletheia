@@ -50,7 +50,8 @@ The same call, side by side across the three bindings:
 Check.signal("Speed").never_exceeds(220)
 ```
 ```cpp
-aletheia::check::signal("Speed").never_exceeds(aletheia::PhysicalValue{220});
+[[maybe_unused]] auto _check =
+    aletheia::Check::signal("Speed").never_exceeds(aletheia::PhysicalValue{aletheia::Rational{220, 1}});
 ```
 ```go
 aletheia.CheckSignal("Speed").NeverExceeds(220)
@@ -61,7 +62,9 @@ aletheia.CheckSignal("Speed").NeverExceeds(220)
 Signal("Speed").less_than(220).always()
 ```
 ```cpp
-aletheia::ltl::always(aletheia::ltl::less_than("Speed", aletheia::PhysicalValue{220}));
+[[maybe_unused]] auto _formula = aletheia::ltl::always(aletheia::ltl::atomic(
+    aletheia::ltl::less_than(aletheia::SignalName{"Speed"},
+                             aletheia::PhysicalValue{aletheia::Rational{220, 1}})));
 ```
 ```go
 _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: "Speed", Value: aletheia.PhysicalValue(220)}}}
@@ -72,7 +75,7 @@ _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: 
 checks = load_checks("checks.yaml")
 ```
 ```cpp
-auto checks = aletheia::yaml::load_checks("checks.yaml");
+auto checks = aletheia::load_checks_from_yaml("checks.yaml");
 ```
 ```go
 checks, err := aletheia.LoadChecksFromYAMLFile("checks.yaml")
@@ -84,7 +87,7 @@ _, _ = checks, err
 checks = load_checks_from_excel("checks.xlsx")
 ```
 ```cpp
-auto checks = aletheia::excel::load_checks("checks.xlsx");
+auto checks = aletheia::load_checks_from_excel("checks.xlsx");
 ```
 ```go
 // requires the separate go/excel/ module
@@ -97,7 +100,7 @@ _, _ = checks, err
 response = client.send_frame(ts, can_id, dlc, data)
 ```
 ```cpp
-auto response = client.send_frame(ts, can_id, dlc, data);
+auto response = client.send_frame(std::stop_token{}, ts, can_id, dlc, data);
 ```
 ```go
 response, err := client.SendFrame(ctx, ts, canID, dlc, data)
@@ -665,7 +668,10 @@ logging.getLogger("aletheia").addHandler(logging.StreamHandler())
 ```cpp
 auto logger = aletheia::Logger{[](const aletheia::LogRecord& r) {
     std::cerr << r.event;
-    for (const auto& f : r.fields) std::cerr << ' ' << f.key << '=' << f.value;
+    for (const auto& [key, value] : r.fields) {
+        std::cerr << ' ' << key << '=';
+        std::visit([](auto&& v) { std::cerr << v; }, value);
+    }
     std::cerr << '\n';
 }};
 auto client = aletheia::AletheiaClient{std::move(backend), std::move(logger)};
