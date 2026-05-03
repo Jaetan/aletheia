@@ -347,37 +347,33 @@ Plan:
 
 **Matrix row:** `dbc_text_parse` flipped 2026-05-03 (`bc7a5fc`): all three bindings now `implemented` (Python via `aletheia.AletheiaClient.parse_dbc_text`, C++ via `aletheia/client.hpp#parse_dbc_text`, Go via `Client.ParseDBCText`).  Cross-binding byte-equality gate (B.3.j), Python migration (B.3.f), and cantools dep drop (B.3.g) all closed 2026-05-03 — Phase B.3 complete.
 
-### Phase C — Idiomatic Ergonomics (Part 2) — Design Rounds First
+### Phase C — Idiomatic Ergonomics (Part 2) ✅ COMPLETE 2026-05-03
 
-Every item below was proposed during R17 and **rejected** by the user ("The solutions will have to be discussed again — I do not like some of your proposals"). Each requires a fresh design round before code.
+All four sub-tracks designed and shipped on branch `b3d-3d5-format-dsl` across four commits. Every item below was originally proposed during R17 and **rejected** by the user; each got a fresh design round before code, then implementation. See `memory/project_async_api_phase6.md` for the locked design and post-mortem.
 
-#### C.0 — Cancellation Contract SSOT (gated on its own review)
+#### C.0 — Cancellation Contract SSOT ✅ shipped `05108cf`
 
-**Decision locked but subject to review:** does this doc exist at all, and if so what does it say?  Open questions before committing:
-- Which operations support cancellation (long streams, big batches, live-bus loops)?
-- What happens to partial work (rollback? return-what-you-have? commit-first-error?)?
-- Is the contract identical across bindings, or does each idiom differ on partial-commit semantics?
-- Does the contract need its own doc, or is a section in `docs/architecture/DESIGN.md` enough?
+`docs/architecture/CANCELLATION.md` — single-source-of-truth for the cooperative-cancellation contract. Locked decisions: cancellation is **cooperative at FFI boundaries** (GHC RTS is single-threaded; an in-flight FFI call cannot be preempted from outside); partial work is **commit-prefix-and-report** (committed frames are real, streams don't roll back); per-binding primitive is **language-idiomatic** (Python `asyncio.CancelledError` on async client, Go `context.Context`, C++ `std::stop_token`); cross-binding parity is **behavioral equivalence**, not syntactic identity.
 
-**Deliverable if approved:** `docs/architecture/CANCELLATION.md` — or rejection of the doc itself, with reasoning captured in memory.
+#### C.1 + C.2 — Python `async` path + `send_frames_iter` ✅ shipped `c8ac95b`
 
-#### C.1 + C.2 — Python `async` path + `send_frames_iter` (bundled)
+`aletheia.asyncio.AletheiaClient` mirrors sync surface method-for-method (17 `async def` methods) via `asyncio.to_thread`; cancellation observed at per-frame `await` boundaries. New sync `AletheiaClient.send_frames_iter` generator yields `FrameResult` per frame — consumer `break` / `gen.close()` lands the commit-prefix-and-report contract on the sync side. `SignalOpsMixin(ABC)` extracts `extract_signals` / `update_frame` / `build_frame` to keep `_client.py` under the pylint threshold (split file, don't bump limit per `feedback_no_weak_config_bumps.md`). 13 new tests in `tests/test_cancellation.py`.
 
-Per `project_async_api_phase6.md`: both items share the Python streaming surface and their design decisions (chunking, cancellation, iterator-vs-async-iter contract) cannot be made coherently in isolation.
+#### C.3 — Go `context.Context` on Client ops ✅ shipped `eef9dcc`
 
-Open questions: sync generator first or native async? Shared `chunk_size` parameter? Cancellation via asyncio or generator `.close()`?
+`ctx context.Context` is now the FIRST parameter on every Client operation method (`SendFrame`, `SendFrames`, `StartStream`, `EndStream`, `SendError`, `SendRemote`, `LoadDBC`, `SetProperties`, `ExtractSignals`, `BuildFrame`, `UpdateFrame`, etc.). `sync.Mutex` replaced with a 1-deep `chan struct{}` semaphore so ctx cancellation can abandon the lock wait via `select { case <-lockCh: ...; case <-ctx.Done(): return ctx.Err() }`. `Close()` and `NewClient(...)` deliberately do NOT take ctx (matches `db.Close()` / `sql.Open(...)` precedent).
 
-#### C.3 — Go `context.Context` on Client ops (R17-DEF-5)
+#### C.4 — C++ cancellation ✅ shipped `ef1292d`
 
-Per `project_go_features_to_explore.md`. Open questions: per-method `...Context(ctx, ...)` overload, ctx-carrying `Client` variant, or both? How does ctx cancellation interact with `sync.Mutex` during an in-flight FFI call?
+`std::stop_token` is the FIRST parameter on every Client operation method (mirrors Go's first-param ordering for cross-binding consistency). New `ErrorKind::Cancellation` value; pre-FFI guards via `if (stop.stop_requested()) [[unlikely]]` — the `[[unlikely]]` cold-path attribute reclaims ~4% Stream LTL otherwise lost to the new branch (recovered to noise-floor per cross-binding diagnostic). `~AletheiaClient()` and `make_ffi_backend(path, rts_cores)` deliberately do NOT take stop_token (mirrors Go's `Close` / `NewClient` decision and matches stdlib container constructors).
 
-#### C.4 — C++ cancellation (new backlog item, surfaced by this plan)
+#### C.5 — Streaming iteration parity ✅ closed by C.1+C.2
 
-Not in the R17 backlog but required for behavioral parity with C.1/C.3. `std::stop_token` is the obvious candidate. Design round required.
+Python's `send_frames_iter` is the lazy variant for large traces; Go's `range` over a channel and C++'s `std::ranges` / `std::generator` already cover the lazy-iter idiom natively. Matrix row `lazy_streaming_batch.{cpp,go}` is `not_applicable` with `reason:` field rather than `implemented` — bindings still pass through `SendFrames` / `send_frames_batch` for the eager case.
 
-#### C.5 — Streaming iteration parity
+#### Cross-binding asymmetry locked in
 
-Python has `iter_can_log` and a planned `send_frames_iter`. Does Go/C++ need a lazy variant for iteration over large traces, or is `SendFrames` / `send_frames_batch` (shipped) plus caller-side chunking enough? Part of C.1/C.2 design round.
+`BatchError.partial_results` (Python) carries the committed prefix on **non-cancellation errors only**: sync `send_frames` matches Go `BatchResult.responses` + C++ batch result (full prefix), sync `send_frames_iter` is `[]` (every committed result already yielded — duplicating would invite double-handling), async cancellation propagates `asyncio.CancelledError` verbatim (BaseException since 3.8 → not caught by `except Exception`); committed prefix lives in stream state, not the exception. Documented in `BatchError`'s docstring.
 
 ### Phase D — Cross-Binding Doc Harness (R17-DEF-6)
 
