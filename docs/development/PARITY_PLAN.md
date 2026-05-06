@@ -386,6 +386,40 @@ Python shipped in R17 C6 via `pytest --markdown-docs`. C++/Go need equivalents.
 
 **R17-DEF-6 fully closed** with D.1 + D.2.
 
+### Phase E — VAL_ promotion to `DBCSignal.valueDescriptions` (post-Phase-D follow-up)
+
+**Status:** ⏳ in flight, branch `b3d-3d5-format-dsl`.  Plan A (single self-contained commit at E.12 closure) locked by user.  E.1 closed 2026-05-04, E.2 closed 2026-05-06, E.3 / E.4 / E.5α / E.5β closed 2026-05-06 — all six closures gates green but uncommitted across session boundaries per user direction (Plan A bundles E.1→E.12 in one commit at the end).  Module count: 237 → 240 (+3 new modules at E.5β).
+
+**Goal.** Lift `DBCSignal` to carry `valueDescriptions : List (ℕ × List Char)`; route DBC `VAL_` lines through the existing `TopStmtTyped` shadow with a new `TVD` constructor; attach to owning signals at refine time; emit on the text-formatter side; expose on bindings; route Python `dbc_to_text` through Agda via a new FFI export `aletheia_format_dbc_text`; add validator CHECK 23 `UnknownValueDescriptionTarget`.
+
+**Origin.** The `VAL_` silently-dropped gap was first noted in `Aletheia/DBC/TextParser/ValueTables.agda:11-19` and `Aletheia/DBC/TextFormatter/ValueTables.agda:12-21`; the in-source comments explicitly recommend "promote `DBCSignal.valueDescriptions` end-to-end first; the text layer will follow the type".
+
+**Three load-bearing constraints (advisor 2026-05-04):**
+- **C1 — Encounter-order preservation.** Sort key `(message-index, signal-index, val-desc-index)` baked into formatter's emit walk; parser collects in file order; `attachValueDescs` reassembles per-signal lists in that same order.
+- **C2 — `attachValueDescs ∘ collectFromMessages ≡ id` is structurally novel** vs `refineAttributes-on-rawOf` (attribute refines onto a flat list keyed by name; VAL_ refines onto nested per-signal list).  Proof budget: CM_-class (1500-2500 LOC).
+- **C3 — Python `dbc_to_text` defers to Agda** via the new FFI export — one verified emitter, no parallel pure-Python implementation.
+
+**12 sub-tasks:**
+
+- E.1 ✅ DONE (gates green, uncommitted) — Add `valueDescriptions` field to `DBCSignal` + cascade upstream defaults (9 files).  Note: latent gap — `signal-roundtrip` was actually broken at E.1 (`mkSignal` hardcoded `vds=[]` vs. universal claim over arbitrary `sig`), invisible to `cabal run shake -- build` (Properties files are `check-properties`-walk-rooted only).  Closed at E.2 by widening the wire.
+- E.2 ✅ DONE (gates green, uncommitted) — JSON wire layer: `JSONParser.agda` (parseObjectList/parseValueEntry/parseValueEntryList hoisted above parseSignalFields, new `"valueDescriptions"` bind), `JSONParser/SignalWF.agda` (postPresence-wf×pv + parseSignalFields-wf×pv take `vds`), `Formatter.agda` (formatValueEntry hoisted, new field emitted), `Formatter/SignalRoundtrip.agda` (mkSignal 7-arg, signalFields emit, `valueEntryList-roundtrip vds` rewrite in 4 case-clauses).  8 parity snapshots refreshed via `ALETHEIA_UPDATE_SNAPSHOTS=1`.  Module count unchanged at 237.  Full Agda + Python gates green; **Go/C++ parity tests fail-known** (DbcSignal struct lacks `valueDescriptions`; closes at E.3).
+- E.3 ✅ DONE (gates green, uncommitted) — Bindings JSON unwrap: Python TypedDict (`valueDescriptions: NotRequired[list["DBCValueEntry"]]`) + C++ `DbcSignal.value_descriptions` + Go `DbcSignal.ValueDescriptions []DbcValueEntry`; symmetric serialize/parse on all three sides.  Module count unchanged at 237 — Agda-side untouched at E.3.
+- E.4 ✅ DONE (gates green, uncommitted) — Text parser: flipped `parseValueDescription` to return `RawValueDesc = record { canId : CANId; signalName : Identifier; entries : List (ℕ × List Char) }` (record, not Σ-tuple) + `TSValueDesc : RawValueDesc → TopStmt` payload.  `consTop (TSValueDesc _) c = c` still drops at E.4 — collection deferred to E.5β's CollectedTop extension.  8 Agda files modified, 0 new modules; module count unchanged at 237.
+- E.5 ✅ DONE (E.5α + E.5β within Plan A envelope, gates green, uncommitted).  E.5α: typed-shadow extension (`TVD : RawValueDesc → TopStmtTyped` ctor + `liftTopStmt` / `emitTopStmt-chars` extensions) + emitter `emitValueDescription-chars` + dispatcher TVD case via absurd-elim (no `wfTVD` ctor → uninhabited).  3 files modified, 0 new modules.  E.5β: per-section Format DSL roundtrip (`Format/ValueDescription.agda` ~200 LOC; raw-triple carrier because `iso` requires total bijection but `buildCANId` is partial) + slim `parseValueDescription-roundtrip` (`Properties/ValueTables/ValueDesc.agda` ~200 LOC; 4-step composition: emit-bridge + DSL universal + many-parseNewline exhaust + buildCANId-rawCanIdℕ inverse) + real TVD dispatcher (`Properties/Aggregator/Dispatcher/Simple/ValueDesc.agda` ~80 LOC; `parseValueTable-fails-on-VAL_-prefix` left-arm-fails by `refl` + `bind-just-step` over slim roundtrip) + `wfTVD` ctor + CollectedTop 7th `rawValueDescs` field (consTop flips from drop to record-update) + `partition-onto-acc-TVD` + `partitionTopStmts-bridge` 7-arity (`mkCollectedTop … sgs []` — empty-empty by construction since `toTopStmtsTyped` is still 6 chunks at E.5β).  3 NEW modules + 8 modified; module count 237 → 240.
+- E.6 — Refine: `attachValueDescs : List RawValueDesc → List DBCMessage → List DBCMessage` + inverse-bridge proof (CM_-class).
+- E.7 — Text formatter: `emitValueDescriptions-chars` + section ordering (after VAL_TABLE_, before BA_/CM_).
+- E.8 — `WellFormedText.ValueDescResolves` predicate (each `RawValueDesc`'s `(canID, signalName)` resolves).
+- E.9 — Universal proof closure in `Substrate.Unsafe`; relaxes the `vds-empty` interim clause introduced in E.1.
+- E.10 — FFI export `aletheia_format_dbc_text` + Python/C++/Go `format_dbc_text` parity surface.
+- E.11 — Validator CHECK 23 `UnknownValueDescriptionTarget` (mirrors CHECK 21 via `liftPerSignal` combinator).
+- E.12 — Matrix flip + corpus snapshots + per-binding tests + doc-examples + final 4-gate sequence + commit.
+
+**Architectural pattern locked from E.1.** When a record field needs a temporary `= some-default` constraint across many proofs (here: `valueDescriptions = []` until E.7's formatter side ships), fold the constraint into the existing WF predicate at the natural layer (`WellFormedTextSignal.vds-empty` + `MessageWF.vds-empty`) rather than threading a precondition through every lemma.  The substrate universal `parseText (formatText d) ≡ inj₂ d` continues to take `WellFormedDBC d` as hypothesis; no signature change at the top.  Lower-level layers (`buildSignal-fields-recover`, `SigOK`, `resolveSignalList-roundtrip`) take individual `All`s extracted at `parseMessage-roundtrip-bundled`'s bundling boundary; these DO need explicit `vds-eq` plumbing.  E.7 / E.9 cleanup deletes both layers.
+
+**Matrix row.** New row `dbc_signal_value_descriptions` (planned × 3 → flipped at E.12) + `dbc_format_text` (planned × 3 → flipped at E.10/E.12).
+
+**Memory.** `memory/project_phase_e_val_promotion.md` (full plan + E.1 closure detail); `.session-state.md` (resume protocol with working-tree shape).
+
 ## Sequencing
 
 ```
