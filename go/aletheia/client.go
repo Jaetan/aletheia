@@ -284,7 +284,7 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 	}
 	c.populateSignalLookup(parsed.DBC)
 	if c.logger != nil {
-		c.logger.Info("dbc.text_parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
+		c.logger.Info("dbc.parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
 	}
 	return parsed, nil
 }

@@ -358,7 +358,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 4: Comment/doc quality
 
-- `[ ]` GO-A-4.1 [doc.go:45-66] Package-level doc lists 15 events but doesn't include `dbc.text_parsed` (which client.go:287 emits). Drift between package doc and code.
+- `[x]` GO-A-4.1 [doc.go:45-66] Package-level doc lists 15 events but doesn't include `dbc.text_parsed` (which client.go:287 emits). Drift between package doc and code. ✅ CLOSED Round 3 — `client.go:287` renamed to `dbc.parsed`; doc.go list now agrees with the code.
 - `[ ]` GO-A-4.2 — Many missing `[Type.Method]` cross-references for godoc rendering (10+ sites).
 - `[ ]` GO-A-4.3 [types.go:158-160, 174-176] `Value()`/`IsExtended()`/`String()` lack their own godoc.
 - `[ ]` GO-A-4.4 [result.go:134-155] `IssueCode` constants block uses trailing-line comments instead of leading godoc.
@@ -374,7 +374,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 30: Logging discipline
 
-- `[ ]` GO-A-30.1 **[client.go:287] `dbc.text_parsed` is a 16th log event not in the canonical 15-event vocabulary.** Verified absent from Python `LogEvent` enum + Go's own `doc.go:45-66` + C++ `client.cpp` (which emits `dbc.parsed` for both paths). **Cross-binding parity violation.**
+- `[x]` GO-A-30.1 **[client.go:287] `dbc.text_parsed` is a 16th log event not in the canonical 15-event vocabulary.** Verified absent from Python `LogEvent` enum + Go's own `doc.go:45-66` + C++ `client.cpp` (which emits `dbc.parsed` for both paths). **Cross-binding parity violation.** ✅ CLOSED Round 3 — Go now emits `dbc.parsed` at both DBC parse paths (parity with Python + C++); `docs/LOG_EVENTS.yaml` SSOT + per-binding parity tests prevent recurrence.
 - `[ ]` GO-A-30.2 [client.go:252,287,521,576,790] lifecycle events use `slog.Info(name, k, v...)` variadic form rather than `LogAttrs`; cat 30 R18 says `LogAttrs` for hot paths.
 - `[ ]` GO-A-30.3 [client.go:733-735, 740-742] `frame.processed` LogAttrs records carry `slog.String("response", ...)`; verify field-set parity with Python/C++.
 - `[ ]` GO-A-30.4 [client.go:790-791] `stream.ended` field set vs Python/C++ — verify.
@@ -572,7 +572,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 22: Cross-layer alignment (KEY parity findings)
 
-- `[ ]` GO-S-22.1 **`dbc.text_parsed` log event divergence** (cf. GO-A-30.1).
+- `[x]` GO-S-22.1 **`dbc.text_parsed` log event divergence** (cf. GO-A-30.1). ✅ CLOSED Round 3 — see GO-A-30.1.
 - `[ ]` GO-S-22.2 **`rts.cores_mismatch` emission site differs across all 3 bindings.**
 - `[ ]` GO-S-22.3-22.10 — `parseSuccessResponse` consistent; `extendedIDFlag` encoding documentation gap; `signalNameByIndex` synthesis masks protocol violation; no synthetic-vs-real signal-name discriminator; `floatToRational` 10⁹ precision floor vs Python `Fraction`; `parseCanIDFields` float64 mantissa precision footnote; `checkErrorStatus` strict-error contract; `unresolvedValueDescs` wire-key parity (verify byte-identical).
 
@@ -685,7 +685,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 #### Cat 22: Cross-layer alignment (KEY parity findings, ~13)
 
 - `[ ]` CPP-S-22.1 **[json_parse.cpp:584-593 vs json_serialize.cpp:333-345] `unresolvedValueDescs` JSON serializer-parser asymmetry.** (Cf. CPP-B-11.3.) Python handles it; C++ drops it.
-- `[ ]` CPP-S-22.2 [client.cpp:162-163, 178-179 vs Go client.go:287] `dbc.parsed` for both paths in C++; Go has 16th `dbc.text_parsed`.
+- `[x]` CPP-S-22.2 [client.cpp:162-163, 178-179 vs Go client.go:287] `dbc.parsed` for both paths in C++; Go has 16th `dbc.text_parsed`. ✅ CLOSED Round 3 — fixed on the Go side (client.go:287 → `dbc.parsed`); C++ behavior was already correct.
 - `[ ]` CPP-S-22.3 **[client.cpp:711] `cache_.size() < max_cache_size = 256`. Python and Go have NO equivalent cap.**
 - `[ ]` CPP-S-22.4 **[json_serialize.cpp:394] `max_formula_depth = 100`. Python and Go have no equivalent.**
 - `[ ]` CPP-S-22.5 [ffi_backend.cpp:31] `max_can_fd_payload_bytes = 64`. Verify Python/Go enforce same.
@@ -855,7 +855,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 22: Cross-layer alignment (KEY)
 
-- `[ ]` PY-S-22.1 **Go's `dbc.text_parsed` is a 16th log event not in Python (the reference). Direct violation of "_log.py docstring 15 events".** Per AGENTS.md cat 22 "Python is the reference".
+- `[x]` PY-S-22.1 **Go's `dbc.text_parsed` is a 16th log event not in Python (the reference). Direct violation of "_log.py docstring 15 events".** Per AGENTS.md cat 22 "Python is the reference". ✅ CLOSED Round 3 — Go now matches Python's `LogEvent.DBC_PARSED = "dbc.parsed"`; new `python/tests/test_log_events_parity.py` anchors the enum to the cross-binding `docs/LOG_EVENTS.yaml` SSOT.
 - `[ ]` PY-S-22.3 **No Python `Backend` Protocol.** Cross-binding mock-agreement gate per cat 14(c) is unsatisfiable.
 - `[ ]` PY-S-22.4 [_client.py:534-535] `_ACK_BYTES` fast path Python-only; documented as gold standard.
 - `[ ]` PY-S-22.5-22.9 — Send-error/remote shape divergence; `DBCRawValueDesc` not exported; `RTS_CORES_MISMATCH` field-name divergence Go vs Python; `event` key vs `msg` key in `slog` divergence; `dbc.parsed` field-set differs Go (carries `warnings`) vs Python (only `messages`).
@@ -950,7 +950,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 - `[ ]` DOC-X-5.9 Toolchain pins — 5 sources, **3 findings**.
 - `[ ]` DOC-X-5.10 Version 1.1.1 — **1 cross-doc consolidating finding**.
 - `[ ]` DOC-X-5.11 C++ compiler pin (g++≥14/clang≥21) — 4 sources, **3 findings**.
-- `[ ]` DOC-X-5.12 "15 event types" cross-binding spec — 3 sources, **3 findings + cat 17 contradiction**.
+- `[x]` DOC-X-5.12 "15 event types" cross-binding spec — 3 sources, **3 findings + cat 17 contradiction**. ✅ CLOSED Round 3 — `docs/LOG_EVENTS.yaml` is now the canonical 15-event source, and the cat 17 contradiction (Go emitting a 16th) is gone.
 - `[ ]` DOC-X-5.13 3-layer architecture diagram (PITCH/DESIGN parallel diagrams) — **1 finding**.
 - `[ ]` DOC-X-5.14 `cd python && pip install -e .` — 4 sources, **2 findings**.
 - `[ ]` DOC-X-5.15 `bash benchmarks/run_all.sh ...` — 3 sources, **2 findings**.
@@ -989,7 +989,7 @@ For triage, the top 15 clusters that close the most findings each:
    - **Sub-item (c)** — Shake `phony "ci"` orchestrator target chaining the full gate sweep (`build` → `check-properties` → `check-invariants` → `check-no-properties-in-runtime` → `check-erasure` → `check-fidelity` → `check-ffi-exports` → `count-modules` → pytest → `go test -race` → ctest → basedpyright → pylint → gofmt + go vet → clang-format + clang-tidy), with timestamped log artifact emission so it can be paired with sub-item (b)'s gate-claim-integrity gate.  Pair with [`act`](https://github.com/nektos/act) Docker-based local-runner for `.github/workflows/*.yml` so the same workflow YAML can be exercised offline before consuming GitHub Actions minutes (the user has a finite monthly Actions allotment).  Automated via a `pre-push` git hook installed on `tools/install-hooks.sh` so devs validate offline before pushing (pre-push, not pre-commit, since the gate sweep is ~15 min).  User-directed 2026-05-07.
 5. **Cat 33/34 across all 3 bindings (NEW R18): no fuzz, no property-based, no sanitizer lane, no cross-binding integration test** — closes GO-B-33.1-8, CPP-B-33.1-6, PY-B-34.1-6 (~24 findings).
 6. **`iter_can_log` 4-tuple unpack across 7+ doc sites** — DOC-B-15.1-6, DOC-A-1.13.
-7. **`dbc.text_parsed` 16th log event in Go** — single fix in Go closes GO-A-30.1, GO-A-4.1, GO-S-22.1, PY-S-22.1, DOC-X-5.12.
+7. **`dbc.text_parsed` 16th log event in Go** — ✅ CLOSED Round 3.  Surface fix: `go/aletheia/client.go:287` renamed `dbc.text_parsed` → `dbc.parsed`.  Missing-mechanism gate: `docs/LOG_EVENTS.yaml` SSOT + `python/tests/test_log_events_parity.py` + `go/aletheia/log_events_test.go` + `cpp/tests/test_log_events_parity.cpp`.  Per-binding tests assert every emitted event from a comprehensive workflow is in the YAML name set; gate-shape verified by temporary revert producing precise drift diagnostic.  Closes GO-A-30.1, GO-A-4.1, GO-S-22.1, PY-S-22.1, CPP-S-22.2, DOC-X-5.12.
 8. **Module count drift (243/242/119 vs 244)** across PROJECT_STATUS / DESIGN / CLAUDE — closes DOC-A-1.1-4, DOC-X-5.1, DOC-X-17.1, DOC-X-17.9.
 9. **Parser-side `unresolvedValueDescs` drop in C++** — closes CPP-B-11.3, CPP-S-22.1, fixes E.8 wire-roundtrip parity.
 10. **`AletheiaClient(dbc=...)` API mismatch in CANCELLATION.md L150** + `AsyncAletheiaClient` reference + matrix-row IDs — closes DOC-A-1.13-15, PY-S-15.1.

@@ -232,6 +232,19 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
 
+    # Layer 6b: Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
+    # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
+    # workflow capturing LogRecord events, and asserts each emitted event is
+    # a member of the canonical name set. The "missing mechanism" gate added
+    # alongside R18 cluster 10's surface fix (Go's rogue dbc.text_parsed event).
+    add_executable(log_events_tests tests/test_log_events_parity.cpp)
+    target_include_directories(log_events_tests PRIVATE src)
+    target_link_libraries(log_events_tests
+        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(log_events_tests
+        PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    add_test(NAME log_events_tests COMMAND log_events_tests)
+
     # Layer 7: Track D.1 doc-example harness (R17-DEF-6).
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root

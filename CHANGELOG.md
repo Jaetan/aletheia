@@ -59,6 +59,15 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `go/aletheia/feature_matrix_test.go`,
   `cpp/tests/test_feature_matrix_parity.cpp`) — every `implemented`
   row must resolve to a real symbol or the build fails (Track A).
+- `docs/LOG_EVENTS.yaml` SSOT for the 15-event structured-log
+  vocabulary plus three per-binding parity-gate tests
+  (`python/tests/test_log_events_parity.py`,
+  `go/aletheia/log_events_test.go`,
+  `cpp/tests/test_log_events_parity.cpp`) — captures every event
+  emitted by a comprehensive workflow and asserts membership in the
+  canonical YAML name set, so a future binding-side emit-call that
+  drifts from the cross-binding vocabulary fails the build (R18
+  cluster 10).
 - Doc-example harnesses across all three bindings: Python
   `pytest --markdown-docs`, Go `TestDocExamples`, C++
   `doc_example_tests` Catch2 binary. Every fenced ```python``` /
@@ -154,6 +163,13 @@ callers that consumed a bare success acknowledgement need to access
   (`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`,
   Track B.3.d closure `bca99f2`). This eliminates several silent-drop
   pathways present in the prior `cantools`-based round-trip.
+- **Go**: `Client.ParseDBCText` previously emitted a non-canonical
+  `"dbc.text_parsed"` log event, diverging from the `"dbc.parsed"`
+  event used by `Client.ParseDBC` and the Python / C++ bindings'
+  matching paths. Renamed to `"dbc.parsed"` so all DBC parse paths
+  in all bindings emit a single canonical event name (R18 cluster 10).
+  Affects log collectors, dashboards, or alerting rules that filter
+  by event name on Go logs from the text-parse path.
 
 ---
 

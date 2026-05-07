@@ -28,6 +28,11 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
     # see the raw mapping to compare against the 15 wire events.
     ("test_logging.py", "aletheia.client._log", "KNOWN_EVENTS"),
     ("test_logging.py", "aletheia.client._log", "LogEvent"),
+    # Cross-binding YAML parity gate — anchors the LogEvent enum to
+    # docs/LOG_EVENTS.yaml (the SSOT shared with Go/C++). Same internal-
+    # vocabulary justification as test_logging.py above.
+    ("test_log_events_parity.py", "aletheia.client._log", "KNOWN_EVENTS"),
+    ("test_log_events_parity.py", "aletheia.client._log", "LogEvent"),
     # Binary extraction buffer parser — exercised structurally to lock
     # the on-wire layout. If the parser grows stable consumers outside
     # the test suite, promote the symbols then.
