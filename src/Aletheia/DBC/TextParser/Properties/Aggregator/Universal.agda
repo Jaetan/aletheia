@@ -4,7 +4,7 @@
 --
 -- The universal target:
 --
---     ∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d
+--     ∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d
 --
 -- Composes:
 --   1. `parseText`-via-`parseTextChars` bridge, using
@@ -43,6 +43,12 @@ open import Aletheia.DBC.Types using
   ; Node
   ; AttrDef; DBCAttribute
   )
+
+-- DBC-level text-roundtrip precondition.  Definition lives in its own
+-- module so the type-def is split from the universal theorem (R18
+-- cluster 14, AGDA-D-GA20.4).
+open import Aletheia.DBC.TextParser.WellFormed using
+  (WellFormedTextDBCAgg)
 
 open import Aletheia.DBC.TextParser using
   ( parseText; parseTextChars; finalizeParse; buildDBC
@@ -121,46 +127,12 @@ open import Aletheia.DBC.TextFormatter.Preamble using
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitBU-chars)
 
--- ============================================================================
--- WELL-FORMEDNESS RECORD
--- ============================================================================
---
--- Bundles every per-section precondition the universal roundtrip needs.
--- Each field is the same predicate the Layer 3 / 4 slim takes for its
--- corresponding section.
-
-record WellFormedDBC (d : DBC) : Set where
-  field
-    node-stops : All NodeNameStop                                   (DBC.nodes           d)
-    vt-stops   : All ValueTableNameStop                             (DBC.valueTables     d)
-    msg-wfs    : All MessageWF                                      (DBC.messages        d)
-    ev-stops   : All EnvVarNameStop                                 (DBC.environmentVars d)
-    cm-stops   : All CommentTargetStop                              (DBC.comments        d)
-    attr-wfs   : All (WFAttribute (collectDefs (DBC.attributes d))) (DBC.attributes      d)
-    sg-wfs     : All SignalGroupWF                                  (DBC.signalGroups    d)
-    -- E.6: cross-message CAN-ID uniqueness.  Required by
-    -- `attachValueDescs ∘ collectFromMessages ≡ id` (the inverse-bridge
-    -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
-    -- messages with the same CAN ID would have their per-signal VAL_
-    -- entries collapse onto whichever message `lookup-vd` finds first,
-    -- breaking the round-trip.  Validator's CHECK 18 (`DuplicateMessageId`)
-    -- enforces this at DBC-load time.
-    msg-ids-unique : AllPairs _≢_ (map DBCMessage.id (DBC.messages d))
-    -- E.8 (Plan B, 2026-05-07): `formatText` does not emit lines for
-    -- `DBC.unresolvedValueDescs` entries (no canonical text representation
-    -- — they could be re-emitted as VAL_ lines but those would be silently
-    -- re-collected as unresolved on parse-back, leaving the round-trip
-    -- closed but lossy).  The text round-trip therefore closes only for
-    -- DBCs whose unresolved list is already `[]`; this includes every
-    -- DBC built from `parseText` (because `unresolvedRVDs ∘ collectFrom
-    -- Messages ≡ []` under any `msgs`) and every DBC built from JSON
-    -- (the JSON path always defaults the field to `[]`).  CHECK 23
-    -- `UnknownValueDescriptionTarget` warns at validation time when
-    -- this field is non-empty (E.11).
-    unresolved-empty : DBC.unresolvedValueDescs d ≡ []
+-- The aggregator predicate `WellFormedTextDBCAgg` is defined in
+-- `Aletheia.DBC.TextParser.WellFormed` (imported above); this module
+-- only consumes it.
 
 -- ============================================================================
--- BRIDGE — derive `All TopStmtTypedWF` from `WellFormedDBC`
+-- BRIDGE — derive `All TopStmtTypedWF` from `WellFormedTextDBCAgg`
 -- ============================================================================
 --
 -- `toTopStmtsTyped d` is a 7-section `++` chain (`map TX xs` per section).
@@ -188,28 +160,28 @@ private
   all-++ (x ∷ xs) ys (px ∷ axs) ays = px ∷ all-++ xs ys axs ays
 
 toTopStmtsTyped-WF :
-    ∀ (d : DBC) → WellFormedDBC d
+    ∀ (d : DBC) → WellFormedTextDBCAgg d
   → All (TopStmtTypedWF (collectDefs (DBC.attributes d))) (toTopStmtsTyped d)
 toTopStmtsTyped-WF d wf =
   all-++ _ _ (all-map TVT (DBC.valueTables d)
                (lift-stops TVT (TopStmtTypedWF defs) (DBC.valueTables d)
-                           (WellFormedDBC.vt-stops wf) wfTVT))
+                           (WellFormedTextDBCAgg.vt-stops wf) wfTVT))
             (all-++ _ _ (all-map TM (DBC.messages d)
                           (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
-                                      (WellFormedDBC.msg-wfs wf) wfTM))
+                                      (WellFormedTextDBCAgg.msg-wfs wf) wfTM))
                        (all-++ _ _ tvd-WF
                                   (all-++ _ _ (all-map TEV (DBC.environmentVars d)
                                                 (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
-                                                            (WellFormedDBC.ev-stops wf) wfTEV))
+                                                            (WellFormedTextDBCAgg.ev-stops wf) wfTEV))
                                              (all-++ _ _ (all-map TCM (DBC.comments d)
                                                            (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
-                                                                       (WellFormedDBC.cm-stops wf) wfTCM))
+                                                                       (WellFormedTextDBCAgg.cm-stops wf) wfTCM))
                                                         (all-++ _ _ (all-map TAT (DBC.attributes d)
                                                                       (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
-                                                                                  (WellFormedDBC.attr-wfs wf) wfTAT))
+                                                                                  (WellFormedTextDBCAgg.attr-wfs wf) wfTAT))
                                                                    (all-map TSG (DBC.signalGroups d)
                                                                      (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
-                                                                                 (WellFormedDBC.sg-wfs wf) wfTSG)))))))
+                                                                                 (WellFormedTextDBCAgg.sg-wfs wf) wfTSG)))))))
   where
     open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
       (TVT; TM; TVD; TEV; TCM; TAT; TSG)
@@ -261,7 +233,7 @@ parseTopStmt-on-empty _ = refl
 -- shadow and `liftTopStmt`.
 
 parseTopStmts-on-formatChars-body :
-    ∀ (d : DBC) (pos : Position) → WellFormedDBC d
+    ∀ (d : DBC) (pos : Position) → WellFormedTextDBCAgg d
   → many parseTopStmt pos (formatChars-body d)
     ≡ just (mkResult
               (map (liftTopStmt (collectDefs (DBC.attributes d))) (toTopStmtsTyped d))
@@ -349,7 +321,7 @@ formatChars-body-stops-isNewlineStart d =
 
 parseDBCText-on-formatChars :
     ∀ (d : DBC)
-  → WellFormedDBC d
+  → WellFormedTextDBCAgg d
   → parseDBCText initialPosition (formatChars d)
     ≡ just (mkResult
              ( DBC.version d
@@ -424,7 +396,7 @@ parseDBCText-on-formatChars d wf =
       ≡ just (mkResult nodes posBU sufBU)
     pBU-eq =
       parseBU-roundtrip posBS nodes sufBU
-        (WellFormedDBC.node-stops wf)
+        (WellFormedTextDBCAgg.node-stops wf)
         sufBU-stop
 
     pMany-eq :
@@ -569,7 +541,7 @@ parseDBCText-on-formatChars d wf =
 -- rewrites need to walk the inner `with` chain.
 
 finalizeParse-on-mkResult-clean :
-    ∀ (d : DBC) (pos-end : Position) → WellFormedDBC d
+    ∀ (d : DBC) (pos-end : Position) → WellFormedTextDBCAgg d
   → finalizeParse
       (just (mkResult
               ( DBC.version d
@@ -580,19 +552,19 @@ finalizeParse-on-mkResult-clean :
     ≡ inj₂ d
 finalizeParse-on-mkResult-clean d pos-end wf
   rewrite partitionTopStmts-bridge (collectDefs (DBC.attributes d)) d
-        | refineAttributes-on-rawOf (DBC.attributes d) (WellFormedDBC.attr-wfs wf)
+        | refineAttributes-on-rawOf (DBC.attributes d) (WellFormedTextDBCAgg.attr-wfs wf)
   = cong₂
       (λ msgs unres → inj₂ (record d { messages             = msgs
                                      ; unresolvedValueDescs = unres }))
       (map-attachToMessage-on-clearVdsMsgs-collected (DBC.messages d)
-         (WellFormedDBC.msg-ids-unique wf)
-         (WellFormedDBC.msg-wfs wf))
+         (WellFormedTextDBCAgg.msg-ids-unique wf)
+         (WellFormedTextDBCAgg.msg-wfs wf))
       (trans
         (unresolvedRVDs-on-clearVdsMsgs-collectFromMessages (DBC.messages d))
-        (sym (WellFormedDBC.unresolved-empty wf)))
+        (sym (WellFormedTextDBCAgg.unresolved-empty wf)))
 
 parseTextChars-on-formatChars :
-    ∀ (d : DBC) → WellFormedDBC d
+    ∀ (d : DBC) → WellFormedTextDBCAgg d
   → parseTextChars (formatChars d) ≡ inj₂ d
 parseTextChars-on-formatChars d wf =
   trans (cong finalizeParse (parseDBCText-on-formatChars d wf))

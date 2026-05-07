@@ -258,7 +258,7 @@ record DBC : Set where
     -- the field is on the signal directly).  CHECK 23
     -- `UnknownValueDescriptionTarget` walks this field at validation time.
     -- The text round-trip closes only for DBCs with `unresolvedValueDescs
-    -- ≡ []` (`WellFormedDBC.unresolved-empty`); the formatter does not
+    -- ≡ []` (`WellFormedTextDBCAgg.unresolved-empty`); the formatter does not
     -- emit lines for unresolved entries.
     unresolvedValueDescs : List RawValueDesc
 

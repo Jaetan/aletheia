@@ -79,6 +79,27 @@ record WellFormedMessageRT (m : DBCMessage) : Set where
     msg-wf     : WellFormedMessage m
     signals-pv : All (PhysicallyValid (dlcBytes (DBCMessage.dlc m))) (DBCMessage.signals m)
 
+-- JSON-roundtrip well-formedness predicate.  Counterpart on the text
+-- side is `Aletheia.DBC.TextParser.WellFormed.WellFormedTextDBCAgg` (8
+-- fields).  The asymmetry is by design, not under-specification: JSON
+-- emission preserves every metadata array unconditionally — signal
+-- groups, env vars, value tables, nodes, comments, attributes,
+-- unresolved value descs all round-trip without additional preconditions
+-- because their field types either parse unconditionally (rationals,
+-- naturals, identifier-validated strings) or carry their constraint at
+-- the type level.  Text emission is materially lossier (Vector__XXX
+-- placeholders, dropped `BO_TX_BU_`, multi-value mux selectors,
+-- unresolved VAL_ entries) and the text-side aggregator predicate
+-- carries a per-section field for each lossy region.  Reviewers comparing
+-- the two records: the difference reflects the wire-format gap, not a
+-- missing constraint here.  See `TextParser.WellFormed`'s header for
+-- the full contract.
+--
+-- AGDA-D-11.2 (R18 cluster 14): the absence of `unresolved-empty`,
+-- `msg-ids-unique`, attribute-WF, and SG-WF on this record is the
+-- correct shape for JSON roundtrip; the FormatDBCText FFI handler's
+-- mixed-discharge for `WellFormedTextDBCAgg` is tracked separately
+-- as AGDA-D-19.6.
 record WellFormedDBC (d : DBC) : Set where
   field
     messages-wf : All WellFormedMessage (DBC.messages d)

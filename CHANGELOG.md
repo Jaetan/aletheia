@@ -159,7 +159,7 @@ callers that consumed a bare success acknowledgement need to access
 - DBC `CM_` / `BU_` / `EV_` / `BA_*` / `VAL_TABLE_` / `VAL_` /
   `BO_TX_BU_` round-trip parity is now provable: the universal
   theorem `parseText (formatText d) ≡ inj₂ d` holds for every
-  `WellFormedDBC d` in the verified kernel
+  `WellFormedTextDBCAgg d` in the verified kernel
   (`Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`,
   Track B.3.d closure `bca99f2`). This eliminates several silent-drop
   pathways present in the prior `cantools`-based round-trip.
@@ -208,6 +208,25 @@ callers that consumed a bare success acknowledgement need to access
   flipped `conftest._harness_iter_can_log` to yield one synthetic
   `CANFrameTuple` so future unpack-arity drift fails fast at
   fence-execution time (R18 cluster 11).
+- **Agda kernel (proof internal)**: the text-roundtrip aggregator
+  predicate previously named `WellFormedDBC` in
+  `Aletheia.DBC.TextParser.Properties.Aggregator.Universal` collided
+  with the JSON-side `WellFormedDBC` in
+  `Aletheia.DBC.Formatter.WellFormed` (1 field vs 8 fields, structurally
+  distinct because text emission is materially lossier than JSON).
+  Renamed the text-side record to `WellFormedTextDBCAgg` and split it
+  into its own module `Aletheia.DBC.TextParser.WellFormed`; the
+  earlier 1-field stub `Aletheia.DBC.Formatter.WellFormedText.WellFormedTextDBC`
+  was unused and removed. Both `WellFormedDBC` (JSON-side) and
+  `WellFormedTextDBCAgg` (text-side) module headers now document the
+  asymmetry explicitly. The `formatDBCText` FFI handler's
+  caller-obligation contract for `WellFormedTextDBCAgg` is documented
+  in-source per G-A7(c) (no behavioral change — the formatter remains
+  best-effort; callers requiring round-trip equivalence must validate
+  via `validateDBC` for CHECK 18 / CHECK 23, or feed input from
+  `parseDBCText`). No public-API impact: all four affected names live
+  in the proof tree, not the binding surface (R18 cluster 14:
+  AGDA-D-11.1, AGDA-D-11.2, AGDA-D-15.4, AGDA-D-19.6, AGDA-D-GA20.4).
 
 ---
 

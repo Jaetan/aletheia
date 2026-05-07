@@ -73,9 +73,49 @@ deriveNodesIfEmpty d with DBC.nodes d
 
 -- Format DBC JSON dict back to .dbc text using the verified Agda formatter.
 -- State is never mutated — read-only operation on the JSON argument; the
--- currently-loaded DBC (if any) is untouched.  This is the inverse of
--- ParseDBCText at the wire level: text → JSON → text closes byte-identical
--- modulo `WellFormedDBC d` (post-Phase-E.9a, modulo other WF fields only).
+-- currently-loaded DBC (if any) is untouched.
+--
+-- ROUND-TRIP CONTRACT (caller obligation, AGDA-D-19.6 / G-A7(c)):
+--
+-- The universal text-roundtrip theorem
+-- `Aletheia.DBC.TextParser.Properties.Substrate.Unsafe.parseText-on-formatText`
+-- has shape `∀ d → WellFormedTextDBCAgg d → parseText (formatText d) ≡ inj₂ d`.
+-- This handler does NOT discharge `WellFormedTextDBCAgg d` at runtime —
+-- `parseDBCWithErrors` produces a `WellFormedDBCRT` witness (the JSON-side
+-- predicate), which is structurally distinct from the text-side aggregator
+-- (`WellFormedTextDBCAgg`) and does not imply it (e.g. JSON-side admits
+-- non-empty `unresolvedValueDescs` and CAN-ID collisions, both of which
+-- the text round-trip rejects).
+--
+-- Discharge happens at the input-source boundary, not in this handler:
+--
+--   * DBCs produced by `parseDBCText` (text → DBC) are roundtrippable by
+--     construction — the text parser only accepts inputs that came from
+--     a well-formed text DBC, so the parser-side closure
+--     `parseTextChars-on-formatChars` already establishes the witness.
+--
+--   * DBCs produced by `parseDBCWithErrors` followed by `validateDBC` —
+--     cleanly (no CHECK 18 `DuplicateMessageId`, no CHECK 23
+--     `UnknownValueDescriptionTarget`) — discharge `msg-ids-unique` and
+--     `unresolved-empty`.  The other fields (`*-stops`, `MessageWF`,
+--     `WFAttribute`, `SignalGroupWF`) hold automatically when every
+--     identifier in `d` is a valid `Identifier` (the refinement-types
+--     pattern guarantees `*NameStop` predicates by construction).
+--
+--   * Hand-constructed DBCs (binding-side struct → JSON → handler) are
+--     the caller's responsibility.  Bindings that compose JSON DBCs
+--     should validate via `validateDBC` before calling `formatDBCText`
+--     if a round-trip guarantee is required.
+--
+-- The handler emits text unconditionally (the formatter is total).  A
+-- caller who supplies a DBC violating `WellFormedTextDBCAgg` will still
+-- receive valid text — just not a round-trip-equivalent one.  This is
+-- a documented best-effort contract, not a silent bug; see
+-- `Aletheia.DBC.TextParser.WellFormed` module header for the asymmetry
+-- with the JSON-side `WellFormedDBC`.
+--
+-- Wire-level: text → JSON → text closes byte-identical modulo
+-- `WellFormedTextDBCAgg d` (post-Phase-E.9a, modulo other WF fields only).
 handleFormatDBCText : JSON → StreamState → StreamState × Response
 handleFormatDBCText dbcJSON state with parseDBCWithErrors dbcJSON
 ... | inj₁ parseErr = (state , Response.Error (WithContext "FormatDBCText" (HandlerErr (WrappedParse parseErr))))

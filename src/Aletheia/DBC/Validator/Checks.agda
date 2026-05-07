@@ -576,7 +576,7 @@ checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
 -- `attachValueDescs`.  This check walks the residual list and emits one
 -- warning per entry.  Unlike CHECK 21/22, the input is a flat list of
 -- `RawValueDesc` rather than `(messages, nodes)` — text-roundtrip closure
--- requires `unresolvedValueDescs ≡ []` (`WellFormedDBC.unresolved-empty`),
+-- requires `unresolvedValueDescs ≡ []` (`WellFormedTextDBCAgg.unresolved-empty`),
 -- so a non-empty list always indicates user-written DBC slop.
 
 showCanIdText : CANId → String
