@@ -82,6 +82,18 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   Shake binary. Branch-level granularity for v0; gate-shape verified
   by forward-revert test in a detached worktree (R18 cluster 1
   phase 1).
+- `tools/check-gate-claim.sh` offline enforcer for the gate-claim
+  integrity rule (`memory/feedback_gate_claim_integrity.md`). Detects
+  commits whose message asserts "all gates clean" / "gates green" /
+  similar and verifies that `build/libaletheia-ffi.so` mtime postdates
+  every build-relevant staged source file's mtime — i.e., the gates
+  the commit claims to have run on actually observed the post-edit
+  state. Three modes: `pre-commit` (read `.git/COMMIT_EDITMSG`),
+  `HEAD` / `post-commit`, and explicit commit-hash for audit. Wired
+  into Shake as `phony "check-gate-claim"`. Conservative claim
+  detection — only "all gates" / "gates green" / "All N gates"
+  patterns trigger; per-gate status lines do not (R18 cluster 1
+  phase 2).
 
 #### Python
 

@@ -636,6 +636,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             error $ script ++ " not found"
         cmd_ Shell script
 
+    phony "check-gate-claim" $ do
+        -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
+        -- Mechanical enforcer for `memory/feedback_gate_claim_integrity.md`.
+        -- When a commit message contains a gate-clean assertion ("all gates
+        -- clean", "gates green", etc.), verify that build/libaletheia-ffi.so
+        -- mtime postdates every build-relevant staged source file's mtime.
+        --
+        -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
+        -- only meaningful inside the actual pre-commit hook context).
+        let script = "tools/check-gate-claim.sh"
+        scriptExists <- doesFileExist script
+        unless scriptExists $
+            error $ script ++ " not found"
+        cmd_ Shell script "HEAD"
+
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]
 
