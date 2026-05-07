@@ -228,7 +228,9 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 For full history (R6–R17, Path G, Phase 5.1, Phases A/B.1–B.3, B.3.d Layers 1–4, Phases C/D) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives + sub-phase tactical detail live in PROJECT_STATUS.md, `memory/project_b3d_universal_proof.md`, and `memory/project_phase_e_val_promotion.md`. Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
-**Current track:** Phase E (VAL_ promotion to `DBCSignal.valueDescriptions`) ✅ COMPLETE 2026-05-08 on branch `b3d-3d5-format-dsl` — E.1→E.12 shipped as a single self-contained commit per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_phase_e_val_promotion.md`.
+**Most recent activity (2026-05-07):** R17-DEF-1 (FFI `unsafeCoerce` drift guard) ✅ CLOSED via commit `d246865` — `haskell-shim/test/ConstructorTest.hs` extended from 4 tests on 1 export to 13 tests on all 11 entries in `haskell-shim/ffi-exports.snapshot`; each test forces the coerced payload to a depth where a heap-shape mismatch crashes (`T.unpack` walks Text, `walkVec` pattern-matches Vec ctors, `walkPartitionedResults` dispatches `d_values_22`/`d_errors_24`/`d_absent_26` and walks the inner `[Σ]` through ℚ accessors).  Full closure detail in `memory/project_ffi_unsafecoerce_guard.md`.  `b3d-3d5-format-dsl` merged FF to `main` and deleted same session.  No active track.
+
+**Phase E (VAL_ promotion to `DBCSignal.valueDescriptions`) ✅ COMPLETE 2026-05-08** on branch `b3d-3d5-format-dsl` — E.1→E.12 shipped as a single self-contained commit per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_phase_e_val_promotion.md`.
 
 | Sub-phase | Status | Date | One-line scope |
 |---|---|---|---|
