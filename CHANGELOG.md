@@ -127,15 +127,40 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   (pre-push hook), push-time meta-gates via `.github/workflows/`,
   and `act` Docker pairing for local GHA replay. Includes install
   / usage / troubleshooting (R18 cluster 1 phase 4).
-- `.github/workflows/gha-checks.yml` minimal push-time meta-gate
-  workflow. Single job `actionlint` (lints the workflow YAML files
-  themselves); installs actionlint v1.7.7 via direct release download
-  (no third-party action dependency). Triggers on every push and PR;
-  wall-clock ~30s on `ubuntu-latest`. Uses `permissions: contents: read`
-  default. Action-pin verification + workflow-permissions hygiene jobs
-  defer to Phase 6 (require offline counterpart scripts in
-  `tools/check-action-pins.sh` and `tools/check-workflow-permissions.sh`)
-  (R18 cluster 1 phase 5).
+- `.github/workflows/gha-checks.yml` push-time meta-gate workflow,
+  three jobs running in parallel: `actionlint` (workflow YAML lint),
+  `action-pins` (verify SHA-pinning policy via `tools/check-action-pins.sh`),
+  `permissions-check` (verify minimal permissions via
+  `tools/check-workflow-permissions.sh`). actionlint v1.7.7 installed
+  via direct release download (no third-party action dependency).
+  Triggers on every push and PR; wall-clock ~1-2 min on `ubuntu-latest`.
+  `permissions: contents: read` default (R18 cluster 1 phases 5+6).
+- `tools/check-action-pins.sh` offline gate enforcing action-pin policy:
+  GitHub-owned actions (`actions/*`, `github/*`) accept `@v<n>` tags;
+  third-party actions must be SHA-pinned (40-char hex). Branch refs
+  (`@main`, `@master`, etc.) are rejected even for GitHub-owned to
+  defend against tag-mutability supply-chain attacks. Gate-shape
+  verified inline via synthetic violation worktree (R18 cluster 1
+  phase 6).
+- `tools/check-workflow-permissions.sh` offline gate verifying that
+  every workflow declares a top-level `permissions:` mapping or every
+  job declares its own. Uses python3 + yaml for proper parsing.
+  Rejects `read-all` / `write-all` defaults. Gate-shape verified
+  inline (R18 cluster 1 phase 6).
+- `.github/dependabot.yml` weekly dependency-update schedule covering
+  Python (`pip` in `python/`), Go (`gomod` in `go/` and `go/excel/`),
+  and GitHub Actions. Cabal not covered (dependabot-core does not
+  support Hackage); GHC toolchain manual via the Phase 6 `--bignum=native`
+  rebuild deliverable. Per-ecosystem `commit-message.prefix` and
+  `labels` set for traceability (R18 cluster 1 phase 6).
+- Optional GHA toolchain documented in `CLAUDE.md § Development
+  Environment` — `actionlint` and `act` install commands. Both are
+  optional locally; `tools/run-ci.sh` step 18 (actionlint) skips
+  gracefully if not installed (R18 cluster 1 phase 6).
+- `tools/run-ci.sh` extended from 17 to 20 steps, adding GHA meta-checks
+  18-20 (actionlint with skip-if-missing, check-action-pins,
+  check-workflow-permissions) so the offline pre-push hook now covers
+  the same surface as the GHA workflow (R18 cluster 1 phase 6).
 
 #### Python
 

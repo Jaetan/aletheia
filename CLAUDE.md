@@ -13,6 +13,14 @@ Aletheia is a formally verified CAN frame analysis system using Linear Temporal 
 - Agda binary: `/home/nicolas/.cabal/bin/agda`
 - Shell: `/usr/bin/fish` (config at `/home/nicolas/.config/fish/config.fish`)
 - User binaries: `/home/nicolas/.local/bin`; libraries: `/home/nicolas/.local/lib`
+- **Optional GHA toolchain** (for `tools/run-ci.sh` step 18 + local `act` pairing — see [docs/development/CI_LOCAL.md](docs/development/CI_LOCAL.md)):
+  - `actionlint` — workflow YAML lint. Install:
+    ```bash
+    ACTIONLINT_VERSION=1.7.7
+    curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+    sudo tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin actionlint
+    ```
+  - `act` — local GHA replay. Install: `curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash`. Requires Docker.
 
 **Type-check command** (always cap heap):
 ```bash

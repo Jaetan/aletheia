@@ -39,6 +39,10 @@
 #     15. pylint 10/10 (Python)
 #     16. gofmt -d + go vet (Go)
 #     17. clang-format --dry-run --Werror (C++)
+#   GHA meta-checks (3):
+#     18. actionlint (workflow YAML lint, skipped if not installed)
+#     19. check-action-pins.sh
+#     20. check-workflow-permissions.sh
 #
 # Total ~12-15 min on a warm system.
 #
@@ -48,7 +52,7 @@
 # Considerations + AGENTS.md § Step 4).
 #
 # Exit codes:
-#   0 — all 17 steps passed.
+#   0 — all 20 steps passed (or skipped where allowed).
 #   1 — at least one step failed; tail of log printed to stderr.
 #   2 — usage error (e.g., not in a git repo, missing dependency).
 
@@ -88,7 +92,7 @@ ci_start=$(date +%s)
 # ─── Step framework ───────────────────────────────────────────────────────────
 
 step_num=0
-total_steps=17
+total_steps=20
 failed_step=""
 
 run_step() {
@@ -162,6 +166,25 @@ run_step_in "python" "basedpyright" basedpyright aletheia/
 run_step_in "python" "pylint" pylint aletheia/ tests/
 run_step_in "go" "gofmt + go vet" bash -c "gofmt -d ./aletheia/ && go vet ./aletheia/"
 run_step_in "cpp" "clang-format" bash -c "find . -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror"
+
+# ─── Steps 18-20: GHA meta-checks ────────────────────────────────────────────
+
+# actionlint is optional locally — workflow gates against it server-side.
+# If not installed, skip with a warning rather than fail.
+if command -v actionlint >/dev/null 2>&1; then
+  if [ -d .github/workflows ]; then
+    run_step "actionlint" actionlint -color
+  else
+    step_num=$((step_num + 1))
+    echo "  ⊘ actionlint skipped (no .github/workflows/ directory)" | tee -a "$log_file" >&2
+  fi
+else
+  step_num=$((step_num + 1))
+  echo "  ⊘ actionlint skipped (binary not installed; see docs/development/CI_LOCAL.md)" | tee -a "$log_file" >&2
+fi
+
+run_step "check-action-pins" tools/check-action-pins.sh
+run_step "check-workflow-permissions" tools/check-workflow-permissions.sh
 
 # ─── Final summary ────────────────────────────────────────────────────────────
 

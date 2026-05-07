@@ -3,15 +3,10 @@
 # Aletheia's CI is local-first (see docs/development/CI_LOCAL.md): the
 # correctness sweep runs offline via tools/run-ci.sh + the pre-push hook.
 # This workflow is intentionally narrow — it verifies the GHA infrastructure
-# itself (workflow YAML lint) and does NOT duplicate the offline correctness
-# gates.
+# itself (workflow YAML lint, action-pin policy, workflow-permissions
+# hygiene) and does NOT duplicate the offline correctness gates.
 #
-# Phase 5 ships only the actionlint job.  Phase 6 will add action-pin
-# verification and workflow-permissions hygiene as additional jobs once the
-# offline counterpart scripts (tools/check-action-pins.sh,
-# tools/check-workflow-permissions.sh) are in place.
-#
-# Triggers: every push and every PR.  Wall-clock ~30s on `ubuntu-latest`.
+# Three jobs run in parallel.  Total wall-clock ~1-2 min on `ubuntu-latest`.
 
 name: GHA infrastructure checks
 
@@ -43,3 +38,23 @@ jobs:
 
       - name: Run actionlint
         run: ./actionlint -color
+
+  action-pins:
+    name: Verify action-pin policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run check-action-pins.sh
+        run: tools/check-action-pins.sh
+
+  permissions-check:
+    name: Verify minimal workflow permissions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run check-workflow-permissions.sh
+        run: tools/check-workflow-permissions.sh
