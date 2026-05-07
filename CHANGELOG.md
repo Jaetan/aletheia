@@ -115,6 +115,18 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - `tools/ci-output/` directory with `.gitignore` reserving the
   directory for runtime CI logs while keeping logs themselves out
   of source tracking (R18 cluster 1 phase 3).
+- `.actrc` configuration for [`act`](https://github.com/nektos/act),
+  the local-GHA-replay tool. Pins `ubuntu-latest` to
+  `catthehacker/ubuntu:act-latest` (~5 GB curated image) and
+  `--container-architecture linux/amd64` for cross-platform
+  reproducibility. Used by devs to validate workflow changes before
+  pushing, without consuming GitHub Actions minutes (R18 cluster 1
+  phase 4).
+- `docs/development/CI_LOCAL.md` documenting the local-first CI
+  architecture: offline correctness sweep via `tools/run-ci.sh`
+  (pre-push hook), push-time meta-gates via `.github/workflows/`,
+  and `act` Docker pairing for local GHA replay. Includes install
+  / usage / troubleshooting (R18 cluster 1 phase 4).
 
 #### Python
 
