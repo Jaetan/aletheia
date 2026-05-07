@@ -30,7 +30,7 @@ property = Signal("Speed").less_than(250).always()
 # `data` must be a `bytes` / `bytearray` of the correct length for the DLC.
 # Three common ways to produce it:
 #   1. From a recorded trace file (.blf / .asc / .log / .mf4):
-#        for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+#        for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
 #   2. From a hex string (useful for hand-written test cases):
 #        ts, can_id, dlc, data = 0, 0x100, 8, bytes.fromhex("E803000000000000")
 #   3. From a literal byte sequence:
@@ -41,7 +41,7 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -768,7 +768,7 @@ with AletheiaClient() as client:
     client.set_properties([property.to_dict()])
     client.start_stream()
 
-    for ts, can_id, dlc, data in iter_can_log("huge_trace.log"):
+    for ts, can_id, dlc, data, _extended in iter_can_log("huge_trace.log"):
         response = client.send_frame(ts, can_id, dlc, data)
 
         if response.get("status") == "fails":
@@ -876,7 +876,7 @@ Lazily iterate CAN frames from a log file (O(1) memory).
 ```python
 from aletheia.can_log import iter_can_log
 
-for ts, can_id, dlc, data in iter_can_log("highway.asc"):
+for ts, can_id, dlc, data, _extended in iter_can_log("highway.asc"):
     response = client.send_frame(ts, can_id, dlc, data)
 ```
 

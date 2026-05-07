@@ -183,6 +183,20 @@ callers that consumed a bare success acknowledgement need to access
   `CANCELLATION.md` to the Python doc-example harness scope (it was
   already in the Go and C++ harness scopes) so future drifts in
   imports / class names fail the build (R18 cluster 13).
+- **Docs**: `iter_can_log` is documented to yield 5-tuples
+  `(timestamp_us, arbitration_id, dlc, data, extended)`, but seven doc
+  sites unpacked them as 4-tuples (`for ts, can_id, dlc, data in
+  iter_can_log(...)`). Every such site would have raised
+  `ValueError: too many values to unpack (expected 4)` at runtime if
+  the loop body executed against a real frame, but the doc-example
+  harness mocked `iter_can_log` to return an empty iterator — silently
+  passing any unpack arity. Fixed all seven sites
+  (QUICKSTART, PITCH, TUTORIAL, PYTHON_API ×4 — including the
+  `iter_can_log` reference example at the top of its API section) to
+  unpack the 5-tuple as `(ts, can_id, dlc, data, _extended)`, and
+  flipped `conftest._harness_iter_can_log` to yield one synthetic
+  `CANFrameTuple` so future unpack-arity drift fails fast at
+  fence-execution time (R18 cluster 11).
 
 ---
 
