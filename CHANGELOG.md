@@ -127,6 +127,15 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   (pre-push hook), push-time meta-gates via `.github/workflows/`,
   and `act` Docker pairing for local GHA replay. Includes install
   / usage / troubleshooting (R18 cluster 1 phase 4).
+- `.github/workflows/gha-checks.yml` minimal push-time meta-gate
+  workflow. Single job `actionlint` (lints the workflow YAML files
+  themselves); installs actionlint v1.7.7 via direct release download
+  (no third-party action dependency). Triggers on every push and PR;
+  wall-clock ~30s on `ubuntu-latest`. Uses `permissions: contents: read`
+  default. Action-pin verification + workflow-permissions hygiene jobs
+  defer to Phase 6 (require offline counterpart scripts in
+  `tools/check-action-pins.sh` and `tools/check-workflow-permissions.sh`)
+  (R18 cluster 1 phase 5).
 
 #### Python
 
