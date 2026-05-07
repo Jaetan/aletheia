@@ -94,6 +94,27 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   detection — only "all gates" / "gates green" / "All N gates"
   patterns trigger; per-gate status lines do not (R18 cluster 1
   phase 2).
+- `tools/run-ci.sh` offline CI orchestrator chaining the full 17-step
+  gate sweep that R18 commit messages have historically asserted "all
+  gates clean" against. Steps: 8 Agda gates (build /
+  check-properties / check-invariants / check-no-properties-in-runtime
+  / check-erasure / check-fidelity / check-ffi-exports / count-modules)
+  + 2 offline enforcers (check-changelog / check-gate-claim) + 3
+  binding tests (Python pytest / Go test -race / C++ ctest) + 4 lints
+  (basedpyright / pylint / gofmt + go vet / clang-format). Captures
+  all output to `tools/ci-output/ci-<branch>-<timestamp>.log` (gitignored)
+  for use as falsifiable gate-claim-integrity evidence. Total ~12-15 min
+  on a warm system. Invoked directly (not via Shake) to avoid
+  `cabal run` flock recursion (R18 cluster 1 phase 3).
+- `tools/install-hooks.sh` idempotent installer for Aletheia's git
+  hooks. Currently installs a `pre-push` hook that invokes
+  `tools/run-ci.sh` before allowing push, refusing the push on any
+  non-zero exit. Skip with `git push --no-verify` for incident
+  response. Backs up any existing pre-push hook to
+  `pre-push.aletheia-backup-<timestamp>` (R18 cluster 1 phase 3).
+- `tools/ci-output/` directory with `.gitignore` reserving the
+  directory for runtime CI logs while keeping logs themselves out
+  of source tracking (R18 cluster 1 phase 3).
 
 #### Python
 

@@ -651,6 +651,19 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
             error $ script ++ " not found"
         cmd_ Shell script "HEAD"
 
+    -- The full offline CI sweep (Phase 3) is invoked directly via
+    -- `tools/run-ci.sh`, NOT through a Shake `phony "ci"` target.
+    --
+    -- Reason: run-ci.sh internally calls `cabal run shake -- build`,
+    -- `cabal run shake -- check-properties`, etc.  If invoked through
+    -- a Shake phony (parent: `cabal run shake -- ci`), the inner
+    -- `cabal run` fails immediately because cabal-install's flock on
+    -- `dist-newstyle/` is held by the outer process.
+    --
+    -- Two stable invocation paths:
+    --   * Direct:    `tools/run-ci.sh`     (pre-push hook, manual runs)
+    --   * Per-gate:  `cabal run shake -- check-properties` (etc.)
+
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]
 
