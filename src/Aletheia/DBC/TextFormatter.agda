@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- DBC (Database CAN) text format writer — entry point (Phase B.3.c.k).
+-- DBC (Database CAN) text format writer — entry point (Track B.3.c.k).
 --
 -- Purpose: Emit the canonical ASCII `.dbc` text form of a `DBC` value.
 -- Pairs with `Aletheia.DBC.TextParser.parseText` to close the structural

@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Signal-group parser for the DBC text format (Phase B.3.c.7).
+-- Signal-group parser for the DBC text format (Track B.3.c.7).
 --
 -- Grammar slice covered (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-group    ::= "SIG_GROUP_" ws nat ws identifier ws nat ws? ":"

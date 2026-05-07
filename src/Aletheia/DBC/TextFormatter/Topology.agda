@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Topology emitters for the DBC text format (Phase B.3.c.3; layer-1 form
+-- Topology emitters for the DBC text format (Track B.3.c.3; layer-1 form
 -- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Topology`):

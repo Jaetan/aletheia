@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Phase E.6 — VAL_ refinement: distribute parsed `RawValueDesc` payloads
+-- Track E.6 — VAL_ refinement: distribute parsed `RawValueDesc` payloads
 -- back into the per-signal `DBCSignal.valueDescriptions` field.
 --
 -- Mirrors the `refineAttributes` pattern (in `TextParser.Attributes`) that

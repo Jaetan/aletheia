@@ -1,6 +1,6 @@
 {-# OPTIONS --without-K #-}
 
--- B.3.d substrate: bridging axioms for `String ↔ List Char` (Phase B.3.d
+-- B.3.d substrate: bridging axioms for `String ↔ List Char` (Track B.3.d
 -- layer 1 — Option 3a per `memory/project_b3d_stdlib_audit.md`).
 --
 -- This is the *one* non-`--safe` module in the project.  See
@@ -97,7 +97,7 @@ postulate
 -- B.3.d UNIVERSAL ROUNDTRIP — parseText ∘ formatText ≡ inj₂ at WF DBC
 -- ============================================================================
 --
--- Closes Phase B.3.d.  Lives in this module (and not a separate
+-- Closes Track B.3.d.  Lives in this module (and not a separate
 -- `Aggregator/UniversalText.agda`) by deliberate policy: the `parseText`/
 -- `formatText` String-level wrap is the SOLE consumer of `toList∘fromList`
 -- in the project, and adding a second non-`--safe` module would expand

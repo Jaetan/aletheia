@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Extended-multiplex range parser for the DBC text format (Phase B.3.c.8).
+-- Extended-multiplex range parser for the DBC text format (Track B.3.c.8).
 --
 -- Grammar slice covered (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-mul-val  ::= "SG_MUL_VAL_" ws nat ws identifier ws identifier ws
@@ -24,7 +24,7 @@
 --   For B.3.c.8 the line is parsed for syntactic correctness only, so
 --   ill-formed `SG_MUL_VAL_` lines reject the whole file.  Mirrors the
 --   parse-and-drop convention of `SIG_VALTYPE_` (`ValueTypes.parseSig-
---   ValType`).  (`VAL_` was previously parse-and-drop too; Phase E.4
+--   ValType`).  (`VAL_` was previously parse-and-drop too; Track E.4
 --   promoted it to carry a `RawValueDesc` payload — the cousin parsers
 --   still drop because no `DBCSignal` field consumes their data yet.)
 --

@@ -10,7 +10,7 @@
 -- Returns typed ParseError values on parse failures.
 -- Current protocol: Python converts .dbc → JSON, Agda parses JSON → DBC types.
 --
--- Phase B.3.d 3d.4 + JSON-mirror (2026-04-27): JSON internal strings are
+-- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): JSON internal strings are
 -- `List Char`.  Identifier-typed JSON fields and AST text fields (unit,
 -- version, comment text, AVString payload, ATEnum labels, value-table
 -- description, attribute names) are extracted via `lookupChars` and stored
@@ -420,7 +420,7 @@ parseValueTable obj =
 parseValueTableList : List JSON → ParseError ⊎ List ValueTable
 parseValueTableList = parseObjectList "valueTable" parseValueTable 0
 
--- Phase E.8 (Plan B): JSON wire shape for one RawValueDesc.
+-- Track E.8 (Plan B): JSON wire shape for one RawValueDesc.
 -- Mirrors `parseDBCMessage` for the (id, extended) CAN-ID pair via
 -- `parseMessageId`; the rest is signal-name + entries.
 parseRawValueDesc : List (String × JSON) → ParseError ⊎ RawValueDesc
@@ -680,8 +680,8 @@ parseDBCWithErrors (JObject obj) =
     ; nodes = nodes
     ; comments = comments
     ; attributes = attributes
-    -- Phase E.8 (Plan B): wire field; defaults to `[]` if absent (the
-    -- key was added in Phase E and old DBC JSON predating it omits it).
+    -- Track E.8 (Plan B): wire field; defaults to `[]` if absent (the
+    -- key was added in Track E and old DBC JSON predating it omits it).
     -- The text-parse path through `buildDBC` populates it with RVDs that
     -- did not resolve against `messages`; the JSON-emit path round-trips
     -- whatever was supplied.

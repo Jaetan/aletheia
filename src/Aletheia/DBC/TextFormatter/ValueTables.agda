@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Value-table emitters for the DBC text format (Phase B.3.c.4; layer-1
+-- Value-table emitters for the DBC text format (Track B.3.c.4; layer-1
 -- form 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.ValueTables`):
@@ -9,7 +9,7 @@
 --   value-desc   ::= "VAL_" ws nat ws identifier (ws nat ws string-lit)*
 --                    ws? ";" newline
 --
--- Phase E.5–E.7 — VAL_ emit promotion:
+-- Track E.5–E.7 — VAL_ emit promotion:
 --   `emitValueDescription-chars` (E.5) emits one VAL_ line for a single
 --   `RawValueDesc`.  `emitValueDescriptions-chars` (E.7) is the section
 --   composer that walks `collectFromMessages d.messages` (encounter-order
@@ -87,7 +87,7 @@ emitValueTables-chars =
   foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) []
 
 -- ============================================================================
--- VAL_ LINE (Phase E.5)
+-- VAL_ LINE (Track E.5)
 -- ============================================================================
 
 -- `"VAL_" ws nat ws identifier (ws nat ws string-lit)* ws? ";" newline`.
@@ -115,7 +115,7 @@ emitValueDescription-chars rvd =
         (RawValueDesc.entries rvd)
 
 -- ============================================================================
--- VAL_ SECTION (Phase E.7)
+-- VAL_ SECTION (Track E.7)
 -- ============================================================================
 
 -- Zero-or-more VAL_ lines, concatenated.  Per the locked C1 sort key, the

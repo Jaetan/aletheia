@@ -1,7 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- B.3.d Layer 4c — Façade re-exporting the 5 simple-section dispatchers
--- (+ Phase E.5β TVD).  Per-section modules live under `Dispatcher/Simple/`
+-- (+ Track E.5β TVD).  Per-section modules live under `Dispatcher/Simple/`
 -- to keep each module's elaboration working set within `-M16G`.  The
 -- dispatcher consumers (Aggregator.Properties / Aggregator.Universal)
 -- import these names from this façade.

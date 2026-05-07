@@ -1,6 +1,6 @@
 """DBC validation issue types — severity, code, and single-issue record.
 
-Split out of ``protocols.py`` at Phase E.11 (2026-05-08) when CHECK 23
+Split out of ``protocols.py`` at Track E.11 (2026-05-08) when CHECK 23
 (``UnknownValueDescriptionTarget``) plus the CHECK 21 mirror gap fix
 (``UnknownSignalReceiver``) pushed ``protocols.py`` over the 1000-line
 pylint threshold.  Per ``feedback_no_weak_config_bumps.md``, splitting

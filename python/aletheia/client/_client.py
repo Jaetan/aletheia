@@ -353,7 +353,7 @@ class AletheiaClient(SignalOpsMixin):
 
         Inverse of :meth:`parse_dbc_text` at the wire level: ``parse_dbc_text(
         format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed
-        DBC (Phase E.9a coverage).  Does not modify client state — pass any
+        DBC (Track E.9a coverage).  Does not modify client state — pass any
         ``DBCDefinition`` value (typically from :meth:`parse_dbc_text`,
         :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
 

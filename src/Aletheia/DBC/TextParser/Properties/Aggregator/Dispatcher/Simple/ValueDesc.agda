@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c / Phase E.5β — TVD dispatcher under head-dispatched
+-- B.3.d Layer 4c / Track E.5β — TVD dispatcher under head-dispatched
 -- parseTopStmt.
 --
 -- `emitValueDescription-chars rvd ++ outer` starts with 'V' (followed by

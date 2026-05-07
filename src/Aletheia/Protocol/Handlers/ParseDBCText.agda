@@ -31,7 +31,7 @@ open import Aletheia.Error using
   )
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
--- Phase B.3.e — composes the proven parseText (DBC/TextParser.agda) with the
+-- Track B.3.e — composes the proven parseText (DBC/TextParser.agda) with the
 -- runtime validator so the success path returns a parsed-AND-validated DBC.
 -- Three result categories:
 --   • parseText fails        → Error wrapping a typed DBCTextParseError.

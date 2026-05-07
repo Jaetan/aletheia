@@ -838,7 +838,7 @@ class ParsedDBCResponse(TypedDict):
 
 
 class DBCTextResponse(TypedDict):
-    """Response from formatDBCText command (Phase E.10).
+    """Response from formatDBCText command (Track E.10).
 
     Carries the .dbc text image produced by ``formatText`` over a JSON DBC
     input.  Errors (JSON parse failure on the input) short-circuit to

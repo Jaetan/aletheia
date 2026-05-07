@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Signal value-type parser for the DBC text format (Phase B.3.c.8).
+-- Signal value-type parser for the DBC text format (Track B.3.c.8).
 --
 -- Grammar slice covered (BNF section F from `Aletheia.DBC.TextParser`):
 --   sig-valtype  ::= "SIG_VALTYPE_" ws nat ws identifier ws? ":" ws

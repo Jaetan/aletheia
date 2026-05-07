@@ -1,4 +1,4 @@
-// Package aletheia_test — Phase D.2 doc-example harness.
+// Package aletheia_test — Track D.2 doc-example harness.
 //
 // Mirror of R17 C6 Python `pytest --markdown-docs`: every ```go fence in the
 // tracked user-facing markdown files is extracted, wrapped, compiled, and

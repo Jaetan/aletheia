@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Value-table parsers for the DBC text format (Phase B.3.c.4).
+-- Value-table parsers for the DBC text format (Track B.3.c.4).
 --
 -- Grammar slice covered (BNF section C from `Aletheia.DBC.TextParser`):
 --   val-table    ::= "VAL_TABLE_" ws identifier (ws nat ws string-lit)*
@@ -8,7 +8,7 @@
 --   value-desc   ::= "VAL_" ws nat ws identifier (ws nat ws string-lit)*
 --                    ws? ";" newline
 --
--- Phase E.4 — `VAL_` payload promotion:
+-- Track E.4 — `VAL_` payload promotion:
 --   `parseValueDescription` now yields a `RawValueDesc` carrying the
 --   decoded `CANId`, the signal `Identifier`, and the `(value, label)`
 --   entries.  Earlier the parser dropped to `⊤` because `DBCSignal` had
@@ -99,7 +99,7 @@ parseValueTable = do
 -- ============================================================================
 
 -- `RawValueDesc` is defined in `Aletheia.DBC.Types` so `DBC.unresolved
--- ValueDescs : List RawValueDesc` (Plan B, Phase E.8) does not induce a
+-- ValueDescs : List RawValueDesc` (Plan B, Track E.8) does not induce a
 -- cycle.  Re-exported here so existing parser-side imports keep working
 -- without an upstream rewrite.
 open import Aletheia.DBC.Types using (RawValueDesc; mkRawValueDesc) public
@@ -127,7 +127,7 @@ buildResultP (just canId)  sigId vds = pure (mkRawValueDesc canId sigId vds)
 -- the standard/extended max) reject the whole file, mirroring
 -- `parseMessage`'s stance on `BO_` headers.
 --
--- Phase E.5β — derived from the Format DSL `ValueDescription-format`
+-- Track E.5β — derived from the Format DSL `ValueDescription-format`
 -- (parallels `parseValueTable`'s shape).  The DSL universal in
 -- `Format.ValueDescription` discharges the line-shape roundtrip up to
 -- the trailing newline; the wrapper here consumes optional blank lines

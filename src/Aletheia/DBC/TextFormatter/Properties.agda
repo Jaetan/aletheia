@@ -1,7 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Correctness properties for the DBC text-format writer — facade
--- placeholder (Phase B.3.b).
+-- placeholder (Track B.3.b).
 --
 -- Purpose: Top-level theorem module for `Aletheia.DBC.TextFormatter`.
 -- Split-from-day-one structure mirrors `TextParser/Properties.agda` so

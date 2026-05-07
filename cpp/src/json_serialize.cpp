@@ -294,7 +294,7 @@ static auto attribute_to_json(const DbcAttribute& a) -> Json {
         a);
 }
 
-// Phase E.8 (Plan B): JSON wire form for one unresolved RawValueDesc.
+// Track E.8 (Plan B): JSON wire form for one unresolved RawValueDesc.
 // Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
 static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
     Json entries = Json::array();

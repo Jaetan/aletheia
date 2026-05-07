@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Lexical primitives for the DBC text format (Phase B.3.c.1).
+-- Lexical primitives for the DBC text format (Track B.3.c.1).
 --
 -- Purpose: Share the character-class predicates plus identifier/string/ws/
 -- newline lexers used by every DBC text parser in B.3.c.2+.

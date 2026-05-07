@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Attribute parsers for the DBC text format (Phase B.3.c.5).
+-- Attribute parsers for the DBC text format (Track B.3.c.5).
 --
 -- Grammar slice covered (BNF section D from `Aletheia.DBC.TextParser`):
 --   attr-def     ::= "BA_DEF_" (ws attr-scope)? ws string-lit ws attr-type

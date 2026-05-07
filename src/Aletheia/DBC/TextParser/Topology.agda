@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Topology parsers for the DBC text format (Phase B.3.c.3) — facade
+-- Topology parsers for the DBC text format (Track B.3.c.3) — facade
 -- module.  The original monolithic implementation was split during
 -- B.3.d ε.2 to break a cyclic module dependency:
 --

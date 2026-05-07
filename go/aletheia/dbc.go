@@ -268,7 +268,7 @@ type DbcValueTable struct {
 }
 
 // DbcRawValueDesc is one unresolved VAL_ line from the DBC text-parse path
-// (Phase E.8, Plan B).  Carries the owning message's CAN ID, the signal
+// (Track E.8, Plan B).  Carries the owning message's CAN ID, the signal
 // name, and the value-label entries.  Populated only when the text-parse
 // path encounters a VAL_ line whose (canId, signalName) pair did not match
 // any signal in the parsed messages; the entries are preserved verbatim so
@@ -570,7 +570,7 @@ type DbcDefinition struct {
 	Nodes           []DbcNode
 	Comments        []DbcComment
 	Attributes      []DbcAttribute
-	// Phase E.8 (Plan B): VAL_ entries from the text-parse path that did
+	// Track E.8 (Plan B): VAL_ entries from the text-parse path that did
 	// not resolve to any signal in Messages. Empty on the JSON-parse path.
 	UnresolvedValueDescriptions []DbcRawValueDesc
 	nameIndex                   map[string]int // maps message name -> index

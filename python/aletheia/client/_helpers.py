@@ -359,7 +359,7 @@ def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
 def _normalize_raw_value_desc(raw: dict[str, object]) -> "DBCRawValueDesc":
     """Normalize one ``unresolvedValueDescs`` entry from Agda formatDBC output.
 
-    Phase E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
+    Track E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
     paralleling ``DBCMessage`` for the CAN-ID half.
     """
     raw_entries = raw.get("entries")

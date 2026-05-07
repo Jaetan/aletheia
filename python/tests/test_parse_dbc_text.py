@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-2-Clause
-"""Phase B.3.e smoke tests for the ``parse_dbc_text`` JSON command.
+"""Track B.3.e smoke tests for the ``parse_dbc_text`` JSON command.
 
-The Agda text parser (verified in Phase B.3.d) is exposed via a new JSON
+The Agda text parser (verified in Track B.3.d) is exposed via a new JSON
 command that composes ``parseText`` with the runtime validator and emits
 ``ParsedDBCResponse`` on success or ``ErrorResponse`` on parse / validation
 failure.  These tests hit the real FFI-backed client (no mocks) so the

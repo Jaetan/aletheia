@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- DBC DecRat parser — roundtrip proof scaffolding (Phase B.3.d pre-gate,
+-- DBC DecRat parser — roundtrip proof scaffolding (Track B.3.d pre-gate,
 -- commit 2/6).  Target theorem:
 --
 --   parseDecRatFrac-roundtrip : ∀ d → runParser parseDecRat

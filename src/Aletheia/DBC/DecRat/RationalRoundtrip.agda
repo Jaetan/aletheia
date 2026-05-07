@@ -3,7 +3,7 @@
 -- ℚ ↔ DecRat roundtrip lemmas.
 --
 -- Purpose: Close the JSON-boundary roundtrip `fromℚ? (toℚ d) ≡ just d`.
---   Used by EV_/SG_/Attrs migrations (Phase B.3.d pre-gate Commits 3-5) to
+--   Used by EV_/SG_/Attrs migrations (Track B.3.d pre-gate Commits 3-5) to
 --   keep JSON roundtrip proofs closed after ℚ fields migrate to DecRat.
 --   Proved once in this module; reused unchanged at each migration site.
 --

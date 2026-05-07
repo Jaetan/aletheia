@@ -2,7 +2,7 @@
 
 -- B.3.d Layer 4c task C — `partitionTopStmts` categorical preservation.
 --
--- Theorem (Phase E.7, 7-chunk toTopStmtsTyped):
+-- Theorem (Track E.7, 7-chunk toTopStmtsTyped):
 --   partitionTopStmts (map (liftTopStmt defs) (toTopStmtsTyped d))
 --     ≡ mkCollectedTop (DBC.messages        d)
 --                       (DBC.valueTables     d)
@@ -116,7 +116,7 @@ partition-onto-acc-TSG defs []         acc = refl
 partition-onto-acc-TSG defs (sg ∷ sgs) acc =
   cong (consTop (TSSignalGroup sg)) (partition-onto-acc-TSG defs sgs acc)
 
--- Phase E.5β / E.7: TVD per-section lemma.  Mirrors the 6 above; updates
+-- Track E.5β / E.7: TVD per-section lemma.  Mirrors the 6 above; updates
 -- the `rawValueDescs` field by prepending `rvds`.  E.7 wires this into
 -- `partitionTopStmts-bridge` via `collectFromMessages (DBC.messages d)`.
 partition-onto-acc-TVD :

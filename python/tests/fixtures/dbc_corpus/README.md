@@ -1,6 +1,6 @@
 # B.3 DBC Text Parser Corpus
 
-This directory holds the regression corpus for the Phase B.3 Agda DBC text
+This directory holds the regression corpus for the Track B.3 Agda DBC text
 parser (`docs/development/PARITY_PLAN.md` §B.3). Every B.3 construct
 inventory row is exercised by at least one corpus file.
 

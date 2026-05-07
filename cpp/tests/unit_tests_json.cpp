@@ -603,7 +603,7 @@ TEST_CASE("parse_dbc_response rejects out-of-range DLC", "[json][parse][error]")
 }
 
 // ===========================================================================
-// Tier 1 DBC metadata round-trip (Phase B.1)
+// Tier 1 DBC metadata round-trip (Track B.1)
 // ===========================================================================
 
 TEST_CASE("serialize_parse_dbc emits Tier 1 metadata arrays", "[json][serialize][dbc]") {
@@ -760,7 +760,7 @@ TEST_CASE("parse_dbc_response env var preserves exact rationals", "[json][parse]
 }
 
 // ===========================================================================
-// Tier 2 DBC metadata round-trip (Phase B.1.x) — nodes, comments, attributes
+// Tier 2 DBC metadata round-trip (Track B.1.x) — nodes, comments, attributes
 // ===========================================================================
 
 TEST_CASE("Tier 2 DBC metadata round-trips through serialize + parse",

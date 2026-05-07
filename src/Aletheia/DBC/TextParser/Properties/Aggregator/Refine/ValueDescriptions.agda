@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Phase E.6 — VAL_ inverse-bridge proof.
+-- Track E.6 — VAL_ inverse-bridge proof.
 --
 -- Closes:
 --

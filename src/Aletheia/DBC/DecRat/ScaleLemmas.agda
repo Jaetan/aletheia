@@ -1,7 +1,7 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Strip-after-scale substrate for the DecRat parser roundtrip
--- (Phase B.3.d commit 2/6).
+-- (Track B.3.d commit 2/6).
 --
 -- Purpose: the Shape B emitter writes every DecRat as
 -- `<sign><int>.<frac>` with m = max(a ⊔ b, 1) fractional digits,

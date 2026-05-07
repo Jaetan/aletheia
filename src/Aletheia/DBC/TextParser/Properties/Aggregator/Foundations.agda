@@ -187,7 +187,7 @@ data TopStmtTyped : Set where
   TCM : DBCComment     → TopStmtTyped
   TAT : DBCAttribute   → TopStmtTyped
   TSG : SignalGroup    → TopStmtTyped
-  -- Phase E.5–E.7: VAL_ payload at the typed-shadow level.  `TVD rvd`
+  -- Track E.5–E.7: VAL_ payload at the typed-shadow level.  `TVD rvd`
   -- mirrors `TopStmt.TSValueDesc rvd`; the typed-shadow shape is
   -- monomorphic since `RawValueDesc` is parser-level (the refined form
   -- lives nested under `messages[i].signals[j].valueDescriptions`, not

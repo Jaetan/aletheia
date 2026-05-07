@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Text-roundtrip-specific well-formedness predicates (Phase B.3.d Layer 3
+-- Text-roundtrip-specific well-formedness predicates (Track B.3.d Layer 3
 -- Commit 3d.1).
 --
 -- Extends `Aletheia.DBC.Formatter.WellFormed` with constraints that hold

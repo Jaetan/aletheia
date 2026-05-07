@@ -232,7 +232,7 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
 
-    # Layer 7: Phase D.1 doc-example harness (R17-DEF-6).
+    # Layer 7: Track D.1 doc-example harness (R17-DEF-6).
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root
     # conftest.py and go/aletheia/doc_examples_test.go. Every ```cpp fence

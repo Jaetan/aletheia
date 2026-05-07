@@ -103,7 +103,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.P
 -- precondition.  Indexed on `defs` because the TAT case's `WFAttribute`
 -- depends on `defs`.
 
--- Phase E.5β: 7-ctor predicate; one per `TopStmtTyped` constructor,
+-- Track E.5β: 7-ctor predicate; one per `TopStmtTyped` constructor,
 -- carrying that section's slim precondition.  Indexed on `defs` because
 -- the TAT case's `WFAttribute` depends on `defs`.
 --
@@ -151,7 +151,7 @@ parseTopStmt-on-emitTopStmt-chars defs pos (TAT a)   outer (wfTAT _ wfa) ss-NL =
   parseTopStmt-on-emit-typed-TAT defs pos a outer wfa ss-NL
 parseTopStmt-on-emitTopStmt-chars defs pos (TSG sg)  outer (wfTSG _ wf)  ss-NL =
   parseTopStmt-on-emit-TSG-eq pos sg outer wf ss-NL
--- Phase E.5β: real TVD dispatcher proof via `parseTopStmt-on-emit-TVD-
+-- Track E.5β: real TVD dispatcher proof via `parseTopStmt-on-emit-TVD-
 -- eq` (V-bucket right arm; LEFT arm parseValueTable fails on VAL_-
 -- prefix input via `alt-right-nothing`, RIGHT arm succeeds via the
 -- slim parseValueDescription-roundtrip).  Replaces E.5α's absurd-elim.
@@ -178,7 +178,7 @@ emitTopStmt-chars-nonzero defs (TAT a)   =
         (sym (proj₂ (emitAttribute-chars-BA-head defs a)))
         (s≤s z≤n)
 emitTopStmt-chars-nonzero _    (TSG sg)  = emitSignalGroup-chars-nonzero sg
--- Phase E.5α: `emitValueDescription-chars rvd` starts with `toList
+-- Track E.5α: `emitValueDescription-chars rvd` starts with `toList
 -- "VAL_ " = 'V' ∷ 'A' ∷ 'L' ∷ '_' ∷ ' ' ∷ []`, so length is at least 5.
 emitTopStmt-chars-nonzero _    (TVD _)   = s≤s z≤n
 
@@ -208,7 +208,7 @@ emitTopStmt-chars-head-not-newline defs (TAT a)   suffix =
     SS-BA = ∷-stop refl
 emitTopStmt-chars-head-not-newline _    (TSG sg)  suffix =
   emitSignalGroup-chars-head-not-newline sg suffix
--- Phase E.5α: head of `emitValueDescription-chars rvd ++ suffix` is `'V'`,
+-- Track E.5α: head of `emitValueDescription-chars rvd ++ suffix` is `'V'`,
 -- not a newline-start.
 emitTopStmt-chars-head-not-newline _    (TVD _)   _      = ∷-stop refl
   where open import Aletheia.DBC.TextParser.DecRatParse.Properties using (∷-stop)

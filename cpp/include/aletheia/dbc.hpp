@@ -337,7 +337,7 @@ struct DbcAttrAssign {
 using DbcAttribute = std::variant<DbcAttrDef, DbcAttrDefault, DbcAttrAssign>;
 
 // ---------------------------------------------------------------------------
-// Phase E.8 (Plan B): unresolved VAL_ entries from the text-parse path.
+// Track E.8 (Plan B): unresolved VAL_ entries from the text-parse path.
 //
 // Carries the owning message's CAN ID, the signal name, and the
 // (value, label) entries.  Populated only when the text-parse path
@@ -378,7 +378,7 @@ struct DbcDefinition {
     std::vector<DbcNode> nodes;
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
-    // Phase E.8 (Plan B): VAL_ lines from the text-parse path that did
+    // Track E.8 (Plan B): VAL_ lines from the text-parse path that did
     // not resolve to any signal in `messages`.  Empty on the JSON-parse
     // path (JSON has no notion of unresolved RVDs structurally).
     std::vector<DbcRawValueDesc> unresolved_value_descriptions;

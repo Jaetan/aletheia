@@ -55,7 +55,7 @@ data ParseError : Set where
   -- argument is the field name for diagnostics.
   NonTerminatingRational  : String → ParseError
   -- Name field that fails the DBC identifier grammar (letter/underscore start,
-  -- alphanumeric/underscore continue).  Introduced in Phase B.3.d Layer 2 to
+  -- alphanumeric/underscore continue).  Introduced in Track B.3.d Layer 2 to
   -- reject invalid identifiers at the JSON parse boundary; the text parser
   -- already rejects these syntactically via `parseIdentifier`.
   InvalidIdentifier       : String → ParseError
@@ -332,7 +332,7 @@ dispatchErrorCode RequestNotObject       = "dispatch_request_not_object"
 -- DBC TEXT PARSE ERRORS (DBC/TextParser.agda)
 -- ============================================================================
 
--- Errors emitted by the DBC text parser (Phase B.3.e entry point).  Kept
+-- Errors emitted by the DBC text parser (Track B.3.e entry point).  Kept
 -- separate from `ParseError` (the JSON-protocol parser) because the
 -- vocabularies do not overlap; each evolves independently.
 data DBCTextParseError : Set where

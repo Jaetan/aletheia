@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Preamble parsers for the DBC text format (Phase B.3.c.2; B.3.d
+-- Preamble parsers for the DBC text format (Track B.3.c.2; B.3.d
 -- Layer 3 3d.5.d migrated 2026-04-29).
 --
 -- Grammar slice covered (BNF section A from `Aletheia.DBC.TextParser`):

@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: BSD-2-Clause
 
-// Phase E — VAL_ value descriptions on DbcSignal.ValueDescriptions and the
+// Track E — VAL_ value descriptions on DbcSignal.ValueDescriptions and the
 // matching CHECK 23 (UnknownValueDescriptionTarget) emitted by parse_dbc_text
 // when a VAL_ line points at a (message-id, signal-name) pair not declared in
 // BO_ / SG_.

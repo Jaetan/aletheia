@@ -93,7 +93,7 @@ handleFormatDBC-preserves-state state
 ... | nothing = refl
 ... | just _  = refl
 
--- FormatDBCText (Phase E.10): pipeline JSON→DBC→text, never touches state.
+-- FormatDBCText (Track E.10): pipeline JSON→DBC→text, never touches state.
 -- Both JSON parse failure and success paths return the input state unchanged.
 handleFormatDBCText-preserves-state : ∀ (dbcJSON : JSON) state
   → proj₁ (handleFormatDBCText dbcJSON state) ≡ state

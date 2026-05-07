@@ -1,10 +1,10 @@
 {-# OPTIONS --safe --without-K #-}
 
 -- Per-line-construct roundtrips for the DBC value-table section (B.3.d
--- Layer 3 Commit 3b + Phase E.5β VAL_) — facade module.
+-- Layer 3 Commit 3b + Track E.5β VAL_) — facade module.
 --
 -- Re-exports `parseValueTable-roundtrip` from
--- `Properties/ValueTables/ValueTable.agda` and Phase E.5β's
+-- `Properties/ValueTables/ValueTable.agda` and Track E.5β's
 -- `parseValueDescription-roundtrip` from `Properties/ValueTables/
 -- ValueDesc.agda`.  Mirrors the `Properties/Topology.agda` and
 -- `Properties/Preamble.agda` pattern; the per-construct submodule lives

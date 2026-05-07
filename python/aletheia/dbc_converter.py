@@ -3,14 +3,14 @@
 * ``dbc_to_json``: parse a .dbc file to the Agda wire format via the
   verified Agda text parser (no third-party Python deps).
 * ``dbc_to_text``: render a JSON DBC dict back to .dbc text via the
-  verified Agda formatter (FFI-delegated, Phase E.10).
+  verified Agda formatter (FFI-delegated, Track E.10).
 * ``convert_dbc_file``: ``dbc_to_json`` + write JSON to disk.
 
 All three are thin wrappers over ``AletheiaClient`` operations; the FFI
 shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 ``dbc_to_text`` and ``dbc_to_json`` together form a verified roundtrip:
 ``dbc_to_json`` ∘ ``dbc_to_text`` is the identity on any well-formed DBC
-(Phase B.3.d / E.9a universal).
+(Track B.3.d / E.9a universal).
 """
 
 from pathlib import Path
@@ -53,7 +53,7 @@ def dbc_to_text(dbc: DBCDefinition) -> str:
     """Render a DBC JSON dict to .dbc text format via the verified Agda formatter.
 
     Inverse of :func:`dbc_to_json` at the wire level: ``dbc_to_json(dbc_to_text(d))``
-    returns ``d`` byte-identical for any well-formed DBC (Phase B.3.d / E.9a).
+    returns ``d`` byte-identical for any well-formed DBC (Track B.3.d / E.9a).
 
     Args:
         dbc: DBC definition dict (as returned by :func:`dbc_to_json` or

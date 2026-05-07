@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Phase E.8 — `ValueDescResolves` predicate: per-`RawValueDesc` cross-DBC
+-- Track E.8 — `ValueDescResolves` predicate: per-`RawValueDesc` cross-DBC
 -- existence check for the `(canId, signalName)` lookup target.
 --
 -- Bool-decidable primary `resolvesᵇ` (delegates to `resolvesᵇ-msgs` over

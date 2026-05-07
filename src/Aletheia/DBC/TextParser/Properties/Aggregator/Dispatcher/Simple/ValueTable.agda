@@ -6,7 +6,7 @@
 -- reduces (by head pattern match on its first char) to its V-bucket:
 -- `(parseValueTable       >>= λ vt  → pure (TSValueTable vt))
 --   <|> (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))`.
--- (Phase E.4 lifted the second arm from `*> pure TSValueDesc` to bind
+-- (Track E.4 lifted the second arm from `*> pure TSValueDesc` to bind
 -- the `RawValueDesc` payload — the `alt-left-just` proof is polymorphic
 -- in the right arm so this dispatcher closes unchanged.)
 --

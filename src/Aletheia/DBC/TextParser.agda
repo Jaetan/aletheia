@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- DBC (Database CAN) text format parser — entry point (Phase B.3.c.k).
+-- DBC (Database CAN) text format parser — entry point (Track B.3.c.k).
 --
 -- Purpose: Parse the canonical ASCII `.dbc` text format directly in Agda,
 -- producing the `DBC` structural shape already defined in `Aletheia.DBC.Types`.
@@ -10,7 +10,7 @@
 -- semantic-equivalence caveat — byte-identity of the text itself is NOT a
 -- target).
 --
--- Role: Phase B.3.c.k wires the concrete combinator-based parsers from
+-- Role: Track B.3.c.k wires the concrete combinator-based parsers from
 -- `TextParser.TopLevel` into a single `parseText : String → ⊎`.  B.3.d
 -- proves the structural roundtrip; B.3.e exposes a JSON protocol command;
 -- B.3.f/g retire the cantools dependency.
@@ -180,7 +180,7 @@ open import Aletheia.Error public using
 -- ============================================================================
 
 -- Error ADT for DBC-text parsing lives in `Aletheia.Error.DBCTextParseError`
--- (Phase B.3.e).  Re-exported via the top-level `Error` sum so callers and
+-- (Track B.3.e).  Re-exported via the top-level `Error` sum so callers and
 -- the JSON envelope share the same vocabulary as the JSON-protocol parser.
 
 -- ============================================================================
@@ -193,7 +193,7 @@ open import Aletheia.Error public using
 -- `attributes` carries the refined (resolved-def-reference) list — the
 -- raw two-stage split stays internal to the parser.
 --
--- Phase E.6 — `messages` is post-`attachValueDescs`: the parser produces
+-- Track E.6 — `messages` is post-`attachValueDescs`: the parser produces
 -- messages with empty `valueDescriptions` on every signal (buildSignal
 -- hardcodes `[]`); the refine pass distributes the parsed `RawValueDesc`s
 -- (collected separately under `partitionTopStmts.rawValueDescs`) back
@@ -215,7 +215,7 @@ buildDBC ver nodes c attrs = record
   ; nodes                = nodes
   ; comments             = CollectedTop.comments        c
   ; attributes           = attrs
-  -- Phase E.8 (Plan B): unresolved RVDs are computed against the
+  -- Track E.8 (Plan B): unresolved RVDs are computed against the
   -- pre-attach `CollectedTop.messages` (the same list the resolved RVDs
   -- match against).  Under WF (`unresolvedRVDs-on-collected`) this list
   -- is `[]` for any DBC built from `formatText`, so the universal proof

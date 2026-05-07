@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 / Phase E.5β — DSL-side `ValueDescription-format`.
+-- B.3.d Layer 3 / Track E.5β — DSL-side `ValueDescription-format`.
 --
 -- Production-permissive Format DSL Format for VAL_ lines:
 --   "VAL_" ws nat ws identifier (ws nat ws string-lit)* ws? ";" newline

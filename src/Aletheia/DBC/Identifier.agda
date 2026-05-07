@@ -3,7 +3,7 @@
 -- DBC Identifier type — validated identifiers per the DBC grammar
 -- (`identifier ::= (letter | "_") (letter | digit | "_")*`).
 --
--- Shape (Phase B.3.d Layer 3 commit 3d.4 — de-tainted from String, 2026-04-26):
+-- Shape (Track B.3.d Layer 3 commit 3d.4 — de-tainted from String, 2026-04-26):
 -- `name : List Char` field plus an irrelevant witness that the char list
 -- satisfies the grammar.  Pre-3d.4 used `name : String` with the witness
 -- buried under `toList`; that forced `Lexer.parseIdentifier` to go through

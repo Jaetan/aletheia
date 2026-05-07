@@ -5,7 +5,7 @@
 -- Purpose: Core JSON value representation used throughout the protocol layer.
 -- Numbers use rationals (ℚ) for exact decimal representation.
 --
--- Phase B.3.d 3d.4 + JSON-mirror (2026-04-27): `JString : List Char → JSON`
+-- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): `JString : List Char → JSON`
 -- (was `String → JSON`). Aligns the JSON internal string representation
 -- with the JSON tokenizer's working representation (which already builds
 -- chars in `Parse.agda:parseStringChar`) and with Identifier's post-3d.4

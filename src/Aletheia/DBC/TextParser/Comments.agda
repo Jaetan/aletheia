@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Comment parsers for the DBC text format (Phase B.3.c.6, migrated to
+-- Comment parsers for the DBC text format (Track B.3.c.6, migrated to
 -- Format DSL in 3d.5.d).
 --
 -- Grammar slice (BNF section E from `Aletheia.DBC.TextParser`):

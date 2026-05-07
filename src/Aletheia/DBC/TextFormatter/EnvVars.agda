@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Environment-variable emitters for the DBC text format (Phase B.3.c.9 —
+-- Environment-variable emitters for the DBC text format (Track B.3.c.9 —
 -- companion to `Aletheia.DBC.TextParser.EnvVars`; layer-1 form 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.EnvVars`):

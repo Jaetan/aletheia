@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 3 / Phase E.5β — slim `parseValueDescription-roundtrip`
+-- B.3.d Layer 3 / Track E.5β — slim `parseValueDescription-roundtrip`
 -- derived from the universal Format DSL roundtrip + `buildCANId-
 -- rawCanIdℕ` inverse witness.
 --

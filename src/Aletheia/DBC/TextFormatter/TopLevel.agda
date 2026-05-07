@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Top-level composer for the DBC text format (Phase B.3.c.k; layer-1 form
+-- Top-level composer for the DBC text format (Track B.3.c.k; layer-1 form
 -- 2026-04-24).
 --
 -- Concatenates the per-section emitters from B.3.c.2–B.3.c.9 into a

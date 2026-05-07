@@ -99,7 +99,7 @@ record ValueTable : Set where
     name : Identifier
     entries : List (ℕ × List Char)  -- (numeric value, description) — List Char post 3d.4 JSON-mirror
 
--- Raw value description from a DBC VAL_ line (Phase E).  Carries the
+-- Raw value description from a DBC VAL_ line (Track E).  Carries the
 -- owning message's `CANId`, the signal `Identifier`, and the value-label
 -- entries.  `attachValueDescs` matches `(canId, signalName)` against the
 -- assembled message list to land each entry on the owning signal's
@@ -252,7 +252,7 @@ record DBC : Set where
     nodes : List Node
     comments : List DBCComment
     attributes : List DBCAttribute
-    -- Phase E.8 (Plan B, 2026-05-07): VAL_ entries from the text-parse path
+    -- Track E.8 (Plan B, 2026-05-07): VAL_ entries from the text-parse path
     -- whose `(canId, signalName)` pair did not resolve to any signal in
     -- `messages`.  Always `[]` on the JSON-parse path (JSON's per-signal
     -- `valueDescriptions` field has no notion of "unresolved" —

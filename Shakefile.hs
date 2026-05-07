@@ -227,7 +227,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- `feedback_check_properties_aggregator_walks.md`.  Remove this
         -- root once a downstream proof imports it.
         agdaWithRTS "Aletheia/DBC/Formatter/WellFormedText.agda"
-        -- Phase E.8: `ValueDescResolves` predicate (Bool `resolvesᵇ` +
+        -- Track E.8: `ValueDescResolves` predicate (Bool `resolvesᵇ` +
         -- `Set` lift).  Currently unimported pending the A/B/C wiring
         -- decision (E.11 validator API contract).  Remove this root once
         -- E.11 wires it via the validator.

@@ -54,7 +54,7 @@ def profile_extraction(
     for _ in range(WARMUP):
         client.extract_signals(can_id=can_id, dlc=dlc, data=data)
 
-    # Phase A: argument preparation
+    # Track A: argument preparation
     t_prep = 0
     t_ffi = 0
     t_parse = 0

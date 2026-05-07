@@ -224,7 +224,7 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		attributes = append(attributes, obj)
 	}
 
-	// Phase E.8 (Plan B): unresolved RawValueDescs from the text-parse path.
+	// Track E.8 (Plan B): unresolved RawValueDescs from the text-parse path.
 	// Wire shape mirrors message_to_json's leading {id, extended} pair via
 	// attachCanID; the rest is signalName + entries (parallel to value tables).
 	unresolvedVDs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
@@ -1362,7 +1362,7 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 }
 
 // parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
-// (Phase E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
+// (Track E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
 // Empty/absent on the JSON-parse path is the common case.
 func parseUnresolvedValueDescs(j map[string]any) ([]DbcRawValueDesc, error) {
 	raw := getArray(j, "unresolvedValueDescs")

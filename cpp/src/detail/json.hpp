@@ -65,7 +65,7 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition>;
 // `"error"` with a typed code.
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC>;
 // Parse the response from formatDBCText: `"success"` carrying `text`
-// (the .dbc text image), or `"error"` with a typed code (Phase E.10).
+// (the .dbc text image), or `"error"` with a typed code (Track E.10).
 auto parse_dbc_text_response(std::string_view input) -> Result<std::string>;
 
 } // namespace aletheia::detail

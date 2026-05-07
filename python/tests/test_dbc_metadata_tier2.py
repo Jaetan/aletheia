@@ -588,7 +588,7 @@ class TestDBCMessageSenders:
 
 
 # ---------------------------------------------------------------------------
-# Per-signal VAL_ value descriptions (Phase E)
+# Per-signal VAL_ value descriptions (Track E)
 # ---------------------------------------------------------------------------
 
 
@@ -599,7 +599,7 @@ def _msg_with_signal_value_descriptions(entries: list[dict]) -> dict:
 
 
 class TestDBCSignalValueDescriptions:
-    """Phase E — VAL_ entries land on DBCSignal.valueDescriptions and round-trip
+    """Track E — VAL_ entries land on DBCSignal.valueDescriptions and round-trip
     through the Agda core both at the JSON and at the .dbc text wire."""
 
     def test_value_descriptions_preserved(self) -> None:

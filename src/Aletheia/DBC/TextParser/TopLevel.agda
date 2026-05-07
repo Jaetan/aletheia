@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Top-level aggregator for the DBC text format (Phase B.3.c.k).
+-- Top-level aggregator for the DBC text format (Track B.3.c.k).
 --
 -- Wires the per-construct parsers from B.3.c.1–B.3.c.9 into a single
 -- `parseDBCText` combinator that consumes the whole file.  The entry
@@ -220,7 +220,7 @@ parseTopStmt _   _                    = nothing
 -- `partitionTopStmts`; `rawAttributes` is fed to `refineAttributes` by
 -- the caller before becoming `DBC.attributes`; `rawValueDescs` is fed
 -- to E.6's `attachValueDescs` to land on owning signals'
--- `DBCSignal.valueDescriptions` (Phase E.5β).
+-- `DBCSignal.valueDescriptions` (Track E.5β).
 record CollectedTop : Set where
   constructor mkCollectedTop
   field

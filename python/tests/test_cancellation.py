@@ -1,4 +1,4 @@
-"""Cancellation contract tests — Phase C.1 + C.2.
+"""Cancellation contract tests — Track C.1 + C.2.
 
 Covers the four scenarios called out in docs/architecture/CANCELLATION.md:
 

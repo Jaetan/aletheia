@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Lexical emitters for the DBC text format (Phase B.3.c.1 — companion to
+-- Lexical emitters for the DBC text format (Track B.3.c.1 — companion to
 -- `Aletheia.DBC.TextParser.Lexer`).
 --
 -- Purpose: Centralise the per-terminal canonical emission choices so every

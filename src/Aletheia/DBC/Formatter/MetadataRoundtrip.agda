@@ -8,7 +8,7 @@
 -- PhysicallyValid), so the proofs are unconditional.
 -- Role: Middle layer — used by Properties.agda for the top-level roundtrip.
 --
--- Phase B.3.d 3d.4 + JSON-mirror (2026-04-27): Identifier-typed JSON fields
+-- Track B.3.d 3d.4 + JSON-mirror (2026-04-27): Identifier-typed JSON fields
 -- and AST text fields go through `JString : List Char → JSON` directly
 -- (formatter emits via `identJSON`/`JString field`, parser uses `lookupChars`
 -- + `validateIdent : List Char → …`).  These proofs are axiom-free —
@@ -253,7 +253,7 @@ valueTable-list-roundtrip : ∀ vts
 valueTable-list-roundtrip = valueTable-list-go 0
 
 -- ============================================================================
--- RawValueDesc ROUNDTRIP (Phase E.8 Plan B)
+-- RawValueDesc ROUNDTRIP (Track E.8 Plan B)
 -- ============================================================================
 --
 -- Mirrors `MessageRoundtrip/{Standard,Extended}` for the (id, extended) pair

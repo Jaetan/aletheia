@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Comment emitters for the DBC text format (Phase B.3.c.6; layer-1 form
+-- Comment emitters for the DBC text format (Track B.3.c.6; layer-1 form
 -- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Comments`):

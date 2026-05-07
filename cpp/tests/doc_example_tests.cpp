@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Phase D.1 doc-example harness — C++ Catch2 mirror of Python's
+// Track D.1 doc-example harness — C++ Catch2 mirror of Python's
 // `pytest --markdown-docs` (python/tests/test_doc_examples_harness.py +
 // repo-root conftest.py) and Go's TestDocExamples
 // (go/aletheia/doc_examples_test.go).
@@ -195,7 +195,7 @@ auto has_include(std::string_view body) -> bool {
 // `using namespace aletheia;` keeps doc snippets idiomatic.
 auto wrap_body_fragment(std::string body) -> std::string {
     constexpr std::string_view kPrologue =
-        R"CPP(// Auto-generated wrapper — Phase D.1 doc-example harness.
+        R"CPP(// Auto-generated wrapper — Track D.1 doc-example harness.
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -392,7 +392,7 @@ auto fence_cache() -> const std::vector<CppFence>& {
 
 } // namespace
 
-TEST_CASE("Phase D.1 doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
+TEST_CASE("Track D.1 doc-example harness: every ```cpp fence compiles and runs", "[doc-examples]") {
     auto lib = find_ffi_lib();
     if (lib.empty()) {
         SKIP("libaletheia-ffi.so not found — run `cabal run shake -- build` first");

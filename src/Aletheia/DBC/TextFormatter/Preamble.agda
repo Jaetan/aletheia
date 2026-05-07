@@ -1,6 +1,6 @@
 {-# OPTIONS --safe --without-K #-}
 
--- Preamble emitters for the DBC text format (Phase B.3.c.2; layer-1 form
+-- Preamble emitters for the DBC text format (Track B.3.c.2; layer-1 form
 -- 2026-04-24).
 --
 -- Grammar slice emitted (mirrors `TextParser.Preamble`):
