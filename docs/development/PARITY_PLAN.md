@@ -349,7 +349,7 @@ Plan:
 
 ### Track C — Idiomatic Ergonomics (Part 2) ✅ COMPLETE 2026-05-03
 
-All four sub-tracks designed and shipped on branch `b3d-3d5-format-dsl` across four commits. Every item below was originally proposed during R17 and **rejected** by the user; each got a fresh design round before code, then implementation. See `memory/project_async_api_phase6.md` for the locked design and post-mortem.
+All four sub-tracks designed and shipped on branch `b3d-3d5-format-dsl` across four commits. Every item below was originally proposed during R17 and **rejected** by the user; each got a fresh design round before code, then implementation. See `memory/project_track_c_cancellation.md` for the locked design and post-mortem.
 
 #### C.0 — Cancellation Contract SSOT ✅ shipped `05108cf`
 
@@ -418,7 +418,7 @@ Python shipped in R17 C6 via `pytest --markdown-docs`. C++/Go need equivalents.
 
 **Matrix row.** New row `dbc_signal_value_descriptions` (planned × 3 → flipped at E.12) + `dbc_format_text` (planned × 3 → wired in code at E.10; matrix flip batched into E.12 per the E.12 sweep).
 
-**Memory.** `memory/project_phase_e_val_promotion.md` (full plan + E.1 closure detail); `.session-state.md` (resume protocol with working-tree shape).
+**Memory.** `memory/project_track_e_val_promotion.md` (full plan + E.1 closure detail); `.session-state.md` (resume protocol with working-tree shape).
 
 ## Sequencing
 
@@ -454,7 +454,7 @@ Calendar time is dominated by B.3 and Track C review latency — both are accept
 ## Related Memory
 
 - `project_binding_feature_gaps.md` — R17-era feature gap snapshot (superseded by `FEATURE_MATRIX.yaml` after A.2 seed)
-- `project_async_api_phase6.md` — Python streaming API evolution (drives C.1 + C.2)
+- `project_track_c_cancellation.md` — Python streaming API evolution (drives C.1 + C.2)
 - `project_go_features_to_explore.md` — Go backlog (C.3; mux helper merged into B.2)
 - `project_ffi_unsafecoerce_guard.md` — explicit non-goal of this plan
 - `project_lgpl_contingency.md` — adjacent concern, B.3 partially unblocks

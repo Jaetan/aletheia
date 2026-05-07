@@ -68,7 +68,7 @@ Every Agda module MUST start with:
 - **4**: `--safe --without-K --no-main` (Main.agda, Main/JSON.agda, Main/Binary.agda, Parser/Combinators.agda)
 - **1**: `--without-K` only — `Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda`, the allowlisted Unsafe substrate hosting the two `String ↔ List Char` bridging axioms (`toList∘fromList`, `fromList∘toList`) AND the B.3.d outer-wrap `parseText-on-formatText` consumer — co-located here to keep the trusted-axiom-consuming surface at one allowlisted module (mirrors stdlib's `Data.String.Unsafe`; structurally unprovable in `--safe --without-K` because Agda's String primitives reduce only on closed terms).
 
-243 of 244 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_phase_e_val_promotion.md`.
+243 of 244 modules use `--safe`. No modules require `--sized-types`. Per-commit module-count drift (Path A.4 cluster lift, Track E sub-phase additions, etc.) is recorded in PROJECT_STATUS.md and `memory/project_b3d_universal_proof.md` / `memory/project_track_e_val_promotion.md`.
 
 ## Common Commands
 
@@ -226,7 +226,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 ## Current Session Progress
 
-For full history (R6–R17, Path G, Phase 5.1, Tracks A/B.1–B.3, B.3.d Layers 1–4, Tracks C/D) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives + sub-phase tactical detail live in PROJECT_STATUS.md, `memory/project_b3d_universal_proof.md`, and `memory/project_phase_e_val_promotion.md`. Resume notes / next-session entry point: [.session-state.md](.session-state.md).
+For full history (R6–R17, Path G, Phase 5.1, Tracks A/B.1–B.3, B.3.d Layers 1–4, Tracks C/D) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives + sub-phase tactical detail live in PROJECT_STATUS.md, `memory/project_b3d_universal_proof.md`, and `memory/project_track_e_val_promotion.md`. Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
 **Most recent activity (2026-05-07):** Naming-hygiene sweep — parity-plan **Phase A–E renamed to Track A–E** across all surfaces (`d597b1c`).  "Phase" was reused for two unrelated structural systems (project-advancement milestones in PROJECT_STATUS.md vs. cross-binding parity sub-streams in PARITY_PLAN.md), creating a cross-reference collision; user flagged + directed the rename.  Pure-rename commit: 79 in-repo files (+176/-176 symmetric) + 23 memory files; sub-unit grammar carries through (`Track B.3.d Layer 2`, `Track E.10`, etc.).  All gates green: build 3m51s, check-properties (bg), check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity 13/13 / 11 exports, check-ffi-exports, count-modules 244 (unchanged), Python 759p+1s, Go 3.7s race, C++ 8/8.  No active track.
 
@@ -236,7 +236,7 @@ For full history (R6–R17, Path G, Phase 5.1, Tracks A/B.1–B.3, B.3.d Layers 
 
 **Earlier 2026-05-07** (`d246865`): R17-DEF-1 (FFI `unsafeCoerce` drift guard) ✅ CLOSED — `haskell-shim/test/ConstructorTest.hs` extended from 4 tests on 1 export to 13 tests on all 11 entries in `haskell-shim/ffi-exports.snapshot`; each test forces the coerced payload to a depth where a heap-shape mismatch crashes (`T.unpack` walks Text, `walkVec` pattern-matches Vec ctors, `walkPartitionedResults` dispatches `d_values_22`/`d_errors_24`/`d_absent_26` and walks the inner `[Σ]` through ℚ accessors).  Full closure detail in `memory/project_ffi_unsafecoerce_guard.md`.  `b3d-3d5-format-dsl` merged FF to `main` and deleted same session.
 
-**Track E (VAL_ promotion to `DBCSignal.valueDescriptions`) ✅ COMPLETE 2026-05-08** on branch `b3d-3d5-format-dsl` — E.1→E.12 shipped as a single self-contained commit per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_phase_e_val_promotion.md`.
+**Track E (VAL_ promotion to `DBCSignal.valueDescriptions`) ✅ COMPLETE 2026-05-08** on branch `b3d-3d5-format-dsl` — E.1→E.12 shipped as a single self-contained commit per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_track_e_val_promotion.md`.
 
 | Sub-phase | Status | Date | One-line scope |
 |---|---|---|---|
@@ -271,7 +271,7 @@ Module count (Agda): 237 → 240 (E.5β) → 242 (E.6) → 243 (E.8) → **244**
 ## Prior Phases (closed) — see PROJECT_STATUS.md for narratives
 
 - **Track D ✅ COMPLETE 2026-05-04** — cross-binding doc-example harness (Python `pytest --markdown-docs` + Go `TestDocExamples` + C++ Catch2 `doc_example_tests`); R17-DEF-6 closed by D.2 `d0ae26b` + D.1 `82d0347`. Every ```cpp``` / ```go``` / ```python``` fence in tracked markdown files runs end-to-end against the real Agda core; harness immediately surfaced multiple dead doc API references.
-- **Track C ✅ COMPLETE 2026-05-03** — cancellation contract bound across all 3 bindings: C.0 SSOT `05108cf` + C.3 Go ctx `eef9dcc` + C.4 C++ stop_token `ef1292d` + C.1+C.2 Python async + send_frames_iter `c8ab95b`. Cancel at FFI boundaries; commit-prefix-and-report; behavioral parity by language idiom. FEATURE_MATRIX `cancellation_contract`/`lazy_streaming_batch` × 3 rows flipped. See `memory/project_async_api_phase6.md`.
+- **Track C ✅ COMPLETE 2026-05-03** — cancellation contract bound across all 3 bindings: C.0 SSOT `05108cf` + C.3 Go ctx `eef9dcc` + C.4 C++ stop_token `ef1292d` + C.1+C.2 Python async + send_frames_iter `c8ab95b`. Cancel at FFI boundaries; commit-prefix-and-report; behavioral parity by language idiom. FEATURE_MATRIX `cancellation_contract`/`lazy_streaming_batch` × 3 rows flipped. See `memory/project_track_c_cancellation.md`.
 - **Track B.3 ✅ COMPLETE 2026-05-03** — universal roundtrip (B.3.d `bca99f2`) + JSON binding + ParsedDBCResponse + C++/Go bindings (B.3.e/h/i `bc7a5fc`) + cross-binding parity gate (B.3.j `3673cd2`+`3404dec`) + Python migration to verified parser (B.3.f `019d014`) + cantools dropped (B.3.g `2daa2fb`). LGPL contingency for cantools fully realised.
 - **B.3.d universal target** — `∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d` proven in `Substrate/Unsafe.agda` (sole axiom consumer; co-located by Unsafe-module policy — see `memory/feedback_unsafe_module_policy.md`). Layer 3 fully migrated to Format DSL (BO_ / ValueTable / BU_ / EV_ / CM_ / Preamble / BA_DEF_* / BA_*); Layer 4a/4b/4c-(a)/(b)/E all closed.
 
