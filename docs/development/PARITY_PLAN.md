@@ -449,7 +449,7 @@ Calendar time is dominated by B.3 and Phase C review latency — both are accept
 
 - **LGPL hard-forced rewrite.** Tracked separately in `project_lgpl_contingency.md`. B.3 naturally resolves the cantools piece; this plan does not commit to the broader contingency (python-can, libgmp).
 - **CLI parity for C++/Go.** `not_applicable` in the matrix with reason: "library bindings; CLI is a host-application concern."
-- **FFI `unsafeCoerce` guard (R17-DEF-1).** Tracked separately in `project_ffi_unsafecoerce_guard.md`; not a parity concern.
+- **FFI `unsafeCoerce` guard (R17-DEF-1).** ✅ Closed 2026-05-07 by extending `haskell-shim/test/ConstructorTest.hs` (the `check-fidelity` Shake gate) from 1 of 11 FFI exports to all 11. Each test forces the coerced payload to a depth where a heap-shape mismatch crashes; full closure detail in `project_ffi_unsafecoerce_guard.md`. Was never a parity concern.
 
 ## Related Memory
 

@@ -279,4 +279,4 @@ Module count (Agda): 237 → 240 (E.5β) → 242 (E.6) → 243 (E.8) → **244**
 
 Path A profile (post-3d.4 + JSON-mirror, runtime impact retained from `320c5a9`): Stream LTL +12-38% across bindings (Bool fast path); Signal Extraction -2-9% / Frame Building -1-7% (Path A structural cost). All 3d.5+ Format DSL work + Phase E sub-phases are proof-only and runtime-neutral on the streaming hot path. Baselines NOT refreshed per user "wait and see" 2026-04-28; COMPILE-pragma escape hatch deferred (requires explicit user approval per `feedback_no_suppression_without_approval`).
 
-**Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. Active deferrals (R17-DEF-1..5; R17-DEF-6 closed by Phase D) tracked in `memory/project_*.md`.
+**Cross-binding parity roadmap**: [docs/development/PARITY_PLAN.md](docs/development/PARITY_PLAN.md), locked after R17. R17 deferrals: R17-DEF-1 closed 2026-05-07 by comprehensive check-fidelity coverage; R17-DEF-3 by Phase C.2; R17-DEF-4 by Phase B.3; R17-DEF-5 by Phase C.3; R17-DEF-6 by Phase D. R17-DEF-2 (DBC metadata depth) likely closed by B.3 + Phase E pending re-verify.
