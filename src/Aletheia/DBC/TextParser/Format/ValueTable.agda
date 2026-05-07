@@ -59,6 +59,8 @@ open import Aletheia.DBC.TextParser.Format
          emit; parse; EmitsOK; EmitsOKMany; ParseFailsAt;
          []-fails; ∷-cons;
          roundtrip)
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
+  using (digitChar-not-isHSpace)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (mirrors `Format.SignalLine`)
@@ -146,26 +148,6 @@ parseValueEntry-format-fails-on-semi pos rest = refl
 -- ============================================================================
 
 private
-  -- The head of `showNat-chars n ++ rest` is `digitChar k` for some
-  -- `k < 10`; `isHSpace` reduces to `false` on every closed digit char.
-  -- Mirrored from `Properties/ValueTables/ValueTable.agda` (pre-3d.5.d
-  -- copy) — duplicated locally to keep this module self-contained; can
-  -- be hoisted to a shared module in a future ws-aware migration sweep.
-  digitChar-not-isHSpace : ∀ d → isHSpace
-    (Aletheia.DBC.TextFormatter.Emitter.digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
-
   showNat-head-non-hspace : ∀ (n : ℕ) (rest : List Char)
     → SuffixStops isHSpace (showNat-chars n ++ₗ rest)
   showNat-head-non-hspace n rest with showNat-chars-head n

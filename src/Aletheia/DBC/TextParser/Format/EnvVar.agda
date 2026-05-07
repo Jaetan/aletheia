@@ -54,6 +54,8 @@ open import Aletheia.DBC.TextParser.Format
          altSum; ws; wsOpt; decRat; withPrefix;
          emit; parse; EmitsOK;
          roundtrip)
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
+  using (digitChar-not-isHSpace)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (mirrors `Format.ValueTable` /
@@ -243,23 +245,6 @@ EnvVarNameStop ev =
 -- ============================================================================
 
 private
-  -- `digitChar d` is non-hspace for every closed `d` (10-case +
-  -- fall-through).  Used to bridge `parseNatural` / `parseDecRat` digit
-  -- emits to the next ws/non-ws boundary.
-  digitChar-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
-
   -- Head of `(showDecRat-dec-chars d ++ inner-rest) ++ outer-suffix` is
   -- non-hspace.  Two cases on the integer numerator: `-[1+ n ]` ⇒ `'-'`;
   -- `+ absNum` ⇒ `digitChar k` with `k < 10`.  Mirrors `decrat-suffix-
