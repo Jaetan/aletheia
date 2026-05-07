@@ -488,17 +488,22 @@ Verification across Phase A/B: 735 Python tests + 1 expected-skip + 103 markdown
 
 ### Phase 6: Extensions & New Protocols (Planned)
 
-**Scope**: Binding feature gaps, dependency cleanup, and automotive Ethernet support
+**Scope**: Binding feature gaps, dependency cleanup, and automotive Ethernet support.  Goal-set refreshed 2026-05-07 after R17 fully closed.
 
-**Binding feature gaps**:
-- DBC `.dbc` text file parsing for C++ and Go (both accept pre-parsed DBC JSON; can't parse raw `.dbc` files client-side)
-- Go multiplexing query helpers (expose queryable mux relationships)
+**Binding feature gaps** (closed en route — kept for archaeology):
+- ~~DBC `.dbc` text file parsing for C++ and Go~~ ✅ Closed by Phase B.3 2026-05-03 (`bca99f2`).
+- ~~Go multiplexing query helpers~~ ✅ Closed by Phase B.2 audit 2026-04-XX (helpers were already shipped client-side).
+
+**Binding feature gaps** (active):
+- **CLI parity for C++/Go (stretch goal, 2026-05-07)** — Python ships `python -m aletheia` with subcommands `validate` / `mux-query` / `convert` / `extract`.  C++ and Go are currently `not_applicable` in the FEATURE_MATRIX with reason "library bindings; CLI tools are a host-application concern."  Stretch-goal flip: rebuild the same subcommand surface in each language as a thin host binary dispatching to the existing client API.  Estimate ~300-500 LOC per language (CLI is glue, not parser, so the estimate is honest).  No Agda or FFI changes.  Drives a `cli` matrix row flip from `not_applicable` to `planned` × 2.
 
 **Toolchain upgrades**:
 - Upgrade `basedpyright` and `pylint` to the latest stable releases, re-verify the 0/0/0 + 10.00/10 gates on the updated versions, and bump the upper pins in `python/pyproject.toml` (`basedpyright>=1.0,<2`, `pylint>=3.0,<4`) accordingly.
 
-**LGPL contingency**:
-- ~500 lines to eliminate cantools/python-can/libgmp if needed
+**LGPL contingency** (refreshed 2026-05-07):
+- ~~cantools (transitively LGPL via python-can)~~ ✅ Closed by Phase B.3.g (`2daa2fb`).  Verified Agda DBC text parser replaces it.
+- **python-can replacement (Phase 6 goal)** — `python/aletheia/can_log.py:22` imports `python-can` for ASC/BLF/MF4/etc. log file readers; declared as optional `can = ["python-can>=4.0"]` extra in `pyproject.toml:58`.  **Estimate is open, not "~300 LOC"**: per project rule "parsers are Agda + proof" (`feedback_parsers_are_agda_with_proof.md`), each log format goes through the verified kernel — Agda implementation + roundtrip proof + binding wire layer per format (ASC text, BLF binary; MF4 deferred to `asammdf` BSD-3 if needed).  Phase B.3 (DBC text parser) is the closest precedent: ~6 weeks of Agda + universal roundtrip theorem.  The 2026-03-22 ~300 LOC memo was based on a Python glue assumption that is invalid for this project.
+- **GHC `--bignum=native` rebuild (Phase 6 goal)** — `libgmp` (LGPL-3.0) currently links into `libaletheia-ffi.so` because GHC defaults to `integer-gmp`.  Replacement: rebuild GHC with `--bignum=native` (BSD-3, pure Haskell).  **Deliverable is a step-by-step + tested procedure**, not just a config flip — script + verified commands on a clean machine, with before/after FFI .so hash + benchmark snapshot to confirm no regression.  Lives in `docs/development/` alongside BUILDING.md.
 
 **SOME/IP support**:
 - Extend Aletheia to automotive Ethernet via SOME/IP (Scalable service-Oriented MiddlewarE over IP)
@@ -506,7 +511,7 @@ Verification across Phase A/B: 735 Python tests + 1 expected-skip + 103 markdown
 - Requires new frame model, extraction logic, and LTL atomic predicates (service-level: response timing, subscription freshness, method sequencing)
 - Existing LTL engine is reusable; also covers CAN-over-Ethernet (DoIP/ISO 13400)
 
-**Status**: Not started
+**Status**: Not started.  Goal-set locked 2026-05-07; no commitments to a phase ordering yet.
 
 ---
 

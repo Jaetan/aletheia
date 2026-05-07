@@ -444,14 +444,15 @@ features:
   - id: cli
     name: Command-line interface
     description: Host-integrated CLI wrapping the client — subcommands for validate, mux-query, convert, extract, etc.
+    related: Phase 6 stretch
     bindings:
       python: { status: implemented, entry: aletheia.cli.main }
       cpp:
-        status: not_applicable
-        reason: "C++ is a library binding; CLI tools are a host-application concern and not part of the cross-language parity surface."
+        status: planned
+        notes: "Phase 6 stretch goal (pinned 2026-05-07). Earlier decision was not_applicable on the rationale that C++ is a library binding; the stretch flip rebuilds Python's subcommand surface as a thin host binary dispatching to AletheiaClient. ~300-500 LOC, no Agda or FFI changes."
       go:
-        status: not_applicable
-        reason: "Go is a library binding; CLI tools are a host-application concern and not part of the cross-language parity surface."
+        status: planned
+        notes: "Phase 6 stretch goal (pinned 2026-05-07). Earlier decision was not_applicable on the rationale that Go is a library binding; the stretch flip rebuilds Python's subcommand surface as a thin host binary dispatching to Client. ~300-500 LOC, no Agda or FFI changes."
 
   - id: can_log_reader
     name: CAN log file reader
