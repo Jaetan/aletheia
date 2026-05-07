@@ -73,6 +73,15 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `doc_example_tests` Catch2 binary. Every fenced ```python``` /
   ```go``` / ```cpp``` block in the documented file set runs against
   the real FFI (Track D).
+- `tools/check-changelog.sh` offline gate enforcing R18 Universal Rule
+  UR-1 (Public API stability and CHANGELOG discipline). Detects
+  public-API drift since merge-base with `main` and fails if
+  `CHANGELOG.md` was not also modified; wired into the Shake target
+  `check-changelog` so the same gate runs from the build system, the
+  pre-push hook (Phase 3), and from local CI without rebuilding the
+  Shake binary. Branch-level granularity for v0; gate-shape verified
+  by forward-revert test in a detached worktree (R18 cluster 1
+  phase 1).
 
 #### Python
 

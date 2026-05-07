@@ -620,6 +620,22 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 ]
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
+    phony "check-changelog" $ do
+        -- R18 Universal Rule UR-1 enforcement (Public API stability and
+        -- CHANGELOG discipline).  Detects public-API drift since merge-base
+        -- with `main` and fails if CHANGELOG.md was not also modified.
+        --
+        -- Implementation lives in `tools/check-changelog.sh` so the same
+        -- gate can be invoked from the pre-push hook and from local CI
+        -- without rebuilding the Shake binary.  Branch-level granularity
+        -- (one CHANGELOG commit covers any number of public-API commits
+        -- on the same branch).
+        let script = "tools/check-changelog.sh"
+        scriptExists <- doesFileExist script
+        unless scriptExists $
+            error $ script ++ " not found"
+        cmd_ Shell script
+
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]
 
