@@ -18,7 +18,7 @@ Findings get unique IDs (`<lang>-<agent>-<cat>.<n>`). Disposition legend: `[ ]` 
 | Agent | Categories owned | Status |
 |---|---|---|
 | Agda Agent A (Hygiene) | 1, 2, 4, 16, 21, 28, 29 + G-A1, G-A8 | ✓ returned |
-| Agda Agent B (Semantics) | 7, 8, 9, 18, 20, 22-26 + G-A2-A6, A9, A10, A12 | ⚠ **STUB ONLY — re-run required** |
+| Agda Agent B (Semantics) | 7, 8, 9, 18, 20, 22-26 + G-A2-A6, A9, A10, A12 | ✓ returned (re-run, 8 findings) |
 | Agda Agent C (Cross-file) | 3, 5, 6, 27 + G-A14, A15, A16 | ✓ returned |
 | Agda Agent D (system-level) | 10-13, 19, 32 + 14, 15, 17, 30, 31 + G-A7, A11, A13, A17-A20, A23 | ✓ returned |
 | Go Agent A (Hygiene & Style) | 1-6, 30 | ✓ returned |
@@ -35,7 +35,7 @@ Findings get unique IDs (`<lang>-<agent>-<cat>.<n>`). Disposition legend: `[ ]` 
 | Docs cross-doc pass | 5, 15-18 | ✓ returned |
 | CI/CD Agent | 1-5 | ✓ returned |
 
-**Coverage gate**: 16 of 17 agents returned full reports. Agda Agent B returned only the stub `"OK, none. Let me write the final report."` after consuming 511k tokens / 133 tool uses / 12 minutes — it ran the analysis but the final report didn't materialize. Cats 7, 8, 9, 18, 20, 22-26 + 8 guidelines have no per-file findings until that agent is re-run. **First action item before fix-implementation step**.
+**Coverage gate**: 17 of 17 agents returned full reports. Agda Agent B re-run completed in 7 minutes with 8 substantive findings (after the initial run's stub failure consumed 511k tokens / 12 minutes without producing a report). All 18 cats / guidelines now have per-file or system-level findings.
 
 ---
 
@@ -149,13 +149,40 @@ The `.github/` directory does not exist. Every workflow-related finding cascades
 - `[ ]` AGDA-A-GA1.2-1.22 — 21 more occurrences of duplicate-import-line pattern across `BatchExtraction.agda`, `SignalExtraction.agda`, `Validity.agda`, `Validator/Checks.agda`, `Formatter/MessageRoundtrip.agda`, `Protocol/FrameProcessor/Properties/Cache.agda`, `Protocol/Adequacy/StreamingWarm.agda`, `Protocol/StreamState/Internals.agda`, `Protocol/FrameProcessor/Properties/Handlers.agda`, `DBC/TextParser/Attributes.agda`, `DBC/DecRat.agda`, `DBC/DecRat/RationalRoundtrip.agda`, `DBC/Formatter/MessageRoundtrip/{Standard,Extended}.agda`, `DBC/TextParser/Properties/Topology/Message.agda`, `DBC/TextParser/Properties/Aggregator/Refine/ValueDescriptions.agda`, `DBC/Validity/{Composition,WarningChecks,ErrorChecks}.agda`. Mechanically mergeable.
 - `[ ]` AGDA-A-GA1.23 [src/Aletheia/DBC/TextParser/Properties/Aggregator/Foundations.agda:67] dead `as FmtAttrs using ()` (cf. AGDA-A-1.26).
 
-### Agda Agent B (Semantics) — STUB; RE-RUN REQUIRED
+### Agda Agent B (Semantics) — re-run completed, 8 findings
 
-Agent consumed 511,639 tokens / 133 tool uses / 12 minutes and returned only the message: `"OK, none. Let me write the final report."` — analysis appears to have completed but the formatted report did not return.
+After the initial run returned only a stub, the re-run with tightened scope (~15 priority modules: Main / Protocol / FrameProcessor / Encoding / DBC.Validator / DBC.JSONParser / LTL.{Coalgebra,Incremental,Adequacy,Simplify} / SignalPredicate.Evaluation / Trace.Time / Substrate.Unsafe / Error) returned a structured report in 7 minutes.
 
-Cats uncovered: **7, 8, 9, 18, 20, 22, 23, 24, 25, 26 + G-A2, G-A3, G-A4, G-A5, G-A6, G-A9, G-A10, G-A12.**
+#### Cat 7: Type tightness
 
-**Action**: re-run via `SendMessage` to agent `af153efed8ba245bc` requesting the formatted report, OR spawn a fresh Agda Agent B with a tightened scope/prompt before fix-implementation begins.
+- `[ ]` AGDA-B-7.1 [src/Aletheia/CAN/Frame.agda:28-29] `Byte = ℕ` wider than the 0..255 value range admits. Documented tradeoff (Fin 256 → MAlonzo unary chains); refinement-types pattern (`record { value : ℕ; valid : T (value <ᵇ 256) }` per G-A21) is a candidate for sites not on the per-frame hot path.
+
+#### Cat 8: Proof simplification — chained-rewrite pattern (5 findings)
+
+- `[ ]` AGDA-B-8.1 [Protocol/FrameProcessor/Properties/Step.agda:199-203] `handleDataFrame-ack-complete` 3-rewrite chain on a record-shaped goal (`Response.Ack` materialised through `iterate (stepProperty …)` + dispatch tuple). Per G-A2 max-1-rewrite-on-large-goals: refactor to `trans (cong proj₂ (iterate-correct …)) (cong … spec-eq)`.
+- `[ ]` AGDA-B-8.2 [Step.agda:219-223] `handleDataFrame-violation-complete` identical pattern; record-shaped (`Response.PropertyResponse (PropertyResult.Violation …)`) goal.
+- `[ ]` AGDA-B-8.3 [Bounded.agda:114-149] `indexHelper-counter` 6 clauses (And/Or/Until/Release/MetricUntil/MetricRelease) each chain 3 rewrites; ℕ-shaped (small) but repeats — candidate for `+-bilinear-bound` helper consuming both IHs + length-++ axiom.
+- `[ ]` AGDA-B-8.4 [Bounded.agda:228-256] `collectAtomsAcc-spec` same 6-clause 3-rewrite-chain pattern on `++ₗ`-shaped List goals.
+- `[ ]` AGDA-B-8.5 [Cache.agda:88] `lookupEntries-updateEntries-miss` `false | true` clause stacks 2 rewrites; minor.
+
+#### Cats 9, 18, 20, 23, 24, 26 — clean
+
+No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotonicity enforcement was lifted into Agda" comment); `mkPredTable nothing → Unknown` paired with live external proof (Property 27 / `indexHelper-bound`); no fuel-based recursion in the priority files; erasure (Timestamp/DLC) correct; CATCHALLs in LTL/Simplify.agda all documented; Bool fast-path pattern (`_==ℚ_`/`_≤ℚ_`/`_<ℚ_`) already in place at SignalPredicate/Evaluation.agda:30-50.
+
+#### Cat 22: Irrelevance — 1 architectural candidate
+
+- `[ ]` AGDA-B-22.1 **[CAN/Frame.agda:39-41] `CANId.Standard`/`Extended` proof fields `T (n <ᵇ max)` are NOT marked `.(_ : T …)` (irrelevance modality).** In-source comment addresses `@0` rejection (correct: `data` constructors lack η-equality, `_≟-CANId_` needs proof access for `T-irrelevant`-based identity gap closure) but does NOT consider the `.(…)` modality. Per G-A4, `T (n <ᵇ max)` is the paradigm irrelevance candidate: proof exists solely to enforce a precondition; `T-irrelevant` is consumed by `_≟-CANId_` precisely because the proof carries no information beyond existence. Switching to `.(…)` would (a) simplify `_≟-CANId_` (irrelevant fields ignored by `_≡_`), (b) eliminate the per-CANId `()` runtime cell. Medium effort: every CANId construction site changes; binding FFI marshaling unaffected (proofs already discarded at boundary).
+
+#### Cat 25: Universe level — 1 informational note
+
+- `[ ]` AGDA-B-25.1 [DBC/TextParser/Format.agda:86] `data Format : Set → Set₁` — sole `Set₁` site in priority sweep; documented cause (`pair` quantifies over constructor type). Tracking note; not actionable.
+
+#### Guidelines
+
+- G-A2 (Proof style): cross-links to 8.1-8.5 above. Worst offenders: Step.agda:199-203 / :219-223. `Coalgebra/Properties.agda:317-337` `finalize-empty-equiv` 2-rewrite stack on TruthVal-shaped goals — within G-A2's small-goal carve-out, surfaced for visibility only.
+- G-A3 (`in eq`): no legacy `inspect` usage; modern form used uniformly.
+- G-A4 (Irrelevance): see 22.1.
+- G-A5 / G-A6 / G-A9 / G-A10 / G-A12: clean.
 
 ### Agda Agent C (Cross-file) — 36 findings
 
@@ -968,6 +995,8 @@ For triage, the top 15 clusters that close the most findings each:
 13. **Mutation testing R18 sub-check (g) tooling**: `mutmut`/`gomut`/`Mull` infrastructure missing across all 3 bindings — PY-B-14g.1, GO-B-14.7, CPP-B-14.8.
 14. **Operations runbook (R18-extended cat 22): missing entirely** — DOC-B-22.1-10 (~27 missing entries).
 15. **Two distinct `WellFormedDBC` records under same name in different Agda modules** — AGDA-D-11.1, AGDA-D-15.4. Single rename closes both findings.
+16. **Agda chained-rewrite cleanup** — AGDA-B-8.1-8.5. Step.agda + Bounded.agda 5 sites; per G-A2 max-1-rewrite-on-large-goals. Mechanical-but-careful refactor.
+17. **CANId proof-field irrelevance migration** — AGDA-B-22.1. Architectural candidate: mark `T (n <ᵇ max)` as `.(…)` to simplify `_≟-CANId_` and drop the per-CANId runtime cell. Multi-site construction-call audit + benchmark verification (cat 16 hot-path rule).
 
 ---
 
@@ -993,12 +1022,14 @@ After all dispositions are marked above, this section will hold the round's plan
 
 **Pending discussion items before plan finalization:**
 
-1. Re-run Agda Agent B to recover the missing per-file Semantics/Proofs report (cats 7, 8, 9, 18, 20, 22-26).
+1. ✓ Resolved 2026-05-07: Agda Agent B re-run completed; 8 substantive findings folded into AGDA-B-* section above.
 2. Decide whether `--bignum=native` tracking and CHANGELOG bootstrap stay coupled to UR-3 in this round, or split.
-3. Decide whether cat 33/34 (new R18 categories) findings are deferred (mass infrastructure) or partially actioned this round (start with sanitizer lane + one fuzz target as proof-of-concept).
+3. Decide whether cat 33/34 (new R18 categories) findings are deferred (mass infrastructure) or partially actioned this round (start with sanitizer lane + `python -X dev` lane as proof-of-concept; the latter already surfaces 3 cancellation-test flakes — PY-B-14a.1).
 4. Confirm fix-vs-defer for `iter_can_log` 4-tuple unpacks — Track D doc-example harness should have caught these; investigate why it didn't (DOC-B-15.* root cause).
 5. Confirm the `WellFormedDBC` two-records situation (AGDA-D-11.1) is a rename rather than a redesign.
+6. **NEW from Agent B re-run**: Confirm CANId proof-field irrelevance migration (AGDA-B-22.1) — architectural improvement requiring construction-site audit + hot-path benchmark per cat 16.
+7. **NEW from Agent B re-run**: Confirm scope for chained-rewrite cleanup (AGDA-B-8.1-8.5) — Step.agda Findings 8.1/8.2 are large-goal violations of G-A2; Bounded.agda 8.3/8.4 are repeated patterns suggesting helper-extraction.
 
 ---
 
-*Generated by R18 review pass on branch `review-r18` at 2026-05-07. Total raw findings: ~600+ across 16 returned agents (Agda Agent B's 511k-token analysis returned a stub; needs re-run before fix step).*
+*Generated by R18 review pass on branch `review-r18` at 2026-05-07. Total raw findings: ~610 across 17 returned agents (Agda Agent B successfully re-run after initial stub failure).*
