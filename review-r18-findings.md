@@ -159,11 +159,11 @@ After the initial run returned only a stub, the re-run with tightened scope (~15
 
 #### Cat 8: Proof simplification — chained-rewrite pattern (5 findings)
 
-- `[ ]` AGDA-B-8.1 [Protocol/FrameProcessor/Properties/Step.agda:199-203] `handleDataFrame-ack-complete` 3-rewrite chain on a record-shaped goal (`Response.Ack` materialised through `iterate (stepProperty …)` + dispatch tuple). Per G-A2 max-1-rewrite-on-large-goals: refactor to `trans (cong proj₂ (iterate-correct …)) (cong … spec-eq)`.
-- `[ ]` AGDA-B-8.2 [Step.agda:219-223] `handleDataFrame-violation-complete` identical pattern; record-shaped (`Response.PropertyResponse (PropertyResult.Violation …)`) goal.
-- `[ ]` AGDA-B-8.3 [Bounded.agda:114-149] `indexHelper-counter` 6 clauses (And/Or/Until/Release/MetricUntil/MetricRelease) each chain 3 rewrites; ℕ-shaped (small) but repeats — candidate for `+-bilinear-bound` helper consuming both IHs + length-++ axiom.
-- `[ ]` AGDA-B-8.4 [Bounded.agda:228-256] `collectAtomsAcc-spec` same 6-clause 3-rewrite-chain pattern on `++ₗ`-shaped List goals.
-- `[ ]` AGDA-B-8.5 [Cache.agda:88] `lookupEntries-updateEntries-miss` `false | true` clause stacks 2 rewrites; minor.
+- `[x]` ✅ CLOSED Round 8 — AGDA-B-8.1 [Protocol/FrameProcessor/Properties/Step.agda:199-203] `handleDataFrame-ack-complete` 3-rewrite chain on a record-shaped goal (`Response.Ack` materialised through `iterate (stepProperty …)` + dispatch tuple). Refactored to single `rewrite mono` (case-dispatch on the `with checkMonotonic prev tf` guard, can't be replaced) plus `cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq` where `iter-eq = trans (iterate-correct step props) (cong (specResult step props ,_) spec-eq)`.
+- `[x]` ✅ CLOSED Round 8 — AGDA-B-8.2 [Step.agda:219-223] `handleDataFrame-violation-complete` identical pattern; same refactor with `iter-eq` paired against `just (idx , ce)` instead of `nothing`.
+- `[x]` ✅ CLOSED Round 8 — AGDA-B-8.3 [Bounded.agda:114-149] `indexHelper-counter` 6 clauses each chain 3 rewrites; cat 6 (Redundant patterns) per advisor. Extracted private `binary-counter-step` helper consuming both IHs + length-++ + `+-swap-sum` once; the 6 binary clauses (And/Or/Until/Release/MetricUntil/MetricRelease) collapse to one-line dispatchers.
+- `[x]` ✅ CLOSED Round 8 — AGDA-B-8.4 [Bounded.agda:228-256] `collectAtomsAcc-spec` same 6-clause pattern on `++ₗ`-shaped List goals; cat 6. Extracted private `binary-acc-spec-step` helper consuming both IHs + ++-assoc once; 6 clauses collapse to one-liners.
+- `[x]` SKIPPED Round 8 — AGDA-B-8.5 [Cache.agda:88] `lookupEntries-updateEntries-miss` `false | true` clause stacks 2 rewrites; finding self-labels "minor". Not a real G-A2 violation: lookupEntries equation is small-goal (G-A2's small-goal carve-out applies), and the 2 rewrites do essential variable rewriting (name'→n via ≡csᵇ-sound, then n≡csᵇ n→true to enable lookupEntries reduction). Refactor would require ~5 lines of cong/sym/lookupEntries-step plumbing for no real win. Per advisor "skip if it costs more".
 
 #### Cats 9, 18, 20, 23, 24, 26 — clean
 

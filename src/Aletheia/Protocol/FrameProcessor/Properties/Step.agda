@@ -30,7 +30,7 @@ open import Aletheia.Protocol.StreamState.Internals
            mkPredTable; updateCacheFromFrame)
 open import Aletheia.Protocol.Message using (Response; Ack; Error; PropertyResponse)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
-open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specHalt)
+open import Aletheia.Protocol.Iteration using (StepOutcome; advance; halt; iterate; iterate-correct; specResult; specHalt)
 open import Aletheia.Trace.CANTrace using (TimedFrame; timestamp; timestampℕ)
 open import Aletheia.LTL.Incremental using (StepResult; Continue; Violated; Satisfied; Counterexample)
 open import Aletheia.LTL.Coalgebra using (stepL)
@@ -40,7 +40,7 @@ open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<_; _%_)
 open import Data.Nat.DivMod using (m<n⇒m%n≡m)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
 
 -- ============================================================================
 -- PROPERTY 1: State machine guards
@@ -197,10 +197,14 @@ handleDataFrame-ack-complete : ∀ dbc props prev cache tf
   → specHalt (stepProperty dbc cache tf) props ≡ nothing
   → proj₂ (handleDataFrame (Streaming dbc props prev cache) tf) ≡ Response.Ack
 handleDataFrame-ack-complete dbc props prev cache tf mono spec-eq
-  rewrite mono
-  rewrite iterate-correct (stepProperty dbc cache tf) props
-  rewrite spec-eq
-  = refl
+  rewrite mono =
+    cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
+  where
+    step = stepProperty dbc cache tf
+    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    iter-eq : iterate step props ≡ (specResult step props , nothing)
+    iter-eq = trans (iterate-correct step props)
+                    (cong (specResult step props ,_) spec-eq)
 
 -- ============================================================================
 -- PROPERTY 15: Violation completeness — some violation ⇒ PropertyResponse
@@ -217,7 +221,11 @@ handleDataFrame-violation-complete : ∀ dbc props prev cache tf idx ce
           (mkCounterexampleData (TimedFrame.timestamp (Counterexample.violatingFrame ce))
                                 (Counterexample.reason ce)))
 handleDataFrame-violation-complete dbc props prev cache tf idx ce mono spec-eq
-  rewrite mono
-  rewrite iterate-correct (stepProperty dbc cache tf) props
-  rewrite spec-eq
-  = refl
+  rewrite mono =
+    cong (λ p → proj₂ (dispatchIterResult dbc p tf updatedCache)) iter-eq
+  where
+    step = stepProperty dbc cache tf
+    updatedCache = updateCacheFromFrame dbc cache (timestampℕ tf) (TimedFrame.frame tf)
+    iter-eq : iterate step props ≡ (specResult step props , just (idx , ce))
+    iter-eq = trans (iterate-correct step props)
+                    (cong (specResult step props ,_) spec-eq)
