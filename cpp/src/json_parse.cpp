@@ -551,6 +551,44 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
     throw std::runtime_error("Unknown attribute kind: " + kind);
 }
 
+// Track E.8 (Plan B): inverse of json_serialize.cpp's raw_value_desc_to_json.
+// Reads one unresolved RawValueDesc from the wire — message-id pair (id +
+// optional extended) plus signalName + entries array. Wire shape is fixed
+// at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
+// and Go `parseUnresolvedValueDescs`.
+static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
+    auto id_val = j.at("id").get<std::uint32_t>();
+    const bool extended = j.value("extended", false);
+    const CanId can_id = [&]() -> CanId {
+        if (extended) {
+            auto result = ExtendedId::create(id_val);
+            if (!result)
+                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
+                                         ": " + result.error());
+            return CanId{*result};
+        }
+        if (id_val > std::numeric_limits<std::uint16_t>::max())
+            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
+                                     " exceeds uint16 range");
+        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
+        if (!result)
+            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
+        return CanId{*result};
+    }();
+    std::vector<DbcValueEntry> entries;
+    for (const auto& e : j.at("entries"))
+        entries.push_back(DbcValueEntry{
+            .value = e.at("value").get<std::int64_t>(),
+            .description = e.at("description").get<std::string>(),
+        });
+    return DbcRawValueDesc{
+        .can_id = can_id,
+        .signal_name = j.at("signalName").get<std::string>(),
+        .entries = std::move(entries),
+    };
+}
+
 static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
@@ -581,6 +619,10 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     if (j.contains("attributes"))
         for (const auto& a : j.at("attributes"))
             attributes.push_back(parse_attribute(a));
+    std::vector<DbcRawValueDesc> unresolved_value_descriptions;
+    if (j.contains("unresolvedValueDescs"))
+        for (const auto& rvd : j.at("unresolvedValueDescs"))
+            unresolved_value_descriptions.push_back(parse_raw_value_desc(rvd));
     return DbcDefinition{
         .version = j.value("version", ""),
         .messages = std::move(messages),
@@ -590,6 +632,7 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
         .nodes = std::move(nodes),
         .comments = std::move(comments),
         .attributes = std::move(attributes),
+        .unresolved_value_descriptions = std::move(unresolved_value_descriptions),
     };
 }
 

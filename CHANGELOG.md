@@ -183,6 +183,17 @@ callers that consumed a bare success acknowledgement need to access
   `CANCELLATION.md` to the Python doc-example harness scope (it was
   already in the Go and C++ harness scopes) so future drifts in
   imports / class names fail the build (R18 cluster 13).
+- **C++**: JSON parser previously dropped the `unresolvedValueDescs`
+  field on the parse path even though the serializer emitted it. A
+  `DbcDefinition` carrying Track E.8 unresolved VAL\_ entries (from the
+  text-parse path) would survive the serializer round-trip on Python
+  (`_helpers.py::_normalize_raw_value_desc`) and Go
+  (`json.go::parseUnresolvedValueDescs`) but lose them on C++. Added
+  `parse_raw_value_desc` to `json_parse.cpp` mirroring
+  `raw_value_desc_to_json` in `json_serialize.cpp`; cross-binding wire
+  parity restored. Three regression tests pin the parse arm + the
+  serialize→parse roundtrip in `cpp/tests/unit_tests_json.cpp` (R18
+  cluster 12).
 - **Docs**: `iter_can_log` is documented to yield 5-tuples
   `(timestamp_us, arbitration_id, dlc, data, extended)`, but seven doc
   sites unpacked them as 4-tuples (`for ts, can_id, dlc, data in

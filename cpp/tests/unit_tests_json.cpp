@@ -1046,6 +1046,104 @@ TEST_CASE("parse_dbc_response rejects unknown comment target kind",
     CHECK_THAT(std::string{result.error().message()}, ContainsSubstring("comment target kind"));
 }
 
+// ===========================================================================
+// Track E.8 (Plan B) — `unresolvedValueDescs` parse / roundtrip
+//
+// The serializer was already emitting `unresolvedValueDescs` (R18 cluster 12
+// originally caught the asymmetry: emit ✓ / parse ✗). These tests pin the
+// missing parse-arm so a future regression cannot silently re-drop the field.
+// ===========================================================================
+
+TEST_CASE("parse_dbc_response decodes unresolvedValueDescs", "[json][parse][dbc][trackE]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {
+            "version": "1.0",
+            "messages": [],
+            "unresolvedValueDescs": [
+                {"id": 256,
+                 "signalName": "PhantomSignal",
+                 "entries": [
+                    {"value": 0, "description": "Off"},
+                    {"value": 1, "description": "On"}
+                 ]},
+                {"id": 1234567,
+                 "extended": true,
+                 "signalName": "GhostSignal",
+                 "entries": [{"value": 7, "description": "Lucky"}]}
+            ]
+        }
+    })");
+    REQUIRE(result.has_value());
+    REQUIRE(result->unresolved_value_descriptions.size() == 2);
+
+    const auto& rvd0 = result->unresolved_value_descriptions[0];
+    CHECK(std::holds_alternative<StandardId>(rvd0.can_id));
+    CHECK(std::get<StandardId>(rvd0.can_id).value() == 256);
+    CHECK(rvd0.signal_name == "PhantomSignal");
+    REQUIRE(rvd0.entries.size() == 2);
+    CHECK(rvd0.entries[0].value == 0);
+    CHECK(rvd0.entries[0].description == "Off");
+    CHECK(rvd0.entries[1].value == 1);
+    CHECK(rvd0.entries[1].description == "On");
+
+    const auto& rvd1 = result->unresolved_value_descriptions[1];
+    CHECK(std::holds_alternative<ExtendedId>(rvd1.can_id));
+    CHECK(std::get<ExtendedId>(rvd1.can_id).value() == 1234567);
+    CHECK(rvd1.signal_name == "GhostSignal");
+    REQUIRE(rvd1.entries.size() == 1);
+    CHECK(rvd1.entries[0].value == 7);
+    CHECK(rvd1.entries[0].description == "Lucky");
+}
+
+TEST_CASE("DbcDefinition unresolvedValueDescs survives serialize -> parse",
+          "[json][serialize][parse][dbc][trackE][regression]") {
+    // Wire-roundtrip parity with Python (`_helpers.py::_normalize_raw_value_desc`)
+    // and Go (`json.go::parseUnresolvedValueDescs`). Originally the C++ parser
+    // dropped `unresolvedValueDescs` silently; this test pins the field through
+    // the full serialize-then-parse cycle.
+    auto dbc = make_test_dbc();
+    dbc.unresolved_value_descriptions.push_back(DbcRawValueDesc{
+        .can_id = CanId{*StandardId::create(0x100)},
+        .signal_name = "Phantom",
+        .entries = {DbcValueEntry{.value = 0, .description = "Off"},
+                    DbcValueEntry{.value = 1, .description = "On"}},
+    });
+
+    // Serialize via the parse_dbc COMMAND form — the "dbc" body shape is
+    // identical to the "dbc" body shape in a parse_dbc RESPONSE, so the
+    // wire shape under test is the same one the FFI emits and consumes.
+    auto cmd_str = detail::serialize_parse_dbc(dbc);
+    auto cmd_j = json::parse(cmd_str);
+    REQUIRE(cmd_j.contains("dbc"));
+    REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].is_array());
+    REQUIRE(cmd_j["dbc"]["unresolvedValueDescs"].size() == 1);
+
+    // Re-wrap the dbc body as a success response and parse it back.
+    json response = {{"status", "success"}, {"dbc", cmd_j["dbc"]}};
+    auto parsed = detail::parse_dbc_response(response.dump());
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->unresolved_value_descriptions.size() == 1);
+    const auto& rvd = parsed->unresolved_value_descriptions[0];
+    CHECK(std::holds_alternative<StandardId>(rvd.can_id));
+    CHECK(std::get<StandardId>(rvd.can_id).value() == 0x100);
+    CHECK(rvd.signal_name == "Phantom");
+    REQUIRE(rvd.entries.size() == 2);
+    CHECK(rvd.entries[0].value == 0);
+    CHECK(rvd.entries[0].description == "Off");
+    CHECK(rvd.entries[1].value == 1);
+    CHECK(rvd.entries[1].description == "On");
+}
+
+TEST_CASE("parse_dbc_response accepts missing unresolvedValueDescs", "[json][parse][dbc][trackE]") {
+    auto result = detail::parse_dbc_response(R"({
+        "status": "success",
+        "dbc": {"version": "1.0", "messages": []}
+    })");
+    REQUIRE(result.has_value());
+    CHECK(result->unresolved_value_descriptions.empty());
+}
+
 TEST_CASE("parse_extraction rejects zero denominator in rational", "[json][parse][error]") {
     auto result = detail::parse_extraction(R"({
         "status": "success",
