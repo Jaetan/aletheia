@@ -11,13 +11,12 @@
 --         Both string-keyed and index-keyed variants share the parameterized
 --         PartitionedResults record.
 module Aletheia.CAN.BatchExtraction where
-open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; Success; SignalNotInDBC; SignalNotPresent; ValueOutOfBounds; ExtractionFailed)
 open import Aletheia.CAN.SignalExtraction using (extractSignalDirect)
 open import Aletheia.CAN.DBCHelpers using (findMessageById)
-open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
+open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.Rational using (ℚ)
 open import Data.Rational.Show using () renaming (show to showℚ)

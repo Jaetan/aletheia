@@ -476,10 +476,9 @@ VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
 
     auto parsed = client.parse_dbc_text(std::stop_token{}, text);
     REQUIRE(parsed.has_value());
-    bool hit = std::ranges::any_of(parsed->warnings,
-        [](const ValidationIssue& issue) {
-            return issue.code == IssueCode::UnknownValueDescriptionTarget;
-        });
+    bool hit = std::ranges::any_of(parsed->warnings, [](const ValidationIssue& issue) {
+        return issue.code == IssueCode::UnknownValueDescriptionTarget;
+    });
     CHECK(hit);
 }
 

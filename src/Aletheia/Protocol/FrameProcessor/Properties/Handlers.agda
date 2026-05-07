@@ -28,7 +28,6 @@ open import Aletheia.Protocol.Handlers
     using (handleExtractAllSignals; handleFormatDBC)
 open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
-open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)

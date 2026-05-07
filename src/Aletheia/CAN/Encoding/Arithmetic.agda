@@ -27,7 +27,7 @@ fullRange bitLength = 2 ^ bitLength
 -- Convert a natural number to a signed integer based on bit length.
 -- Two's complement per CAN 2.0B / ISO 11898-1 §8.4.2.2.
 toSigned : ℕ → ℕ → Bool → ℤ
-toSigned raw bitLength false = + raw
+toSigned raw _ false = + raw
 toSigned raw bitLength true =
   let isNegative = signBitMask bitLength Data.Nat.≤ᵇ raw
   in if isNegative

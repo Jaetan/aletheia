@@ -15,7 +15,7 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
-open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Char using () renaming (_≟_ to _≟ᶜ_)
 open import Data.List using (List; []; _∷_)
 import Data.List.Properties as ListProps
 open import Data.List.NonEmpty using (List⁺; toList)

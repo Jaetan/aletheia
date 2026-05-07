@@ -23,7 +23,6 @@
 -- Runtime cost: zero (proofs erased by MAlonzo compilation).
 module Aletheia.CAN.SignalExtraction.Properties where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
-open import Aletheia.DBC.Types using (signalNameStr)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.ExtractionResult using (ExtractionResult; SignalNotPresent)
@@ -31,7 +30,7 @@ open import Aletheia.CAN.SignalExtraction
     using (checkPresenceP; checkSignalPresence; extractSignalDirect)
 open import Aletheia.CAN.DBCHelpers using (findSignalByName; findSignalInList)
 open import Aletheia.DBC.Validator.Checks using (walkMux; findSignalPresence)
-open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Error using (ExtractionError)
 open import Data.String using (String)
 open import Data.Nat using (ℕ; zero; suc)

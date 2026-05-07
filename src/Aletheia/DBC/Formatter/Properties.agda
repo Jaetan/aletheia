@@ -22,7 +22,6 @@
 module Aletheia.DBC.Formatter.Properties where
 
 open import Data.List using (List; []; map)
-open import Data.List.Relation.Unary.All using (All)
 open import Data.Product using (_,_; ∃-syntax)
 open import Data.Sum using (_⊎_; inj₂)
 open import Data.Sum.Properties using (inj₂-injective)

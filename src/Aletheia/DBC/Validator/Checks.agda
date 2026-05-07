@@ -10,10 +10,10 @@
 module Aletheia.DBC.Validator.Checks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr)
 
 open import Aletheia.DBC.Types using
-  ( DBCMessage; DBCSignal; SignalPresence; Always; When
+  ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr
+  ; DBCMessage; DBCSignal; SignalPresence; Always; When
   ; ValidationIssue; mkIssue; IsError; IsWarning
   ; DuplicateMessageId; DuplicateSignalName; FactorZero
   ; MultiplexorNotFound; MultiplexorCycle

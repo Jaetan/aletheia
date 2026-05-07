@@ -71,7 +71,7 @@ open import Data.Nat.Coprimality
   renaming (sym to coprime-sym)
 open import Data.Nat.Primality
   using (Prime; prime[2]; prime?; prime⇒irreducible)
-open import Relation.Nullary.Decidable.Core using (toWitness; recompute)
+open import Relation.Nullary.Decidable.Core using (toWitness; recompute; isYes; map′)
 open import Data.Rational.Unnormalised.Base
   using (ℚᵘ; mkℚᵘ; *≡*)
   renaming (_≃_ to _≃ᵘ_; ↥_ to ↥ᵘ_; ↧_ to ↧ᵘ_)
@@ -90,7 +90,6 @@ open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality
   using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst; module ≡-Reasoning)
 open import Relation.Nullary using (Dec; yes; no; ¬_)
-open import Relation.Nullary.Decidable.Core using (isYes; map′)
 
 ------------------------------------------------------------------------
 -- Canonical invariant

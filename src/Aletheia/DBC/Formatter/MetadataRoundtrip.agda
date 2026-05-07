@@ -20,7 +20,6 @@ open import Aletheia.DBC.DecRat.Refinement using
    natDecRatToℕ; mkNatDecRatFromℕ;
    mkIntDecRatFromℤ-intDecRatToℤ; mkNatDecRatFromℕ-natDecRatToℕ)
 open import Data.Bool.Properties using (T?; T-irrelevant)
-open import Data.Unit using (tt)
 open import Data.Empty using (⊥-elim)
 open import Relation.Nullary using (yes; no)
 
@@ -31,7 +30,6 @@ open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Rational using (ℚ)
 open import Data.Integer using (ℤ)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; trans; cong)
 open import Aletheia.DBC.DecRat using (DecRat; toℚ)

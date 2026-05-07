@@ -21,7 +21,7 @@
 --      file additions).
 module Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions where
 
-open import Data.Bool using (Bool; true; false; if_then_else_; _∧_)
+open import Data.Bool using (Bool; true; false; if_then_else_; _∨_; _∧_)
 open import Data.Char using (Char)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.List using (List; []; _∷_; map)
@@ -727,7 +727,6 @@ collectFromMessages-stops (m ∷ ms) =
 -- first-match semantics, but the "did this rvd resolve at all" question
 -- is monotone under duplicates.
 
-open import Data.Bool using (_∨_; _∧_)
 open import Data.Bool.Properties using (∨-zeroʳ)
 open import Data.Bool.ListAction using (any)
 

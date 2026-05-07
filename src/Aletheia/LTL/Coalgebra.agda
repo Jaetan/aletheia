@@ -22,8 +22,7 @@
 module Aletheia.LTL.Coalgebra where
 
 open import Aletheia.Prelude
-open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease)
-open import Aletheia.LTL.Syntax using (decodeStart; mapLTL)
+open import Aletheia.LTL.Syntax using (LTL; Atomic; Not; And; Or; Next; WNext; Always; Eventually; Until; Release; MetricEventually; MetricAlways; MetricUntil; MetricRelease; decodeStart; mapLTL)
 open import Aletheia.LTL.Incremental using
   ( StepResult; Continue; Violated; Satisfied
   ; Counterexample; mkCounterexample

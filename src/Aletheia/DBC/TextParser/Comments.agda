@@ -43,7 +43,6 @@ open import Data.Char using (Char)
 
 open import Aletheia.Parser.Combinators using
   (Parser; pure; _>>=_; many; fail)
-open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.TextParser.Lexer using (parseNewline)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 

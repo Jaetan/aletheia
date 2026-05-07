@@ -17,8 +17,6 @@ open import Data.Bool using (true; false)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _<ᵇ_)
 open import Data.Product using (_×_; _,_)
-open import Aletheia.DBC.Types using (DBC)
-open import Aletheia.LTL.SignalPredicate using (SignalCache)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Trace.CANTrace using (TimedFrame; TraceEvent; Data; Error; Remote; timestamp; timestampℕ)
 open import Aletheia.Protocol.Iteration using (iterate)
@@ -62,9 +60,9 @@ checkMonotonic (just p) tf with timestampℕ tf <ᵇ timestampℕ p
 -- O(1) Memory: Properties maintain fixed-size LTLProc state (no trace accumulation).
 -- Violation Reporting: First violation halts iteration with counterexample evidence.
 handleDataFrame : StreamState → TimedFrame → StreamState × Response
-handleDataFrame WaitingForDBC tf =
+handleDataFrame WaitingForDBC _ =
   (WaitingForDBC , Response.Error (WithContext "DataFrame" (HandlerErr NoDBC)))
-handleDataFrame state@(ReadyToStream _ _ _) tf =
+handleDataFrame state@(ReadyToStream _ _ _) _ =
   (state , Response.Error (WithContext "DataFrame" (HandlerErr StreamNotStarted)))
 handleDataFrame state@(Streaming dbc props prev cache) tf with checkMonotonic prev tf
 ... | just err =

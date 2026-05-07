@@ -9,9 +9,7 @@
 -- Workflow: Lookup signal definition in DBC → validate frame ID → extract bits → scale.
 module Aletheia.CAN.SignalExtraction where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
-open import Aletheia.DBC.Types using (signalNameStr)
 open import Data.Char using (Char)
-open import Data.List using (List)
 
 open import Aletheia.CAN.Frame using (CANFrame)
 open import Aletheia.CAN.Signal using (SignalDef)
@@ -22,7 +20,6 @@ open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.CAN.DBCHelpers using (findMessageById; findSignalByName)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.Error using (ExtractionError; MuxValueMismatch; MuxSignalNotFound; MuxChainCycle; MuxExtractionFailed)
-open import Data.String using (String)
 open import Data.Rational using (ℚ; _/_; _≤ᵇ_)
 open import Data.Integer using (+_)
 open import Data.Nat using (ℕ; zero; suc)
