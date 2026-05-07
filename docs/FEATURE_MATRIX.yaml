@@ -168,7 +168,7 @@ features:
 
   - id: dbc_signal_value_descriptions
     name: DBC signal value descriptions (per-signal VAL_ entries)
-    description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
+    description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. Orphan ``VAL_`` entries (no matching signal) are preserved on ``DbcDefinition.unresolvedValueDescs`` so callers can introspect them and the validator can warn. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
     related: R17-DEF-2, Phase E
     bindings:
       python:
