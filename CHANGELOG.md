@@ -170,6 +170,19 @@ callers that consumed a bare success acknowledgement need to access
   in all bindings emit a single canonical event name (R18 cluster 10).
   Affects log collectors, dashboards, or alerting rules that filter
   by event name on Go logs from the text-parse path.
+- **Docs**: `docs/architecture/CANCELLATION.md` Python example now
+  uses the real `AletheiaClient(default_checks=...)` constructor and
+  `await client.parse_dbc_text(...)` flow — the previous
+  `AletheiaClient(dbc=..., checks=...)` form was a hallucination
+  (no such kwargs ever existed). Stale `AsyncAletheiaClient` symbol
+  references corrected to `aletheia.asyncio.AletheiaClient`, and stale
+  matrix-row IDs (`lazy_frame_iter`, `cancellation`) corrected to the
+  IDs actually present in `docs/FEATURE_MATRIX.yaml`
+  (`lazy_streaming_batch`, `cancellation_contract`). Same kwargs fix
+  applied to the `aletheia.asyncio` package docstring example. Added
+  `CANCELLATION.md` to the Python doc-example harness scope (it was
+  already in the Go and C++ harness scopes) so future drifts in
+  imports / class names fail the build (R18 cluster 13).
 
 ---
 

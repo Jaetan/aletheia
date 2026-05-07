@@ -143,11 +143,15 @@ A monitoring task watches a CAN bus for property violations and gives up if no v
 
 ```python
 import asyncio
+import pathlib
+
+from aletheia import load_checks
 from aletheia.asyncio import AletheiaClient
 
 async def watch_for_violation(dbc_path: str, timeout_s: float) -> bool:
     """Return True if a property violation occurs within `timeout_s`, else False."""
-    async with AletheiaClient(dbc=dbc_path, checks=load_checks()) as client:
+    async with AletheiaClient(default_checks=load_checks("checks.yaml")) as client:
+        await client.parse_dbc_text(pathlib.Path(dbc_path).read_text(encoding="utf-8"))
         await client.start_stream()
         try:
             async with asyncio.timeout(timeout_s):
@@ -299,7 +303,7 @@ This is intentional: errors are primary signals about data integrity, and buryin
 
 Go's `Client` is goroutine-safe via the channel-based ctx-aware lock. This produces a behavior worth highlighting: a goroutine cancelled while *waiting* for the lock returns `ctx.Err()` immediately, without ever acquiring the lock or reaching the FFI. This is structurally cleaner than `sync.Mutex.Lock()` would be — `sync.Mutex` has no native ctx-aware variant and would force the waiter to acquire the lock, then return `ctx.Err()` only at the post-lock check.
 
-The Python and C++ bindings do not have this consideration: Python's `AsyncAletheiaClient` is not concurrent-safe across asyncio tasks (each task should hold its own client instance, the same as the sync client), and C++ is single-client-per-thread by design.
+The Python and C++ bindings do not have this consideration: Python's `aletheia.asyncio.AletheiaClient` is not concurrent-safe across asyncio tasks (each task should hold its own client instance, the same as the sync client), and C++ is single-client-per-thread by design.
 
 ### 5.4 What "committed" means for Aletheia state
 
@@ -321,7 +325,7 @@ It does not invalidate any external state the caller has built up alongside Alet
 
 - `docs/architecture/DESIGN.md` — Aletheia's three-layer architecture (the GHC RTS constraint that drives Rule 1 lives there).
 - `docs/architecture/PROTOCOL.md` — JSON command / binary frame protocols. Cancellation is *not* part of the wire protocol; it is a binding-side concern.
-- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_frame_iter` (Python-only by language constraint), `cancellation` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `AsyncAletheiaClient`, Go `ctx`, C++ `std::stop_token`).
+- `docs/FEATURE_MATRIX.yaml` — cross-binding capability matrix. Rows touched by this contract: `lazy_streaming_batch` (Python-only by language constraint), `cancellation_contract` (per-binding mechanic), and the operation rows that gain a cancellation primitive (Python `aletheia.asyncio.AletheiaClient`, Go `ctx`, C++ `std::stop_token`).
 
 ---
 

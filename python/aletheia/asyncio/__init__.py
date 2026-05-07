@@ -12,7 +12,8 @@ Example::
     from aletheia.asyncio import AletheiaClient
 
     async def watch(timeout_s: float) -> None:
-        async with AletheiaClient(dbc=dbc_path) as client:
+        async with AletheiaClient(default_checks=checks) as client:
+            await client.parse_dbc_text(dbc_text)
             await client.set_properties(properties)
             await client.start_stream()
             try:
