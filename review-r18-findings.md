@@ -43,7 +43,7 @@ Findings get unique IDs (`<lang>-<agent>-<cat>.<n>`). Disposition legend: `[ ]` 
 
 The three new R18 universal rules each declared "the first review round under this rule must surface...". All three findings hit:
 
-- `[ ]` **UR-1.1** No `/CHANGELOG.md` at repo root. Universal Rule "Public API stability and CHANGELOG discipline" mandates Keep-a-Changelog format with sections per release. Public API changes since last baseline (Track E.10 `format_dbc_text`, E.11 `IssueCode::UnknownValueDescriptionTarget` + Python `aletheia/validation.py` NEW + C++ `validation.hpp` enum additions + Go `IssueUnknownValueDescriptionTarget`, B.3 binding additions, C cancellation surface, etc.) are unrecorded.
+- `[FIX]` **UR-1.1** No `/CHANGELOG.md` at repo root. Universal Rule "Public API stability and CHANGELOG discipline" mandates Keep-a-Changelog format with sections per release. Public API changes since last baseline (Track E.10 `format_dbc_text`, E.11 `IssueCode::UnknownValueDescriptionTarget` + Python `aletheia/validation.py` NEW + C++ `validation.hpp` enum additions + Go `IssueUnknownValueDescriptionTarget`, B.3 binding additions, C cancellation surface, etc.) are unrecorded.  → Closed Round 2 (cluster 8): `CHANGELOG.md` created at repo root with `[2.0.0] — Unreleased` section seeded from the v1.1.1 → HEAD public-API diff.
 - `[ ]` **UR-2.1** No `§ Limits` section in `docs/architecture/PROTOCOL.md`. Universal Rule "Adversarial-input bounds at parser surfaces" mandates documented compile-time bounds.
 - `[ ]` **UR-2.2** No `Aletheia.Limits` Agda module. The kernel-side bounds-constant reference cited by Agda cat 32 / Go cat 28 / C++ cat 28 / Python cat 26 does not exist.
 - `[ ]` **UR-2.3** No `InputBoundExceeded` typed error in any of the 7 Agda Error ADTs (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`, `DBCTextParseError`, `ExtractionError`).
@@ -1023,7 +1023,7 @@ After all dispositions are marked above, this section will hold the round's plan
 **Pending discussion items before plan finalization:**
 
 1. ✓ Resolved 2026-05-07: Agda Agent B re-run completed; 8 substantive findings folded into AGDA-B-* section above.
-2. Decide whether `--bignum=native` tracking and CHANGELOG bootstrap stay coupled to UR-3 in this round, or split.
+2. ✓ Resolved 2026-05-07: split.  CHANGELOG bootstrap is its own cluster 8 (FIX-early, closed Round 2); `--bignum=native` tracking stays under UR-3 (DEFER-end-of-round, cluster 3).
 3. Decide whether cat 33/34 (new R18 categories) findings are deferred (mass infrastructure) or partially actioned this round (start with sanitizer lane + `python -X dev` lane as proof-of-concept; the latter already surfaces 3 cancellation-test flakes — PY-B-14a.1).
 4. Confirm fix-vs-defer for `iter_can_log` 4-tuple unpacks — Track D doc-example harness should have caught these; investigate why it didn't (DOC-B-15.* root cause).
 5. Confirm the `WellFormedDBC` two-records situation (AGDA-D-11.1) is a rename rather than a redesign.
@@ -1057,6 +1057,40 @@ Status: ✓ landed on `review-r18` per commit chain. Build + check-properties bo
 **Cluster 15 items deferred (judgment calls — surface for discussion):**
 - AGDA-A-2.1 / AGDA-A-2.2 [src/Aletheia/DBC/TextParser/Properties/Comments/Comment.agda:118-119,127] — the literal `2048` is part of a self-contained lemma `2048<extFlagBit` whose name and body both reference the bare number; renaming touches consumers. Discuss whether to (a) replace the literal with `standard-can-id-max` only in the prose comments at L116-117 and L127, or (b) refactor the lemma body+type+name to use the constant + add a deprecation alias.
 - AGDA-A-4.1 [src/Aletheia/DBC/TextParser/Format/ValueDescription.agda:129-130] — open-ended TODO without a memory-file pointer. Discuss whether the consolidation is in scope (touching 2 sites that do similar work) or whether to enrich the TODO with a memory pointer instead.
+
+---
+
+## Round 1 follow-up (Cluster 15 over-prune — `signalNameStr` import)
+
+The Round 1 cluster-15 batch (`ae9fe67`) over-pruned one `using` symbol that was actually referenced.  Caught when re-running `cabal run shake -- build` as the cluster 8 pre-commit gate.
+
+**Regression:** `src/Aletheia/CAN/SignalExtraction.agda` line 21 had `open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence; Always; When)` — but `signalNameStr` was previously also in that `using` clause (originally on its own `open import Aletheia.DBC.Types using (signalNameStr)` line; the cluster-15 batch dropped the standalone line as "duplicate" without merging the symbol into the surviving clause).  `signalNameStr` is still called at line 46: `MuxExtractionFailed (signalNameStr muxSig)`.  Agda fails with `signalNameStr` not in scope.
+
+**Fix:** restore `signalNameStr` to the `Aletheia.DBC.Types` using clause (one-line revert).
+
+**Why the Round 1 commit's "all 8 gates clean" claim was incorrect:** the pre-existing `build/libaletheia-ffi.so` artifact had mtime `2026-05-07 12:38`, predating the cluster-15 source edits at `2026-05-07 14:54`.  Gate output was almost certainly captured against an earlier state and the post-edit re-run was skipped.  The `clean && build` recovery from CLAUDE.md was needed to clear a stale MAlonzo cache (`build/MAlonzo/Code/Aletheia/Data/BitVec/Conversion.hs` from May 3 had old name-mangling vs. freshly-regenerated `Encoding.hs`'s newer numbering).  Both issues stem from the same root cause: the cluster-15 commit's gate run did not happen at the actual commit hash.
+
+**Audit scope:** static substring auditor of `ae9fe67`'s 38 Agda-file diff flagged ~90 candidate regressions; the vast majority were FPs (substring matches in comments, partial matches in compound identifiers like `SignalNotInDBC`, or symbols still imported via merged `using` clauses).  Agda's scope checker is the authoritative oracle: a clean `cabal run shake -- build` rules out all import-scope regressions.  After the one-line fix, full clean+build went through (3m18s); rest of the gate sweep (`check-properties`, binding tests, lint gates) confirmed clean.
+
+**Lesson (for the round retro):** mechanical-batch commits that touch many files must run gates at exactly the post-edit commit hash, with output captured.  The "all gates clean" line in the commit message is now treated as a falsifiable claim — re-runnable against the commit hash and verified before trusting it.  Per `feedback_review_round_dispositions.md` Rule 2 ("FP needs explicit double-check — surface fixes can hide missing mechanisms"), the missing mechanism here is: a CI gate that fails commit-message claims of "all gates clean" without an attached gate-output artifact.  Belongs to the same family as the deferred `tools/check-changelog.sh` enforcement — both are CI gates against gate-claim integrity, both deferred to cluster 1 (CICD bootstrap).
+
+---
+
+## Round 2 progress (Cluster 8 — CHANGELOG bootstrap)
+
+Status: ✓ landed on `review-r18`.  Doc-only commit; no proof / lint / benchmark gates required (per `AGENTS.md` § "Step 4: Implement and verify": "Changes to docs-only files may skip step 4 (benchmarks) after confirming no code changed.").
+
+**Cluster 8 — UR-1.1 closed:**
+- `/home/nicolas/dev/agda/aletheia/CHANGELOG.md` created at repo root in [Keep a Changelog 1.1.0] format under [Semantic Versioning 2.0.0].  Single seeded section `[2.0.0] — Unreleased` covers the v1.1.1 → HEAD public-surface diff (~5 weeks, ~198 commits) across Python / Go / C++.
+- Version anchor decision: **v2.0.0 (SemVer)**.  Honest SemVer given the breaking signature refactor on every Go `Client` operation method (`ctx context.Context` first param, Track C.3) and every C++ `AletheiaClient` operation method (`std::stop_token` first param, Track C.4).  Migration guidance accompanies each `BREAKING` heading.
+- Section structure: cross-binding entries clustered first ("behavioral parity, not syntactic identity" per `docs/development/PARITY_PLAN.md:8`), then per-binding additions (Python / Go / C++).  Sub-sections: Added / Changed (incl. BREAKING) / Removed / Fixed.
+
+**Deferred to cluster 1 (CICD bootstrap):** structural CI gate that diffs the public surface and requires a CHANGELOG entry on PRs that change it.  No `.github/` infrastructure exists yet (CICD-1.1), so the gate has nowhere to run.  When cluster 1 lands, add a `tools/check-changelog.sh` (or equivalent workflow step) that fails on public-API drift without a matching CHANGELOG entry.
+
+**Pre-v2.0.0 history backfill:** explicitly out of scope.  The R18 rule's "seed for its initial population" phrasing is satisfied by the v1.1.1 → HEAD diff; bootstrap is bounded.  Tag-history pointer (`v1.1.1`, `v1.0.0`, `v0.3.2`, ...) shipped at the bottom of `CHANGELOG.md` with a `git log <tag>` cross-reference.
+
+[Keep a Changelog 1.1.0]: https://keepachangelog.com/en/1.1.0/
+[Semantic Versioning 2.0.0]: https://semver.org/spec/v2.0.0.html
 
 ---
 
