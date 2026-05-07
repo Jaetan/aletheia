@@ -3,12 +3,14 @@
 -- JSON formatter (structurally recursive on JSON).
 --
 -- Purpose: Serialize JSON values to strings.
--- Design: Escape sequences intentionally unsupported — the Aletheia protocol
--- uses a constrained JSON subset where strings contain no quotes or escape chars.
+-- Strings are escaped (", \, \n, \r, \t) to be inverse to JSON.Parse, which
+-- has handled escapes from the start.  Phase E.10 added the escape pass so
+-- DBCTextResponse can carry literal quotes and newlines round-trip through
+-- the JSON envelope.
 module Aletheia.Protocol.JSON.Format where
 
 open import Data.String using (String; fromList) renaming (_++_ to _++ₛ_)
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List; []; _∷_; concatMap)
 open import Data.Char using (Char)
 open import Data.Bool using (true; false)
 open import Data.Nat using (ℕ; zero; suc)
@@ -31,12 +33,25 @@ formatRational r with Rat.toℚᵘ r
       "{\"numerator\": " ++ₛ showℤ num ++ₛ
       ", \"denominator\": " ++ₛ showℕ (suc (suc denom-1)) ++ₛ "}"
 
+private
+  escapeChar : Char → List Char
+  escapeChar c with c
+  ... | '"'   = '\\' ∷ '"' ∷ []
+  ... | '\\'  = '\\' ∷ '\\' ∷ []
+  ... | '\n'  = '\\' ∷ 'n' ∷ []
+  ... | '\r'  = '\\' ∷ 'r' ∷ []
+  ... | '\t'  = '\\' ∷ 't' ∷ []
+  ... | other = other ∷ []
+
+  escapeString : List Char → List Char
+  escapeString = concatMap escapeChar
+
 formatJSON : JSON → String
 formatJSON JNull = "null"
 formatJSON (JBool true) = "true"
 formatJSON (JBool false) = "false"
 formatJSON (JNumber n) = formatRational n
-formatJSON (JString cs) = "\"" ++ₛ fromList cs ++ₛ "\""
+formatJSON (JString cs) = "\"" ++ₛ fromList (escapeString cs) ++ₛ "\""
 formatJSON (JArray xs) = "[" ++ₛ formatJSONList xs ++ₛ"]"
   where
     formatJSONList : List JSON → String

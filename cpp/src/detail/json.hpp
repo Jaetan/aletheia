@@ -32,6 +32,7 @@ auto serialize_parse_dbc_text(std::string_view text) -> std::string;
 auto serialize_parsed_dbc_response(const DbcDefinition& dbc) -> std::string;
 auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string;
 auto serialize_format_dbc() -> std::string;
+auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string;
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)
     -> std::string;
 auto serialize_set_properties(std::span<const LtlFormula> props) -> std::string;
@@ -63,5 +64,8 @@ auto parse_dbc_response(std::string_view input) -> Result<DbcDefinition>;
 // `dbc` (DbcDefinition) and `warnings` (list of ValidationIssue), or
 // `"error"` with a typed code.
 auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC>;
+// Parse the response from formatDBCText: `"success"` carrying `text`
+// (the .dbc text image), or `"error"` with a typed code (Phase E.10).
+auto parse_dbc_text_response(std::string_view input) -> Result<std::string>;
 
 } // namespace aletheia::detail

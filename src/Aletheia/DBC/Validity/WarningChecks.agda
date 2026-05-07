@@ -37,7 +37,10 @@ open import Aletheia.DBC.Validator using
   ; checkAllUnknownSignalReceivers
   ; checkUnknownAdditionalSender; checkAdditionalSendersForMessage
   ; checkAllUnknownAdditionalSenders
+  ; checkUnknownValueDescriptionTarget
+  ; checkAllUnknownValueDescriptionTargets
   )
+open import Aletheia.DBC.Types using (RawValueDesc)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using
@@ -734,3 +737,19 @@ checkAllUnknownAdditionalSenders-allW msgs nodes@(_ ∷ _) =
     go : ∀ ms → All (λ m → All W (checkAdditionalSendersForMessage nodes m)) ms
     go [] = []
     go (m ∷ ms) = checkAdditionalSendersForMessage-allW nodes m ∷ go ms
+
+-- ============================================================================
+-- CHECK 23: UNKNOWN VALUE DESCRIPTION TARGET — Severity
+-- ============================================================================
+
+checkUnknownValueDescriptionTarget-allW : ∀ rvd →
+  All W (checkUnknownValueDescriptionTarget rvd)
+checkUnknownValueDescriptionTarget-allW _ = refl ∷ []
+
+checkAllUnknownValueDescriptionTargets-allW : ∀ rvds →
+  All W (checkAllUnknownValueDescriptionTargets rvds)
+checkAllUnknownValueDescriptionTargets-allW rvds = All-concatMap (go rvds)
+  where
+    go : ∀ xs → All (λ rvd → All W (checkUnknownValueDescriptionTarget rvd)) xs
+    go [] = []
+    go (rvd ∷ xs) = checkUnknownValueDescriptionTarget-allW rvd ∷ go xs

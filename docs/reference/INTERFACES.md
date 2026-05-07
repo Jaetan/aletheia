@@ -41,6 +41,7 @@ following table summarizes feature availability per binding:
 | Excel loader | ✅ (`load_checks_from_excel`) | ✅ (`aletheia::excel::...`) | ✅ (separate `go/excel/` module) |
 | DBC JSON input (`dbc_to_json`) | ✅ | ✅ | ✅ |
 | DBC text (`.dbc`) parsing | ✅ (`parse_dbc_text` / `dbc_to_json`) | ✅ (`parse_dbc_text`) | ✅ (`ParseDBCText`) |
+| DBC text (`.dbc`) formatting | ✅ (`format_dbc_text` / `dbc_to_text`) | ✅ (`format_dbc_text`) | ✅ (`FormatDBCText`) |
 | Streaming `send_frame` / binary FFI | ✅ | ✅ | ✅ |
 
 The same call, side by side across the three bindings:
@@ -105,6 +106,18 @@ auto response = client.send_frame(std::stop_token{}, ts, can_id, dlc, data);
 ```go
 response, err := client.SendFrame(ctx, ts, canID, dlc, data)
 _, _ = response, err
+```
+
+**DBC text formatting** — render a `DbcDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level):
+```python
+text = client.format_dbc_text(dbc)
+```
+```cpp
+auto text = client.format_dbc_text(std::stop_token{}, dbc);
+```
+```go
+text, err := client.FormatDBCText(ctx, dbc)
+_, _ = text, err
 ```
 
 These pairs are deliberately line-by-line equivalent — a regression in one binding that diverges from the others is a parity bug, not a design choice. See the [Distribution Guide § Loading the FFI library](../development/DISTRIBUTION.md) for the constructor boilerplate (`make_ffi_backend` / `NewFFIBackend` / `AletheiaClient(ffi_path=...)`) that sits one layer below these calls.

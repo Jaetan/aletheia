@@ -109,17 +109,25 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 			if receivers == nil {
 				receivers = []string{}
 			}
+			vds := make([]map[string]any, 0, len(sig.ValueDescriptions))
+			for _, e := range sig.ValueDescriptions {
+				vds = append(vds, map[string]any{
+					"value":       e.Value,
+					"description": e.Description,
+				})
+			}
 			s := map[string]any{
-				"name":      string(sig.Name),
-				"startBit":  sig.StartBit,
-				"length":    sig.BitLength,
-				"signed":    sig.IsSigned,
-				"factor":    serializeRational(sig.Factor),
-				"offset":    serializeRational(sig.Offset),
-				"minimum":   serializeRational(sig.Minimum),
-				"maximum":   serializeRational(sig.Maximum),
-				"unit":      string(sig.Unit),
-				"receivers": receivers,
+				"name":              string(sig.Name),
+				"startBit":          sig.StartBit,
+				"length":            sig.BitLength,
+				"signed":            sig.IsSigned,
+				"factor":            serializeRational(sig.Factor),
+				"offset":            serializeRational(sig.Offset),
+				"minimum":           serializeRational(sig.Minimum),
+				"maximum":           serializeRational(sig.Maximum),
+				"unit":              string(sig.Unit),
+				"receivers":         receivers,
+				"valueDescriptions": vds,
 			}
 			switch sig.ByteOrder {
 			case BigEndian:
@@ -216,15 +224,36 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		attributes = append(attributes, obj)
 	}
 
+	// Phase E.8 (Plan B): unresolved RawValueDescs from the text-parse path.
+	// Wire shape mirrors message_to_json's leading {id, extended} pair via
+	// attachCanID; the rest is signalName + entries (parallel to value tables).
+	unresolvedVDs := make([]map[string]any, 0, len(dbc.UnresolvedValueDescriptions))
+	for _, rvd := range dbc.UnresolvedValueDescriptions {
+		entries := make([]map[string]any, 0, len(rvd.Entries))
+		for _, e := range rvd.Entries {
+			entries = append(entries, map[string]any{
+				"value":       e.Value,
+				"description": e.Description,
+			})
+		}
+		obj := map[string]any{
+			"signalName": rvd.SignalName,
+			"entries":    entries,
+		}
+		attachCanID(obj, rvd.CanID.Value(), rvd.CanID.IsExtended())
+		unresolvedVDs = append(unresolvedVDs, obj)
+	}
+
 	return map[string]any{
-		"version":         dbc.Version,
-		"messages":        msgs,
-		"signalGroups":    groups,
-		"environmentVars": envVars,
-		"valueTables":     valueTables,
-		"nodes":           nodes,
-		"comments":        comments,
-		"attributes":      attributes,
+		"version":              dbc.Version,
+		"messages":             msgs,
+		"signalGroups":         groups,
+		"environmentVars":      envVars,
+		"valueTables":          valueTables,
+		"nodes":                nodes,
+		"comments":             comments,
+		"attributes":           attributes,
+		"unresolvedValueDescs": unresolvedVDs,
 	}, nil
 }
 
@@ -1194,6 +1223,28 @@ func parseDbcResponse(raw string) (*DbcDefinition, error) {
 	return parseDbcDefinition(dbcRaw)
 }
 
+// parseDbcTextResponse decodes a formatDBCText response into the .dbc text
+// image.  Errors (Agda-side JSON parse failure on the input or unexpected
+// status) short-circuit to the (string, error) tuple's error half.
+func parseDbcTextResponse(raw string) (string, error) {
+	m, err := parseResponse(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := checkErrorStatus(m); err != nil {
+		return "", err
+	}
+	status := getString(m, "status")
+	if status != "success" {
+		return "", protocolError(fmt.Sprintf("expected success response, got status: %q", status))
+	}
+	text, ok := m["text"].(string)
+	if !ok {
+		return "", protocolError("missing or non-string 'text' field in formatDBCText response")
+	}
+	return text, nil
+}
+
 // parseParsedDBCResponse decodes a parseDBC / parseDBCText success response
 // into typed (*ParsedDBC) form: the parsed body plus any non-error issues
 // (warnings).  Errors short-circuit to the (*ParsedDBC, error) tuple's
@@ -1290,19 +1341,81 @@ func parseDbcDefinition(j map[string]any) (*DbcDefinition, error) {
 	if err != nil {
 		return nil, err
 	}
+	unresolvedVDs, err := parseUnresolvedValueDescs(j)
+	if err != nil {
+		return nil, err
+	}
 
 	def := &DbcDefinition{
-		Version:         getString(j, "version"),
-		Messages:        messages,
-		SignalGroups:    signalGroups,
-		EnvironmentVars: envVars,
-		ValueTables:     valueTables,
-		Nodes:           nodes,
-		Comments:        comments,
-		Attributes:      attributes,
+		Version:                     getString(j, "version"),
+		Messages:                    messages,
+		SignalGroups:                signalGroups,
+		EnvironmentVars:             envVars,
+		ValueTables:                 valueTables,
+		Nodes:                       nodes,
+		Comments:                    comments,
+		Attributes:                  attributes,
+		UnresolvedValueDescriptions: unresolvedVDs,
 	}
 	def.buildIndexes()
 	return def, nil
+}
+
+// parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
+// (Phase E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
+// Empty/absent on the JSON-parse path is the common case.
+func parseUnresolvedValueDescs(j map[string]any) ([]DbcRawValueDesc, error) {
+	raw := getArray(j, "unresolvedValueDescs")
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]DbcRawValueDesc, 0, len(raw))
+	for _, item := range raw {
+		rvdRaw, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError("expected object in unresolvedValueDescs array")
+		}
+		idVal, ext, err := parseCanIDFields(rvdRaw)
+		if err != nil {
+			return nil, wrapProtocol("invalid unresolvedValueDesc id", err)
+		}
+		var canID CanID
+		if ext {
+			eid, err := NewExtendedID(idVal)
+			if err != nil {
+				return nil, err
+			}
+			canID = eid
+		} else {
+			sid, err := NewStandardID(uint16(idVal))
+			if err != nil {
+				return nil, err
+			}
+			canID = sid
+		}
+		entriesRaw := getArray(rvdRaw, "entries")
+		entries := make([]DbcValueEntry, 0, len(entriesRaw))
+		for _, er := range entriesRaw {
+			eRaw, ok := er.(map[string]any)
+			if !ok {
+				return nil, protocolError("expected object in unresolvedValueDescs.entries array")
+			}
+			v, err := parseNumberAsInt64(eRaw["value"])
+			if err != nil {
+				return nil, wrapProtocol("invalid unresolvedValueDescs entry value", err)
+			}
+			entries = append(entries, DbcValueEntry{
+				Value:       v,
+				Description: getString(eRaw, "description"),
+			})
+		}
+		out = append(out, DbcRawValueDesc{
+			CanID:      canID,
+			SignalName: getString(rvdRaw, "signalName"),
+			Entries:    entries,
+		})
+	}
+	return out, nil
 }
 
 // parseSignalGroups decodes the optional "signalGroups" array from a
@@ -1880,19 +1993,39 @@ func parseDbcSignal(j map[string]any) (DbcSignal, error) {
 		}
 	}
 
+	var valueDescriptions []DbcValueEntry
+	if raw, ok := j["valueDescriptions"].([]any); ok {
+		valueDescriptions = make([]DbcValueEntry, 0, len(raw))
+		for _, item := range raw {
+			eMap, eOk := item.(map[string]any)
+			if !eOk {
+				return zero, protocolError("expected object in valueDescriptions array")
+			}
+			v, err := parseNumberAsInt64(eMap["value"])
+			if err != nil {
+				return zero, wrapProtocol("invalid valueDescriptions entry value", err)
+			}
+			valueDescriptions = append(valueDescriptions, DbcValueEntry{
+				Value:       v,
+				Description: getString(eMap, "description"),
+			})
+		}
+	}
+
 	return DbcSignal{
-		Name:      SignalName(name),
-		StartBit:  BitPosition(startBit),
-		BitLength: BitLength(length),
-		ByteOrder: bo,
-		IsSigned:  isSigned,
-		Factor:    factor,
-		Offset:    offset,
-		Minimum:   minimum,
-		Maximum:   maximum,
-		Unit:      Unit(getString(j, "unit")),
-		Presence:  presence,
-		Receivers: receivers,
+		Name:              SignalName(name),
+		StartBit:          BitPosition(startBit),
+		BitLength:         BitLength(length),
+		ByteOrder:         bo,
+		IsSigned:          isSigned,
+		Factor:            factor,
+		Offset:            offset,
+		Minimum:           minimum,
+		Maximum:           maximum,
+		Unit:              Unit(getString(j, "unit")),
+		Presence:          presence,
+		Receivers:         receivers,
+		ValueDescriptions: valueDescriptions,
 	}, nil
 }
 

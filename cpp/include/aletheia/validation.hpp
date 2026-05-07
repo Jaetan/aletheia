@@ -28,6 +28,8 @@ enum class IssueCode {
     DuplicateAttributeName,
     UnknownCommentTarget,
     UnknownMessageSender,
+    UnknownSignalReceiver,
+    UnknownValueDescriptionTarget,
     Unknown
 };
 

@@ -30,7 +30,8 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
   ATgtNodeMsg; ATgtNodeSig;
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
-  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
+  RawValueDesc; mkRawValueDesc)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdentFromChars)
 open import Aletheia.DBC.CanonicalReceivers using (mkCanonicalFromList)
 open import Aletheia.DBC.DecRat.Refinement using (mkIntDecRatFromℤ; mkNatDecRatFromℕ)
@@ -187,6 +188,31 @@ parseOptionalArray : {A : Set} → (List JSON → ParseError ⊎ List A)
 parseOptionalArray _      nothing   = inj₂ []
 parseOptionalArray parser (just xs) = parser xs
 
+-- Generic object-list parser. Threads an index for NotAnObject error reporting
+-- (fixes hardcoded 0). Directly recursive (not where-block) so roundtrip
+-- proofs can generalise over any starting index without needing to reach
+-- inside a private helper.
+parseObjectList : {A : Set} → String → (List (String × JSON) → ParseError ⊎ A)
+  → ℕ → List JSON → ParseError ⊎ List A
+parseObjectList typeName parser _ [] = inj₂ []
+parseObjectList typeName parser idx (JObject obj ∷ rest) =
+  parser obj >>=ₑ λ a →
+  parseObjectList typeName parser (suc idx) rest >>=ₑ λ as →
+  inj₂ (a ∷ as)
+parseObjectList typeName parser idx (_ ∷ _) = inj₁ (NotAnObject typeName idx)
+
+-- Parse a single value-table / value-description entry from JSON object.
+-- Hoisted above parseSignalFields so it can be the per-element parser for
+-- the optional `"valueDescriptions"` array on each signal.
+parseValueEntry : List (String × JSON) → ParseError ⊎ (ℕ × List Char)
+parseValueEntry obj =
+  require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ val →
+  require (MissingField "description") (lookupChars "description" obj) >>=ₑ λ desc →
+  inj₂ (val , desc)
+
+parseValueEntryList : List JSON → ParseError ⊎ List (ℕ × List Char)
+parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
+
 -- Physical-validity gate (BigEndian signals only).
 -- LE signals pass through unchanged — PhysicallyValid is trivially `pv-LE refl`
 -- because the unconvert→convert roundtrip is the identity for LE.
@@ -227,6 +253,7 @@ parseSignalFields frameBytes ctx name obj =
     require (MissingField "unit") (lookupChars "unit" obj) >>=ₑ λ unit →
     parseSignalPresence obj >>=ₑ λ presence →
     parseOptionalArray parseCharsList (lookupArray "receivers" obj) >>=ₑ λ receivers →
+    parseOptionalArray parseValueEntryList (lookupArray "valueDescriptions" obj) >>=ₑ λ vds →
     validateIdent name >>=ₑ λ nameId →
     validateIdentList receivers >>=ₑ λ receiverIds →
     let sb  = startBit % max-physical-bits
@@ -247,6 +274,7 @@ parseSignalFields frameBytes ctx name obj =
       ; unit = unit
       ; presence = presence
       ; receivers = mkCanonicalFromList receiverIds
+      ; valueDescriptions = vds
       }))
 
 -- Parse a single signal from JSON object.
@@ -360,19 +388,6 @@ parseSignalGroup obj =
   validateIdentList sigs >>=ₑ λ sigIds →
   inj₂ (record { name = nameId ; signals = sigIds })
 
--- Parse a JSON array of objects, applying a per-element parser.
--- Threads an index for NotAnObject error reporting (fixes hardcoded 0).
--- Directly recursive (not where-block) so roundtrip proofs can generalise over
--- any starting index without needing to reach inside a private helper.
-parseObjectList : {A : Set} → String → (List (String × JSON) → ParseError ⊎ A)
-  → ℕ → List JSON → ParseError ⊎ List A
-parseObjectList typeName parser _ [] = inj₂ []
-parseObjectList typeName parser idx (JObject obj ∷ rest) =
-  parser obj >>=ₑ λ a →
-  parseObjectList typeName parser (suc idx) rest >>=ₑ λ as →
-  inj₂ (a ∷ as)
-parseObjectList typeName parser idx (_ ∷ _) = inj₁ (NotAnObject typeName idx)
-
 parseSignalGroupList : List JSON → ParseError ⊎ List SignalGroup
 parseSignalGroupList = parseObjectList "signalGroup" parseSignalGroup 0
 
@@ -393,16 +408,6 @@ parseEnvironmentVar obj =
 parseEnvironmentVarList : List JSON → ParseError ⊎ List EnvironmentVar
 parseEnvironmentVarList = parseObjectList "environmentVar" parseEnvironmentVar 0
 
--- Parse a single value table entry from JSON object
-parseValueEntry : List (String × JSON) → ParseError ⊎ (ℕ × List Char)
-parseValueEntry obj =
-  require (MissingField "value") (lookupNat "value" obj) >>=ₑ λ val →
-  require (MissingField "description") (lookupChars "description" obj) >>=ₑ λ desc →
-  inj₂ (val , desc)
-
-parseValueEntryList : List JSON → ParseError ⊎ List (ℕ × List Char)
-parseValueEntryList = parseObjectList "valueEntry" parseValueEntry 0
-
 -- Parse a single value table from JSON object
 parseValueTable : List (String × JSON) → ParseError ⊎ ValueTable
 parseValueTable obj =
@@ -414,6 +419,23 @@ parseValueTable obj =
 
 parseValueTableList : List JSON → ParseError ⊎ List ValueTable
 parseValueTableList = parseObjectList "valueTable" parseValueTable 0
+
+-- Phase E.8 (Plan B): JSON wire shape for one RawValueDesc.
+-- Mirrors `parseDBCMessage` for the (id, extended) CAN-ID pair via
+-- `parseMessageId`; the rest is signal-name + entries.
+parseRawValueDesc : List (String × JSON) → ParseError ⊎ RawValueDesc
+parseRawValueDesc obj =
+  parseMessageId "rawValueDesc" obj                       >>=ₑ λ canId →
+  require (MissingField "signalName")
+          (lookupChars "signalName" obj)                  >>=ₑ λ name →
+  require (MissingField "entries")
+          (lookupArray "entries" obj)                     >>=ₑ λ entriesJSON →
+  parseValueEntryList entriesJSON                         >>=ₑ λ entries →
+  validateIdent name                                      >>=ₑ λ nameId →
+  inj₂ (mkRawValueDesc canId nameId entries)
+
+parseRawValueDescList : List JSON → ParseError ⊎ List RawValueDesc
+parseRawValueDescList = parseObjectList "rawValueDesc" parseRawValueDesc 0
 
 -- ============================================================================
 -- TIER 2 METADATA PARSERS (nodes, comments, attributes)
@@ -647,6 +669,8 @@ parseDBCWithErrors (JObject obj) =
   parseOptionalArray parseNodeList (lookupArray "nodes" obj) >>=ₑ λ nodes →
   parseOptionalArray parseCommentList (lookupArray "comments" obj) >>=ₑ λ comments →
   parseOptionalArray parseAttributeList (lookupArray "attributes" obj) >>=ₑ λ attributes →
+  parseOptionalArray parseRawValueDescList
+                     (lookupArray "unresolvedValueDescs" obj)        >>=ₑ λ unresolvedVDs →
   inj₂ (record
     { version = version
     ; messages = messages
@@ -656,5 +680,11 @@ parseDBCWithErrors (JObject obj) =
     ; nodes = nodes
     ; comments = comments
     ; attributes = attributes
+    -- Phase E.8 (Plan B): wire field; defaults to `[]` if absent (the
+    -- key was added in Phase E and old DBC JSON predating it omits it).
+    -- The text-parse path through `buildDBC` populates it with RVDs that
+    -- did not resolve against `messages`; the JSON-emit path round-trips
+    -- whatever was supplied.
+    ; unresolvedValueDescs = unresolvedVDs
     })
 parseDBCWithErrors _ = inj₁ RootNotObject

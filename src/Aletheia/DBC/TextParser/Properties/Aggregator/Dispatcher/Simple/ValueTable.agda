@@ -4,8 +4,11 @@
 --
 -- `emitValueTable-chars vt ++ outer` starts with 'V', so parseTopStmt
 -- reduces (by head pattern match on its first char) to its V-bucket:
--- `(parseValueTable >>= λ vt → pure (TSValueTable vt))
---   <|> (parseValueDescription *> pure TSValueDesc)`.
+-- `(parseValueTable       >>= λ vt  → pure (TSValueTable vt))
+--   <|> (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))`.
+-- (Phase E.4 lifted the second arm from `*> pure TSValueDesc` to bind
+-- the `RawValueDesc` payload — the `alt-left-just` proof is polymorphic
+-- in the right arm so this dispatcher closes unchanged.)
 --
 -- The dispatcher just promotes parseValueTable's success witness into the
 -- 2-way `<|>` via `alt-left-just`.  No 10-way chain to walk.
@@ -20,7 +23,7 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.Parser.Combinators using
   (Position; ParseResult; mkResult; advancePositions;
-   _>>=_; pure; _<|>_; _*>_)
+   _>>=_; pure; _<|>_)
 
 open import Aletheia.DBC.Types using (ValueTable)
 open import Aletheia.DBC.TextParser.TopLevel using
@@ -52,8 +55,8 @@ parseTopStmt-on-emit-TVT-eq :
                      (advancePositions pos (emitValueTable-chars vt))
                      outer)
 parseTopStmt-on-emit-TVT-eq pos vt outer name-stop nl-stop =
-  alt-left-just (parseValueTable       >>= λ vt → pure (TSValueTable vt))
-                (parseValueDescription *> pure TSValueDesc)
+  alt-left-just (parseValueTable       >>= λ vt  → pure (TSValueTable vt))
+                (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))
                 pos input result
                 alt-vt-eq
   where

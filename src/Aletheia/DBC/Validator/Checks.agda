@@ -23,7 +23,8 @@ open import Aletheia.DBC.Types using
   ; StartBitOutOfRange; BitLengthExcessive
   ; MultiplexorNonUnitScaling
   ; DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender
-  ; UnknownSignalReceiver
+  ; UnknownSignalReceiver; UnknownValueDescriptionTarget
+  ; RawValueDesc
   ; Node; DBCComment
   ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
   ; EnvironmentVar
@@ -41,6 +42,7 @@ open import Data.List using (List; []; _∷_; map; filter; concatMap; length)
   renaming (_++_ to _++ₗ_)
 open import Data.String using (String) renaming (_++_ to _++ₛ_)
 open import Data.String.Properties using () renaming (_≟_ to _≟ₛ_)
+open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.Bool using (Bool; true; false; if_then_else_)
 open import Data.Nat using (ℕ; zero; suc; _+_; _*_; _^_; _∸_; pred)
 open import Data.Nat.Properties using (_≤?_; _<?_; _≟_)
@@ -563,3 +565,31 @@ checkAllUnknownAdditionalSenders : List DBCMessage → List Node → List Valida
 checkAllUnknownAdditionalSenders _    []             = []
 checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
   concatMap (checkAdditionalSendersForMessage nodes) msgs
+
+-- ============================================================================
+-- CHECK 23: UNKNOWN VALUE DESCRIPTION TARGET (VAL_)
+-- ============================================================================
+-- A `VAL_` line carries a `(canId, signalName)` pair plus value-label entries.
+-- The text parser preserves entries that did not resolve against the assembled
+-- message list on `DBC.unresolvedValueDescs` (Plan B, 2026-05-07); the rest
+-- are stitched onto their owning `DBCSignal.valueDescriptions` by
+-- `attachValueDescs`.  This check walks the residual list and emits one
+-- warning per entry.  Unlike CHECK 21/22, the input is a flat list of
+-- `RawValueDesc` rather than `(messages, nodes)` — text-roundtrip closure
+-- requires `unresolvedValueDescs ≡ []` (`WellFormedDBC.unresolved-empty`),
+-- so a non-empty list always indicates user-written DBC slop.
+
+showCanIdText : CANId → String
+showCanIdText (CANId.Standard n _) = showℕ n
+showCanIdText (CANId.Extended n _) = showℕ n
+
+checkUnknownValueDescriptionTarget : RawValueDesc → List ValidationIssue
+checkUnknownValueDescriptionTarget rvd =
+  mkIssue IsWarning UnknownValueDescriptionTarget
+    ("VAL_ entry: CAN ID " ++ₛ showCanIdText (RawValueDesc.canId rvd)
+     ++ₛ ", signal '" ++ₛ nameStr (RawValueDesc.signalName rvd)
+     ++ₛ "' not found (no message with this CAN ID has a signal with this name)")
+  ∷ []
+
+checkAllUnknownValueDescriptionTargets : List RawValueDesc → List ValidationIssue
+checkAllUnknownValueDescriptionTargets = concatMap checkUnknownValueDescriptionTarget

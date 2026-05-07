@@ -29,9 +29,9 @@ open import Data.Sum using (_⊎_; inj₂)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong; trans)
 
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence; Always; When)
-open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON; formatDBCSignal; formatByteOrder; formatPresence)
+open import Aletheia.DBC.Formatter using (ℕtoJSON; identJSON; formatDBCSignal; formatByteOrder; formatPresence; formatValueEntry)
 open import Aletheia.DBC.JSONParser using (parseSignal; parseSignalList; parseNatList)
-open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier)
+open import Aletheia.DBC.Formatter.MetadataRoundtrip using (parseCharsList-roundtrip; validateIdent-roundtrip; validateIdentList-roundtrip; map-∘-identifier; valueEntryList-roundtrip)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.DBC.DecRat using (toℚ)
 open import Aletheia.DBC.DecRat.RationalRoundtrip using (fromℚ?-after-toℚ)
@@ -48,9 +48,11 @@ open import Data.Nat.Properties using (≤⇒≤ᵇ)
 -- ============================================================================
 
 private
-  mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → CanonicalReceivers → DBCSignal
-  mkSignal n sd bo u p rs = record
-    { name = n ; signalDef = sd ; byteOrder = bo ; unit = u ; presence = p ; receivers = rs }
+  mkSignal : Identifier → SignalDef → ByteOrder → List Char → SignalPresence → CanonicalReceivers
+           → List (ℕ × List Char) → DBCSignal
+  mkSignal n sd bo u p rs vds = record
+    { name = n ; signalDef = sd ; byteOrder = bo ; unit = u ; presence = p ; receivers = rs
+    ; valueDescriptions = vds }
 
   -- Mirrors the body of formatDBCSignal (without JObject wrapper).
   -- parseSignalList pattern-matches on JObject, so proofs work on the
@@ -71,6 +73,7 @@ private
        ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
        ("unit"      , JString (DBCSignal.unit sig)) ∷
        ("receivers" , JArray (map identJSON (CanonicalReceivers.list (DBCSignal.receivers sig)))) ∷
+       ("valueDescriptions" , JArray (map formatValueEntry (DBCSignal.valueDescriptions sig))) ∷
        formatPresence (DBCSignal.presence sig)
 
   -- parseNatList roundtrips through map ℕtoJSON
@@ -81,10 +84,10 @@ private
 
   -- LE roundtrip: unconvertStartBit _ LE s _ = s, convertStartBit _ LE s _ = s,
   -- so the startBit roundtrips through % 512 using WF bounds.
-  signal-roundtrip-LE : ∀ frameBytes ctx n sd u p rs → WellFormedSignalDef sd
-    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd LittleEndian u p rs))
-      ≡ inj₂ (mkSignal n sd LittleEndian u p rs)
-  signal-roundtrip-LE frameBytes ctx n sd u Always rs dwf
+  signal-roundtrip-LE : ∀ frameBytes ctx n sd u p rs vds → WellFormedSignalDef sd
+    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd LittleEndian u p rs vds))
+      ≡ inj₂ (mkSignal n sd LittleEndian u p rs vds)
+  signal-roundtrip-LE frameBytes ctx n sd u Always rs vds dwf
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
@@ -96,11 +99,12 @@ private
           | fromℚ?-after-toℚ (SignalDef.maximum sd)
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
+          | valueEntryList-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
     = refl
-  signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf
+  signal-roundtrip-LE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs vds dwf
     rewrite getNat-ℕtoJSON (SignalDef.startBit sd)
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip LittleEndian
@@ -114,6 +118,7 @@ private
           | parseNatList-roundtrip vs
           | m<n⇒m%n≡m (WellFormedSignalDef.startBit-bound dwf)
           | m<n⇒m%n≡m (WellFormedSignalDef.bitLength-bound dwf)
+          | valueEntryList-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
@@ -122,14 +127,14 @@ private
 
   -- BE roundtrip: uses unconvertSB-bound-BE for % 512 identity,
   -- unconvertStartBit-roundtrip for convert∘unconvert = id.
-  signal-roundtrip-BE : ∀ frameBytes ctx n sd u p rs
+  signal-roundtrip-BE : ∀ frameBytes ctx n sd u p rs vds
     → WellFormedSignalDef sd → frameBytes ≤ 64
     → 1 ≤ SignalDef.bitLength sd
     → SignalDef.startBit sd + SignalDef.bitLength sd ∸ 1 < frameBytes * 8
     → SignalDef.bitLength sd ∸ 1 ≤ SignalDef.startBit sd
-    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd BigEndian u p rs))
-      ≡ inj₂ (mkSignal n sd BigEndian u p rs)
-  signal-roundtrip-BE frameBytes ctx n sd u Always rs dwf fb≤64 len-pos fits msb-ge
+    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd BigEndian u p rs vds))
+      ≡ inj₂ (mkSignal n sd BigEndian u p rs vds)
+  signal-roundtrip-BE frameBytes ctx n sd u Always rs vds dwf fb≤64 len-pos fits msb-ge
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
@@ -145,11 +150,12 @@ private
           | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
+          | valueEntryList-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
     = refl
-  signal-roundtrip-BE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs dwf fb≤64 len-pos fits msb-ge
+  signal-roundtrip-BE frameBytes ctx n sd u (When mux (v List⁺.∷ vs)) rs vds dwf fb≤64 len-pos fits msb-ge
     rewrite getNat-ℕtoJSON (unconvertStartBit frameBytes BigEndian (SignalDef.startBit sd) (SignalDef.bitLength sd))
           | getNat-ℕtoJSON (SignalDef.bitLength sd)
           | byteOrder-roundtrip BigEndian
@@ -167,22 +173,23 @@ private
           | T→true (≤⇒≤ᵇ len-pos)    -- enables physicalGate's `1 ≤ᵇ bl` branch
           | T→true (≤⇒≤ᵇ fits)      -- enables physicalGate's `csb + bl ∸ 1 <ᵇ fb*8` branch
           | T→true (≤⇒≤ᵇ msb-ge)    -- enables physicalGate's `bl ∸ 1 ≤ᵇ csb` branch
+          | valueEntryList-roundtrip vds
           | validateIdent-roundtrip n
           | validateIdent-roundtrip mux
           | validateIdentList-roundtrip (CanonicalReceivers.list rs)
           | mkCanonicalFromList-list rs
     = refl
 
-  signal-roundtrip-go : ∀ frameBytes ctx n sd bo u p rs
+  signal-roundtrip-go : ∀ frameBytes ctx n sd bo u p rs vds
     → WellFormedSignalDef sd → frameBytes ≤ 64
-    → PhysicallyValid frameBytes (mkSignal n sd bo u p rs)
-    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd bo u p rs))
-      ≡ inj₂ (mkSignal n sd bo u p rs)
-  signal-roundtrip-go frameBytes ctx n sd LittleEndian u p rs dwf _ _ =
-    signal-roundtrip-LE frameBytes ctx n sd u p rs dwf
-  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs dwf fb≤64 (pv-BE _ lp fits msb) =
-    signal-roundtrip-BE frameBytes ctx n sd u p rs dwf fb≤64 lp fits msb
-  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs dwf fb≤64 (pv-LE ())
+    → PhysicallyValid frameBytes (mkSignal n sd bo u p rs vds)
+    → parseSignal frameBytes ctx (signalFields frameBytes (mkSignal n sd bo u p rs vds))
+      ≡ inj₂ (mkSignal n sd bo u p rs vds)
+  signal-roundtrip-go frameBytes ctx n sd LittleEndian u p rs vds dwf _ _ =
+    signal-roundtrip-LE frameBytes ctx n sd u p rs vds dwf
+  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs vds dwf fb≤64 (pv-BE _ lp fits msb) =
+    signal-roundtrip-BE frameBytes ctx n sd u p rs vds dwf fb≤64 lp fits msb
+  signal-roundtrip-go frameBytes ctx n sd BigEndian u p rs vds dwf fb≤64 (pv-LE ())
 
 signal-roundtrip : ∀ frameBytes ctx sig
   → WellFormedSignal sig → frameBytes ≤ 64
@@ -191,6 +198,7 @@ signal-roundtrip : ∀ frameBytes ctx sig
 signal-roundtrip frameBytes ctx sig wf fb≤64 pv = signal-roundtrip-go frameBytes ctx
   (DBCSignal.name sig) (DBCSignal.signalDef sig) (DBCSignal.byteOrder sig)
   (DBCSignal.unit sig) (DBCSignal.presence sig) (DBCSignal.receivers sig)
+  (DBCSignal.valueDescriptions sig)
   (WellFormedSignal.def-wf wf) fb≤64 pv
 
 -- ============================================================================

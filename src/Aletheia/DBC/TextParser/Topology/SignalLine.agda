@@ -154,6 +154,7 @@ buildSignal frameBytes master raw
     ; unit      = RawSignal.unit raw
     ; presence  = presence
     ; receivers = RawSignal.receivers raw
+    ; valueDescriptions = []  -- VAL_ entries are scattered across the file; the partition+refine pass at the top level (E.5/E.6) fills this from RawValueDesc collection.  Empty default keeps `buildSignal` total when no VAL_ entries reference this signal.
     })
 
 -- Resolve all signals in a BO_ block.  Fails (`nothing`) if any signal's

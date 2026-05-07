@@ -22,7 +22,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -36,7 +37,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 4,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -50,7 +52,25 @@
           "receivers": [],
           "signed": false,
           "startBit": 8,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": [
+            {
+              "description": "Off",
+              "value": 0
+            },
+            {
+              "description": "Cranking",
+              "value": 1
+            },
+            {
+              "description": "Running",
+              "value": 2
+            },
+            {
+              "description": "Stall",
+              "value": 3
+            }
+          ]
         }
       ]
     }
@@ -61,6 +81,7 @@
     }
   ],
   "signalGroups": [],
+  "unresolvedValueDescs": [],
   "valueTables": [
     {
       "entries": [

@@ -94,6 +94,24 @@ features:
         entry: Client.ParseDBCText
         notes: "B.3.e — same Agda core via FFI; returns *ParsedDBC carrying DBC + Warnings."
 
+  - id: dbc_text_format
+    name: Format DbcDefinition as .dbc text
+    description: Render a DbcDefinition as .dbc file text via the verified Agda formatter. Inverse of ``parse_dbc_text`` at the wire level — ``parse_dbc_text(format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed DBC.
+    related: Phase E, E.10
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.AletheiaClient.format_dbc_text
+        notes: "Phase E.10 — routed through the ``formatDBCText`` JSON command; ``aletheia.dbc_to_text`` is a thin convenience wrapper over ``format_dbc_text`` (no parallel pure-Python emitter)."
+      cpp:
+        status: implemented
+        entry: "aletheia/client.hpp#format_dbc_text"
+        notes: "Phase E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
+      go:
+        status: implemented
+        entry: Client.FormatDBCText
+        notes: "Phase E.10 — same Agda core via FFI; returns the ``.dbc`` text image."
+
   - id: dbc_metadata_tier1
     name: DBC metadata Tier 1 (signal groups, env vars, value tables)
     description: Expose the three top-level DBC metadata arrays — signal groups, environment variables, and value tables — that the Agda core already carries end-to-end through the wire.
@@ -147,6 +165,24 @@ features:
         status: implemented
         entry: DbcSignal
         notes: "DbcSignal gains Receivers []string; serializer emits it on every signal; parser treats an absent key as nil."
+
+  - id: dbc_signal_value_descriptions
+    name: DBC signal value descriptions (per-signal VAL_ entries)
+    description: Expose the ``valueDescriptions`` per-signal list on DBCSignal — the ``(value, description)`` entries from top-level ``VAL_`` lines, attached to the owning ``(message-id, signal-name)`` pair. The Agda formatter re-emits the ``VAL_`` block on ``format_dbc_text``. New ``unknown_value_description_target`` warning fires when a ``VAL_`` line points at a ``(message-id, signal-name)`` pair not declared in ``BO_`` / ``SG_``.
+    related: R17-DEF-2, Phase E
+    bindings:
+      python:
+        status: implemented
+        entry: aletheia.protocols.DBCSignalAlways
+        notes: "Phase E — DBCSignalAlways/Multiplexed gain a NotRequired valueDescriptions: list[DBCValueEntry]; populated by the Agda parser; round-tripped through format_dbc / format_dbc_text."
+      cpp:
+        status: implemented
+        entry: "aletheia/dbc.hpp#DbcSignal"
+        notes: "Phase E — DbcSignal gains std::vector<DbcValueEntry> value_descriptions; reuses DbcValueEntry from value tables."
+      go:
+        status: implemented
+        entry: DbcSignal
+        notes: "Phase E — DbcSignal gains ValueDescriptions []DbcValueEntry; reuses DbcValueEntry from value tables."
 
   - id: dbc_message_senders
     name: DBC message transmitters list (BO_TX_BU_ multi-sender extension)

@@ -250,7 +250,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -266,7 +267,8 @@
           ],
           "signed": false,
           "startBit": 16,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     }
@@ -280,6 +282,7 @@
     }
   ],
   "signalGroups": [],
+  "unresolvedValueDescs": [],
   "valueTables": [],
   "version": ""
 }

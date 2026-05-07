@@ -39,7 +39,8 @@ open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; SignalPresence
   AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex;
   AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar; ATgtNodeMsg; ATgtNodeSig;
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
-  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
+  RawValueDesc; mkRawValueDesc)
 open import Aletheia.CAN.DLC using (dlcBytes)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder; LittleEndian; BigEndian; unconvertStartBit)
@@ -81,6 +82,15 @@ formatPresence Always        = ("presence" , JStringS "always") ∷ []
 formatPresence (When mux vs) = ("multiplexor" , identJSON mux)
   ∷ ("multiplex_values" , JArray (map ℕtoJSON (List⁺.toList vs))) ∷ []
 
+-- Format a single (value, description) entry for a value table OR a signal's
+-- valueDescriptions.  Hoisted above formatDBCSignal so the signal formatter
+-- can use it for its `"valueDescriptions"` array.
+formatValueEntry : ℕ × List Char → JSON
+formatValueEntry (n , s) = JObject (
+  ("value" , ℕtoJSON n) ∷
+  ("description" , JString s) ∷
+  [])
+
 -- ============================================================================
 -- SIGNAL / MESSAGE / DBC FORMATTERS
 -- ============================================================================
@@ -102,6 +112,7 @@ formatDBCSignal frameBytes sig =
     ("maximum"   , JNumber (toℚ (SignalDef.maximum def))) ∷
     ("unit"      , JString (DBCSignal.unit sig)) ∷
     ("receivers" , JArray (map identJSON (CanonicalReceivers.list (DBCSignal.receivers sig)))) ∷
+    ("valueDescriptions" , JArray (map formatValueEntry (DBCSignal.valueDescriptions sig))) ∷
     formatPresence (DBCSignal.presence sig))
 
 formatDBCMessage : DBCMessage → JSON
@@ -112,12 +123,6 @@ formatDBCMessage msg = JObject (
   ("sender"  , identJSON (DBCMessage.sender msg)) ∷
   ("senders" , JArray (map identJSON (DBCMessage.senders msg))) ∷
   ("signals" , JArray (map (formatDBCSignal (dlcBytes (DBCMessage.dlc msg))) (DBCMessage.signals msg))) ∷
-  [])
-
-formatValueEntry : ℕ × List Char → JSON
-formatValueEntry (n , s) = JObject (
-  ("value" , ℕtoJSON n) ∷
-  ("description" , JString s) ∷
   [])
 
 formatSignalGroup : SignalGroup → JSON
@@ -139,6 +144,16 @@ formatValueTable : ValueTable → JSON
 formatValueTable vt = JObject (
   ("name"    , identJSON (ValueTable.name vt)) ∷
   ("entries" , JArray (map formatValueEntry (ValueTable.entries vt))) ∷
+  [])
+
+-- Phase E.8 (Plan B): JSON wire shape for one RawValueDesc.
+-- The CAN-ID half mirrors `formatDBCMessage`'s leading `("id", …) ± ("extended", true)`
+-- pair (via `formatCANId`); the signal target + entries follow.
+formatRawValueDesc : RawValueDesc → JSON
+formatRawValueDesc rvd = JObject (
+  formatCANId (RawValueDesc.canId rvd) ++ₗ
+  ("signalName" , identJSON (RawValueDesc.signalName rvd)) ∷
+  ("entries"    , JArray (map formatValueEntry (RawValueDesc.entries rvd))) ∷
   [])
 
 -- ============================================================================
@@ -275,4 +290,7 @@ formatDBC dbc = JObject (
   ("nodes"           , JArray (map formatNode (DBC.nodes dbc))) ∷
   ("comments"        , JArray (map formatComment (DBC.comments dbc))) ∷
   ("attributes"      , JArray (map formatAttribute (DBC.attributes dbc))) ∷
+  -- Phase E.8 (Plan B): always emit (defaults to `[]` on JSON path; only
+  -- the text-parse path can populate this with non-empty entries).
+  ("unresolvedValueDescs" , JArray (map formatRawValueDesc (DBC.unresolvedValueDescs dbc))) ∷
   [])

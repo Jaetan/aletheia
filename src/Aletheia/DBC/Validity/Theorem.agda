@@ -23,6 +23,7 @@ open import Aletheia.DBC.Validator using
   ; checkDuplicateAttributeNames; checkAllUnknownCommentTargets
   ; checkAllUnknownMessageSenders; checkAllUnknownSignalReceivers
   ; checkAllUnknownAdditionalSenders
+  ; checkAllUnknownValueDescriptionTargets
   )
 open import Aletheia.DBC.Validity using (ValidDBC)
 open import Aletheia.DBC.Validity.Composition using
@@ -53,6 +54,7 @@ open import Aletheia.DBC.Validity.WarningChecks using
   ; checkDuplicateAttributeNames-allW; checkAllUnknownCommentTargets-allW
   ; checkAllUnknownMessageSenders-allW; checkAllUnknownSignalReceivers-allW
   ; checkAllUnknownAdditionalSenders-allW
+  ; checkAllUnknownValueDescriptionTargets-allW
   )
 open import Data.List using (List; []) renaming (_++_ to _++ₗ_)
 open import Data.Product using (proj₁; proj₂)
@@ -141,11 +143,14 @@ completeness dbc v =
     (errorIssues-allW _ (checkAllUnknownMessageSenders-allW msgs nodes))
   (ei-combine (checkAllUnknownSignalReceivers msgs nodes) _
     (errorIssues-allW _ (checkAllUnknownSignalReceivers-allW msgs nodes))
+  (ei-combine (checkAllUnknownAdditionalSenders msgs nodes) _
     (errorIssues-allW _ (checkAllUnknownAdditionalSenders-allW msgs nodes))
-  )))))))))))))))))))
+    (errorIssues-allW _ (checkAllUnknownValueDescriptionTargets-allW urvds))
+  ))))))))))))))))))))
   where
     msgs    = DBC.messages dbc
     nodes   = DBC.nodes dbc
     envVars = DBC.environmentVars dbc
     cmts    = DBC.comments dbc
     attrs   = DBC.attributes dbc
+    urvds   = DBC.unresolvedValueDescs dbc

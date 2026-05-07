@@ -412,6 +412,77 @@ TEST_CASE("validate DBC via real FFI", "[integration]") {
     CHECK_FALSE(result->has_errors);
 }
 
+TEST_CASE("VAL_ value descriptions round-trip via real FFI",
+          "[integration][dbc][value_descriptions]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    constexpr std::string_view text = R"(VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
+BO_ 300 Transmission: 8 ECU
+ SG_ EngineState : 8|2@1+ (1,0) [0|3] "" Vector__XXX
+
+VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;
+)";
+
+    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->dbc.messages.size() == 1);
+    REQUIRE(parsed->dbc.messages[0].signals.size() == 1);
+    const auto& sig = parsed->dbc.messages[0].signals[0];
+    REQUIRE(sig.value_descriptions.size() == 4);
+    CHECK(sig.value_descriptions[0].value == 0);
+    CHECK(sig.value_descriptions[0].description == "Off");
+    CHECK(sig.value_descriptions[1].value == 1);
+    CHECK(sig.value_descriptions[1].description == "Cranking");
+    CHECK(sig.value_descriptions[2].value == 2);
+    CHECK(sig.value_descriptions[2].description == "Running");
+    CHECK(sig.value_descriptions[3].value == 3);
+    CHECK(sig.value_descriptions[3].description == "Stall");
+
+    auto formatted = client.format_dbc_text(std::stop_token{}, parsed->dbc);
+    REQUIRE(formatted.has_value());
+    constexpr std::string_view want_line =
+        R"(VAL_ 300 EngineState 0 "Off" 1 "Cranking" 2 "Running" 3 "Stall" ;)";
+    CHECK(formatted->find(want_line) != std::string::npos);
+}
+
+TEST_CASE("CHECK 23 unknown_value_description_target warning via real FFI",
+          "[integration][dbc][value_descriptions][validator]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    constexpr std::string_view text = R"(VERSION ""
+
+NS_ :
+
+BS_:
+
+BU_: ECU
+
+BO_ 256 Engine: 8 ECU
+ SG_ Rpm : 0|16@1+ (1,0) [0|8000] "rpm" Vector__XXX
+
+VAL_ 999 GhostSignal 0 "Off" 1 "On" ;
+)";
+
+    auto parsed = client.parse_dbc_text(std::stop_token{}, text);
+    REQUIRE(parsed.has_value());
+    bool hit = std::ranges::any_of(parsed->warnings,
+        [](const ValidationIssue& issue) {
+            return issue.code == IssueCode::UnknownValueDescriptionTarget;
+        });
+    CHECK(hit);
+}
+
 // ---------------------------------------------------------------------------
 // Concurrent client isolation test
 // ---------------------------------------------------------------------------

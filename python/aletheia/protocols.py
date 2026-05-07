@@ -8,6 +8,8 @@ from enum import Enum
 from fractions import Fraction
 from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
 
+from .validation import ValidationIssue
+
 
 def is_str_dict(val: object) -> TypeGuard[dict[str, object]]:
     """Narrow ``object`` to ``dict[str, object]``."""
@@ -24,35 +26,6 @@ def is_object_list(val: object) -> TypeGuard[list[object]]:
 ByteOrder = Literal["little_endian", "big_endian"]
 
 SignalPresence = Literal["always"]
-
-
-class IssueSeverity(str, Enum):
-    """Validation issue severity"""
-    ERROR = "error"
-    WARNING = "warning"
-
-
-class IssueCode(str, Enum):
-    """Validation issue codes matching Agda IssueCode enum"""
-    DUPLICATE_MESSAGE_ID = "duplicate_message_id"
-    DUPLICATE_SIGNAL_NAME = "duplicate_signal_name"
-    FACTOR_ZERO = "factor_zero"
-    MULTIPLEXOR_NOT_FOUND = "multiplexor_not_found"
-    MULTIPLEXOR_CYCLE = "multiplexor_cycle"
-    GLOBAL_NAME_COLLISION = "global_name_collision"
-    MIN_EXCEEDS_MAX = "min_exceeds_max"
-    SIGNAL_EXCEEDS_DLC = "signal_exceeds_dlc"
-    SIGNAL_OVERLAP = "signal_overlap"
-    BIT_LENGTH_ZERO = "bit_length_zero"
-    DUPLICATE_MESSAGE_NAME = "duplicate_message_name"
-    OFFSET_SCALE_RANGE = "offset_scale_range"
-    EMPTY_MESSAGE = "empty_message"
-    START_BIT_OUT_OF_RANGE = "start_bit_out_of_range"
-    BIT_LENGTH_EXCESSIVE = "bit_length_excessive"
-    MULTIPLEXOR_NON_UNIT_SCALING = "multiplexor_non_unit_scaling"
-    DUPLICATE_ATTRIBUTE_NAME = "duplicate_attribute_name"
-    UNKNOWN_COMMENT_TARGET = "unknown_comment_target"
-    UNKNOWN_MESSAGE_SENDER = "unknown_message_sender"
 
 
 class PredicateType(str, Enum):
@@ -78,6 +51,8 @@ class DBCSignalAlways(TypedDict):
     preserve the Agda core's exact rational representation end-to-end.
     ``receivers`` is the trailing node list from the ``SG_`` line
     (empty list when only the ``Vector__XXX`` placeholder is present).
+    ``valueDescriptions`` carries the inline ``VAL_`` entries attached to
+    this signal (empty list when no ``VAL_`` line names it).
     """
     name: str
     startBit: int
@@ -91,6 +66,7 @@ class DBCSignalAlways(TypedDict):
     unit: str
     presence: SignalPresence
     receivers: NotRequired[list[str]]
+    valueDescriptions: NotRequired[list["DBCValueEntry"]]
 
 
 class DBCSignalMultiplexed(TypedDict):
@@ -100,6 +76,8 @@ class DBCSignalMultiplexed(TypedDict):
     preserve the Agda core's exact rational representation end-to-end.
     ``receivers`` is the trailing node list from the ``SG_`` line
     (empty list when only the ``Vector__XXX`` placeholder is present).
+    ``valueDescriptions`` carries the inline ``VAL_`` entries attached to
+    this signal (empty list when no ``VAL_`` line names it).
     """
     name: str
     startBit: int
@@ -114,6 +92,7 @@ class DBCSignalMultiplexed(TypedDict):
     multiplexor: str
     multiplex_values: list[int]
     receivers: NotRequired[list[str]]
+    valueDescriptions: NotRequired[list["DBCValueEntry"]]
 
 
 # Union type for all signal types
@@ -435,6 +414,22 @@ class DBCAttrAssign(TypedDict):
 DBCAttribute = DBCAttrDef | DBCAttrDefault | DBCAttrAssign
 
 
+class DBCRawValueDesc(TypedDict):
+    """Unresolved ``VAL_`` line from the DBC text-parse path.
+
+    Carries the owning message's CAN ID, the signal name, and the
+    ``(value, label)`` entries.  Populated only when the text-parse path
+    encounters a ``VAL_`` line whose ``(canId, signalName)`` pair does
+    not match any signal in the parsed messages; the entries are
+    preserved verbatim so the validator's CHECK 23
+    ``UnknownValueDescriptionTarget`` can warn at validation time.
+    """
+    id: int
+    extended: NotRequired[bool]
+    signalName: str
+    entries: list["DBCValueEntry"]
+
+
 class DBCDefinition(TypedDict):
     """Complete DBC file structure.
 
@@ -451,6 +446,7 @@ class DBCDefinition(TypedDict):
     nodes: NotRequired[list[DBCNode]]
     comments: NotRequired[list[DBCComment]]
     attributes: NotRequired[list[DBCAttribute]]
+    unresolvedValueDescs: NotRequired[list[DBCRawValueDesc]]
 
 
 # ============================================================================
@@ -720,8 +716,25 @@ class ParseDBCTextCommand(TypedDict):
     text: str
 
 
+class FormatDBCTextCommand(TypedDict):
+    """Format DBC JSON dict back to .dbc text using the verified Agda formatter.
+
+    The inverse of ``ParseDBCTextCommand`` at the wire level: text → JSON → text
+    closes byte-identical for any well-formed DBC (post-Phase-E.9a).
+    """
+    type: Literal["command"]
+    command: Literal["formatDBCText"]
+    dbc: DBCDefinition
+
+
 # Union type for JSON-path commands (binary FFI operations are not represented here).
-Command = ParseDBCCommand | SetPropertiesCommand | ValidateDBCCommand | ParseDBCTextCommand
+Command = (
+    ParseDBCCommand
+    | SetPropertiesCommand
+    | ValidateDBCCommand
+    | ParseDBCTextCommand
+    | FormatDBCTextCommand
+)
 
 
 class SuccessResponse(TypedDict):
@@ -804,13 +817,6 @@ class FormatDBCResponse(TypedDict):
     dbc: DBCDefinition
 
 
-class ValidationIssue(TypedDict):
-    """A single DBC validation issue"""
-    severity: IssueSeverity
-    code: IssueCode
-    detail: str
-
-
 class ValidationResponse(TypedDict):
     """Response from validateDBC command"""
     status: Literal["validation"]
@@ -831,6 +837,17 @@ class ParsedDBCResponse(TypedDict):
     warnings: list[ValidationIssue]
 
 
+class DBCTextResponse(TypedDict):
+    """Response from formatDBCText command (Phase E.10).
+
+    Carries the .dbc text image produced by ``formatText`` over a JSON DBC
+    input.  Errors (JSON parse failure on the input) short-circuit to
+    ``ErrorResponse``.
+    """
+    status: Literal["success"]
+    text: str
+
+
 # Union type for all responses
 Response = (
     SuccessResponse |
@@ -841,7 +858,8 @@ Response = (
     ExtractSignalsResponse |
     FormatDBCResponse |
     ValidationResponse |
-    ParsedDBCResponse
+    ParsedDBCResponse |
+    DBCTextResponse
 )
 
 
@@ -858,8 +876,6 @@ __all__ = [
     "ByteOrder",
     "SignalPresence",
     # Enums
-    "IssueSeverity",
-    "IssueCode",
     "PredicateType",
     # DBC types
     "DBCSignal",
@@ -942,6 +958,7 @@ __all__ = [
     "SetPropertiesCommand",
     "ValidateDBCCommand",
     "ParseDBCTextCommand",
+    "FormatDBCTextCommand",
     # Responses
     "Response",
     "SuccessResponse",
@@ -953,7 +970,7 @@ __all__ = [
     "CompleteResponse",
     "ExtractSignalsResponse",
     "FormatDBCResponse",
-    "ValidationIssue",
     "ValidationResponse",
     "ParsedDBCResponse",
+    "DBCTextResponse",
 ]

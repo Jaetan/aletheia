@@ -11,16 +11,17 @@
 -- Canonical section order (matches `minimal.dbc` / `kitchen_sink.dbc`
 -- and the `parseText` top-level dispatch, so the B.3.d roundtrip
 -- composes):
---   1. VERSION
---   2. NS_
---   3. BS_
---   4. BU_
---   5. VAL_TABLE_
---   6. BO_ blocks (each with inner SG_ lines)
---   7. EV_
---   8. CM_
---   9. BA_DEF_* / BA_DEF_DEF_ / BA_ / BA_REL_
---  10. SIG_GROUP_
+--   1.  VERSION
+--   2.  NS_
+--   3.  BS_
+--   4.  BU_
+--   5.  VAL_TABLE_
+--   6.  BO_ blocks (each with inner SG_ lines)
+--   7.  VAL_                                         (E.7)
+--   8.  EV_
+--   9.  CM_
+--  10.  BA_DEF_* / BA_DEF_DEF_ / BA_ / BA_REL_
+--  11.  SIG_GROUP_
 --
 -- Sections 3 (BS_), 4 (BU_), and 7 (EV_) are emitted even when their
 -- source-side lists are empty: BS_ carries its `BS_:\n\n` marker, BU_
@@ -56,7 +57,7 @@ open import Aletheia.DBC.TextFormatter.Preamble using
 open import Aletheia.DBC.TextFormatter.Topology using
   (emitBU-chars; emitMessages-chars)
 open import Aletheia.DBC.TextFormatter.ValueTables using
-  (emitValueTables-chars)
+  (emitValueTables-chars; emitValueDescriptions-chars)
 open import Aletheia.DBC.TextFormatter.EnvVars using
   (emitEnvVars-chars)
 open import Aletheia.DBC.TextFormatter.Comments using
@@ -74,13 +75,14 @@ open import Aletheia.DBC.TextFormatter.SignalGroups using
 -- in `Aletheia.DBC.TextFormatter` is `fromList ∘ formatChars`.
 formatChars : DBC → List Char
 formatChars d =
-  emitVersion-chars     (DBC.version         d) ++ₗ
-  emitNamespace-chars                           ++ₗ
-  emitBitTiming-chars                           ++ₗ
-  emitBU-chars          (DBC.nodes           d) ++ₗ
-  emitValueTables-chars (DBC.valueTables     d) ++ₗ
-  emitMessages-chars    (DBC.messages        d) ++ₗ
-  emitEnvVars-chars     (DBC.environmentVars d) ++ₗ
-  emitComments-chars    (DBC.comments        d) ++ₗ
-  emitAttributes-chars  (DBC.attributes      d) ++ₗ
-  emitSignalGroups-chars (DBC.signalGroups   d)
+  emitVersion-chars           (DBC.version         d) ++ₗ
+  emitNamespace-chars                                 ++ₗ
+  emitBitTiming-chars                                 ++ₗ
+  emitBU-chars                (DBC.nodes           d) ++ₗ
+  emitValueTables-chars       (DBC.valueTables     d) ++ₗ
+  emitMessages-chars          (DBC.messages        d) ++ₗ
+  emitValueDescriptions-chars (DBC.messages        d) ++ₗ
+  emitEnvVars-chars           (DBC.environmentVars d) ++ₗ
+  emitComments-chars          (DBC.comments        d) ++ₗ
+  emitAttributes-chars        (DBC.attributes      d) ++ₗ
+  emitSignalGroups-chars      (DBC.signalGroups    d)

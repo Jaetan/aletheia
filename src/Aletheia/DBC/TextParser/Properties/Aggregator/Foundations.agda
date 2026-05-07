@@ -42,7 +42,7 @@ open import Aletheia.DBC.DecRat.Refinement using
   ( IntDecRat; NatDecRat; intDecRatToℤ; natDecRatToℕ)
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; Node
+  ; Node; clearVdsMsg
   ; AttrType; ATInt; ATFloat; ATString; ATEnum; ATHex
   ; AttrValue; AVInt; AVFloat; AVString; AVEnum; AVHex
   ; AttrDef; AttrDefault; AttrAssign
@@ -58,6 +58,8 @@ open import Aletheia.DBC.TextParser.Attributes using
   ; findLabel
   )
 open import Aletheia.DBC.TextParser.Attributes as ParserAttrs using ()
+open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
+open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
 open import Aletheia.DBC.TextFormatter.Attributes using
   ( collectDefs
   ; nthLabel
@@ -70,7 +72,8 @@ open import Aletheia.DBC.TextParser.TopLevel using
   )
 
 open import Aletheia.DBC.TextFormatter.Topology    using (emitMessage-chars)
-open import Aletheia.DBC.TextFormatter.ValueTables  using (emitValueTable-chars)
+open import Aletheia.DBC.TextFormatter.ValueTables  using
+  (emitValueTable-chars; emitValueDescription-chars)
 open import Aletheia.DBC.TextFormatter.EnvVars      using (emitEnvVar-chars)
 open import Aletheia.DBC.TextFormatter.Comments     using (emitComment-chars)
 open import Aletheia.DBC.TextFormatter.SignalGroups using (emitSignalGroup-chars)
@@ -171,9 +174,11 @@ data WFAttribute (defs : List AttrDef) : DBCAttribute → Set where
 -- ============================================================================
 --
 -- Layer 4c bridges between the typed formatter and the raw-yielding
--- parser by introducing a typed shadow of `TopStmt`.  Drop constructors
--- (TSBOTxBu / TSValueDesc / TSSigValType / TSSigMulVal) are not in this
--- shadow — they are parser-only.
+-- parser by introducing a typed shadow of `TopStmt`.  Parser-only
+-- constructors of `TopStmt` not lifted into this typed shadow
+-- (`TSBOTxBu` / `TSSigValType` / `TSSigMulVal`) are absent here.
+-- `TSValueDesc` carries `RawValueDesc` post-E.4 at the parser side; its
+-- typed-shadow lift `TVD` lands at E.5.
 
 data TopStmtTyped : Set where
   TVT : ValueTable     → TopStmtTyped
@@ -182,16 +187,36 @@ data TopStmtTyped : Set where
   TCM : DBCComment     → TopStmtTyped
   TAT : DBCAttribute   → TopStmtTyped
   TSG : SignalGroup    → TopStmtTyped
+  -- Phase E.5–E.7: VAL_ payload at the typed-shadow level.  `TVD rvd`
+  -- mirrors `TopStmt.TSValueDesc rvd`; the typed-shadow shape is
+  -- monomorphic since `RawValueDesc` is parser-level (the refined form
+  -- lives nested under `messages[i].signals[j].valueDescriptions`, not
+  -- as a flat top-level field on `DBC`).  E.7 wires the chunk into
+  -- `toTopStmtsTyped` via `collectFromMessages` per the C1 sort key
+  -- `(message-index, signal-index, val-desc-index)`.
+  TVD : RawValueDesc   → TopStmtTyped
 
 -- Lift typed shadow → parser-side `TopStmt`.  Attributes are routed
 -- through `rawOf defs`; non-attributes are constructor-renames.
+-- E.9a: TM case lifts `m` through `clearVdsMsg`.  `parseMessage` produces
+-- signals with `vds = []` (because `buildSignal` hardcodes the field —
+-- VAL_ entries arrive at DBC level via TVD top-stmts), so the per-message
+-- dispatcher slim claims the parsed result equals `TSMessage (clearVdsMsg
+-- m)`.  Aligning `liftTopStmt`'s TM case keeps the body bridge's RHS
+-- (typed shadow lifted to `TopStmt`) coincident with the parser-produced
+-- list.  At the Universal layer, `partitionTopStmts` extracts
+-- `CollectedTop.messages = map clearVdsMsg d.messages`; `buildDBC`
+-- composes with `attachValueDescs (collectFromMessages d.messages)
+-- (map clearVdsMsg d.messages) ≡ d.messages` (E.6 + E.9a bridge) to
+-- recover the original.
 liftTopStmt : List AttrDef → TopStmtTyped → TopStmt
-liftTopStmt _    (TVT vt) = TSValueTable vt
-liftTopStmt _    (TM  m)  = TSMessage m
-liftTopStmt _    (TEV ev) = TSEnvVar ev
-liftTopStmt _    (TCM cm) = TSComment cm
-liftTopStmt defs (TAT a)  = TSAttribute (rawOf defs a)
-liftTopStmt _    (TSG sg) = TSSignalGroup sg
+liftTopStmt _    (TVT vt)  = TSValueTable vt
+liftTopStmt _    (TM  m)   = TSMessage (clearVdsMsg m)
+liftTopStmt _    (TEV ev)  = TSEnvVar ev
+liftTopStmt _    (TCM cm)  = TSComment cm
+liftTopStmt defs (TAT a)   = TSAttribute (rawOf defs a)
+liftTopStmt _    (TSG sg)  = TSSignalGroup sg
+liftTopStmt _    (TVD rvd) = TSValueDesc rvd
 
 -- ============================================================================
 -- TYPED TopStmt EMITTER
@@ -203,26 +228,30 @@ liftTopStmt _    (TSG sg) = TSSignalGroup sg
 -- lift` helper instantiates as its emitter.
 
 emitTopStmt-chars : List AttrDef → TopStmtTyped → List Char
-emitTopStmt-chars _    (TVT vt) = emitValueTable-chars vt
-emitTopStmt-chars _    (TM  m)  = emitMessage-chars m
-emitTopStmt-chars _    (TEV ev) = emitEnvVar-chars ev
-emitTopStmt-chars _    (TCM cm) = emitComment-chars cm
-emitTopStmt-chars defs (TAT a)  = emitAttribute-chars defs a
-emitTopStmt-chars _    (TSG sg) = emitSignalGroup-chars sg
+emitTopStmt-chars _    (TVT vt)  = emitValueTable-chars vt
+emitTopStmt-chars _    (TM  m)   = emitMessage-chars m
+emitTopStmt-chars _    (TEV ev)  = emitEnvVar-chars ev
+emitTopStmt-chars _    (TCM cm)  = emitComment-chars cm
+emitTopStmt-chars defs (TAT a)   = emitAttribute-chars defs a
+emitTopStmt-chars _    (TSG sg)  = emitSignalGroup-chars sg
+emitTopStmt-chars _    (TVD rvd) = emitValueDescription-chars rvd
 
 -- ============================================================================
 -- DBC → typed top-stmt list (formatChars order).
 -- ============================================================================
 --
--- Concatenates the 6 list-shaped sections in the same order
+-- Concatenates the 7 list-shaped sections in the same order
 -- `formatChars-body` emits them.  The preamble (VERSION/NS_/BS_/BU_) is
 -- handled separately at the top level — it's not in the `many parseTop-
--- Stmt` body.
+-- Stmt` body.  The TVD chunk (E.7) is sourced via `collectFromMessages`
+-- so partition's inverse (`attachValueDescs ∘ collectFromMessages ≡ id`,
+-- E.6) closes the universal aggregator.
 
 toTopStmtsTyped : DBC → List TopStmtTyped
 toTopStmtsTyped d =
   map TVT (DBC.valueTables     d) ++ₗ
   map TM  (DBC.messages        d) ++ₗ
+  map TVD (collectFromMessages (DBC.messages d)) ++ₗ
   map TEV (DBC.environmentVars d) ++ₗ
   map TCM (DBC.comments        d) ++ₗ
   map TAT (DBC.attributes      d) ++ₗ

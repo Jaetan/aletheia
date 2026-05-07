@@ -48,8 +48,8 @@ class TestDBCToText:
         assert "SigLE : 0|8@1+" in text
         # big_endian -> @0, signed -> -
         assert "SigBE : 8|8@0-" in text
-        # Check factor/offset
-        assert "(0.5,-10)" in text
+        # Check factor/offset (Agda emits canonical decimal form with .0 trail)
+        assert "(0.5,-10.0)" in text
         # Check unit
         assert '"V"' in text
         assert '"A"' in text
@@ -103,7 +103,7 @@ class TestDBCToText:
             # dbc_to_text converts to decimal for .dbc text output
             text = dbc_to_text(formatted)
             assert "(0.25,-1.5)" in text
-            assert "[0|100]" in text
+            assert "[0.0|100.0]" in text
 
     def test_extended_frame_bit(self) -> None:
         """Extended frames get bit 31 set in BO_ line."""
@@ -136,7 +136,8 @@ class TestDBCToText:
         dbc: DBCDefinition = {"version": "2.0", "messages": []}
         text = dbc_to_text(dbc)
         assert 'VERSION "2.0"' in text
-        assert "BU_: " in text
+        # No nodes in the DBC, no trailing space after BU_:
+        assert "BU_:" in text
 
     def test_example_dbc_roundtrip_text(self) -> None:
         """dbc_to_json -> dbc_to_text produces valid DBC text."""

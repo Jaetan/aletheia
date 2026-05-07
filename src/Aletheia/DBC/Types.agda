@@ -16,7 +16,7 @@ open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (ByteOrder)
 open import Data.Char using (Char)
 open import Data.String using (String; fromList)
-open import Data.List using (List)
+open import Data.List using (List; []; map)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ)
@@ -55,6 +55,7 @@ record DBCSignal : Set where
     unit : List Char                 -- DBC unit literal; List Char post 3d.4 JSON-mirror
     presence : SignalPresence        -- Conditional presence for multiplexing
     receivers : CanonicalReceivers   -- Node names from SG_ trailing receiver list (3d.5.c-γ.2: refined to exclude singleton-Vector__XXX)
+    valueDescriptions : List (ℕ × List Char)  -- DBC VAL_ keyword: (numeric value, label) pairs scoped to this signal; List Char post 3d.4 JSON-mirror.  Empty list when no VAL_ entries exist for this signal — matches the cantools-equivalent empty-then-attach pattern at refine time.
 
 record DBCMessage : Set where
   field
@@ -97,6 +98,37 @@ record ValueTable : Set where
   field
     name : Identifier
     entries : List (ℕ × List Char)  -- (numeric value, description) — List Char post 3d.4 JSON-mirror
+
+-- Raw value description from a DBC VAL_ line (Phase E).  Carries the
+-- owning message's `CANId`, the signal `Identifier`, and the value-label
+-- entries.  `attachValueDescs` matches `(canId, signalName)` against the
+-- assembled message list to land each entry on the owning signal's
+-- `DBCSignal.valueDescriptions`; entries that do not match any signal
+-- are preserved on `DBC.unresolvedValueDescs` (Plan B, 2026-05-07).
+--
+-- Defined here (not in `TextParser.ValueTables`) so `DBC` can reference
+-- it without inducing a cycle.  `TextParser.ValueTables` re-exports for
+-- source compatibility.
+record RawValueDesc : Set where
+  constructor mkRawValueDesc
+  field
+    canId      : CANId
+    signalName : Identifier
+    entries    : List (ℕ × List Char)
+
+-- Drop the `valueDescriptions` field on a signal/message.  Used by the
+-- text-roundtrip universal: `parseMessage` produces signals with `vds = []`
+-- (because `buildSignal` hardcodes the field — VAL_ entries arrive at
+-- DBC-level via `TVD` top-stmts and are stitched back in by
+-- `attachValueDescs`), so the per-message proof claims its result equals
+-- `clearVdsMsg msg`, NOT `msg`.  The Universal then bridges via E.6's
+-- `attachValueDescs (collectFromMessages msgs) (map clearVdsMsg msgs) ≡ msgs`
+-- to recover the original.
+clearVds : DBCSignal → DBCSignal
+clearVds s = record s { valueDescriptions = [] }
+
+clearVdsMsg : DBCMessage → DBCMessage
+clearVdsMsg m = record m { signals = map clearVds (DBCMessage.signals m) }
 
 -- ============================================================================
 -- NODE (DBC BU_ keyword)
@@ -220,6 +252,16 @@ record DBC : Set where
     nodes : List Node
     comments : List DBCComment
     attributes : List DBCAttribute
+    -- Phase E.8 (Plan B, 2026-05-07): VAL_ entries from the text-parse path
+    -- whose `(canId, signalName)` pair did not resolve to any signal in
+    -- `messages`.  Always `[]` on the JSON-parse path (JSON's per-signal
+    -- `valueDescriptions` field has no notion of "unresolved" —
+    -- the field is on the signal directly).  CHECK 23
+    -- `UnknownValueDescriptionTarget` walks this field at validation time.
+    -- The text round-trip closes only for DBCs with `unresolvedValueDescs
+    -- ≡ []` (`WellFormedDBC.unresolved-empty`); the formatter does not
+    -- emit lines for unresolved entries.
+    unresolvedValueDescs : List RawValueDesc
 
 -- ============================================================================
 -- IDENTIFIER NAME ACCESSORS (convenience helpers — Identifier → String)
@@ -307,6 +349,7 @@ data IssueCode : Set where
   UnknownCommentTarget        : IssueCode
   UnknownMessageSender        : IssueCode
   UnknownSignalReceiver       : IssueCode
+  UnknownValueDescriptionTarget : IssueCode
 
 -- A single validation issue
 record ValidationIssue : Set where

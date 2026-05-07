@@ -74,7 +74,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": "V"
+          "unit": "V",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -99,7 +100,8 @@
           ],
           "signed": true,
           "startBit": 32,
-          "unit": "A"
+          "unit": "A",
+          "valueDescriptions": []
         }
       ]
     },
@@ -133,7 +135,8 @@
           ],
           "signed": true,
           "startBit": 0,
-          "unit": "rad/s"
+          "unit": "rad/s",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -158,7 +161,8 @@
           ],
           "signed": true,
           "startBit": 32,
-          "unit": "rad/s"
+          "unit": "rad/s",
+          "valueDescriptions": []
         }
       ]
     }
@@ -187,6 +191,7 @@
       ]
     }
   ],
+  "unresolvedValueDescs": [],
   "valueTables": [],
   "version": "net-1"
 }

@@ -191,6 +191,10 @@ static auto parse_issue_code(const std::string& code) -> IssueCode {
         return IssueCode::UnknownCommentTarget;
     if (code == "unknown_message_sender")
         return IssueCode::UnknownMessageSender;
+    if (code == "unknown_signal_receiver")
+        return IssueCode::UnknownSignalReceiver;
+    if (code == "unknown_value_description_target")
+        return IssueCode::UnknownValueDescriptionTarget;
     return IssueCode::Unknown;
 }
 
@@ -266,6 +270,17 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
             receivers.emplace_back(elem.get<std::string>());
     }
 
+    std::vector<DbcValueEntry> value_descriptions;
+    if (j.contains("valueDescriptions")) {
+        const auto& arr = j.at("valueDescriptions");
+        value_descriptions.reserve(arr.size());
+        for (const auto& elem : arr)
+            value_descriptions.push_back(DbcValueEntry{
+                .value = elem.at("value").get<std::int64_t>(),
+                .description = elem.at("description").get<std::string>(),
+            });
+    }
+
     return DbcSignal{
         .name = SignalName{j.at("name").get<std::string>()},
         .start_bit = BitPosition{j.at("startBit").get<std::uint16_t>()},
@@ -279,6 +294,7 @@ static auto parse_signal_def(const Json& j) -> DbcSignal {
         .unit = Unit{j.value("unit", "")},
         .presence = std::move(presence),
         .receivers = std::move(receivers),
+        .value_descriptions = std::move(value_descriptions),
     };
 }
 
@@ -850,6 +866,25 @@ auto parse_parsed_dbc(std::string_view input) -> Result<ParsedDBC> {
             }
         }
         return ParsedDBC{.dbc = std::move(dbc), .warnings = std::move(warnings)};
+    } catch (const std::exception& e) {
+        return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
+    }
+}
+
+auto parse_dbc_text_response(std::string_view input) -> Result<std::string> {
+    try {
+        auto j = Json::parse(input);
+        auto status = j.value("status", "");
+        if (status == "error")
+            return std::unexpected(make_json_error(ErrorKind::Protocol, j));
+        if (status != "success")
+            return std::unexpected(make_error(
+                ErrorKind::Protocol, "Unexpected formatDBCText response status: " + status));
+        if (!j.contains("text") || !j.at("text").is_string())
+            return std::unexpected(
+                make_error(ErrorKind::Protocol,
+                           "Missing or non-string 'text' field in formatDBCText response"));
+        return j.at("text").get<std::string>();
     } catch (const std::exception& e) {
         return std::unexpected(make_error(ErrorKind::Protocol, e.what()));
     }

@@ -53,3 +53,4 @@ validateDBCFull dbc =
      ++ₗ checkAllUnknownMessageSenders msgs nodes
      ++ₗ checkAllUnknownSignalReceivers msgs nodes
      ++ₗ checkAllUnknownAdditionalSenders msgs nodes
+     ++ₗ checkAllUnknownValueDescriptionTargets (DBC.unresolvedValueDescs dbc)

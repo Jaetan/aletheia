@@ -2,7 +2,7 @@
 
 -- B.3.d Layer 4c task C — `partitionTopStmts` categorical preservation.
 --
--- Theorem:
+-- Theorem (Phase E.7, 7-chunk toTopStmtsTyped):
 --   partitionTopStmts (map (liftTopStmt defs) (toTopStmtsTyped d))
 --     ≡ mkCollectedTop (DBC.messages        d)
 --                       (DBC.valueTables     d)
@@ -10,13 +10,14 @@
 --                       (DBC.comments        d)
 --                       (map (rawOf defs) (DBC.attributes d))
 --                       (DBC.signalGroups    d)
+--                       (collectFromMessages (DBC.messages d))
 --
--- Proof strategy: 6 per-section accumulator-style lemmas + 5 `foldr-++`
+-- Proof strategy: 7 per-section accumulator-style lemmas + 6 `foldr-++`
 -- compositions (one per `++` boundary in `toTopStmtsTyped`).  Each
 -- per-section lemma updates exactly one field of the accumulator,
--- leaving the other 5 untouched.  Drop variants (`TSBOTxBu` / `TSValue-
--- Desc` / `TSSigValType` / `TSSigMulVal`) never occur in `liftTopStmt`'s
--- image so are not in scope.
+-- leaving the other 6 untouched.  Other drop variants (`TSBOTxBu` /
+-- `TSSigValType` / `TSSigMulVal`) never occur in `liftTopStmt`'s image
+-- so are not in scope.
 module Aletheia.DBC.TextParser.Properties.Aggregator.Partition where
 
 open import Data.Char  using (Char)
@@ -29,21 +30,25 @@ open import Relation.Binary.PropositionalEquality
 
 open import Aletheia.DBC.Types using
   ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
-  ; AttrDef; DBCAttribute
+  ; AttrDef; DBCAttribute; clearVdsMsg
   )
 
 open import Aletheia.DBC.TextParser.Attributes using
   (RawDBCAttribute)
+open import Aletheia.DBC.TextParser.ValueTables using
+  (RawValueDesc)
+open import Aletheia.DBC.TextParser.ValueDescriptions using
+  (collectFromMessages)
 
 open import Aletheia.DBC.TextParser.TopLevel using
   ( TopStmt; TSValueTable; TSMessage; TSEnvVar; TSComment
-  ; TSAttribute; TSSignalGroup
+  ; TSAttribute; TSSignalGroup; TSValueDesc
   ; CollectedTop; mkCollectedTop; emptyCollected; consTop
   ; partitionTopStmts
   )
 
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG
+  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG; TVD
   ; liftTopStmt; rawOf
   ; toTopStmtsTyped
   )
@@ -65,13 +70,17 @@ partition-onto-acc-TVT defs []         acc = refl
 partition-onto-acc-TVT defs (vt ∷ vts) acc =
   cong (consTop (TSValueTable vt)) (partition-onto-acc-TVT defs vts acc)
 
+-- E.9a: liftTopStmt (TM m) = TSMessage (clearVdsMsg m), so the
+-- partitioned messages field carries `map clearVdsMsg msgs`.  The
+-- Universal layer threads `attachValueDescs ∘ collectFromMessages ≡ id`
+-- (E.6 + E.9a bridge) post-buildDBC to recover the original messages.
 partition-onto-acc-TM :
     ∀ (defs : List AttrDef) (msgs : List DBCMessage) (acc : CollectedTop)
   → foldr consTop acc (map (liftTopStmt defs) (map TM msgs))
-    ≡ record acc { messages = msgs ++ₗ CollectedTop.messages acc }
+    ≡ record acc { messages = map clearVdsMsg msgs ++ₗ CollectedTop.messages acc }
 partition-onto-acc-TM defs []         acc = refl
 partition-onto-acc-TM defs (m  ∷ ms)  acc =
-  cong (consTop (TSMessage m)) (partition-onto-acc-TM defs ms acc)
+  cong (consTop (TSMessage (clearVdsMsg m))) (partition-onto-acc-TM defs ms acc)
 
 partition-onto-acc-TEV :
     ∀ (defs : List AttrDef) (evs : List EnvironmentVar) (acc : CollectedTop)
@@ -107,6 +116,17 @@ partition-onto-acc-TSG defs []         acc = refl
 partition-onto-acc-TSG defs (sg ∷ sgs) acc =
   cong (consTop (TSSignalGroup sg)) (partition-onto-acc-TSG defs sgs acc)
 
+-- Phase E.5β / E.7: TVD per-section lemma.  Mirrors the 6 above; updates
+-- the `rawValueDescs` field by prepending `rvds`.  E.7 wires this into
+-- `partitionTopStmts-bridge` via `collectFromMessages (DBC.messages d)`.
+partition-onto-acc-TVD :
+    ∀ (defs : List AttrDef) (rvds : List RawValueDesc) (acc : CollectedTop)
+  → foldr consTop acc (map (liftTopStmt defs) (map TVD rvds))
+    ≡ record acc { rawValueDescs = rvds ++ₗ CollectedTop.rawValueDescs acc }
+partition-onto-acc-TVD defs []           acc = refl
+partition-onto-acc-TVD defs (rvd ∷ rvds) acc =
+  cong (consTop (TSValueDesc rvd)) (partition-onto-acc-TVD defs rvds acc)
+
 -- ============================================================================
 -- BRIDGE — `partitionTopStmts ≡ foldr consTop emptyCollected`
 -- ============================================================================
@@ -126,16 +146,25 @@ partitionTopStmts-foldr (x ∷ xs) =
 -- TOP-LEVEL THEOREM — categorical preservation
 -- ============================================================================
 
+-- E.9a: `messages` field carries `map clearVdsMsg d.messages`, NOT
+-- `d.messages` — `liftTopStmt (TM m) = TSMessage (clearVdsMsg m)` so
+-- partition extracts the cleared form.  The Universal layer threads
+-- `attachValueDescs (collectFromMessages d.messages) (map clearVdsMsg
+-- d.messages) ≡ d.messages` (E.6 + E.9a bridge) at buildDBC time to
+-- recover the originals.  The TVD chunk still uses the original
+-- `DBC.messages d` (before clearing) because the typed shadow's TVD
+-- subterm was constructed at compile time from the original DBC.
 partitionTopStmts-bridge :
     ∀ (defs : List AttrDef) (d : DBC)
   → partitionTopStmts (map (liftTopStmt defs) (toTopStmtsTyped d))
     ≡ mkCollectedTop
-        (DBC.messages        d)
+        (map clearVdsMsg (DBC.messages d))
         (DBC.valueTables     d)
         (DBC.environmentVars d)
         (DBC.comments        d)
         (map (rawOf defs) (DBC.attributes d))
         (DBC.signalGroups    d)
+        (collectFromMessages (DBC.messages d))
 partitionTopStmts-bridge defs d =
   trans (partitionTopStmts-foldr (map (liftTopStmt defs) (toTopStmtsTyped d))) compose
   where
@@ -145,20 +174,22 @@ partitionTopStmts-bridge defs d =
     cms   = DBC.comments        d
     attrs = DBC.attributes      d
     sgs   = DBC.signalGroups    d
+    rvds  = collectFromMessages msgs
 
-    -- The 6 typed-shadow chunks (lifted to TopStmt via liftTopStmt defs).
-    chunkVT = map (liftTopStmt defs) (map TVT vts)
-    chunkM  = map (liftTopStmt defs) (map TM  msgs)
-    chunkEV = map (liftTopStmt defs) (map TEV evs)
-    chunkCM = map (liftTopStmt defs) (map TCM cms)
-    chunkAT = map (liftTopStmt defs) (map TAT attrs)
-    chunkSG = map (liftTopStmt defs) (map TSG sgs)
+    -- The 7 typed-shadow chunks (lifted to TopStmt via liftTopStmt defs).
+    chunkVT  = map (liftTopStmt defs) (map TVT vts)
+    chunkM   = map (liftTopStmt defs) (map TM  msgs)
+    chunkTVD = map (liftTopStmt defs) (map TVD rvds)
+    chunkEV  = map (liftTopStmt defs) (map TEV evs)
+    chunkCM  = map (liftTopStmt defs) (map TCM cms)
+    chunkAT  = map (liftTopStmt defs) (map TAT attrs)
+    chunkSG  = map (liftTopStmt defs) (map TSG sgs)
 
-    -- After mapping liftTopStmt over toTopStmtsTyped d, the 6-section
-    -- structure is preserved by `map-++` (5 applications).
+    -- After mapping liftTopStmt over toTopStmtsTyped d, the 7-section
+    -- structure is preserved by `map-++` (6 applications).
     map-distrib :
         map (liftTopStmt defs) (toTopStmtsTyped d)
-      ≡ chunkVT ++ₗ chunkM ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
+      ≡ chunkVT ++ₗ chunkM ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG
     map-distrib =
       trans
         (map-++ (liftTopStmt defs) (map TVT vts) _)
@@ -167,14 +198,17 @@ partitionTopStmts-bridge defs d =
             (map-++ (liftTopStmt defs) (map TM msgs) _)
             (cong (chunkM ++ₗ_)
               (trans
-                (map-++ (liftTopStmt defs) (map TEV evs) _)
-                (cong (chunkEV ++ₗ_)
+                (map-++ (liftTopStmt defs) (map TVD rvds) _)
+                (cong (chunkTVD ++ₗ_)
                   (trans
-                    (map-++ (liftTopStmt defs) (map TCM cms) _)
-                    (cong (chunkCM ++ₗ_)
-                      (map-++ (liftTopStmt defs) (map TAT attrs) _))))))))
+                    (map-++ (liftTopStmt defs) (map TEV evs) _)
+                    (cong (chunkEV ++ₗ_)
+                      (trans
+                        (map-++ (liftTopStmt defs) (map TCM cms) _)
+                        (cong (chunkCM ++ₗ_)
+                          (map-++ (liftTopStmt defs) (map TAT attrs) _))))))))))
 
-    -- Process the 6 chunks right-to-left via 5 applications of foldr-++,
+    -- Process the 7 chunks right-to-left via 6 applications of foldr-++,
     -- each followed by the corresponding per-section accumulator lemma.
 
     -- Innermost: foldr over chunkSG starting from emptyCollected.
@@ -225,22 +259,43 @@ partitionTopStmts-bridge defs d =
       trans (cong (λ z → foldr consTop z chunkEV) foldr-CM-eq)
             (partition-onto-acc-TEV defs evs acc-CM)
 
-    acc-M : CollectedTop
-    acc-M = record acc-EV
-              { messages = msgs ++ₗ CollectedTop.messages acc-EV }
+    -- E.7: TVD step between acc-EV and acc-M (TVD sits between TM and
+    -- TEV in toTopStmtsTyped, so inside-out it sits between EV and M).
+    acc-TVD : CollectedTop
+    acc-TVD = record acc-EV
+                { rawValueDescs = rvds ++ₗ CollectedTop.rawValueDescs acc-EV }
 
-    foldr-M-eq :
+    foldr-TVD-eq :
         foldr consTop
               (foldr consTop
                      (foldr consTop
                             (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
                             chunkCM)
                      chunkEV)
+              chunkTVD
+      ≡ acc-TVD
+    foldr-TVD-eq =
+      trans (cong (λ z → foldr consTop z chunkTVD) foldr-EV-eq)
+            (partition-onto-acc-TVD defs rvds acc-EV)
+
+    acc-M : CollectedTop
+    acc-M = record acc-TVD
+              { messages = map clearVdsMsg msgs ++ₗ CollectedTop.messages acc-TVD }
+
+    foldr-M-eq :
+        foldr consTop
+              (foldr consTop
+                     (foldr consTop
+                            (foldr consTop
+                                   (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
+                                   chunkCM)
+                            chunkEV)
+                     chunkTVD)
               chunkM
       ≡ acc-M
     foldr-M-eq =
-      trans (cong (λ z → foldr consTop z chunkM) foldr-EV-eq)
-            (partition-onto-acc-TM defs msgs acc-EV)
+      trans (cong (λ z → foldr consTop z chunkM) foldr-TVD-eq)
+            (partition-onto-acc-TM defs msgs acc-TVD)
 
     acc-VT : CollectedTop
     acc-VT = record acc-M
@@ -251,9 +306,11 @@ partitionTopStmts-bridge defs d =
               (foldr consTop
                      (foldr consTop
                             (foldr consTop
-                                   (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
-                                   chunkCM)
-                            chunkEV)
+                                   (foldr consTop
+                                          (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
+                                          chunkCM)
+                                   chunkEV)
+                            chunkTVD)
                      chunkM)
               chunkVT
       ≡ acc-VT
@@ -261,17 +318,19 @@ partitionTopStmts-bridge defs d =
       trans (cong (λ z → foldr consTop z chunkVT) foldr-M-eq)
             (partition-onto-acc-TVT defs vts acc-M)
 
-    -- 5 applications of foldr-++ to walk through the 6 chunks.
+    -- 6 applications of foldr-++ to walk through the 7 chunks.
     foldr-app-bridge :
         foldr consTop emptyCollected
-              (chunkVT ++ₗ chunkM ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
+              (chunkVT ++ₗ chunkM ++ₗ chunkTVD ++ₗ chunkEV ++ₗ chunkCM ++ₗ chunkAT ++ₗ chunkSG)
       ≡ foldr consTop
               (foldr consTop
                      (foldr consTop
                             (foldr consTop
-                                   (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
-                                   chunkCM)
-                            chunkEV)
+                                   (foldr consTop
+                                          (foldr consTop (foldr consTop emptyCollected chunkSG) chunkAT)
+                                          chunkCM)
+                                   chunkEV)
+                            chunkTVD)
                      chunkM)
               chunkVT
     foldr-app-bridge =
@@ -279,39 +338,39 @@ partitionTopStmts-bridge defs d =
         (cong (λ z → foldr consTop z chunkVT)
           (trans (foldr-++ consTop emptyCollected chunkM _)
             (cong (λ z → foldr consTop z chunkM)
-              (trans (foldr-++ consTop emptyCollected chunkEV _)
-                (cong (λ z → foldr consTop z chunkEV)
-                  (trans (foldr-++ consTop emptyCollected chunkCM _)
-                    (cong (λ z → foldr consTop z chunkCM)
-                      (foldr-++ consTop emptyCollected chunkAT _))))))))
+              (trans (foldr-++ consTop emptyCollected chunkTVD _)
+                (cong (λ z → foldr consTop z chunkTVD)
+                  (trans (foldr-++ consTop emptyCollected chunkEV _)
+                    (cong (λ z → foldr consTop z chunkEV)
+                      (trans (foldr-++ consTop emptyCollected chunkCM _)
+                        (cong (λ z → foldr consTop z chunkCM)
+                          (foldr-++ consTop emptyCollected chunkAT _))))))))))
 
-    -- 6-arity cong helper for cleaning up `xs ++ []` to `xs` in each
-    -- field via `++ₗ-identityʳ`.  Each `acc-X` definition prepends a
-    -- list onto the matching field of its base accumulator, but the
-    -- base field is `[]` (definitionally, by chain reduction through
-    -- the record updates), so each cumulative field has shape
-    -- `xs ++ []`.  `++-identityʳ` cleans up.
+    -- 7-arity cong helper for cleaning up `xs ++ []` to `xs` in each
+    -- field via `++ₗ-identityʳ`.  At E.7 the 7th arg covers the new
+    -- TVD-chunk contribution `acc-VT.rawValueDescs ≡ rvds ++ []`.
     cong-mkCollectedTop :
-        ∀ {a a' b b' c c' d d' e e' f f'} →
-        a ≡ a' → b ≡ b' → c ≡ c' → d ≡ d' → e ≡ e' → f ≡ f'
-      → mkCollectedTop a b c d e f ≡ mkCollectedTop a' b' c' d' e' f'
-    cong-mkCollectedTop refl refl refl refl refl refl = refl
+        ∀ {a a' b b' c c' d d' e e' f f' g g'} →
+        a ≡ a' → b ≡ b' → c ≡ c' → d ≡ d' → e ≡ e' → f ≡ f' → g ≡ g'
+      → mkCollectedTop a b c d e f g ≡ mkCollectedTop a' b' c' d' e' f' g'
+    cong-mkCollectedTop refl refl refl refl refl refl refl = refl
 
     final-eq :
         acc-VT
-      ≡ mkCollectedTop msgs vts evs cms (map (rawOf defs) attrs) sgs
+      ≡ mkCollectedTop (map clearVdsMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds
     final-eq = cong-mkCollectedTop
-                 (++ₗ-identityʳ msgs)
+                 (++ₗ-identityʳ (map clearVdsMsg msgs))
                  (++ₗ-identityʳ vts)
                  (++ₗ-identityʳ evs)
                  (++ₗ-identityʳ cms)
                  (++ₗ-identityʳ (map (rawOf defs) attrs))
                  (++ₗ-identityʳ sgs)
+                 (++ₗ-identityʳ rvds)
 
     compose :
         foldr consTop emptyCollected
               (map (liftTopStmt defs) (toTopStmtsTyped d))
-      ≡ mkCollectedTop msgs vts evs cms (map (rawOf defs) attrs) sgs
+      ≡ mkCollectedTop (map clearVdsMsg msgs) vts evs cms (map (rawOf defs) attrs) sgs rvds
     compose =
       trans (cong (foldr consTop emptyCollected) map-distrib)
         (trans foldr-app-bridge

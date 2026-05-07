@@ -8,16 +8,19 @@
 --   value-desc   ::= "VAL_" ws nat ws identifier (ws nat ws string-lit)*
 --                    ws? ";" newline
 --
--- Scope note — `VAL_` parsed but discarded:
---   The Agda `DBCSignal` record has no `valueDescriptions` field; there is
---   nowhere to store per-signal enum labels.  This matches the existing
---   Python pipeline (cantools → `dbc_to_json` also drops `signal.choices`;
---   see `python/aletheia/dbc_converter.py` — `value_tables.items()` is
---   processed, `signal.choices` is not).  The line is still parsed for
---   syntactic correctness so ill-formed `VAL_` lines reject the whole
---   file, and so a future B.3.g extension that promotes
---   `DBCSignal.valueDescriptions` end-to-end can flip this parser to
---   return the entry list without re-deriving the grammar.
+-- Phase E.4 — `VAL_` payload promotion:
+--   `parseValueDescription` now yields a `RawValueDesc` carrying the
+--   decoded `CANId`, the signal `Identifier`, and the `(value, label)`
+--   entries.  Earlier the parser dropped to `⊤` because `DBCSignal` had
+--   no place to store per-signal enum labels; with E.1's
+--   `DBCSignal.valueDescriptions` field, the value can now be threaded
+--   through `TopStmt.TSValueDesc → TopStmtTyped.TVD → attachValueDescs`
+--   to land on the owning signal's record.
+--
+--   The CAN-ID decoding via `buildCANId` is partial: a syntactically-
+--   valid `VAL_` line whose ℕ falls outside the standard/extended ID
+--   range now rejects the whole file (mirrors `parseMessage`'s stance
+--   on `BO_` lines).  All corpus fixtures use IDs that decode cleanly.
 --
 -- Prefix ambiguity — `VAL_` is a prefix of `VAL_TABLE_`, so the obvious
 -- `parseValueDescription <|> parseValueTable` ordering would succeed on
@@ -32,22 +35,24 @@
 -- side so B.3.d composes.
 module Aletheia.DBC.TextParser.ValueTables where
 
-open import Data.List using (List; []; _∷_)
+open import Data.List using (List)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Data.Char using (Char)
-open import Data.Unit using (⊤; tt)
 
 open import Aletheia.Parser.Combinators using
-  (Parser; pure; _>>=_; _<|>_; _*>_;
-   char; string; many)
+  (Parser; pure; _>>=_; fail; many)
 open import Aletheia.DBC.TextParser.Lexer using
-  (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
-   parseNatural)
+  (parseStringLit; parseWS; parseNewline; parseNatural)
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.ValueTable using (ValueTable-format)
+open import Aletheia.DBC.TextParser.Format.ValueDescription using
+  (ValueDescription-format)
+open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
 
+open import Aletheia.DBC.Identifier using (Identifier)
+open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.DBC.Types using (ValueTable)
 
 -- ============================================================================
@@ -90,37 +95,49 @@ parseValueTable = do
   pure vt
 
 -- ============================================================================
--- VAL_ LINE (parsed, discarded)
+-- VAL_ LINE — RawValueDesc payload
 -- ============================================================================
+
+-- `RawValueDesc` is defined in `Aletheia.DBC.Types` so `DBC.unresolved
+-- ValueDescs : List RawValueDesc` (Plan B, Phase E.8) does not induce a
+-- cycle.  Re-exported here so existing parser-side imports keep working
+-- without an upstream rewrite.
+open import Aletheia.DBC.Types using (RawValueDesc; mkRawValueDesc) public
+
+-- `buildResultP` dispatches the `Maybe CANId` directly via constructor
+-- pattern match (NOT `with`-on-Maybe).  Per
+-- `feedback_expose_scrutinee_for_external_rewrite.md` and
+-- `feedback_with_abstraction_traps.md`, this lets the slim roundtrip
+-- proof reduce externally via `cong (buildResultP _)
+-- (buildCANId-rawCanIdℕ canId)` without a proof-side `with` — top-level
+-- `with` hides the scrutinee inside the elaborated aux.
+--
+-- Hoisted to top-level (out of `where`) so the slim roundtrip in
+-- `Properties.ValueTables.ValueDesc` can reference the exact function
+-- `parseValueDescription`'s bind chain calls.  A where-bound version
+-- has different identity from any external mirror; `bind-just-step`
+-- needs the SAME function on both sides of its equation.
+buildResultP : Maybe CANId → Identifier → List (ℕ × List Char)
+             → Parser RawValueDesc
+buildResultP nothing       _    _   = fail
+buildResultP (just canId)  sigId vds = pure (mkRawValueDesc canId sigId vds)
 
 -- `"VAL_" ws nat ws identifier entries ws? ";" newline` + trailing blanks.
--- Returns `⊤` — see module header for why the entries aren't retained.
--- The `nat` is the CAN ID of the owning message; `identifier` is the
--- signal name.  Both are parsed but dropped.
-parseValueDescription : Parser ⊤
+-- The `nat` decodes via `buildCANId`; out-of-range IDs (≥ 2^32, or above
+-- the standard/extended max) reject the whole file, mirroring
+-- `parseMessage`'s stance on `BO_` headers.
+--
+-- Phase E.5β — derived from the Format DSL `ValueDescription-format`
+-- (parallels `parseValueTable`'s shape).  The DSL universal in
+-- `Format.ValueDescription` discharges the line-shape roundtrip up to
+-- the trailing newline; the wrapper here consumes optional blank lines
+-- via `many parseNewline` and decodes the raw CAN ID via `buildResultP`.
+parseValueDescription : Parser RawValueDesc
 parseValueDescription = do
-  _ ← string "VAL_"
-  _ ← parseWS
-  _ ← parseNatural    -- message CAN ID, discarded
-  _ ← parseWS
-  _ ← parseIdentifier -- signal name, discarded
-  _ ← many parseValueEntry
-  _ ← parseWSOpt
-  _ ← char ';'
-  _ ← parseNewline
-  _ ← many parseNewline
-  pure tt
-
--- ============================================================================
--- UNION PARSER
--- ============================================================================
-
--- One VAL_* line — either a table (retained) or a description (dropped).
--- Caller uses `many parseValueLine` and filters the `Maybe` to collect
--- tables; the `nothing` cases correspond to absorbed-but-dropped VAL_
--- lines, which keeps a single `many` loop driving both productions in a
--- stream-preserving order.
-parseValueLine : Parser (Maybe ValueTable)
-parseValueLine =
-  (parseValueTable >>= λ vt → pure (just vt)) <|>
-  (parseValueDescription *> pure nothing)
+  triple ← parse ValueDescription-format
+  _      ← many parseNewline
+  buildResultP (buildCANId (proj₁ triple))
+               (proj₁ (proj₂ triple))
+               (proj₂ (proj₂ triple))
+  where
+    open import Data.Product using (proj₁; proj₂)

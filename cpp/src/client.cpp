@@ -197,6 +197,15 @@ auto AletheiaClient::format_dbc(std::stop_token stop) -> Result<DbcDefinition> {
     return detail::parse_dbc_response(resp);
 }
 
+auto AletheiaClient::format_dbc_text(std::stop_token stop, const DbcDefinition& dbc)
+    -> Result<std::string> {
+    if (stop.stop_requested()) [[unlikely]]
+        return std::unexpected(make_cancellation_error("format_dbc_text"));
+    auto cmd = detail::serialize_format_dbc_text(dbc);
+    auto resp = backend_->process(state_, cmd);
+    return detail::parse_dbc_text_response(resp);
+}
+
 // ---------------------------------------------------------------------------
 // Signals
 // ---------------------------------------------------------------------------

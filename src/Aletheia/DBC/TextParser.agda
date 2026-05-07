@@ -76,6 +76,8 @@ open import Aletheia.DBC.TextParser.TopLevel using
   (TopStmt; CollectedTop; mkCollectedTop; partitionTopStmts; parseDBCText)
 open import Aletheia.DBC.TextParser.Attributes using
   (refineAttributes)
+open import Aletheia.DBC.TextParser.ValueDescriptions using
+  (attachValueDescs; unresolvedRVDs)
 
 open import Aletheia.Error public using
   (DBCTextParseError; ParseFailure; TrailingInput; AttributeRefinementFailed)
@@ -190,16 +192,36 @@ open import Aletheia.Error public using
 -- therefore in source order, matching the JSON pipeline's invariants.
 -- `attributes` carries the refined (resolved-def-reference) list — the
 -- raw two-stage split stays internal to the parser.
+--
+-- Phase E.6 — `messages` is post-`attachValueDescs`: the parser produces
+-- messages with empty `valueDescriptions` on every signal (buildSignal
+-- hardcodes `[]`); the refine pass distributes the parsed `RawValueDesc`s
+-- (collected separately under `partitionTopStmts.rawValueDescs`) back
+-- into the matching signals' `valueDescriptions` field.  The inverse-
+-- bridge proof in `Properties.Aggregator.Refine.ValueDescriptions`
+-- closes `attachValueDescs (collectFromMessages msgs) (map clearVdsMsg
+-- msgs) ≡ msgs` under WF (E.9a, 2026-05-07).  E.7 wired `collect
+-- FromMessages` into the formatter side; E.9a lifted the interim
+-- `vds-empty` clauses and replaced the vacuous TVD arm with a real
+-- derivation of `All RawValueDescStop` from `Identifier.valid`.
 buildDBC : List Char → List Node → CollectedTop → List DBCAttribute → DBC
 buildDBC ver nodes c attrs = record
-  { version         = ver
-  ; messages        = CollectedTop.messages        c
-  ; signalGroups    = CollectedTop.signalGroups    c
-  ; environmentVars = CollectedTop.environmentVars c
-  ; valueTables     = CollectedTop.valueTables     c
-  ; nodes           = nodes
-  ; comments        = CollectedTop.comments        c
-  ; attributes      = attrs
+  { version              = ver
+  ; messages             = attachValueDescs (CollectedTop.rawValueDescs c)
+                                            (CollectedTop.messages       c)
+  ; signalGroups         = CollectedTop.signalGroups    c
+  ; environmentVars      = CollectedTop.environmentVars c
+  ; valueTables          = CollectedTop.valueTables     c
+  ; nodes                = nodes
+  ; comments             = CollectedTop.comments        c
+  ; attributes           = attrs
+  -- Phase E.8 (Plan B): unresolved RVDs are computed against the
+  -- pre-attach `CollectedTop.messages` (the same list the resolved RVDs
+  -- match against).  Under WF (`unresolvedRVDs-on-collected`) this list
+  -- is `[]` for any DBC built from `formatText`, so the universal proof
+  -- closes via `WellFormedDBC.unresolved-empty`.
+  ; unresolvedValueDescs = unresolvedRVDs (CollectedTop.rawValueDescs c)
+                                          (CollectedTop.messages       c)
   }
 
 -- Shape the `runParserPartial` result into the public error ⊎ DBC

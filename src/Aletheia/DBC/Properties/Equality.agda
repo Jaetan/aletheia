@@ -11,6 +11,7 @@ open import Aletheia.DBC.Identifier using (Identifier; _≟ᴵ_)
 open import Aletheia.DBC.CanonicalReceivers using (_≟ᶜʳ_)
 open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Endianness using (_≟-ByteOrder_)
+open import Data.List using (List)
 open import Data.List.NonEmpty using (List⁺) renaming (_∷_ to _∷⁺_)
 open import Data.List.Properties using (≡-dec)
 open import Data.Nat using (ℕ)
@@ -18,6 +19,7 @@ open import Data.Nat.Properties using (_≟_)
 open import Aletheia.DBC.DecRat using (_≟ᵈ_)
 open import Data.Bool.Properties using () renaming (_≟_ to _≟ᵇ_)
 open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
+open import Data.Product using (_×_; _,_)
 open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
 open import Relation.Nullary using (Dec; yes; no)
 
@@ -64,7 +66,15 @@ s₁ ≟-SignalDef s₂
 ... | no ¬p = no (λ eq → ¬p (cong SignalDef.maximum eq))
 ... | yes refl = yes refl
 
--- Decidable equality for DBCSignal (6 fields)
+-- Decidable equality for one (value, description) pair from `valueDescriptions`.
+private
+  _≟-vd_ : (e₁ e₂ : ℕ × List Char) → Dec (e₁ ≡ e₂)
+  (n₁ , cs₁) ≟-vd (n₂ , cs₂) with n₁ ≟ n₂ | ≡-dec _≟ᶜ_ cs₁ cs₂
+  ... | yes refl | yes refl = yes refl
+  ... | no n≢   | _        = no (λ { refl → n≢ refl })
+  ... | _        | no cs≢  = no (λ { refl → cs≢ refl })
+
+-- Decidable equality for DBCSignal (7 fields, post-E.1)
 _≟-DBCSignal_ : (s₁ s₂ : DBCSignal) → Dec (s₁ ≡ s₂)
 s₁ ≟-DBCSignal s₂
   with DBCSignal.name s₁ ≟ᴵ DBCSignal.name s₂
@@ -84,4 +94,8 @@ s₁ ≟-DBCSignal s₂
 ... | yes refl
   with DBCSignal.receivers s₁ ≟ᶜʳ DBCSignal.receivers s₂
 ... | no ¬p = no (λ eq → ¬p (cong DBCSignal.receivers eq))
+... | yes refl
+  with ≡-dec _≟-vd_ (DBCSignal.valueDescriptions s₁)
+                    (DBCSignal.valueDescriptions s₂)
+... | no ¬p = no (λ eq → ¬p (cong DBCSignal.valueDescriptions eq))
 ... | yes refl = yes refl

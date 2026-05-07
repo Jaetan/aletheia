@@ -340,6 +340,38 @@ func (c *Client) FormatDBC(ctx context.Context) (*DbcDefinition, error) {
 	return parseDbcResponse(resp)
 }
 
+// FormatDBCText renders a DbcDefinition as .dbc file text via the verified
+// Agda formatter.  Inverse of [Client.ParseDBCText] at the wire level:
+// ParseDBCText(FormatDBCText(d)) returns d byte-identical for any well-formed
+// DBC (Phase E.9a coverage).  Does not modify client state — pass any
+// DbcDefinition value (typically from ParseDBCText, FormatDBC, or a JSON load).
+//
+// Honors ctx cancellation per the contract on [Client.ParseDBC].
+func (c *Client) FormatDBCText(ctx context.Context, dbc DbcDefinition) (string, error) {
+	dbcMap, err := serializeDBC(dbc)
+	if err != nil {
+		return "", err
+	}
+	cmd, err := serializeCommand("formatDBCText", map[string]any{
+		"dbc": dbcMap,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := c.lock(ctx); err != nil {
+		return "", fmt.Errorf("FormatDBCText: %w", err)
+	}
+	defer c.unlock()
+	if err := ctx.Err(); err != nil {
+		return "", fmt.Errorf("FormatDBCText: %w", err)
+	}
+	resp, err := c.processLocked(cmd)
+	if err != nil {
+		return "", err
+	}
+	return parseDbcTextResponse(resp)
+}
+
 // --- Signal operations ---
 
 // ExtractSignals decodes all signals from a CAN frame using the loaded DBC.

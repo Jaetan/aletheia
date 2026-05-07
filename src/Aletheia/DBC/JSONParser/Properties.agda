@@ -24,7 +24,7 @@ open import Aletheia.JSON using (JSON; JNull; JBool; JNumber; JString; JArray; J
 open import Aletheia.DBC.Types using (DBC)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors; parseMessageList;
   parseOptionalArray; parseSignalGroupList; parseEnvironmentVarList; parseValueTableList;
-  parseNodeList; parseCommentList; parseAttributeList)
+  parseNodeList; parseCommentList; parseAttributeList; parseRawValueDescList)
 open import Aletheia.DBC.Formatter using (formatDBC)
 open import Aletheia.DBC.Formatter.Properties using (WellFormedDBC; WellFormedDBCRT;
   format-parse-roundtrip)
@@ -69,8 +69,12 @@ parse-wellformed (JObject obj) d eq
 ...               | inj₂ comments | eq₈
                 with parseOptionalArray parseAttributeList (lookupArray "attributes" obj) | eq₈
 ...                 | inj₁ _ | ()
-...                 | inj₂ attributes | refl =
-                      record { messages-wf = parseMessageList-pv msgsJSON 0 msgs msgs-eq }
+...                 | inj₂ attributes | eq₉
+                  with parseOptionalArray parseRawValueDescList
+                                          (lookupArray "unresolvedValueDescs" obj) | eq₉
+...                   | inj₁ _ | ()
+...                   | inj₂ _ | refl =
+                        record { messages-wf = parseMessageList-pv msgsJSON 0 msgs msgs-eq }
 parse-wellformed JNull d ()
 parse-wellformed (JBool _) d ()
 parse-wellformed (JNumber _) d ()

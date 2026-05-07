@@ -26,6 +26,9 @@ open import Aletheia.Protocol.JSON using (JSON; formatJSON)
 open import Aletheia.Main using (processFrameDirect)
 open import Aletheia.Protocol.Handlers
     using (handleExtractAllSignals; handleFormatDBC)
+open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
+open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
+open import Aletheia.Protocol.JSON using (JSON)
 open import Aletheia.Protocol.Iteration using (iterate)
 open import Aletheia.Protocol.FrameProcessor.Properties.Step
     using (handleDataFrame-ack-sound)
@@ -89,3 +92,12 @@ handleFormatDBC-preserves-state state
   with getDBC state
 ... | nothing = refl
 ... | just _  = refl
+
+-- FormatDBCText (Phase E.10): pipeline JSON→DBC→text, never touches state.
+-- Both JSON parse failure and success paths return the input state unchanged.
+handleFormatDBCText-preserves-state : ∀ (dbcJSON : JSON) state
+  → proj₁ (handleFormatDBCText dbcJSON state) ≡ state
+handleFormatDBCText-preserves-state dbcJSON state
+  with parseDBCWithErrors dbcJSON
+... | inj₁ _ = refl
+... | inj₂ _ = refl

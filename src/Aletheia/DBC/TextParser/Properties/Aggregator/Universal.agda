@@ -24,13 +24,14 @@ open import Data.List  using (List; []; _∷_; foldr; map)
 open import Data.List.Properties using ()
   renaming (++-assoc to ++ₗ-assoc; ++-identityʳ to ++ₗ-identityʳ)
 open import Data.List.Relation.Unary.All as All using (All; []; _∷_)
+open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; subst)
+  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators using
   ( Parser; Position; ParseResult; mkResult
@@ -38,7 +39,7 @@ open import Aletheia.Parser.Combinators using
   ; runParserPartial; initialPosition; value; position; remaining)
 
 open import Aletheia.DBC.Types using
-  ( DBC; DBCMessage; ValueTable; EnvironmentVar; DBCComment; SignalGroup
+  ( DBC; DBCMessage; DBCSignal; ValueTable; EnvironmentVar; DBCComment; SignalGroup
   ; Node
   ; AttrDef; DBCAttribute
   )
@@ -96,13 +97,19 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
   ; WFAttribute; rawOf
   )
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher using
-  (TopStmtTypedWF; wfTVT; wfTM; wfTEV; wfTCM; wfTAT; wfTSG)
+  (TopStmtTypedWF; wfTVT; wfTM; wfTEV; wfTCM; wfTAT; wfTSG; wfTVD)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.ManyTopStmts using
   (parseTopStmts-roundtrip)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Partition using
   (partitionTopStmts-bridge)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine using
   (refineAttributes-on-rawOf)
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Refine.ValueDescriptions using
+  (map-attachToMessage-on-clearVdsMsgs-collected;
+   collectFromMessages-stops;
+   unresolvedRVDs-on-clearVdsMsgs-collectFromMessages)
+open import Aletheia.DBC.TextParser.ValueDescriptions using
+  (collectFromMessages)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.BodyBridge using
   (formatChars-body; formatChars-body-bridge)
 open import Aletheia.DBC.TextFormatter.Attributes using
@@ -131,14 +138,39 @@ record WellFormedDBC (d : DBC) : Set where
     cm-stops   : All CommentTargetStop                              (DBC.comments        d)
     attr-wfs   : All (WFAttribute (collectDefs (DBC.attributes d))) (DBC.attributes      d)
     sg-wfs     : All SignalGroupWF                                  (DBC.signalGroups    d)
+    -- E.6: cross-message CAN-ID uniqueness.  Required by
+    -- `attachValueDescs ∘ collectFromMessages ≡ id` (the inverse-bridge
+    -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
+    -- messages with the same CAN ID would have their per-signal VAL_
+    -- entries collapse onto whichever message `lookup-vd` finds first,
+    -- breaking the round-trip.  Validator's CHECK 18 (`DuplicateMessageId`)
+    -- enforces this at DBC-load time.
+    msg-ids-unique : AllPairs _≢_ (map DBCMessage.id (DBC.messages d))
+    -- E.8 (Plan B, 2026-05-07): `formatText` does not emit lines for
+    -- `DBC.unresolvedValueDescs` entries (no canonical text representation
+    -- — they could be re-emitted as VAL_ lines but those would be silently
+    -- re-collected as unresolved on parse-back, leaving the round-trip
+    -- closed but lossy).  The text round-trip therefore closes only for
+    -- DBCs whose unresolved list is already `[]`; this includes every
+    -- DBC built from `parseText` (because `unresolvedRVDs ∘ collectFrom
+    -- Messages ≡ []` under any `msgs`) and every DBC built from JSON
+    -- (the JSON path always defaults the field to `[]`).  CHECK 23
+    -- `UnknownValueDescriptionTarget` warns at validation time when
+    -- this field is non-empty (E.11).
+    unresolved-empty : DBC.unresolvedValueDescs d ≡ []
 
 -- ============================================================================
 -- BRIDGE — derive `All TopStmtTypedWF` from `WellFormedDBC`
 -- ============================================================================
 --
--- `toTopStmtsTyped d` is a 6-section `++` chain (`map TX xs` per section).
+-- `toTopStmtsTyped d` is a 7-section `++` chain (`map TX xs` per section).
 -- `All P` distributes over `++` and `map`, so we can lift each section's
--- slim precondition through its `TX` constructor.
+-- slim precondition through its `TX` constructor.  At E.7 the TVD chunk's
+-- arm is discharged vacuously: `MessageWF.vds-empty` (an E.1 interim
+-- clause) lets us prove `collectFromMessages msgs ≡ []`, so `map TVD
+-- (collectFromMessages msgs) ≡ []` and the `All` becomes `[]`.  E.9
+-- relaxes this and replaces the vacuous arm with a derivation of
+-- `All RawValueDescStop` from signal-name validity.
 
 private
   -- All P (map f xs) iff All (P ∘ f) xs.  Standard.
@@ -165,21 +197,22 @@ toTopStmtsTyped-WF d wf =
             (all-++ _ _ (all-map TM (DBC.messages d)
                           (lift-stops TM (TopStmtTypedWF defs) (DBC.messages d)
                                       (WellFormedDBC.msg-wfs wf) wfTM))
-                       (all-++ _ _ (all-map TEV (DBC.environmentVars d)
-                                     (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
-                                                 (WellFormedDBC.ev-stops wf) wfTEV))
-                                  (all-++ _ _ (all-map TCM (DBC.comments d)
-                                                (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
-                                                            (WellFormedDBC.cm-stops wf) wfTCM))
-                                             (all-++ _ _ (all-map TAT (DBC.attributes d)
-                                                           (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
-                                                                       (WellFormedDBC.attr-wfs wf) wfTAT))
-                                                        (all-map TSG (DBC.signalGroups d)
-                                                          (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
-                                                                      (WellFormedDBC.sg-wfs wf) wfTSG))))))
+                       (all-++ _ _ tvd-WF
+                                  (all-++ _ _ (all-map TEV (DBC.environmentVars d)
+                                                (lift-stops TEV (TopStmtTypedWF defs) (DBC.environmentVars d)
+                                                            (WellFormedDBC.ev-stops wf) wfTEV))
+                                             (all-++ _ _ (all-map TCM (DBC.comments d)
+                                                           (lift-stops TCM (TopStmtTypedWF defs) (DBC.comments d)
+                                                                       (WellFormedDBC.cm-stops wf) wfTCM))
+                                                        (all-++ _ _ (all-map TAT (DBC.attributes d)
+                                                                      (lift-stops TAT (TopStmtTypedWF defs) (DBC.attributes d)
+                                                                                  (WellFormedDBC.attr-wfs wf) wfTAT))
+                                                                   (all-map TSG (DBC.signalGroups d)
+                                                                     (lift-stops TSG (TopStmtTypedWF defs) (DBC.signalGroups d)
+                                                                                 (WellFormedDBC.sg-wfs wf) wfTSG)))))))
   where
     open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-      (TVT; TM; TEV; TCM; TAT; TSG)
+      (TVT; TM; TVD; TEV; TCM; TAT; TSG)
 
     defs = collectDefs (DBC.attributes d)
 
@@ -196,6 +229,20 @@ toTopStmtsTyped-WF d wf =
     lift-stops _ _ []        []          _ = []
     lift-stops TX Wf (x ∷ xs) (sx ∷ srest) f =
       f x sx ∷ lift-stops TX Wf xs srest f
+
+    -- E.9a: non-vacuous TVD arm.  `collectFromMessages-stops` derives
+    -- `All RawValueDescStop (collectFromMessages msgs)` from the
+    -- structural shape of `collectFromSignals` (every rvd's signalName
+    -- comes from some `s.name : Identifier`, whose `valid` witness
+    -- decomposes to a head non-isHSpace).  No `vds-empty` precondition
+    -- needed.  `lift-stops` then routes through `wfTVD`.
+    tvd-WF : All (TopStmtTypedWF defs) (map TVD (collectFromMessages (DBC.messages d)))
+    tvd-WF =
+      all-map TVD (collectFromMessages (DBC.messages d))
+        (lift-stops TVD (TopStmtTypedWF defs)
+                    (collectFromMessages (DBC.messages d))
+                    (collectFromMessages-stops (DBC.messages d))
+                    wfTVD)
 
 -- ============================================================================
 -- BRIDGE — `parseTopStmt pos [] ≡ nothing`  (terminator obligation for `many`)
@@ -499,13 +546,20 @@ parseDBCText-on-formatChars d wf =
 -- ============================================================================
 --
 -- Once `parseDBCText pos (formatChars d) ≡ just (mkResult (ver, nodes,
--- stmts) pos-end [])`, `finalizeParse` walks 4 `with` steps:
+-- stmts) pos-end [])`, `finalizeParse` walks 5 `with` steps (post E.7):
 --   1. `remaining res = []` — definitional from `mkResult … []`.
 --   2. `value res = (ver, nodes, stmts)` — definitional pattern unbox.
 --   3. `partitionTopStmts stmts` — Layer 4c task C bridges to
---      `mkCollectedTop … (map (rawOf defs) attrs) …`.
+--      `mkCollectedTop … (map (rawOf defs) attrs) … (collectFromMessages
+--      d.messages)` (E.7 wired the 7th field into `toTopStmtsTyped`).
 --   4. `refineAttributes (CollectedTop.rawAttributes collected)` —
 --      Layer 4c task D bridges to `just attrs`.
+--   5. `attachValueDescs (CollectedTop.rawValueDescs collected) … `
+--      inside `buildDBC` — discharged via E.9a's
+--      `map-attachToMessage-on-clearVdsMsgs-collected` consuming
+--      `msg-ids-unique` + `msg-wfs` from the WF record (E.6 layer
+--      composed with the E.9a `clearVds` bridge to handle the cleared
+--      messages produced by `liftTopStmt (TM m) = TSMessage (clearVdsMsg m)`).
 -- The final `inj₂ (buildDBC ver nodes collected attrs)` reconstructs
 -- `d` by record-η.
 --
@@ -527,7 +581,15 @@ finalizeParse-on-mkResult-clean :
 finalizeParse-on-mkResult-clean d pos-end wf
   rewrite partitionTopStmts-bridge (collectDefs (DBC.attributes d)) d
         | refineAttributes-on-rawOf (DBC.attributes d) (WellFormedDBC.attr-wfs wf)
-        = refl
+  = cong₂
+      (λ msgs unres → inj₂ (record d { messages             = msgs
+                                     ; unresolvedValueDescs = unres }))
+      (map-attachToMessage-on-clearVdsMsgs-collected (DBC.messages d)
+         (WellFormedDBC.msg-ids-unique wf)
+         (WellFormedDBC.msg-wfs wf))
+      (trans
+        (unresolvedRVDs-on-clearVdsMsgs-collectFromMessages (DBC.messages d))
+        (sym (WellFormedDBC.unresolved-empty wf)))
 
 parseTextChars-on-formatChars :
     ∀ (d : DBC) → WellFormedDBC d

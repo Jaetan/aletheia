@@ -289,7 +289,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": "rpm"
+          "unit": "rpm",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -305,7 +306,8 @@
           ],
           "signed": true,
           "startBit": 16,
-          "unit": "degC"
+          "unit": "degC",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -321,7 +323,17 @@
           ],
           "signed": false,
           "startBit": 24,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": [
+            {
+              "description": "Stopped",
+              "value": 0
+            },
+            {
+              "description": "Running",
+              "value": 1
+            }
+          ]
         }
       ]
     },
@@ -346,7 +358,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -371,7 +384,8 @@
           ],
           "signed": false,
           "startBit": 8,
-          "unit": "bar"
+          "unit": "bar",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -390,7 +404,8 @@
           ],
           "signed": false,
           "startBit": 8,
-          "unit": "%"
+          "unit": "%",
+          "valueDescriptions": []
         }
       ]
     },
@@ -414,7 +429,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -428,7 +444,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 8,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     }
@@ -454,6 +471,7 @@
       ]
     }
   ],
+  "unresolvedValueDescs": [],
   "valueTables": [
     {
       "entries": [

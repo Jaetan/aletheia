@@ -27,7 +27,7 @@ open import Relation.Nullary using (yes; no)
 open import Data.Bool using (T)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
-open import Data.List using (List; []; _∷_; map)
+open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -47,12 +47,14 @@ open import Aletheia.DBC.Types using (SignalGroup; EnvironmentVar; ValueTable;
   AttrTarget; ATgtNetwork; ATgtNode; ATgtMessage; ATgtSignal; ATgtEnvVar;
   ATgtNodeMsg; ATgtNodeSig;
   AttrDef; mkAttrDef; AttrDefault; mkAttrDefault; AttrAssign; mkAttrAssign;
-  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign)
+  DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign;
+  RawValueDesc; mkRawValueDesc)
 open import Aletheia.DBC.Formatter using (ℕtoJSON; ℤtoJSON; identJSON;
   formatSignalGroup; formatEnvironmentVar; formatValueTable; formatValueEntry;
   formatNode; formatComment; formatCommentTarget;
   formatAttribute; formatAttrScope; formatAttrType;
   formatAttrValue; formatAttrTarget;
+  formatRawValueDesc; formatCANId;
   attrDefFields; attrDefaultFields; attrAssignFields)
 open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
   parseSignalGroup; parseSignalGroupList;
@@ -65,7 +67,8 @@ open import Aletheia.DBC.JSONParser using (parseCharsList; parseVarType;
   parseAttrScope; parseAttrType; parseAttrValue; parseAttrTarget;
   parseAttrDef; parseAttrDefault; parseAttrAssign;
   parseAttribute; parseAttributeList;
-  parseCANId;
+  parseCANId; parseMessageId;
+  parseRawValueDesc; parseRawValueDescList;
   validateIdent; validateIdentList)
 open import Aletheia.JSON using (JSON; JObject; JString; JStringS; JNumber; JArray)
 open import Aletheia.DBC.Formatter.WellFormed using (getNat-ℕtoJSON; getInt-ℤtoJSON)
@@ -248,6 +251,97 @@ private
 valueTable-list-roundtrip : ∀ vts
   → parseValueTableList (map formatValueTable vts) ≡ inj₂ vts
 valueTable-list-roundtrip = valueTable-list-go 0
+
+-- ============================================================================
+-- RawValueDesc ROUNDTRIP (Phase E.8 Plan B)
+-- ============================================================================
+--
+-- Mirrors `MessageRoundtrip/{Standard,Extended}` for the (id, extended) pair
+-- via `parseMessageId`, but the rest of the wire form is much smaller —
+-- just `signalName` + `entries`.
+
+private
+  rawValueDescFields : RawValueDesc → List (String × JSON)
+  rawValueDescFields rvd =
+    formatCANId (RawValueDesc.canId rvd) ++ₗ
+    ("signalName" , identJSON (RawValueDesc.signalName rvd)) ∷
+    ("entries"    , JArray (map formatValueEntry (RawValueDesc.entries rvd))) ∷
+    []
+
+  rvd-canId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+                    (n : Identifier) (es : List (ℕ × List Char))
+    → parseCANId "rawValueDesc" rawId
+        (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
+      ≡ inj₂ (Standard rawId pf)
+  rvd-canId-std rawId pf n es = ifᵀ-witness _ _ pf
+
+  rvd-canId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+                    (n : Identifier) (es : List (ℕ × List Char))
+    → parseCANId "rawValueDesc" rawId
+        (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
+      ≡ inj₂ (Extended rawId pf)
+  rvd-canId-ext rawId pf n es = ifᵀ-witness _ _ pf
+
+  rvd-msgId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+                    (n : Identifier) (es : List (ℕ × List Char))
+    → parseMessageId "rawValueDesc"
+        (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
+      ≡ inj₂ (Standard rawId pf)
+  rvd-msgId-std rawId pf n es
+    rewrite getNat-ℕtoJSON rawId
+    = rvd-canId-std rawId pf n es
+
+  rvd-msgId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+                    (n : Identifier) (es : List (ℕ × List Char))
+    → parseMessageId "rawValueDesc"
+        (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
+      ≡ inj₂ (Extended rawId pf)
+  rvd-msgId-ext rawId pf n es
+    rewrite getNat-ℕtoJSON rawId
+    = rvd-canId-ext rawId pf n es
+
+  rawValueDesc-roundtrip-std :
+      ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+        (n : Identifier) (es : List (ℕ × List Char))
+    → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
+      ≡ inj₂ (mkRawValueDesc (Standard rawId pf) n es)
+  rawValueDesc-roundtrip-std rawId pf n es
+    rewrite rvd-msgId-std rawId pf n es
+          | valueEntryList-roundtrip es
+          | validateIdent-roundtrip n
+    = refl
+
+  rawValueDesc-roundtrip-ext :
+      ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+        (n : Identifier) (es : List (ℕ × List Char))
+    → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
+      ≡ inj₂ (mkRawValueDesc (Extended rawId pf) n es)
+  rawValueDesc-roundtrip-ext rawId pf n es
+    rewrite rvd-msgId-ext rawId pf n es
+          | valueEntryList-roundtrip es
+          | validateIdent-roundtrip n
+    = refl
+
+rawValueDesc-roundtrip : ∀ rvd → parseRawValueDesc (rawValueDescFields rvd) ≡ inj₂ rvd
+rawValueDesc-roundtrip (mkRawValueDesc (Standard rawId pf) n es) =
+  rawValueDesc-roundtrip-std rawId pf n es
+rawValueDesc-roundtrip (mkRawValueDesc (Extended rawId pf) n es) =
+  rawValueDesc-roundtrip-ext rawId pf n es
+
+private
+  rawValueDesc-list-go : ∀ n rvds
+    → parseObjectList "rawValueDesc" parseRawValueDesc n
+        (map formatRawValueDesc rvds)
+      ≡ inj₂ rvds
+  rawValueDesc-list-go _ [] = refl
+  rawValueDesc-list-go n (rvd ∷ rvds)
+    rewrite rawValueDesc-roundtrip rvd
+          | rawValueDesc-list-go (suc n) rvds
+    = refl
+
+rawValueDescList-roundtrip : ∀ rvds
+  → parseRawValueDescList (map formatRawValueDesc rvds) ≡ inj₂ rvds
+rawValueDescList-roundtrip = rawValueDesc-list-go 0
 
 -- ============================================================================
 -- NODE ROUNDTRIP (Tier 2)

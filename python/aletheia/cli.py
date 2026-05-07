@@ -45,12 +45,11 @@ from .protocols import (
     DBCDefinition,
     DBCMessage,
     DBCSignal,
-    IssueSeverity,
     PropertyResultEntry,
     PropertyViolationResponse,
     RationalNumber,
-    ValidationIssue,
 )
+from .validation import IssueSeverity, ValidationIssue
 
 if TYPE_CHECKING:
     # Type-only imports for the lazy helpers below — these are not available

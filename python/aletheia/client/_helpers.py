@@ -21,6 +21,7 @@ from ..protocols import (
     DBCEnvironmentVar,
     DBCMessage,
     DBCNode,
+    DBCRawValueDesc,
     DBCSignal,
     DBCSignalGroup,
     DBCValueEntry,
@@ -63,6 +64,59 @@ class FractionJSONEncoder(json.JSONEncoder):
 def dump_json(value: object, *, indent: int | None = None) -> str:
     """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder."""
     return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
+
+
+# Outgoing-DBC normalization: C++/Go always emit these list keys (their
+# structs hold non-optional list fields), while Python's TypedDict uses
+# ``NotRequired`` so callers may omit them.  Filling in `[]` defaults
+# before serialization aligns Python's wire shape with C++/Go — every
+# binding's FFI dispatcher sees the same JSON envelope.  Per
+# `feedback_cross_binding_wire_symmetry`.
+_DBC_TIER2_LIST_KEYS = (
+    "signalGroups", "environmentVars", "valueTables",
+    "nodes", "comments", "attributes", "unresolvedValueDescs",
+)
+
+
+def _normalize_signal_for_wire(sig: dict[str, object]) -> dict[str, object]:
+    """Ensure NotRequired signal list fields are present in outgoing JSON."""
+    return {
+        **sig,
+        "receivers": sig.get("receivers", []),
+        "valueDescriptions": sig.get("valueDescriptions", []),
+    }
+
+
+def _normalize_message_for_wire(msg: dict[str, object]) -> dict[str, object]:
+    """Ensure NotRequired message list fields are present in outgoing JSON."""
+    signals = cast("list[dict[str, object]]", msg.get("signals", []))
+    return {
+        **msg,
+        "senders": msg.get("senders", []),
+        "signals": [_normalize_signal_for_wire(s) for s in signals],
+    }
+
+
+def normalize_dbc_for_wire(dbc: DBCDefinition) -> DBCDefinition:
+    """Pad an outgoing ``DBCDefinition`` with empty defaults for absent list fields.
+
+    C++/Go always emit the optional Tier-2 list keys (``nodes``, ``comments``,
+    …) and the per-message ``senders`` / per-signal ``receivers`` /
+    ``valueDescriptions`` because their language-level structs hold
+    non-optional list fields.  Python's TypedDict ``NotRequired`` lets
+    callers omit them.  This helper aligns Python's outgoing wire shape
+    with C++/Go so the JSON envelope reaching the FFI dispatcher is
+    identical regardless of which binding constructed the request.
+    """
+    messages = cast("list[dict[str, object]]", dbc.get("messages", []))
+    result: dict[str, object] = {
+        **dbc,
+        "messages": [_normalize_message_for_wire(m) for m in messages],
+    }
+    for key in _DBC_TIER2_LIST_KEYS:
+        if key not in result:
+            result[key] = []
+    return cast(DBCDefinition, result)
 
 
 # Shared bounds and scaling factors for the binary FFI rational encoding.
@@ -300,6 +354,36 @@ def _normalize_value_table(raw: dict[str, object]) -> DBCValueTable:
             raise ProtocolError("Expected value table entry to be a dict")
         entries.append(_normalize_value_entry(e))
     return {"name": name, "entries": entries}
+
+
+def _normalize_raw_value_desc(raw: dict[str, object]) -> "DBCRawValueDesc":
+    """Normalize one ``unresolvedValueDescs`` entry from Agda formatDBC output.
+
+    Phase E.8 (Plan B): wire shape is ``{id, [extended], signalName, entries}``,
+    paralleling ``DBCMessage`` for the CAN-ID half.
+    """
+    raw_entries = raw.get("entries")
+    if not is_object_list(raw_entries):
+        raise ProtocolError(
+            "Expected unresolvedValueDescs 'entries' to be a list"
+        )
+    entries: list[DBCValueEntry] = []
+    for e in raw_entries:
+        if not is_str_dict(e):
+            raise ProtocolError(
+                "Expected unresolvedValueDescs entry to be a dict"
+            )
+        entries.append(_normalize_value_entry(e))
+    out: dict[str, object] = {
+        "id": _require_int_field(raw, "id", "unresolvedValueDesc"),
+        "signalName": _require_str_field(
+            raw, "signalName", "unresolvedValueDesc"
+        ),
+        "entries": entries,
+    }
+    if _optional_extended(raw):
+        out["extended"] = True
+    return cast("DBCRawValueDesc", out)
 
 
 # ----------------------------------------------------------------------------
@@ -583,6 +667,9 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     result["nodes"] = _normalize_optional_list(raw, "nodes", _normalize_node)
     result["comments"] = _normalize_optional_list(raw, "comments", _normalize_comment)
     result["attributes"] = _normalize_optional_list(raw, "attributes", _normalize_attribute)
+    result["unresolvedValueDescs"] = _normalize_optional_list(
+        raw, "unresolvedValueDescs", _normalize_raw_value_desc
+    )
     return result
 
 

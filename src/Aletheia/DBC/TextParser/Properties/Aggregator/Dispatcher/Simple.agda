@@ -1,10 +1,10 @@
 {-# OPTIONS --safe --without-K #-}
 
--- B.3.d Layer 4c — Façade re-exporting the 5 simple-section dispatchers.
--- Per-section modules live under `Dispatcher/Simple/` to keep each
--- module's elaboration working set within `-M16G`.  The dispatcher
--- consumers (Aggregator.Properties / Aggregator.Universal) import the
--- 5 names from this façade.
+-- B.3.d Layer 4c — Façade re-exporting the 5 simple-section dispatchers
+-- (+ Phase E.5β TVD).  Per-section modules live under `Dispatcher/Simple/`
+-- to keep each module's elaboration working set within `-M16G`.  The
+-- dispatcher consumers (Aggregator.Properties / Aggregator.Universal)
+-- import these names from this façade.
 --
 -- The TAT case (heaviest) lives in `Aggregator/Dispatcher/Attribute.agda`
 -- — separate to isolate its ~600-1500 LOC dispatch tree.
@@ -20,3 +20,5 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.EnvV
   (parseTopStmt-on-emit-TEV-eq)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.Comment public using
   (parseTopStmt-on-emit-TCM-eq)
+open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple.ValueDesc public using
+  (parseTopStmt-on-emit-TVD-eq)

@@ -68,6 +68,15 @@ using SignalPresence = std::variant<AlwaysPresent, Multiplexed>;
 // DBC signal definition
 // ---------------------------------------------------------------------------
 
+// One (value, description) pair shared by DbcSignal::value_descriptions
+// (inline VAL_ entries on a signal) and DbcValueTable::entries (the
+// global VAL_TABLE_ section). Defined ahead of DbcSignal so the latter
+// can hold a vector of complete-typed entries.
+struct DbcValueEntry {
+    std::int64_t value;
+    std::string description;
+};
+
 struct DbcSignal {
     SignalName name;
     BitPosition start_bit;
@@ -81,6 +90,10 @@ struct DbcSignal {
     Unit unit;
     SignalPresence presence;
     std::vector<std::string> receivers;
+    // Inline ``VAL_`` entries attached to this signal. Empty when no
+    // ``VAL_`` line names it. Same ``{value, description}`` shape as
+    // DbcValueTable::entries — the wire emits both as ordered arrays.
+    std::vector<DbcValueEntry> value_descriptions;
 };
 
 // ---------------------------------------------------------------------------
@@ -156,12 +169,9 @@ struct DbcEnvironmentVar {
 
 // ---------------------------------------------------------------------------
 // DBC value table (``VAL_TABLE_`` keyword)
+//
+// DbcValueEntry is defined above (DbcSignal::value_descriptions reuses it).
 // ---------------------------------------------------------------------------
-
-struct DbcValueEntry {
-    std::int64_t value;
-    std::string description;
-};
 
 struct DbcValueTable {
     std::string name;
@@ -327,6 +337,22 @@ struct DbcAttrAssign {
 using DbcAttribute = std::variant<DbcAttrDef, DbcAttrDefault, DbcAttrAssign>;
 
 // ---------------------------------------------------------------------------
+// Phase E.8 (Plan B): unresolved VAL_ entries from the text-parse path.
+//
+// Carries the owning message's CAN ID, the signal name, and the
+// (value, label) entries.  Populated only when the text-parse path
+// encounters a VAL_ line whose (canId, signalName) pair does not match
+// any signal in the parsed messages; the entries are preserved verbatim
+// so the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
+// validation time.
+// ---------------------------------------------------------------------------
+struct DbcRawValueDesc {
+    CanId can_id;
+    std::string signal_name;
+    std::vector<DbcValueEntry> entries;
+};
+
+// ---------------------------------------------------------------------------
 // Complete DBC definition
 //
 // There are four supported ways to obtain a DbcDefinition:
@@ -352,6 +378,10 @@ struct DbcDefinition {
     std::vector<DbcNode> nodes;
     std::vector<DbcComment> comments;
     std::vector<DbcAttribute> attributes;
+    // Phase E.8 (Plan B): VAL_ lines from the text-parse path that did
+    // not resolve to any signal in `messages`.  Empty on the JSON-parse
+    // path (JSON has no notion of unresolved RVDs structurally).
+    std::vector<DbcRawValueDesc> unresolved_value_descriptions;
 
     // --- Lookup helpers (defined in dbc.cpp) ---
 

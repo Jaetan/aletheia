@@ -27,20 +27,21 @@ open import Data.List using (List; []; _∷_; foldr; length; map)
   renaming (_++_ to _++ₗ_)
 open import Data.List.Properties renaming (++-assoc to ++ₗ-assoc)
 open import Data.List.Relation.Unary.All as All using (All)
+open import Data.List.Relation.Unary.AllPairs using (AllPairs)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; _≤_; _<_; s≤s; z≤n)
 open import Data.Product using (_×_; _,_; proj₁; proj₂; Σ; Σ-syntax)
 open import Data.String using (toList)
 open import Data.Unit using (⊤; tt)
 open import Relation.Binary.PropositionalEquality
-  using (_≡_; refl; sym; trans; cong; cong₂; subst)
+  using (_≡_; _≢_; refl; sym; trans; cong; cong₂; subst)
 
 open import Aletheia.Parser.Combinators using
   (Parser; Position; mkResult; advancePosition; advancePositions;
    pure; _>>=_; _*>_; many)
 open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Types using
-  (DBCMessage; DBCSignal; SignalPresence; Always; When)
+  (DBCMessage; DBCSignal; SignalPresence; Always; When; clearVds; clearVdsMsg)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DLC using (DLC; bytesToValidDLC; dlcBytes)
 open import Aletheia.CAN.DLC.Properties using (bytesToValidDLC-roundtrip)
@@ -220,15 +221,21 @@ emitMessage-chars-decompose msg =
 -- buildMessage-roundtrip
 -- ============================================================================
 
--- `buildMessage` succeeds with `just msg` when:
+-- `buildMessage` succeeds with `just (clearVdsMsg msg)` when:
 --   * `buildCANId (rawCanIdℕ msg.id) ≡ just msg.id` (Layer-2: canid-roundtrip)
 --   * `bytesToValidDLC (dlcBytes msg.dlc) ≡ just msg.dlc` (Layer-2: dlc-roundtrip)
---   * `resolveSignalList (dlcBytes msg.dlc) (map ...) ≡ just msg.signals`
---     (3d.7: resolveSignalList-roundtrip)
+--   * `resolveSignalList (dlcBytes msg.dlc) (map ...) ≡ just (map clearVds msg.signals)`
+--     (3d.7: resolveSignalList-roundtrip; E.9a returns the cleared form)
 --   * `msg.senders ≡ []` (the formatter doesn't emit BO_TX_BU_; see
 --     `WellFormedTextMessage`'s `senders-empty` field)
 -- Three sequential `rewrite` steps thread the with-clauses; record-η
 -- closes the final equation modulo `senders-empty`.
+--
+-- E.9a: `vds-eq` precondition removed; result is `clearVdsMsg msg`
+-- because `resolveSignalList` returns `map clearVds msg.signals` and
+-- the BO_/SG_ block carries no VAL_ data.  The Universal layer threads
+-- `attachValueDescs ∘ collectFromMessages ≡ id` to recover the original
+-- per-message vds.
 buildMessage-roundtrip :
     ∀ (msg : DBCMessage) (pos : Position) (rest : List Char)
   → DBCMessage.senders msg ≡ []
@@ -247,7 +254,7 @@ buildMessage-roundtrip :
               (dlcBytes (DBCMessage.dlc msg)))
            (DBCMessage.signals msg))
       pos rest
-    ≡ just (mkResult msg pos rest)
+    ≡ just (mkResult (clearVdsMsg msg) pos rest)
 buildMessage-roundtrip msg pos rest senders-empty fb≤64 wf-sigs pvs wfps mc
   rewrite buildCANId-rawCanIdℕ (DBCMessage.id msg)
         | bytesToValidDLC-roundtrip (DBCMessage.dlc msg)
@@ -260,7 +267,7 @@ buildMessage-roundtrip msg pos rest senders-empty fb≤64 wf-sigs pvs wfps mc
                     ; dlc     = DBCMessage.dlc msg
                     ; sender  = DBCMessage.sender msg
                     ; senders = ss
-                    ; signals = DBCMessage.signals msg
+                    ; signals = map clearVds (DBCMessage.signals msg)
                     })
             pos rest))
          (sym senders-empty)
@@ -400,7 +407,7 @@ parseMessage-roundtrip :
   → ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)
   → SuffixStops isNewlineStart outer-suffix
   → parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix)
-    ≡ just (mkResult msg
+    ≡ just (mkResult (clearVdsMsg msg)
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
 parseMessage-roundtrip pos msg outer-suffix
@@ -532,22 +539,31 @@ parseMessage-roundtrip pos msg outer-suffix
 
     step-build :
       cont-after-nl ('\n' ∷ []) pos-after-nl outer-suffix
-      ≡ just (mkResult msg
+      ≡ just (mkResult (clearVdsMsg msg)
                 (advancePositions pos (emitMessage-chars msg))
                 outer-suffix)
     step-build =
       trans (buildMessage-roundtrip msg pos-after-nl outer-suffix
               senders-empty fb≤64 wf-sigs pvs wfps mc)
-            (cong (λ p → just (mkResult msg p outer-suffix)) pos-eq)
+            (cong (λ p → just (mkResult (clearVdsMsg msg) p outer-suffix)) pos-eq)
 
 
 -- ============================================================================
 -- LIST-LEVEL ROUNDTRIP — `many parseMessage` over a BO_ block
 -- ============================================================================
 
--- All 9 per-message preconditions consumed by `parseMessage-roundtrip`.
+-- All per-message preconditions consumed by `parseMessage-roundtrip`.
 -- Bundled so the polymorphic `many-η-roundtrip` helper sees a single
 -- `Stop : DBCMessage → Set`.
+--
+-- E.9a (2026-05-07): `vds-empty` removed.  The text round-trip's
+-- per-message claim now reads `parseMessage … ≡ just (mkResult
+-- (clearVdsMsg msg) … …)`, NOT `mkResult msg`, since `buildSignal`
+-- hardcodes `valueDescriptions = []` and the parser cannot recover the
+-- field from the BO_/SG_ block alone (VAL_ entries arrive at the
+-- DBC level via `TVD` top-stmts).  The Universal layer threads
+-- `attachValueDescs ∘ collectFromMessages ≡ id` (Refine bridge) post
+-- buildDBC to recover the original messages from the cleared form.
 record MessageWF (msg : DBCMessage) : Set where
   field
     senders-empty : DBCMessage.senders msg ≡ []
@@ -561,6 +577,14 @@ record MessageWF (msg : DBCMessage) : Set where
     name-pre      : IdentHeadNonHSpace (DBCMessage.name msg)
     send-pre      : IdentHeadNonHSpace (DBCMessage.sender msg)
     item-pres     : All SignalLineWF (DBCMessage.signals msg)
+    -- E.6: signal-name uniqueness within this message.  Required by
+    -- `attachValueDescs ∘ collectFromMessages ≡ id` (the inverse-bridge
+    -- in `Properties.Aggregator.Refine.ValueDescriptions`): two distinct
+    -- signals with the same name would have their per-signal VAL_
+    -- entries collapse onto whichever signal `lookup-vd` finds first,
+    -- breaking the round-trip.  Validator's CHECK 23 enforces this at
+    -- DBC-load time.
+    sig-names-unique : AllPairs _≢_ (map DBCSignal.name (DBCMessage.signals msg))
 
 
 -- `parse signalLineFmt pos ('\n' ∷ s) ≡ nothing` for any `s, pos` —
@@ -589,18 +613,22 @@ emitMessage-chars-head-not-newline :
 emitMessage-chars-head-not-newline _ _ = ∷-stop refl
 
 
--- Wrapper: same shape as `parseMessage-roundtrip` but with all 9 per-
+-- Wrapper: same shape as `parseMessage-roundtrip` but with all per-
 -- message preconditions bundled into `MessageWF` and the
 -- `ParseFailsAt signalLineFmt ('\n' ∷ outer-suffix)` precondition
 -- discharged universally via `signalLineFmt-fails-on-newline`.  The
 -- polymorphic helper sees only `Stop = MessageWF` + the standard
 -- `SuffixStops isNewlineStart` outer condition.
+--
+-- E.9a: result is `mkResult (clearVdsMsg msg) …`; the Universal
+-- threads `attachValueDescs ∘ collectFromMessages ≡ id` post-parse to
+-- recover the original.
 parseMessage-roundtrip-bundled :
     ∀ (pos : Position) (msg : DBCMessage) (outer-suffix : List Char)
   → MessageWF msg
   → SuffixStops isNewlineStart outer-suffix
   → parseMessage pos (emitMessage-chars msg ++ₗ outer-suffix)
-    ≡ just (mkResult msg
+    ≡ just (mkResult (clearVdsMsg msg)
              (advancePositions pos (emitMessage-chars msg))
              outer-suffix)
 parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
@@ -618,6 +646,12 @@ parseMessage-roundtrip-bundled pos msg outer-suffix wf nl-stop =
     nl-stop
 
 
+-- E.9a: result list is `map clearVdsMsg msgs`, not `msgs`.  Per-element
+-- `parseMessage-roundtrip-bundled` emits `mkResult (clearVdsMsg msg) …`,
+-- so the polymorphic helper `many-η-roundtrip-with-lift` (with `L =
+-- clearVdsMsg`) lifts it to the list level.  The Universal threads
+-- `attachValueDescs ∘ collectFromMessages ≡ id` post-buildDBC to recover
+-- the original.
 parseMessages-roundtrip :
     ∀ (pos : Position) (msgs : List DBCMessage) (outer-suffix : List Char)
   → All MessageWF msgs
@@ -625,20 +659,21 @@ parseMessages-roundtrip :
   → (∀ (pos' : Position) → parseMessage pos' outer-suffix ≡ nothing)
   → many parseMessage pos
       (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs ++ₗ outer-suffix)
-    ≡ just (mkResult msgs
+    ≡ just (mkResult (map clearVdsMsg msgs)
              (advancePositions pos
                (foldr (λ m acc → emitMessage-chars m ++ₗ acc) [] msgs))
              outer-suffix)
 parseMessages-roundtrip pos msgs outer-suffix msgs-stops os pf =
-  many-η-roundtrip
+  many-η-roundtrip-with-lift
     parseMessage
     emitMessage-chars
     MessageWF
+    clearVdsMsg
     parseMessage-roundtrip-bundled
     emitMessage-chars-nonzero
     emitMessage-chars-head-not-newline
     pos msgs outer-suffix msgs-stops os pf
   where
     open import Aletheia.DBC.TextParser.Properties.ManyRoundtrip using
-      (many-η-roundtrip)
+      (many-η-roundtrip-with-lift)
 

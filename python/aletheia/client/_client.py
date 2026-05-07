@@ -16,6 +16,7 @@ from ..protocols import (
     RationalNumber,
     ParseDBCCommand,
     ParseDBCTextCommand,
+    FormatDBCTextCommand,
     SetPropertiesCommand,
     ValidateDBCCommand,
     SuccessResponse,
@@ -40,6 +41,7 @@ from ._helpers import (
     coerce_to_rational,
     dump_json,
     normalize_dbc,
+    normalize_dbc_for_wire,
 )
 from ._log import LogEvent, log_event
 from ._response_parsers import (
@@ -260,7 +262,11 @@ class AletheiaClient(SignalOpsMixin):
         Returns the canonical parsed body plus any non-error issues
         (warnings); validation errors short-circuit to ``ErrorResponse``.
         """
-        cmd: ParseDBCCommand = {"type": "command", "command": "parseDBC", "dbc": dbc}
+        cmd: ParseDBCCommand = {
+            "type": "command",
+            "command": "parseDBC",
+            "dbc": normalize_dbc_for_wire(dbc),
+        }
         return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))
 
     def parse_dbc_text(self, text: str) -> ParsedDBCResponse | ErrorResponse:
@@ -287,7 +293,7 @@ class AletheiaClient(SignalOpsMixin):
         cmd: ValidateDBCCommand = {
             "type": "command",
             "command": "validateDBC",
-            "dbc": dbc
+            "dbc": normalize_dbc_for_wire(dbc),
         }
         response = self._send_command(cmd)
         status = response.get("status")
@@ -337,6 +343,47 @@ class AletheiaClient(SignalOpsMixin):
         if status == "error":
             message = response.get("message", "Unknown error")
             raise ProtocolError(f"formatDBC failed: {message}")
+
+        raise ProtocolError(
+            f"Unexpected response status: {status!r} (expected 'success' or 'error')"
+        )
+
+    def format_dbc_text(self, dbc: DBCDefinition) -> str:
+        """Render a DBC JSON dict back to .dbc file text via the verified Agda formatter.
+
+        Inverse of :meth:`parse_dbc_text` at the wire level: ``parse_dbc_text(
+        format_dbc_text(d))`` returns ``d`` byte-identical for any well-formed
+        DBC (Phase E.9a coverage).  Does not modify client state — pass any
+        ``DBCDefinition`` value (typically from :meth:`parse_dbc_text`,
+        :meth:`format_dbc`, or :func:`aletheia.dbc_to_json`).
+
+        Args:
+            dbc: DBC definition dict in canonical Agda wire shape.
+
+        Returns:
+            String containing the .dbc file content.
+
+        Raises:
+            ProtocolError: If the JSON DBC fails Agda-side parsing or the
+                response shape is unexpected.
+        """
+        cmd: FormatDBCTextCommand = {
+            "type": "command",
+            "command": "formatDBCText",
+            "dbc": normalize_dbc_for_wire(dbc),
+        }
+        response = self._send_command(cmd)
+        status = response.get("status")
+
+        if status == "success":
+            text = response.get("text")
+            if not isinstance(text, str):
+                raise ProtocolError("Expected 'text' field in formatDBCText response")
+            return text
+
+        if status == "error":
+            message = response.get("message", "Unknown error")
+            raise ProtocolError(f"formatDBCText failed: {message}")
 
         raise ProtocolError(
             f"Unexpected response status: {status!r} (expected 'success' or 'error')"

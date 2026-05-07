@@ -24,7 +24,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -43,7 +44,8 @@
           ],
           "signed": false,
           "startBit": 8,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -68,7 +70,8 @@
           ],
           "signed": false,
           "startBit": 8,
-          "unit": "V"
+          "unit": "V",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -87,7 +90,8 @@
           ],
           "signed": true,
           "startBit": 8,
-          "unit": "degC"
+          "unit": "degC",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -103,7 +107,8 @@
           ],
           "signed": false,
           "startBit": 24,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     },
@@ -128,7 +133,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -147,7 +153,8 @@
           ],
           "signed": false,
           "startBit": 8,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -166,7 +173,8 @@
           ],
           "signed": false,
           "startBit": 16,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -185,7 +193,8 @@
           ],
           "signed": false,
           "startBit": 16,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     }
@@ -199,6 +208,7 @@
     }
   ],
   "signalGroups": [],
+  "unresolvedValueDescs": [],
   "valueTables": [],
   "version": ""
 }

@@ -32,6 +32,8 @@ open import Aletheia.DBC.Types using
   ; AttrDef; DBCAttribute
   )
 
+open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
+
 open import Aletheia.DBC.TextParser.TopLevel using
   (TopStmt; parseTopStmt)
 
@@ -54,10 +56,12 @@ open import Aletheia.DBC.TextParser.Properties.Comments using
   (CommentTargetStop)
 open import Aletheia.DBC.TextParser.Properties.SignalGroups using
   (SignalGroupWF)
+open import Aletheia.DBC.TextParser.Properties.ValueTables.ValueDesc using
+  (RawValueDescStop)
 
 -- Foundations: typed shadow + lift + emitter + WFAttribute.
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Foundations using
-  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG
+  ( TopStmtTyped; TVT; TM; TEV; TCM; TAT; TSG; TVD
   ; emitTopStmt-chars
   ; liftTopStmt
   ; WFAttribute
@@ -82,6 +86,7 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Simple usin
   ; parseTopStmt-on-emit-TEV-eq
   ; parseTopStmt-on-emit-TCM-eq
   ; parseTopStmt-on-emit-TSG-eq
+  ; parseTopStmt-on-emit-TVD-eq
   )
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.TopStmt using
   (parseTopStmt-on-emit-typed-TAT)
@@ -98,6 +103,17 @@ open import Aletheia.DBC.TextParser.Properties.Aggregator.Dispatcher.Attribute.P
 -- precondition.  Indexed on `defs` because the TAT case's `WFAttribute`
 -- depends on `defs`.
 
+-- Phase E.5β: 7-ctor predicate; one per `TopStmtTyped` constructor,
+-- carrying that section's slim precondition.  Indexed on `defs` because
+-- the TAT case's `WFAttribute` depends on `defs`.
+--
+-- E.5α had this at 6 ctors with TVD-case absurd-elim.  E.5β promotes
+-- the absurd-elim to a real `wfTVD` ctor + per-section roundtrip via
+-- `parseTopStmt-on-emit-TVD-eq`.  At E.5β closure no `wfTVD` is ever
+-- constructed at the universal-proof level (because `toTopStmtsTyped`
+-- doesn't yet emit `TVD` — that wires in at E.7); the dispatcher and
+-- WF predicate are infrastructure-ready for E.7's typed-shadow walk
+-- extension.
 data TopStmtTypedWF (defs : List AttrDef) : TopStmtTyped → Set where
   wfTVT : ∀ vt  → ValueTableNameStop vt → TopStmtTypedWF defs (TVT vt)
   wfTM  : ∀ msg → MessageWF msg         → TopStmtTypedWF defs (TM  msg)
@@ -105,6 +121,7 @@ data TopStmtTypedWF (defs : List AttrDef) : TopStmtTyped → Set where
   wfTCM : ∀ cm  → CommentTargetStop cm  → TopStmtTypedWF defs (TCM cm)
   wfTAT : ∀ a   → WFAttribute defs a    → TopStmtTypedWF defs (TAT a)
   wfTSG : ∀ sg  → SignalGroupWF sg      → TopStmtTypedWF defs (TSG sg)
+  wfTVD : ∀ rvd → RawValueDescStop rvd  → TopStmtTypedWF defs (TVD rvd)
 
 -- ============================================================================
 -- COMBINED PER-SECTION DISPATCHER
@@ -134,6 +151,12 @@ parseTopStmt-on-emitTopStmt-chars defs pos (TAT a)   outer (wfTAT _ wfa) ss-NL =
   parseTopStmt-on-emit-typed-TAT defs pos a outer wfa ss-NL
 parseTopStmt-on-emitTopStmt-chars defs pos (TSG sg)  outer (wfTSG _ wf)  ss-NL =
   parseTopStmt-on-emit-TSG-eq pos sg outer wf ss-NL
+-- Phase E.5β: real TVD dispatcher proof via `parseTopStmt-on-emit-TVD-
+-- eq` (V-bucket right arm; LEFT arm parseValueTable fails on VAL_-
+-- prefix input via `alt-right-nothing`, RIGHT arm succeeds via the
+-- slim parseValueDescription-roundtrip).  Replaces E.5α's absurd-elim.
+parseTopStmt-on-emitTopStmt-chars defs pos (TVD rvd) outer (wfTVD _ rs) ss-NL =
+  parseTopStmt-on-emit-TVD-eq pos rvd outer rs ss-NL
 
 -- ============================================================================
 -- EMITTER-SHAPE LEMMAS — uniform over `TopStmtTyped`
@@ -155,6 +178,9 @@ emitTopStmt-chars-nonzero defs (TAT a)   =
         (sym (proj₂ (emitAttribute-chars-BA-head defs a)))
         (s≤s z≤n)
 emitTopStmt-chars-nonzero _    (TSG sg)  = emitSignalGroup-chars-nonzero sg
+-- Phase E.5α: `emitValueDescription-chars rvd` starts with `toList
+-- "VAL_ " = 'V' ∷ 'A' ∷ 'L' ∷ '_' ∷ ' ' ∷ []`, so length is at least 5.
+emitTopStmt-chars-nonzero _    (TVD _)   = s≤s z≤n
 
 emitTopStmt-chars-head-not-newline :
     ∀ defs (t : TopStmtTyped) (suffix : List Char)
@@ -182,3 +208,7 @@ emitTopStmt-chars-head-not-newline defs (TAT a)   suffix =
     SS-BA = ∷-stop refl
 emitTopStmt-chars-head-not-newline _    (TSG sg)  suffix =
   emitSignalGroup-chars-head-not-newline sg suffix
+-- Phase E.5α: head of `emitValueDescription-chars rvd ++ suffix` is `'V'`,
+-- not a newline-start.
+emitTopStmt-chars-head-not-newline _    (TVD _)   _      = ∷-stop refl
+  where open import Aletheia.DBC.TextParser.DecRatParse.Properties using (∷-stop)

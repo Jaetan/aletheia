@@ -124,7 +124,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     },
@@ -148,7 +149,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     },
@@ -171,7 +173,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     },
@@ -195,7 +198,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 0,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     }
@@ -206,6 +210,7 @@
     }
   ],
   "signalGroups": [],
+  "unresolvedValueDescs": [],
   "valueTables": [],
   "version": ""
 }

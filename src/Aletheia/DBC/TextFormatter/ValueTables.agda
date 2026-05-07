@@ -7,18 +7,15 @@
 --   val-table    ::= "VAL_TABLE_" ws identifier (ws nat ws string-lit)*
 --                    ws? ";" newline
 --   value-desc   ::= "VAL_" ws nat ws identifier (ws nat ws string-lit)*
---                    ws? ";" newline            -- NOT emitted (see below).
+--                    ws? ";" newline
 --
--- Scope caveat — `VAL_` silently dropped:
---   The Agda `DBCSignal` record has no `valueDescriptions` field, so there
---   is nowhere to store per-signal enum labels.  This mirrors the existing
---   Python pipeline exactly: `cantools` → `dbc_to_json` (see
---   `python/aletheia/dbc_converter.py`) processes `value_tables.items()`
---   but drops `signal.choices`.  The text layer stays faithful to the
---   in-memory data model, so no VAL_ lines are emitted.  If B.3.g needs to
---   preserve `VAL_` for cantools-dropped fixtures, promote
---   `DBCSignal.valueDescriptions` end-to-end first; the text layer will
---   follow the type.
+-- Phase E.5–E.7 — VAL_ emit promotion:
+--   `emitValueDescription-chars` (E.5) emits one VAL_ line for a single
+--   `RawValueDesc`.  `emitValueDescriptions-chars` (E.7) is the section
+--   composer that walks `collectFromMessages d.messages` (encounter-order
+--   per the locked `(message-index, signal-index, val-desc-index)` sort
+--   key) and concatenates per-line emits.  `formatChars-body` slots this
+--   between the messages section and the env-vars section.
 --
 -- Canonical choices (cantools parity):
 --   * One space between every token; one space before the terminating `;`.
@@ -43,7 +40,10 @@ open import Data.Product using (_×_; _,_)
 open import Data.String using (toList)
 
 open import Aletheia.DBC.Identifier using (Identifier)
-open import Aletheia.DBC.Types using (ValueTable)
+open import Aletheia.DBC.Types using (ValueTable; DBCMessage)
+open import Aletheia.DBC.TextParser.ValueTables using (RawValueDesc)
+open import Aletheia.DBC.TextParser.ValueDescriptions using (collectFromMessages)
+open import Aletheia.DBC.TextFormatter.Topology using (rawCanIdℕ)
 open import Aletheia.DBC.TextFormatter.Emitter using
   (showℕ-dec-chars; quoteStringLit-chars)
 
@@ -66,7 +66,7 @@ emitValueEntry-chars (v , desc) =
 
 -- `"VAL_TABLE_" ws identifier entries ws? ";" newline`.  Lines are packed
 -- directly, with no blank-line separator between VAL_TABLE_ entries.
--- `parseValueLine` on the parse side tolerates optional trailing blanks
+-- `parseValueTable` on the parse side tolerates optional trailing blanks
 -- via its `many parseNewline` tail (for hand-written inputs), but this
 -- emitter never produces any.
 emitValueTable-chars : ValueTable → List Char
@@ -85,3 +85,56 @@ emitValueTable-chars vt =
 emitValueTables-chars : List ValueTable → List Char
 emitValueTables-chars =
   foldr (λ vt acc → emitValueTable-chars vt ++ₗ acc) []
+
+-- ============================================================================
+-- VAL_ LINE (Phase E.5)
+-- ============================================================================
+
+-- `"VAL_" ws nat ws identifier (ws nat ws string-lit)* ws? ";" newline`.
+-- Mirrors `emitValueTable-chars` with two extra fields up-front (the
+-- owning message's CAN ID and the signal name); the entries fold reuses
+-- `emitValueEntry-chars` directly because the per-entry grammar is
+-- identical between VAL_ and VAL_TABLE_.  The CAN ID encodes via
+-- `rawCanIdℕ` (Standard `n` ⇒ `n`; Extended `n` ⇒ `n + 2^31`); the parser
+-- inverts via `buildCANId` (`buildCANId-rawCanIdℕ` proves the inverse
+-- holds universally).
+--
+-- `toList "VAL_ "` carries the trailing space that `parseWS` requires
+-- (one-or-more); the `' ' ∷` between the encoded ID and the signal name
+-- carries the second `parseWS`; the `toList " ;\n"` accumulator carries
+-- the canonical-`parseWSOpt` single space, the `;` terminator, and the
+-- mandatory line-feed.  Trailing-blank-line tolerance lives in the
+-- parser's `many parseNewline` tail, not on the emitter side.
+emitValueDescription-chars : RawValueDesc → List Char
+emitValueDescription-chars rvd =
+  toList "VAL_ " ++ₗ
+  showℕ-dec-chars (rawCanIdℕ (RawValueDesc.canId rvd)) ++ₗ
+  ' ' ∷ Identifier.name (RawValueDesc.signalName rvd) ++ₗ
+  foldr (λ e acc → emitValueEntry-chars e ++ₗ acc)
+        (toList " ;\n")
+        (RawValueDesc.entries rvd)
+
+-- ============================================================================
+-- VAL_ SECTION (Phase E.7)
+-- ============================================================================
+
+-- Zero-or-more VAL_ lines, concatenated.  Per the locked C1 sort key, the
+-- input is `collectFromMessages d.messages` (encounter-order walk over
+-- `messages[i].signals[j].valueDescriptions` skipping empty-vds signals).
+-- Empty list emits `[]` — the section disappears when no signal carries
+-- value descriptions, matching cantools.
+--
+-- Two layers:
+--   * `emitValueDescriptions-rvds-chars` operates on the rvd list directly
+--     — what `BodyBridge.emit-map-TVD-eq` consumes after the per-section
+--     `foldr-emit-map-iso` reduction.
+--   * `emitValueDescriptions-chars` is the user-facing wrapper that
+--     `formatChars-body` calls.  Definitionally `emitValueDescriptions-
+--     rvds-chars ∘ collectFromMessages`.
+emitValueDescriptions-rvds-chars : List RawValueDesc → List Char
+emitValueDescriptions-rvds-chars =
+  foldr (λ rvd acc → emitValueDescription-chars rvd ++ₗ acc) []
+
+emitValueDescriptions-chars : List DBCMessage → List Char
+emitValueDescriptions-chars msgs =
+  emitValueDescriptions-rvds-chars (collectFromMessages msgs)

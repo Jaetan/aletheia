@@ -32,7 +32,7 @@ open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
-open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText)
+open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
 open import Aletheia.Trace.Time using (Timestamp; μs; mkTs)
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
@@ -105,6 +105,10 @@ handleParseDBC dbcJSON state = withParsedDBC "ParseDBC" dbcJSON state λ dbc →
 -- of this module's elaborator state.  Pre-split, importing parseText here
 -- exhausted the 16 GiB heap during the StreamCommand → Handlers → Main chain.
 open import Aletheia.Protocol.Handlers.ParseDBCText using (handleParseDBCText)
+
+-- FormatDBCText handler isolated for the same reason (TextFormatter
+-- transitive closure ~30 modules).  See Handlers/FormatDBCText.agda.
+open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 
 -- Parse property list (extracted from where-block for proof access)
 parseAllProperties : StreamState → DBC → List JSON → ℕ → List PropertyState → StreamState × Response
@@ -197,3 +201,4 @@ processStreamCommand EndStream state = handleEndStream state
 processStreamCommand (ValidateDBC dbcJSON) state = handleValidateDBC dbcJSON state
 processStreamCommand FormatDBC state = handleFormatDBC state
 processStreamCommand (ParseDBCText text) state = handleParseDBCText text state
+processStreamCommand (FormatDBCText dbcJSON) state = handleFormatDBCText dbcJSON state

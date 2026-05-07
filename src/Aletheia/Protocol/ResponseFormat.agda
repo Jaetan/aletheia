@@ -16,7 +16,7 @@ open import Aletheia.Protocol.JSON using (JSON; JObject; JArray; JStringS; JNumb
 open import Aletheia.Prelude using (ℕtoℚ)
 open import Aletheia.Protocol.Message using (Response; Success; Error;
   ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
-  ParsedDBCResponse)
+  ParsedDBCResponse; DBCTextResponse)
 import Aletheia.Error as Err
 open import Aletheia.Protocol.Response using (PropertyResult; CounterexampleData)
 open import Aletheia.LTL.Incremental using (formatLTLReason)
@@ -28,7 +28,7 @@ open import Aletheia.DBC.Types using (IssueSeverity; IsError; IsWarning;
   DuplicateMessageName; OffsetScaleRange; EmptyMessage;
   StartBitOutOfRange; BitLengthExcessive; MultiplexorNonUnitScaling;
   DuplicateAttributeName; UnknownCommentTarget; UnknownMessageSender;
-  UnknownSignalReceiver;
+  UnknownSignalReceiver; UnknownValueDescriptionTarget;
   ValidationIssue)
 open import Aletheia.DBC.Validator using (hasAnyError)
 
@@ -84,6 +84,7 @@ formatIssueCode DuplicateAttributeName      = "duplicate_attribute_name"
 formatIssueCode UnknownCommentTarget        = "unknown_comment_target"
 formatIssueCode UnknownMessageSender        = "unknown_message_sender"
 formatIssueCode UnknownSignalReceiver       = "unknown_signal_receiver"
+formatIssueCode UnknownValueDescriptionTarget = "unknown_value_description_target"
 
 formatValidationIssue : ValidationIssue → JSON
 formatValidationIssue issue =
@@ -165,4 +166,9 @@ formatResponse (ParsedDBCResponse dbcJSON warnings) =
     ("status"   , JStringS "success") ∷
     ("dbc"      , dbcJSON) ∷
     ("warnings" , JArray (map formatValidationIssue warnings)) ∷
+    [])
+formatResponse (DBCTextResponse text) =
+  JObject (
+    ("status" , JStringS "success") ∷
+    ("text"   , JStringS text) ∷
     [])

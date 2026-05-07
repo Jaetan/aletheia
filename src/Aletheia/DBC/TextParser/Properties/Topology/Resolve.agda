@@ -51,7 +51,7 @@ open import Relation.Nullary.Decidable using (⌊_⌋)
 open import Aletheia.DBC.Identifier using (Identifier; mkIdent; validIdentifierᵇ)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
-  (DBCSignal; SignalPresence; Always; When)
+  (DBCSignal; SignalPresence; Always; When; clearVds)
 
 open import Aletheia.CAN.Endianness using
   (ByteOrder; LittleEndian; BigEndian;
@@ -201,9 +201,12 @@ startBit-recovers sig fb fb≤64 wf-sd pv
 -- ============================================================================
 
 -- Given that resolvePresence delivers a presence equal to `sig.presence`,
--- the buildSignal output's record equals `sig`.  Other than the
--- computed startBit/bitLength fields, every field is a direct projection
--- and matches by `refl`.  Composes startBit-recovers + bitLength-mod-id.
+-- the buildSignal output's record equals `clearVds sig` (E.9a:
+-- buildSignal hardcodes `valueDescriptions = []`, so the recovered
+-- record matches `sig` modulo the cleared VAL_ field).  The Universal at
+-- the top-level layer threads `attachValueDescs ∘ collectFromMessages ≡
+-- id` on the cleared form (Refine bridge) post-buildSignal.  Composes
+-- startBit-recovers + bitLength-mod-id.
 buildSignal-fields-recover :
     ∀ (sig : DBCSignal) (fb : ℕ) (presence-result : SignalPresence)
   → fb ≤ 64
@@ -232,8 +235,9 @@ buildSignal-fields-recover :
       ; unit      = DBCSignal.unit sig
       ; presence  = presence-result
       ; receivers = DBCSignal.receivers sig
+      ; valueDescriptions = []
       }
-    ≡ sig
+    ≡ clearVds sig
 buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
   rewrite startBit-recovers sig fb fb≤64
             (WellFormedSignal.def-wf wf-sig) pv
@@ -253,6 +257,10 @@ buildSignal-fields-recover sig fb presence-result fb≤64 wf-sig pv presence-eq
 -- markers (resolvePresence's first three pattern-matches all yield
 -- `just Always`).  Hence we case-split on (master, name-match) but
 -- collapse all branches to the same fields-recover application.
+--
+-- E.9a: result is `just (clearVds sig)` (buildSignal hardcodes vds = []);
+-- the Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
+-- post-buildSignal to recover the original.
 buildSignal-roundtrip-Always :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (sig : DBCSignal)
       (m : Maybe Identifier)
@@ -260,7 +268,7 @@ buildSignal-roundtrip-Always :
   → fb ≤ 64
   → WellFormedSignal sig
   → PhysicallyValid fb sig
-  → buildSignal fb m (expectedRawOfDBC master fb sig) ≡ just sig
+  → buildSignal fb m (expectedRawOfDBC master fb sig) ≡ just (clearVds sig)
 buildSignal-roundtrip-Always master fb sig m presence-eq fb≤64 wf-sig pv
   rewrite presence-eq with master
 ... | nothing =
@@ -289,7 +297,7 @@ buildSignal-roundtrip-When :
   → fb ≤ 64
   → WellFormedSignal sig
   → PhysicallyValid fb sig
-  → buildSignal fb (just m) (expectedRawOfDBC master fb sig) ≡ just sig
+  → buildSignal fb (just m) (expectedRawOfDBC master fb sig) ≡ just (clearVds sig)
 buildSignal-roundtrip-When master fb sig m sig-master v presence-eq m-eq
                            fb≤64 wf-sig pv
   rewrite presence-eq | m-eq =
@@ -446,24 +454,29 @@ data SigOK (m : Maybe Identifier) (fb : ℕ) : DBCSignal → Set where
 -- Inducts on `All (SigOK m fb) sigs`.  Each step calls buildSignal-
 -- roundtrip (Always or When branch per the SigOK constructor) and
 -- recurses on the tail.
+--
+-- E.9a: result is `just (map clearVds sigs)` (not `just sigs`); the
+-- per-message buildMessage-roundtrip then bridges via E.6's
+-- attachValueDescs-on-collected at the Universal layer.
 buildAllRaw-roundtrip :
     ∀ (master : Maybe (List Char)) (fb : ℕ) (m : Maybe Identifier)
       (sigs : List DBCSignal)
   → fb ≤ 64
   → All (SigOK m fb) sigs
-  → buildAllRaw fb m (map (expectedRawOfDBC master fb) sigs) ≡ just sigs
+  → buildAllRaw fb m (map (expectedRawOfDBC master fb) sigs)
+    ≡ just (map clearVds sigs)
 buildAllRaw-roundtrip _ _ _ [] _ All.[] = refl
 buildAllRaw-roundtrip master fb m (sig ∷ rest)
                       fb≤64 (sigok All.∷ rest-wfs) =
   go sigok
   where
     rec : buildAllRaw fb m (map (expectedRawOfDBC master fb) rest)
-        ≡ just rest
+        ≡ just (map clearVds rest)
     rec = buildAllRaw-roundtrip master fb m rest fb≤64 rest-wfs
 
     go : SigOK m fb sig
        → buildAllRaw fb m (map (expectedRawOfDBC master fb) (sig ∷ rest))
-         ≡ just (sig ∷ rest)
+         ≡ just (clearVds sig ∷ map clearVds rest)
     go (sigok-always pres-eq wf-sig pv)
       rewrite buildSignal-roundtrip-Always master fb sig m pres-eq
                                             fb≤64 wf-sig pv
@@ -571,6 +584,10 @@ all-sigOK-mc-mux fb (sig ∷ rest) id masterName id-name-eq
 -- Frame `master = findMuxMaster sigs` baked into the goal: the formatter
 -- uses `master = findMuxMaster sigs`, so the parser-side roundtrip
 -- closes directly on this expression.
+--
+-- E.9a: result is `just (map clearVds sigs)` (not `just sigs`); the
+-- per-message and Universal layers thread `attachValueDescs` to bridge
+-- the cleared form back to the original.
 resolveSignalList-roundtrip :
     ∀ (fb : ℕ) (sigs : List DBCSignal)
   → fb ≤ 64
@@ -580,7 +597,7 @@ resolveSignalList-roundtrip :
   → MasterCoherent sigs
   → resolveSignalList fb
        (map (expectedRawOfDBC (findMuxMaster sigs) fb) sigs)
-    ≡ just sigs
+    ≡ just (map clearVds sigs)
 resolveSignalList-roundtrip fb sigs fb≤64 wf-sigs pvs wfps mc =
   go mc
   where
@@ -591,7 +608,7 @@ resolveSignalList-roundtrip fb sigs fb≤64 wf-sigs pvs wfps mc =
     go : MasterCoherent sigs
        → resolveSignalList fb
             (map (expectedRawOfDBC (findMuxMaster sigs) fb) sigs)
-         ≡ just sigs
+         ≡ just (map clearVds sigs)
     go (mc-no-mux nothing-eq)
       rewrite nothing-eq =
       let all-always = findMuxMaster-nothing→all-Always sigs nothing-eq

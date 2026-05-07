@@ -28,7 +28,8 @@
           ],
           "signed": false,
           "startBit": 0,
-          "unit": "rpm"
+          "unit": "rpm",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -44,7 +45,8 @@
           ],
           "signed": false,
           "startBit": 16,
-          "unit": "degC"
+          "unit": "degC",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "little_endian",
@@ -58,7 +60,8 @@
           "receivers": [],
           "signed": false,
           "startBit": 24,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     },
@@ -89,7 +92,8 @@
           ],
           "signed": false,
           "startBit": 7,
-          "unit": "bar"
+          "unit": "bar",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "big_endian",
@@ -111,7 +115,8 @@
           ],
           "signed": true,
           "startBit": 23,
-          "unit": "%"
+          "unit": "%",
+          "valueDescriptions": []
         },
         {
           "byteOrder": "big_endian",
@@ -127,7 +132,8 @@
           ],
           "signed": false,
           "startBit": 31,
-          "unit": ""
+          "unit": "",
+          "valueDescriptions": []
         }
       ]
     }
@@ -144,6 +150,7 @@
     }
   ],
   "signalGroups": [],
+  "unresolvedValueDescs": [],
   "valueTables": [],
   "version": "1.0"
 }

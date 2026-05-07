@@ -63,6 +63,9 @@ static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
 }
 
 static auto signal_def_to_json(const DbcSignal& s) -> Json {
+    Json vds = Json::array();
+    for (const auto& e : s.value_descriptions)
+        vds.push_back(Json{{"value", e.value}, {"description", e.description}});
     Json sig = {
         {"name", s.name.get()},
         {"startBit", s.start_bit.get()},
@@ -75,6 +78,7 @@ static auto signal_def_to_json(const DbcSignal& s) -> Json {
         {"maximum", rational_to_json(s.maximum.get())},
         {"unit", s.unit.get()},
         {"receivers", s.receivers},
+        {"valueDescriptions", std::move(vds)},
     };
     presence_to_json(s.presence, sig);
     return sig;
@@ -290,6 +294,20 @@ static auto attribute_to_json(const DbcAttribute& a) -> Json {
         a);
 }
 
+// Phase E.8 (Plan B): JSON wire form for one unresolved RawValueDesc.
+// Mirrors message_to_json's leading {id, extended} pair via attach_can_id.
+static auto raw_value_desc_to_json(const DbcRawValueDesc& rvd) -> Json {
+    Json entries = Json::array();
+    for (const auto& e : rvd.entries)
+        entries.push_back({{"value", e.value}, {"description", e.description}});
+    Json out = {{"id", can_id_numeric(rvd.can_id)},
+                {"signalName", rvd.signal_name},
+                {"entries", std::move(entries)}};
+    if (can_id_extended(rvd.can_id))
+        out["extended"] = true;
+    return out;
+}
+
 static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
     Json msgs = Json::array();
     for (const auto& m : dbc.messages)
@@ -312,6 +330,9 @@ static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
     Json attributes = Json::array();
     for (const auto& a : dbc.attributes)
         attributes.push_back(attribute_to_json(a));
+    Json unresolved = Json::array();
+    for (const auto& rvd : dbc.unresolved_value_descriptions)
+        unresolved.push_back(raw_value_desc_to_json(rvd));
     return {
         {"version", dbc.version},
         {"messages", std::move(msgs)},
@@ -321,6 +342,7 @@ static auto dbc_to_json(const DbcDefinition& dbc) -> Json {
         {"nodes", std::move(nodes)},
         {"comments", std::move(comments)},
         {"attributes", std::move(attributes)},
+        {"unresolvedValueDescs", std::move(unresolved)},
     };
 }
 
@@ -456,6 +478,11 @@ auto serialize_validate_dbc(const DbcDefinition& dbc) -> std::string {
 
 auto serialize_format_dbc() -> std::string {
     return Json{{"type", "command"}, {"command", "formatDBC"}}.dump();
+}
+
+auto serialize_format_dbc_text(const DbcDefinition& dbc) -> std::string {
+    return Json{{"type", "command"}, {"command", "formatDBCText"}, {"dbc", dbc_to_json(dbc)}}
+        .dump();
 }
 
 auto serialize_extract_signals(const CanId& id, Dlc dlc, std::span<const std::byte> data)

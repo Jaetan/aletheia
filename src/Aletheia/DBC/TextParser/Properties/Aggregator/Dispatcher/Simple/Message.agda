@@ -22,7 +22,7 @@ open import Aletheia.Parser.Combinators using
   (Position; ParseResult; mkResult; advancePositions;
    _>>=_; pure; _<|>_; _*>_)
 
-open import Aletheia.DBC.Types using (DBCMessage)
+open import Aletheia.DBC.Types using (DBCMessage; clearVdsMsg)
 open import Aletheia.DBC.TextParser.TopLevel using
   (TopStmt; TSMessage; TSBOTxBu; parseTopStmt; parseBOTxBu)
 open import Aletheia.DBC.TextParser.Topology using
@@ -43,12 +43,16 @@ open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using
 open import Aletheia.DBC.TextParser.Properties.Primitives using
   (alt-right-nothing)
 
+-- E.9a: result is `mkResult (TSMessage (clearVdsMsg msg)) …` because
+-- `parseMessage-roundtrip-bundled` returns `mkResult (clearVdsMsg msg) …`.
+-- The Universal threads `attachValueDescs ∘ collectFromMessages ≡ id`
+-- post-buildDBC to recover the original messages.
 parseTopStmt-on-emit-TM-eq :
     ∀ (pos : Position) (msg : DBCMessage) (outer : List Char)
   → MessageWF msg
   → SuffixStops isNewlineStart outer
   → parseTopStmt pos (emitMessage-chars msg ++ₗ outer)
-    ≡ just (mkResult (TSMessage msg)
+    ≡ just (mkResult (TSMessage (clearVdsMsg msg))
                      (advancePositions pos (emitMessage-chars msg))
                      outer)
 parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
@@ -67,10 +71,10 @@ parseTopStmt-on-emit-TM-eq pos msg outer wf nl-stop =
     botxbu-fail : (parseBOTxBu *> pure TSBOTxBu) pos input ≡ nothing
     botxbu-fail = refl
 
-    p-msg-eq : parseMessage pos input ≡ just (mkResult msg pos-msg outer)
+    p-msg-eq : parseMessage pos input ≡ just (mkResult (clearVdsMsg msg) pos-msg outer)
     p-msg-eq = parseMessage-roundtrip-bundled pos msg outer wf nl-stop
 
     alt-msg-eq : (parseMessage >>= λ m → pure (TSMessage m)) pos input
-                 ≡ just (mkResult (TSMessage msg) pos-msg outer)
+                 ≡ just (mkResult (TSMessage (clearVdsMsg msg)) pos-msg outer)
     alt-msg-eq = bind-just-step parseMessage (λ m → pure (TSMessage m))
-                   pos input msg pos-msg outer p-msg-eq
+                   pos input (clearVdsMsg msg) pos-msg outer p-msg-eq

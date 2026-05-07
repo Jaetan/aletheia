@@ -35,7 +35,7 @@ open import Aletheia.CAN.Endianness.Properties using (convertStartBit-wf-bound)
 open import Aletheia.DBC.Types using (DBCSignal; SignalPresence)
 open import Aletheia.DBC.JSONParser using (parseSignalFields; parseSignal; parseSignalList; lookupDecRat;
   parseByteOrder; parseSigned; parseSignalPresence; addSignalContext; physicalGate; validateIdent; validateIdentList;
-  parseOptionalArray; parseCharsList)
+  parseOptionalArray; parseCharsList; parseValueEntryList)
 open import Aletheia.DBC.Formatter.WellFormed using (WellFormedSignal;
   PhysicallyValid; pv-LE; pv-BE)
 open import Aletheia.CAN.Constants using (max-physical-bits; 8≤max-physical-bits)
@@ -76,7 +76,7 @@ private
     ∀ (frameBytes : ℕ) (ctx : String) (name : Identifier) (bo : ByteOrder)
       (sb-mod : ℕ) (sb-bound : sb-mod < max-physical-bits)
       (bl-mod : ℕ) (bl-bound : bl-mod < suc max-physical-bits)
-      isSigned factor offset minimum maximum unit presence receivers sig
+      isSigned factor offset minimum maximum unit presence receivers vds sig
     → frameBytes ≤ 64
     → addSignalContext ctx (physicalGate frameBytes bo
         (convertStartBit frameBytes bo sb-mod bl-mod)
@@ -96,18 +96,19 @@ private
           ; unit = unit
           ; presence = presence
           ; receivers = receivers
+          ; valueDescriptions = vds
           }))
       ≡ inj₂ sig
     → WellFormedSignal sig × PhysicallyValid frameBytes sig
   postPresence-wf×pv frameBytes ctx name LittleEndian sb-mod sb-bound bl-mod bl-bound
-    isSigned factor offset minimum maximum unit presence receivers sig fb≤64 refl =
+    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 refl =
     record { def-wf = record
       { startBit-bound = sb-bound
       ; bitLength-bound = bl-bound
       } }
     , pv-LE refl
   postPresence-wf×pv frameBytes ctx name BigEndian sb-mod sb-bound bl-mod bl-bound
-    isSigned factor offset minimum maximum unit presence receivers sig fb≤64 eq
+    isSigned factor offset minimum maximum unit presence receivers vds sig fb≤64 eq
     with 1 ≤ᵇ bl-mod in b1 | eq
   ... | false | ()
   ... | true | eq₁
@@ -175,16 +176,19 @@ parseSignalFields-wf×pv frameBytes ctx name obj sig fb≤64 eq
                       with parseOptionalArray parseCharsList (lookupArray "receivers" obj) | eq₁₁
 ...                       | inj₁ _ | ()
 ...                       | inj₂ receivers | eq₁₂
-                        with validateIdent name | eq₁₂
+                        with parseOptionalArray parseValueEntryList (lookupArray "valueDescriptions" obj) | eq₁₂
 ...                         | inj₁ _ | ()
-...                         | inj₂ nameId | eq₁₃
-                          with validateIdentList receivers | eq₁₃
+...                         | inj₂ vds | eq₁₃
+                          with validateIdent name | eq₁₃
 ...                           | inj₁ _ | ()
-...                           | inj₂ receiverIds | eq₁₄ =
-                                postPresence-wf×pv frameBytes ctx nameId bo
-                                  (sb % max-physical-bits) (m%n<n sb max-physical-bits)
-                                  (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
-                                  isSigned factor offset minimum maximum unit presence (mkCanonicalFromList receiverIds) sig fb≤64 eq₁₄
+...                           | inj₂ nameId | eq₁₄
+                            with validateIdentList receivers | eq₁₄
+...                             | inj₁ _ | ()
+...                             | inj₂ receiverIds | eq₁₅ =
+                                  postPresence-wf×pv frameBytes ctx nameId bo
+                                    (sb % max-physical-bits) (m%n<n sb max-physical-bits)
+                                    (bl % suc max-physical-bits) (m%n<n bl (suc max-physical-bits))
+                                    isSigned factor offset minimum maximum unit presence (mkCanonicalFromList receiverIds) vds sig fb≤64 eq₁₅
 
 -- Projections of the combined proof (preserve backward-compatible API).
 parseSignalFields-wf : ∀ frameBytes ctx name obj sig

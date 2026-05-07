@@ -91,6 +91,12 @@ data WellFormedTextPresence : SignalPresence → Set where
   wftp-when-single  : ∀ {m v} → WellFormedTextPresence (When m (v ∷ []))
 
 -- Bundle the per-signal text constraints.
+--
+-- E.9a (2026-05-07): `vds-empty` removed.  The per-message roundtrip now
+-- claims `parseMessage … ≡ just (mkResult (clearVdsMsg msg) … …)` and
+-- the Universal layer threads `attachValueDescs ∘ collectFromMessages
+-- ≡ id` (Refine bridge) post-buildDBC to recover the original VAL_
+-- entries.  No vds-related constraint at the per-signal level.
 record WellFormedTextSignal (s : DBCSignal) : Set where
   field
     no-vector-xxx : NoVectorXXXReceiver s

@@ -228,7 +228,7 @@ Then [AGENTS.md § Step 4](AGENTS.md#step-4-implement-and-verify) defines the fu
 
 For full history (R6–R17, Path G, Phase 5.1, Phases A/B.1–B.3, B.3.d Layers 1–4, Phases C/D) see [PROJECT_STATUS.md](PROJECT_STATUS.md). Per-commit narratives + sub-phase tactical detail live in PROJECT_STATUS.md, `memory/project_b3d_universal_proof.md`, and `memory/project_phase_e_val_promotion.md`. Resume notes / next-session entry point: [.session-state.md](.session-state.md).
 
-**Current track:** Phase E (VAL_ promotion to `DBCSignal.valueDescriptions`) ⏳ in flight on branch `b3d-3d5-format-dsl`.  Plan A (single self-contained commit at E.12 closure) locked by user "Plan A is okay".  All sub-phase closures uncommitted across session boundaries per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_phase_e_val_promotion.md`.
+**Current track:** Phase E (VAL_ promotion to `DBCSignal.valueDescriptions`) ✅ COMPLETE 2026-05-08 on branch `b3d-3d5-format-dsl` — E.1→E.12 shipped as a single self-contained commit per Plan A.  Full per-sub-phase tactical detail lives in `memory/project_phase_e_val_promotion.md`.
 
 | Sub-phase | Status | Date | One-line scope |
 |---|---|---|---|
@@ -243,12 +243,12 @@ For full history (R6–R17, Path G, Phase 5.1, Phases A/B.1–B.3, B.3.d Layers 
 | E.8 — `ResolvesValueDesc` predicate | ✅ | 2026-05-08 | WellFormedTextDBC.vds-resolve Σ-witness for E.11 CHECK 23; +1 module |
 | E.9a — Lift vds-empty interim clauses | ✅ | 2026-05-08 | clearVds/clearVdsMsg cascade through liftTopStmt; non-vacuous tvd-WF |
 | E.10 — `formatDBCText` JSON command + bindings + handler-level `deriveNodesIfEmpty` | ✅ | 2026-05-08 | C3 closure; Python wire-shape symmetry fix; JSON formatter escape pass; +1 module |
-| **E.11 — Validator CHECK 23 `UnknownValueDescriptionTarget`** | ⏳ | — | Mirrors CHECK 21 via `liftPerSignal` (uses E.8 predicate) |
-| **E.12 — Empirical test + ship commit** | ⏳ | — | Closes Plan A as single commit |
+| E.11 — Validator CHECK 23 + CHECK 21 binding-mirror gap fix + protocols.py split | ✅ | 2026-05-08 | Walks `DBC.unresolvedValueDescs` flat (Plan B; not `liftPerSignal`); IssueCode mirrored across Python/C++/Go; `python/aletheia/validation.py` NEW (60 LOC) under pylint 1000-line policy |
+| E.12 — Matrix flip + per-binding tests + doc fences + ship commit | ✅ | 2026-05-08 | FEATURE_MATRIX +2 rows, TestDBCSignalValueDescriptions × 3 bindings, INTERFACES.md format_dbc_text fences, Plan-A bundled ship commit |
 
-Module count: 237 → 240 (E.5β) → 242 (E.6) → 243 (E.8) → **244** (E.10); E.7/E.9a pure modification. Three load-bearing constraints from advisor 2026-05-04: **C1** encounter-order via `(message-index, signal-index, val-desc-index)`; **C2** `attachValueDescs ∘ collectFromMessages ≡ id` (CM_-class proof, ✅ closed at E.6); **C3** Python `dbc_to_text` defers to Agda via FFI command (✅ closed at E.10 — wired as `formatDBCText` JSON command, no new C symbol).
+Module count (Agda): 237 → 240 (E.5β) → 242 (E.6) → 243 (E.8) → **244** (E.10); E.7/E.9a/E.11 pure modification on the Agda side (E.11 also adds 1 NEW Python module `aletheia/validation.py`). Three load-bearing constraints from advisor 2026-05-04: **C1** encounter-order via `(message-index, signal-index, val-desc-index)`; **C2** `attachValueDescs ∘ collectFromMessages ≡ id` (CM_-class proof, ✅ closed at E.6); **C3** Python `dbc_to_text` defers to Agda via FFI command (✅ closed at E.10 — wired as `formatDBCText` JSON command, no new C symbol).
 
-**Architectural patterns established in Phase E** (consult before E.11–E.12):
+**Architectural patterns established in Phase E** (kept as reference for future cross-binding work):
 - **`liftTopStmt` is the single proof-only fork point** (E.9a) — one edit cascades structurally via `cong`/`trans` through every downstream proof; ~9 files / ~300 LOC end-to-end for the `clearVds`/`clearVdsMsg` cascade.
 - **Vacuous-via-restrictive-WF then lift** (E.7→E.9a) — staged proof rollout: discharge new chunk's All-precondition vacuously under restrictive WF, then lift later. `feedback_chunk_structure_cascade.md` enumerates walkers up-front.
 - **`prependVdsRvd` factoring** (E.6) — when a function does `with f x | [] = A | x:xs = B`, factor `f x` to a top-level helper taking the scrutinee as parameter; per `feedback_with_abstraction_traps.md`.
@@ -256,6 +256,7 @@ Module count: 237 → 240 (E.5β) → 242 (E.6) → 243 (E.8) → **244** (E.10)
 - **Maybe-elim direct pattern matching > `with`-on-Maybe** (E.5β) — constructor-pattern reduces externally via `cong (f _) eq`; `with`-form hides scrutinee in elaborated aux.
 - **Push behavior into the FFI primitive, not into per-binding convenience helpers** (E.10) — when a feature would otherwise live only in one binding's idiomatic helper layer, push it into the Agda protocol handler so every binding consumes uniformly. Convenience helpers above the FFI primitive create silent parity flaws across bindings. Captured in `feedback_cross_language_parity.md`.
 - **Serializer/parser pairs must be inverse char-by-char** (E.10) — when both halves exist for a wire format, the serializer must emit escapes the parser handles, even if today's protocol "doesn't carry quotes." Saved as `feedback_serializer_parser_inverse.md`.
+- **Validator walks materialized list, not the predicate** (E.11) — Plan B (E.8 memo) elected to store unresolved entries on `DBC.unresolvedValueDescs` rather than rederive at validation time. CHECK 23 walks the stored list with `concatMap`; the `ResolvesValueDesc` Σ-witness predicate (E.8) is consumed only by the proof side (`WellFormedTextDBC.vds-resolve`). A proof-side predicate doesn't imply a runtime check.
 
 **Standard gates passed at every closure** — `cabal run shake -- {build, check-properties, check-invariants, check-no-properties-in-runtime, check-erasure, check-fidelity, check-ffi-exports, count-modules}` + Python `pytest tests/` + Go `go test ./aletheia/ -count=1 -race` + C++ `ctest --test-dir cpp/build` + lint gates (basedpyright / pylint 10/10 / gofmt + go vet / clang-format + clang-tidy). Per-closure gate logs live in PROJECT_STATUS.md.
 

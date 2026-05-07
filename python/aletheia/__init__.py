@@ -84,10 +84,9 @@ from .dsl import Signal, Predicate, Property, infinitely_often, eventually_alway
 from .error_codes import ErrorCode
 from .protocols import (
     DBCDefinition,
-    IssueCode,
     PropertyResultEntry,
-    ValidationIssue,
 )
+from .validation import IssueCode, ValidationIssue
 from .dbc_queries import (
     is_multiplexed,
     always_present_signals,

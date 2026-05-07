@@ -585,3 +585,95 @@ class TestDBCMessageSenders:
             and "GhostECU" in issue["detail"]
         ]
         assert matching, validation["issues"]
+
+
+# ---------------------------------------------------------------------------
+# Per-signal VAL_ value descriptions (Phase E)
+# ---------------------------------------------------------------------------
+
+
+def _msg_with_signal_value_descriptions(entries: list[dict]) -> dict:
+    sig = signal(_SIG_NAME, length=16, maximum=8000.0, unit="rpm")
+    sig["valueDescriptions"] = entries
+    return message(_MSG_ID, _MSG_NAME, [sig])
+
+
+class TestDBCSignalValueDescriptions:
+    """Phase E — VAL_ entries land on DBCSignal.valueDescriptions and round-trip
+    through the Agda core both at the JSON and at the .dbc text wire."""
+
+    def test_value_descriptions_preserved(self) -> None:
+        """A non-empty per-signal valueDescriptions list survives parse_dbc →
+        format_dbc round-trip with order and content intact."""
+        entries = [
+            {"value": 0, "description": "Off"},
+            {"value": 1, "description": "On"},
+            {"value": 2, "description": "Standby"},
+        ]
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_value_descriptions(entries)],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        sig = formatted["messages"][0]["signals"][0]
+        assert sig["valueDescriptions"] == entries
+
+    def test_empty_value_descriptions_default(self) -> None:
+        """Absent valueDescriptions round-trips as an empty list — the field is
+        always present on the wire even when no VAL_ block applies."""
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_value_descriptions([])],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            formatted = client.format_dbc()
+
+        sig = formatted["messages"][0]["signals"][0]
+        assert sig["valueDescriptions"] == []
+
+    def test_format_dbc_text_emits_val_block(self) -> None:
+        """format_dbc_text emits a VAL_ line when a signal carries
+        valueDescriptions, with entries in declaration order."""
+        entries = [
+            {"value": 0, "description": "Off"},
+            {"value": 1, "description": "On"},
+        ]
+        original: DBCDefinition = {
+            "version": "1.0",
+            "messages": [_msg_with_signal_value_descriptions(entries)],
+        }
+        with AletheiaClient() as client:
+            result = client.parse_dbc(original)
+            assert result["status"] == "success", result
+            text = client.format_dbc_text(original)
+
+        assert f"VAL_ {_MSG_ID} {_SIG_NAME} 0 \"Off\" 1 \"On\" ;" in text
+
+    def test_unknown_value_description_target_warning(self) -> None:
+        """A VAL_ line pointing at a (message-id, signal-name) pair not declared
+        in BO_/SG_ surfaces an ``unknown_value_description_target`` warning.
+
+        CHECK 23 walks ``DBC.unresolvedValueDescs`` populated only by
+        ``parseText``; the warning is delivered on ``ParsedDBCResponse.warnings``.
+        """
+        text = (
+            'VERSION ""\n\n'
+            'NS_ :\n\n'
+            'BS_:\n\n'
+            'BU_: ECU\n\n'
+            'BO_ 256 Engine: 8 ECU\n'
+            ' SG_ Rpm : 0|16@1+ (1,0) [0|8000] "rpm" Vector__XXX\n\n'
+            'VAL_ 999 GhostSignal 0 "Off" 1 "On" ;\n'
+        )
+        with AletheiaClient() as client:
+            resp = client.parse_dbc_text(text)
+
+        assert resp["status"] == "success", resp
+        codes = {issue["code"] for issue in resp["warnings"]}
+        assert "unknown_value_description_target" in codes

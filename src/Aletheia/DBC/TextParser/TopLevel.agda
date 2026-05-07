@@ -52,8 +52,11 @@
 --   * Every parsed `SG_MUL_VAL_` line collapses to `TSSigMulVal`; every
 --     `DBCSignal.presence` in the output is either `Always` or
 --     `When _ (v ∷ [])` (single-value selector).
---   * `VAL_` / `SIG_VALTYPE_` collapse to `TSValueDesc` / `TSSigValType`;
---     no per-signal enum labels or float-width tags survive.
+--   * `SIG_VALTYPE_` collapses to `TSSigValType`; no float-width tags
+--     survive.
+--   * `VAL_` carries a `RawValueDesc` payload via `TSValueDesc` (Phase
+--     E.4); E.5's refine pass attaches it to the owning signal's
+--     `DBCSignal.valueDescriptions`.
 -- These match the existing Python pipeline's structural `DbcDefinition`
 -- — the B.3.d roundtrip proof composes at that projection level.
 module Aletheia.DBC.TextParser.TopLevel where
@@ -76,7 +79,7 @@ open import Aletheia.DBC.TextParser.Preamble using
 open import Aletheia.DBC.TextParser.Topology using
   (parseBU; parseMessage)
 open import Aletheia.DBC.TextParser.ValueTables using
-  (parseValueTable; parseValueDescription)
+  (parseValueTable; parseValueDescription; RawValueDesc)
 open import Aletheia.DBC.TextParser.Attributes using
   (RawDBCAttribute; parseAttrLine)
 open import Aletheia.DBC.TextParser.Comments using
@@ -126,10 +129,11 @@ parseBOTxBu = do
 
 -- One top-level DBC statement as parsed from the input.  Payload
 -- constructors carry the per-construct parser's output; drop
--- constructors (`TSBOTxBu` / `TSValueDesc` / `TSSigValType` /
--- `TSSigMulVal`) carry no payload — they mark presence of a
--- syntactically-valid but structurally-dropped line so the refinement
--- layer can skip them without re-parsing.
+-- constructors (`TSBOTxBu` / `TSSigValType` / `TSSigMulVal`) carry no
+-- payload — they mark presence of a syntactically-valid but
+-- structurally-dropped line so the refinement layer can skip them
+-- without re-parsing.  `TSValueDesc` carries `RawValueDesc` post-E.4;
+-- E.5's refine pass routes it into `DBCSignal.valueDescriptions`.
 data TopStmt : Set where
   TSValueTable  : ValueTable      → TopStmt
   TSMessage     : DBCMessage      → TopStmt
@@ -137,7 +141,7 @@ data TopStmt : Set where
   TSEnvVar      : EnvironmentVar  → TopStmt
   TSComment     : DBCComment      → TopStmt
   TSAttribute   : RawDBCAttribute → TopStmt
-  TSValueDesc   :                   TopStmt
+  TSValueDesc   : RawValueDesc    → TopStmt
   TSSignalGroup : SignalGroup     → TopStmt
   TSSigValType  :                   TopStmt
   TSSigMulVal   :                   TopStmt
@@ -173,8 +177,8 @@ data TopStmt : Set where
 -- elaboration bounded.
 private
   parseTopStmt-V : Parser TopStmt
-  parseTopStmt-V = (parseValueTable       >>= λ vt → pure (TSValueTable vt))
-               <|> (parseValueDescription *> pure TSValueDesc)
+  parseTopStmt-V = (parseValueTable       >>= λ vt  → pure (TSValueTable vt))
+               <|> (parseValueDescription >>= λ rvd → pure (TSValueDesc rvd))
 
   parseTopStmt-BA : Parser TopStmt
   parseTopStmt-BA = parseAttrLine >>= λ a → pure (TSAttribute a)
@@ -214,7 +218,9 @@ parseTopStmt _   _                    = nothing
 -- Per-field buckets used by `parseText` to assemble the final `DBC`
 -- record.  Wire order is preserved by right-cons insertion in
 -- `partitionTopStmts`; `rawAttributes` is fed to `refineAttributes` by
--- the caller before becoming `DBC.attributes`.
+-- the caller before becoming `DBC.attributes`; `rawValueDescs` is fed
+-- to E.6's `attachValueDescs` to land on owning signals'
+-- `DBCSignal.valueDescriptions` (Phase E.5β).
 record CollectedTop : Set where
   constructor mkCollectedTop
   field
@@ -224,9 +230,10 @@ record CollectedTop : Set where
     comments        : List DBCComment
     rawAttributes   : List RawDBCAttribute
     signalGroups    : List SignalGroup
+    rawValueDescs   : List RawValueDesc
 
 emptyCollected : CollectedTop
-emptyCollected = mkCollectedTop [] [] [] [] [] []
+emptyCollected = mkCollectedTop [] [] [] [] [] [] []
 
 -- Cons one `TopStmt` onto its matching bucket.  Drop constructors pass
 -- the accumulator through unchanged.
@@ -242,7 +249,8 @@ consTop (TSComment cm)     c =
   record c { comments        = cm ∷ CollectedTop.comments        c }
 consTop (TSAttribute a)    c =
   record c { rawAttributes   = a  ∷ CollectedTop.rawAttributes   c }
-consTop TSValueDesc        c = c
+consTop (TSValueDesc rvd)  c =
+  record c { rawValueDescs   = rvd ∷ CollectedTop.rawValueDescs  c }
 consTop (TSSignalGroup sg) c =
   record c { signalGroups    = sg ∷ CollectedTop.signalGroups    c }
 consTop TSSigValType       c = c

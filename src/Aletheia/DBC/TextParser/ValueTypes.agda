@@ -9,11 +9,8 @@
 -- Scope note — `SIG_VALTYPE_` parsed but discarded:
 --   The Agda `SignalDef` record (`Aletheia.CAN.Signal`) has no `valueType`
 --   field; there is nowhere to store the float32/float64 discriminator.
---   Returning `⊤` matches `parseValueDescription` in
---   `TextParser.ValueTables` (VAL_ is similarly drop-parsed because
---   `DBCSignal` has no `valueDescriptions` field).  The cantools-backed
---   Python pipeline also drops this width flag — the structural
---   `DbcDefinition` seen by Python / C++ / Go never carries a
+--   The cantools-backed Python pipeline also drops this width flag — the
+--   structural `DbcDefinition` seen by Python / C++ / Go never carries a
 --   per-signal float-width tag.  Parsing it syntactically keeps
 --   ill-formed `SIG_VALTYPE_` lines rejecting the whole file, and a
 --   future extension that promotes the flag end-to-end can flip this

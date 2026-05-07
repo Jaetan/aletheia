@@ -10,7 +10,8 @@ module Aletheia.Protocol.ResponseFormat.Properties where
 open import Relation.Binary.PropositionalEquality using (_≡_; refl)
 
 open import Aletheia.Protocol.Message using (Response; Success; Error;
-  ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse)
+  ExtractionResultsResponse; PropertyResponse; Ack; Complete; ValidationResponse; DBCResponse;
+  ParsedDBCResponse; DBCTextResponse)
 open import Aletheia.Protocol.Response using (PropertyResult)
 open import Aletheia.Protocol.ResponseFormat using (formatResponse)
 
@@ -34,3 +35,5 @@ formatResponse-ack-unique Ack _ = refl
 formatResponse-ack-unique (Complete _) ()
 formatResponse-ack-unique (DBCResponse _) ()
 formatResponse-ack-unique (ValidationResponse _) ()
+formatResponse-ack-unique (ParsedDBCResponse _ _) ()
+formatResponse-ack-unique (DBCTextResponse _) ()

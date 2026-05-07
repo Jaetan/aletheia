@@ -38,7 +38,8 @@ open import Aletheia.DBC.Formatter.WellFormed public
 open import Aletheia.DBC.Formatter.MessageRoundtrip using (message-list-roundtrip)
 open import Aletheia.DBC.Formatter.MetadataRoundtrip using
   (signalGroup-list-roundtrip; environmentVar-list-roundtrip; valueTable-list-roundtrip;
-   node-list-roundtrip; comment-list-roundtrip; attribute-list-roundtrip)
+   node-list-roundtrip; comment-list-roundtrip; attribute-list-roundtrip;
+   rawValueDescList-roundtrip)
 
 -- ============================================================================
 -- TOP-LEVEL ROUNDTRIP
@@ -59,6 +60,7 @@ format-parse-roundtrip d wf
         | node-list-roundtrip (DBC.nodes d)
         | comment-list-roundtrip (DBC.comments d)
         | attribute-list-roundtrip (DBC.attributes d)
+        | rawValueDescList-roundtrip (DBC.unresolvedValueDescs d)
   = refl
 
 -- ============================================================================

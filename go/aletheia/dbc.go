@@ -35,6 +35,11 @@ type DbcSignal struct {
 	// Vector__XXX DBC placeholder is stripped on parse; an empty
 	// slice round-trips back to Vector__XXX on re-emission.
 	Receivers []string
+	// ValueDescriptions carries the inline VAL_ entries attached to this
+	// signal. Empty when no VAL_ line names the signal. Same
+	// (value, description) shape as DbcValueTable.Entries — the wire emits
+	// both as ordered arrays.
+	ValueDescriptions []DbcValueEntry
 }
 
 // DbcMessage defines a CAN message with its signals.
@@ -260,6 +265,19 @@ type DbcValueEntry struct {
 type DbcValueTable struct {
 	Name    string
 	Entries []DbcValueEntry
+}
+
+// DbcRawValueDesc is one unresolved VAL_ line from the DBC text-parse path
+// (Phase E.8, Plan B).  Carries the owning message's CAN ID, the signal
+// name, and the value-label entries.  Populated only when the text-parse
+// path encounters a VAL_ line whose (canId, signalName) pair did not match
+// any signal in the parsed messages; the entries are preserved verbatim so
+// the validator's CHECK 23 UnknownValueDescriptionTarget can warn at
+// validation time.
+type DbcRawValueDesc struct {
+	CanID      CanID
+	SignalName string
+	Entries    []DbcValueEntry
 }
 
 // ---------------------------------------------------------------------------
@@ -552,8 +570,11 @@ type DbcDefinition struct {
 	Nodes           []DbcNode
 	Comments        []DbcComment
 	Attributes      []DbcAttribute
-	nameIndex       map[string]int // maps message name -> index
-	idIndex         map[uint64]int // maps composite CAN ID key -> index
+	// Phase E.8 (Plan B): VAL_ entries from the text-parse path that did
+	// not resolve to any signal in Messages. Empty on the JSON-parse path.
+	UnresolvedValueDescriptions []DbcRawValueDesc
+	nameIndex                   map[string]int // maps message name -> index
+	idIndex                     map[uint64]int // maps composite CAN ID key -> index
 }
 
 // NewDbcDefinition creates a [DbcDefinition] with its message-name and
