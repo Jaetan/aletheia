@@ -1,0 +1,90 @@
+# Single source of truth for the long-run stability sub-checks each binding's
+# stability harness must implement.  Drives `tools/check_stability_bench.py`
+# (static gate — grep/AST verifies each binding's harness source references the
+# named symbol or function call).
+#
+# Scope: AGENTS.md universal rule "Long-run leak detection R18 sub-checks"
+# (Agda cat 16, Go cat 27, C++ cat 26, Python cat 25).
+#
+# One row per (binding, sub_check) pair.  Fields:
+#   binding       — python | go | cpp | agda
+#   name          — stable identifier; matches a section heading in the
+#                   harness source comment block
+#   gate          — hard_zero | soft_threshold
+#                     hard_zero       — exact 0 drift after close+gc; spec calls
+#                                       this a "genuine leak detector"
+#                     soft_threshold  — empirically-tuned percentage / absolute
+#                                       cap; threshold lives next to the
+#                                       assertion in the harness, NOT in this
+#                                       file.  This file declares "the check
+#                                       must exist," not "the check must pass
+#                                       at threshold X."
+#   source_file   — path to the harness source from repo root
+#   source_marker — substring/grep pattern that must appear at least once in
+#                   source_file.  The static gate uses this to verify the
+#                   sub-check is wired in.
+
+version: 1
+
+bindings:
+  python:
+    harness: python/benchmarks/stability.py
+    sub_checks:
+      - name: rss
+        gate: soft_threshold
+        source_marker: "memory_info().rss"
+      - name: fd_count
+        gate: hard_zero
+        source_marker: "num_fds()"
+      - name: ctypes_handles
+        gate: hard_zero
+        source_marker: "RTSState"
+      - name: logger_handlers
+        gate: hard_zero
+        source_marker: "logging.getLogger"
+
+  go:
+    harness: go/benchmarks/stability/main.go
+    sub_checks:
+      - name: rss
+        gate: soft_threshold
+        source_marker: "/memory/classes/heap/objects:bytes"
+      - name: fd_count
+        gate: hard_zero
+        source_marker: "/proc/self/fd"
+      - name: goroutines
+        gate: hard_zero
+        source_marker: "runtime.NumGoroutine"
+      - name: stableptr
+        gate: hard_zero
+        source_marker: "StablePtrCount"
+
+  cpp:
+    harness: cpp/benchmarks/stability_bench.cpp
+    sub_checks:
+      - name: rss
+        gate: soft_threshold
+        source_marker: "VmRSS"
+      - name: fd_count
+        gate: hard_zero
+        source_marker: "/proc/self/fd"
+      - name: threads
+        gate: hard_zero
+        source_marker: "active_thread_count"
+      - name: malloc_info
+        gate: soft_threshold
+        source_marker: "malloc_info"
+
+  agda:
+    harness: tools/stability_run.py
+    sub_checks:
+      # The Agda lane's "harness" is the runner itself — it sets
+      # ALETHEIA_RTS_OPTS=-hT (see python/aletheia/client/_ffi.py for the
+      # env-var → hs_init_with_rtsopts plumbing) so the GHC RTS emits the
+      # heap-typed profile during the Python lane's run.
+      - name: heap_profile
+        gate: soft_threshold
+        source_marker: "ALETHEIA_RTS_OPTS"
+      - name: heap_profile_archive
+        gate: hard_zero
+        source_marker: "aletheia-ffi.hp"

@@ -660,6 +660,18 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- gate — operators must not be left blind on an event the code emits.
         cmd_ "python3" "tools/check_runbook_coverage.py"
 
+    phony "check-stability-bench" $ do
+        -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
+        -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses
+        -- (RSS, FD, threads/goroutines, malloc_info, StablePtr / ctypes /
+        -- logger handlers).  This script parses docs/STABILITY_BENCH.yaml
+        -- and verifies every (binding, sub_check) pair's source_marker is
+        -- present in the named harness file — catches silent removal
+        -- without running the harnesses.  The dynamic counterpart that
+        -- actually runs the bench is `tools/stability_run.py`, gated
+        -- behind ALETHEIA_STABILITY_CHECK=1 in `tools/run_ci.py`.
+        cmd_ "python3" "tools/check_stability_bench.py"
+
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.
     --

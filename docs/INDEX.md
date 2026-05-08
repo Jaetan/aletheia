@@ -48,6 +48,7 @@ Understand how Aletheia works:
 For deployment and on-call:
 
 - **[Operations Runbook](operations/RUNBOOK.md)** - Symptom → cause → action for every structured log event and every documented failure mode (build, runtime, cancellation, input bounds, OOM, validation rejection)
+- **[Long-Run Stability Bench](operations/STABILITY.md)** - Per-binding harnesses for RSS / FD / handle-count drift detection across ≥ 1M frames; spec at `docs/STABILITY_BENCH.yaml`, gated by `tools/check_stability_bench.py` (static) + `tools/stability_run.py` (dynamic, opt-in via `ALETHEIA_STABILITY_CHECK=1`)
 
 ---
 

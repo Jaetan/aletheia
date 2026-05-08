@@ -414,7 +414,13 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # Haskell shim first with `cabal run shake -- build` from the repo root.)
     add_executable(benchmark benchmarks/benchmark.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
+
+    # Stability benchmark (R18 cluster 6 / C++ cat 26 long-run leak detection).
+    # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
+    add_executable(stability_bench benchmarks/stability_bench.cpp)
+    target_link_libraries(stability_bench PRIVATE aletheia-cpp)
+
     message(STATUS
-        "benchmark target requires libaletheia-ffi.so at runtime — "
+        "benchmark + stability_bench targets require libaletheia-ffi.so at runtime — "
         "build the Haskell shim first with `cabal run shake -- build`")
 endif()

@@ -182,6 +182,42 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   (which moves to 22 always-on steps total).  Forward-revert verified:
   deleting a heading fires the gate with a precise diagnostic;
   restoring it returns to exit 0 (R18 cluster 4).
+- Long-run stability bench harnesses across all three bindings, with a
+  GHC RTS heap-typed profile capture for the Agda kernel.  Per AGENTS.md
+  cat 16 / 25 / 26 / 27 each binding now exercises ≥ 1M frames in a
+  multi-cycle Init/Close pattern and asserts no per-iteration drift on
+  RSS / FD count / binding-specific resource accounting (R18 cluster 6).
+  Files: `python/benchmarks/stability.py` (psutil — RSS, num_fds,
+  RTSState refcount, logger handlers); `go/benchmarks/stability/main.go`
+  (runtime/metrics, /proc/self/fd, NumGoroutine,
+  `aletheia.StablePtrCount()`); `cpp/benchmarks/stability_bench.cpp`
+  (VmRSS, /proc/self/fd, Threads, glibc malloc_info).  Two-tier
+  threshold model: hard zero on real-resource leaks (FD / goroutine /
+  StablePtr / ctypes / logger handlers), soft threshold on RSS and
+  malloc_info.  Runtime-infrastructure FDs (anon_inode eventfd /
+  eventpoll / timerfd) are filtered out across all three bindings —
+  they grow lazily based on workload regardless of Close discipline.
+- `aletheia.StablePtrCount()` — Go-side counter exposing live
+  `aletheia_init`-allocated StablePtrs (incremented in `FFIBackend.Init`,
+  decremented in `FFIBackend.Close`).  Used by the long-run stability
+  harness to detect Init/Close imbalance.  Production code does not
+  need to call this (R18 cluster 6).
+- `ALETHEIA_RTS_OPTS` env-var path in the Python binding's
+  `RTSState.acquire` — additional RTS flags (e.g., `-hT` for heap
+  profiling, `-p` for time profiling) are appended to the argv passed
+  to `hs_init_with_rtsopts`.  Lets the stability bench drive the GHC
+  RTS heap profile without rebuilding the `.so` (R18 cluster 6).
+- `docs/STABILITY_BENCH.yaml` SSOT declaring per-binding sub-checks +
+  source markers; `tools/check_stability_bench.py` static gate
+  verifies every (binding, sub_check) pair's marker is present in the
+  named harness (Shake `phony "check-stability-bench"`, step 12 of
+  `tools/run_ci.py`).  `tools/stability_run.py` dynamic runner
+  invokes each harness sequentially and archives per-binding JSON
+  + GHC RTS `aletheia-ffi.hp` to `benchmarks/stability/<short-sha>/`
+  (opt-in via `ALETHEIA_STABILITY_CHECK=1`, step 29 of `tools/run_ci.py`).
+  `docs/operations/STABILITY.md` documents the procedure.  Forward-
+  revert verified: per-cycle FD leak in any harness fires its
+  hard-zero gate with a precise `delta=N` diagnostic (R18 cluster 6).
 - `Aletheia.Limits` Agda module + `docs/architecture/PROTOCOL.md § Limits`
   documenting the compile-time adversarial-input bounds enforced at every
   parser at a trust boundary (R18 cluster 2 / Universal Rule UR-2). 11

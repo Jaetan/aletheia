@@ -30,35 +30,40 @@ Sequence (sequential — fast-fail on any non-zero exit)::
        6. check-fidelity       (~2 min — runs ConstructorTest binary)
        7. check-ffi-exports
        8. count-modules
-    Offline enforcers (3):
+    Offline enforcers (4):
        9. check-changelog
       10. check-gate-claim
-      11. check-runbook       (R18 cluster 4)
+      11. check-runbook            (R18 cluster 4)
+      12. check-stability-bench    (R18 cluster 6 — static grep gate over
+                                    docs/STABILITY_BENCH.yaml; the dynamic
+                                    counterpart is opt-in step 29)
     Binding tests (6):
-      12. Python pytest (deterministic lane)
-      13. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
+      13. Python pytest (deterministic lane)
+      14. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
           harness; was silently absent from the orchestrator before C5)
-      14. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
+      15. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
           ResourceWarning, debug asyncio, deprecation noise)
-      15. Python pytest --random-order (R18 cluster 5 — Cat 14f
+      16. Python pytest --random-order (R18 cluster 5 — Cat 14f
           test-isolation; AGENTS.md "both lanes must stay green")
-      16. Go test -race
-      17. C++ ctest
+      17. Go test -race
+      18. C++ ctest
     Lints (5):
-      18. basedpyright (Python)
-      19. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-      20. gofmt -l + go vet (Go)
-      21. clang-format --dry-run --Werror (C++)
-      22. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+      19. basedpyright (Python)
+      20. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+      21. gofmt -l + go vet (Go)
+      22. clang-format --dry-run --Werror (C++)
+      23. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
     GHA meta-checks (3):
-      23. actionlint (workflow YAML lint, skipped if not installed)
-      24. check-action-pins
-      25. check-workflow-permissions
+      24. actionlint (workflow YAML lint, skipped if not installed)
+      25. check-action-pins
+      26. check-workflow-permissions
     Opt-in lanes:
-      26. ubsan ctest (set ALETHEIA_SAN_CHECK=1, ~5 min cold; R18 cluster 5)
-      27. check-reproducible-build (set ALETHEIA_REPRO_CHECK=1, ~10 min cold)
+      27. ubsan ctest (set ALETHEIA_SAN_CHECK=1, ~5 min cold; R18 cluster 5)
+      28. check-reproducible-build (set ALETHEIA_REPRO_CHECK=1, ~10 min cold)
+      29. stability bench (set ALETHEIA_STABILITY_CHECK=1, ~5-10 min cold;
+          R18 cluster 6 long-run leak detection across all 3 bindings)
 
-Total ~17-22 min on a warm system.  Steps 26+27 add ~15 min when enabled.
+Total ~17-22 min on a warm system.  Steps 27+28+29 add ~20-25 min when enabled.
 
 The Python lanes prefer ``python/.venv/bin/python3`` over the system
 ``python3`` so the dev extras (``pytest-markdown-docs``,
@@ -68,7 +73,7 @@ once via ``python3 -m venv python/.venv && python/.venv/bin/pip install
 ``ModuleNotFoundError`` rather than silently skipping.
 
 Exit codes:
-  0 — all 25 steps passed (or skipped where allowed).
+  0 — all 26 always-on steps passed (or skipped where allowed).
   1 — at least one step failed; tail of log printed to stderr.
   2 — usage error (e.g., not in a git repo, missing dependency).
 """
@@ -279,6 +284,7 @@ def main() -> int:
     r.step("check-changelog", [*cabal, "check-changelog"])
     r.step("check-gate-claim", [*cabal, "check-gate-claim"])
     r.step("check-runbook", [*cabal, "check-runbook"])
+    r.step("check-stability-bench", [*cabal, "check-stability-bench"])
 
     # ─── Steps 12-17: Binding tests ────────────────────────────────────────
     # Step 12: deterministic pytest lane.
@@ -417,9 +423,9 @@ def main() -> int:
             "set ALETHEIA_SAN_CHECK=1 to enable",
         )
 
-    # ─── Step 27 (opt-in): reproducible-build gate ─────────────────────────
+    # ─── Step 28 (opt-in): reproducible-build gate ─────────────────────────
     if os.environ.get("ALETHEIA_REPRO_CHECK") == "1":
-        r.total_steps = 27
+        r.total_steps = 28
         r.step(
             "check-reproducible-build",
             [
@@ -431,6 +437,26 @@ def main() -> int:
         r.announce_skip(
             "check-reproducible-build",
             "set ALETHEIA_REPRO_CHECK=1 to enable",
+        )
+
+    # ─── Step 29 (opt-in): long-run stability bench ────────────────────────
+    # R18 cluster 6 (Agda cat 16 + Python cat 25 + C++ cat 26 + Go cat 27).
+    # Runs each binding's stability harness for cycles × frames (default
+    # 10 × 100K = 1M frames per binding) plus the GHC RTS heap profile
+    # (-hT) on the Python lane.  Artifacts archived to
+    # benchmarks/stability/<short_sha>/.  Default off because a full run
+    # is ~5-10 min wall-clock (faster on quiet hosts, slower with --race
+    # in Go).  The static grep gate at step 11 is always-on regardless.
+    if os.environ.get("ALETHEIA_STABILITY_CHECK") == "1":
+        r.total_steps = 29
+        r.step(
+            "stability bench",
+            [sys.executable, str(r.repo_root / "tools" / "stability_run.py")],
+        )
+    else:
+        r.announce_skip(
+            "stability bench",
+            "set ALETHEIA_STABILITY_CHECK=1 to enable",
         )
 
     return r.finalize()
