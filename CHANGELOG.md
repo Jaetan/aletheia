@@ -464,6 +464,20 @@ callers that consumed a bare success acknowledgement need to access
 
 ### Fixed
 
+- **CI orchestrator** (`tools/run_ci.py`): fixed three defects surfaced
+  by cluster 6's first end-to-end run per
+  `feedback_orchestrator_end_to_end_validation.md`.  (1) `total_steps`
+  default bumped from 25 to 26 to reflect the cluster-6 addition of
+  `check-stability-bench` at step 12 (and opt-in bumps shifted +1 to
+  preserve relative offsets).  (2) pylint command switched from bare
+  `pylint` (system-wide pylint, no visibility into venv-only packages)
+  to `<venv-python> -m pylint` so cluster-5's `hypothesis` import in
+  `tests/test_property_hypothesis.py` resolves and stops emitting
+  E0401 (the system pylint was scoring 9.98/10 from import-error,
+  blocking the gate).  (3) `clang-format` find-prune list extended
+  with `./build-asan` and `./build-ubsan` so cluster-5 sanitizer build
+  trees' CMake-generated test files don't trip the lint
+  (R18 cluster 6 follow-up).
 - DBC `CM_` / `BU_` / `EV_` / `BA_*` / `VAL_TABLE_` / `VAL_` /
   `BO_TX_BU_` round-trip parity is now provable: the universal
   theorem `parseText (formatText d) ≡ inj₂ d` holds for every

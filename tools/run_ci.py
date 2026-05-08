@@ -82,6 +82,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -136,7 +137,7 @@ class Runner:
         self.log_path = log_dir / f"ci-{branch_safe}-{timestamp}.log"
         self.log_fh = self.log_path.open("w", encoding="utf-8")
         self.step_num = 0
-        self.total_steps = 25
+        self.total_steps = 26
         self.failed_step: str | None = None
         self.start = time.time()
         # Prefer the project's venv if present so dev-extras (markdown-docs,
@@ -333,8 +334,17 @@ def main() -> int:
     # pylint: SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
     # Pylint's exit code is a bit-flag (8=refactor); R0801 fires exit 8 even at
     # 10/10 score.  The score-pattern check matches the established policy.
+    #
+    # Run via the venv python so pylint can resolve dev-extras imports
+    # (`hypothesis` from cluster 5's `tests/test_property_hypothesis.py`).
+    # Bare `pylint` falls back to system pylint, which doesn't see venv-only
+    # packages and emits E0401 (Unable to import 'hypothesis') errors that
+    # bring the score below 10.00/10.  Surfaced 2026-05-08 by cluster 6's
+    # first orchestrator end-to-end run per
+    # `feedback_orchestrator_end_to_end_validation.md`.
     pylint_cmd = (
-        "pylint aletheia/ tests/ > /tmp/aletheia-pylint.out 2>&1; "
+        f"{shlex.quote(r.python)} -m pylint aletheia/ tests/ "
+        "> /tmp/aletheia-pylint.out 2>&1; "
         "rc=$?; cat /tmp/aletheia-pylint.out; "
         "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
     )
@@ -349,9 +359,13 @@ def main() -> int:
     r.step("gofmt + go vet", gofmt_cmd, cwd=r.repo_root / "go", shell=True)
 
     # clang-format: exclude generated / third-party trees.
+    # `build-asan` and `build-ubsan` are sanitizer-specific build trees
+    # created by the cluster-5 sanitizer lanes (per CGO_NOTES.md); they
+    # contain CMake-generated test files that are not aletheia source.
     clang_format_cmd = (
-        "find . \\( -path ./build -o -path ./build-tidy -o -path ./_deps "
-        "-o -path './*/_deps' \\) -prune -o "
+        "find . \\( -path ./build -o -path ./build-tidy "
+        "-o -path ./build-asan -o -path ./build-ubsan "
+        "-o -path ./_deps -o -path './*/_deps' \\) -prune -o "
         "\\( -name '*.cpp' -o -name '*.hpp' \\) -print | "
         "xargs clang-format --dry-run --Werror"
     )
@@ -404,7 +418,7 @@ def main() -> int:
     # and asserts every test passes.  The vendored zippy.hpp UB is filtered
     # via cpp/sanitizer-ignorelist.txt so only first-party UB surfaces.
     if os.environ.get("ALETHEIA_SAN_CHECK") == "1":
-        r.total_steps = 26
+        r.total_steps = 27
         # clang is required because the sanitizer ignorelist is a clang-only
         # feature (g++ has no equivalent).  Without clang, third-party UB
         # in OpenXLSX/zippy surfaces and the lane fails for non-aletheia
@@ -425,7 +439,7 @@ def main() -> int:
 
     # ─── Step 28 (opt-in): reproducible-build gate ─────────────────────────
     if os.environ.get("ALETHEIA_REPRO_CHECK") == "1":
-        r.total_steps = 28
+        r.total_steps = 29
         r.step(
             "check-reproducible-build",
             [
@@ -448,7 +462,7 @@ def main() -> int:
     # is ~5-10 min wall-clock (faster on quiet hosts, slower with --race
     # in Go).  The static grep gate at step 11 is always-on regardless.
     if os.environ.get("ALETHEIA_STABILITY_CHECK") == "1":
-        r.total_steps = 29
+        r.total_steps = 30
         r.step(
             "stability bench",
             [sys.executable, str(r.repo_root / "tools" / "stability_run.py")],
