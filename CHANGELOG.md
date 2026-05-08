@@ -344,7 +344,7 @@ callers that consumed a bare success acknowledgement need to access
   invocation per AGENTS.md L580 (src/ only — tests/ scope is a
   separate concern, tracked in `review-r18-findings.md` Cluster 1
   deferred). Total step count 20→21. First genuine end-to-end pass
-  logged at `tools/ci-output/ci-review-r18_-2026-05-08T*.log` (17m44s
+  logged at `tools/ci-output/ci-review-r18_-2026-05-08T*.log` (18m38s
   wall, ALL 21 STEPS PASSED). Forward-revert gate-shape verified for
   steps 15/16/17/18 (R18 cluster 1 phase 7).
 
