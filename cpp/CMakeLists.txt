@@ -97,6 +97,18 @@ target_include_directories(aletheia-cpp
 
 target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
 
+# UR-3.3 (Reproducible build verification): strip the build-host absolute path
+# from __FILE__ macros and any debug info embedded in the library, so binaries
+# produced from /home/$USER/aletheia on different hosts are byte-identical.
+# Defense-in-depth — Release builds don't currently emit DWARF that would carry
+# host paths, but the flag prevents future regression if anyone enables -g.
+# GCC and Clang both support -ffile-prefix-map (covers -fdebug-prefix-map +
+# -fmacro-prefix-map) since GCC 8 / Clang 10.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(aletheia-cpp PRIVATE
+        "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+endif()
+
 target_link_libraries(aletheia-cpp
     PRIVATE dl
         $<BUILD_INTERFACE:nlohmann_json::nlohmann_json>

@@ -740,14 +740,14 @@ Scope: ALL files in `.github/workflows/`, `.github/actions/`, plus any cron/sche
 # actionlint must be installed locally for the workflow-YAML gate
 actionlint .github/workflows/*.yml .github/workflows/*.yaml
 # Pin-by-SHA gate (audit script); the script's absence is itself a CI/CD cat 1 finding:
-tools/check-action-pins.sh
+tools/check_action_pins.py
 # Permission-scoping gate; same — script absence is a finding:
-tools/check-workflow-permissions.sh
+tools/check_workflow_permissions.py
 # Reproducible-build hash diff (Universal Rules cross-reference):
-tools/check-reproducible-build.sh
+tools/check_reproducible_build.py
 ```
 
-The first review round under this section will surface (a) the absence of `tools/check-action-pins.sh`, `tools/check-workflow-permissions.sh`, and `tools/check-reproducible-build.sh` as findings under cat 1 / cat 5, and (b) every action reference in `.github/workflows/` pinned by tag rather than SHA as a finding under cat 1. The first round's plan should propose a single PR adding the three audit scripts plus a `dependabot.yml` config that bumps action SHAs.
+The first review round under this section will surface (a) the absence of `tools/check_action_pins.py`, `tools/check_workflow_permissions.py`, and `tools/check_reproducible_build.py` as findings under cat 1 / cat 5, and (b) every action reference in `.github/workflows/` pinned by tag rather than SHA as a finding under cat 1. The first round's plan should propose a single PR adding the three audit scripts plus a `dependabot.yml` config that bumps action SHAs.
 
 ---
 

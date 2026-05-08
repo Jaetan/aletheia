@@ -73,7 +73,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `doc_example_tests` Catch2 binary. Every fenced ```python``` /
   ```go``` / ```cpp``` block in the documented file set runs against
   the real FFI (Track D).
-- `tools/check-changelog.sh` offline gate enforcing R18 Universal Rule
+- `tools/check_changelog.py` offline gate enforcing R18 Universal Rule
   UR-1 (Public API stability and CHANGELOG discipline). Detects
   public-API drift since merge-base with `main` and fails if
   `CHANGELOG.md` was not also modified; wired into the Shake target
@@ -82,7 +82,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   Shake binary. Branch-level granularity for v0; gate-shape verified
   by forward-revert test in a detached worktree (R18 cluster 1
   phase 1).
-- `tools/check-gate-claim.sh` offline enforcer for the gate-claim
+- `tools/check_gate_claim.py` offline enforcer for the gate-claim
   integrity rule (`memory/feedback_gate_claim_integrity.md`). Detects
   commits whose message asserts "all gates clean" / "gates green" /
   similar and verifies that `build/libaletheia-ffi.so` mtime postdates
@@ -94,7 +94,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   detection — only "all gates" / "gates green" / "All N gates"
   patterns trigger; per-gate status lines do not (R18 cluster 1
   phase 2).
-- `tools/run-ci.sh` offline CI orchestrator chaining the full 17-step
+- `tools/run_ci.py` offline CI orchestrator chaining the full 17-step
   gate sweep that R18 commit messages have historically asserted "all
   gates clean" against. Steps: 8 Agda gates (build /
   check-properties / check-invariants / check-no-properties-in-runtime
@@ -106,9 +106,9 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   for use as falsifiable gate-claim-integrity evidence. Total ~12-15 min
   on a warm system. Invoked directly (not via Shake) to avoid
   `cabal run` flock recursion (R18 cluster 1 phase 3).
-- `tools/install-hooks.sh` idempotent installer for Aletheia's git
+- `tools/install_hooks.py` idempotent installer for Aletheia's git
   hooks. Currently installs a `pre-push` hook that invokes
-  `tools/run-ci.sh` before allowing push, refusing the push on any
+  `tools/run_ci.py` before allowing push, refusing the push on any
   non-zero exit. Skip with `git push --no-verify` for incident
   response. Backs up any existing pre-push hook to
   `pre-push.aletheia-backup-<timestamp>` (R18 cluster 1 phase 3).
@@ -123,26 +123,26 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   pushing, without consuming GitHub Actions minutes (R18 cluster 1
   phase 4).
 - `docs/development/CI_LOCAL.md` documenting the local-first CI
-  architecture: offline correctness sweep via `tools/run-ci.sh`
+  architecture: offline correctness sweep via `tools/run_ci.py`
   (pre-push hook), push-time meta-gates via `.github/workflows/`,
   and `act` Docker pairing for local GHA replay. Includes install
   / usage / troubleshooting (R18 cluster 1 phase 4).
 - `.github/workflows/gha-checks.yml` push-time meta-gate workflow,
   three jobs running in parallel: `actionlint` (workflow YAML lint),
-  `action-pins` (verify SHA-pinning policy via `tools/check-action-pins.sh`),
+  `action-pins` (verify SHA-pinning policy via `tools/check_action_pins.py`),
   `permissions-check` (verify minimal permissions via
-  `tools/check-workflow-permissions.sh`). actionlint v1.7.7 installed
+  `tools/check_workflow_permissions.py`). actionlint v1.7.7 installed
   via direct release download (no third-party action dependency).
   Triggers on every push and PR; wall-clock ~1-2 min on `ubuntu-latest`.
   `permissions: contents: read` default (R18 cluster 1 phases 5+6).
-- `tools/check-action-pins.sh` offline gate enforcing action-pin policy:
+- `tools/check_action_pins.py` offline gate enforcing action-pin policy:
   GitHub-owned actions (`actions/*`, `github/*`) accept `@v<n>` tags;
   third-party actions must be SHA-pinned (40-char hex). Branch refs
   (`@main`, `@master`, etc.) are rejected even for GitHub-owned to
   defend against tag-mutability supply-chain attacks. Gate-shape
   verified inline via synthetic violation worktree (R18 cluster 1
   phase 6).
-- `tools/check-workflow-permissions.sh` offline gate verifying that
+- `tools/check_workflow_permissions.py` offline gate verifying that
   every workflow declares a top-level `permissions:` mapping or every
   job declares its own. Uses python3 + yaml for proper parsing.
   Rejects `read-all` / `write-all` defaults. Gate-shape verified
@@ -155,13 +155,13 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `labels` set for traceability (R18 cluster 1 phase 6).
 - Optional GHA toolchain documented in `CLAUDE.md § Development
   Environment` — `actionlint` and `act` install commands. Both are
-  optional locally; `tools/run-ci.sh` step 18 (actionlint) skips
+  optional locally; `tools/run_ci.py` step 18 (actionlint) skips
   gracefully if not installed (R18 cluster 1 phase 6).
-- `tools/run-ci.sh` extended from 17 to 20 steps, adding GHA meta-checks
+- `tools/run_ci.py` extended from 17 to 20 steps, adding GHA meta-checks
   18-20 (actionlint with skip-if-missing, check-action-pins,
   check-workflow-permissions) so the offline pre-push hook now covers
   the same surface as the GHA workflow (R18 cluster 1 phase 6).
-- `tools/run-ci.sh` extended from 20 to 21 steps with the addition of
+- `tools/run_ci.py` extended from 20 to 21 steps with the addition of
   `clang-tidy -p build src/*.cpp` (canonical invocation per AGENTS.md
   L580) — mandatory correctness gate per AGENTS.md L494 +
   `feedback_clang_tidy_mandatory.md`, was missing from phase 3 / phase 6
@@ -261,6 +261,39 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   error response when input exceeds `max_json_bytes` before
   calling the dlopen'd `aletheia_process` (R18 cluster 2 / Universal
   Rule UR-2).
+
+#### Build / release tooling (R18 cluster 3)
+
+- `cabal run shake -- dist` now records SHA-256 hashes for the source
+  and post-strip artifacts in `dist/aletheia/MANIFEST.txt`, generates
+  a CycloneDX 1.5 SBOM at `dist/aletheia/aletheia-sbom.cdx.json`,
+  produces a sidecar `dist/aletheia.tar.gz.sha256` for
+  `sha256sum -c`, and signs the tarball with cosign at
+  `dist/aletheia.tar.gz.sig` when `$ALETHEIA_COSIGN_KEY` is set.  The
+  tarball is built reproducibly (`tar --sort=name --mtime=@<commit-epoch>
+  --owner=0 --group=0 --numeric-owner --use-compress-program='gzip -n'`)
+  — two `dist` runs of the same commit produce bit-identical
+  `aletheia.tar.gz` (R18 cluster 3 / Universal Rule UR-3).
+- `keys/cosign.pub` — committed public half of the release-signing
+  cosign keypair.  Verification command:
+  `cosign verify-blob --key keys/cosign.pub --signature dist/aletheia.tar.gz.sig dist/aletheia.tar.gz`.
+- `tools/check_reproducible_build.py` — UR-3 gate enforcing
+  bit-identical `libaletheia-ffi.so` across two clean
+  `cabal run shake -- build` invocations.  Opt-in into the offline CI
+  battery via `ALETHEIA_REPRO_CHECK=1 tools/run_ci.py` (~10 min cold).
+- `tools/sbom_generate.py` — CycloneDX 1.5 SBOM generator (toolchain
+  pin + GHC runtime deps + main artifact hash).
+- `docs/development/RELEASE.md` — release-process documentation
+  (sign + verify + reproducible-build flow + key rotation + checklist).
+- All `tools/*.sh` scripts migrated to Python (≥ 3.13.7) per user
+  direction 2026-05-08: `check_changelog.py`, `check_gate_claim.py`,
+  `check_action_pins.py`, `check_workflow_permissions.py`,
+  `install_hooks.py`, `run_ci.py`.  No bash entry points remain
+  under `tools/` (snake_case `.py` is the new convention).
+- C++ `aletheia-cpp` library target compiled with
+  `-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.` for path-leak hardening.
+- GHC build receives `--ghc-options=-optc-ffile-prefix-map=$REPO_ROOT=.`
+  (defense-in-depth — same-host repro already held without this flag).
 
 ### Changed
 
@@ -380,7 +413,7 @@ callers that consumed a bare success acknowledgement need to access
   `parseDBCText`). No public-API impact: all four affected names live
   in the proof tree, not the binding surface (R18 cluster 14:
   AGDA-D-11.1, AGDA-D-11.2, AGDA-D-15.4, AGDA-D-19.6, AGDA-D-GA20.4).
-- **Tooling**: `tools/run-ci.sh` orchestrator defects revealed by the
+- **Tooling**: `tools/run_ci.py` orchestrator defects revealed by the
   first end-to-end run post phase 6 — fixed in phase 7. (a) Steps
   13 (ctest), 16 (gofmt + vet), 17 (clang-format) silently no-op'ing
   because `run_step_in`'s `$*` expansion drops quoting on inner

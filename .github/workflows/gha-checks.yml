@@ -1,7 +1,7 @@
 # GHA infrastructure checks — meta-gates that have no offline equivalent.
 #
 # Aletheia's CI is local-first (see docs/development/CI_LOCAL.md): the
-# correctness sweep runs offline via tools/run-ci.sh + the pre-push hook.
+# correctness sweep runs offline via tools/run_ci.py + the pre-push hook.
 # This workflow is intentionally narrow — it verifies the GHA infrastructure
 # itself (workflow YAML lint, action-pin policy, workflow-permissions
 # hygiene) and does NOT duplicate the offline correctness gates.
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run check-action-pins.sh
-        run: tools/check-action-pins.sh
+        run: tools/check_action_pins.py
 
   permissions-check:
     name: Verify minimal workflow permissions
@@ -57,4 +57,4 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run check-workflow-permissions.sh
-        run: tools/check-workflow-permissions.sh
+        run: tools/check_workflow_permissions.py

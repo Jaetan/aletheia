@@ -15,23 +15,23 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Offline correctness sweep | `tools/run-ci.sh` | `git push` (via pre-push hook) | 17-step gate sweep — Agda gates, binding tests, lints |
+| Offline correctness sweep | `tools/run_ci.py` | `git push` (via pre-push hook) | 17-step gate sweep — Agda gates, binding tests, lints |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
-The pre-push hook (`tools/install-hooks.sh`) is the principal correctness
+The pre-push hook (`tools/install_hooks.py`) is the principal correctness
 gate; the GHA workflows are intentionally narrow.
 
-## Offline correctness sweep — `tools/run-ci.sh`
+## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run-ci.sh`](../../tools/run-ci.sh). 17 sequential
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 17 sequential
 steps, ~12-15 minutes warm. Logs to `tools/ci-output/ci-<branch>-<timestamp>.log`
 for use as falsifiable gate-claim-integrity evidence.
 
 Install the pre-push hook:
 
 ```bash
-tools/install-hooks.sh
+tools/install_hooks.py
 ```
 
 Idempotent (safe to re-run). After install, every `git push` runs the sweep
@@ -52,7 +52,7 @@ equivalent or that need GHA's own infrastructure to be validated:
 These workflows DO NOT duplicate the correctness sweep from `run-ci.sh`.
 External-contributor PRs from forks that don't have the pre-push hook
 installed are gated only by the meta-gates plus repository review. For
-high-stakes external PRs, run `tools/run-ci.sh` locally on the merged branch
+high-stakes external PRs, run `tools/run_ci.py` locally on the merged branch
 before merging.
 
 ## Local GHA-replay — `act`
@@ -115,14 +115,14 @@ First run downloads the runner image (~5 GB); subsequent runs reuse it.
 ### When to run `act`
 
 Run `act` after editing any file under `.github/workflows/` and before
-pushing. The pre-push hook (`tools/run-ci.sh`) does NOT invoke `act`
+pushing. The pre-push hook (`tools/run_ci.py`) does NOT invoke `act`
 automatically because `act` requires Docker, which not every dev environment
 provides; treat `act` as an opt-in workflow-development tool.
 
 For a CI-style local replay, run both:
 
 ```bash
-tools/run-ci.sh    # correctness gates (17 steps, ~12-15 min)
+tools/run_ci.py    # correctness gates (17 steps, ~12-15 min)
 act push           # GHA meta-gates (workflows, ~1-2 min)
 ```
 
@@ -161,14 +161,14 @@ git push --no-verify
 ```
 
 Only bypass when you understand why — the hook is the principal correctness
-gate. The gate-claim-integrity enforcer (`tools/check-gate-claim.sh`) still
+gate. The gate-claim-integrity enforcer (`tools/check_gate_claim.py`) still
 validates the .so freshness invariant on commits with "all gates clean"
 assertions, even if the pre-push hook didn't run.
 
 ## See also
 
-- [`tools/run-ci.sh`](../../tools/run-ci.sh) — offline correctness orchestrator (Phase 3).
-- [`tools/install-hooks.sh`](../../tools/install-hooks.sh) — pre-push hook installer.
-- [`tools/check-changelog.sh`](../../tools/check-changelog.sh) — UR-1 enforcement (Phase 1).
-- [`tools/check-gate-claim.sh`](../../tools/check-gate-claim.sh) — gate-claim integrity (Phase 2).
+- [`tools/run_ci.py`](../../tools/run_ci.py) — offline correctness orchestrator (Phase 3).
+- [`tools/install_hooks.py`](../../tools/install_hooks.py) — pre-push hook installer.
+- [`tools/check_changelog.py`](../../tools/check_changelog.py) — UR-1 enforcement (Phase 1).
+- [`tools/check_gate_claim.py`](../../tools/check_gate_claim.py) — gate-claim integrity (Phase 2).
 - [`memory/feedback_gate_claim_integrity.md`](../../../.claude/projects/-home-nicolas-dev-agda-aletheia/memory/feedback_gate_claim_integrity.md) — the discipline this enforces.
