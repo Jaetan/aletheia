@@ -34,17 +34,19 @@
 #     11. Python pytest
 #     12. Go test -race
 #     13. C++ ctest
-#   Lints (4):
+#   Lints (5):
 #     14. basedpyright (Python)
-#     15. pylint 10/10 (Python)
-#     16. gofmt -d + go vet (Go)
+#     15. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+#     16. gofmt -l + go vet (Go)
 #     17. clang-format --dry-run --Werror (C++)
+#     18. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
 #   GHA meta-checks (3):
-#     18. actionlint (workflow YAML lint, skipped if not installed)
-#     19. check-action-pins.sh
-#     20. check-workflow-permissions.sh
+#     19. actionlint (workflow YAML lint, skipped if not installed)
+#     20. check-action-pins.sh
+#     21. check-workflow-permissions.sh
 #
-# Total ~12-15 min on a warm system.
+# Total ~15-20 min on a warm system (clang-tidy adds ~3-5 min on top of the
+# previous 12-15 min baseline).
 #
 # Benchmarks are NOT included — performance regression detection is a
 # separate concern from correctness, and run_all.sh is invoked manually
@@ -52,7 +54,7 @@
 # Considerations + AGENTS.md § Step 4).
 #
 # Exit codes:
-#   0 — all 20 steps passed (or skipped where allowed).
+#   0 — all 21 steps passed (or skipped where allowed).
 #   1 — at least one step failed; tail of log printed to stderr.
 #   2 — usage error (e.g., not in a git repo, missing dependency).
 
@@ -92,7 +94,7 @@ ci_start=$(date +%s)
 # ─── Step framework ───────────────────────────────────────────────────────────
 
 step_num=0
-total_steps=20
+total_steps=21
 failed_step=""
 
 run_step() {
@@ -158,16 +160,44 @@ run_step "check-gate-claim" cabal run shake -- check-gate-claim
 
 run_step_in "python" "pytest" python3 -m pytest tests/
 run_step_in "go" "go test -race" go test ./aletheia/ -count=1 -race
-run_step_in "cpp" "ctest" bash -c "cmake -B build >/dev/null && cmake --build build && ctest --test-dir build"
+# IMPORTANT — direct run_step (not run_step_in) for any inner pipeline / multi-
+# command bash invocation: run_step_in collapses its remaining args via $* with
+# loss of quoting, so an inner `bash -c "..."` ends up as `bash -c <first-word>
+# arg1 arg2 ...`.  The inner bash then runs only the first word as the command;
+# remaining tokens become positional args, the pipe/redirect/&& happen in the
+# OUTER shell, and silent no-ops slip through.  All the multi-command lint /
+# binding-test steps below use direct run_step + a single bash -c with cd
+# folded in.
+run_step "ctest" bash -c "cd cpp && cmake -B build > /dev/null && cmake --build build && ctest --test-dir build"
 
-# ─── Steps 14-17: Lints ──────────────────────────────────────────────────────
+# ─── Steps 14-18: Lints ──────────────────────────────────────────────────────
 
 run_step_in "python" "basedpyright" basedpyright aletheia/
-run_step_in "python" "pylint" pylint aletheia/ tests/
-run_step_in "go" "gofmt + go vet" bash -c "gofmt -d ./aletheia/ && go vet ./aletheia/"
-run_step_in "cpp" "clang-format" bash -c "find . -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror"
+# pylint: gate is SCORE-based per AGENTS.md L611 ("pylint score must stay
+# 10.00/10") and feedback_pylint_10_mandatory.md.  Pylint's exit code is a
+# bit-flag (1=fatal/2=error/4=warning/8=refactor/16=convention) — exit 8 fires
+# even when the score is 10/10 (refactor messages like R0801 duplicate-code do
+# not deduct from the score formula).  Score check matches the established
+# policy; exit-code check would be stricter than the project requires.
+run_step "pylint" bash -c "cd python && pylint aletheia/ tests/ > /tmp/aletheia-pylint.out 2>&1; cat /tmp/aletheia-pylint.out; grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
+# gofmt -l (LIST) — exits 0 normally but emits filenames needing reformatting
+# on stdout; gate fails iff output non-empty OR gofmt returned non-zero (e.g.
+# Go syntax error).  Old `-d` (DIFF) printed the diff but exited 0 even on
+# dirty source, so wasn't a real gate (matches AGENTS.md L190 which uses -l).
+# Capture rc separately from output to avoid the `$(...)`-masks-rc trap.
+run_step "gofmt + go vet" bash -c 'cd go && gofmt -l ./aletheia/ > /tmp/aletheia-gofmt.out 2>&1; rc=$?; cat /tmp/aletheia-gofmt.out; test $rc -eq 0 && test ! -s /tmp/aletheia-gofmt.out && go vet ./aletheia/'
+# clang-format: exclude build/, build-tidy/, _deps/ which contain generated /
+# third-party code that the project does NOT format.
+run_step "clang-format" bash -c "cd cpp && find . \\( -path ./build -o -path ./build-tidy -o -path ./_deps -o -path './*/_deps' \\) -prune -o \\( -name '*.cpp' -o -name '*.hpp' \\) -print | xargs clang-format --dry-run --Werror"
+# clang-tidy: mandatory per AGENTS.md L494 ("zero errors and zero warnings on
+# all source files") + feedback_clang_tidy_mandatory.md.  Reads
+# compile_commands.json from build/ (CMake exports by default).  Canonical
+# invocation per AGENTS.md L580 — src/*.cpp only (the "source files" the rule
+# scopes; tests/*.cpp are not in the canonical scope).  Faster than
+# -DALETHEIA_CLANG_TIDY=ON rebuild.
+run_step "clang-tidy" bash -c "cd cpp && clang-tidy -p build src/*.cpp"
 
-# ─── Steps 18-20: GHA meta-checks ────────────────────────────────────────────
+# ─── Steps 19-21: GHA meta-checks ────────────────────────────────────────────
 
 # actionlint is optional locally — workflow gates against it server-side.
 # If not installed, skip with a warning rather than fail.
