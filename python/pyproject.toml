@@ -103,6 +103,13 @@ dev = [
 # only the fuzz lane installs it.  Hypothesis stays in ``[dev]`` because
 # property tests run in every standard pytest invocation.
 fuzz = ["atheris>=3.0,<4"]
+# AGENTS.md Python cat 14(g) (NEW R18) opt-in mutation-testing extras.  mutmut
+# is the AGENTS.md-named first-choice tool; pinned to 3.x where the cli +
+# pyproject ``[tool.mutmut]`` config still works.  Lives in its own group
+# rather than ``[dev]`` because the lane is opt-in only (per AGENTS.md "once
+# per PR is sufficient; per-commit is overkill") and pulls a sizeable mutation
+# trampoline machinery + tooling deps.
+mutation = ["mutmut>=3.5,<4"]
 
 [tool.basedpyright]
 # Strict type checking for code we control
@@ -179,3 +186,52 @@ omit = [
 # directly; don't fail the build on a coverage threshold (gate-free).
 show_missing = true
 skip_covered = false
+
+[tool.mutmut]
+# AGENTS.md Python cat 14(g) (NEW R18) — mutation testing config.  Hot-path
+# modules per AGENTS.md, mapped to the actual on-disk paths after the
+# protocols split (``client.py`` -> ``aletheia/client/_client.py``) and the
+# Track E.11 validation extraction (``validation.py`` is new).  ``dbc_loader.py``
+# from AGENTS.md was renamed/split into ``dbc_converter.py`` + ``yaml_loader.py``;
+# both included.  See ``docs/MUTATION_BENCH.yaml`` for the canonical list and
+# the static gate that enforces it.
+#
+# Implementation note: mutmut 3.x copies ONLY the files in ``paths_to_mutate``
+# plus those in ``also_copy`` to the ``mutants/`` work tree.  Tests run from
+# inside that tree, so the whole ``aletheia/`` package needs to be present
+# (siblings import each other).  We mutate just the 5 hot-path files via
+# ``paths_to_mutate``, and copy the rest of the package via ``also_copy`` so
+# every ``from aletheia import ...`` resolves inside ``mutants/``.
+paths_to_mutate = [
+    "aletheia/client/_client.py",
+    "aletheia/dbc_converter.py",
+    "aletheia/yaml_loader.py",
+    "aletheia/validation.py",
+    "aletheia/protocols.py",
+]
+also_copy = [
+    "aletheia",
+]
+tests_dir = ["tests/"]
+# pytest invocation used to verify each mutant: keep cheap by skipping the
+# slowest non-mutation gates (the doc-example harness, the random-order lane,
+# the property-based hypothesis tests, the cross-binding parity tests — none
+# of them exercise the hot-path modules above with finer granularity than the
+# unit tests).  Mutmut walks ALL tests in tests_dir by default, so this
+# narrowing is via a deselect rather than a select.
+pytest_add_cli_args = [
+    "--no-header",
+    "-x",
+    # Tests that fail under mutmut's mutated-tree cwd because they expect
+    # repo-root paths (find_repo_root() / ../../docs/FEATURE_MATRIX.yaml /
+    # ../../docs/LOG_EVENTS.yaml etc.); they are infrastructure-coverage
+    # tests, NOT hot-path coverage, so excluding them does not weaken the
+    # mutation lane's signal on the 5 modules above.
+    "--ignore=tests/test_doc_examples_harness.py",
+    "--ignore=tests/test_property_hypothesis.py",
+    "--ignore=tests/test_cross_binding_integration.py",
+    "--ignore=tests/test_feature_matrix_parity.py",
+    "--ignore=tests/test_log_events_parity.py",
+    "--ignore=tests/test_unified_client.py",
+    "--ignore=tests/test_format_dbc.py",
+]

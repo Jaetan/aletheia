@@ -15,7 +15,7 @@ minutes.
 
 | Layer | Lives in | Triggered by | Coverage |
 |---|---|---|---|
-| Offline correctness sweep | `tools/run_ci.py` | `git push` (via pre-push hook) | 17-step gate sweep — Agda gates, binding tests, lints |
+| Offline correctness sweep | `tools/run_ci.py` | `git push` (via pre-push hook) | 27 always-on steps — Agda gates, offline enforcers, binding tests, lints, GHA meta-checks (+ 4 opt-in lanes) |
 | Push-time meta-gates | `.github/workflows/*.yml` | `git push origin <branch>` to GitHub | Action-pin / workflow-permissions / actionlint — verifies the GHA infrastructure itself |
 | Local GHA-replay | `act` + `.actrc` | manual `act <event>` | Run the GHA workflows offline before push to catch breakage before consuming Actions minutes |
 
@@ -24,9 +24,12 @@ gate; the GHA workflows are intentionally narrow.
 
 ## Offline correctness sweep — `tools/run_ci.py`
 
-Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 17 sequential
-steps, ~12-15 minutes warm. Logs to `tools/ci-output/ci-<branch>-<timestamp>.log`
-for use as falsifiable gate-claim-integrity evidence.
+Documented in [`tools/run_ci.py`](../../tools/run_ci.py). 27 always-on
+sequential steps, ~17-22 minutes warm.  Plus 4 opt-in lanes (sanitizer,
+reproducible build, stability bench, mutation testing) that can be enabled
+individually via CLI flags or env vars, or all at once via `--full`.  Logs
+to `tools/ci-output/ci-<branch>-<timestamp>.log` for use as falsifiable
+gate-claim-integrity evidence.
 
 Install the pre-push hook:
 
@@ -37,6 +40,96 @@ tools/install_hooks.py
 Idempotent (safe to re-run). After install, every `git push` runs the sweep
 before allowing the push. Bypass with `git push --no-verify` for incident
 response.
+
+### Opt-in lanes
+
+Each opt-in lane has a CLI flag, an env-var fallback, and a paired
+`--no-<lane>` to subtract from `--full`:
+
+| Flag | Env var | Cost | Coverage |
+|---|---|---|---|
+| `--san` | `ALETHEIA_SAN_CHECK=1` | ~5 min | UBSan ctest battery (R18 cluster 5; clang required for `-fsanitize-ignorelist=`) |
+| `--repro` | `ALETHEIA_REPRO_CHECK=1` | ~10 min | Two-clean-build sha256 verification (R18 cluster 3 / UR-3) |
+| `--stability` | `ALETHEIA_STABILITY_CHECK=1` | ~5 min | Long-run leak detection across 3 bindings + GHC RTS heap profile (R18 cluster 6) |
+| `--mutation` | `ALETHEIA_MUTATION_CHECK=1` | ~30 min - 2 hrs | Per-binding mutation testing — mutmut / go-mutesting / Mull (R18 cluster 7) |
+
+Precedence: **CLI flag > env var > default-off**.  `--full` enables every
+opt-in lane; `--no-<lane>` always wins (e.g. `--full --no-mutation` runs
+everything except mutation testing).
+
+```bash
+# Always-on steps only (default; ~17-22 min)
+tools/run_ci.py
+
+# Two specific opt-in lanes
+tools/run_ci.py --san --stability
+
+# All opt-in lanes (~60-120 min on warm host)
+tools/run_ci.py --full
+
+# All opt-ins except mutation (skip the 30-minute lane during iteration)
+tools/run_ci.py --full --no-mutation
+
+# Legacy env-var trigger (still supported for back-compat)
+ALETHEIA_REPRO_CHECK=1 tools/run_ci.py
+```
+
+The mutation lane is most expensive and is per-PR not per-commit; the
+other three are per-push-friendly when developers want extra coverage.
+
+### Installing dev tools
+
+The always-on sweep needs no extra tooling beyond what `cabal run shake --
+build` already requires.  The opt-in lanes need additional installs.
+
+**Sanitizer lane (`--san`)** — needs `clang` for the
+`-fsanitize-ignorelist=` flag (which g++ doesn't support).  Most distros'
+default `clang` package is sufficient; verify with `clang --version`.  No
+extra install if you already use `tools/run_ci.py` for the mutation lane
+(clang-19 / clang-21 are both fine for sanitizers).
+
+**Reproducible build lane (`--repro`)** — no extra tools (the gate runs
+two clean Shake builds and `sha256sum`s the result).
+
+**Stability bench lane (`--stability`)** — needs Python `psutil` (already
+in the project's `[dev]` extras) for the Python harness; Go and C++
+harnesses use stdlib facilities only.  Install via:
+
+```bash
+cd python && .venv/bin/pip install -e '.[dev]'
+```
+
+**Mutation lane (`--mutation`)** — needs three tools (one per binding).
+See [`docs/operations/MUTATION.md`](../operations/MUTATION.md) for the
+full procedure including baseline-management; quick install:
+
+```bash
+# Python: mutmut (~250 KB, pip-installable into the venv)
+cd python && .venv/bin/pip install -e '.[mutation]'
+
+# Go: gremlins (Go module installed via `go install`; lands in ~/go/bin)
+# AGENTS.md names go-mutesting; gremlins substitutes for the same intent
+# because zimmski's repo is unmaintained since 2021 (panics on Go 1.26).
+go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+
+# C++: Mull-19 (matches LLVM 19 / clang-19 from the apt repo).  The deb
+# is extracted to ~/.local/bin/ — no sudo needed.
+sudo apt install clang-19    # one-time; provides /usr/bin/clang-19
+curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
+mkdir -p /tmp/mull-extract
+dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
+cp /tmp/mull-extract/usr/bin/mull-runner-19 \
+   /tmp/mull-extract/usr/bin/mull-reporter-19 \
+   /tmp/mull-extract/usr/lib/mull-ir-frontend-19 ~/.local/bin/
+
+# Verify all three are discoverable
+which mutmut gremlins mull-runner-19  # mutmut is in python/.venv/bin/
+```
+
+Each tool's absence is detected by `tools/mutation_run.py` and surfaces
+as a precise error in the per-binding JSON report; the orchestrator marks
+the lane as failed but doesn't crash, so a partial install (e.g.
+mutmut+go-mutesting without Mull) still gets you 2 of 3 binding reports.
 
 ## Push-time meta-gates — `.github/workflows/`
 

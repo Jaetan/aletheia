@@ -417,6 +417,63 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   orchestrator before C5; recovering it adds 114 doc-fence executions
   (R18 cluster 5 follow-up / Cat 32 enforcement).
 
+#### Mutation testing infrastructure (R18 cluster 7)
+
+Per AGENTS.md cat 14(g): per-binding mutation testing on hot-path
+modules.  Infrastructure shipped; per-binding survivor baselines
+established post-merge.
+
+- **`docs/MUTATION_BENCH.yaml`** — single source of truth: per-binding
+  tool, hot-path module list (mapped to actual on-disk paths after the
+  protocols split / Track E.11 extraction), baseline survivor count.
+- **`tools/check_mutation_setup.py`** — static gate (~1 sec), wired as
+  Shake `phony "check-mutation-setup"` and `tools/run_ci.py` step 13
+  (always-on).  Verifies every declared hot-path source file exists
+  on disk; catches silent rename / removal of a hot-path file.
+- **`tools/mutation_run.py`** — dynamic runner (opt-in,
+  ~30 min - 2 hrs).  Drives `mutmut` / `gremlins` / `Mull` per binding,
+  archives JSON to `benchmarks/mutation/<short-sha>/`.  Per-binding
+  skip env vars (`ALETHEIA_MUTATION_SKIP_{PYTHON,GO,CPP}=1`) for
+  partial runs.  Gremlins substitutes for AGENTS.md cat 14(g)
+  go-mutesting (the named tool is unmaintained since 2021); same
+  operator set, same per-binding intent.
+- **`docs/operations/MUTATION.md`** — procedure doc covering the
+  threshold model (drift gate against per-binding YAML baseline +
+  null-baseline-first-run special case), per-binding install steps,
+  forward-revert verification protocol, and CI wiring.
+- **`python/pyproject.toml [tool.mutmut]`** — mutmut 3.x config
+  (paths_to_mutate = 5 hot-path modules; also_copy = aletheia/ for
+  importability inside the mutated tree; tests_dir + 7 ignores for
+  tests that need repo-root-relative paths).
+- **`python/pyproject.toml [project.optional-dependencies] mutation`**
+  — `mutmut>=3.5,<4` extras group; install via
+  `pip install -e python/.[mutation]`.
+- **`cpp/CMakeLists.txt -DALETHEIA_MUTATION=ON`** — opt-in build
+  flag.  When enabled (clang-19 required), adds `-fpass-plugin=
+  ${HOME}/.local/bin/mull-ir-frontend-19 -g -O0` to all targets.
+  Build into a dedicated tree: `cmake -B build-mutation -DALETHEIA_MUTATION=ON`.
+
+#### `tools/run_ci.py` CLI overhaul (R18 cluster 7)
+
+Switched from env-var-only triggers to argparse-driven CLI flags,
+with env-var fallback for back-compat.
+
+- **`--san` / `--no-san`** — UBSan ctest battery (was: `ALETHEIA_SAN_CHECK=1`).
+- **`--repro` / `--no-repro`** — reproducible build gate (was: `ALETHEIA_REPRO_CHECK=1`).
+- **`--stability` / `--no-stability`** — long-run stability bench (was: `ALETHEIA_STABILITY_CHECK=1`).
+- **`--mutation` / `--no-mutation`** — mutation testing across 3 bindings
+  (NEW; pairs with `ALETHEIA_MUTATION_CHECK=1`).
+- **`--full`** — enable every opt-in lane.  `--no-<lane>` always
+  overrides, so `--full --no-mutation` runs everything except mutation
+  testing.
+
+Precedence: **CLI > env > default-off**.  All four env vars stay
+supported; the legacy form remains valid for scripts and pre-push
+hook callers.
+
+Always-on step count: 26 → 27 (+1 for `check-mutation-setup` at
+step 13; `check-stability-bench` at step 12 was added by cluster 6).
+
 ### Changed
 
 #### BREAKING — Go: `ctx context.Context` is now the first parameter on every Client operation method (Track C.3)

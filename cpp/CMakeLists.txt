@@ -91,6 +91,51 @@ if(ALETHEIA_SANITIZER_FLAGS)
 endif()
 
 # ---------------------------------------------------------------------------
+# Mutation testing (R18 cluster 7 / Cat 14(g))
+# ---------------------------------------------------------------------------
+# Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
+# is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
+# Catch2 / OpenXLSX / yaml-cpp / nlohmann_json — third-party code with heavy
+# templates triggers compiler crashes under the plugin, and we don't care
+# about their mutation score anyway).
+#
+# Build into a dedicated directory so the instrumented artifacts are not
+# mixed with the standard build:
+#
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+#         -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+#   cmake --build build-mutation --target unit_tests
+#   mull-runner-19 ./build-mutation/unit_tests
+#
+# Requires Mull-19 (LLVM 19) installed (see docs/operations/MUTATION.md §
+# Installation) and clang-19 from the apt repo.  Mull's IR pass uses LLVM
+# version-specific APIs, so the compiler version MUST match the Mull binary
+# version (mull-ir-frontend-19 ↔ clang-19; the next Mull release will be
+# Mull-20 ↔ clang-20).  -O0 -g is mandatory: optimisations elide AST nodes
+# Mull would otherwise mutate, debug info pins source locations in the
+# survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
+# target_compile_options() calls below (next to the add_library /
+# add_executable definitions for aletheia-cpp + unit_tests).
+option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
+set(ALETHEIA_MUTATION_FLAGS "")
+if(ALETHEIA_MUTATION)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "ALETHEIA_MUTATION requires clang-19 (got ${CMAKE_CXX_COMPILER_ID}); "
+            "use a separate build dir: -DCMAKE_C_COMPILER=clang-19 "
+            "-DCMAKE_CXX_COMPILER=clang++-19")
+    endif()
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-19")
+    if(NOT EXISTS "${MULL_PLUGIN}")
+        message(FATAL_ERROR
+            "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
+            "install Mull-19 per docs/operations/MUTATION.md § Installation")
+    endif()
+    message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
+    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)
+endif()
+
+# ---------------------------------------------------------------------------
 # Dependencies (fetched, not exported to consumers)
 # ---------------------------------------------------------------------------
 
@@ -160,6 +205,14 @@ target_include_directories(aletheia-cpp
 
 target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
 
+# R18 cluster 7 — apply Mull IR pass plugin to aletheia-cpp ONLY when
+# ALETHEIA_MUTATION=ON.  The plugin would crash clang on Catch2's heavy
+# templates if applied globally; per-target keeps it scoped to the code we
+# actually want to mutate.
+if(ALETHEIA_MUTATION)
+    target_compile_options(aletheia-cpp PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+endif()
+
 # UR-3.3 (Reproducible build verification): strip the build-host absolute path
 # from __FILE__ macros and any debug info embedded in the library, so binaries
 # produced from /home/$USER/aletheia on different hosts are byte-identical.
@@ -167,7 +220,12 @@ target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
 # host paths, but the flag prevents future regression if anyone enables -g.
 # GCC and Clang both support -ffile-prefix-map (covers -fdebug-prefix-map +
 # -fmacro-prefix-map) since GCC 8 / Clang 10.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+#
+# NOT applied when ALETHEIA_MUTATION=ON: Mull-19's IR pass crashes (clang
+# exit 139) when -ffile-prefix-map is in the flag list.  The mutation lane
+# uses `cpp/build-mutation/` exclusively and is dev-only (never shipped),
+# so reproducibility doesn't apply there.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT ALETHEIA_MUTATION)
     target_compile_options(aletheia-cpp PRIVATE
         "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
 endif()
@@ -265,6 +323,15 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
+    # Mutation lane: instrument unit_tests sources too (the test logic
+    # itself is part of the operational surface — a test that asserts "x
+    # > 0" but is mutated to "x >= 0" should still pass against any
+    # surviving production mutant).  Catch2 stays uninstrumented because
+    # of compiler crashes on its templates; aletheia-cpp + this target
+    # are the actual mutation surface.
+    if(ALETHEIA_MUTATION)
+        target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+    endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
     # Layer 3: Integration tests (real .so, Catch2, threads for concurrent test)
