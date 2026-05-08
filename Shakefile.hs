@@ -755,6 +755,41 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         Stdout agdaLib   <- cmd Shell "grep '^depend:' aletheia.agda-lib | sed 's/depend://'"
         let gitTreeStatus = if null (strip gitDirty) then "clean" else "dirty"
         let pad n s = s ++ replicate (max 0 (n - length s)) ' '
+        let readmeFile = distDir </> "README.txt"
+        let readmeText = unlines
+                [ "Aletheia"
+                , "========"
+                , ""
+                , "This tarball ships a pre-built Aletheia release artifact."
+                , ""
+                , "Contents:"
+                , "  lib/libaletheia-ffi.so     Verified Agda kernel + GHC runtime"
+                , "  lib/libHS*.so              GHC runtime dependencies (RPATH=$ORIGIN)"
+                , "  include/aletheia.h         C header (consumed by Python/C++/Go bindings)"
+                , "  MANIFEST.txt               Toolchain pin + per-artifact SHA-256 hashes"
+                , "  aletheia-sbom.cdx.json     CycloneDX 1.5 software bill of materials"
+                , ""
+                , "Quick start (from the unpacked tarball):"
+                , "  gcc -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
+                , ""
+                , "Verification (verify-then-trust order):"
+                , "  1. Tarball signature (cosign + keys/cosign.pub from the source tree)"
+                , "  2. sha256sum -c aletheia.tar.gz.sha256"
+                , "  3. After unpacking: hashes inside MANIFEST.txt vs find lib -name '*.so*'"
+                , ""
+                , "Full integration guide:"
+                , "  docs/development/DISTRIBUTION.md (in the source repo)"
+                , ""
+                , "Release process and signing key rotation:"
+                , "  docs/development/RELEASE.md (in the source repo)"
+                , ""
+                , "Build provenance (this artifact):"
+                , "  Git commit:  " ++ strip gitCommit
+                , "  Git tree:    " ++ gitTreeStatus
+                , "  Build date:  " ++ strip buildDate ++ "  (commit time, NOT wall-clock)"
+                ]
+        liftIO $ writeFile readmeFile readmeText
+
         let manifestText = unlines $
                 [ "Aletheia distribution manifest"
                 , "=============================="
@@ -869,6 +904,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo $ "    include/aletheia.h       (C header)"
         putInfo $ "    MANIFEST.txt             (UR-3.2 hashes + toolchain pin)"
         putInfo $ "    aletheia-sbom.cdx.json   (CycloneDX 1.5 SBOM)"
+        putInfo $ "    README.txt               (consumer entry point — verification + quick start)"
         putInfo $ "  dist/aletheia.tar.gz     (" ++ strip tarSize ++ ", sha256 " ++ take 12 tarballHash ++ "...)"
         putInfo $ "  dist/aletheia.tar.gz.sha256"
         when sigPresent $
@@ -893,17 +929,29 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "docker" $ do
         need ["dist"]
-        putInfo "Building Docker runtime image..."
-        cmd_ "docker" "build" "-t" "aletheia:latest" "-f" "Dockerfile.runtime" "."
+        -- CICD-5.5: tag with both `latest` (moving) AND `<short-sha>` (immutable)
+        -- so consumers can pin by commit.  Base image is digest-pinned in
+        -- Dockerfile.runtime; the local image tag here is the consumer-facing
+        -- handle.
+        Stdout shortSha <- cmd Shell "git rev-parse --short HEAD"
+        let shaTag = "aletheia:" ++ strip shortSha
+        putInfo $ "Building Docker runtime image (tags: aletheia:latest, " ++ shaTag ++ ")..."
+        cmd_ "docker" "build"
+            "-t" "aletheia:latest"
+            "-t" shaTag
+            "-f" "Dockerfile.runtime" "."
         Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
         putInfo ""
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo $ "  Docker image: aletheia:latest (" ++ strip imageSize ++ ")"
+        putInfo $ "  Pinned tag:   " ++ shaTag
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo ""
         putInfo "  Run:"
         putInfo "    docker run --rm aletheia:latest python3 -c \\"
         putInfo "      \"from aletheia import AletheiaClient; print('OK')\""
+        putInfo $ "  Pin to commit:"
+        putInfo $ "    docker run --rm " ++ shaTag ++ " ..."
         putInfo ""
 
     phony "clean" $ do

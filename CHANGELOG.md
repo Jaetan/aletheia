@@ -294,6 +294,16 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.` for path-leak hardening.
 - GHC build receives `--ghc-options=-optc-ffile-prefix-map=$REPO_ROOT=.`
   (defense-in-depth — same-host repro already held without this flag).
+- `Dockerfile.runtime` base image pinned by SHA-256 digest
+  (`python:3.13-slim@sha256:a0779d7c...`, OCI multi-arch index).
+  `cabal run shake -- docker` now tags both `aletheia:latest` (moving)
+  and `aletheia:<git-short-sha>` (immutable per-commit) so consumers
+  can pin to a specific build (R18 cluster 3 follow-up / CICD-5.5).
+- `dist/aletheia/README.txt` — deterministic in-tarball consumer entry
+  point: file inventory, quick-start gcc command, verify-then-trust
+  order, and cross-references to `DISTRIBUTION.md` / `RELEASE.md`.
+  Content derived from commit time only — no wall-clock — so the
+  tarball stays bit-reproducible (R18 cluster 3 follow-up / CICD-5.7).
 
 ### Changed
 

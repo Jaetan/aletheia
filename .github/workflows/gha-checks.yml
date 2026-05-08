@@ -46,7 +46,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run check-action-pins.sh
+      - name: Run check_action_pins.py
         run: tools/check_action_pins.py
 
   permissions-check:
@@ -56,5 +56,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run check-workflow-permissions.sh
+      - name: Run check_workflow_permissions.py
         run: tools/check_workflow_permissions.py
