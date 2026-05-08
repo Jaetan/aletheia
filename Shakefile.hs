@@ -651,6 +651,15 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- only meaningful inside the actual pre-commit hook context).
         cmd_ "python3" "tools/check_gate_claim.py" "HEAD"
 
+    phony "check-runbook" $ do
+        -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
+        -- that every structured log event the bindings emit has a matching
+        -- entry in docs/operations/RUNBOOK.md.  This script parses
+        -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
+        -- `#### `<name>`` heading in the runbook.  Missing entries fail the
+        -- gate — operators must not be left blind on an event the code emits.
+        cmd_ "python3" "tools/check_runbook_coverage.py"
+
     -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
     -- NOT through a Shake `phony "ci"` target.
     --

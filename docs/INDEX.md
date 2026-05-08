@@ -43,6 +43,14 @@ Understand how Aletheia works:
 
 ---
 
+## Operations
+
+For deployment and on-call:
+
+- **[Operations Runbook](operations/RUNBOOK.md)** - Symptom → cause → action for every structured log event and every documented failure mode (build, runtime, cancellation, input bounds, OOM, validation rejection)
+
+---
+
 ## Development
 
 Build and contribute:
@@ -113,6 +121,9 @@ aletheia/
 │   ├── architecture/
 │   │   ├── DESIGN.md                  # Architecture overview
 │   │   └── PROTOCOL.md                # JSON protocol spec
+│   │
+│   ├── operations/
+│   │   └── RUNBOOK.md                 # Symptom → cause → action runbook
 │   │
 │   ├── development/
 │   │   ├── BUILDING.md                # Build instructions

@@ -30,30 +30,31 @@ Sequence (sequential — fast-fail on any non-zero exit)::
        6. check-fidelity       (~2 min — runs ConstructorTest binary)
        7. check-ffi-exports
        8. count-modules
-    Offline enforcers (2):
+    Offline enforcers (3):
        9. check-changelog
       10. check-gate-claim
+      11. check-runbook       (R18 cluster 4)
     Binding tests (3):
-      11. Python pytest
-      12. Go test -race
-      13. C++ ctest
+      12. Python pytest
+      13. Go test -race
+      14. C++ ctest
     Lints (5):
-      14. basedpyright (Python)
-      15. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-      16. gofmt -l + go vet (Go)
-      17. clang-format --dry-run --Werror (C++)
-      18. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+      15. basedpyright (Python)
+      16. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+      17. gofmt -l + go vet (Go)
+      18. clang-format --dry-run --Werror (C++)
+      19. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
     GHA meta-checks (3):
-      19. actionlint (workflow YAML lint, skipped if not installed)
-      20. check-action-pins
-      21. check-workflow-permissions
+      20. actionlint (workflow YAML lint, skipped if not installed)
+      21. check-action-pins
+      22. check-workflow-permissions
     Opt-in (1, set ALETHEIA_REPRO_CHECK=1):
-      22. check-reproducible-build (~10 min cold; two clean builds)
+      23. check-reproducible-build (~10 min cold; two clean builds)
 
-Total ~15-20 min on a warm system.  Step 22 (opt-in) costs another ~10 min.
+Total ~15-20 min on a warm system.  Step 23 (opt-in) costs another ~10 min.
 
 Exit codes:
-  0 — all 21 steps passed (or skipped where allowed).
+  0 — all 22 steps passed (or skipped where allowed).
   1 — at least one step failed; tail of log printed to stderr.
   2 — usage error (e.g., not in a git repo, missing dependency).
 """
@@ -116,7 +117,7 @@ class Runner:
         self.log_path = log_dir / f"ci-{branch_safe}-{timestamp}.log"
         self.log_fh = self.log_path.open("w", encoding="utf-8")
         self.step_num = 0
-        self.total_steps = 21
+        self.total_steps = 22
         self.failed_step: str | None = None
         self.start = time.time()
 
@@ -254,11 +255,12 @@ def main() -> int:
     r.step("check-ffi-exports", [*cabal, "check-ffi-exports"])
     r.step("count-modules", [*cabal, "count-modules"])
 
-    # ─── Steps 9-10: Offline enforcers ─────────────────────────────────────
+    # ─── Steps 9-11: Offline enforcers ─────────────────────────────────────
     r.step("check-changelog", [*cabal, "check-changelog"])
     r.step("check-gate-claim", [*cabal, "check-gate-claim"])
+    r.step("check-runbook", [*cabal, "check-runbook"])
 
-    # ─── Steps 11-13: Binding tests ────────────────────────────────────────
+    # ─── Steps 12-14: Binding tests ────────────────────────────────────────
     r.step("pytest", ["python3", "-m", "pytest", "tests/"], cwd=r.repo_root / "python")
     r.step(
         "go test -race",
@@ -273,7 +275,7 @@ def main() -> int:
         shell=True,
     )
 
-    # ─── Steps 14-18: Lints ────────────────────────────────────────────────
+    # ─── Steps 15-19: Lints ────────────────────────────────────────────────
     r.step("basedpyright", ["basedpyright", "aletheia/"], cwd=r.repo_root / "python")
 
     # pylint: SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
@@ -316,7 +318,7 @@ def main() -> int:
         shell=True,
     )
 
-    # ─── Steps 19-21: GHA meta-checks ──────────────────────────────────────
+    # ─── Steps 20-22: GHA meta-checks ──────────────────────────────────────
 
     if shutil.which("actionlint"):
         if (r.repo_root / ".github" / "workflows").is_dir():
@@ -343,9 +345,9 @@ def main() -> int:
         ],
     )
 
-    # ─── Step 22 (opt-in): reproducible-build gate ─────────────────────────
+    # ─── Step 23 (opt-in): reproducible-build gate ─────────────────────────
     if os.environ.get("ALETHEIA_REPRO_CHECK") == "1":
-        r.total_steps = 22
+        r.total_steps = 23
         r.step(
             "check-reproducible-build",
             [

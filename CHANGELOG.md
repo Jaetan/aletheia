@@ -166,6 +166,22 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   L580) — mandatory correctness gate per AGENTS.md L494 +
   `feedback_clang_tidy_mandatory.md`, was missing from phase 3 / phase 6
   ships and revealed by the first end-to-end run (R18 cluster 1 phase 7).
+- `docs/operations/RUNBOOK.md` — operations runbook keyed on operator
+  symptoms.  Per AGENTS.md cat 22, every one of the 15 structured log
+  events from `docs/LOG_EVENTS.yaml` has a `symptom / cause / action`
+  entry, and every failure mode documented elsewhere (BUILDING.md
+  troubleshooting, CANCELLATION.md edge cases, PROTOCOL.md
+  `InputBoundExceeded` bounds, OOM / heap pressure, DBC validation
+  rejection) is captured in one operator-facing reference (R18
+  cluster 4).
+- `tools/check_runbook_coverage.py` offline gate enforcing AGENTS.md
+  cat 22.  Parses `docs/LOG_EVENTS.yaml` for event names and verifies
+  every event appears as a `#### `<name>`` heading in
+  `docs/operations/RUNBOOK.md`; missing entries fail the gate.  Wired
+  as Shake `phony "check-runbook"` and as step 11 of `tools/run_ci.py`
+  (which moves to 22 always-on steps total).  Forward-revert verified:
+  deleting a heading fires the gate with a precise diagnostic;
+  restoring it returns to exit 0 (R18 cluster 4).
 - `Aletheia.Limits` Agda module + `docs/architecture/PROTOCOL.md § Limits`
   documenting the compile-time adversarial-input bounds enforced at every
   parser at a trust boundary (R18 cluster 2 / Universal Rule UR-2). 11

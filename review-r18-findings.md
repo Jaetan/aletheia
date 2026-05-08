@@ -923,7 +923,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 - `[ ]` DOC-B-19.4-19.6 No `tools/check_action_pins.py`/`tools/check_workflow_permissions.py`/`.github/workflows/`.
 - `[ ]` DOC-B-19.7 No `cpp/README.md`.
 - `[ ]` DOC-B-19.8 No `go/README.md`.
-- `[ ]` DOC-B-19.9 **No operations runbook** anywhere (`docs/operations.md`, `RUNBOOK.md`, etc. all absent).
+- `[x]` DOC-B-19.9 **No operations runbook** anywhere (`docs/operations.md`, `RUNBOOK.md`, etc. all absent). ✅ CLOSED Round 10 — `docs/operations/RUNBOOK.md` shipped under cluster 4.
 - `[ ]` DOC-B-19.10-19.11 PROTOCOL.md missing `aletheia_extract_signals_bin`/`build_frame_bin`/`update_frame_bin` documentation; C header `include/aletheia.h` missing those entries — C consumers cannot achieve parity.
 - `[ ]` DOC-B-19.12 No "ALETHEIA_FFI_PATH override" entry in BUILDING.md troubleshooting (CLAUDE.md L160 mentions it).
 - `[ ]` DOC-B-19.13 No documented behavior for `BatchError` → `end_stream()` recovery.
@@ -931,9 +931,9 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 - `[ ]` DOC-B-19.15 No `--version` flag documented for `python3 -m aletheia`.
 - `[ ]` DOC-B-19.16 "Last Updated" stamps without policy.
 - `[ ]` DOC-B-19.17 cantools listed in DEPENDENCIES.md but removed.
-- `[ ]` DOC-B-22.1 **No operational runbook file** anywhere; AGENTS.md cat 22 mandates symptom/cause/action entries.
-- `[ ]` DOC-B-22.2 AGENTS.md cat 22 says "12 shared events"; actual is 15 (cf. DOC-B-22.2 below).
-- `[ ]` DOC-B-22.3-22.10 — 15 events × symptom/cause/action + ~12 failure modes from BUILDING.md / CANCELLATION.md / `InputBoundExceeded` / OOM / DBC validation rejection — **~27 missing runbook entries**.
+- `[x]` DOC-B-22.1 **No operational runbook file** anywhere; AGENTS.md cat 22 mandates symptom/cause/action entries. ✅ CLOSED Round 10 — `docs/operations/RUNBOOK.md` shipped under cluster 4 with the missing-mechanism gate `tools/check_runbook_coverage.py`.
+- `[x]` DOC-B-22.2 AGENTS.md cat 22 says "12 shared events"; actual is 15 (cf. DOC-B-22.2 below). ✅ CLOSED Round 10 (FALSE-POSITIVE) — verified via `grep "12 shared\|12 events" AGENTS.md` → no matches.  Cat 22 already reads "the 15 shared slog/Logger/Python event names"; cats 28/30 also read 15.  Finding was seeded against an earlier draft of AGENTS.md.
+- `[x]` DOC-B-22.3-22.10 — 15 events × symptom/cause/action + ~12 failure modes from BUILDING.md / CANCELLATION.md / `InputBoundExceeded` / OOM / DBC validation rejection — **~27 missing runbook entries**. ✅ CLOSED Round 10 — every event has a `#### `<name>`` entry in `docs/operations/RUNBOOK.md` (gate-enforced); failure modes covered under §§ Build / Runtime — input bounds / Runtime — OOM / Runtime — DBC validation rejection / Runtime — cancellation.
 
 ### Docs cross-document pass — 37 root findings (~57 findings unrolled)
 
@@ -964,7 +964,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 - `[ ]` DOC-X-16.1 **Python test count 735 vs 759 — undocumented 24-test gap. Either the FFI-vs-doc-fence boundary moved or one is stale.**
 - `[ ]` DOC-X-16.2-16.5 — Module count qualifier asymmetry; throughput numbers qualifier inconsistency; PROJECT_STATUS L453 missing date stamp; PITCH "Phase 5.1 complete" qualifier ambiguity (says complete then lists remaining work).
 - `[ ]` DOC-X-17.1 **PROJECT_STATUS.md self-contradicts on module count: L446 says 243, L485 says 242. (cf. DOC-A-1.1, DOC-A-1.2.)**
-- `[ ]` DOC-X-17.2 **AGENTS.md cat 22 says "12 shared events"; cats 30 (Go/C++/Python) say "15 event names". Internal contradiction in the protocol doc itself.**
+- `[x]` DOC-X-17.2 **AGENTS.md cat 22 says "12 shared events"; cats 30 (Go/C++/Python) say "15 event names". Internal contradiction in the protocol doc itself.** ✅ CLOSED Round 10 (FALSE-POSITIVE) — verified via `grep` against current AGENTS.md; cat 22 already reads "15 shared … event names".  Stale seeded finding.
 - `[ ]` DOC-X-17.3-17.5 — INTERFACES.md parity-table cells L38/L40/L41 contradict worked examples L55/L79/L91 (D.1 closure incomplete).
 - `[ ]` DOC-X-17.6 **PITCH.md L289 "Phase 5.1 complete" + L303 "binary FFI for signal extraction remaining" — contradiction.**
 - `[ ]` DOC-X-17.7 BUILDING.md L7-8 vs L29 GHC range disagreement.
@@ -1000,7 +1000,7 @@ For triage, the top 15 clusters that close the most findings each:
 11. **Long-run resource leakage R18 sub-checks across all 3 bindings** — AGDA-A-16.1-3, GO-B-27.6-9, CPP-B-26.* (long-run), PY-B-25.3a-d.
 12. **Test isolation R18 sub-check (f) tooling**: `pytest-random-order` plugin missing in Python — PY-B-14f.1, PY-B-34.5.
 13. **Mutation testing R18 sub-check (g) tooling**: `mutmut`/`gomut`/`Mull` infrastructure missing across all 3 bindings — PY-B-14g.1, GO-B-14.7, CPP-B-14.8.
-14. **Operations runbook (R18-extended cat 22): missing entirely** — DOC-B-22.1-10 (~27 missing entries).
+14. **Operations runbook (R18-extended cat 22): missing entirely** — DOC-B-22.1-10 (~27 missing entries). **✅ CLOSED Round 10 (cluster 4)** — closes **10 hard findings** (DOC-B-19.9 + DOC-B-22.1 + DOC-B-22.3-22.10's 8 sub-IDs).  `docs/operations/RUNBOOK.md` covers all 15 log events from `docs/LOG_EVENTS.yaml` plus failure modes from BUILDING.md / CANCELLATION.md / `InputBoundExceeded` / OOM / DBC validation rejection.  Missing-mechanism gate: `tools/check_runbook_coverage.py` parses the YAML for event names and verifies a `#### `<name>`` heading exists for each in RUNBOOK.md; wired as Shake `phony "check-runbook"` and as step 11 of `tools/run_ci.py` (always-on total 22).  Forward-revert verified: synthetic deletion of `dbc.parsed` heading fires the gate with precise diagnostic; restore returns to exit 0.  Closes DOC-B-19.9, DOC-B-22.1, DOC-B-22.3-22.10.  DOC-B-22.2 / DOC-X-17.2 confirmed FALSE-POSITIVE: AGENTS.md cat 22 already says "the 15 shared … event names" (verified by `grep "12 shared\|12 events" AGENTS.md` → no matches); the seeded findings were generated against an earlier draft and are stale.
 15. **Two distinct `WellFormedDBC` records under same name in different Agda modules** — AGDA-D-11.1, AGDA-D-15.4. **✅ CLOSED Round 7** along with AGDA-D-11.2 (asymmetry documented), AGDA-D-19.6 (caller obligation documented per G-A7(c)), AGDA-D-GA20.4 (type-def split). 5 findings closed in single commit; new module `Aletheia.DBC.TextParser.WellFormed` carries the renamed `WellFormedTextDBCAgg` predicate.
 16. **Agda chained-rewrite cleanup** — AGDA-B-8.1-8.4. **✅ CLOSED Round 8**. Step.agda 2 sites (handleDataFrame-ack-complete + handleDataFrame-violation-complete: `iterate-correct` + `spec-eq` rewrites collapsed into single `cong (λ p → proj₂ (dispatchIterResult …)) iter-eq`, retaining `rewrite mono` as guard-dispatcher); Bounded.agda 2 sites (6 binary clauses each in `indexHelper-counter` + `collectAtomsAcc-spec` collapsed via 2 helper lemmas in the existing `private` block — `binary-counter-step` and `binary-acc-spec-step`, zero rewrites in helper bodies). 4 findings closed; AGDA-B-8.5 (Cache.agda small-goal 2-rewrite) **SKIPPED Round 8 + user-judgment accepted Round 9**: both rewrites do essential variable rewriting (`name'→n` via `≡csᵇ-sound`, then `n≡csᵇn→true` to enable `lookupEntries` reduction), refactor would cost ~5 lines for no win on a non-violation small goal; advisor-recommended skip stands. The two related user-judgment items AGDA-A-2.1/2.2 (magic 2048) and AGDA-A-4.1 (digitChar-not-isHSpace TODO) closed Round 9 — see per-finding lines above.
 17. **CANId proof-field irrelevance migration** — AGDA-B-22.1. Architectural candidate: mark `T (n <ᵇ max)` as `.(…)` to simplify `_≟-CANId_` and drop the per-CANId runtime cell. Multi-site construction-call audit + benchmark verification (cat 16 hot-path rule).
@@ -1014,7 +1014,7 @@ For triage, the top 15 clusters that close the most findings each:
 - DOC-A-1.10-12: cantools removal cleanup in DEPENDENCIES.md.
 - DOC-A-1.5, 1.7, 1.8: PITCH.md status section refresh (LSP/CLI claim, signal-extraction-binary claim, mux-query claim).
 - CPP-A-2.1: clang-format violation in `tests/integration_tests.cpp:479-481`.
-- DOC-X-17.2: AGENTS.md cat 22 "12" → "15" event-name typo.
+- ~~DOC-X-17.2: AGENTS.md cat 22 "12" → "15" event-name typo.~~ ✅ CLOSED Round 10 as FALSE-POSITIVE; current AGENTS.md already reads "15".
 - DOC-A-1.16 + CLAUDE.md L180 anchor fix.
 
 ---
@@ -1050,7 +1050,7 @@ Status: ✓ landed on `review-r18` per commit chain. Build + check-properties bo
 - AGDA-A-4.5: `Trace/Time.agda` `ns`/`ms`/`s` constructors annotated as "Reserved for future use; not currently produced".
 - DEPENDENCIES.md cantools removal (DOC-A-1.10-12) — table entry + 5 transitive entries dropped, with a one-line provenance pointer to Track B.3.g 2026-05-03.
 - pyproject.toml `pytest-random-order>=1.1,<2` added to dev extras (PY-B-14f.1, PY-B-34.5) with a doc comment cross-referencing AGENTS.md cat 14(f).
-- AGENTS.md cat 22 "12 shared events" → "15 shared events" (DOC-X-17.2 / DOC-B-22.2).
+- ~~AGENTS.md cat 22 "12 shared events" → "15 shared events" (DOC-X-17.2 / DOC-B-22.2).~~ ✅ CLOSED Round 10 as FALSE-POSITIVE; AGENTS.md already says "15".
 - CLAUDE.md L180 anchor `#common-error-codes` → `#error-code-reference` (DOC-A-1.16).
 - `cpp/tests/integration_tests.cpp:479-481` reformatted via `clang-format -i` (CPP-A-2.1) — `clang-format --dry-run -Werror` now clean.
 
