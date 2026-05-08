@@ -161,6 +161,11 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   18-20 (actionlint with skip-if-missing, check-action-pins,
   check-workflow-permissions) so the offline pre-push hook now covers
   the same surface as the GHA workflow (R18 cluster 1 phase 6).
+- `tools/run-ci.sh` extended from 20 to 21 steps with the addition of
+  `clang-tidy -p build src/*.cpp` (canonical invocation per AGENTS.md
+  L580) — mandatory correctness gate per AGENTS.md L494 +
+  `feedback_clang_tidy_mandatory.md`, was missing from phase 3 / phase 6
+  ships and revealed by the first end-to-end run (R18 cluster 1 phase 7).
 
 #### Python
 
@@ -315,6 +320,33 @@ callers that consumed a bare success acknowledgement need to access
   `parseDBCText`). No public-API impact: all four affected names live
   in the proof tree, not the binding surface (R18 cluster 14:
   AGDA-D-11.1, AGDA-D-11.2, AGDA-D-15.4, AGDA-D-19.6, AGDA-D-GA20.4).
+- **Tooling**: `tools/run-ci.sh` orchestrator defects revealed by the
+  first end-to-end run post phase 6 — fixed in phase 7. (a) Steps
+  13 (ctest), 16 (gofmt + vet), 17 (clang-format) silently no-op'ing
+  because `run_step_in`'s `$*` expansion drops quoting on inner
+  `bash -c "..."` arguments; the inner bash ran only the first word as
+  command and left the rest as positional args, so cmake / gofmt /
+  clang-format ran without their actual arguments (cmake printed
+  Usage, gofmt processed no input, clang-format scanned every file
+  including yaml/.clang-tidy/etc). Steps 13/16 "passed" for the wrong
+  reason (vacuous); step 17 finally hit a real diagnostic against
+  unfiltered files. Fix: switch to direct `run_step` + a single
+  `bash -c` with `cd` folded in. (b) Step 15 (pylint) used exit-code
+  gating; pylint's exit code is a bit-flag (1=fatal/2=error/4=warning/
+  8=refactor/16=convention) and exit 8 fires whenever R0801
+  duplicate-code is issued, even at score 10.00/10. Fix: capture
+  output and grep for `rated at 10\.00/10` per the SCORE-based gate
+  defined in AGENTS.md L611. (c) Step 16 used `gofmt -d` (diff,
+  exits 0 even on dirty source); fix: use `gofmt -l` (list) and gate
+  on output-empty AND rc=0, matching AGENTS.md L190. (d) Step 18
+  (clang-tidy) was missing entirely despite AGENTS.md L494 marking it
+  mandatory; added with the canonical `clang-tidy -p build src/*.cpp`
+  invocation per AGENTS.md L580 (src/ only — tests/ scope is a
+  separate concern, tracked in `review-r18-findings.md` Cluster 1
+  deferred). Total step count 20→21. First genuine end-to-end pass
+  logged at `tools/ci-output/ci-review-r18_-2026-05-08T*.log` (17m44s
+  wall, ALL 21 STEPS PASSED). Forward-revert gate-shape verified for
+  steps 15/16/17/18 (R18 cluster 1 phase 7).
 
 ---
 
