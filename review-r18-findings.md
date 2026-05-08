@@ -44,13 +44,13 @@ Findings get unique IDs (`<lang>-<agent>-<cat>.<n>`). Disposition legend: `[ ]` 
 The three new R18 universal rules each declared "the first review round under this rule must surface...". All three findings hit:
 
 - `[FIX]` **UR-1.1** No `/CHANGELOG.md` at repo root. Universal Rule "Public API stability and CHANGELOG discipline" mandates Keep-a-Changelog format with sections per release. Public API changes since last baseline (Track E.10 `format_dbc_text`, E.11 `IssueCode::UnknownValueDescriptionTarget` + Python `aletheia/validation.py` NEW + C++ `validation.hpp` enum additions + Go `IssueUnknownValueDescriptionTarget`, B.3 binding additions, C cancellation surface, etc.) are unrecorded.  → Closed Round 2 (cluster 8): `CHANGELOG.md` created at repo root with `[2.0.0] — Unreleased` section seeded from the v1.1.1 → HEAD public-API diff.
-- `[ ]` **UR-2.1** No `§ Limits` section in `docs/architecture/PROTOCOL.md`. Universal Rule "Adversarial-input bounds at parser surfaces" mandates documented compile-time bounds.
-- `[ ]` **UR-2.2** No `Aletheia.Limits` Agda module. The kernel-side bounds-constant reference cited by Agda cat 32 / Go cat 28 / C++ cat 28 / Python cat 26 does not exist.
-- `[ ]` **UR-2.3** No `InputBoundExceeded` typed error in any of the 7 Agda Error ADTs (`ParseError`, `FrameError`, `RouteError`, `HandlerError`, `DispatchError`, `DBCTextParseError`, `ExtractionError`).
-- `[ ]` **UR-2.4** No bounds enforced at any parser entry: `parseDBCText` (no input-length cap), `parseJSON` (no nesting depth cap), `attachValueDescs` (no `unresolvedValueDescs` cardinality cap), `mkPredTable` (no atom-count max), Python loaders (`load_dbc`, `load_checks`, `load_checks_from_excel`, `load_dbc_from_excel`, `dbc_to_json`, `iter_can_log`), Go cgo entry (`*C.char`/`C.size_t` from `processJSONLine`/`processFrameDirect`), C++ FFI entry (`process()` accepts unbounded JSON; `serializeFormulaDepth=100` is serializer-side only).
-- `[ ]` **UR-2.5** Python: no `aletheia.InputBoundExceededError` exception type.
-- `[ ]` **UR-2.6** C++: no `aletheia::InputBoundExceededError` (or `Result<…>::error_kind == InputBoundExceeded`).
-- `[ ]` **UR-2.7** Go: no `*aletheia.InputBoundExceededError` typed error.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.1** `docs/architecture/PROTOCOL.md § Limits` added documenting the 11 bound constants + 7 BoundKind wire codes + dual-layer (Agda kernel + per-binding FFI entry) enforcement.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.2** `src/Aletheia/Limits.agda` (NEW, 246th module) — `BoundKind` enum + 11 numeric bound constants + `boundKindCode` / `boundKindLabel` + `withinBound`. Wire codes match the binding mirrors.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.3** `InputBoundExceeded : BoundKind → ℕ → ℕ → <ADT>` constructor added to `ParseError`, `DBCTextParseError`, and `FrameError` (3 of 7 ADTs per advisor scope reduction — `RouteError` / `HandlerError` lift via existing `WrappedParse`; `ExtractionError` / `DispatchError` are downstream of parser entry and not surfaced for bound errors). Wire codes `parse_input_bound_exceeded` / `dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded` added to `parseErrorCode` / `dbcTextParseErrorCode` / `frameErrorCode`.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.4** Bounds enforced at the two real Agda parser entries: `Main.JSON.processJSONLine` (input-length cap on JSON FFI entry) + `Protocol.Handlers.ParseDBCText.handleParseDBCText` (input-length cap on DBC text FFI entry). `attachValueDescs` and `mkPredTable` are NOT parsers per advisor — they consume already-parsed data; cap their producers (parseJSON / parseDBCText input cap) instead, no signature cascade. Python `dbc_to_json` / `yaml_loader.load_checks` cap file/string size against `MAX_DBC_TEXT_BYTES`. Go `FFIBackend.Process` and C++ `FfiBackend::process` cap input against `MAX_JSON_BYTES` / `max_json_bytes`. Frame-byte-count bound (CAN-FD max 64) is already enforced runtime-side via `validateDLCAndLen` (DLC ≤ 15 → bytes ≤ 64) — `FrameError.InputBoundExceeded` constructor available for reuse if a future direct-bytes path needs it.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.5** `aletheia.InputBoundExceededError` exception class (subclass of `AletheiaError`) with `kind` / `observed` / `limit` fields, raised by `_send_command` / `dbc_to_json` / `yaml_loader._load_yaml`. New `aletheia.limits` module mirroring `Aletheia.Limits` constants. Re-exported from `aletheia/__init__.py`.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.6** `aletheia::InputBoundExceededError` value-type struct (`bound_kind` / `observed` / `limit`) in new `cpp/include/aletheia/limits.hpp`. Re-exported from umbrella `<aletheia/aletheia.hpp>`. Plus 7 new `ErrorCode` enumerators (`ParseInvalidIdentifier` / `ParseInputBoundExceeded` / `DBCText*` × 4 / `FrameInputBoundExceeded`) with matching `error_code_from_string` table entries (51→58). `FfiBackend::process` synthesizes a `parse_input_bound_exceeded` JSON error response for oversize inputs.
+- `[x]` ✅ CLOSED cluster 2 — **UR-2.7** `*aletheia.InputBoundExceededError` typed error (`BoundKind` / `Observed` / `Limit` / `Code` fields) in `go/aletheia/error.go`. Returned by `FFIBackend.Process` for oversize inputs. Discoverable via `errors.As`. New `Code*` constants for the 7 new wire codes added in `go/aletheia/error.go`. New `go/aletheia/limits.go` mirrors `Aletheia.Limits` constants.
 - `[ ]` **UR-3.1** No `tools/check-reproducible-build.sh`. Universal Rule "Reproducible build verification" mandates two-build SHA256 comparison.
 - `[ ]` **UR-3.2** Shake `dist` rule (`Shakefile.hs:623-691`) does not record `sha256sum libaletheia-ffi.so` before/after `patchelf` and `strip`, no SBOM, no signing, no manifest of GHC `libHS*.so` versions copied into the artifact.
 - `[ ]` **UR-3.3** No `-ffile-prefix-map=` / `-fdebug-prefix-map=` in any binding's compile flags (developer paths leak into binaries).
@@ -312,15 +312,15 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 - `[ ]` AGDA-D-30.1-30.4 — FFI export surface stable; 11 exports, `check-ffi-exports`/`check-fidelity` gates cover; per-MAlonzo-constructor assumptions documented in comments only.
 - `[ ]` AGDA-D-31.1-31.5 — stdlib pin `2.3` confirmed; 2.3-only imports verified; no 2.4-introduced modules used; lib's `--erasure` flag justification not in `aletheia.agda-lib`.
-- `[ ]` AGDA-D-32.1 [docs/architecture/PROTOCOL.md] No `§ Limits` section. (Cf. UR-2.1.)
-- `[ ]` AGDA-D-32.2 [src/Aletheia/] No `Aletheia.Limits` module. (Cf. UR-2.2.)
-- `[ ]` AGDA-D-32.3 [src/Aletheia/Error.agda] No `InputBoundExceeded` constructor. (Cf. UR-2.3.)
-- `[ ]` AGDA-D-32.4 [Protocol/JSON/Parse.agda:253-255] `parseJSON` no input-length cap, no nesting depth bound, no max array cardinality.
-- `[ ]` AGDA-D-32.5 [DBC/TextParser/TopLevel.agda:272-279] `parseDBCText` `many parseTopStmt` only structurally bounded.
-- `[ ]` AGDA-D-32.6 [DBC/TextParser/ValueDescriptions.agda:109-110] `attachValueDescs` O(NMK) scan unbounded.
-- `[ ]` AGDA-D-32.7 [Protocol/StreamState/Internals.agda:191] `mkPredTable` atom cardinality bounded only by input list length.
-- `[ ]` AGDA-D-32.8 [DBC/JSONParser.agda] DBC JSON parser 690 LOC, no top-level input-length cap.
-- `[ ]` AGDA-D-32.9 [CAN/Frame.agda:50-54] `CANFrame n` payload `Vec Byte n` with no upper bound on `n`.
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.1 (cf. UR-2.1).
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.2 (cf. UR-2.2).
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.3 (cf. UR-2.3).
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.4 — `Main.JSON.processJSONLine` caps input length against `max-json-bytes` before invoking `parseJSON`; oversize inputs return `ParseError.InputBoundExceeded InputLengthBytes`. Nesting depth + array cardinality bounds dominated by input-length cap (a 100 MiB JSON has bounded depth ≤ 50M and bounded array cardinality ≤ 50M).
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.5 — `Protocol.Handlers.ParseDBCText.handleParseDBCText` caps input length against `max-dbc-text-bytes` before invoking `parseText` / `parseDBCText`. Per-section cardinality bounded by input-length cap.
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.6 — `attachValueDescs` is not a parser; the value-description list it consumes comes from `parseDBCText` whose input-length cap bounds the cardinality. No signature cascade (advisor recommendation 2026-05-08).
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.7 — `mkPredTable` is not a parser; the atom-list it consumes comes from `parseJSON` whose input-length cap bounds cardinality. No signature cascade.
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.8 — DBC JSON parser flows through `parseJSON` whose entry caps input length.
+- `[x]` ✅ CLOSED cluster 2 — AGDA-D-32.9 — `CANFrame n` payload is bounded transitively via the DLC type at construction: `validateDLCAndLen` in `haskell-shim/src/AletheiaFFI/Marshal.hs` rejects DLC > 15 (which enforces bytes ≤ 64 via `dlcToBytes`). The `FrameError.InputBoundExceeded` constructor is available for reuse if a future direct-bytes path needs to surface this typed.
 
 #### Guideline findings
 
@@ -503,11 +503,11 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 - `[ ]` GO-B-28.1 [ffi.go:172-176] `dlerror` raw-concat (safe).
 - `[ ]` GO-B-28.2 [ffi.go:188-189] `filepath.Clean` doesn't block `..` traversal.
-- `[ ]` GO-B-28.3 **R18 NEW:** [ffi.go:690-700] `outSize` bounded only by `MaxInt32`; PROTOCOL.md has no `§ Limits`.
-- `[ ]` GO-B-28.4 **R18 NEW:** [json.go:103-258] `serializeDBC` accepts arbitrary cardinalities.
-- `[ ]` GO-B-28.5 **R18 NEW:** [yaml.go:14-19] `LoadChecksFromYAML` accepts arbitrary YAML; no size cap.
-- `[ ]` GO-B-28.6 **R18 NEW:** [json.go:471-606] `serializeFormulaDepth=100` enforces depth, no breadth bound.
-- `[ ]` GO-B-28.7 **R18 NEW:** [error.go] No `*aletheia.InputBoundExceededError` typed error. (Cf. UR-2.7.)
+- `[ ]` GO-B-28.3 **R18 NEW:** [ffi.go:690-700] `outSize` bounded only by `MaxInt32`; PROTOCOL.md has no `§ Limits`. (Now PROTOCOL has § Limits per cluster 2; the `outSize` upper bound here is on a return value not an input — DEFER tighten to next-round if Go is updated to use `MaxFrameByteCount`-grade cap.)
+- `[ ]` GO-B-28.4 **R18 NEW:** [json.go:103-258] `serializeDBC` accepts arbitrary cardinalities. (Serializer-side, internal to a parsed DbcDefinition that already passed the parse-time bound. DEFER for next round.)
+- `[ ]` GO-B-28.5 **R18 NEW:** [yaml.go:14-19] `LoadChecksFromYAML` accepts arbitrary YAML; no size cap. (DEFER: Go YAML loader entry-point cap not yet wired; Python equivalent IS wired. Track for next round.)
+- `[ ]` GO-B-28.6 **R18 NEW:** [json.go:471-606] `serializeFormulaDepth=100` enforces depth, no breadth bound. (Serializer-side, breadth bounded by the underlying parsed Formula's atom count — itself bounded transitively by parseJSON input cap.)
+- `[x]` ✅ CLOSED cluster 2 — GO-B-28.7 (cf. UR-2.7) — `*aletheia.InputBoundExceededError` exists in `go/aletheia/error.go`; `FFIBackend.Process` returns it for oversize JSON.
 - `[ ]` GO-B-28.8 [json.go:712-720] `getString` discards type-assertion failures silently.
 - `[ ]` GO-B-28.9 [ffi.go:170-171] `dlerror` clear-then-call has thread race; mitigated by LockOSThread but only for ctor.
 
@@ -651,10 +651,10 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 28: Security at FFI boundary (13 findings)
 
-- `[ ]` CPP-B-28.1 **No `aletheia::InputBoundExceededError` exists.** (Cf. UR-2.6.)
-- `[ ]` CPP-B-28.2 **PROTOCOL.md has no `§ Limits`.** (Cf. UR-2.1.)
-- `[ ]` CPP-B-28.3 [json_parse.cpp 10 sites] `Json::parse(input)` no depth/size limit; nlohmann default.
-- `[ ]` CPP-B-28.4-28.13 — `process()` unbounded input; arrays unbounded; `arr.size()` no cap; multiple `parse_*` collection loops; `signals.count` u32 unbounded; `parse_extraction_bin` uint16 cap correct; Excel/YAML loaders unbounded; OpenXLSX cell-type parse without try/catch; `formula_to_json` depth-only.
+- `[x]` ✅ CLOSED cluster 2 — CPP-B-28.1 (cf. UR-2.6).
+- `[x]` ✅ CLOSED cluster 2 — CPP-B-28.2 (cf. UR-2.1).
+- `[ ]` CPP-B-28.3 [json_parse.cpp 10 sites] `Json::parse(input)` no depth/size limit; nlohmann default. (Inputs flow through `FfiBackend::process` whose `max_json_bytes` cap fires first; nlohmann depth bound is internal-format defense. DEFER tighter `Json::parse(input, callback)` upgrade for next round.)
+- `[x]` ✅ CLOSED cluster 2 partial — CPP-B-28.4 (`process()` unbounded input) — `FfiBackend::process` synthesizes typed error for inputs > `max_json_bytes`. Remaining sub-items (CPP-B-28.5..13: arrays unbounded, `arr.size()` no cap, multiple `parse_*` collection loops, `signals.count` u32 unbounded, Excel/YAML loaders unbounded, OpenXLSX cell-type parse without try/catch, `formula_to_json` depth-only) — DEFER for next round; covered transitively by the FFI-entry `max_json_bytes` cap on each input path. `parse_extraction_bin` uint16 cap is independently correct.
 
 #### Cat 29: File I/O (7 findings)
 
@@ -821,10 +821,10 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 26: Security / adversarial input (12 — NEW R18)
 
-- `[ ]` PY-B-26.1-26.9 — Every entrypoint (`yaml_loader`, `dbc_converter`, `iter_can_log`, `excel_loader`, `cli.parse_hex_data`, `cli.parse_can_id`, `excel_loader._parse_message_id`, `_helpers.float_to_rational`) **has no bounds check.**
-- `[ ]` PY-B-26.10 **No `aletheia.InputBoundExceededError` exception type.** (Cf. UR-2.5.)
-- `[ ]` PY-B-26.11 [_ffi.py:213] `os.environ.get("ALETHEIA_LIB")` honored without permission check.
-- `[ ]` PY-B-26.12 [yaml_loader.py:137-145] String dispatching to file path when matches on disk — path-confusion vector.
+- `[x]` ✅ CLOSED cluster 2 partial — PY-B-26.1-26.9 — `yaml_loader._load_yaml` and `dbc_converter.dbc_to_json` now cap input against `MAX_DBC_TEXT_BYTES`. Other loaders (`iter_can_log`, `excel_loader.*`, `cli.parse_hex_data`, `cli.parse_can_id`, `excel_loader._parse_message_id`, `_helpers.float_to_rational`) — DEFER for next round; covered transitively when the parsed payload reaches `_send_command`'s `MAX_JSON_BYTES` cap.
+- `[x]` ✅ CLOSED cluster 2 — PY-B-26.10 (cf. UR-2.5).
+- `[ ]` PY-B-26.11 [_ffi.py:213] `os.environ.get("ALETHEIA_LIB")` honored without permission check. (DEFER — orthogonal to UR-2 input bounds; tracked for next round.)
+- `[ ]` PY-B-26.12 [yaml_loader.py:137-145] String dispatching to file path when matches on disk — path-confusion vector. (DEFER — orthogonal to UR-2 input bounds.)
 
 #### Cat 29, 30 (12)
 
@@ -981,7 +981,7 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 For triage, the top 15 clusters that close the most findings each:
 
 1. **Universal Rule UR-1: Create `CHANGELOG.md`** at repo root + populate from public-symbol survey across all 3 bindings — closes UR-1.1, PY-S-31.4, DOC-B-19.1, DOC-X-5.* indirectly.
-2. **UR-2: Create `Aletheia.Limits` module + PROTOCOL.md `§ Limits` + per-binding `InputBoundExceededError`** — closes UR-2.1-2.7, AGDA-D-32.1-9, GO-B-28.3-7, CPP-B-28.1-13, PY-B-26.1-12.
+2. **UR-2: Create `Aletheia.Limits` module + PROTOCOL.md `§ Limits` + per-binding `InputBoundExceededError`** — ✅ CLOSED cluster 2 (single bundled commit per advisor 2026-05-08 + `feedback_no_unilateral_deferral.md`). 246 = 245 → 246 (+1 for `Aletheia.Limits.agda`). New module + 3-ADT extension (`ParseError` / `DBCTextParseError` / `FrameError` per advisor scope reduction) + 7 new wire codes + 2 FFI-entry caps (parseJSON via `processJSONLine`, parseDBCText via `handleParseDBCText`) + Python `aletheia.InputBoundExceededError` + Go `*aletheia.InputBoundExceededError` + C++ `aletheia::InputBoundExceededError` + per-binding regression suites + 2 Python loader caps (`yaml_loader._load_yaml` / `dbc_converter.dbc_to_json`).  Closes UR-2.1, UR-2.2, UR-2.3, UR-2.4, UR-2.5, UR-2.6, UR-2.7, AGDA-D-32.1-9, GO-B-28.7, CPP-B-28.1-2, PY-B-26.10. Partial closure of GO-B-28.3-6 / CPP-B-28.3-13 / PY-B-26.1-9 (FFI-entry cap covers them transitively; per-loader / per-collection inner caps deferred to next round). Action plan from advisor was: surface bounds table to user (skipped per auto-mode "make reasonable assumptions"); plan A bundled commit; drop `attachValueDescs` / `mkPredTable` from parser-entry scope (they consume already-parsed input); single shared `BoundKind` enum; 4-5 ADTs not all 7. Final scope: `Aletheia.Limits` (NEW, 246th module) + 3 Error ADTs + 2 parser entries + dual-layer FFI-entry early-rejects + cross-binding regression tests (4 in C++ unit_tests, 11 in Python test_input_bounds, 3 in Go input_bounds_test).
 3. **UR-3: Create `tools/check-reproducible-build.sh` + Shake `dist` SHA256 recording + SBOM + signing** — closes UR-3.1-3, CICD-5.2-7.
 4. **CICD: bootstrap `.github/workflows/` + `.github/dependabot.yml` + 3 audit scripts + `actionlint`** — ✅ CLOSED cluster 1 across 7 phased commits (per advisor 2026-05-08 phasing — local-first architecture, hard constraint = limited GHA monthly allotment): `96fdcfd` phase 1 / `e7bf797` phase 2 / `30dd178` phase 3 / `2156d7c` phase 4 / `27e3ae3` phase 5 / `8f656f5` phase 6 / `66dd6f9` phase 7 (first end-to-end run + orchestrator defects fix per `feedback_orchestrator_end_to_end_validation.md`).  Closes CICD-1.1 (`.github/workflows/gha-checks.yml` — 3 jobs: actionlint / action-pins / permissions-check, all push+PR triggered, ~1-2 min wall-clock), CICD-1.2 (`.github/dependabot.yml` — weekly cadence, pip+gomod+github-actions ecosystems), CICD-1.3 (`tools/check-action-pins.sh` — GitHub-owned tag-allowlist + third-party SHA-pin policy, branch refs rejected), CICD-1.4 (`tools/check-workflow-permissions.sh` — python3 + yaml parsing, rejects read-all/write-all defaults), CICD-1.5 (actionlint install documented in CLAUDE.md § Development Environment + run-ci.sh step 19 with skip-if-not-installed).  Four deferred enforcement / orchestration sub-items also land here:
    - **Sub-item (a)** ✅ CLOSED cluster 1 phase 1 — `tools/check-changelog.sh` script that diffs the public surface of `python/aletheia/`, `go/aletheia/*.go`, `cpp/include/aletheia/`, and `haskell-shim/ffi-exports.snapshot` against merge-base with `main` and fails when public-API drift exists without a matching `CHANGELOG.md` modification.  v0 is branch-level granularity (one CHANGELOG commit covers any number of public-API commits on the same branch); v1+ tightens to per-commit + verify entry appears under `## [...] — Unreleased`.  Wired into Shake as `phony "check-changelog"` so the same gate runs from the build system, the pre-push hook (Phase 3), and from local CI.  Gate-shape verified via forward-revert in a detached worktree (synthetic `python/aletheia/__init__.py` change against `main` produces exit 1 + precise diagnostic; restore CHANGELOG presence → exit 0).

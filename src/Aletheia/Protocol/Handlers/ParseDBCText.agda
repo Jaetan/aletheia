@@ -12,8 +12,9 @@
 -- `processStreamCommand (ParseDBCText _) _` dispatch case.
 module Aletheia.Protocol.Handlers.ParseDBCText where
 
-open import Data.String using (String)
-open import Data.List using (List; [])
+open import Data.String using (String; toList)
+open import Data.List using (List; []; length)
+open import Data.Nat using (_≤ᵇ_)
 open import Data.Product using (_×_; _,_)
 open import Data.Bool using (if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -25,10 +26,11 @@ open import Aletheia.LTL.SignalPredicate using (emptyCache)
 open import Aletheia.Protocol.Message using (Response)
 open import Aletheia.Protocol.StreamState using (StreamState; ReadyToStream)
 open import Aletheia.Error using
-  ( DBCTextParseError
+  ( DBCTextParseError; InputBoundExceeded
   ; WithContext; HandlerErr; DBCTextParseErr
   ; ValidationFailed
   )
+open import Aletheia.Limits using (InputLengthBytes; max-dbc-text-bytes)
 
 -- Parse DBC from raw DBC text using the verified Agda text parser.
 -- Track B.3.e — composes the proven parseText (DBC/TextParser.agda) with the
@@ -51,5 +53,14 @@ handleParseDBCTextResult (inj₂ dbc) state =
      then (state , Response.Error (WithContext "ParseDBCText" (HandlerErr (ValidationFailed (errorIssues issues)))))
      else (ReadyToStream dbc [] emptyCache , Response.ParsedDBCResponse (formatDBC dbc) (warningIssues issues))
 
+-- Adversarial-input bound: rejects inputs longer than `max-dbc-text-bytes`
+-- (`Aletheia.Limits`) with a typed `DBCTextParseError.InputBoundExceeded`
+-- before invoking the parser, per AGENTS.md universal rule "Adversarial-input
+-- bounds at parser surfaces".
 handleParseDBCText : String → StreamState → StreamState × Response
-handleParseDBCText text state = handleParseDBCTextResult (parseText text) state
+handleParseDBCText text state =
+  let inputLen = length (toList text)
+  in if inputLen ≤ᵇ max-dbc-text-bytes
+     then handleParseDBCTextResult (parseText text) state
+     else (state , Response.Error (WithContext "ParseDBCText"
+              (DBCTextParseErr (InputBoundExceeded InputLengthBytes inputLen max-dbc-text-bytes))))

@@ -11,7 +11,8 @@ module Aletheia.Main.JSON where
 open import Data.String using (String; toList; _≟_)
 open import Data.Maybe using (Maybe; just; nothing) renaming (map to mapₘ)
 open import Data.Product using (proj₁; _×_; _,_)
-open import Data.List using (List)
+open import Data.List using (List; length)
+open import Data.Nat using (ℕ; _≤ᵇ_)
 open import Data.Sum using (inj₁; inj₂)
 open import Data.Bool using (if_then_else_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
@@ -22,9 +23,11 @@ open import Aletheia.Protocol.Routing using (parseCommand)
 open import Aletheia.Protocol.StreamState using (StreamState)
 open import Aletheia.Protocol.Handlers using (processStreamCommand)
 open import Aletheia.Error using
-  ( Error; RouteErr; DispatchErr
+  ( Error; ParseErr; RouteErr; DispatchErr
+  ; ParseError; InputBoundExceeded
   ; DispatchError; MissingTypeField; UnknownMessageType; InvalidJSON; RequestNotObject
   )
+open import Aletheia.Limits using (InputLengthBytes; max-json-bytes)
 open import Aletheia.Main.Binary using (wrapJSON)
 import Aletheia.Protocol.Message as Msg
 
@@ -52,6 +55,18 @@ private
 
 -- Process a single JSON line and update stream state.
 -- NOINLINE: Required for MAlonzo FFI (ensures symbol is exported to Haskell).
+--
+-- Adversarial-input bound: rejects inputs longer than `max-json-bytes`
+-- (`Aletheia.Limits`) with a typed `ParseError.InputBoundExceeded` before
+-- invoking the JSON parser, per AGENTS.md universal rule "Adversarial-input
+-- bounds at parser surfaces".  Each binding additionally short-circuits at
+-- the FFI entry to avoid marshaling oversize payloads.
 processJSONLine : StreamState → String → StreamState × String
 {-# NOINLINE processJSONLine #-}
-processJSONLine state jsonLine = handleParsedJSON state (mapₘ proj₁ (runParser parseJSON (toList jsonLine)))
+processJSONLine state jsonLine =
+  let chars    = toList jsonLine
+      inputLen = length chars
+  in if inputLen ≤ᵇ max-json-bytes
+     then handleParsedJSON state (mapₘ proj₁ (runParser parseJSON chars))
+     else wrapJSON (state , Msg.Response.Error
+            (ParseErr (InputBoundExceeded InputLengthBytes inputLen max-json-bytes)))

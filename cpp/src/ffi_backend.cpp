@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // FFI backend — loads libaletheia-ffi.so via dlopen.
 #include <aletheia/backend.hpp>
+#include <aletheia/limits.hpp>
 
 #include <dlfcn.h>
 
@@ -207,6 +208,26 @@ public:
     auto init() -> void* override { return init_fn_(); }
 
     auto process(void* state, std::string_view input) -> std::string override {
+        // Adversarial-input bound: synthesize an error response before
+        // marshaling oversize inputs into Haskell, per AGENTS.md universal
+        // rule "Adversarial-input bounds at parser surfaces".  The Agda
+        // kernel enforces the same bound; this is the C++ binding's
+        // short-circuit so we do not allocate an N-byte std::string + a
+        // C-side null-terminated copy only to be rejected on the other
+        // side.  Returns the wire-format error JSON so the existing
+        // `detail::parse_*` paths translate to AletheiaError with
+        // code == ErrorCode::ParseInputBoundExceeded uniformly.
+        if (input.size() > aletheia::max_json_bytes) {
+            std::string out;
+            out.reserve(160);
+            out.append(
+                R"({"status":"error","code":"parse_input_bound_exceeded","message":"input length (bytes) )");
+            out.append(std::to_string(input.size()));
+            out.append(R"( exceeds limit )");
+            out.append(std::to_string(aletheia::max_json_bytes));
+            out.append(R"("})");
+            return out;
+        }
         // The Agda core expects a null-terminated string.
         const std::string input_str{input};
         char* result = process_fn_(state, input_str.c_str());

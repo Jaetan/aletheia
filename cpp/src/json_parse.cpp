@@ -25,9 +25,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 51-entry table on a cold parse path.
+// for the 58-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -46,6 +46,13 @@ constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
+    {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
+    {"parse_input_bound_exceeded", ErrorCode::ParseInputBoundExceeded},
+    // DBC text parse errors
+    {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
+    {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
+    {"dbc_text_attribute_refinement_failed", ErrorCode::DBCTextAttributeRefinementFailed},
+    {"dbc_text_input_bound_exceeded", ErrorCode::DBCTextInputBoundExceeded},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
@@ -54,6 +61,7 @@ constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
+    {"frame_input_bound_exceeded", ErrorCode::FrameInputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_missing_array", ErrorCode::RouteMissingArray},

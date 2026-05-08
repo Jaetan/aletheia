@@ -52,6 +52,13 @@ enum class ErrorCode {
     ParseSignalMsbBelowBitLength,
     ParseInvalidKind,
     ParseNonTerminatingRational,
+    ParseInvalidIdentifier,
+    ParseInputBoundExceeded,
+    // DBC text parse errors
+    DBCTextParseFailure,
+    DBCTextTrailingInput,
+    DBCTextAttributeRefinementFailed,
+    DBCTextInputBoundExceeded,
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,
@@ -60,6 +67,7 @@ enum class ErrorCode {
     FrameCanIdNotFound,
     FrameCanIdMismatch,
     FrameSignalValueOutOfBounds,
+    FrameInputBoundExceeded,
     // Route errors
     RouteMissingField,
     RouteMissingArray,

@@ -58,6 +58,7 @@ from ._types import (
     AletheiaError,
     CANFrameTuple,
     FrameResult,
+    InputBoundExceededError,
     ProcessError,
     ProtocolError,
     SignalExtractionResult,
@@ -69,6 +70,7 @@ from ._types import (
     validate_can_id,
     validate_payload_length,
 )
+from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_JSON_BYTES
 
 if TYPE_CHECKING:
     from ..checks import CheckResult
@@ -168,11 +170,26 @@ class AletheiaClient(SignalOpsMixin):
         self.close()
 
     def _send_command(self, command: Command) -> Response:
-        """Send command via FFI."""
+        """Send command via FFI.
+
+        Rejects oversize JSON payloads (`> MAX_JSON_BYTES`) with a typed
+        :class:`InputBoundExceededError` before marshaling across ctypes,
+        per AGENTS.md universal rule "Adversarial-input bounds at parser
+        surfaces".  The Agda kernel enforces the same bound; this is the
+        binding's short-circuit so we do not allocate a 100 MB ctypes
+        buffer only to be rejected on the other side.
+        """
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
 
         json_bytes = dump_json(command).encode("utf-8")
+        if len(json_bytes) > MAX_JSON_BYTES:
+            raise InputBoundExceededError(
+                BOUND_KIND_INPUT_LENGTH_BYTES,
+                len(json_bytes),
+                MAX_JSON_BYTES,
+                code="parse_input_bound_exceeded",
+            )
         result_ptr = self._lib.aletheia_process(self._state, json_bytes)
 
         try:

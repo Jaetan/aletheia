@@ -166,6 +166,25 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   L580) — mandatory correctness gate per AGENTS.md L494 +
   `feedback_clang_tidy_mandatory.md`, was missing from phase 3 / phase 6
   ships and revealed by the first end-to-end run (R18 cluster 1 phase 7).
+- `Aletheia.Limits` Agda module + `docs/architecture/PROTOCOL.md § Limits`
+  documenting the compile-time adversarial-input bounds enforced at every
+  parser at a trust boundary (R18 cluster 2 / Universal Rule UR-2). 11
+  numeric bounds (`max-dbc-text-bytes`, `max-json-bytes`, `max-nesting-depth`,
+  `max-messages-per-file`, `max-signals-per-message`, `max-attributes-per-file`,
+  `max-value-descriptions-per-file`, `max-identifier-length`,
+  `max-string-length-bytes`, `max-atom-count-per-property`,
+  `max-frame-byte-count`) plus a 7-variant `BoundKind` enum with canonical
+  wire codes via `boundKindCode`. `parseJSON` and `parseDBCText` reject
+  oversize inputs at their FFI-layer entry handlers (`Main.JSON.processJSONLine`
+  and `Protocol.Handlers.ParseDBCText.handleParseDBCText`) with typed
+  `InputBoundExceeded` errors. The frame-byte-count bound (`max-frame-byte-count`
+  = 64) is already enforced runtime-side by `validateDLCAndLen` in the
+  Haskell shim's DLC validation (DLC ≤ 15 → bytes ≤ 64 via `dlcToBytes`).
+- `InputBoundExceeded` constructor on `ParseError`, `DBCTextParseError`,
+  and `FrameError` ADTs in `Aletheia.Error` carrying
+  `BoundKind × ℕ × ℕ` (kind, observed, limit). Wire codes
+  `parse_input_bound_exceeded` / `dbc_text_input_bound_exceeded` /
+  `frame_input_bound_exceeded` (R18 cluster 2 / Universal Rule UR-2).
 
 #### Python
 
@@ -179,6 +198,18 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   `ValidationIssue` — extracted from `protocols.py` to keep that file
   under the pylint 1000-line gate (Track E.11). Importable from the
   package root: `from aletheia import IssueCode, ValidationIssue`.
+- `aletheia.limits` module mirroring `Aletheia.Limits` (Agda) — bound
+  constants (`MAX_JSON_BYTES`, `MAX_DBC_TEXT_BYTES`, etc.) and bound-kind
+  wire codes (`BOUND_KIND_INPUT_LENGTH_BYTES`, etc.) for use at FFI
+  entries and in user code (R18 cluster 2).
+- `aletheia.InputBoundExceededError` exception class, subclass of
+  `AletheiaError`, carrying `kind` / `observed` / `limit` fields.
+  Raised by `_send_command` when a JSON payload exceeds `MAX_JSON_BYTES`
+  before marshaling across ctypes; raised by `dbc_to_json` when a DBC
+  file exceeds `MAX_DBC_TEXT_BYTES`; raised by `yaml_loader.load_checks`
+  when a YAML file/string exceeds `MAX_DBC_TEXT_BYTES`. Importable as
+  `from aletheia import InputBoundExceededError` (R18 cluster 2 /
+  Universal Rule UR-2).
 
 #### Go
 
@@ -189,6 +220,19 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - Public validated newtypes `BitPosition` / `BitLength` with
   constructors `NewBitPosition` / `NewBitLength`, plus public limits
   `MaxBitPosition`, `MaxBitLength`, `MaxStandardID`, `MaxExtendedID`.
+- `aletheia/limits.go` mirroring `Aletheia.Limits` (Agda): numeric
+  bound constants (`MaxJSONBytes`, `MaxDBCTextBytes`, ...) and
+  bound-kind wire-code constants (`BoundKindInputLengthBytes`, ...)
+  (R18 cluster 2).
+- `*aletheia.InputBoundExceededError` typed error in `error.go` with
+  `BoundKind` / `Observed` / `Limit` / `Code` fields. Returned by
+  `FFIBackend.Process` when input exceeds `MaxJSONBytes` before the
+  cgo `aletheia_process` call. Discoverable via `errors.As`. New
+  `Code*` error codes: `CodeParseInvalidIdentifier`,
+  `CodeParseInputBoundExceeded`, `CodeDBCTextParseFailure`,
+  `CodeDBCTextTrailingInput`, `CodeDBCTextAttributeRefinementFailed`,
+  `CodeDBCTextInputBoundExceeded`, `CodeFrameInputBoundExceeded`
+  (R18 cluster 2 / Universal Rule UR-2).
 
 #### C++
 
@@ -201,6 +245,22 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - `ErrorKind::BinaryUnsupported` (mirrors Go's
   `ErrBinaryPathUnsupported`) and `ErrorKind::Cancellation` (mirrors
   Go's `context.Canceled` wrapping).
+- `aletheia/limits.hpp` mirroring `Aletheia.Limits` (Agda): inline
+  `constexpr` bound constants (`max_json_bytes`, `max_dbc_text_bytes`,
+  ...) and `inline constexpr std::string_view` bound-kind wire codes
+  (`bound_kind_input_length_bytes`, ...). Plus
+  `aletheia::InputBoundExceededError` value-type struct with
+  `bound_kind` / `observed` / `limit` fields. Re-exported from the
+  umbrella header `<aletheia/aletheia.hpp>` (R18 cluster 2).
+- New `ErrorCode` enumerators: `ParseInvalidIdentifier`,
+  `ParseInputBoundExceeded`, `DBCTextParseFailure`,
+  `DBCTextTrailingInput`, `DBCTextAttributeRefinementFailed`,
+  `DBCTextInputBoundExceeded`, `FrameInputBoundExceeded` — plus
+  matching `error_code_from_string` table entries (51 → 58 entries).
+  `FfiBackend::process` synthesizes a `parse_input_bound_exceeded`
+  error response when input exceeds `max_json_bytes` before
+  calling the dlopen'd `aletheia_process` (R18 cluster 2 / Universal
+  Rule UR-2).
 
 ### Changed
 

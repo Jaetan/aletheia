@@ -33,9 +33,9 @@ _SKIP_REASON = (
     " structural parse failures."
 )
 
-# The six ``*ErrorCode`` function families ``errorCode`` dispatches through.
+# The seven ``*ErrorCode`` function families ``errorCode`` dispatches through.
 # Each family emits a string literal on the RHS of ``= "..."``; collecting
-# those literals across all six yields the canonical wire-value set.
+# those literals across all seven yields the canonical wire-value set.
 _ERROR_CODE_FUNCTIONS: tuple[str, ...] = (
     "parseErrorCode",
     "frameErrorCode",
@@ -43,6 +43,7 @@ _ERROR_CODE_FUNCTIONS: tuple[str, ...] = (
     "routeErrorCode",
     "handlerErrorCode",
     "dispatchErrorCode",
+    "dbcTextParseErrorCode",
 )
 
 # Lines like:     parseErrorCode (MissingField _)           = "parse_missing_field"

@@ -350,7 +350,23 @@ func (b *FFIBackend) Init() (unsafe.Pointer, error) {
 }
 
 // Process sends a JSON command and returns the JSON response.
+//
+// Rejects oversize JSON payloads (`> MaxJSONBytes`) with a typed
+// *InputBoundExceededError before marshaling across cgo, per AGENTS.md
+// universal rule "Adversarial-input bounds at parser surfaces".  The
+// Agda kernel enforces the same bound; this is the Go binding's
+// short-circuit so we do not strdup a 100 MiB payload only to be
+// rejected on the other side.
 func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error) {
+	if len(input) > MaxJSONBytes {
+		return "", newInputBoundExceededError(
+			BoundKindInputLengthBytes,
+			uint64(len(input)),
+			MaxJSONBytes,
+			CodeParseInputBoundExceeded,
+		)
+	}
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
