@@ -855,7 +855,11 @@ func parseValidationResponse(raw string) (*ValidationResult, error) {
 		return nil, protocolError(fmt.Sprintf("expected validation response, got status: %q", status))
 	}
 
-	var issues []ValidationIssue
+	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
+	// of "null"; matches Python's empty-list default per
+	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
+	// caught the nil-vs-empty drift).
+	issues := []ValidationIssue{}
 	for _, item := range getArray(m, "issues") {
 		issue, ok := item.(map[string]any)
 		if !ok {
@@ -1271,7 +1275,11 @@ func parseParsedDBCResponse(raw string) (*ParsedDBC, error) {
 		return nil, err
 	}
 
-	var warnings []ValidationIssue
+	// Initialize empty (not nil) so JSON marshaling produces "[]" instead
+	// of "null"; matches Python's empty-list default per
+	// feedback_cross_language_parity.md (R18 cluster 5 cross-binding test
+	// caught the nil-vs-empty drift).
+	warnings := []ValidationIssue{}
 	for _, item := range getArray(m, "warnings") {
 		issue, ok := item.(map[string]any)
 		if !ok {

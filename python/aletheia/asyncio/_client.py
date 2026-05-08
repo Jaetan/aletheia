@@ -68,13 +68,26 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         self,
         default_checks: list[CheckResult] | None = None,
         rts_cores: int = 1,
+        sync_client: _SyncClient | None = None,
     ) -> None:
         """See :class:`aletheia.AletheiaClient.__init__`.
 
         The constructor itself is synchronous — DBC + property setup
         happens later via ``await client.parse_dbc(...)`` and friends.
+
+        ``sync_client`` is an injection seam for tests (R18 cluster 5):
+        when provided, the AsyncClient wraps that pre-built sync client
+        instead of constructing one internally.  Callers passing
+        ``sync_client=...`` are responsible for ``default_checks`` /
+        ``rts_cores`` configuration on the injected instance; the
+        kwargs of the same names are ignored when ``sync_client`` is
+        non-None.  See ``aletheia.asyncio.testing.gate_send_frame``
+        for the canonical use case (deterministic cancellation tests).
         """
-        self._sync = _SyncClient(default_checks=default_checks, rts_cores=rts_cores)
+        if sync_client is not None:
+            self._sync = sync_client
+        else:
+            self._sync = _SyncClient(default_checks=default_checks, rts_cores=rts_cores)
 
     async def __aenter__(self) -> Self:
         """Load the FFI library + initialize RTS on a background thread."""

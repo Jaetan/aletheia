@@ -34,27 +34,41 @@ Sequence (sequential — fast-fail on any non-zero exit)::
        9. check-changelog
       10. check-gate-claim
       11. check-runbook       (R18 cluster 4)
-    Binding tests (3):
-      12. Python pytest
-      13. Go test -race
-      14. C++ ctest
+    Binding tests (6):
+      12. Python pytest (deterministic lane)
+      13. Python pytest --markdown-docs (R18 cluster 5 — Cat 32 doc-example
+          harness; was silently absent from the orchestrator before C5)
+      14. Python pytest -X dev (R18 cluster 5 — Cat 34a; surfaces
+          ResourceWarning, debug asyncio, deprecation noise)
+      15. Python pytest --random-order (R18 cluster 5 — Cat 14f
+          test-isolation; AGENTS.md "both lanes must stay green")
+      16. Go test -race
+      17. C++ ctest
     Lints (5):
-      15. basedpyright (Python)
-      16. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
-      17. gofmt -l + go vet (Go)
-      18. clang-format --dry-run --Werror (C++)
-      19. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
+      18. basedpyright (Python)
+      19. pylint 10/10 (Python — SCORE-based gate per AGENTS.md L611)
+      20. gofmt -l + go vet (Go)
+      21. clang-format --dry-run --Werror (C++)
+      22. clang-tidy -p build (C++ — mandatory per AGENTS.md L494)
     GHA meta-checks (3):
-      20. actionlint (workflow YAML lint, skipped if not installed)
-      21. check-action-pins
-      22. check-workflow-permissions
-    Opt-in (1, set ALETHEIA_REPRO_CHECK=1):
-      23. check-reproducible-build (~10 min cold; two clean builds)
+      23. actionlint (workflow YAML lint, skipped if not installed)
+      24. check-action-pins
+      25. check-workflow-permissions
+    Opt-in lanes:
+      26. ubsan ctest (set ALETHEIA_SAN_CHECK=1, ~5 min cold; R18 cluster 5)
+      27. check-reproducible-build (set ALETHEIA_REPRO_CHECK=1, ~10 min cold)
 
-Total ~15-20 min on a warm system.  Step 23 (opt-in) costs another ~10 min.
+Total ~17-22 min on a warm system.  Steps 26+27 add ~15 min when enabled.
+
+The Python lanes prefer ``python/.venv/bin/python3`` over the system
+``python3`` so the dev extras (``pytest-markdown-docs``,
+``pytest-random-order``, ``hypothesis``) resolve.  Bootstrap the venv
+once via ``python3 -m venv python/.venv && python/.venv/bin/pip install
+-e python/.[dev]``; without it the new lanes hard-fail with a precise
+``ModuleNotFoundError`` rather than silently skipping.
 
 Exit codes:
-  0 — all 22 steps passed (or skipped where allowed).
+  0 — all 25 steps passed (or skipped where allowed).
   1 — at least one step failed; tail of log printed to stderr.
   2 — usage error (e.g., not in a git repo, missing dependency).
 """
@@ -117,9 +131,15 @@ class Runner:
         self.log_path = log_dir / f"ci-{branch_safe}-{timestamp}.log"
         self.log_fh = self.log_path.open("w", encoding="utf-8")
         self.step_num = 0
-        self.total_steps = 22
+        self.total_steps = 25
         self.failed_step: str | None = None
         self.start = time.time()
+        # Prefer the project's venv if present so dev-extras (markdown-docs,
+        # random-order, hypothesis) resolve.  Falls back to system python3 for
+        # systems where the lanes are intentionally exercised against the
+        # global env (e.g. release builds).
+        venv_python = self.repo_root / "python" / ".venv" / "bin" / "python3"
+        self.python = str(venv_python) if venv_python.exists() else "python3"
 
     def header(self) -> None:
         lines = [
@@ -260,8 +280,34 @@ def main() -> int:
     r.step("check-gate-claim", [*cabal, "check-gate-claim"])
     r.step("check-runbook", [*cabal, "check-runbook"])
 
-    # ─── Steps 12-14: Binding tests ────────────────────────────────────────
-    r.step("pytest", ["python3", "-m", "pytest", "tests/"], cwd=r.repo_root / "python")
+    # ─── Steps 12-17: Binding tests ────────────────────────────────────────
+    # Step 12: deterministic pytest lane.
+    r.step("pytest", [r.python, "-m", "pytest", "tests/"], cwd=r.repo_root / "python")
+    # Step 13: doc-example fence harness (R18 cluster 5; was silently absent
+    # from the orchestrator before C5).  Runs README + every doc in
+    # python/tests/test_doc_examples_harness.py:DOC_FILES.
+    r.step(
+        "pytest --markdown-docs",
+        [r.python, "-m", "pytest", "--markdown-docs", "README.md", "docs/"],
+        cwd=r.repo_root,
+    )
+    # Step 14: Python -X dev mode (R18 cluster 5 — Cat 34a).  ResourceWarning
+    # → error; debug asyncio surfaces unawaited coroutines / racy timing.
+    r.step(
+        "pytest -X dev",
+        [r.python, "-X", "dev", "-m", "pytest", "tests/"],
+        cwd=r.repo_root / "python",
+    )
+    # Step 15: random-order test isolation (R18 cluster 5 — Cat 14f).  Per
+    # pyproject.toml comment, "both must stay green" alongside step 12.
+    r.step(
+        "pytest --random-order",
+        [
+            r.python, "-m", "pytest", "--random-order",
+            "--random-order-bucket=package", "tests/",
+        ],
+        cwd=r.repo_root / "python",
+    )
     r.step(
         "go test -race",
         ["go", "test", "./aletheia/", "-count=1", "-race"],
@@ -275,7 +321,7 @@ def main() -> int:
         shell=True,
     )
 
-    # ─── Steps 15-19: Lints ────────────────────────────────────────────────
+    # ─── Steps 18-22: Lints ────────────────────────────────────────────────
     r.step("basedpyright", ["basedpyright", "aletheia/"], cwd=r.repo_root / "python")
 
     # pylint: SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
@@ -318,7 +364,7 @@ def main() -> int:
         shell=True,
     )
 
-    # ─── Steps 20-22: GHA meta-checks ──────────────────────────────────────
+    # ─── Steps 23-25: GHA meta-checks ──────────────────────────────────────
 
     if shutil.which("actionlint"):
         if (r.repo_root / ".github" / "workflows").is_dir():
@@ -345,9 +391,35 @@ def main() -> int:
         ],
     )
 
-    # ─── Step 23 (opt-in): reproducible-build gate ─────────────────────────
+    # ─── Step 26 (opt-in): UBSan lane (R18 cluster 5 — Cat 33a) ────────────
+    # Run only when ALETHEIA_SAN_CHECK=1 because the build-ubsan/ tree is
+    # heavyweight (~5 min cold) and most invocations don't need it.  Lane
+    # builds the full ctest battery against -DALETHEIA_SANITIZER=undefined
+    # and asserts every test passes.  The vendored zippy.hpp UB is filtered
+    # via cpp/sanitizer-ignorelist.txt so only first-party UB surfaces.
+    if os.environ.get("ALETHEIA_SAN_CHECK") == "1":
+        r.total_steps = 26
+        # clang is required because the sanitizer ignorelist is a clang-only
+        # feature (g++ has no equivalent).  Without clang, third-party UB
+        # in OpenXLSX/zippy surfaces and the lane fails for non-aletheia
+        # reasons; CGO_NOTES.md documents the constraint.
+        r.step(
+            "ubsan ctest",
+            "cmake -B build-ubsan -DALETHEIA_SANITIZER=undefined "
+            "-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ > /dev/null"
+            " && cmake --build build-ubsan && ctest --test-dir build-ubsan",
+            cwd=r.repo_root / "cpp",
+            shell=True,
+        )
+    else:
+        r.announce_skip(
+            "ubsan ctest",
+            "set ALETHEIA_SAN_CHECK=1 to enable",
+        )
+
+    # ─── Step 27 (opt-in): reproducible-build gate ─────────────────────────
     if os.environ.get("ALETHEIA_REPRO_CHECK") == "1":
-        r.total_steps = 23
+        r.total_steps = 27
         r.step(
             "check-reproducible-build",
             [

@@ -518,14 +518,14 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 33: Dynamic correctness analysis (NEW R18) — 8 findings, ALL absent
 
-- `[ ]` GO-B-33.1 (a) **No sanitizer build matrix.** No `//go:build asan`, no `CGO_CFLAGS=-fsanitize=address` documented in `docs/architecture/CGO_NOTES.md` (file does not exist).
-- `[ ]` GO-B-33.2 (b) **No native Go fuzz tests** (`testing.F`). `grep -rn "func Fuzz" aletheia/` empty. Required: `FuzzParseResponse`, `FuzzMarshalCommand`, `FuzzDecodeBinaryFrame`, `FuzzParseRationalNumber`, `FuzzParseDBCJSON`.
-- `[ ]` GO-B-33.3 (b) **No `testdata/fuzz/` seed corpus.**
-- `[ ]` GO-B-33.4 (c) **No `testing/quick` property tests.** Required: round-trip pairs + `MockBackend`/`FFIBackend` parity invariants.
-- `[ ]` GO-B-33.5 (c) No mock-vs-real property-based assertion infrastructure.
-- `[ ]` GO-B-33.6 (d) **No cross-binding integration test.** `cross_binding_integration_test.go` does not exist.
-- `[ ]` GO-B-33.7 (d) No matching Python/C++ entries.
-- `[ ]` GO-B-33.8 No CI lane for any of (a)-(d).
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.1 — sanitizer scope routed via cpp/CMakeLists.txt `ALETHEIA_SANITIZER` opt-in (Plan d: ASan against `unit_tests` w/o .so + UBSan against full battery); `docs/architecture/CGO_NOTES.md` documents the GHC-RTS interaction; Go binding inherits sanitizer coverage transitively via the C++ unit tests.
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.2 — `aletheia/fuzz_test.go` adds 5 `Fuzz*` targets per AGENTS.md cat 33b (`FuzzParseResponse`, `FuzzMarshalCommand`, `FuzzDecodeBinaryFrame`, `FuzzParseRationalNumber`, `FuzzParseDBCJSON`).
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.3 — seed inputs added inline via `f.Add` per Go convention (no `testdata/fuzz/` directory needed for the seed-only smoke lane; long fuzz runs accumulate corpus there).
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.4 — `aletheia/property_test.go` adds 5 `testing/quick` properties: rational round-trip, parseResponse totality, command round-trip, rational monotonicity, mock/real shape parity.
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.5 — `TestProperty_MockRealResponseShapeParity` asserts canned mock responses match the typed-decoder accept set, locking the wire-shape parity gate.
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.6 — `aletheia/cross_binding_integration_test.go` exists with 6 test functions (parse_dbc, validate_dbc, ack/violation/error frame paths, error type shape).  Caught a real `nil`-vs-`[]` parity bug in `parseValidationResponse` / `parseParsedDBCResponse` (Go was emitting `nil` slices where Python emits `[]`); fix at `aletheia/json.go:858, 1274` initializes empty slices.
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.7 — Python and C++ counterparts shipped same commit (`python/tests/test_cross_binding_integration.py`, `cpp/tests/test_cross_binding_integration.cpp`).
+- `[x]` ✅ CLOSED cluster 5 — GO-B-33.8 — CI lane wired via `tools/run_ci.py` step 26 (`ALETHEIA_SAN_CHECK=1` opt-in for the C++-side ASan/UBSan); fuzz seed lanes covered by the existing `go test -race` step 16.
 
 ### Go system-level — ~50 findings
 
@@ -660,12 +660,12 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 33: Dynamic correctness analysis (NEW R18) — 6 findings, ALL absent
 
-- `[ ]` CPP-B-33.1 (a) **No ASan+UBSan CI lane.**
-- `[ ]` CPP-B-33.2 (b) **No libFuzzer harnesses** in `cpp/tests/fuzz/` (directory does not exist).
-- `[ ]` CPP-B-33.3 (c) **No Catch2 GENERATE-based property tests.**
-- `[ ]` CPP-B-33.4 (d) **No `cpp/tests/cross_binding_integration_tests.cpp`.**
-- `[ ]` CPP-B-33.5 (a) No `docs/architecture/CGO_NOTES.md` documenting GHC RTS / sanitizer interaction.
-- `[ ]` CPP-B-33.6 Catch2 ships `fuzz_*.cpp` infrastructure free; absence not justified by tooling friction.
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.1 — `cpp/CMakeLists.txt` adds `ALETHEIA_SANITIZER` opt-in (address|undefined|thread); `cpp/sanitizer-ignorelist.txt` filters vendored OpenXLSX UB; `tools/run_ci.py` step 26 (`ALETHEIA_SAN_CHECK=1`) runs the UBSan ctest battery against `build-ubsan/` (clang required per CGO_NOTES.md).
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.2 — `cpp/tests/fuzz/` populated with 4 libFuzzer harnesses: `fuzz_parse_response.cpp`, `fuzz_decode_binary_frame.cpp`, `fuzz_parse_dbc_json.cpp`, `fuzz_parse_rational_number.cpp`.  Built via `-DALETHEIA_FUZZ=ON` (clang+`-fsanitize=fuzzer` required); seed corpora at `cpp/tests/fuzz/seed/`.
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.3 — `cpp/tests/unit_tests_property.cpp` adds 5 Catch2 GENERATE-based property tests: rational round-trip across signed int64, standard CAN ID accept/reject sweep, DLC factory accept/reject sweep.  234 assertions, 5 test cases; folded into the `unit_tests` target.
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.4 — `cpp/tests/test_cross_binding_integration.cpp` exists with 5 test cases (parsed DBC shape, validation result shape, ack/violation frame paths, invalid-CAN-ID rejection); 22 assertions; CMake target `cross_binding_integration_tests`.
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.5 — `docs/architecture/CGO_NOTES.md` ships per Plan d: documents the C++ → FFI marshal path UB blind spot, the ASan-vs-GHC-RTS conflict, the UBSan tolerance for the foreign runtime, the TSan analogous constraint, and the compiler requirement (clang for `-fsanitize-ignorelist=`).  Cross-references RUNBOOK.md.
+- `[x]` ✅ CLOSED cluster 5 — CPP-B-33.6 — addressed by the libFuzzer harness adoption in CPP-B-33.2 (Catch2's own fuzz hooks aren't used; libFuzzer is the canonical C++ fuzzer the spec expects).
 
 ### C++ system-level — ~75 findings
 
@@ -797,9 +797,9 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 14: Test adequacy (8)
 
-- `[ ]` PY-B-14a.1 [test_cancellation.py:282-305] **3 tests intermittently fail under `python -X dev`** — timeout race revealed by cat 34(a). Standard lane masks them.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-14a.1 — root-caused as `asyncio.timeout(0)` + `asyncio.sleep(0)` test scaffolding races (no production bug; the contract `commit-prefix-and-report` is correct).  Replaced with the public `aletheia.asyncio.testing.gate_send_frame` helper (paired with the new `AsyncClient(sync_client=…)` injection seam) using `threading.Event` primitives without timeouts; pinning is purely via synchronization, no physical time.  50/50 runs under `-X dev` pass.  No protected-access / SLF001 suppressions anywhere.
 - `[ ]` PY-B-14b.1-14e.1 — No mock fidelity infrastructure; no cross-binding mock agreement; no real-vs-mock divergence harness; no regression-test mapping.
-- `[ ]` PY-B-14f.1 **No `pytest-random-order` plugin** in `dev` extras. `pytest --random-order` errors `unrecognized arguments`.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-14f.1 — finding was half-stale: the dep was added to `pyproject.toml` `[dev]` extras when AGENTS.md cat 14(f) landed in `9ff434b` but the orchestrator lane never followed.  `tools/run_ci.py` step 15 now invokes `python3 -m pytest --random-order --random-order-bucket=package tests/`; venv install required (documented in `run_ci.py` header).
 - `[ ]` PY-B-14g.1 **No mutation testing** (`mutmut`/`cosmic-ray` absent).
 - `[ ]` PY-B-14a.2 [conftest.py:54, 86] `_sample_dbc()` and `simple_dbc()` near-duplicate fixtures.
 
@@ -830,12 +830,12 @@ No findings. Proof-currency awareness explicit at Step.agda:17-21 (the "monotoni
 
 #### Cat 34: Dynamic correctness analysis (NEW R18) — 6 findings, ALL absent
 
-- `[ ]` PY-B-34.1 (a) **No `python -X dev` lane**. Standard lane masks 3 cancellation-test flakes (PY-B-14a.1).
-- `[ ]` PY-B-34.2 (b) **No `hypothesis` dependency**.
-- `[ ]` PY-B-34.3 (c) **No `atheris` dependency**, no `python/tests/fuzz/`.
-- `[ ]` PY-B-34.4 (d) **No `python/tests/test_cross_binding_integration.py`**.
-- `[ ]` PY-B-34.5 No `pytest-random-order` plugin.
-- `[ ]` PY-B-34.6 [test_cancellation.py:282-305] 3 tests intermittently fail under `-X dev`.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.1 — `tools/run_ci.py` step 14 adds `python3 -X dev -m pytest tests/`; closes the gap on debug asyncio / ResourceWarning surfacing.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.2 — `python/pyproject.toml` `[dev]` extras now include `hypothesis>=6.0,<7`; `python/tests/test_property_hypothesis.py` adds 8 property tests using 3 strategies (signal_name, can_id, dbc_strategy) per AGENTS.md cat 34b.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.3 — `python/pyproject.toml` adds opt-in `[fuzz]` extras with `atheris>=3.0,<4`; `python/tests/fuzz/` populated with 3 atheris harnesses (`fuzz_parse_response.py`, `fuzz_dbc_to_json.py`, `fuzz_iter_can_log.py`) + shared `_atheris_runner.py` boilerplate; seed corpora at `python/tests/fuzz/seed/`.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.4 — `python/tests/test_cross_binding_integration.py` exists with 6 test methods asserting structural invariants on every public response shape (ParsedDBCResponse, ValidationResponse, AckResponse, PropertyViolationResponse, ErrorResponse).
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.5 — finding was half-stale (dep already pinned in `pyproject.toml`'s `[dev]` extras at the time the finding was written); the missing piece was the orchestrator lane.  `tools/run_ci.py` step 15 now runs `python3 -m pytest --random-order --random-order-bucket=package tests/`.
+- `[x]` ✅ CLOSED cluster 5 — PY-B-34.6 — `aletheia.asyncio.testing.gate_send_frame` (public helper) + `AsyncClient(sync_client=…)` injection seam replace the prior timing-based scaffolding (`asyncio.timeout(0)` + `asyncio.sleep(0)`) with `threading.Event` primitives without timeouts; 50/50 runs under `-X dev` pass.  No protected-access / SLF001 suppressions anywhere — the helper decorates the public `send_frame` method on a public-API sync client.
 
 ### Python system-level — ~64 findings
 
@@ -991,7 +991,7 @@ For triage, the top 15 clusters that close the most findings each:
 
 **Cluster 1 deferred findings (out of cluster 1 phase 7 scope):**
    - **`tests/yaml_tests.cpp:262` `CHECK_THAT` not directly included** (misc-include-cleaner) — discovered 2026-05-08 during cluster 1 phase 7 first end-to-end.  Phase 7 step 18 invokes `clang-tidy -p build src/*.cpp` per AGENTS.md L580 canonical; tests/*.cpp are out of canonical scope.  When orchestrator scope tightens to include tests/, this finding (and any siblings — at least `CHECK_THAT` from Catch2 missing matchers/string header) needs the trivial `#include <catch2/matchers/catch_matchers_string.hpp>` fix.  Tracked here so the next person tightening clang-tidy scope doesn't re-discover and silently work around.
-5. **Cat 33/34 across all 3 bindings (NEW R18): no fuzz, no property-based, no sanitizer lane, no cross-binding integration test** — closes GO-B-33.1-8, CPP-B-33.1-6, PY-B-34.1-6 (~24 findings).
+5. **Cat 33/34 across all 3 bindings (NEW R18): no fuzz, no property-based, no sanitizer lane, no cross-binding integration test** — ✅ CLOSED cluster 5 (single bundled commit per `feedback_no_unilateral_deferral.md`).  Closes GO-B-33.1-8 (8) + CPP-B-33.1-6 (6) + PY-B-34.1-6 (6) + PY-B-14a.1 + PY-B-14f.1 = **22 hard findings**.  Per-binding fuzz / property / cross-binding / sanitizer lanes wired with the architectural decisions advisor + user agreed on: deterministic test engineering (no skip-the-flake), real `pytest --random-order` lane (not just dep), Plan d sanitizer (ASan w/o .so + UBSan everywhere), schema-derived cross-binding parity (no corpus, no goldens).  Cross-binding test caught a real Go nil-vs-empty parity bug in `parseValidationResponse` / `parseParsedDBCResponse` and surfaced it for fix in the same commit.
 6. **`iter_can_log` 4-tuple unpack across 7+ doc sites** — ✅ CLOSED Round 5.  Surface fix: 7 sites updated to 5-tuple unpack (`for ts, can_id, dlc, data, _extended in iter_can_log(...)`).  Missing-mechanism gate: `conftest._harness_iter_can_log` returns one synthetic `CANFrameTuple(0, 0x100, 8, bytes(8), False)` so unpack arity is exercised at fence-execution time; an empty iterator silently passes any unpack (which is what hid the drift across the doc-example harness for the prior rounds).  Closes DOC-B-15.1-6.
 7. **`dbc.text_parsed` 16th log event in Go** — ✅ CLOSED Round 3.  Surface fix: `go/aletheia/client.go:287` renamed `dbc.text_parsed` → `dbc.parsed`.  Missing-mechanism gate: `docs/LOG_EVENTS.yaml` SSOT + `python/tests/test_log_events_parity.py` + `go/aletheia/log_events_test.go` + `cpp/tests/test_log_events_parity.cpp`.  Per-binding tests assert every emitted event from a comprehensive workflow is in the YAML name set; gate-shape verified by temporary revert producing precise drift diagnostic.  Closes GO-A-30.1, GO-A-4.1, GO-S-22.1, PY-S-22.1, CPP-S-22.2, DOC-X-5.12.
 8. **Module count drift (243/242/119 vs 244)** across PROJECT_STATUS / DESIGN / CLAUDE — closes DOC-A-1.1-4, DOC-X-5.1, DOC-X-17.1, DOC-X-17.9.

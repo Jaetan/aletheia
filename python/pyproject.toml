@@ -85,9 +85,18 @@ dev = [
     # ``pytest --random-order --random-order-bucket=package`` alongside the
     # deterministic lane.  Both must stay green.
     "pytest-random-order>=1.1,<2",
+    # AGENTS.md Python cat 34(b) (NEW R18) — hypothesis-driven property
+    # tests for every wire-format encode/decode pair.  Profiles pinned in
+    # ``python/tests/conftest.py`` (CI ``max_examples=200``, dev ``=20``).
+    "hypothesis>=6.0,<7",
     "pylint>=4.0,<5",
     "basedpyright>=1.0,<2",
 ]
+# AGENTS.md Python cat 34(c) (NEW R18) opt-in fuzz extras.  Atheris is a
+# 35 MB native binary, so it lives in its own group rather than ``[dev]``;
+# only the fuzz lane installs it.  Hypothesis stays in ``[dev]`` because
+# property tests run in every standard pytest invocation.
+fuzz = ["atheris>=3.0,<4"]
 
 [tool.basedpyright]
 # Strict type checking for code we control

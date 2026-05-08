@@ -1,0 +1,22 @@
+# Sanitizer ignorelist for the C++ binding (R18 cluster 5 — Cat 33a).
+#
+# Format: one entry per line, see
+# https://clang.llvm.org/docs/SanitizerSpecialCaseList.html.  This file is
+# passed as -fsanitize-ignorelist= to all sanitizer-instrumented builds
+# (-DALETHEIA_SANITIZER=...).  Aletheia's own code remains fully
+# instrumented; only specific third-party vendored sources fall under the
+# ignorelist.
+#
+# Each entry below names the suppression and the upstream issue it covers.
+
+# OpenXLSX vendors a fork of miniz called "zippy".  zippy.hpp performs
+# unaligned loads on byte buffers (mz_uint32 reads at non-4-byte boundaries),
+# which is the well-known miniz pattern; safe on x86_64 where the CPU
+# permits it but technically UB per the C++ standard.  Aletheia uses
+# OpenXLSX read-only via the optional excel loader; we cannot patch the
+# vendored zippy without forking OpenXLSX.  XLStyles.cpp also performs
+# bool loads from spreadsheet bytes that contain non-{0,1} values (UBSan
+# strictly forbids), and other XL*.cpp files exhibit similar third-party
+# UB on adversarial spreadsheet content.  Suppress all OpenXLSX vendored
+# code; aletheia-cpp's own source remains fully instrumented.
+src:*OpenXLSX/*

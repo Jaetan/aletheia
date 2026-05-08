@@ -28,6 +28,69 @@ if(ALETHEIA_CLANG_TIDY)
 endif()
 
 # ---------------------------------------------------------------------------
+# Sanitizer lanes (R18 cluster 5 — Cat 33a, advisor option (d))
+# ---------------------------------------------------------------------------
+#
+# Plan (d) per cluster 5 architectural choice: ASan against C++ unit tests
+# that don't load libaletheia-ffi.so (MockBackend-only), plus UBSan against
+# every test target including those that DO load the .so.  ASan and the
+# GHC RTS conflict on signal handlers and shadow-memory layout — the gap is
+# documented in docs/architecture/CGO_NOTES.md, not papered over.  UBSan
+# tolerates the foreign runtime and catches signed-overflow / shift /
+# null-deref UB on the C++ side regardless of the FFI load state.
+#
+# Enable with one of:
+#   cmake -B build-asan   -DALETHEIA_SANITIZER=address
+#   cmake -B build-ubsan  -DALETHEIA_SANITIZER=undefined
+#   cmake -B build-tsan   -DALETHEIA_SANITIZER=thread
+#
+# Use a separate build directory per sanitizer — sanitizer flags are not
+# safe to mix on the same archive.
+set(ALETHEIA_SANITIZER "" CACHE STRING
+    "Sanitizer lane: address | undefined | thread (empty = off)")
+
+set(ALETHEIA_SANITIZER_FLAGS "")
+if(ALETHEIA_SANITIZER STREQUAL "address")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=address -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
+    set(ALETHEIA_SANITIZER_FLAGS
+        -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
+elseif(ALETHEIA_SANITIZER STREQUAL "thread")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=thread -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER)
+    message(FATAL_ERROR
+        "ALETHEIA_SANITIZER='${ALETHEIA_SANITIZER}' invalid; "
+        "use one of: address, undefined, thread (or unset).")
+endif()
+
+if(ALETHEIA_SANITIZER_FLAGS)
+    message(STATUS "Sanitizer lane: ${ALETHEIA_SANITIZER}")
+    # Apply a sanitizer ignorelist so vendored third-party UB (zippy.hpp
+    # inside OpenXLSX) doesn't trip our own UBSan lane.  Aletheia code
+    # stays fully instrumented; only the specific paths listed in
+    # sanitizer-ignorelist.txt are exempt.  See cpp/sanitizer-ignorelist.txt
+    # for the per-entry rationale.
+    #
+    # -fsanitize-ignorelist= is a clang feature; g++ has no equivalent.
+    # When the sanitizer lane is configured under g++, third-party UB in
+    # OpenXLSX/zippy will surface — use clang for the canonical sanitizer
+    # build (matches the libFuzzer lane's clang requirement).
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(ALETHEIA_SAN_IGNORE "${CMAKE_CURRENT_SOURCE_DIR}/sanitizer-ignorelist.txt")
+        list(APPEND ALETHEIA_SANITIZER_FLAGS
+            "-fsanitize-ignorelist=${ALETHEIA_SAN_IGNORE}")
+    else()
+        message(WARNING
+            "ALETHEIA_SANITIZER set under ${CMAKE_CXX_COMPILER_ID}; "
+            "third-party UB in OpenXLSX/zippy will surface (g++ lacks "
+            "-fsanitize-ignorelist=).  Use clang for clean sanitizer runs: "
+            "-DCMAKE_CXX_COMPILER=clang++")
+    endif()
+    add_compile_options(${ALETHEIA_SANITIZER_FLAGS})
+    add_link_options(${ALETHEIA_SANITIZER_FLAGS})
+endif()
+
+# ---------------------------------------------------------------------------
 # Dependencies (fetched, not exported to consumers)
 # ---------------------------------------------------------------------------
 
@@ -197,7 +260,8 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_dbc.cpp
         tests/unit_tests_log.cpp
         tests/unit_tests_cancel.cpp
-        tests/unit_tests_input_bounds.cpp)
+        tests/unit_tests_input_bounds.cpp
+        tests/unit_tests_property.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
@@ -258,6 +322,18 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME log_events_tests COMMAND log_events_tests)
 
+    # R18 cluster 5 — Cat 33d cross-binding integration. Counterpart of
+    # python/tests/test_cross_binding_integration.py and
+    # go/aletheia/cross_binding_integration_test.go.  No shared corpus or
+    # golden output — each binding asserts its own response against the
+    # documented PROTOCOL.md shape.
+    add_executable(cross_binding_integration_tests
+        tests/test_cross_binding_integration.cpp)
+    target_link_libraries(cross_binding_integration_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    add_test(NAME cross_binding_integration_tests
+        COMMAND cross_binding_integration_tests)
+
     # Layer 7: Track D.1 doc-example harness (R17-DEF-6).
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root
@@ -278,6 +354,17 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(doc_example_tests tests/doc_example_tests.cpp)
     target_link_libraries(doc_example_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    # When the parent build is sanitizer-instrumented, propagate the flag
+    # to per-fence subprocess compiles so the link to libaletheia-cpp.a
+    # resolves the sanitizer runtime's __ubsan_handle_* / __asan_* symbols.
+    set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "")
+    if(ALETHEIA_SANITIZER STREQUAL "address")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=address")
+    elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=undefined")
+    elseif(ALETHEIA_SANITIZER STREQUAL "thread")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=thread")
+    endif()
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -286,8 +373,40 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
             ALETHEIA_DOC_YAML_LIB="$<TARGET_FILE:yaml-cpp::yaml-cpp>"
             ALETHEIA_DOC_OPENXLSX_LIB="$<TARGET_FILE:OpenXLSX::OpenXLSX>"
-            ALETHEIA_DOC_CXX_STD="23")
+            ALETHEIA_DOC_CXX_STD="23"
+            ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
+
+    # R18 cluster 5 — Cat 33b libFuzzer harnesses.  Opt-in via
+    # -DALETHEIA_FUZZ=ON because the harnesses require clang with
+    # -fsanitize=fuzzer, which is incompatible with gcc-built artifacts in
+    # the same build dir.  Build in a separate directory:
+    #   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
+    #       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    #   cmake --build build-fuzz --target fuzz_parse_response
+    # Run a corpus pass (60s smoke):
+    #   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
+    #       cpp/tests/fuzz/seed/parse_response/
+    option(ALETHEIA_FUZZ "Build libFuzzer harnesses" OFF)
+    if(ALETHEIA_FUZZ)
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            message(FATAL_ERROR
+                "ALETHEIA_FUZZ requires clang (got ${CMAKE_CXX_COMPILER_ID}); "
+                "use a separate build dir: -DCMAKE_C_COMPILER=clang "
+                "-DCMAKE_CXX_COMPILER=clang++")
+        endif()
+        foreach(target_name parse_response decode_binary_frame parse_dbc_json
+                            parse_rational_number)
+            add_executable(fuzz_${target_name}
+                tests/fuzz/fuzz_${target_name}.cpp)
+            target_link_libraries(fuzz_${target_name} PRIVATE aletheia-cpp)
+            target_compile_options(fuzz_${target_name}
+                PRIVATE -fsanitize=fuzzer,address,undefined
+                        -fno-omit-frame-pointer)
+            target_link_options(fuzz_${target_name}
+                PRIVATE -fsanitize=fuzzer,address,undefined)
+        endforeach()
+    endif()
 
     # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
     # loaded via dlopen. The CMake build will succeed without the .so, but the

@@ -320,6 +320,66 @@ Breaking changes are concentrated in the Go and C++ Client signatures
   order, and cross-references to `DISTRIBUTION.md` / `RELEASE.md`.
   Content derived from commit time only — no wall-clock — so the
   tarball stays bit-reproducible (R18 cluster 3 follow-up / CICD-5.7).
+- **Cross-binding integration tests** in all three bindings
+  (`python/tests/test_cross_binding_integration.py`,
+  `go/aletheia/cross_binding_integration_test.go`,
+  `cpp/tests/test_cross_binding_integration.cpp`).  Each binding
+  constructs identical canonical inputs and asserts the response shape
+  matches the documented PROTOCOL.md invariants — no shared corpus, no
+  golden output to diff against (R18 cluster 5 — Cat 33d / 34d).
+- **Sanitizer build matrix** (R18 cluster 5 — Cat 33a, advisor option (d)).
+  `cpp/CMakeLists.txt` adds `-DALETHEIA_SANITIZER=address|undefined|thread`
+  for opt-in ASan / UBSan / TSan lanes; `cpp/sanitizer-ignorelist.txt`
+  filters vendored third-party UB in OpenXLSX.  Requires clang for the
+  ignorelist feature; `tools/run_ci.py` step 26 (`ALETHEIA_SAN_CHECK=1`)
+  wires the canonical UBSan ctest battery.
+- **`docs/architecture/CGO_NOTES.md`** documents the GHC RTS / cgo /
+  sanitizer interaction surface — the AST→compile→link path, sanitizer
+  blind spots, the rationale behind each lane decision, and the
+  compiler requirement (R18 cluster 5 — Cat 33a / CPP-B-33.5).
+- **Native fuzz harnesses** in all three bindings:
+  - Go: `aletheia/fuzz_test.go` adds `FuzzParseResponse`,
+    `FuzzMarshalCommand`, `FuzzDecodeBinaryFrame`,
+    `FuzzParseRationalNumber`, `FuzzParseDBCJSON` (Cat 33b).
+  - C++: `cpp/tests/fuzz/` ships 4 libFuzzer harnesses behind the
+    `-DALETHEIA_FUZZ=ON` clang+`-fsanitize=fuzzer` opt-in (Cat 33b).
+  - Python: `python/tests/fuzz/` ships 3 atheris harnesses behind the
+    new `aletheia[fuzz]` extra (Cat 34c).
+- **Property tests** in all three bindings:
+  - Go: `aletheia/property_test.go` adds 5 `testing/quick` properties
+    (rational round-trip, parser totality, command round-trip, rational
+    monotonicity, mock/real shape parity) (Cat 33c).
+  - C++: `cpp/tests/unit_tests_property.cpp` adds 5 Catch2 GENERATE
+    properties (Cat 33c).
+  - Python: `python/tests/test_property_hypothesis.py` adds 8
+    hypothesis property tests (Cat 34b); `aletheia[dev]` extras gain
+    `hypothesis>=6.0,<7`.
+- **Python `-X dev` lane** at `tools/run_ci.py` step 14 — surfaces
+  `ResourceWarning`, debug asyncio warnings, deprecation noise that
+  the standard pytest lane silently masks (Cat 34a).
+- **`aletheia.asyncio.AletheiaClient(sync_client=…)`** — public
+  dependency-injection seam.  When provided, the AsyncClient wraps the
+  pre-built sync client instead of constructing one internally; enables
+  test scaffolding (and downstream advanced uses) to interpose on the
+  sync layer without touching private attributes (R18 cluster 5).
+- **`aletheia.asyncio.testing.gate_send_frame(sync, after_n)`** —
+  public testing helper for deterministic async-cancellation contracts.
+  Wraps the public ``send_frame`` method on a sync client to block the
+  worker thread after frame ``after_n`` commits; pairs with the new
+  ``sync_client=…`` injection seam so tests need no protected-access
+  suppressions (R18 cluster 5).  Used by
+  ``python/tests/test_cancellation.py`` to verify the cancellation
+  contract with no physical-time dependence — pytest's session timeout
+  is the only safety net for genuine hangs.
+- **Python `--random-order` lane** at `tools/run_ci.py` step 15 —
+  exercises the `pytest-random-order` plugin per AGENTS.md cat 14(f);
+  the dep was pinned in `pyproject.toml [dev]` extras when the cat
+  landed but the lane never followed.  Both deterministic and
+  randomized-order lanes must stay green (Cat 14f / 34d).
+- **Python doc-example harness lane** at `tools/run_ci.py` step 13 —
+  the `pytest --markdown-docs` invocation was silently absent from the
+  orchestrator before C5; recovering it adds 114 doc-fence executions
+  (R18 cluster 5 follow-up / Cat 32 enforcement).
 
 ### Changed
 
@@ -382,6 +442,21 @@ callers that consumed a bare success acknowledgement need to access
   in all bindings emit a single canonical event name (R18 cluster 10).
   Affects log collectors, dashboards, or alerting rules that filter
   by event name on Go logs from the text-parse path.
+- **Go**: `parseValidationResponse` and `parseParsedDBCResponse`
+  previously emitted `nil` slices for empty `Issues` / `Warnings`,
+  diverging from Python's `[]` (empty list) default.  JSON-marshaling
+  the responses produced `null` rather than `[]`.  Now initialized as
+  empty slices.  Surfaced by the cross-binding integration test
+  (R18 cluster 5).
+- **Python**: 3 cancellation tests (`test_timeout_mid_batch_raises_cancelled`,
+  `test_explicit_task_cancel`, `test_timeout_during_iter`) intermittently
+  failed under `python -X dev` due to `asyncio.timeout(0)` / `asyncio.sleep(0)`
+  races in the test scaffolding.  Replaced with the public
+  `aletheia.asyncio.testing.gate_send_frame` helper (paired with the
+  `AsyncClient(sync_client=…)` injection seam) using `threading.Event`
+  primitives without timeouts; cancellation point is pinned between
+  committed frames purely via synchronization, no physical time
+  involved.  50/50 runs under `-X dev` pass (R18 cluster 5 / PY-B-14a.1).
 - **Docs**: `docs/architecture/CANCELLATION.md` Python example now
   uses the real `AletheiaClient(default_checks=...)` constructor and
   `await client.parse_dbc_text(...)` flow — the previous
