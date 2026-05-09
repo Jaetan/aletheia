@@ -539,6 +539,8 @@ def run_checks(  # pylint: disable=too-many-locals
     property was neither proved to hold nor proved to fail.
     """
     all_checks = (default_checks or []) + checks
+    if not Path(logfile).exists():
+        raise FileNotFoundError(f"log file not found: {logfile}")
     with AletheiaClient(default_checks=default_checks) as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
@@ -638,12 +640,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
     default_checks = _load_defaults(args)
     logfile: str = args.logfile
 
-    if not Path(logfile).exists():
-        _die(f"log file not found: {logfile}")
-
-    violations, unresolved, total_frames = run_checks(
-        dbc, checks, logfile, default_checks
-    )
+    try:
+        violations, unresolved, total_frames = run_checks(
+            dbc, checks, logfile, default_checks
+        )
+    except FileNotFoundError as exc:
+        _die(str(exc))
 
     if getattr(args, "json", False):
         if violations:

@@ -66,11 +66,11 @@ Closes R19-CARRY-4, R19-CARRY-5, R19-CARRY-9 (subset).
 3. Python `load_dbc_from_excel` + `load_checks_from_excel` (`python/aletheia/excel_loader.py:214` + sibling) — add inline `MAX_DBC_TEXT_BYTES` size cap (matching `dbc_converter.dbc_to_json`'s pattern; xlsx is a ZIP archive, openpyxl all-loads).
 4. Cross-binding regression tests mirroring R18 cluster 2's `python/tests/test_input_bounds.py` / `go/aletheia/input_bounds_test.go` / `cpp/tests/unit_tests_input_bounds.cpp` shape.
 
-**Drop from scope** (reclassification, documented inline):
-- Go `serializeDBC` — serializer not parser per AGENTS.md L40 "Adversarial-input bounds at parser surfaces". Covered by upstream parse-time bound.
-- Python `_helpers.float_to_rational` — accepts a numeric, not raw bytes. Not a parser surface.
-- Python `iter_can_log` / `load_can_log` — streaming reader yielding per-frame; not in AGENTS.md L40 enumeration ("YAML check loaders, Excel loaders" listed but not CAN log readers); legitimate CAN log files > 64 MiB are common (multi-hour drives in BLF), capping would break real-world usage. Threat is mitigated by the per-frame DLC validation that fires on every yielded tuple.
-- Python CLI helpers — `run_checks` / `main` orchestrate from already-loaded inputs (DBC, checks, frames); no direct user-input parsing.
+**Drop from scope** (initial reclassification — three of four reopened in cluster G after user pushback 2026-05-09; rationales updated below):
+- Go `serializeDBC` — serializer not parser per AGENTS.md L40 "Adversarial-input bounds at parser surfaces". Covered by upstream parse-time bound. **REOPENED in cluster E** (defense-in-depth shipped 2026-05-09).
+- ~~Python `_helpers.float_to_rational` — accepts a numeric, not raw bytes. Not a parser surface.~~ **REOPENED in cluster G** — the original reason was wrong: `float_to_rational` IS the wire-boundary funnel where untrusted floats become exact rationals, and Python+Go HAD bound checks (NaN/Inf + int64) while C++'s `Rational::from_double` silently produced UB on the same inputs.  Cross-binding asymmetry per `feedback_cross_binding_wire_symmetry.md`; closed by adding the same bound checks to C++ `Rational::from_double`.
+- ~~Python `iter_can_log` / `load_can_log` — streaming reader yielding per-frame; not in AGENTS.md L40 enumeration ("YAML check loaders, Excel loaders" listed but not CAN log readers); legitimate CAN log files > 64 MiB are common (multi-hour drives in BLF), capping would break real-world usage.~~ **CORRECTED in cluster G** — the file-size-cap framing was a red herring.  The streaming design (`can.LogReader` per-message yield) means whole-file size never enters memory; the per-frame surface IS bounded — by python-can's parser + the CAN spec itself (max 64 bytes per FD frame, max 29-bit ID).  No file-size cap needed at this layer; the per-frame DLC + ID validation that fires inside `_convert_message` is the real bound.  Conclusion (no whole-file cap on `iter_can_log`) holds; reasoning corrected.
+- ~~Python CLI helpers — `run_checks` / `main` orchestrate from already-loaded inputs (DBC, checks, frames); no direct user-input parsing.~~ **REOPENED in cluster G** — `run_checks` accepts a `logfile: str` path that's only checked for existence in the CLI subcommand wrapper `_cmd_check`, not at the orchestrator's own entry.  A programmatic caller bypassing `_cmd_check` gets the failure two function calls deeper inside `iter_can_log`'s `_validate_path`.  Per "checks must exist at the point where failures can be detected" — fail at the orchestrator boundary, not after the data has been passed around.  Closed in cluster G by adding `Path(logfile).exists()` check at `run_checks` entry, raising `FileNotFoundError`; `_cmd_check` now catches and converts to `_die`.
 
 **Re-defer** (condition still holds):
 - CICD-3.1 — `install-python` not invoked from any workflow; track until that changes.
@@ -480,10 +480,92 @@ cluster F as the second empirical confirmation.
 
 ---
 
-*R19 carry-over phase complete 2026-05-09.  All 9 carry-overs
-addressed: 7 closed (R19-CARRY-2 / 3 / 4 / 5 / 6 / 7 / 9-partial)
-+ 1 partial (R19-CARRY-1 via `@0`-erasure ship; Bool fast-path
-final RE-DEFER per cluster F empirical) + 1 cleanly classified
-DROP scope (R19-CARRY-9 streaming reader / numeric-only helpers /
-CLI orchestrators).  R19-CARRY-8 closed via cluster E ambient-token
-strip on `install-python`.*
+*R19 carry-over phase initially declared complete 2026-05-09 with
+3 items dropped as "not parser surfaces"; user pushback same day
+reopened the drops — see cluster G below.*
+
+---
+
+## Round 3 — cluster G (drop-scope reconsideration, 2026-05-09)
+
+User pushback on the cluster A "drop scope" rationales caught two
+real defects and one weak justification:
+
+1. **CAN log readers** — file-size-cap framing missed the point.
+   The streaming design (`can.LogReader` per-message yield) means
+   whole-file size never enters memory; the per-frame surface IS
+   bounded by python-can's parser + the CAN spec.  The conclusion
+   (no whole-file cap) was correct, but the reason was wrong —
+   restated in the drop-scope table above.
+
+2. **`float_to_rational` cross-binding asymmetry** — the original
+   "not a parser surface" reason ignored that `float_to_rational`
+   IS the wire-boundary funnel for untrusted floats.  Python and
+   Go both check NaN/Inf/int64-overflow; C++'s `Rational::from_double`
+   was missing all three guards, so NaN/Inf went to undefined
+   output and overflow silently wrapped — across all 28 YAML /
+   Excel / JSON callsites in C++.
+
+3. **CLI orchestrator `run_checks`** — `logfile` existence was
+   only checked in the CLI subcommand wrapper, not at `run_checks`'
+   own entry.  A programmatic caller bypassing the wrapper got
+   the failure two calls deeper inside `iter_can_log`.  Per
+   "checks must exist at the point where failures can be detected
+   — passing wrong data around is a recipe for confusion."
+
+### Cluster G — CLOSED 2026-05-09
+
+Single bundled commit closes both real defects + restates the
+streaming reasoning.
+
+**Production code:**
+- `cpp/src/types.cpp` `Rational::from_double` — NaN/Inf rejection
+  via `std::isnan` / `std::isinf` (throws `std::runtime_error`);
+  int64 overflow rejection on the scaled value before `llround`
+  (throws `std::runtime_error`).  Single chokepoint covers all
+  28 YAML / Excel / JSON callsites; outer parser catches in
+  `yaml.cpp:230`, `excel.cpp:489`, `json_parse.cpp:686+` already
+  convert `std::runtime_error` into `Result<>` errors so
+  call-site code requires no changes.
+- `python/aletheia/cli.py` `run_checks` — `Path(logfile).exists()`
+  precondition raises `FileNotFoundError` at orchestrator entry;
+  `_cmd_check` catches `FileNotFoundError` and routes to `_die`
+  for clean CLI exit code.
+
+**Tests:**
+- `cpp/tests/unit_tests_validation.cpp` — 6 new test cases
+  covering NaN / +Inf / -Inf rejection, scaled-overflow rejection
+  (positive + negative), and integer-fastpath acceptance at
+  large magnitudes (1e15) plus ordinary scaled values (0.1, 11.5).
+- `python/tests/test_cli.py` — `test_run_checks_raises_on_missing_logfile`
+  asserts the programmatic API contract (`FileNotFoundError` at
+  the orchestrator boundary, before the FFI client is even
+  constructed).  Existing `test_missing_log_file` still asserts
+  CLI exit code 2 via the `_die` path.
+
+**Gates:**
+- C++: cmake build clean; ctest 10/10 (25.11s); clang-format clean.
+- Python: pytest 800p+1s; basedpyright 0/0/0; pylint 10.00/10.
+- Go: go test (race) ok 7.353s; gofmt + go vet clean (no Go code
+  changes; ran for sanity).
+- No bench needed: C++ `from_double` is a cold-path conversion
+  (parser-time, not streaming); `run_checks` precondition is a
+  one-time `Path.exists` call before the streaming loop.
+
+### Cluster G — what stays dropped
+
+After reopening the three pushback items, only one drop from
+the cluster A scope remains: Go `serializeDBC` was already
+reopened in cluster E (defense-in-depth ship 2026-05-09).
+There are no remaining "drops" — every item from the original
+table is now closed (✓) or has explicit narrative for why the
+reasoning was wrong + the corrective fix.
+
+---
+
+*R19 carry-over phase + drop-scope reconsideration complete
+2026-05-09.  All 9 carry-overs closed (no remaining drops).
+R19-CARRY-1 partial via `@0`-erasure ship + Bool fast-path
+final RE-DEFER per cluster F empirical (Agda elaboration
+mechanism).  Cumulative carry-over closure: 9/9 (drops
+folded back in via cluster G).*

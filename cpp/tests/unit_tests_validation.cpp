@@ -12,6 +12,8 @@
 #include <aletheia/aletheia.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -218,4 +220,55 @@ TEST_CASE("Rational operator<=> and operator==", "[types]") {
         CHECK(neg < a);
         CHECK(d == Rational{-1, 2});
     }
+}
+
+// ===========================================================================
+// Rational::from_double wire-boundary bounds (R19 cluster G)
+// ===========================================================================
+// Cross-binding parity with Python `float_to_rational` and Go
+// `floatToRational`: NaN / Inf / int64-overflow rejected at the wire
+// boundary.  Single chokepoint covers all 28 YAML / Excel / JSON callsites.
+
+TEST_CASE("Rational::from_double rejects NaN", "[types][bounds]") {
+    CHECK_THROWS_WITH(Rational::from_double(std::numeric_limits<double>::quiet_NaN()),
+                      ContainsSubstring("cannot convert"));
+}
+
+TEST_CASE("Rational::from_double rejects positive infinity", "[types][bounds]") {
+    CHECK_THROWS_WITH(Rational::from_double(std::numeric_limits<double>::infinity()),
+                      ContainsSubstring("cannot convert"));
+}
+
+TEST_CASE("Rational::from_double rejects negative infinity", "[types][bounds]") {
+    CHECK_THROWS_WITH(Rational::from_double(-std::numeric_limits<double>::infinity()),
+                      ContainsSubstring("cannot convert"));
+}
+
+TEST_CASE("Rational::from_double rejects non-integer values that overflow when scaled",
+          "[types][bounds]") {
+    // Non-integer values that would overflow int64 when multiplied by the
+    // 10^9 scale.  Pick a value that (a) fails the integer fast-path and
+    // (b) overflows when scaled: 1e10 + 0.5 → scaled ≈ 1e19 + 5e8 > int64 max.
+    CHECK_THROWS_WITH(Rational::from_double(1e10 + 0.5), ContainsSubstring("overflows int64"));
+    CHECK_THROWS_WITH(Rational::from_double(-(1e10 + 0.5)), ContainsSubstring("overflows int64"));
+}
+
+TEST_CASE("Rational::from_double accepts large integer values via fast path", "[types][bounds]") {
+    // Integer-valued doubles take the fast path (no scaling), so they
+    // bypass the overflow guard regardless of magnitude up to int64 max.
+    auto r = Rational::from_double(1e15);
+    CHECK(r.denominator == 1);
+    CHECK(r.numerator == 1'000'000'000'000'000);
+}
+
+TEST_CASE("Rational::from_double accepts ordinary scaled values", "[types]") {
+    // 0.1 → 1/10, 11.5 → 23/2 — the human-friendly forms (R19 cluster G
+    // preserves prior behavior; bounds added without changing scaling).
+    auto r1 = Rational::from_double(0.1);
+    CHECK(r1.numerator == 1);
+    CHECK(r1.denominator == 10);
+
+    auto r2 = Rational::from_double(11.5);
+    CHECK(r2.numerator == 23);
+    CHECK(r2.denominator == 2);
 }

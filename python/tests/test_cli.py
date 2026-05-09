@@ -485,6 +485,17 @@ class TestCheckCommand:
         ])
         assert code == 2
 
+    def test_run_checks_raises_on_missing_logfile(self) -> None:
+        """``run_checks`` must reject a missing logfile at its own entry,
+        not let the failure surface from inside ``iter_can_log`` two calls
+        deeper.  Programmatic API contract: ``FileNotFoundError`` at the
+        orchestrator boundary so callers get a clear error site."""
+        from aletheia.cli import run_checks  # pylint: disable=import-outside-toplevel
+        from aletheia.protocols import DBCDefinition  # pylint: disable=import-outside-toplevel
+        dbc: DBCDefinition = {"version": "", "messages": []}
+        with pytest.raises(FileNotFoundError, match="log file not found"):
+            run_checks(dbc, [], "/nonexistent/drive.asc")
+
 
 # ============================================================================
 # Error cases
