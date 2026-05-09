@@ -48,7 +48,6 @@
 -- dbc frame` with exactly that syntactic form, so `subst` on the
 -- name-equality suffices to align hypothesis types.
 module Aletheia.Protocol.Adequacy.StreamingWarm where
-open import Aletheia.DBC.Types using (signalNameStr; DBCSignal)
 open import Aletheia.DBC.Identifier using
     (Identifier; _≡csᵇ_; ≡csᵇ-sound)
 

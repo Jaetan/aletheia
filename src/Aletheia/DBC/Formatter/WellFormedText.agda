@@ -175,13 +175,9 @@ record WellFormedTextMessage (m : DBCMessage) : Set where
     senders-empty : DBCMessage.senders m ≡ []
 
 
--- ============================================================================
--- DBC-LEVEL TEXT WF
--- ============================================================================
-
--- DBC-level extension of `WellFormedDBCRT` for the text-roundtrip path.
--- 3d.x will land the per-message proof; Layer 4 closes the universal via
--- `All`-induction over the message list.
-record WellFormedTextDBC (d : DBC) : Set where
-  field
-    messages-text-wf : All WellFormedTextMessage (DBC.messages d)
+-- DBC-level text-roundtrip well-formedness lives in
+-- `Aletheia.DBC.TextParser.WellFormed.WellFormedTextDBCAgg` (the
+-- aggregator predicate consumed by `parseText-on-formatText` in
+-- `Substrate.Unsafe`).  The earlier 1-field stub previously named
+-- `WellFormedTextDBC` here was superseded by that 8-field record and is
+-- removed (R18 cluster 14, AGDA-D-11.1 / AGDA-D-15.4).

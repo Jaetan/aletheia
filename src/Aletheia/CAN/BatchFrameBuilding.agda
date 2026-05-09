@@ -13,13 +13,10 @@
 module Aletheia.CAN.BatchFrameBuilding where
 
 open import Aletheia.CAN.Frame using (CANFrame; CANId; Byte)
-open import Aletheia.CAN.Signal using (SignalDef)
 open import Aletheia.CAN.Encoding using (injectSignal)
 open import Aletheia.CAN.DLC using (DLC; dlcBytes)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal; signalNameStr)
-open import Aletheia.DBC.Identifier using (Identifier)
 open import Aletheia.DBC.Properties using (signalPhysicalBits; bitsIntersectᵇ)
-open import Data.String using (String)
 open import Data.Rational using (ℚ)
 open import Data.List using (List; []; _∷_; map)
 open import Data.Product using (_×_; _,_)

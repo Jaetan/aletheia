@@ -106,18 +106,18 @@ class _MessageKey:
 # Sheet headers
 # ============================================================================
 
-_DBC_HEADERS = [
+DBC_HEADERS = [
     "Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit",
     "Length", "Byte Order", "Signed", "Factor", "Offset", "Min", "Max",
     "Unit", "Multiplexor", "Multiplex Value",
 ]
 
-_CHECKS_HEADERS = [
+CHECKS_HEADERS = [
     "Check Name", "Signal", "Condition", "Value", "Min", "Max",
     "Time (ms)", "Severity",
 ]
 
-_WHEN_THEN_HEADERS = [
+WHEN_THEN_HEADERS = [
     "Check Name", "When Signal", "When Condition", "When Value",
     "Then Signal", "Then Condition", "Then Value", "Then Min", "Then Max",
     "Within (ms)", "Severity",
@@ -279,15 +279,15 @@ def create_template(path: str | Path) -> None:
     if ws_dbc is None:
         raise RuntimeError("Workbook has no active sheet")
     ws_dbc.title = "DBC"
-    _write_header_row(ws_dbc, _DBC_HEADERS)
+    _write_header_row(ws_dbc, DBC_HEADERS)
 
     # Checks sheet
     ws_checks = wb.create_sheet("Checks")
-    _write_header_row(ws_checks, _CHECKS_HEADERS)
+    _write_header_row(ws_checks, CHECKS_HEADERS)
 
     # When-Then sheet
     ws_wt = wb.create_sheet("When-Then")
-    _write_header_row(ws_wt, _WHEN_THEN_HEADERS)
+    _write_header_row(ws_wt, WHEN_THEN_HEADERS)
 
     wb.save(str(p))
 

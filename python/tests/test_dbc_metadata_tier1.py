@@ -17,7 +17,7 @@ from fractions import Fraction
 
 import pytest
 
-from _dbc_helpers import message, signal
+from _dbc_helpers import assert_non_terminating_rational, message, signal
 
 from aletheia import AletheiaClient
 from aletheia.protocols import (
@@ -249,11 +249,7 @@ class TestDBCMetadataTier1Rejects:
             "version": "1.0",
             "messages": [message(0x100, "Engine", [signal("Rpm", **overrides)])],
         }
-        with AletheiaClient() as client:
-            result = client.parse_dbc(bad)
-        assert result["status"] == "error"
-        assert result["code"] == "parse_non_terminating_rational"
-        assert field in result["message"]
+        assert_non_terminating_rational(bad, field)
 
     def test_signal_group_referring_to_unknown_signal_accepted(self) -> None:
         """The Agda parser does not cross-check group signal references against

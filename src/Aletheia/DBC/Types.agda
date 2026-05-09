@@ -20,7 +20,6 @@ open import Data.List using (List; []; map)
 open import Data.List.NonEmpty using (List⁺)
 open import Data.Nat using (ℕ)
 open import Data.Integer using (ℤ)
-open import Data.Rational using (ℚ)
 open import Data.Product using (_×_)
 open import Function using (_∘_)
 open import Aletheia.DBC.DecRat using (DecRat)
@@ -259,7 +258,7 @@ record DBC : Set where
     -- the field is on the signal directly).  CHECK 23
     -- `UnknownValueDescriptionTarget` walks this field at validation time.
     -- The text round-trip closes only for DBCs with `unresolvedValueDescs
-    -- ≡ []` (`WellFormedDBC.unresolved-empty`); the formatter does not
+    -- ≡ []` (`WellFormedTextDBCAgg.unresolved-empty`); the formatter does not
     -- emit lines for unresolved entries.
     unresolvedValueDescs : List RawValueDesc
 

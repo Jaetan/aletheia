@@ -9,14 +9,15 @@
 module Aletheia.DBC.Validity.WarningChecks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr)
 
 open import Aletheia.DBC.Types using
-  ( ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
+  ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr
+  ; ValidationIssue; IsWarning; DBCMessage; DBCSignal; mkIssue
   ; GlobalNameCollision; SignalPresence; Always; When
   ; Node; DBCComment; EnvironmentVar
   ; DBCAttribute; DBCAttrDef; DBCAttrDefault; DBCAttrAssign; AttrDef
-  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar )
+  ; CTNetwork; CTNode; CTMessage; CTSignal; CTEnvVar
+  ; RawValueDesc )
 open import Aletheia.DBC.Validator using
   ( checkGlobalNamePair; checkGlobalNameAgainstList
   ; checkAllGlobalNameCollisions; messageSignalNames
@@ -40,7 +41,6 @@ open import Aletheia.DBC.Validator using
   ; checkUnknownValueDescriptionTarget
   ; checkAllUnknownValueDescriptionTargets
   )
-open import Aletheia.DBC.Types using (RawValueDesc)
 open import Aletheia.CAN.Frame using (CANId)
 open import Aletheia.CAN.DBCHelpers using (findSignalInList)
 open import Aletheia.DBC.Validity using

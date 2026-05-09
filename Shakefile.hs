@@ -2,7 +2,8 @@ import Development.Shake
 import Development.Shake.FilePath
 import System.Directory (createDirectoryLink, removePathForcibly,
                          getHomeDirectory, createDirectoryIfMissing,
-                         removeDirectoryRecursive)
+                         removeDirectoryRecursive,
+                         getCurrentDirectory)
 import System.Info (os)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
@@ -149,6 +150,13 @@ getGhcDeps soPath = do
                , ghcBase `isPrefixOf` resolvedPath
                ]
     return deps
+
+-- | Compute SHA-256 of a file via the system sha256sum binary.
+-- Returns the hex digest only (no path/whitespace).
+sha256file :: FilePath -> Action String
+sha256file p = do
+    Stdout out <- cmd "sha256sum" p
+    return $ takeWhile (/= ' ') out
 
 -- | Check that patchelf and Python 3.12+ are available.
 checkPrerequisites :: Action ()
@@ -402,23 +410,35 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-erasure" $ do
         -- Guard the FFI marshaling assumptions about MAlonzo output shape.
-        -- Marshal.hs feeds `unsafeCoerce ()` for the erased proof slot of
-        -- CANId constructors; this is safe only while MAlonzo keeps those
-        -- slots compiled to `AgdaAny`. Likewise, Timestamp comparisons rely
-        -- on the newtype compilation to avoid a hot-path allocation.
+        -- After R18 cluster 17 (AGDA-B-22.1), CANId proof fields are
+        -- `.(…)`-irrelevant — MAlonzo erases the cell entirely, so the
+        -- constructors compile to single-Integer shape (no `AgdaAny`
+        -- proof slot). Marshal.hs `mkAgdaCanId` constructs without the
+        -- second arg. Timestamp comparisons rely on the newtype
+        -- compilation to avoid a hot-path allocation.
         -- If either assumption regresses we want a clear early failure
         -- before ConstructorTest runs.
         need ["build/libaletheia-ffi.so"]
         frame <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Frame.hs"
         time  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Trace/Time.hs"
+        -- Single-Integer ctor shape post-R18 cluster 17 — irrelevant proof
+        -- erased; reject any reintroduction of an `AgdaAny` proof slot.
+        -- Match by absence of the AgdaAny-shaped form rather than positive
+        -- presence: MAlonzo formats the data declaration on one line
+        -- (`data T_CANId_8 = C_Standard_12 Integer | C_Extended_16 Integer`),
+        -- so a positive-presence check would race the formatter.
         let canIdErasure =
-              "C_Standard_12 Integer AgdaAny" `isInfixOf` frame &&
-              "C_Extended_16 Integer AgdaAny" `isInfixOf` frame
+              "C_Standard_12 Integer" `isInfixOf` frame &&
+              "C_Extended_16 Integer" `isInfixOf` frame &&
+              not ("C_Standard_12 Integer AgdaAny" `isInfixOf` frame) &&
+              not ("C_Extended_16 Integer AgdaAny" `isInfixOf` frame)
         unless canIdErasure $
-          error $ "check-erasure failed: CAN ID constructors no longer use "
-               ++ "AgdaAny for the bound proof. "
-               ++ "Marshal.hs mkAgdaCanId assumes the proof slot is erased; "
-               ++ "fix Marshal.hs before this regresses end-to-end."
+          error $ "check-erasure failed: CAN ID constructor shape drifted "
+               ++ "from the post-R18-cluster-17 single-Integer form. "
+               ++ "Either MAlonzo regressed and re-emits the proof slot, or "
+               ++ "the AGDA-B-22.1 `.(…)` irrelevance was reverted. "
+               ++ "Marshal.hs mkAgdaCanId assumes single-arg constructors; "
+               ++ "fix the source of drift before this regresses end-to-end."
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
         unless tsNewtype $
           error $ "check-erasure failed: Timestamp is no longer compiled as "
@@ -444,7 +464,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
           error $ "check-erasure failed: Sum stdlib constructor names changed. "
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
-        putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype + stdlib constructors."
+        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors."
 
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in
@@ -620,6 +640,76 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 ]
         putInfo $ "Stdlib version OK: " ++ unwords requiredDeps
 
+    phony "check-changelog" $ do
+        -- R18 Universal Rule UR-1 enforcement (Public API stability and
+        -- CHANGELOG discipline).  Detects public-API drift since merge-base
+        -- with `main` and fails if CHANGELOG.md was not also modified.
+        --
+        -- Implementation lives in tools/check_changelog.py so the same
+        -- gate can be invoked from the pre-push hook and from local CI
+        -- without rebuilding the Shake binary.  Branch-level granularity
+        -- (one CHANGELOG commit covers any number of public-API commits
+        -- on the same branch).
+        cmd_ "python3" "tools/check_changelog.py"
+
+    phony "check-gate-claim" $ do
+        -- Gate-claim integrity enforcer (R18 cluster 1 phase 2).
+        -- Mechanical enforcer for `memory/feedback_gate_claim_integrity.md`.
+        -- When a commit message contains a gate-clean assertion ("all gates
+        -- clean", "gates green", etc.), verify that build/libaletheia-ffi.so
+        -- mtime postdates every build-relevant staged source file's mtime.
+        --
+        -- Defaults to HEAD-mode when invoked via Shake (pre-commit mode is
+        -- only meaningful inside the actual pre-commit hook context).
+        cmd_ "python3" "tools/check_gate_claim.py" "HEAD"
+
+    phony "check-runbook" $ do
+        -- Runbook coverage gate (R18 cluster 4).  AGENTS.md cat 22 mandates
+        -- that every structured log event the bindings emit has a matching
+        -- entry in docs/operations/RUNBOOK.md.  This script parses
+        -- docs/LOG_EVENTS.yaml and verifies every event name appears as a
+        -- `#### `<name>`` heading in the runbook.  Missing entries fail the
+        -- gate — operators must not be left blind on an event the code emits.
+        cmd_ "python3" "tools/check_runbook_coverage.py"
+
+    phony "check-stability-bench" $ do
+        -- Stability-bench coverage gate (R18 cluster 6).  AGENTS.md cat 16 /
+        -- 25 / 26 / 27 mandate per-binding long-run leak detection harnesses
+        -- (RSS, FD, threads/goroutines, malloc_info, StablePtr / ctypes /
+        -- logger handlers).  This script parses docs/STABILITY_BENCH.yaml
+        -- and verifies every (binding, sub_check) pair's source_marker is
+        -- present in the named harness file — catches silent removal
+        -- without running the harnesses.  The dynamic counterpart that
+        -- actually runs the bench is `tools/stability_run.py`, gated
+        -- behind ALETHEIA_STABILITY_CHECK=1 in `tools/run_ci.py`.
+        cmd_ "python3" "tools/check_stability_bench.py"
+
+    phony "check-mutation-setup" $ do
+        -- Mutation-setup coverage gate (R18 cluster 7).  AGENTS.md cat 14(g)
+        -- mandates per-binding mutation testing on hot-path modules.  This
+        -- script parses docs/MUTATION_BENCH.yaml and verifies every declared
+        -- hot-path source file exists on disk — catches silent removal /
+        -- rename of a hot-path file (e.g. a future protocols-split move that
+        -- relocates `aletheia/client/_client.py`) without running the
+        -- mutation tools (each binding's tool takes 30 min - 2 hours).
+        -- Dynamic counterpart that actually runs mutmut / go-mutesting /
+        -- Mull is `tools/mutation_run.py`, gated behind
+        -- ALETHEIA_MUTATION_CHECK=1 (or `--mutation`) in `tools/run_ci.py`.
+        cmd_ "python3" "tools/check_mutation_setup.py"
+
+    -- The full offline CI sweep is invoked directly via `tools/run_ci.py`,
+    -- NOT through a Shake `phony "ci"` target.
+    --
+    -- Reason: run_ci.py internally calls `cabal run shake -- build`,
+    -- `cabal run shake -- check-properties`, etc.  If invoked through
+    -- a Shake phony (parent: `cabal run shake -- ci`), the inner
+    -- `cabal run` fails immediately because cabal-install's flock on
+    -- `dist-newstyle/` is held by the outer process.
+    --
+    -- Two stable invocation paths:
+    --   * Direct:    `tools/run_ci.py`     (pre-push hook, manual runs)
+    --   * Per-gate:  `cabal run shake -- check-properties` (etc.)
+
     phony "dist" $ do
         need ["build/libaletheia-ffi.so"]
 
@@ -627,12 +717,22 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         let distLib = distDir </> "lib"
         let distInclude = distDir </> "include"
         let tarball = "dist/aletheia.tar.gz"
+        let manifestFile = distDir </> "MANIFEST.txt"
+        let sbomFile = distDir </> "aletheia-sbom.cdx.json"
+        let tarHashFile = tarball ++ ".sha256"
+        let tarSigFile = tarball ++ ".sig"
 
         -- Clean previous dist
         liftIO $ removePathForcibly distDir
         liftIO $ removePathForcibly tarball
+        liftIO $ removePathForcibly tarHashFile
+        liftIO $ removePathForcibly tarSigFile
         liftIO $ createDirectoryIfMissing True distLib
         liftIO $ createDirectoryIfMissing True distInclude
+
+        -- UR-3.2: record source-side hash (pre-strip, pre-patchelf) — anchors
+        -- the chain-of-custody from build/libaletheia-ffi.so to dist tarball.
+        sourceHash <- sha256file "build/libaletheia-ffi.so"
 
         -- Copy main .so and GHC runtime dependencies
         putInfo "Packaging distribution..."
@@ -641,12 +741,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         forM_ ghcDeps $ \dep ->
             cmd_ "cp" "-L" dep distLib
 
+        let mainSoDist = distLib </> "libaletheia-ffi.so"
+
+        -- CICD-4.1: hash-verify post-copy matches source (catches a transient
+        -- copy corruption between unpackaged .so and packaged dist).
+        copyHash <- sha256file mainSoDist
+        when (copyHash /= sourceHash) $
+            error $ "dist: post-copy hash drift (source " ++ sourceHash ++
+                    " vs copy " ++ copyHash ++ ")"
+
+        -- CICD-2.1: cache .so file list once instead of two find invocations.
+        Stdout rawSoFiles <- cmd Shell ("find " ++ distLib ++ " -name '*.so*' -type f")
+        let soFiles = filter (not . null) (lines rawSoFiles)
+
         -- Patch RUNPATH so all .so files find each other via $ORIGIN
         Exit patchelfCode <- cmd Shell "command -v patchelf >/dev/null 2>&1"
         case patchelfCode of
-            ExitSuccess -> do
-                Stdout soFiles <- cmd Shell ("find " ++ distLib ++ " -name '*.so*' -type f")
-                forM_ (filter (not . null) (lines soFiles)) $ \f ->
+            ExitSuccess ->
+                forM_ soFiles $ \f ->
                     cmd_ "patchelf" "--set-rpath" "$ORIGIN" f
             ExitFailure _ ->
                 putWarn "patchelf not found — skipping RPATH patching. Set LD_LIBRARY_PATH at runtime."
@@ -657,8 +769,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         case stripCode of
             ExitSuccess -> do
                 putInfo "Stripping debug symbols..."
-                Stdout soFiles <- cmd Shell ("find " ++ distLib ++ " -name '*.so*' -type f")
-                forM_ (filter (not . null) (lines soFiles)) $ \f ->
+                forM_ soFiles $ \f ->
                     cmd_ "strip" "--strip-unneeded" f
             ExitFailure _ ->
                 putWarn "strip not found — keeping debug symbols."
@@ -666,9 +777,163 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- Copy C header
         cmd_ "cp" "include/aletheia.h" distInclude
 
-        -- Create tarball
-        putInfo "Creating tarball..."
-        cmd_ "tar" "czf" tarball "-C" "dist" "aletheia/"
+        -- UR-3.2: post-strip / post-patchelf hashes — bytes that ship in the
+        -- tarball.  `finalHash` is the load-bearing artifact identity.
+        finalHash <- sha256file mainSoDist
+        depHashes <- forM soFiles $ \f -> do
+            h <- sha256file f
+            return (takeFileName f, h)
+
+        -- Toolchain pin metadata.  Build-date is the commit time, NOT the
+        -- wall-clock at dist invocation — wall-clock would defeat artifact-
+        -- level reproducibility (two dist runs of the same commit would yield
+        -- different MANIFEST.txt content → different tarball hash).
+        Stdout gitCommit  <- cmd Shell "git rev-parse HEAD"
+        Stdout gitDirty   <- cmd Shell "git status --porcelain"
+        Stdout commitTime <- cmd Shell "git log -1 --format=%ct HEAD"
+        let commitEpoch = strip commitTime
+        Stdout buildDate  <- cmd Shell ("date -u -Iseconds -d @" ++ commitEpoch)
+        Stdout ghcVer    <- cmd Shell "ghc --numeric-version"
+        Stdout cabalVer  <- cmd Shell "cabal --numeric-version"
+        -- agda --version emits multi-line output (version + cabal flag list);
+        -- take only the first line.
+        Stdout agdaVer   <- cmd Shell "agda --version | head -n1"
+        Stdout agdaLib   <- cmd Shell "grep '^depend:' aletheia.agda-lib | sed 's/depend://'"
+        let gitTreeStatus = if null (strip gitDirty) then "clean" else "dirty"
+        let pad n s = s ++ replicate (max 0 (n - length s)) ' '
+        let readmeFile = distDir </> "README.txt"
+        let readmeText = unlines
+                [ "Aletheia"
+                , "========"
+                , ""
+                , "This tarball ships a pre-built Aletheia release artifact."
+                , ""
+                , "Contents:"
+                , "  lib/libaletheia-ffi.so     Verified Agda kernel + GHC runtime"
+                , "  lib/libHS*.so              GHC runtime dependencies (RPATH=$ORIGIN)"
+                , "  include/aletheia.h         C header (consumed by Python/C++/Go bindings)"
+                , "  MANIFEST.txt               Toolchain pin + per-artifact SHA-256 hashes"
+                , "  aletheia-sbom.cdx.json     CycloneDX 1.5 software bill of materials"
+                , ""
+                , "Quick start (from the unpacked tarball):"
+                , "  gcc -Iinclude -Llib -Wl,-rpath,'$ORIGIN/../lib' -laletheia-ffi app.c"
+                , ""
+                , "Verification (verify-then-trust order):"
+                , "  1. Tarball signature (cosign + keys/cosign.pub from the source tree)"
+                , "  2. sha256sum -c aletheia.tar.gz.sha256"
+                , "  3. After unpacking: hashes inside MANIFEST.txt vs find lib -name '*.so*'"
+                , ""
+                , "Full integration guide:"
+                , "  docs/development/DISTRIBUTION.md (in the source repo)"
+                , ""
+                , "Release process and signing key rotation:"
+                , "  docs/development/RELEASE.md (in the source repo)"
+                , ""
+                , "Build provenance (this artifact):"
+                , "  Git commit:  " ++ strip gitCommit
+                , "  Git tree:    " ++ gitTreeStatus
+                , "  Build date:  " ++ strip buildDate ++ "  (commit time, NOT wall-clock)"
+                ]
+        liftIO $ writeFile readmeFile readmeText
+
+        let manifestText = unlines $
+                [ "Aletheia distribution manifest"
+                , "=============================="
+                , ""
+                , "Generated:   " ++ strip buildDate
+                , "Git commit:  " ++ strip gitCommit
+                , "Git tree:    " ++ gitTreeStatus
+                , ""
+                , "Toolchain (pinned for reproducible build):"
+                , "  GHC:           " ++ strip ghcVer
+                , "  cabal-install: " ++ strip cabalVer
+                , "  Agda:          " ++ strip agdaVer
+                , "  Agda stdlib:   " ++ strip agdaLib
+                , ""
+                , "Source artifact (pre-strip, pre-patchelf):"
+                , "  build/libaletheia-ffi.so          " ++ sourceHash
+                , ""
+                , "Distribution artifacts (post-strip, post-patchelf):"
+                ] ++ map (\(n, h) -> "  " ++ pad 34 n ++ h) depHashes ++
+                [ ""
+                , "Verification:"
+                , "  Distribution integrity (compare against this manifest):"
+                , "    find lib/ -name '*.so*' -exec sha256sum {} \\;"
+                , "  Tarball signature (local dev, signed without tlog):"
+                , "    cosign verify-blob --insecure-ignore-tlog \\"
+                , "      --key keys/cosign.pub \\"
+                , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
+                , "  Tarball signature (release, signed with ALETHEIA_COSIGN_TLOG=1):"
+                , "    cosign verify-blob --key keys/cosign.pub \\"
+                , "      --signature aletheia.tar.gz.sig aletheia.tar.gz"
+                , ""
+                , "Reference:"
+                , "  AGENTS.md § Universal Rules → Reproducible build verification"
+                , "  docs/development/RELEASE.md § Verifying release artifacts"
+                ]
+        liftIO $ writeFile manifestFile manifestText
+
+        -- UR-3.2 / CICD-5.3: SBOM (CycloneDX 1.5).  Pass the git commit epoch
+        -- as --source-epoch so the SBOM timestamp + UUID5 are derived from
+        -- source state, not wall-clock — required for artifact-level repro.
+        putInfo "Generating SBOM..."
+        let distGhcDeps = map (\dep -> distLib </> takeFileName dep) ghcDeps
+        cmd_ "python3" "tools/sbom_generate.py"
+            "--repo" "."
+            "--main-so" mainSoDist
+            "--out" sbomFile
+            "--source-epoch" commitEpoch
+            distGhcDeps
+
+        -- Reproducible tarball: sort entries + pin mtime to the git commit time
+        -- + zero owner/group.  Use `gzip -n` to suppress gzip's per-invocation
+        -- timestamp embed (the gzip header MTIME field defaults to current
+        -- wall-clock if -n is not set).  Without these flags `tar czf` embeds
+        -- wall-clock mtime, the invoking user's uid/gid, and the gzip wall-
+        -- clock — three orthogonal sources defeating tarball-level repro.
+        let mtime = "@" ++ commitEpoch
+        putInfo $ "Creating reproducible tarball (mtime=" ++ mtime ++ ")..."
+        cmd_ "tar"
+            "--sort=name"
+            ("--mtime=" ++ mtime)
+            "--owner=0" "--group=0" "--numeric-owner"
+            ("--use-compress-program=gzip -n")
+            "-cf" tarball
+            "-C" "dist" "aletheia/"
+
+        -- CICD-5.2: side-car SHA-256 for the tarball, suitable for sha256sum -c.
+        tarballHash <- sha256file tarball
+        liftIO $ writeFile tarHashFile (tarballHash ++ "  " ++ takeFileName tarball ++ "\n")
+
+        -- CICD-5.4: sign the tarball if cosign + key are available.  Skip-with-
+        -- warning when either is missing — release verification fails closed
+        -- on the consumer side via cosign verify-blob, not here.
+        cosignKey <- liftIO $ lookupEnv "ALETHEIA_COSIGN_KEY"
+        Exit cosignCode <- cmd Shell "command -v cosign >/dev/null 2>&1"
+        sigPresent <- case (cosignCode, cosignKey) of
+            (ExitSuccess, Just keyPath) -> do
+                -- Default --tlog-upload=false: per-dev-run signing should not
+                -- push every artifact hash to the public Sigstore Rekor log.
+                -- Release signing opts back in via ALETHEIA_COSIGN_TLOG=1.
+                tlogEnv <- liftIO $ lookupEnv "ALETHEIA_COSIGN_TLOG"
+                let tlogFlag = case tlogEnv of
+                        Just "1" -> "--tlog-upload=true"
+                        _        -> "--tlog-upload=false"
+                putInfo $ "Signing tarball with cosign (" ++ tlogFlag ++ ")..."
+                cmd_ Shell $
+                    "COSIGN_PASSWORD=\"${COSIGN_PASSWORD:-}\" cosign sign-blob --yes " ++
+                    tlogFlag ++
+                    " --key '" ++ keyPath ++ "'" ++
+                    " --output-signature '" ++ tarSigFile ++ "'" ++
+                    " '" ++ tarball ++ "'"
+                return True
+            (ExitSuccess, Nothing) -> do
+                putWarn $ "ALETHEIA_COSIGN_KEY env var not set — skipping artifact signing.\n" ++
+                    "  See docs/development/RELEASE.md § Signing for the canonical key path."
+                return False
+            (ExitFailure _, _) -> do
+                putWarn "cosign not found — skipping artifact signing. Install: see docs/development/RELEASE.md."
+                return False
 
         -- Report
         Stdout distSize <- cmd Shell ("du -sh " ++ distDir ++ " | cut -f1")
@@ -680,10 +945,24 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo ""
         putInfo $ "  dist/aletheia/           (" ++ strip distSize ++ ")"
-        putInfo $ "    lib/libaletheia-ffi.so   (main library)"
+        putInfo $ "    lib/libaletheia-ffi.so   (main library, sha256 " ++ take 12 finalHash ++ "...)"
         putInfo $ "    lib/libHS*.so            (" ++ show nDeps ++ " GHC runtime deps, RPATH=$ORIGIN)"
         putInfo $ "    include/aletheia.h       (C header)"
-        putInfo $ "  dist/aletheia.tar.gz     (" ++ strip tarSize ++ ")"
+        putInfo $ "    MANIFEST.txt             (UR-3.2 hashes + toolchain pin)"
+        putInfo $ "    aletheia-sbom.cdx.json   (CycloneDX 1.5 SBOM)"
+        putInfo $ "    README.txt               (consumer entry point — verification + quick start)"
+        putInfo $ "  dist/aletheia.tar.gz     (" ++ strip tarSize ++ ", sha256 " ++ take 12 tarballHash ++ "...)"
+        putInfo $ "  dist/aletheia.tar.gz.sha256"
+        when sigPresent $
+            putInfo $ "  dist/aletheia.tar.gz.sig (cosign signature; verify with keys/cosign.pub)"
+        putInfo ""
+        putInfo "  Verify:"
+        putInfo $ "    sha256sum -c " ++ tarHashFile
+        when sigPresent $ do
+            putInfo $ "    # Local dev (tlog skipped per --tlog-upload=false at sign time):"
+            putInfo $ "    cosign verify-blob --insecure-ignore-tlog --key keys/cosign.pub \\"
+            putInfo $ "      --signature " ++ tarSigFile ++ " " ++ tarball
+            putInfo $ "    # Release (sign with ALETHEIA_COSIGN_TLOG=1, then verify without --insecure-ignore-tlog)"
         putInfo ""
         putInfo "  Usage (no LD_LIBRARY_PATH needed — RPATH handles resolution):"
         putInfo "    gcc -Idist/aletheia/include -Ldist/aletheia/lib \\"
@@ -696,17 +975,29 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "docker" $ do
         need ["dist"]
-        putInfo "Building Docker runtime image..."
-        cmd_ "docker" "build" "-t" "aletheia:latest" "-f" "Dockerfile.runtime" "."
+        -- CICD-5.5: tag with both `latest` (moving) AND `<short-sha>` (immutable)
+        -- so consumers can pin by commit.  Base image is digest-pinned in
+        -- Dockerfile.runtime; the local image tag here is the consumer-facing
+        -- handle.
+        Stdout shortSha <- cmd Shell "git rev-parse --short HEAD"
+        let shaTag = "aletheia:" ++ strip shortSha
+        putInfo $ "Building Docker runtime image (tags: aletheia:latest, " ++ shaTag ++ ")..."
+        cmd_ "docker" "build"
+            "-t" "aletheia:latest"
+            "-t" shaTag
+            "-f" "Dockerfile.runtime" "."
         Stdout imageSize <- cmd Shell "docker images aletheia:latest --format '{{.Size}}'"
         putInfo ""
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo $ "  Docker image: aletheia:latest (" ++ strip imageSize ++ ")"
+        putInfo $ "  Pinned tag:   " ++ shaTag
         putInfo "════════════════════════════════════════════════════════════════"
         putInfo ""
         putInfo "  Run:"
         putInfo "    docker run --rm aletheia:latest python3 -c \\"
         putInfo "      \"from aletheia import AletheiaClient; print('OK')\""
+        putInfo $ "  Pin to commit:"
+        putInfo $ "    docker run --rm " ++ shaTag ++ " ..."
         putInfo ""
 
     phony "clean" $ do
@@ -782,7 +1073,20 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         cmd_ (Cwd "haskell-shim") Shell $ "rm -rf dist-newstyle/build/*/" ++ ghcTag ++ "/aletheia-*/f/aletheia-ffi"
 
         putInfo "Building FFI shared library..."
-        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j" "aletheia-ffi"
+        -- UR-3.3: pass -ffile-prefix-map through to GHC's C compiler so any
+        -- C-side debug info / __FILE__ embeddings strip the build-host path.
+        -- Cannot use the bare `-fdebug-prefix-map` GHC flag here — that was
+        -- only added to GHC in 9.10, and we pin 9.6.7 (see MANIFEST.txt).
+        --
+        -- Same-host reproducibility was verified empirically WITHOUT this flag
+        -- (R18 cluster 3: two clean builds → bit-identical libaletheia-ffi.so),
+        -- so the flag is defense-in-depth against future GHC C-side embeds /
+        -- enabling debug info on a downstream rebuild.  C++ binding gets the
+        -- equivalent flag in cpp/CMakeLists.txt.
+        repoRoot <- liftIO getCurrentDirectory
+        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j"
+            ("--ghc-options=-optc-ffile-prefix-map=" ++ repoRoot ++ "=.")
+            "aletheia-ffi"
 
         -- Find and copy the built .so file
         Stdout soPath <- cmd (Cwd "haskell-shim") Shell

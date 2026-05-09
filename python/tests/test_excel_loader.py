@@ -19,32 +19,13 @@ from openpyxl.workbook import Workbook  # type: ignore[import-untyped]
 
 from aletheia.checks import Check
 from aletheia.excel_loader import (
+    CHECKS_HEADERS,
+    DBC_HEADERS,
+    WHEN_THEN_HEADERS,
     create_template,
     load_checks_from_excel,
     load_dbc_from_excel,
 )
-
-
-# ============================================================================
-# Test helper
-# ============================================================================
-
-_CHECKS_HEADERS = [
-    "Check Name", "Signal", "Condition", "Value", "Min", "Max",
-    "Time (ms)", "Severity",
-]
-
-_WHEN_THEN_HEADERS = [
-    "Check Name", "When Signal", "When Condition", "When Value",
-    "Then Signal", "Then Condition", "Then Value", "Then Min", "Then Max",
-    "Within (ms)", "Severity",
-]
-
-_DBC_HEADERS = [
-    "Message ID", "Message Name", "Extended", "DLC", "Signal", "Start Bit",
-    "Length", "Byte Order", "Signed", "Factor", "Offset", "Min", "Max",
-    "Unit", "Multiplexor", "Multiplex Value",
-]
 
 
 def _make_checks_workbook(
@@ -56,7 +37,7 @@ def _make_checks_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = "Checks"  # type: ignore[union-attr]
-    ws.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
+    ws.append(CHECKS_HEADERS)  # type: ignore[union-attr]
     for row in rows:
         ws.append(row)  # type: ignore[union-attr]
     p = tmp_path / filename
@@ -73,7 +54,7 @@ def _make_when_then_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = "When-Then"  # type: ignore[union-attr]
-    ws.append(_WHEN_THEN_HEADERS)  # type: ignore[union-attr]
+    ws.append(WHEN_THEN_HEADERS)  # type: ignore[union-attr]
     for row in rows:
         ws.append(row)  # type: ignore[union-attr]
     p = tmp_path / filename
@@ -90,7 +71,7 @@ def _make_dbc_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = "DBC"  # type: ignore[union-attr]
-    ws.append(_DBC_HEADERS)  # type: ignore[union-attr]
+    ws.append(DBC_HEADERS)  # type: ignore[union-attr]
     for row in rows:
         ws.append(row)  # type: ignore[union-attr]
     p = tmp_path / filename
@@ -517,7 +498,7 @@ class TestCreateTemplate:
         wb = openpyxl.load_workbook(p)
         ws = wb["DBC"]
         headers = [cell.value for cell in ws[1]]
-        assert headers == _DBC_HEADERS
+        assert headers == DBC_HEADERS
         wb.close()
 
     def test_checks_headers(self, tmp_path: Path) -> None:
@@ -527,7 +508,7 @@ class TestCreateTemplate:
         wb = openpyxl.load_workbook(p)
         ws = wb["Checks"]
         headers = [cell.value for cell in ws[1]]
-        assert headers == _CHECKS_HEADERS
+        assert headers == CHECKS_HEADERS
         wb.close()
 
     def test_when_then_headers(self, tmp_path: Path) -> None:
@@ -537,7 +518,7 @@ class TestCreateTemplate:
         wb = openpyxl.load_workbook(p)
         ws = wb["When-Then"]
         headers = [cell.value for cell in ws[1]]
-        assert headers == _WHEN_THEN_HEADERS
+        assert headers == WHEN_THEN_HEADERS
         wb.close()
 
     def test_headers_bold(self, tmp_path: Path) -> None:
@@ -667,7 +648,7 @@ class TestLoadErrors:
         wb = Workbook()
         ws = wb.active
         ws.title = "DBC"  # type: ignore[union-attr]
-        ws.append(_DBC_HEADERS)  # type: ignore[union-attr]
+        ws.append(DBC_HEADERS)  # type: ignore[union-attr]
         p = tmp_path / "empty.xlsx"
         wb.save(str(p))
         with pytest.raises(ValueError, match="at least one data row"):
@@ -697,13 +678,13 @@ class TestLoadFromFile:
         wb = Workbook()
         ws_checks = wb.active
         ws_checks.title = "Checks"  # type: ignore[union-attr]
-        ws_checks.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
+        ws_checks.append(CHECKS_HEADERS)  # type: ignore[union-attr]
         ws_checks.append(  # type: ignore[union-attr]
             [None, "Speed", "never_exceeds", 220, None, None, None, None],
         )
 
         ws_wt = wb.create_sheet("When-Then")
-        ws_wt.append(_WHEN_THEN_HEADERS)
+        ws_wt.append(WHEN_THEN_HEADERS)
         ws_wt.append(
             [None, "Brake", "exceeds", 50, "BrakeLight", "equals",
              1, None, None, 100, None],
@@ -757,7 +738,7 @@ def test_empty_row_skipped_in_checks(tmp_path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Checks"  # type: ignore[union-attr]
-    ws.append(_CHECKS_HEADERS)  # type: ignore[union-attr]
+    ws.append(CHECKS_HEADERS)  # type: ignore[union-attr]
     ws.append(  # type: ignore[union-attr]
         [None, "Speed", "never_exceeds", 220, None, None, None, None],
     )

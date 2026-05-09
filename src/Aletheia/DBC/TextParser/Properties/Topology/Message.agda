@@ -69,12 +69,9 @@ open import Aletheia.DBC.TextParser.Format.Message using (messageHeaderFmt)
 open import Aletheia.DBC.TextParser.Format.SignalLine using (signalLineFmt)
 
 open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (SuffixStops; ∷-stop)
+  (SuffixStops; ∷-stop; bind-just-step; advancePositions-++; showNat-chars-head)
 open import Aletheia.DBC.TextParser.Format.Receivers.Roundtrip using
   (isReceiverCont)
-
-open import Aletheia.DBC.TextParser.DecRatParse.Properties using
-  (bind-just-step; advancePositions-++; showNat-chars-head)
 open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common using
   (digitChar-not-isHSpace)
 open import Aletheia.DBC.TextParser.Properties.Preamble.Newline using

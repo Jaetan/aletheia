@@ -65,7 +65,6 @@ open import Data.Char using (Char)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Product using (_×_; _,_)
-open import Data.String using (String)
 open import Data.Unit using (⊤; tt)
 
 open import Aletheia.Parser.Combinators using

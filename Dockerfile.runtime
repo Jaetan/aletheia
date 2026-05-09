@@ -10,7 +10,14 @@
 # Or use the Shake target:
 #   cabal run shake -- docker
 
-FROM python:3.13-slim
+#
+# CICD-5.5: base image pinned by SHA-256 digest, not floating tag.  The tag
+# part stays for human readability; Docker resolves by the digest after `@`.
+# Refresh procedure (do this on a release-cut commit):
+#   docker manifest inspect python:3.13-slim       # multi-arch index digest
+# The digest below is the OCI multi-arch manifest list at last refresh —
+# pinning by digest makes `docker build` bit-reproducible at the base layer.
+FROM python:3.13-slim@sha256:a0779d7c12fc20be6ec6b4ddc901a4fd7657b8a6bc9def9d3fde89ed5efe0a3d
 
 # Only non-default system dependency
 RUN apt-get update && \

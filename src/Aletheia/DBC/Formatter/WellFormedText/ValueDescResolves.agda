@@ -10,7 +10,7 @@
 --
 -- Wiring (Plan B, 2026-05-07): `DBC.unresolvedValueDescs` carries entries
 -- whose `(canId, signalName)` did not resolve against `messages`.
--- `WellFormedDBC.unresolved-empty` requires this list to be empty for the
+-- `WellFormedTextDBCAgg.unresolved-empty` requires this list to be empty for the
 -- text-roundtrip universal in `Substrate/Unsafe.agda` to close.  CHECK 23
 -- in the validator walks `DBC.unresolvedValueDescs` and emits one
 -- `UnknownValueDescriptionTarget` warning per entry.

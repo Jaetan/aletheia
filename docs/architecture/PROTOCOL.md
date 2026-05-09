@@ -979,6 +979,64 @@ Used in responses for exact representation.
 
 ---
 
+## Limits
+
+Every parser at a trust boundary enforces explicit upper bounds on adversarial inputs. Rejection over the bound is a typed `InputBoundExceeded` error carrying the offending kind, the observed value, and the canonical limit it crossed; never a crash, never an OOM, never a stalled stream.
+
+The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/Limits.agda`); each binding mirrors the same constants in its native error-type surface.
+
+### Bound constants
+
+| Bound | Limit | Kind code |
+|---|---:|---|
+| Total DBC text input | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
+| Total JSON input (FFI boundary) | 64 MiB (67,108,864 bytes) | `input_length_bytes` |
+| JSON nesting depth | 64 | `nesting_depth` |
+| Messages per DBC file | 10,000 | `array_cardinality` |
+| Signals per single message | 1,024 | `array_cardinality` |
+| Attribute defs / assignments per file | 10,000 | `array_cardinality` |
+| Value descriptions per file (`VAL_` + `VAL_TABLE_`) | 1,000,000 | `array_cardinality` |
+| LTL atoms per property | 1,024 | `atom_count` |
+| DBC identifier length | 128 chars | `identifier_length` |
+| Quoted-string body length | 64 KiB (65,536 bytes) | `string_length` |
+| CAN frame payload bytes | 64 (CAN-FD max) | `frame_byte_count` |
+
+### Wire shape
+
+`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with one of the codes below, matching the `BoundKind` enum in `Aletheia.Limits`:
+
+| Code | Bound |
+|---|---|
+| `parse_input_bound_exceeded` | JSON parser-side bound (any kind) |
+| `dbc_text_input_bound_exceeded` | DBC text parser-side bound (any kind) |
+| `frame_input_bound_exceeded` | Frame-decoder bound (`FrameByteCount`) |
+
+The `message` field embeds the kind label, observed value, and limit. Example:
+
+```
+<<< {"status": "error", "code": "parse_input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864"}
+```
+
+### Two-layer enforcement
+
+Per AGENTS.md universal rule "Adversarial-input bounds at parser surfaces", bounds are enforced **twice**:
+
+1. **Agda kernel** — definitive. `Aletheia.Limits.max-*` constants are checked at the parser entry inside the verified core; the typed `InputBoundExceeded` error flows out via the protocol `Response`.
+2. **Per-binding FFI entry** — short-circuit. Python `aletheia.InputBoundExceededError`, Go `*aletheia.InputBoundExceededError`, and C++ `aletheia::InputBoundExceededError` reject oversize inputs before marshaling them across the FFI boundary, so a 100 MB JSON does not allocate buffers in the binding before being rejected.
+
+The two layers must agree on the numeric limits; cross-binding regression tests verify this.
+
+### Updating bounds
+
+Bounds are intentionally generous (commercial automotive DBCs are 1-10 MiB, ~6× headroom). If your inputs legitimately exceed a bound:
+
+1. Surface the bound and the legitimate input size in an issue or PR.
+2. Update `Aletheia.Limits.max-*` (single source of truth).
+3. Mirror the constant in each binding's reject-on-FFI-entry guard.
+4. Update this table.
+
+---
+
 ## Error Handling
 
 ### Common Errors

@@ -58,7 +58,7 @@ open import Data.Char using (Char) renaming (_≟_ to _≟ᶜ_)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.List using (List; []; _∷_)
 import Data.List.Properties as ListProps
-open import Data.Product using (_,_)
+open import Data.Product using (_,_; proj₁; proj₂)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Nat using (ℕ; zero; suc)
 open import Aletheia.DBC.DecRat using (DecRat; mkDecRat; fromℤ)
@@ -67,7 +67,6 @@ open import Aletheia.DBC.DecRat.Refinement using
    NatDecRat; mkNatDecRatFromℕ)
 open import Aletheia.DBC.TextParser.DecRatParse using
   (parseDecRat; parseIntDecRat; parseNatDecRat)
-open import Data.String as String using (String)
 open import Relation.Nullary.Decidable using (⌊_⌋)
 
 open import Aletheia.Parser.Combinators using
@@ -77,8 +76,6 @@ open import Aletheia.DBC.TextParser.Lexer using
   (parseIdentifier; parseStringLit; parseWS; parseWSOpt; parseNewline;
    parseNatural)
 open import Aletheia.DBC.TextParser.Topology.Foundations using (buildCANId)
-
-open import Data.Product using (proj₁; proj₂)
 
 open import Aletheia.DBC.TextParser.Format using (parse)
 open import Aletheia.DBC.TextParser.Format.AttrDef using

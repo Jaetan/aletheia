@@ -38,6 +38,7 @@
 #include <aletheia/enrich.hpp>     // IWYU pragma: export
 #include <aletheia/error.hpp>      // IWYU pragma: export
 #include <aletheia/excel.hpp>      // IWYU pragma: export
+#include <aletheia/limits.hpp>     // IWYU pragma: export
 #include <aletheia/log.hpp>        // IWYU pragma: export
 #include <aletheia/ltl.hpp>        // IWYU pragma: export
 #include <aletheia/response.hpp>   // IWYU pragma: export

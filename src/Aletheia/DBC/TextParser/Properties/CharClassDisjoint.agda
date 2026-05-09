@@ -60,6 +60,8 @@ open import Aletheia.DBC.TextFormatter.Emitter
   using (showInt-chars; showNat-chars; digitChar)
 open import Aletheia.DBC.TextParser.DecRatParse.Properties
   using (headOr; showNat-chars-head)
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
+  using (digitChar-not-isHSpace)
 
 -- ============================================================================
 -- IDENTIFIER-CLASS DISJOINTNESS WITH WS / NEWLINE
@@ -125,28 +127,6 @@ isIdentCont→¬isNewlineStart c h with c ≈ᵇ '\n' in eq1 | c ≈ᵇ '\r' in 
 -- ============================================================================
 -- DIGIT-CHAR / SHOWINT HEAD NON-HSPACE
 -- ============================================================================
-
--- Local copy of the 10-case + suc-chain pattern from
--- `Format/ValueTable.agda` and `Format/EnvVar.agda`.  Every closed digit
--- char (`'0'..'9'`) reduces to `false` against `isHSpace`'s `_≟_`-vs-`' '`
--- and `_≟_`-vs-`'\t'` checks; the `_ → '0'` fall-through case in
--- `digitChar` collapses to the same closed reduction.  The suc-chain on
--- the catch-all is required because `digitChar`'s pattern match goes
--- 0..9 explicitly.
-private
-  digitChar-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
 
 -- `showInt-chars z`'s head char is non-hspace.  Two-case dispatch on ℤ
 -- sign: positive uses `showNat-chars-head` to expose the head as

@@ -28,6 +28,114 @@ if(ALETHEIA_CLANG_TIDY)
 endif()
 
 # ---------------------------------------------------------------------------
+# Sanitizer lanes (R18 cluster 5 — Cat 33a, advisor option (d))
+# ---------------------------------------------------------------------------
+#
+# Plan (d) per cluster 5 architectural choice: ASan against C++ unit tests
+# that don't load libaletheia-ffi.so (MockBackend-only), plus UBSan against
+# every test target including those that DO load the .so.  ASan and the
+# GHC RTS conflict on signal handlers and shadow-memory layout — the gap is
+# documented in docs/architecture/CGO_NOTES.md, not papered over.  UBSan
+# tolerates the foreign runtime and catches signed-overflow / shift /
+# null-deref UB on the C++ side regardless of the FFI load state.
+#
+# Enable with one of:
+#   cmake -B build-asan   -DALETHEIA_SANITIZER=address
+#   cmake -B build-ubsan  -DALETHEIA_SANITIZER=undefined
+#   cmake -B build-tsan   -DALETHEIA_SANITIZER=thread
+#
+# Use a separate build directory per sanitizer — sanitizer flags are not
+# safe to mix on the same archive.
+set(ALETHEIA_SANITIZER "" CACHE STRING
+    "Sanitizer lane: address | undefined | thread (empty = off)")
+
+set(ALETHEIA_SANITIZER_FLAGS "")
+if(ALETHEIA_SANITIZER STREQUAL "address")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=address -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
+    set(ALETHEIA_SANITIZER_FLAGS
+        -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined)
+elseif(ALETHEIA_SANITIZER STREQUAL "thread")
+    set(ALETHEIA_SANITIZER_FLAGS -fsanitize=thread -fno-omit-frame-pointer)
+elseif(ALETHEIA_SANITIZER)
+    message(FATAL_ERROR
+        "ALETHEIA_SANITIZER='${ALETHEIA_SANITIZER}' invalid; "
+        "use one of: address, undefined, thread (or unset).")
+endif()
+
+if(ALETHEIA_SANITIZER_FLAGS)
+    message(STATUS "Sanitizer lane: ${ALETHEIA_SANITIZER}")
+    # Apply a sanitizer ignorelist so vendored third-party UB (zippy.hpp
+    # inside OpenXLSX) doesn't trip our own UBSan lane.  Aletheia code
+    # stays fully instrumented; only the specific paths listed in
+    # sanitizer-ignorelist.txt are exempt.  See cpp/sanitizer-ignorelist.txt
+    # for the per-entry rationale.
+    #
+    # -fsanitize-ignorelist= is a clang feature; g++ has no equivalent.
+    # When the sanitizer lane is configured under g++, third-party UB in
+    # OpenXLSX/zippy will surface — use clang for the canonical sanitizer
+    # build (matches the libFuzzer lane's clang requirement).
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(ALETHEIA_SAN_IGNORE "${CMAKE_CURRENT_SOURCE_DIR}/sanitizer-ignorelist.txt")
+        list(APPEND ALETHEIA_SANITIZER_FLAGS
+            "-fsanitize-ignorelist=${ALETHEIA_SAN_IGNORE}")
+    else()
+        message(WARNING
+            "ALETHEIA_SANITIZER set under ${CMAKE_CXX_COMPILER_ID}; "
+            "third-party UB in OpenXLSX/zippy will surface (g++ lacks "
+            "-fsanitize-ignorelist=).  Use clang for clean sanitizer runs: "
+            "-DCMAKE_CXX_COMPILER=clang++")
+    endif()
+    add_compile_options(${ALETHEIA_SANITIZER_FLAGS})
+    add_link_options(${ALETHEIA_SANITIZER_FLAGS})
+endif()
+
+# ---------------------------------------------------------------------------
+# Mutation testing (R18 cluster 7 / Cat 14(g))
+# ---------------------------------------------------------------------------
+# Opt-in via -DALETHEIA_MUTATION=ON.  When enabled, the Mull IR-pass plugin
+# is attached to the aletheia-cpp library + unit_tests target ONLY (NOT to
+# Catch2 / OpenXLSX / yaml-cpp / nlohmann_json — third-party code with heavy
+# templates triggers compiler crashes under the plugin, and we don't care
+# about their mutation score anyway).
+#
+# Build into a dedicated directory so the instrumented artifacts are not
+# mixed with the standard build:
+#
+#   cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+#         -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19
+#   cmake --build build-mutation --target unit_tests
+#   mull-runner-19 ./build-mutation/unit_tests
+#
+# Requires Mull-19 (LLVM 19) installed (see docs/operations/MUTATION.md §
+# Installation) and clang-19 from the apt repo.  Mull's IR pass uses LLVM
+# version-specific APIs, so the compiler version MUST match the Mull binary
+# version (mull-ir-frontend-19 ↔ clang-19; the next Mull release will be
+# Mull-20 ↔ clang-20).  -O0 -g is mandatory: optimisations elide AST nodes
+# Mull would otherwise mutate, debug info pins source locations in the
+# survivor report.  ALETHEIA_MUTATION_FLAGS is consumed by the per-target
+# target_compile_options() calls below (next to the add_library /
+# add_executable definitions for aletheia-cpp + unit_tests).
+option(ALETHEIA_MUTATION "Build aletheia-cpp + unit_tests with Mull IR pass plugin" OFF)
+set(ALETHEIA_MUTATION_FLAGS "")
+if(ALETHEIA_MUTATION)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR
+            "ALETHEIA_MUTATION requires clang-19 (got ${CMAKE_CXX_COMPILER_ID}); "
+            "use a separate build dir: -DCMAKE_C_COMPILER=clang-19 "
+            "-DCMAKE_CXX_COMPILER=clang++-19")
+    endif()
+    set(MULL_PLUGIN "$ENV{HOME}/.local/bin/mull-ir-frontend-19")
+    if(NOT EXISTS "${MULL_PLUGIN}")
+        message(FATAL_ERROR
+            "Mull IR pass plugin not found at ${MULL_PLUGIN}; "
+            "install Mull-19 per docs/operations/MUTATION.md § Installation")
+    endif()
+    message(STATUS "Mutation lane: -fpass-plugin=${MULL_PLUGIN} (aletheia-cpp + unit_tests only)")
+    set(ALETHEIA_MUTATION_FLAGS -fpass-plugin=${MULL_PLUGIN} -g -O0)
+endif()
+
+# ---------------------------------------------------------------------------
 # Dependencies (fetched, not exported to consumers)
 # ---------------------------------------------------------------------------
 
@@ -96,6 +204,31 @@ target_include_directories(aletheia-cpp
     PRIVATE src)
 
 target_compile_features(aletheia-cpp PUBLIC cxx_std_23)
+
+# R18 cluster 7 — apply Mull IR pass plugin to aletheia-cpp ONLY when
+# ALETHEIA_MUTATION=ON.  The plugin would crash clang on Catch2's heavy
+# templates if applied globally; per-target keeps it scoped to the code we
+# actually want to mutate.
+if(ALETHEIA_MUTATION)
+    target_compile_options(aletheia-cpp PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+endif()
+
+# UR-3.3 (Reproducible build verification): strip the build-host absolute path
+# from __FILE__ macros and any debug info embedded in the library, so binaries
+# produced from /home/$USER/aletheia on different hosts are byte-identical.
+# Defense-in-depth — Release builds don't currently emit DWARF that would carry
+# host paths, but the flag prevents future regression if anyone enables -g.
+# GCC and Clang both support -ffile-prefix-map (covers -fdebug-prefix-map +
+# -fmacro-prefix-map) since GCC 8 / Clang 10.
+#
+# NOT applied when ALETHEIA_MUTATION=ON: Mull-19's IR pass crashes (clang
+# exit 139) when -ffile-prefix-map is in the flag list.  The mutation lane
+# uses `cpp/build-mutation/` exclusively and is dev-only (never shipped),
+# so reproducibility doesn't apply there.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT ALETHEIA_MUTATION)
+    target_compile_options(aletheia-cpp PRIVATE
+        "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+endif()
 
 target_link_libraries(aletheia-cpp
     PRIVATE dl
@@ -184,10 +317,21 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         tests/unit_tests_check.cpp
         tests/unit_tests_dbc.cpp
         tests/unit_tests_log.cpp
-        tests/unit_tests_cancel.cpp)
+        tests/unit_tests_cancel.cpp
+        tests/unit_tests_input_bounds.cpp
+        tests/unit_tests_property.cpp)
     target_include_directories(unit_tests PRIVATE src)
     target_link_libraries(unit_tests
         PRIVATE aletheia-cpp nlohmann_json::nlohmann_json Catch2::Catch2WithMain)
+    # Mutation lane: instrument unit_tests sources too (the test logic
+    # itself is part of the operational surface — a test that asserts "x
+    # > 0" but is mutated to "x >= 0" should still pass against any
+    # surviving production mutant).  Catch2 stays uninstrumented because
+    # of compiler crashes on its templates; aletheia-cpp + this target
+    # are the actual mutation surface.
+    if(ALETHEIA_MUTATION)
+        target_compile_options(unit_tests PRIVATE ${ALETHEIA_MUTATION_FLAGS})
+    endif()
     add_test(NAME unit_tests COMMAND unit_tests)
 
     # Layer 3: Integration tests (real .so, Catch2, threads for concurrent test)
@@ -232,6 +376,31 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME feature_matrix_tests COMMAND feature_matrix_tests)
 
+    # Layer 6b: Cross-binding log-event parity test (yaml-cpp + aletheia-cpp,
+    # Catch2). Reads docs/LOG_EVENTS.yaml, runs a comprehensive mock-backend
+    # workflow capturing LogRecord events, and asserts each emitted event is
+    # a member of the canonical name set. The "missing mechanism" gate added
+    # alongside R18 cluster 10's surface fix (Go's rogue dbc.text_parsed event).
+    add_executable(log_events_tests tests/test_log_events_parity.cpp)
+    target_include_directories(log_events_tests PRIVATE src)
+    target_link_libraries(log_events_tests
+        PRIVATE aletheia-cpp yaml-cpp::yaml-cpp Catch2::Catch2WithMain)
+    target_compile_definitions(log_events_tests
+        PRIVATE ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    add_test(NAME log_events_tests COMMAND log_events_tests)
+
+    # R18 cluster 5 — Cat 33d cross-binding integration. Counterpart of
+    # python/tests/test_cross_binding_integration.py and
+    # go/aletheia/cross_binding_integration_test.go.  No shared corpus or
+    # golden output — each binding asserts its own response against the
+    # documented PROTOCOL.md shape.
+    add_executable(cross_binding_integration_tests
+        tests/test_cross_binding_integration.cpp)
+    target_link_libraries(cross_binding_integration_tests
+        PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    add_test(NAME cross_binding_integration_tests
+        COMMAND cross_binding_integration_tests)
+
     # Layer 7: Track D.1 doc-example harness (R17-DEF-6).
     #
     # Mirror of python/tests/test_doc_examples_harness.py + repo-root
@@ -252,6 +421,17 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(doc_example_tests tests/doc_example_tests.cpp)
     target_link_libraries(doc_example_tests
         PRIVATE aletheia-cpp Catch2::Catch2WithMain)
+    # When the parent build is sanitizer-instrumented, propagate the flag
+    # to per-fence subprocess compiles so the link to libaletheia-cpp.a
+    # resolves the sanitizer runtime's __ubsan_handle_* / __asan_* symbols.
+    set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "")
+    if(ALETHEIA_SANITIZER STREQUAL "address")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=address")
+    elseif(ALETHEIA_SANITIZER STREQUAL "undefined")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=undefined")
+    elseif(ALETHEIA_SANITIZER STREQUAL "thread")
+        set(ALETHEIA_DOC_SANITIZER_FLAG_VALUE "-fsanitize=thread")
+    endif()
     target_compile_definitions(doc_example_tests
         PRIVATE
             ALETHEIA_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -260,8 +440,40 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             ALETHEIA_DOC_LIB_FILE="$<TARGET_FILE:aletheia-cpp>"
             ALETHEIA_DOC_YAML_LIB="$<TARGET_FILE:yaml-cpp::yaml-cpp>"
             ALETHEIA_DOC_OPENXLSX_LIB="$<TARGET_FILE:OpenXLSX::OpenXLSX>"
-            ALETHEIA_DOC_CXX_STD="23")
+            ALETHEIA_DOC_CXX_STD="23"
+            ALETHEIA_DOC_SANITIZER_FLAG="${ALETHEIA_DOC_SANITIZER_FLAG_VALUE}")
     add_test(NAME doc_example_tests COMMAND doc_example_tests)
+
+    # R18 cluster 5 — Cat 33b libFuzzer harnesses.  Opt-in via
+    # -DALETHEIA_FUZZ=ON because the harnesses require clang with
+    # -fsanitize=fuzzer, which is incompatible with gcc-built artifacts in
+    # the same build dir.  Build in a separate directory:
+    #   cmake -B build-fuzz -DALETHEIA_FUZZ=ON \
+    #       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    #   cmake --build build-fuzz --target fuzz_parse_response
+    # Run a corpus pass (60s smoke):
+    #   ./build-fuzz/fuzz_parse_response -max_total_time=60 \
+    #       cpp/tests/fuzz/seed/parse_response/
+    option(ALETHEIA_FUZZ "Build libFuzzer harnesses" OFF)
+    if(ALETHEIA_FUZZ)
+        if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            message(FATAL_ERROR
+                "ALETHEIA_FUZZ requires clang (got ${CMAKE_CXX_COMPILER_ID}); "
+                "use a separate build dir: -DCMAKE_C_COMPILER=clang "
+                "-DCMAKE_CXX_COMPILER=clang++")
+        endif()
+        foreach(target_name parse_response decode_binary_frame parse_dbc_json
+                            parse_rational_number)
+            add_executable(fuzz_${target_name}
+                tests/fuzz/fuzz_${target_name}.cpp)
+            target_link_libraries(fuzz_${target_name} PRIVATE aletheia-cpp)
+            target_compile_options(fuzz_${target_name}
+                PRIVATE -fsanitize=fuzzer,address,undefined
+                        -fno-omit-frame-pointer)
+            target_link_options(fuzz_${target_name}
+                PRIVATE -fsanitize=fuzzer,address,undefined)
+        endforeach()
+    endif()
 
     # Benchmark (uses real FFI backend — requires libaletheia-ffi.so at runtime,
     # loaded via dlopen. The CMake build will succeed without the .so, but the
@@ -269,7 +481,13 @@ if(BUILD_TESTING AND CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # Haskell shim first with `cabal run shake -- build` from the repo root.)
     add_executable(benchmark benchmarks/benchmark.cpp)
     target_link_libraries(benchmark PRIVATE aletheia-cpp nlohmann_json::nlohmann_json)
+
+    # Stability benchmark (R18 cluster 6 / C++ cat 26 long-run leak detection).
+    # Same dlopen/.so requirement as `benchmark`.  Output is JSON to stdout.
+    add_executable(stability_bench benchmarks/stability_bench.cpp)
+    target_link_libraries(stability_bench PRIVATE aletheia-cpp)
+
     message(STATUS
-        "benchmark target requires libaletheia-ffi.so at runtime — "
+        "benchmark + stability_bench targets require libaletheia-ffi.so at runtime — "
         "build the Haskell shim first with `cabal run shake -- build`")
 endif()

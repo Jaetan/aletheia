@@ -64,7 +64,6 @@ open import Aletheia.DBC.TextFormatter.Attributes using
   ( collectDefs
   ; nthLabel
   )
-open import Aletheia.DBC.TextFormatter.Attributes as FmtAttrs using ()
 open import Aletheia.DBC.TextParser.TopLevel using
   ( TopStmt; TSValueTable; TSMessage; TSEnvVar; TSComment
   ; TSAttribute; TSSignalGroup

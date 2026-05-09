@@ -22,7 +22,6 @@ open import Data.Product using (_×_; _,_)
 open import Data.Bool using (if_then_else_)
 open import Data.Vec using (Vec)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
-open import Data.Rational using (ℚ)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.JSONParser using (parseDBCWithErrors)
 open import Aletheia.DBC.Validator using (validateDBCFull; hasAnyError; formatIssuesText; errorIssues; warningIssues)
@@ -112,7 +111,7 @@ open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 
 -- Parse property list (extracted from where-block for proof access)
 parseAllProperties : StreamState → DBC → List JSON → ℕ → List PropertyState → StreamState × Response
-parseAllProperties _ dbc [] idx acc =
+parseAllProperties _ dbc [] _ acc =
   (ReadyToStream dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
 parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
 ... | nothing = (state , Response.Error (WithContext "SetProperties" (HandlerErr (PropertyParseFailed idx))))
@@ -124,7 +123,7 @@ parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response
-handleSetProperties propJSONs WaitingForDBC =
+handleSetProperties _ WaitingForDBC =
   (WaitingForDBC , Response.Error (WithContext "SetProperties" (HandlerErr NoDBC)))
 handleSetProperties propJSONs state@(ReadyToStream dbc _ _) =
   parseAllProperties state dbc propJSONs 0 []

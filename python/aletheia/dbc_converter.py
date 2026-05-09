@@ -15,8 +15,9 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 
 from pathlib import Path
 
-from .client import AletheiaClient
+from .client import AletheiaClient, InputBoundExceededError
 from .client._helpers import dump_json
+from .limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
 from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 
@@ -32,6 +33,8 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
     Raises:
         OSError: If the file cannot be read.
         ValueError: If the file is not a valid DBC.
+        InputBoundExceededError: If the file is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).
 
     Note:
         Each call starts a temporary ``AletheiaClient`` (GHC RTS init) just
@@ -39,7 +42,15 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         conversions. For tight loops, drive ``parse_dbc_text`` on a
         long-lived ``AletheiaClient`` directly instead.
     """
-    text = Path(dbc_path).read_text(encoding="utf-8")
+    path = Path(dbc_path)
+    file_size = path.stat().st_size
+    if file_size > MAX_DBC_TEXT_BYTES:
+        raise InputBoundExceededError(
+            BOUND_KIND_INPUT_LENGTH_BYTES,
+            file_size,
+            MAX_DBC_TEXT_BYTES,
+        )
+    text = path.read_text(encoding="utf-8")
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
     if response["status"] == "error":

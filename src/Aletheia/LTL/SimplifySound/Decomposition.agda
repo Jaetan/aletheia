@@ -26,7 +26,6 @@ module Aletheia.LTL.SimplifySound.Decomposition where
 open import Aletheia.Prelude
 open import Data.Bool using (T)
 open import Data.Bool.Properties using (T-∧)
-open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (subst; cong₂)
 open import Data.Nat using (_⊔_)
 open import Data.Nat.Properties using (≡ᵇ⇒≡)
@@ -41,7 +40,6 @@ open import Aletheia.LTL.Incremental using (
   StepResult; Continue; Violated; Satisfied;
   FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.SignalPredicate using (TruthVal; True; False; Unknown; Pending)
-open import Aletheia.Trace.CANTrace using (TimedFrame)
 open import Aletheia.LTL.Adequacy using (runL; verdictToSV)
 
 -- ============================================================================

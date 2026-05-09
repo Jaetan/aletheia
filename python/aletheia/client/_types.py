@@ -50,6 +50,32 @@ class ProtocolError(AletheiaError):
     """
 
 
+class InputBoundExceededError(AletheiaError):
+    """Raised when an input exceeds an adversarial-input bound.
+
+    Mirrors the Agda ``InputBoundExceeded`` constructor on
+    ``ParseError`` / ``DBCTextParseError`` / ``FrameError``.  Attributes
+    carry the bound kind (e.g. ``"input_length_bytes"``), the observed
+    value, and the canonical limit per :mod:`aletheia.limits`.
+
+    The Go and C++ bindings expose the equivalent type
+    (``*aletheia.InputBoundExceededError`` / ``aletheia::InputBoundExceededError``);
+    keep the three surfaces in sync.
+    """
+
+    kind:     str
+    observed: int
+    limit:    int
+
+    def __init__(self, kind: str, observed: int, limit: int,
+                 code: str | None = None) -> None:
+        message = f"{kind} {observed} exceeds limit {limit}"
+        super().__init__(message, code=code)
+        self.kind = kind
+        self.observed = observed
+        self.limit = limit
+
+
 class BatchError(AletheiaError):
     """Raised by send_frames / send_frames_iter when a frame fails or is cancelled mid-batch.
 

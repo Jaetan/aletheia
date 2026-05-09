@@ -46,17 +46,17 @@ standardCanIdMax = AgdaCANConst.d_standard'45'can'45'id'45'max_6
 extendedCanIdMax = AgdaCANConst.d_extended'45'can'45'id'45'max_8
 
 -- | Construct MAlonzo CANId from raw C values, validating bounds.
--- The proof argument (T (n <ᵇ max)) is unsafeCoerce () — valid because we
--- just confirmed the bound and MAlonzo compiles tt to a nullary ctor.
+-- The proof field on Standard/Extended is `.(…)` irrelevant in Agda — MAlonzo
+-- erases it, so the constructor takes only the numeric ID.
 mkAgdaCanId :: Word32 -> Word8 -> Either String AgdaFrame.T_CANId_8
 mkAgdaCanId canId extended
     | extended /= 0 =
         if toInteger canId < extendedCanIdMax
-        then Right $ AgdaFrame.C_Extended_16 (toInteger canId) (unsafeCoerce ())
+        then Right $ AgdaFrame.C_Extended_16 (toInteger canId)
         else Left $ "extended CAN ID " ++ show canId ++ " out of range (max " ++ show (extendedCanIdMax - 1) ++ ")"
     | otherwise =
         if toInteger canId < standardCanIdMax
-        then Right $ AgdaFrame.C_Standard_12 (toInteger canId) (unsafeCoerce ())
+        then Right $ AgdaFrame.C_Standard_12 (toInteger canId)
         else Left $ "standard CAN ID " ++ show canId ++ " out of range (max " ++ show (standardCanIdMax - 1) ++ ")"
 
 -- | Convert a list of Word8 to MAlonzo Vec Byte n (linked-list shape).

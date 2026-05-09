@@ -1,43 +1,64 @@
 #!/usr/bin/env python3
-"""
-Simplification Stress Benchmark
+"""Simplification Stress Benchmark.
 
 Tests whether Rosu formula simplification keeps the formula tree bounded
 for different LTL formula patterns. Measures FPS at increasing trace lengths
 to detect tree growth (FPS degradation = tree growth).
 
 Formula categories tested:
-  - Simple safety:    G(p)                  (Always absorption fires)
-  - Compound safety:  G(p ∧ q ∧ r)         (And inside Always)
-  - Implication:      G(p → q)             (Or/Not inside Always)
-  - Liveness:         F(p)                  (Eventually, p keeps failing)
-  - Infinitely often: G(F(p))              (nested Always/Eventually)
-  - Stability:        F(G(p))              (nested Eventually/Always)
-  - Until (atomic):   p U q                (q keeps failing, p succeeds)
-  - Until (temporal): G(p) U q             (temporal inner, stress test)
-  - Release (atomic): p R q               (dual of Until)
-  - Bounded response: G(p → q within 100) (implication + MetricEventually)
-  - Multi-property:   5× independent G(pᵢ) (parallel evaluation)
+
+- Simple safety:    G(p)                  (Always absorption fires)
+- Compound safety:  G(p ∧ q ∧ r)         (And inside Always)
+- Implication:      G(p → q)             (Or/Not inside Always)
+- Liveness:         F(p)                  (Eventually, p keeps failing)
+- Infinitely often: G(F(p))              (nested Always/Eventually)
+- Stability:        F(G(p))              (nested Eventually/Always)
+- Until (atomic):   p U q                (q keeps failing, p succeeds)
+- Until (temporal): G(p) U q             (temporal inner, stress test)
+- Release (atomic): p R q               (dual of Until)
+- Bounded response: G(p → q within 100) (implication + MetricEventually)
+- Multi-property:   5× independent G(pᵢ) (parallel evaluation)
 
 Usage:
     python3 simplification.py [--quick] [--json]
 """
 
+from __future__ import annotations
+
 import argparse
-import json
 import sys
 import time
-from datetime import datetime, timezone
+from typing import Callable, IO, TypedDict
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient, Signal
 from aletheia.dsl import infinitely_often, eventually_always
+from aletheia.protocols import (
+    DBCDefinition, LTLFormula, ReleaseFormula, UntilFormula,
+)
+
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from ._common import (
-    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
-    get_rss_mb, get_system_info, load_dbc,
+    CAN20_SPEC,
+    emit_json_report, get_rss_mb, load_dbc,
 )
+
+
+class _FormulaResult(TypedDict):
+    """One row of the simplification-stress table (per-formula across trace sizes)."""
+
+    formula: str
+    fps: dict[str, float]
+    ratio_last_first: float
+    rss_mb: float
+
+
+class _SimplificationReport(TypedDict):
+    """JSON-report payload combining the size sweep with per-formula rows."""
+
+    trace_sizes: list[int]
+    formulas: list[_FormulaResult]
 
 # Timestamp spacing: 10 time-units per frame.
 # Metric windows use the same unit, so within(1000) = 100 frames.
@@ -54,12 +75,12 @@ TS_STEP = 10
 #   between(-40, 215) → True    less_than(50)   → False
 #   less_than(8000)   → True    greater_than(3000) → False
 
-def simple_safety() -> list[dict]:
+def simple_safety() -> list[LTLFormula]:
     """G(speed ∈ [0,8000]) — Always absorption fires every frame."""
     return [Signal("EngineSpeed").between(0, 8000).always().to_dict()]
 
 
-def compound_safety() -> list[dict]:
+def compound_safety() -> list[LTLFormula]:
     """G(speed ∈ [0,8000] ∧ temp ∈ [-40,215]) — And inside Always."""
     p = Signal("EngineSpeed").between(0, 8000).and_(
         Signal("EngineTemp").between(-40, 215)
@@ -67,40 +88,48 @@ def compound_safety() -> list[dict]:
     return [p.to_dict()]
 
 
-def implication_safety() -> list[dict]:
+def implication_safety() -> list[LTLFormula]:
     """G(speed < 1000 → temp < 100) — Or/Not inside Always.
-    Antecedent is False (speed=2000), so implication trivially True each frame."""
+
+    Antecedent is False (speed=2000), so implication trivially True each frame.
+    """
     p = Signal("EngineSpeed").less_than(1000).implies(
         Signal("EngineTemp").less_than(100)
     ).always()
     return [p.to_dict()]
 
 
-def simple_liveness() -> list[dict]:
+def simple_liveness() -> list[LTLFormula]:
     """F(speed > 3000) — Eventually; predicate stays False, formula self-loops."""
     return [Signal("EngineSpeed").greater_than(3000).eventually().to_dict()]
 
 
-def infinitely_often_pattern() -> list[dict]:
+def infinitely_often_pattern() -> list[LTLFormula]:
     """G(F(speed > 3000)) — Nested Always/Eventually.
-    Eventually never resolves (speed=2000), Always wraps it."""
+
+    Eventually never resolves (speed=2000), Always wraps it.
+    """
     p = infinitely_often(Signal("EngineSpeed").greater_than(3000))
     return [p.to_dict()]
 
 
-def stability_pattern() -> list[dict]:
+def stability_pattern() -> list[LTLFormula]:
     """F(G(speed < 8000)) — Nested Eventually/Always.
-    Always(speed<8000) succeeds immediately, so Eventually resolves at first frame."""
+
+    Always(speed<8000) succeeds immediately, so Eventually resolves at first frame.
+    """
     p = eventually_always(Signal("EngineSpeed").less_than(8000))
     return [p.to_dict()]
 
 
-def until_atomic() -> list[dict]:
+def until_atomic() -> list[LTLFormula]:
     """(speed < 8000) U (temp < 50) — Until with atomic predicates.
+
     LHS True (2000<8000), RHS False (90≮50). Until stays active.
-    Atomic predicates resolve immediately → no tree growth."""
-    # Build Until directly via JSON (Until of raw predicates)
-    p: dict = {
+    Atomic predicates resolve immediately → no tree growth.
+    """
+    # Build Until directly via TypedDict (Until of raw predicates)
+    p: UntilFormula = {
         "operator": "until",
         "left": Signal("EngineSpeed").less_than(8000).to_formula(),
         "right": Signal("EngineTemp").less_than(50).to_formula(),
@@ -108,11 +137,13 @@ def until_atomic() -> list[dict]:
     return [p]
 
 
-def until_temporal() -> list[dict]:
+def until_temporal() -> list[LTLFormula]:
     """G(speed < 8000) U (temp < 50) — Until with temporal inner formula.
+
     G(speed<8000) returns Continue (Always self-loop), temp<50 stays False.
-    Tests whether And-And idempotency keeps the tree bounded."""
-    p: dict = {
+    Tests whether And-And idempotency keeps the tree bounded.
+    """
+    p: UntilFormula = {
         "operator": "until",
         "left": Signal("EngineSpeed").less_than(8000).always().to_dict(),
         "right": Signal("EngineTemp").less_than(50).to_formula(),
@@ -120,10 +151,12 @@ def until_temporal() -> list[dict]:
     return [p]
 
 
-def release_atomic() -> list[dict]:
+def release_atomic() -> list[LTLFormula]:
     """(temp < 50) R (speed < 8000) — Release with atomic predicates.
-    LHS False (90≮50), RHS True (2000<8000). Release stays active."""
-    p: dict = {
+
+    LHS False (90≮50), RHS True (2000<8000). Release stays active.
+    """
+    p: ReleaseFormula = {
         "operator": "release",
         "left": Signal("EngineTemp").less_than(50).to_formula(),
         "right": Signal("EngineSpeed").less_than(8000).to_formula(),
@@ -131,9 +164,11 @@ def release_atomic() -> list[dict]:
     return [p]
 
 
-def bounded_response() -> list[dict]:
+def bounded_response() -> list[LTLFormula]:
     """G(speed > 3000 → temp < 50 within 100) — implication + metric.
-    Antecedent False (speed=2000), so MetricEventually never activates."""
+
+    Antecedent False (speed=2000), so MetricEventually never activates.
+    """
     inner = Signal("EngineSpeed").greater_than(3000).implies(
         Signal("EngineTemp").less_than(50).within(100)
     )
@@ -141,10 +176,12 @@ def bounded_response() -> list[dict]:
     return [p.to_dict()]
 
 
-def bounded_response_active() -> list[dict]:
+def bounded_response_active() -> list[LTLFormula]:
     """G(speed < 8000 → temp < 50 within 1000) — implication + metric.
+
     Antecedent True (speed=2000), MetricEventually activates but temp<50 never
-    holds, so window expires and Violated. Tests metric operator churn."""
+    holds, so window expires and Violated. Tests metric operator churn.
+    """
     inner = Signal("EngineSpeed").less_than(8000).implies(
         Signal("EngineTemp").less_than(50).within(1000)
     )
@@ -152,7 +189,7 @@ def bounded_response_active() -> list[dict]:
     return [p.to_dict()]
 
 
-def multi_property() -> list[dict]:
+def multi_property() -> list[LTLFormula]:
     """5 independent G(pᵢ) properties — parallel formula evaluation."""
     return [
         Signal("EngineSpeed").between(0, 8000).always().to_dict(),
@@ -163,10 +200,12 @@ def multi_property() -> list[dict]:
     ]
 
 
-def nested_until() -> list[dict]:
+def nested_until() -> list[LTLFormula]:
     """(speed < 8000 U temp < 50) ∧ G(speed < 8000) — Until + parallel Always.
-    Tests interaction of Until accumulation with Always absorption."""
-    until: dict = {
+
+    Tests interaction of Until accumulation with Always absorption.
+    """
+    until: UntilFormula = {
         "operator": "until",
         "left": Signal("EngineSpeed").less_than(8000).to_formula(),
         "right": Signal("EngineTemp").less_than(50).to_formula(),
@@ -179,7 +218,7 @@ def nested_until() -> list[dict]:
 # Benchmark runner
 # ============================================================================
 
-FORMULAS: list[tuple[str, callable]] = [
+FORMULAS: list[tuple[str, Callable[[], list[LTLFormula]]]] = [
     ("G(p)              simple safety", simple_safety),
     ("G(p∧q)            compound safety", compound_safety),
     ("G(p→q)            implication", implication_safety),
@@ -196,12 +235,9 @@ FORMULAS: list[tuple[str, callable]] = [
 ]
 
 
-def bench_formula(
-    dbc: dict,
-    properties: list[dict],
-    num_frames: int,
-) -> float:
+def bench_formula(dbc: DBCDefinition, properties: list[LTLFormula], num_frames: int) -> float:
     """Run a single benchmark. Returns frames/sec."""
+    spec = CAN20_SPEC
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         client.set_properties(properties)
@@ -211,9 +247,7 @@ def bench_formula(
         for i in range(num_frames):
             client.send_frame(
                 timestamp=i * TS_STEP,
-                can_id=CAN20_CAN_ID,
-                dlc=CAN20_DLC,
-                data=CAN20_FRAME,
+                can_id=spec.can_id, dlc=spec.dlc, data=spec.payload,
             )
         elapsed = time.perf_counter() - start
 
@@ -222,7 +256,27 @@ def bench_formula(
     return num_frames / elapsed
 
 
+def _run_one_formula(
+    label: str, make_props: Callable[[], list[LTLFormula]],
+    dbc: DBCDefinition, sizes: list[int], file: IO[str],
+) -> _FormulaResult:
+    """Sweep one formula across all trace sizes; print + return one row."""
+    properties = make_props()
+    fps_values = [bench_formula(dbc, properties, size) for size in sizes]
+    rss = get_rss_mb()
+    ratio = fps_values[-1] / fps_values[0] if fps_values[0] > 0 else 0
+    fps_strs = "".join(f"{fps:>10,.0f}" for fps in fps_values)
+    print(f"{label:<30}{fps_strs}{ratio:>7.2f}x{rss:>7.1f}", file=file)
+    return {
+        "formula": label.strip(),
+        "fps": {f"{s // 1000}k": round(fps, 1) for s, fps in zip(sizes, fps_values)},
+        "ratio_last_first": round(ratio, 3),
+        "rss_mb": round(rss, 1),
+    }
+
+
 def main() -> int:
+    """CLI entry point — sweep every FORMULAS row across trace sizes."""
     parser = argparse.ArgumentParser(description="Simplification stress benchmark")
     parser.add_argument("--quick", action="store_true", help="Fewer frames")
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
@@ -246,34 +300,14 @@ def main() -> int:
     print(file=out)
 
     # Header
-    size_headers = "".join(f"{'%dk' % (s // 1000):>10}" for s in sizes)
+    size_headers = "".join(f"{f'{s // 1000}k':>10}" for s in sizes)
     print(f"{'Formula':<30}{size_headers}{'Ratio':>8}{'RSS MB':>8}", file=out)
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
 
-    all_results = []
-
-    for label, make_props in FORMULAS:
-        properties = make_props()
-
-        fps_values = []
-        for size in sizes:
-            fps = bench_formula(dbc, properties, size)
-            fps_values.append(fps)
-
-        rss = get_rss_mb()
-
-        # Ratio: last / first (< 1.0 means degradation)
-        ratio = fps_values[-1] / fps_values[0] if fps_values[0] > 0 else 0
-
-        fps_strs = "".join(f"{fps:>10,.0f}" for fps in fps_values)
-        print(f"{label:<30}{fps_strs}{ratio:>7.2f}x{rss:>7.1f}", file=out)
-
-        all_results.append({
-            "formula": label.strip(),
-            "fps": {f"{s // 1000}k": round(fps, 1) for s, fps in zip(sizes, fps_values)},
-            "ratio_last_first": round(ratio, 3),
-            "rss_mb": round(rss, 1),
-        })
+    all_results = [
+        _run_one_formula(label, make_props, dbc, sizes, out)
+        for label, make_props in FORMULAS
+    ]
 
     print("-" * (30 + 10 * len(sizes) + 16), file=out)
     print(file=out)
@@ -282,15 +316,8 @@ def main() -> int:
     print("RSS is max RSS after each formula's runs (monotonically increasing).", file=out)
 
     if args.json:
-        output = {
-            "benchmark": "simplification",
-            "language": "python",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system": get_system_info(),
-            "trace_sizes": sizes,
-            "results": all_results,
-        }
-        print(json.dumps(output, indent=2))
+        report: _SimplificationReport = {"trace_sizes": sizes, "formulas": all_results}
+        emit_json_report("simplification", report)
 
     return 0
 

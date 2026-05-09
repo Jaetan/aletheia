@@ -6,9 +6,8 @@
 -- Proved by case analysis on the Dec used in each check function.
 module Aletheia.DBC.Validity.ErrorChecks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
-open import Aletheia.DBC.Types using (DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero

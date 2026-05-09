@@ -1,0 +1,60 @@
+# GHA infrastructure checks — meta-gates that have no offline equivalent.
+#
+# Aletheia's CI is local-first (see docs/development/CI_LOCAL.md): the
+# correctness sweep runs offline via tools/run_ci.py + the pre-push hook.
+# This workflow is intentionally narrow — it verifies the GHA infrastructure
+# itself (workflow YAML lint, action-pin policy, workflow-permissions
+# hygiene) and does NOT duplicate the offline correctness gates.
+#
+# Three jobs run in parallel.  Total wall-clock ~1-2 min on `ubuntu-latest`.
+
+name: GHA infrastructure checks
+
+on:
+  push:
+  pull_request:
+
+# Read-only by default; override per-job only if needed.
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Lint workflow YAML (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: '1.7.7'
+        run: |
+          set -euo pipefail
+          curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          chmod +x actionlint
+          ./actionlint --version
+
+      - name: Run actionlint
+        run: ./actionlint -color
+
+  action-pins:
+    name: Verify action-pin policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run check_action_pins.py
+        run: tools/check_action_pins.py
+
+  permissions-check:
+    name: Verify minimal workflow permissions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run check_workflow_permissions.py
+        run: tools/check_workflow_permissions.py

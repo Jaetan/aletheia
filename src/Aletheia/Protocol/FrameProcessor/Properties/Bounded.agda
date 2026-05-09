@@ -106,47 +106,52 @@ private
   shift-< []       ys k< = k<
   shift-< (x ∷ xs) ys k< = s≤s (shift-< xs ys k<)
 
+  -- Binary-constructor counter step. Six binary LTL constructors
+  -- (And/Or/Until/Release/MetricUntil/MetricRelease) all share the same
+  -- 3-rewrite + +-swap-sum chain on indexHelper-counter; this helper
+  -- consumes the two IHs once so each clause becomes a one-line dispatcher.
+  binary-counter-step : ∀ (φ ψ : LTL SignalPredicate) n
+    → proj₂ (indexHelper φ n) ≡ length (flattenAtoms φ) + n
+    → proj₂ (indexHelper ψ (length (flattenAtoms φ) + n))
+        ≡ length (flattenAtoms ψ) + (length (flattenAtoms φ) + n)
+    → proj₂ (indexHelper ψ (proj₂ (indexHelper φ n)))
+        ≡ length (flattenAtoms φ ++ₗ flattenAtoms ψ) + n
+  binary-counter-step φ ψ n ihφ ihψ =
+    trans (cong (λ k → proj₂ (indexHelper ψ k)) ihφ)
+          (trans ihψ
+                 (trans (+-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n)
+                        (cong (_+ n) (sym (length-++ (flattenAtoms φ) {flattenAtoms ψ})))))
+
+  -- Binary-constructor accumulator-spec step. Same six binary LTL
+  -- constructors share the same 2-rewrite + ++-assoc chain on
+  -- collectAtomsAcc-spec; this helper consumes the two IHs once.
+  binary-acc-spec-step : ∀ (φ ψ : LTL SignalPredicate) acc
+    → collectAtomsAcc ψ acc ≡ flattenAtoms ψ ++ₗ acc
+    → collectAtomsAcc φ (flattenAtoms ψ ++ₗ acc)
+        ≡ flattenAtoms φ ++ₗ (flattenAtoms ψ ++ₗ acc)
+    → collectAtomsAcc φ (collectAtomsAcc ψ acc)
+        ≡ (flattenAtoms φ ++ₗ flattenAtoms ψ) ++ₗ acc
+  binary-acc-spec-step φ ψ acc ihψ ihφ =
+    trans (cong (collectAtomsAcc φ) ihψ)
+          (trans ihφ (sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)))
+
 -- Counter increment equals atom count.
 indexHelper-counter : ∀ (φ : LTL SignalPredicate) n
   → proj₂ (indexHelper φ n) ≡ length (flattenAtoms φ) + n
 indexHelper-counter (Atomic _) n            = refl
 indexHelper-counter (Not φ) n               = indexHelper-counter φ n
-indexHelper-counter (And φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
-indexHelper-counter (Or φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (And φ ψ) n             = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
+indexHelper-counter (Or φ ψ) n              = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
 indexHelper-counter (Next φ) n              = indexHelper-counter φ n
 indexHelper-counter (WNext φ) n             = indexHelper-counter φ n
 indexHelper-counter (Always φ) n            = indexHelper-counter φ n
 indexHelper-counter (Eventually φ) n        = indexHelper-counter φ n
-indexHelper-counter (Until φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
-indexHelper-counter (Release φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (Until φ ψ) n           = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
+indexHelper-counter (Release φ ψ) n         = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
 indexHelper-counter (MetricEventually _ _ φ) n = indexHelper-counter φ n
 indexHelper-counter (MetricAlways _ _ φ) n     = indexHelper-counter φ n
-indexHelper-counter (MetricUntil _ _ φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
-indexHelper-counter (MetricRelease _ _ φ ψ) n
-  rewrite indexHelper-counter φ n
-  | indexHelper-counter ψ (length (flattenAtoms φ) + n)
-  | length-++ (flattenAtoms φ) {flattenAtoms ψ}
-  = +-swap-sum (length (flattenAtoms φ)) (length (flattenAtoms ψ)) n
+indexHelper-counter (MetricUntil _ _ φ ψ) n = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
+indexHelper-counter (MetricRelease _ _ φ ψ) n = binary-counter-step φ ψ n (indexHelper-counter φ n) (indexHelper-counter ψ (length (flattenAtoms φ) + n))
 
 -- Per-index correctness: each atom index maps to the right predicate.
 -- Faithful atoms φ n holds when every Atomic k assigned by indexHelper φ n
@@ -224,36 +229,18 @@ faithful-gen ga (MetricRelease _ _ φ ψ) n hyp =
 collectAtomsAcc-spec : ∀ φ acc → collectAtomsAcc φ acc ≡ flattenAtoms φ ++ₗ acc
 collectAtomsAcc-spec (Atomic _) acc           = refl
 collectAtomsAcc-spec (Not φ) acc              = collectAtomsAcc-spec φ acc
-collectAtomsAcc-spec (And φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
-collectAtomsAcc-spec (Or φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (And φ ψ) acc            = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
+collectAtomsAcc-spec (Or φ ψ) acc             = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
 collectAtomsAcc-spec (Next φ) acc             = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (WNext φ) acc            = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (Always φ) acc           = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (Eventually φ) acc       = collectAtomsAcc-spec φ acc
-collectAtomsAcc-spec (Until φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
-collectAtomsAcc-spec (Release φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (Until φ ψ) acc          = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
+collectAtomsAcc-spec (Release φ ψ) acc        = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
 collectAtomsAcc-spec (MetricEventually _ _ φ) acc = collectAtomsAcc-spec φ acc
 collectAtomsAcc-spec (MetricAlways _ _ φ) acc     = collectAtomsAcc-spec φ acc
-collectAtomsAcc-spec (MetricUntil _ _ φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
-collectAtomsAcc-spec (MetricRelease _ _ φ ψ) acc
-  rewrite collectAtomsAcc-spec ψ acc
-  | collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc)
-  = sym (++-assoc (flattenAtoms φ) (flattenAtoms ψ) acc)
+collectAtomsAcc-spec (MetricUntil _ _ φ ψ) acc = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
+collectAtomsAcc-spec (MetricRelease _ _ φ ψ) acc = binary-acc-spec-step φ ψ acc (collectAtomsAcc-spec ψ acc) (collectAtomsAcc-spec φ (flattenAtoms ψ ++ₗ acc))
 
 -- collectAtoms is exactly flattenAtoms.
 collectAtoms-is-flattenAtoms : ∀ φ → collectAtoms φ ≡ flattenAtoms φ

@@ -1,6 +1,10 @@
 # Build artifacts
 build/
 build-tidy/
+build-asan/
+build-ubsan/
+build-fuzz/
+build-mutation/
 _build/
 dist/
 dist-newstyle/
@@ -77,6 +81,19 @@ c.log
 # can track *_baseline.json while still ignoring volatile per-run *.json.
 go/benchmarks/benchmark
 cpp/build/
+# benchmarks/stability/<short-sha>/ artifacts (R18 cluster 6 stability
+# bench).  Per-commit RSS / FD / heap-profile dumps are volatile run state;
+# the spec lives in docs/STABILITY_BENCH.yaml and the harnesses live
+# alongside the other benchmarks.
+benchmarks/stability/
+# benchmarks/mutation/<short-sha>/ artifacts (R18 cluster 7 mutation
+# testing).  Per-commit per-binding survivor JSON + raw tool logs; the spec
+# lives in docs/MUTATION_BENCH.yaml.
+benchmarks/mutation/
+# mutmut 3.x writes its trampoline cache + per-mutant artifacts to
+# python/mutants/ (or .mutmut-cache); both are large and regenerated.
+python/mutants/
+python/.mutmut-cache
 
 # Generated install config
 python/aletheia/_install_config.py

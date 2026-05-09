@@ -56,20 +56,31 @@ class RTSState:
         """
         with cls._lock:
             if not cls.initialized:
-                lib.hs_init.argtypes = [
+                # Use hs_init_with_rtsopts so callers can pass arbitrary RTS
+                # flags (e.g., -hT for heap profiling, -p for time profiling)
+                # regardless of the shared library's link-time -rtsopts level
+                # (which has no effect for native-shared libraries per the
+                # GHC linker).
+                init_fn = lib.hs_init_with_rtsopts
+                init_fn.argtypes = [
                     ctypes.POINTER(ctypes.c_int),
                     ctypes.POINTER(ctypes.POINTER(ctypes.c_char_p)),
                 ]
-                lib.hs_init.restype = None
-                if rts_cores > 1:
-                    args = [b"aletheia", b"+RTS",
-                            b"-N" + str(rts_cores).encode(), b"-RTS"]
+                init_fn.restype = None
+                extra_rts = os.environ.get("ALETHEIA_RTS_OPTS", "").split()
+                if rts_cores > 1 or extra_rts:
+                    args: list[bytes] = [b"aletheia", b"+RTS"]
+                    if rts_cores > 1:
+                        args.append(b"-N" + str(rts_cores).encode())
+                    for flag in extra_rts:
+                        args.append(flag.encode("ascii"))
+                    args.append(b"-RTS")
                 else:
                     args = [b"aletheia"]
                 argc = ctypes.c_int(len(args))
                 argv = (ctypes.c_char_p * len(args))(*args)
                 argv_ptr = ctypes.cast(argv, ctypes.POINTER(ctypes.c_char_p))
-                lib.hs_init(ctypes.byref(argc), ctypes.byref(argv_ptr))
+                init_fn(ctypes.byref(argc), ctypes.byref(argv_ptr))
                 cls.lib = lib
                 cls.cores = rts_cores
                 cls.initialized = True

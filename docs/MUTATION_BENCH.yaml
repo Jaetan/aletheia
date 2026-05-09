@@ -1,0 +1,163 @@
+# Mutation Testing — per-binding SSOT (R18 cluster 7).
+#
+# Single source of truth for the mutation lane.  AGENTS.md cat 14(g) gives the
+# tooling and the canonical hot-path module list per binding; this file pins
+# the actual on-disk paths (which drift from AGENTS.md prose when modules are
+# split — e.g. Python `client.py` lives at `aletheia/client/_client.py` after
+# the protocols split, `dbc_loader.py` was subsumed by `dbc_converter.py` and
+# `yaml_loader.py`).
+#
+# Static gate (`tools/check_mutation_setup.py`) verifies, for every binding,
+# that the listed hot-path source files exist on disk.  Dynamic runner
+# (`tools/mutation_run.py`) drives the per-binding tool against this list and
+# archives the per-binding survivor count to `benchmarks/mutation/<short-sha>/`.
+# Drift gate compares observed survivor count to the per-binding `baseline`
+# below; new survivors above baseline = lane fails.
+#
+# Threshold model (advisor 2026-05-09): per-binding survivor BASELINE recorded
+# here.  AGENTS.md cat 14(g) says "an unjustified survivor is a test gap";
+# survivors above baseline are NEW findings, not cluster 7 deliverables.  The
+# initial population of this file is "infrastructure complete + baseline run".
+# Eliminating the baseline survivors is a separate follow-up backlog (per
+# advisor 2026-05-09: "cluster 7 scope is infrastructure, not survivor
+# elimination").
+#
+# Forward-revert verification protocol (cluster 5/6 pattern):
+#   1. Static gate: rename a hot-path file in this YAML to a non-existent
+#      path → `tools/check_mutation_setup.py` fires with precise diagnostic.
+#   2. Drift gate: introduce a redundant assertion that mutmut/Mull can
+#      invert without breaking tests → next dynamic run records survivor
+#      count > baseline → lane fails.
+
+bindings:
+
+  python:
+    tool: mutmut
+    version: ">=3.5,<4"
+    install: |
+      python/.venv/bin/pip install 'mutmut>=3.5,<4'
+    hot_path:
+      # AGENTS.md cat 14(g) Python list, mapped to actual on-disk paths.
+      - python/aletheia/client/_client.py    # was AGENTS.md `client.py`; protocols split moved it
+      - python/aletheia/dbc_converter.py
+      - python/aletheia/yaml_loader.py       # AGENTS.md `dbc_loader.py` was renamed/split
+      - python/aletheia/validation.py        # NEW from Track E.11 (CHECK 23 IssueCode mirror)
+      - python/aletheia/protocols.py
+    config:
+      # mutmut 3.x reads `[tool.mutmut]` from pyproject.toml in the cwd.
+      # See python/pyproject.toml for the actual config (`paths_to_mutate`,
+      # `tests_dir`, etc.).
+      pyproject_section: "tool.mutmut"
+    invocation: |
+      cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut run
+    report: |
+      cd python && ALETHEIA_LIB=$PWD/../build/libaletheia-ffi.so .venv/bin/mutmut results
+    baseline:
+      # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch).
+      # 496 surviving mutants out of 1478 total — concentrated in
+      # `aletheia/client/_client.py` and `aletheia/protocols.py` (boilerplate
+      # type definitions and inert API surface).  Each surviving mutant is
+      # itself a candidate finding (per AGENTS.md cat 14(g) "an unjustified
+      # survivor is a test gap").  Eliminating the survivors is a separate
+      # follow-up backlog; this baseline pins the floor against regression.
+      survivors: 496
+      total_mutants: 1478
+      score_pct: 65
+      run_at: "2026-05-09"
+
+  go:
+    # AGENTS.md cat 14(g) names `gomut` / `go-mutesting` / `mutate` as the Go
+    # mutation tools.  zimmski/go-mutesting's last commit was 2021 and panics
+    # on Go 1.26's go/types internals; avito-tech's fork doesn't resolve
+    # multi-file packages cleanly.  `gremlins` (go-gremlins/gremlins) is the
+    # actively-maintained successor; it covers the same mutation operators
+    # and works on Go 1.26.  Documented as a substitution from AGENTS.md
+    # cat 14(g) — same intent (per-binding mutation lane on Go hot-path).
+    tool: gremlins
+    install: |
+      go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+    hot_path:
+      # AGENTS.md cat 14(g) Go list, with substitutions for renamed/split files:
+      # AGENTS.md `protocol.go` → actual `json.go` (request/response protocol marshaling)
+      # AGENTS.md `frame.go`    → actual `enrich.go` (per-frame violation enrichment)
+      - go/aletheia/client.go
+      - go/aletheia/dbc.go
+      - go/aletheia/json.go      # substitute for AGENTS.md `protocol.go`
+      - go/aletheia/ffi.go       # matches AGENTS.md `ffi_*.go`
+      - go/aletheia/ffi_nocgo.go # matches AGENTS.md `ffi_*.go`
+      - go/aletheia/enrich.go    # substitute for AGENTS.md `frame.go`
+    config: {}
+    invocation: |
+      cd go && gremlins unleash ./aletheia
+    report: |
+      # gremlins writes mutation summary to stdout: total runnable mutants,
+      # killed, lived (survived), not-covered.  Runner parses tail summary.
+    baseline:
+      # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch).
+      # Zero survivors — every runnable mutant is killed by the existing
+      # test suite.  120 "Not covered" mutants are on lines without test
+      # coverage (gremlins counts them separately from runnable; see
+      # AGENTS.md cat 14(g) "an unjustified survivor is a test gap").
+      # The ZERO-survivor baseline is the strictest possible; any new
+      # survivor on a future commit fails the lane.
+      survivors: 0
+      total_mutants: 662
+      score_pct: 100
+      run_at: "2026-05-09"
+
+  cpp:
+    tool: mull
+    version: "0.33.0 LLVM-19"
+    install: |
+      # mull-runner-19, mull-reporter-19, mull-ir-frontend-19 from the Mull-19
+      # release deb (matches LLVM 19.1.7 / clang-19 already installed via
+      # apt).  Local extract to ~/.local/bin avoids needing sudo:
+      #   curl -fsSLO https://github.com/mull-project/mull/releases/download/0.33.0/Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb
+      #   mkdir -p /tmp/mull-extract
+      #   dpkg-deb -x Mull-19-0.33.0-LLVM-19.1.7-debian-amd64-13.deb /tmp/mull-extract
+      #   cp /tmp/mull-extract/usr/bin/mull-{runner,reporter}-19 ~/.local/bin/
+      #   cp /tmp/mull-extract/usr/lib/mull-ir-frontend-19      ~/.local/bin/
+      # clang-19 from the Debian apt repo:
+      #   sudo apt install clang-19
+    hot_path:
+      # AGENTS.md cat 14(g) C++ list: `cpp/src/*.cpp` — Mull mutates all of
+      # them via the `-fpass-plugin` clang option in the dedicated build tree.
+      # `mock_backend.cpp` and `types.cpp` excluded (test-only / type defs).
+      - cpp/src/backend.cpp
+      - cpp/src/client.cpp
+      - cpp/src/dbc.cpp
+      - cpp/src/enrich.cpp
+      - cpp/src/excel.cpp
+      - cpp/src/ffi_backend.cpp
+      - cpp/src/json_parse.cpp
+      - cpp/src/json_serialize.cpp
+      - cpp/src/yaml.cpp
+    config:
+      build_dir: cpp/build-mutation
+      cmake_flag: ALETHEIA_MUTATION
+      compiler: clang-19
+      ir_plugin: ~/.local/bin/mull-ir-frontend-19
+      runner: mull-runner-19
+    invocation: |
+      cd cpp && cmake -B build-mutation -DALETHEIA_MUTATION=ON \
+        -DCMAKE_C_COMPILER=clang-19 -DCMAKE_CXX_COMPILER=clang++-19 \
+        > /dev/null && \
+        cmake --build build-mutation && \
+        mull-runner-19 ./build-mutation/unit_tests
+    report: |
+      # mull-runner-19 prints a per-mutant table to stdout; runner parses
+      # the "Surviving mutants: N" / "Mutation score: P%" summary at the
+      # tail.  Killed count derived from survived + score_pct.
+    baseline:
+      # Established 2026-05-09 on cluster 7 ship commit (review-r18 branch,
+      # post-cluster-6 head).  17 surviving mutants distributed across
+      # `cpp/src/{json_parse.cpp,json_serialize.cpp,client.cpp,...}` —
+      # see `benchmarks/mutation/<short-sha>/cpp.raw.txt` from a fresh
+      # `tools/run_ci.py --mutation` for the per-line list.  Each
+      # surviving mutant is itself a candidate finding (per AGENTS.md cat
+      # 14(g) "an unjustified survivor is a test gap"); they are tracked
+      # individually as follow-up backlog and addressed in their own PRs.
+      survivors: 17
+      total_mutants: 39
+      score_pct: 56
+      run_at: "2026-05-09"

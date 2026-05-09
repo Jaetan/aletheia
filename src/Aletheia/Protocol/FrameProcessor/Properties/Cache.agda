@@ -13,7 +13,6 @@
 -- `Aletheia.Protocol.StreamState.Internals` — they do NOT touch
 -- `handleDataFrame` or `stepL`.
 module Aletheia.Protocol.FrameProcessor.Properties.Cache where
-open import Aletheia.DBC.Types using (signalNameStr)
 open import Aletheia.DBC.Identifier using
     (Identifier; _≡csᵇ_; ≡csᵇ-sound; ≡csᵇ-false→≢; ≡csᵇ-refl-eq)
 

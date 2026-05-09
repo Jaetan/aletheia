@@ -26,6 +26,8 @@ from typing import cast
 import pytest
 import yaml
 
+from _yaml_shape import as_str_object_dict
+
 _VALID_STATUSES: frozenset[str] = frozenset(
     {"implemented", "not_applicable", "planned"}
 )
@@ -35,24 +37,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MATRIX_PATH = _REPO_ROOT / "docs" / "FEATURE_MATRIX.yaml"
 
 
-def _as_str_object_dict(value: object, context: str) -> dict[str, object]:
-    """Validate that ``value`` is a dict with string keys; cast and return it."""
-    assert isinstance(value, dict), (
-        f"{context}: expected mapping, got {type(value).__name__}"
-    )
-    narrowed: dict[object, object] = cast("dict[object, object]", value)
-    for key in narrowed:
-        assert isinstance(key, str), (
-            f"{context}: non-string key {key!r} in mapping"
-        )
-    return cast("dict[str, object]", value)
-
-
 def _load_matrix() -> list[dict[str, object]]:
     """Load and return the matrix's features list with minimal shape guarantees."""
     with _MATRIX_PATH.open("r", encoding="utf-8") as fh:
         raw: object = yaml.safe_load(fh)
-    root = _as_str_object_dict(raw, "FEATURE_MATRIX.yaml root")
+    root = as_str_object_dict(raw, "FEATURE_MATRIX.yaml root")
     features_raw: object = root.get("features")
     assert isinstance(features_raw, list), (
         "FEATURE_MATRIX.yaml must contain a 'features' list"
@@ -61,7 +50,7 @@ def _load_matrix() -> list[dict[str, object]]:
     assert narrowed_list, "FEATURE_MATRIX.yaml 'features' list is empty"
     validated: list[dict[str, object]] = []
     for idx, feat in enumerate(narrowed_list):
-        validated.append(_as_str_object_dict(feat, f"features[{idx}]"))
+        validated.append(as_str_object_dict(feat, f"features[{idx}]"))
     return validated
 
 
@@ -120,10 +109,10 @@ def test_feature_schema(feature: dict[str, object]) -> None:
     description = _get_str(feature, "description")
     assert description and description.strip(), f"{fid}: missing description"
 
-    bindings = _as_str_object_dict(feature.get("bindings"), f"{fid}.bindings")
+    bindings = as_str_object_dict(feature.get("bindings"), f"{fid}.bindings")
 
     for binding_name in _BINDINGS:
-        binding = _as_str_object_dict(
+        binding = as_str_object_dict(
             bindings.get(binding_name), f"{fid}.{binding_name}"
         )
 
@@ -152,17 +141,17 @@ def _is_python_implemented(feature: dict[str, object]) -> bool:
     bindings = feature.get("bindings")
     if not isinstance(bindings, dict):
         return False
-    bindings_narrowed = _as_str_object_dict(cast("object", bindings), "bindings")
+    bindings_narrowed = as_str_object_dict(cast("object", bindings), "bindings")
     python = bindings_narrowed.get("python")
     if not isinstance(python, dict):
         return False
-    python_narrowed = _as_str_object_dict(cast("object", python), "python")
+    python_narrowed = as_str_object_dict(cast("object", python), "python")
     return _get_str(python_narrowed, "status") == "implemented"
 
 
 def _python_entry(feature: dict[str, object]) -> str:
-    bindings = _as_str_object_dict(feature["bindings"], "bindings")
-    python = _as_str_object_dict(bindings["python"], "python")
+    bindings = as_str_object_dict(feature["bindings"], "bindings")
+    python = as_str_object_dict(bindings["python"], "python")
     entry = _get_str(python, "entry")
     assert entry is not None
     return entry

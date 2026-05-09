@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
+from _canonical_dbc import CANONICAL_DBC, make_dbc
+
 from aletheia import AletheiaClient, Signal
 from aletheia.dsl import Property
 from aletheia.protocols import DBCDefinition
@@ -54,32 +56,7 @@ class CANFrame:
 @pytest.fixture(name="sample_dbc")
 def _sample_dbc() -> DBCDefinition:
     """Sample DBC JSON structure for testing"""
-    return {
-        "version": "1.0",
-        "messages": [
-            {
-                "id": 0x100,
-                "name": "TestMessage",
-                "dlc": 8,
-                "sender": "TestECU",
-                "signals": [
-                    {
-                        "name": "TestSignal",
-                        "startBit": 0,
-                        "length": 16,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 65535.0,
-                        "unit": "",
-                        "presence": "always"
-                    }
-                ]
-            }
-        ]
-    }
+    return make_dbc(msg_id=0x100, sender="TestECU")
 
 
 @pytest.fixture
@@ -88,34 +65,10 @@ def simple_dbc() -> DBCDefinition:
 
     Distinct from ``sample_dbc`` (ID 0x100, sender "TestECU"); ``simple_dbc``
     lives at the canonical ID 256 used by the streaming/lifecycle tests.
-    Kept as a separate fixture so tests can advertise which shape they need.
+    The body lives in ``_canonical_dbc.CANONICAL_DBC`` so the cross-binding
+    integration tests can share the exact wire content (R18 cluster 5).
     """
-    return {
-        "version": "1.0",
-        "messages": [
-            {
-                "id": 256,
-                "name": "TestMessage",
-                "dlc": 8,
-                "sender": "ECU",
-                "signals": [
-                    {
-                        "name": "TestSignal",
-                        "startBit": 0,
-                        "length": 16,
-                        "byteOrder": "little_endian",
-                        "signed": False,
-                        "factor": 1.0,
-                        "offset": 0.0,
-                        "minimum": 0.0,
-                        "maximum": 65535.0,
-                        "unit": "",
-                        "presence": "always",
-                    }
-                ],
-            }
-        ],
-    }
+    return CANONICAL_DBC
 
 
 @pytest.fixture(name="sample_property")

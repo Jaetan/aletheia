@@ -95,20 +95,16 @@ Requires Go 1.24+.
 
 | Package | Version | License |
 |---|---|---|
-| cantools | ≥ 39.0 | MIT |
 | openpyxl | ≥ 3.1 | MIT |
 | **python-can** | **≥ 4.0** | **LGPL-3.0-only** |
 | pyyaml | ≥ 6.0 | MIT |
+
+(cantools was dropped 2026-05-03 in Track B.3.g `2daa2fb` — DBC parsing now goes through the verified Agda kernel via the FFI; no Python dep required.)
 
 ### Transitive dependencies
 
 | Package | License | Pulled in by |
 |---|---|---|
-| argparse-addons | MIT | cantools |
-| bitstruct | MIT | cantools |
-| crccheck | MIT | cantools |
-| diskcache | Apache-2.0 | cantools |
-| textparser | MIT | cantools |
 | et_xmlfile | MIT | openpyxl |
 | packaging | Apache-2.0 / BSD | python-can |
 | typing_extensions | PSF-2.0 | python-can |

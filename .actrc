@@ -1,0 +1,14 @@
+# act configuration — runs .github/workflows/*.yml locally against
+# Docker-backed GitHub Actions runners.  See docs/development/CI_LOCAL.md.
+#
+# Pinned image: catthehacker/ubuntu:act-latest is the "medium" image
+# from the act project's curated list — ~5 GB, includes most common
+# build tools (curl, git, gh, jq, python, node).  The default act
+# image (`node:16-buster-slim`) is too minimal for our workflows,
+# while the "full" 18-GB image is overkill.
+#
+# Bind to linux/amd64 explicitly so Apple Silicon hosts get reproducible
+# behavior (otherwise act invokes arm64 runners which may behave
+# differently from GHA's amd64 runners).
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+--container-architecture linux/amd64

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""
-Throughput Benchmark
+"""Throughput Benchmark.
 
 Measures frames per second through the full Aletheia pipeline:
-Python -> FFI (ctypes) -> Haskell/MAlonzo/Agda -> back
+Python -> FFI (ctypes) -> Haskell/MAlonzo/Agda -> back.
 
 Tests both CAN 2.0B (8-byte) and CAN-FD (64-byte) frames.
 
@@ -11,82 +10,96 @@ Usage:
     python3 throughput.py [--frames N] [--runs N] [--warmup N]
 """
 
+from __future__ import annotations
+
 import argparse
-import json
 import statistics
 import sys
 import time
-from datetime import datetime, timezone
+from typing import Callable, TextIO, TypedDict
 
 # Benchmarks import the *installed* package (``pip install -e .[dev]``) so
 # that any wheel/setuptools shim overhead shows up in the numbers — matches
 # how end users measure Aletheia in production.  Do not reintroduce
 # ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
-from aletheia import AletheiaClient, Signal
-# Shared benchmark vocabulary — DBC loaders, frame constants, system info.
-# Consolidating these in ``_common.py`` keeps the five benchmark scripts
-# from drifting apart; see PY-31-1.
+from aletheia import AletheiaClient
+from aletheia.protocols import DBCDefinition, LTLFormula
+
+# Shared benchmark vocabulary — frame specs, default property bundles, JSON
+# envelope, system info.  Consolidated in ``_common.py`` to keep the suite
+# files thin; see PY-31-1.
 from ._common import (
-    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
-    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
-    get_system_info, load_canfd_dbc, load_dbc,
+    CAN20_SPEC, CANFD_SPEC,
+    BenchmarkConfig,
+    DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
+    FrameSpec,
+    emit_json_report, load_canfd_dbc, load_dbc, run_streaming_benchmark,
 )
 
 
+class _BenchResult(TypedDict):
+    """Stats record for one benchmark scenario × N runs."""
+
+    name: str
+    num_frames: int
+    num_runs: int
+    mean: float
+    stdev: float
+    min: float
+    max: float
+    results: list[float]
+
+
+class _JsonPayload(TypedDict):
+    """JSON-report-shaped projection of a ``_BenchResult`` row."""
+
+    name: str
+    frames: int
+    runs: int
+    fps_mean: float
+    fps_stdev: float
+    fps_min: float
+    fps_max: float
+    us_per_frame: float
+
+
 # ============================================================================
-# Benchmark functions
+# Per-mode benchmark functions — each takes a FrameSpec to keep the
+# parameter list narrow (was 4-5 args; now 3).
 # ============================================================================
 
 def benchmark_streaming(
-    dbc: dict, num_frames: int, *,
-    can_id: int, dlc: int, frame: bytes,
-    properties: list[dict],
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
+    properties: list[LTLFormula],
 ) -> float:
     """Benchmark streaming throughput. Returns frames per second."""
-    with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-        client.set_properties(properties)
-        client.start_stream()
-
-        start = time.perf_counter()
-        for i in range(num_frames):
-            client.send_frame(timestamp=i, can_id=can_id, dlc=dlc, data=frame)
-        elapsed = time.perf_counter() - start
-
-        client.end_stream()
-
-    return num_frames / elapsed
+    fps, _elapsed = run_streaming_benchmark(dbc, num_frames, spec, properties)
+    return fps
 
 
 def benchmark_signal_extraction(
-    dbc: dict, num_frames: int, *,
-    can_id: int, dlc: int, frame: bytes,
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
 ) -> float:
     """Benchmark signal extraction throughput. Returns extractions per second."""
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
-
         start = time.perf_counter()
         for _ in range(num_frames):
-            client.extract_signals(can_id=can_id, dlc=dlc, data=frame)
+            client.extract_signals(can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
         elapsed = time.perf_counter() - start
-
     return num_frames / elapsed
 
 
 def benchmark_frame_building(
-    dbc: dict, num_frames: int, *,
-    can_id: int, dlc: int, signals: dict[str, float],
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
 ) -> float:
     """Benchmark frame building throughput. Returns builds per second."""
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
-
         start = time.perf_counter()
         for _ in range(num_frames):
-            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
+            client.build_frame(can_id=spec.can_id, dlc=spec.dlc, signals=spec.signals)
         elapsed = time.perf_counter() - start
-
     return num_frames / elapsed
 
 
@@ -95,36 +108,86 @@ def benchmark_frame_building(
 # ============================================================================
 
 def run_benchmark(
-    name: str,
-    func,
-    num_frames: int,
-    num_runs: int,
-    warmup_runs: int,
-) -> dict:
+    name: str, func: Callable[[int], float], cfg: BenchmarkConfig,
+) -> _BenchResult:
     """Run a benchmark multiple times and collect statistics."""
-    # Warmup
-    for _ in range(warmup_runs):
-        func(num_frames // 10)  # Smaller warmup
-
-    # Actual runs
-    results = []
-    for _ in range(num_runs):
-        fps = func(num_frames)
-        results.append(fps)
-
+    for _ in range(cfg.warmup_runs):
+        func(cfg.num_frames // 10)  # Smaller warmup
+    results = [func(cfg.num_frames) for _ in range(cfg.num_runs)]
     return {
         "name": name,
-        "num_frames": num_frames,
-        "num_runs": num_runs,
+        "num_frames": cfg.num_frames,
+        "num_runs": cfg.num_runs,
         "mean": statistics.mean(results),
-        "stdev": statistics.stdev(results) if len(results) > 1 else 0,
+        "stdev": statistics.stdev(results) if len(results) > 1 else 0.0,
         "min": min(results),
         "max": max(results),
         "results": results,
     }
 
 
-def main():
+def _build_benchmarks(
+    dbc: DBCDefinition, canfd_dbc: DBCDefinition,
+) -> list[tuple[str, Callable[[int], float]]]:
+    """Build the (name, partial_fn) list driving the benchmark loop.
+
+    Extracted from ``main`` so its local-variable count stays under the
+    pylint ``too-many-locals`` cap; also makes the benchmark inventory
+    easy to spot independently of the run loop.
+    """
+    return [
+        # --- CAN 2.0B ---
+        ("CAN 2.0B: Stream LTL (2 props)", lambda n: benchmark_streaming(
+            dbc, n, CAN20_SPEC, DEFAULT_CAN20_PROPERTIES)),
+        ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(
+            dbc, n, CAN20_SPEC)),
+        ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(
+            dbc, n, CAN20_SPEC)),
+        # --- CAN-FD ---
+        ("CAN-FD:   Stream LTL (3 props)", lambda n: benchmark_streaming(
+            canfd_dbc, n, CANFD_SPEC, DEFAULT_CANFD_PROPERTIES)),
+        ("CAN-FD:   Signal Extraction", lambda n: benchmark_signal_extraction(
+            canfd_dbc, n, CANFD_SPEC)),
+        ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(
+            canfd_dbc, n, CANFD_SPEC)),
+    ]
+
+
+def _print_summary(results: list[_BenchResult], file: TextIO) -> None:
+    """Print the formatted summary table to the given stream."""
+    print("\n" + "=" * 70, file=file)
+    print("Summary", file=file)
+    print("=" * 70, file=file)
+    print(
+        f"{'Benchmark':<35} {'Mean':>12} {'Stdev':>10} {'Min':>10} {'Max':>10}",
+        file=file,
+    )
+    print("-" * 80, file=file)
+    for r in results:
+        print(
+            f"{r['name']:<35} {r['mean']:>10,.0f}/s "
+            + f"{r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}",
+            file=file,
+        )
+    print("=" * 70, file=file)
+
+
+def _to_json_payload(r: _BenchResult) -> _JsonPayload:
+    """Project one ``run_benchmark`` result dict into the JSON-report shape."""
+    return {
+        "name": r["name"],
+        "frames": r["num_frames"],
+        "runs": r["num_runs"],
+        "fps_mean": round(r["mean"], 1),
+        "fps_stdev": round(r["stdev"], 1),
+        "fps_min": round(r["min"], 1),
+        "fps_max": round(r["max"], 1),
+        "us_per_frame": round(1_000_000 / r["mean"], 1) if r["mean"] > 0 else 0,
+    }
+
+
+def main() -> int:
+    """CLI entry point — parse args, run the benchmark suite, emit summary."""
     parser = argparse.ArgumentParser(description="Throughput benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
@@ -132,95 +195,36 @@ def main():
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
     args = parser.parse_args()
 
-    out = sys.stderr if args.json else sys.stdout
+    cfg = BenchmarkConfig(
+        num_frames=args.frames,
+        num_runs=args.runs,
+        warmup_runs=args.warmup,
+        json_output=args.json,
+    )
+    out = sys.stderr if cfg.json_output else sys.stdout
 
     print("=" * 70, file=out)
     print("Aletheia Throughput Benchmark", file=out)
     print("=" * 70, file=out)
-    print(f"Frames per run: {args.frames:,}", file=out)
-    print(f"Runs: {args.runs}", file=out)
-    print(f"Warmup runs: {args.warmup}", file=out)
+    print(f"Frames per run: {cfg.num_frames:,}", file=out)
+    print(f"Runs: {cfg.num_runs}", file=out)
+    print(f"Warmup runs: {cfg.warmup_runs}", file=out)
 
-    dbc = load_dbc()
-    canfd_dbc = load_canfd_dbc()
+    benchmarks = _build_benchmarks(load_dbc(), load_canfd_dbc())
 
-    # CAN 2.0B properties (on EngineStatus message)
-    can20_properties = [
-        Signal("EngineSpeed").between(0, 8000).always().to_dict(),
-        Signal("EngineTemp").between(-40, 215).always().to_dict(),
-    ]
-
-    # CAN-FD properties (on SensorFusion message)
-    canfd_properties = [
-        Signal("GPSSpeed").between(0, 655).always().to_dict(),
-        Signal("YawRate").between(-327, 327).always().to_dict(),
-        Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
-    ]
-
-    benchmarks = [
-        # --- CAN 2.0B ---
-        ("CAN 2.0B: Stream LTL (2 props)", lambda n: benchmark_streaming(
-            dbc, n, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, frame=CAN20_FRAME,
-            properties=can20_properties)),
-        ("CAN 2.0B: Signal Extraction", lambda n: benchmark_signal_extraction(
-            dbc, n, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, frame=CAN20_FRAME)),
-        ("CAN 2.0B: Frame Building", lambda n: benchmark_frame_building(
-            dbc, n, can_id=CAN20_CAN_ID, dlc=CAN20_DLC, signals=CAN20_SIGNALS)),
-
-        # --- CAN-FD ---
-        ("CAN-FD:   Stream LTL (3 props)", lambda n: benchmark_streaming(
-            canfd_dbc, n, can_id=CANFD_CAN_ID, dlc=CANFD_DLC, frame=CANFD_FRAME,
-            properties=canfd_properties)),
-        ("CAN-FD:   Signal Extraction", lambda n: benchmark_signal_extraction(
-            canfd_dbc, n, can_id=CANFD_CAN_ID, dlc=CANFD_DLC, frame=CANFD_FRAME)),
-        ("CAN-FD:   Frame Building", lambda n: benchmark_frame_building(
-            canfd_dbc, n, can_id=CANFD_CAN_ID, dlc=CANFD_DLC, signals=CANFD_SIGNALS)),
-    ]
-
-    results = []
+    results: list[_BenchResult] = []
     for name, func in benchmarks:
         print(f"\n{name}:", file=out)
         print("-" * 40, file=out)
-        result = run_benchmark(name, func, args.frames, args.runs, args.warmup)
+        result = run_benchmark(name, func, cfg)
         results.append(result)
         for run_idx, fps in enumerate(result["results"]):
-            print(f"  Run {run_idx + 1}/{args.runs}: {fps:,.0f} ops/sec", file=out)
+            print(f"  Run {run_idx + 1}/{cfg.num_runs}: {fps:,.0f} ops/sec", file=out)
 
-    # Summary
-    print("\n" + "=" * 70, file=out)
-    print("Summary", file=out)
-    print("=" * 70, file=out)
-    print(f"{'Benchmark':<35} {'Mean':>12} {'Stdev':>10} {'Min':>10} {'Max':>10}", file=out)
-    print("-" * 80, file=out)
-    for r in results:
-        print(
-            f"{r['name']:<35} {r['mean']:>10,.0f}/s "
-            f"{r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}",
-            file=out,
-        )
-    print("=" * 70, file=out)
+    _print_summary(results, out)
 
-    if args.json:
-        json_results = []
-        for r in results:
-            json_results.append({
-                "name": r["name"],
-                "frames": r["num_frames"],
-                "runs": r["num_runs"],
-                "fps_mean": round(r["mean"], 1),
-                "fps_stdev": round(r["stdev"], 1),
-                "fps_min": round(r["min"], 1),
-                "fps_max": round(r["max"], 1),
-                "us_per_frame": round(1_000_000 / r["mean"], 1) if r["mean"] > 0 else 0,
-            })
-        output = {
-            "benchmark": "throughput",
-            "language": "python",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system": get_system_info(),
-            "results": json_results,
-        }
-        print(json.dumps(output, indent=2))
+    if cfg.json_output:
+        emit_json_report("throughput", [_to_json_payload(r) for r in results])
 
     return 0
 

@@ -11,7 +11,6 @@
 --   PredTable construction (mkPredTable),
 --   frame processing helpers (classifyStepResult, stepProperty, dispatchIterResult).
 module Aletheia.Protocol.StreamState.Internals where
-open import Aletheia.DBC.Types using (signalNameStr)
 open import Aletheia.DBC.Identifier using (Identifier)
 
 open import Data.List using (List; []; _∷_)

@@ -23,6 +23,7 @@ import pytest
 
 from aletheia import AletheiaClient as SyncClient, BatchError, FrameResult, Signal
 from aletheia.asyncio import AletheiaClient as AsyncClient
+from aletheia.asyncio.testing import gate_send_frame
 from aletheia.protocols import DBCDefinition
 
 
@@ -34,6 +35,21 @@ def _make_frames(
         (start_ts + i * 1000, can_id, 8, bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]), False)
         for i in range(n)
     ]
+
+
+async def _consume_iter(it: object) -> int:
+    """Drain an async iterator and return the consumed count.
+
+    Used by ``test_timeout_during_iter`` so the consumer runs as a
+    distinct task whose ``await`` boundary the timeout can interrupt.
+    The annotation is ``object`` because ``send_frames_iter`` returns
+    ``AsyncGenerator[FrameResult, None]`` and rebinding here would force
+    importing the concrete type for one test helper.
+    """
+    consumed = 0
+    async for _ in it:  # type: ignore[attr-defined]
+        consumed += 1
+    return consumed
 
 
 # =============================================================================
@@ -223,50 +239,81 @@ class TestAsyncBatchCancellation:
     """Async batch ops surface ``CancelledError`` at frame boundaries."""
 
     def test_timeout_mid_batch_raises_cancelled(self, simple_dbc: DBCDefinition) -> None:
-        """A 0-second timeout cancels before any frame and raises TimeoutError."""
+        """Cancellation between committed frame and next ``await`` raises TimeoutError.
+
+        Deterministic via the public ``gate_send_frame`` testing helper:
+        the worker thread blocks inside frame 1's ``send_frame`` after
+        committing it; the test fires ``asyncio.timeout(0)`` (semantically
+        "fire on next loop tick" — no wall-clock dependency since the
+        gate guarantees a yield point); the next ``await`` returns
+        ``CancelledError`` which ``asyncio.timeout`` wraps as
+        ``TimeoutError``.  No ``Event.wait(timeout=…)`` anywhere; pytest's
+        session timeout is the only safety net for genuine hangs.
+        """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            async with AsyncClient() as client:
-                await client.parse_dbc(simple_dbc)
-                await client.set_properties([prop.to_dict()])
-                await client.start_stream()
-                # Tiny timeout fires before any to_thread completes; the
-                # awaiting task sees CancelledError → asyncio.timeout
-                # converts to TimeoutError.
-                with pytest.raises(TimeoutError):
-                    async with asyncio.timeout(0):
-                        await client.send_frames(_make_frames(50))
-                # Stream state still consistent — end_stream succeeds.
-                result = await client.end_stream()
-                assert result["status"] == "complete"
+            sync = SyncClient()
+            with gate_send_frame(sync, after_n=1) as (started, proceed):
+                async with AsyncClient(sync_client=sync) as client:
+                    await client.parse_dbc(simple_dbc)
+                    await client.set_properties([prop.to_dict()])
+                    await client.start_stream()
+                    send_task = asyncio.create_task(
+                        client.send_frames(_make_frames(50)),
+                    )
+                    # Block until frame 1 has committed in the worker.
+                    await asyncio.to_thread(started.wait)
+                    try:
+                        with pytest.raises(TimeoutError):
+                            async with asyncio.timeout(0):
+                                # ``send_task`` is awaiting the wedged worker;
+                                # ``timeout(0)`` fires on the next loop tick;
+                                # ``await send_task`` yields and the timeout
+                                # cancels it, then asyncio.timeout wraps the
+                                # CancelledError as TimeoutError.
+                                await send_task
+                    finally:
+                        proceed.set()  # release worker so end_stream can run
+                    # Stream state still consistent — end_stream succeeds.
+                    result = await client.end_stream()
+                    assert result["status"] == "complete"
 
         asyncio.run(_run())
 
     def test_explicit_task_cancel(self, simple_dbc: DBCDefinition) -> None:
-        """Cancelling the task surfaces CancelledError on the awaiter."""
+        """Cancelling the task between frames raises CancelledError on the awaiter.
+
+        Deterministic via ``gate_send_frame``: frame 1 is committed in the
+        worker, the test cancels + releases, frame 1's result returns,
+        and the next ``await`` raises ``CancelledError`` immediately.
+        """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            async with AsyncClient() as client:
-                await client.parse_dbc(simple_dbc)
-                await client.set_properties([prop.to_dict()])
-                await client.start_stream()
+            sync = SyncClient()
+            with gate_send_frame(sync, after_n=1) as (started, proceed):
+                async with AsyncClient(sync_client=sync) as client:
+                    await client.parse_dbc(simple_dbc)
+                    await client.set_properties([prop.to_dict()])
+                    await client.start_stream()
 
-                task: asyncio.Task[list[object]] = asyncio.create_task(  # type: ignore[type-arg]
-                    client.send_frames(_make_frames(50)),  # type: ignore[arg-type]
-                )
-                # Give the task one event-loop turn to enter the first
-                # to_thread, then cancel.
-                await asyncio.sleep(0)
-                task.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await task
+                    task: asyncio.Task[list[object]] = (
+                        asyncio.create_task(  # type: ignore[type-arg]
+                            client.send_frames(_make_frames(50)),  # type: ignore[arg-type]
+                        )
+                    )
+                    # Block until frame 1 has committed in the worker.
+                    await asyncio.to_thread(started.wait)
+                    task.cancel()
+                    proceed.set()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
 
-                # Stream state is consistent regardless of how many frames
-                # committed — end_stream succeeds.
-                result = await client.end_stream()
-                assert result["status"] == "complete"
+                    # Stream state is consistent regardless of how many
+                    # frames committed — end_stream succeeds.
+                    result = await client.end_stream()
+                    assert result["status"] == "complete"
 
         asyncio.run(_run())
 
@@ -281,26 +328,40 @@ class TestAsyncIterCancellation:
 
     def test_timeout_during_iter(self, simple_dbc: DBCDefinition) -> None:
         """Timeout during ``async for`` — committed prefix durable, async-iter
-        wraps cancellation in TimeoutError per asyncio.timeout semantics."""
+        wraps cancellation in TimeoutError per asyncio.timeout semantics.
+
+        Deterministic via ``gate_send_frame``: the worker blocks inside
+        frame 1's ``send_frame`` after committing it; the test fires
+        ``asyncio.timeout(0)`` (next-loop-tick semantics, not wall-clock);
+        the async-iter's next ``await`` raises ``CancelledError`` which
+        ``asyncio.timeout`` wraps as ``TimeoutError``.
+        """
         prop = Signal("TestSignal").less_than(1000).always()
 
         async def _run() -> None:
-            async with AsyncClient() as client:
-                await client.parse_dbc(simple_dbc)
-                await client.set_properties([prop.to_dict()])
-                await client.start_stream()
+            sync = SyncClient()
+            with gate_send_frame(sync, after_n=1) as (started, proceed):
+                async with AsyncClient(sync_client=sync) as client:
+                    await client.parse_dbc(simple_dbc)
+                    await client.set_properties([prop.to_dict()])
+                    await client.start_stream()
 
-                consumed = 0
-                with pytest.raises(TimeoutError):
-                    async with asyncio.timeout(0):
-                        async for _r in client.send_frames_iter(_make_frames(50)):
-                            consumed += 1
+                    consumed = 0
+                    iter_task = client.send_frames_iter(_make_frames(50))
+                    consume_task = asyncio.create_task(_consume_iter(iter_task))
+                    await asyncio.to_thread(started.wait)
+                    try:
+                        with pytest.raises(TimeoutError):
+                            async with asyncio.timeout(0):
+                                consumed = await consume_task
+                    finally:
+                        proceed.set()
 
-                # The consumer may have received zero or a small prefix; the
-                # contract guarantees state is consistent with that prefix.
-                assert consumed >= 0
-                result = await client.end_stream()
-                assert result["status"] == "complete"
+                    # Consumer may have received zero or a small prefix; the
+                    # contract guarantees state is consistent with that prefix.
+                    assert consumed >= 0
+                    result = await client.end_stream()
+                    assert result["status"] == "complete"
 
         asyncio.run(_run())
 

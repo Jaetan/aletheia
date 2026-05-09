@@ -8,9 +8,8 @@
 -- Used by Theorem.agda to derive top-level soundness/completeness.
 module Aletheia.DBC.Validity.Composition where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr)
 
-open import Aletheia.DBC.Types using (ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
+open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; ValidationIssue; IsError; IsWarning; DBCMessage; DBCSignal; SignalPresence; Always; When)
 open import Aletheia.DBC.Validator using
   ( errorIssues; findSignalPresence; walkMux
   ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkDuplicateMessageIds

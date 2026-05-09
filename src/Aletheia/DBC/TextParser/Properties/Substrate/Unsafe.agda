@@ -82,8 +82,9 @@ open import Aletheia.DBC.TextParser using (parseText; parseTextChars)
 open import Aletheia.DBC.TextFormatter using (formatText)
 open import Aletheia.DBC.TextFormatter.TopLevel using (formatChars)
 
+open import Aletheia.DBC.TextParser.WellFormed using (WellFormedTextDBCAgg)
 open import Aletheia.DBC.TextParser.Properties.Aggregator.Universal using
-  (WellFormedDBC; parseTextChars-on-formatChars)
+  (parseTextChars-on-formatChars)
 
 -- ============================================================================
 -- BRIDGING AXIOMS
@@ -114,7 +115,7 @@ postulate
 --   ≡ inj₂ d                                                -- by parseTextChars-on-formatChars
 
 parseText-on-formatText :
-    ∀ (d : DBC) → WellFormedDBC d
+    ∀ (d : DBC) → WellFormedTextDBCAgg d
   → parseText (formatText d) ≡ inj₂ d
 parseText-on-formatText d wf =
   trans (cong parseTextChars (toList∘fromList (formatChars d)))

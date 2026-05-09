@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Latency Benchmark
+"""Latency Benchmark.
 
 Measures per-operation latency distribution through the Aletheia pipeline.
 Reports percentiles (p50, p90, p99, p99.9) to understand tail latency.
@@ -11,21 +10,73 @@ Usage:
     python3 latency.py [--ops N] [--warmup N]
 """
 
+from __future__ import annotations
+
 import argparse
-import json
 import sys
 import time
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from typing import IO, TypedDict
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
+from aletheia import AletheiaClient
+from aletheia.protocols import DBCDefinition, LTLFormula
+
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from ._common import (
-    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
-    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
-    get_system_info, load_canfd_dbc, load_dbc,
+    CAN20_SPEC, CANFD_SPEC,
+    DEFAULT_CAN20_PROPERTIES, DEFAULT_CANFD_PROPERTIES,
+    FrameSpec,
+    emit_json_report, load_canfd_dbc, load_dbc,
 )
+
+
+class _LatencyStats(TypedDict):
+    """Per-operation latency distribution stats (microseconds)."""
+
+    count: int
+    mean_us: float
+    min_us: float
+    max_us: float
+    p50_us: float
+    p90_us: float
+    p99_us: float
+    p999_us: float
+
+
+class _JsonStatsRow(TypedDict):
+    """JSON-report-shaped projection of one (name, stats) row."""
+
+    name: str
+    count: int
+    mean_us: float
+    min_us: float
+    max_us: float
+    p50_us: float
+    p90_us: float
+    p99_us: float
+    p999_us: float
+
+
+@dataclass(frozen=True)
+class LatencyContext:
+    """Per-suite context bundle: keeps internal helper signatures narrow.
+
+    The four internal lane helpers (``_bench_stream_lane``,
+    ``_bench_extract_lane``, ``_bench_build_lane``, ``run_latency_suite``)
+    all need the same set of parameters; passing them inside one frozen
+    bundle drops them from N+5 args to 1 and stops pylint R0913 from
+    firing without forcing the helpers to read globals.
+    """
+
+    label: str
+    dbc: DBCDefinition
+    spec: FrameSpec
+    properties: list[LTLFormula]
+    num_ops: int
+    warmup: int
+    file: IO[str]
 
 
 def percentile(data: list[float], p: float) -> float:
@@ -38,36 +89,37 @@ def percentile(data: list[float], p: float) -> float:
     return data[f] + (k - f) * (data[c] - data[f])
 
 
-def measure_latencies(
-    client: AletheiaClient,
-    operation: str,
-    num_ops: int,
-    can_id: int,
-    dlc: int,
-    frame: bytes,
-    signals: dict[str, float],
-) -> list[float]:
-    """Measure latency for each operation."""
-    latencies = []
-
+def _measure_stream(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
+    """Per-op stream latencies."""
+    latencies: list[float] = []
     for i in range(num_ops):
-        if operation == "stream":
-            start = time.perf_counter()
-            client.send_frame(timestamp=i, can_id=can_id, dlc=dlc, data=frame)
-            latencies.append(time.perf_counter() - start)
-        elif operation == "extract":
-            start = time.perf_counter()
-            client.extract_signals(can_id=can_id, dlc=dlc, data=frame)
-            latencies.append(time.perf_counter() - start)
-        elif operation == "build":
-            start = time.perf_counter()
-            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
-            latencies.append(time.perf_counter() - start)
-
+        start = time.perf_counter()
+        client.send_frame(timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
+        latencies.append(time.perf_counter() - start)
     return latencies
 
 
-def analyze_latencies(latencies: list[float]) -> dict:
+def _measure_extract(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
+    """Per-op extract_signals latencies."""
+    latencies: list[float] = []
+    for _ in range(num_ops):
+        start = time.perf_counter()
+        client.extract_signals(can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
+        latencies.append(time.perf_counter() - start)
+    return latencies
+
+
+def _measure_build(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
+    """Per-op build_frame latencies."""
+    latencies: list[float] = []
+    for _ in range(num_ops):
+        start = time.perf_counter()
+        client.build_frame(can_id=spec.can_id, dlc=spec.dlc, signals=spec.signals)
+        latencies.append(time.perf_counter() - start)
+    return latencies
+
+
+def analyze_latencies(latencies: list[float]) -> _LatencyStats:
     """Analyze latency distribution."""
     sorted_lat = sorted(latencies)
     return {
@@ -82,7 +134,7 @@ def analyze_latencies(latencies: list[float]) -> dict:
     }
 
 
-def print_latency_stats(name: str, stats: dict, file=None):
+def print_latency_stats(name: str, stats: _LatencyStats, file: IO[str] | None = None) -> None:
     """Print latency statistics."""
     out = file or sys.stdout
     print(f"\n{name}:", file=out)
@@ -98,71 +150,99 @@ def print_latency_stats(name: str, stats: dict, file=None):
     print(f"  Implied:  {1_000_000 / stats['mean_us']:,.0f} ops/sec (from mean)", file=out)
 
 
-def run_latency_suite(
-    label: str,
-    dbc: dict,
-    can_id: int,
-    dlc: int,
-    frame: bytes,
-    signals: dict[str, float],
-    properties: list[dict],
-    num_ops: int,
-    warmup: int,
-    file=None,
-) -> list[tuple[str, dict]]:
-    """Run streaming, extraction, and build latency for one frame type."""
-    out = file or sys.stdout
-    all_stats = []
-
-    # Streaming latency
-    print(f"\nBenchmarking {label} streaming...", file=out)
+def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+    """Run streaming-mode latency for one frame type and return (name, stats)."""
+    print(f"\nBenchmarking {ctx.label} streaming...", file=ctx.file)
+    spec = ctx.spec
     with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-        client.set_properties(properties)
+        client.parse_dbc(ctx.dbc)
+        client.set_properties(ctx.properties)
         client.start_stream()
-
-        for i in range(warmup):
-            client.send_frame(timestamp=i, can_id=can_id, dlc=dlc, data=frame)
-
-        latencies = measure_latencies(client, "stream", num_ops, can_id, dlc, frame, signals)
+        for i in range(ctx.warmup):
+            client.send_frame(timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
+        latencies = _measure_stream(client, spec, ctx.num_ops)
         client.end_stream()
-
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Streaming LTL", stats, file=out)
-    all_stats.append((f"{label} Streaming LTL", stats))
+    name = f"{ctx.label} Streaming LTL"
+    print_latency_stats(name, stats, file=ctx.file)
+    return name, stats
 
-    # Extraction latency
-    print(f"\nBenchmarking {label} signal extraction...", file=out)
+
+def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+    """Run extract-signals latency for one frame type and return (name, stats)."""
+    print(f"\nBenchmarking {ctx.label} signal extraction...", file=ctx.file)
+    spec = ctx.spec
     with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-
-        for _ in range(warmup):
-            client.extract_signals(can_id=can_id, dlc=dlc, data=frame)
-
-        latencies = measure_latencies(client, "extract", num_ops, can_id, dlc, frame, signals)
-
+        client.parse_dbc(ctx.dbc)
+        for _ in range(ctx.warmup):
+            client.extract_signals(can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
+        latencies = _measure_extract(client, spec, ctx.num_ops)
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Signal Extraction", stats, file=out)
-    all_stats.append((f"{label} Signal Extraction", stats))
+    name = f"{ctx.label} Signal Extraction"
+    print_latency_stats(name, stats, file=ctx.file)
+    return name, stats
 
-    # Frame building latency
-    print(f"\nBenchmarking {label} frame building...", file=out)
+
+def _bench_build_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
+    """Run frame-build latency for one frame type and return (name, stats)."""
+    print(f"\nBenchmarking {ctx.label} frame building...", file=ctx.file)
+    spec = ctx.spec
     with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-
-        for _ in range(warmup):
-            client.build_frame(can_id=can_id, dlc=dlc, signals=signals)
-
-        latencies = measure_latencies(client, "build", num_ops, can_id, dlc, frame, signals)
-
+        client.parse_dbc(ctx.dbc)
+        for _ in range(ctx.warmup):
+            client.build_frame(can_id=spec.can_id, dlc=spec.dlc, signals=spec.signals)
+        latencies = _measure_build(client, spec, ctx.num_ops)
     stats = analyze_latencies(latencies)
-    print_latency_stats(f"{label} Frame Building", stats, file=out)
-    all_stats.append((f"{label} Frame Building", stats))
+    name = f"{ctx.label} Frame Building"
+    print_latency_stats(name, stats, file=ctx.file)
+    return name, stats
 
-    return all_stats
+
+def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, _LatencyStats]]:
+    """Run streaming, extraction, and build latency for one frame type."""
+    return [
+        _bench_stream_lane(ctx),
+        _bench_extract_lane(ctx),
+        _bench_build_lane(ctx),
+    ]
 
 
-def main():
+def _print_summary(all_stats: list[tuple[str, _LatencyStats]], file: IO[str]) -> None:
+    """Print the formatted summary table to the given stream."""
+    print("\n" + "=" * 70, file=file)
+    print("Summary (all times in microseconds)", file=file)
+    print("=" * 70, file=file)
+    print(
+        f"{'Operation':<30} {'Mean':>10} {'p50':>10} {'p99':>10} {'p99.9':>10}",
+        file=file,
+    )
+    print("-" * 70, file=file)
+    for name, stats in all_stats:
+        print(
+            f"{name:<30} {stats['mean_us']:>10.1f} {stats['p50_us']:>10.1f} "
+            + f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}",
+            file=file,
+        )
+    print("=" * 70, file=file)
+
+
+def _to_json_payload(name: str, stats: _LatencyStats) -> _JsonStatsRow:
+    """Project (name, stats) into the JSON-report shape."""
+    return {
+        "name": name,
+        "count": stats["count"],
+        "mean_us": round(stats["mean_us"], 1),
+        "min_us": round(stats["min_us"], 1),
+        "max_us": round(stats["max_us"], 1),
+        "p50_us": round(stats["p50_us"], 1),
+        "p90_us": round(stats["p90_us"], 1),
+        "p99_us": round(stats["p99_us"], 1),
+        "p999_us": round(stats["p999_us"], 1),
+    }
+
+
+def main() -> int:
+    """CLI entry point — parse args, run latency suites, emit summary."""
     parser = argparse.ArgumentParser(description="Latency benchmark")
     parser.add_argument("--ops", type=int, default=5000, help="Operations to measure")
     parser.add_argument("--warmup", type=int, default=500, help="Warmup operations")
@@ -177,70 +257,21 @@ def main():
     print(f"Operations: {args.ops:,}", file=out)
     print(f"Warmup: {args.warmup:,}", file=out)
 
-    dbc = load_dbc()
-    canfd_dbc = load_canfd_dbc()
+    all_stats = run_latency_suite(LatencyContext(
+        label="CAN 2.0B", dbc=load_dbc(), spec=CAN20_SPEC,
+        properties=DEFAULT_CAN20_PROPERTIES,
+        num_ops=args.ops, warmup=args.warmup, file=out,
+    ))
+    all_stats += run_latency_suite(LatencyContext(
+        label="CAN-FD", dbc=load_canfd_dbc(), spec=CANFD_SPEC,
+        properties=DEFAULT_CANFD_PROPERTIES,
+        num_ops=args.ops, warmup=args.warmup, file=out,
+    ))
 
-    can20_properties = [
-        Signal("EngineSpeed").between(0, 8000).always().to_dict(),
-        Signal("EngineTemp").between(-40, 215).always().to_dict(),
-    ]
-
-    canfd_properties = [
-        Signal("GPSSpeed").between(0, 655).always().to_dict(),
-        Signal("YawRate").between(-327, 327).always().to_dict(),
-        Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
-    ]
-
-    # CAN 2.0B suite
-    all_stats = run_latency_suite(
-        "CAN 2.0B", dbc,
-        CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS,
-        can20_properties, args.ops, args.warmup, file=out,
-    )
-
-    # CAN-FD suite
-    all_stats += run_latency_suite(
-        "CAN-FD", canfd_dbc,
-        CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS,
-        canfd_properties, args.ops, args.warmup, file=out,
-    )
-
-    # Summary table
-    print("\n" + "=" * 70, file=out)
-    print("Summary (all times in microseconds)", file=out)
-    print("=" * 70, file=out)
-    print(f"{'Operation':<30} {'Mean':>10} {'p50':>10} {'p99':>10} {'p99.9':>10}", file=out)
-    print("-" * 70, file=out)
-    for name, stats in all_stats:
-        print(
-            f"{name:<30} {stats['mean_us']:>10.1f} {stats['p50_us']:>10.1f} "
-            + f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}",
-            file=out,
-        )
-    print("=" * 70, file=out)
+    _print_summary(all_stats, out)
 
     if args.json:
-        json_results = []
-        for name, stats in all_stats:
-            json_results.append({
-                "name": name,
-                "count": stats["count"],
-                "mean_us": round(stats["mean_us"], 1),
-                "min_us": round(stats["min_us"], 1),
-                "max_us": round(stats["max_us"], 1),
-                "p50_us": round(stats["p50_us"], 1),
-                "p90_us": round(stats["p90_us"], 1),
-                "p99_us": round(stats["p99_us"], 1),
-                "p999_us": round(stats["p999_us"], 1),
-            })
-        output = {
-            "benchmark": "latency",
-            "language": "python",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system": get_system_info(),
-            "results": json_results,
-        }
-        print(json.dumps(output, indent=2))
+        emit_json_report("latency", [_to_json_payload(n, s) for n, s in all_stats])
 
     return 0
 

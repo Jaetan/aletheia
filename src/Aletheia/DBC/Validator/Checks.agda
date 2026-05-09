@@ -10,10 +10,10 @@
 module Aletheia.DBC.Validator.Checks where
 open import Aletheia.DBC.Identifier using (Identifier; nameStr)
 open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
-open import Aletheia.DBC.Types using (signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr)
 
 open import Aletheia.DBC.Types using
-  ( DBCMessage; DBCSignal; SignalPresence; Always; When
+  ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr
+  ; DBCMessage; DBCSignal; SignalPresence; Always; When
   ; ValidationIssue; mkIssue; IsError; IsWarning
   ; DuplicateMessageId; DuplicateSignalName; FactorZero
   ; MultiplexorNotFound; MultiplexorCycle
@@ -576,7 +576,7 @@ checkAllUnknownAdditionalSenders msgs nodes@(_ ∷ _) =
 -- `attachValueDescs`.  This check walks the residual list and emits one
 -- warning per entry.  Unlike CHECK 21/22, the input is a flat list of
 -- `RawValueDesc` rather than `(messages, nodes)` — text-roundtrip closure
--- requires `unresolvedValueDescs ≡ []` (`WellFormedDBC.unresolved-empty`),
+-- requires `unresolvedValueDescs ≡ []` (`WellFormedTextDBCAgg.unresolved-empty`),
 -- so a non-empty list always indicates user-written DBC slop.
 
 showCanIdText : CANId → String

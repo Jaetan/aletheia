@@ -421,12 +421,19 @@ TEST_CASE("Track D.1 doc-example harness: every ```cpp fence compiles and runs",
             write_file(src_path, src);
 
             // Compile.
+            // ALETHEIA_DOC_SANITIZER_FLAG is set by CMake to the active
+            // sanitizer flag (e.g. "-fsanitize=undefined") when the parent
+            // build was configured with -DALETHEIA_SANITIZER=...; passes
+            // the flag through to the per-fence compile so the per-fence
+            // binary's link to libaletheia-cpp.a (which carries
+            // sanitizer-runtime symbols) resolves cleanly.  Empty when no
+            // sanitizer is active (the common case).
             std::ostringstream cmd;
             cmd << sh_quote(ALETHEIA_DOC_CXX) << " -std=c++" << ALETHEIA_DOC_CXX_STD << " -I"
                 << sh_quote(ALETHEIA_DOC_INCLUDE) << " -o " << sh_quote(out_path.string()) << " "
                 << sh_quote(src_path.string()) << " " << sh_quote(ALETHEIA_DOC_LIB_FILE) << " "
                 << sh_quote(ALETHEIA_DOC_YAML_LIB) << " " << sh_quote(ALETHEIA_DOC_OPENXLSX_LIB)
-                << " -ldl -lpthread -lstdc++fs";
+                << " -ldl -lpthread -lstdc++fs " << ALETHEIA_DOC_SANITIZER_FLAG;
             auto compile_cmd = cmd.str();
 
             auto [compile_rc, compile_out] = run_capture(compile_cmd);

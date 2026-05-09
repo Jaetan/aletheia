@@ -30,7 +30,6 @@
 module Aletheia.DBC.DecRat.Refinement where
 
 open import Data.Bool using (Bool; true; false; T)
-open import Data.Bool.Properties using (T-irrelevant)
 open import Data.Empty using (⊥; ⊥-elim)
 open import Data.Integer using (ℤ; +_; -[1+_])
 open import Data.Maybe using (Maybe; just; nothing)
@@ -68,7 +67,7 @@ record IntDecRat : Set where
   constructor mkIntDecRat
   field
     value : DecRat
-    isInt : T (isIntegerᵇ value)
+    .isInt : T (isIntegerᵇ value)
 
 -- ----------------------------------------------------------------------------
 -- ℤ → IntDecRat — smart constructor
@@ -107,21 +106,22 @@ intDecRatToℤ-mkIntDecRatFromℤ (+ suc _)   = refl
 intDecRatToℤ-mkIntDecRatFromℤ -[1+ _ ]    = refl
 
 -- Other direction: IntDecRat → ℤ → IntDecRat recovers the original
--- record value.  Needs `T-irrelevant` to discharge the witness slot
--- (two `T true` proofs are propositionally equal).  The DecRat slot
--- closes definitionally because `DecRat.canonical` is irrelevant —
--- `mkDecRat z 0 0 c₁` and `mkDecRat z 0 0 c₂` (the latter from
--- `fromℤ z`) are syntactically identical up to irrelevant arguments.
+-- record value.  `IntDecRat.isInt` is `.(…)`-irrelevant (R18 cluster 17,
+-- AGENTS.md G-A4) so the witness slot closes by `refl` directly via
+-- record η.  The DecRat slot closes definitionally because
+-- `DecRat.canonical` is irrelevant — `mkDecRat z 0 0 c₁` and
+-- `mkDecRat z 0 0 c₂` (the latter from `fromℤ z`) are syntactically
+-- identical up to irrelevant arguments.
 mkIntDecRatFromℤ-intDecRatToℤ : ∀ v → mkIntDecRatFromℤ (intDecRatToℤ v) ≡ v
 mkIntDecRatFromℤ-intDecRatToℤ
   (mkIntDecRat (mkDecRat (+ zero)    zero    zero    _) wf) =
-  cong (mkIntDecRat _) (T-irrelevant _ wf)
+  refl
 mkIntDecRatFromℤ-intDecRatToℤ
   (mkIntDecRat (mkDecRat (+ suc _)   zero    zero    _) wf) =
-  cong (mkIntDecRat _) (T-irrelevant _ wf)
+  refl
 mkIntDecRatFromℤ-intDecRatToℤ
   (mkIntDecRat (mkDecRat -[1+ _ ]    zero    zero    _) wf) =
-  cong (mkIntDecRat _) (T-irrelevant _ wf)
+  refl
 mkIntDecRatFromℤ-intDecRatToℤ
   (mkIntDecRat (mkDecRat _           zero    (suc _) _) ())
 mkIntDecRatFromℤ-intDecRatToℤ
@@ -135,7 +135,7 @@ record NatDecRat : Set where
   constructor mkNatDecRat
   field
     value : DecRat
-    isNat : T (isNonNegIntegerᵇ value)
+    .isNat : T (isNonNegIntegerᵇ value)
 
 -- ----------------------------------------------------------------------------
 -- ℕ → NatDecRat — smart constructor
@@ -170,10 +170,10 @@ natDecRatToℕ-mkNatDecRatFromℕ (suc _) = refl
 mkNatDecRatFromℕ-natDecRatToℕ : ∀ v → mkNatDecRatFromℕ (natDecRatToℕ v) ≡ v
 mkNatDecRatFromℕ-natDecRatToℕ
   (mkNatDecRat (mkDecRat (+ zero)    zero    zero    _) wf) =
-  cong (mkNatDecRat _) (T-irrelevant _ wf)
+  refl
 mkNatDecRatFromℕ-natDecRatToℕ
   (mkNatDecRat (mkDecRat (+ suc _)   zero    zero    _) wf) =
-  cong (mkNatDecRat _) (T-irrelevant _ wf)
+  refl
 mkNatDecRatFromℕ-natDecRatToℕ
   (mkNatDecRat (mkDecRat (+ _)       zero    (suc _) _) ())
 mkNatDecRatFromℕ-natDecRatToℕ

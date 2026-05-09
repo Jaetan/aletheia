@@ -1,0 +1,104 @@
+# Aletheia Cross-Binding Log Event Vocabulary
+#
+# Authoritative source for the structured log-event names emitted by the
+# Python, C++, and Go bindings.  Every record produced by the client carries
+# one of these `name` values; downstream collectors can treat all three
+# bindings interchangeably.
+#
+# Schema:
+#   events[]: one entry per cross-binding log event
+#     name:        the literal event string (matches Python LogEvent.value,
+#                  Go logger.Info/Debug/Warn first arg, C++ Logger event arg)
+#     level:       severity (debug | info | warn) — same level in all 3 bindings.
+#                  Informational / cross-reference; per-binding level
+#                  enforcement is in python/tests/test_logging.py
+#                  (TestLoggingStreamingEvents.test_log_levels) and the
+#                  call-site signature in cpp/src/client.cpp +
+#                  go/aletheia/client.go.
+#     description: one-sentence summary of when the event fires
+#
+# Cross-binding parity tests (per disposition Rule 2 — the "missing
+# mechanism" gate that catches future drift):
+#   python/tests/test_log_events_parity.py  -- YAML ↔ LogEvent enum
+#   go/aletheia/log_events_test.go          -- captured slog events ⊆ YAML
+#   cpp/tests/test_log_events_parity.cpp    -- captured LogRecord events ⊆ YAML
+#
+# Adding a new event requires three coordinated edits:
+#   1. add a row here
+#   2. add the matching LogEvent enum member in python/aletheia/client/_log.py
+#   3. emit it from the relevant binding(s); the parity tests must remain green
+#
+# Removing an event requires removing all of the above and a CHANGELOG entry
+# under [Removed] per AGENTS.md "Public API stability and CHANGELOG discipline".
+
+events:
+
+  # --- Lifecycle (info, except rts.cores_mismatch which is a warn) ---
+
+  - name: dbc.parsed
+    level: info
+    description: A DBC definition was loaded — emitted from both the JSON-shape and DBC-text parse paths.
+
+  - name: properties.set
+    level: info
+    description: Properties were registered with the client.
+
+  - name: stream.started
+    level: info
+    description: A streaming session was opened.
+
+  - name: stream.ended
+    level: info
+    description: A streaming session was closed; carries final result counts.
+
+  - name: rts.cores_mismatch
+    level: warn
+    description: GHC RTS init was requested with an N value that disagrees with an earlier process-wide init — the first wins; emitted once per subsequent mismatching call.
+
+  # --- Frame processing (debug) ---
+
+  - name: frame.processed
+    level: debug
+    description: A CAN frame was processed during streaming — carries the response classification (ack / violation / etc.).
+
+  - name: error_event.sent
+    level: debug
+    description: An error event was forwarded to the streaming session.
+
+  - name: remote_event.sent
+    level: debug
+    description: A remote event was forwarded to the streaming session.
+
+  # --- Enrichment diagnostics (warn) ---
+
+  - name: enrichment.property_index_oob
+    level: warn
+    description: A violation referenced a property index outside the registered set — record dropped, stream continues.
+
+  - name: enrichment.extraction_failed
+    level: warn
+    description: Signal extraction for violation enrichment did not return a result — enrichment skipped for that frame.
+
+  # --- Extraction cache (debug / warn) ---
+
+  - name: cache.hit
+    level: debug
+    description: Signal extraction served a cached payload.
+
+  - name: cache.miss
+    level: debug
+    description: Signal extraction missed the cache and called through to the Agda core.
+
+  - name: cache.full
+    level: warn
+    description: Signal extraction cache reached its capacity bound and evicted the oldest entry.
+
+  # --- Extraction errors (warn) ---
+
+  - name: extraction.process_failed
+    level: warn
+    description: An extraction request failed at the FFI process boundary — error recorded, stream continues.
+
+  - name: extraction.parse_failed
+    level: warn
+    description: An extraction response could not be parsed (malformed JSON or schema violation) — error recorded, stream continues.

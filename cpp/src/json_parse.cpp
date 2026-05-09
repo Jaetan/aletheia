@@ -25,9 +25,9 @@ namespace {
 
 // String → ErrorCode lookup table. Grouped by error family for readability;
 // the order within each group mirrors the Agda error ADTs. Linear scan is fine
-// for the 51-entry table on a cold parse path.
+// for the 58-entry table on a cold parse path.
 using ErrorCodeEntry = std::pair<std::string_view, ErrorCode>;
-constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
+constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     // Parse errors
     {"parse_missing_field", ErrorCode::ParseMissingField},
     {"parse_invalid_byte_order", ErrorCode::ParseInvalidByteOrder},
@@ -46,6 +46,13 @@ constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     {"parse_signal_msb_below_bit_length", ErrorCode::ParseSignalMsbBelowBitLength},
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
+    {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
+    {"parse_input_bound_exceeded", ErrorCode::ParseInputBoundExceeded},
+    // DBC text parse errors
+    {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
+    {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
+    {"dbc_text_attribute_refinement_failed", ErrorCode::DBCTextAttributeRefinementFailed},
+    {"dbc_text_input_bound_exceeded", ErrorCode::DBCTextInputBoundExceeded},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
@@ -54,6 +61,7 @@ constexpr std::array<ErrorCodeEntry, 51> error_code_table{{
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
+    {"frame_input_bound_exceeded", ErrorCode::FrameInputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_missing_array", ErrorCode::RouteMissingArray},
@@ -551,6 +559,44 @@ static auto parse_attribute(const Json& j) -> DbcAttribute {
     throw std::runtime_error("Unknown attribute kind: " + kind);
 }
 
+// Track E.8 (Plan B): inverse of json_serialize.cpp's raw_value_desc_to_json.
+// Reads one unresolved RawValueDesc from the wire — message-id pair (id +
+// optional extended) plus signalName + entries array. Wire shape is fixed
+// at the cross-binding boundary, mirrored by Python `_normalize_raw_value_desc`
+// and Go `parseUnresolvedValueDescs`.
+static auto parse_raw_value_desc(const Json& j) -> DbcRawValueDesc {
+    auto id_val = j.at("id").get<std::uint32_t>();
+    const bool extended = j.value("extended", false);
+    const CanId can_id = [&]() -> CanId {
+        if (extended) {
+            auto result = ExtendedId::create(id_val);
+            if (!result)
+                throw std::runtime_error("Invalid extended CAN ID " + std::to_string(id_val) +
+                                         ": " + result.error());
+            return CanId{*result};
+        }
+        if (id_val > std::numeric_limits<std::uint16_t>::max())
+            throw std::runtime_error("Standard CAN ID value " + std::to_string(id_val) +
+                                     " exceeds uint16 range");
+        auto result = StandardId::create(static_cast<std::uint16_t>(id_val));
+        if (!result)
+            throw std::runtime_error("Invalid standard CAN ID " + std::to_string(id_val) + ": " +
+                                     result.error());
+        return CanId{*result};
+    }();
+    std::vector<DbcValueEntry> entries;
+    for (const auto& e : j.at("entries"))
+        entries.push_back(DbcValueEntry{
+            .value = e.at("value").get<std::int64_t>(),
+            .description = e.at("description").get<std::string>(),
+        });
+    return DbcRawValueDesc{
+        .can_id = can_id,
+        .signal_name = j.at("signalName").get<std::string>(),
+        .entries = std::move(entries),
+    };
+}
+
 static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     std::vector<DbcMessage> messages;
     for (const auto& m : j.at("messages"))
@@ -581,6 +627,10 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
     if (j.contains("attributes"))
         for (const auto& a : j.at("attributes"))
             attributes.push_back(parse_attribute(a));
+    std::vector<DbcRawValueDesc> unresolved_value_descriptions;
+    if (j.contains("unresolvedValueDescs"))
+        for (const auto& rvd : j.at("unresolvedValueDescs"))
+            unresolved_value_descriptions.push_back(parse_raw_value_desc(rvd));
     return DbcDefinition{
         .version = j.value("version", ""),
         .messages = std::move(messages),
@@ -590,6 +640,7 @@ static auto parse_dbc_definition(const Json& j) -> DbcDefinition {
         .nodes = std::move(nodes),
         .comments = std::move(comments),
         .attributes = std::move(attributes),
+        .unresolved_value_descriptions = std::move(unresolved_value_descriptions),
     };
 }
 

@@ -41,14 +41,13 @@ open import Data.Bool.Properties using (T-irrelevant; T?)
 open import Data.Unit using (⊤; tt)
 open import Data.Integer.Base using (ℤ; +_; -[1+_]; +[1+_]; ∣_∣; sign; _◃_)
 open import Data.Integer.Properties using (signᵢ◃∣i∣≡i; abs-◃)
-open import Relation.Nullary.Decidable.Core using (isYes)
+open import Relation.Nullary.Decidable.Core using (isYes; toWitness)
 import Relation.Nullary.Decidable.Core as Dec
 open import Data.Nat.Coprimality
   using (Coprime; coprime-divisor; 1-coprimeTo)
   renaming (sym to coprime-sym)
 open import Data.Nat.Primality
   using (Prime; prime[2]; prime?; prime⇒irreducible; Irreducible)
-open import Relation.Nullary.Decidable.Core using (toWitness)
 open import Data.Sum.Base using (inj₁; inj₂)
 open import Data.Rational.Base
   using (ℚ; mkℚ; mkℚ+; normalize; -_; ↥_; ↧_; ↧ₙ_)

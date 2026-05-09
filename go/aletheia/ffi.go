@@ -119,6 +119,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -126,7 +127,24 @@ var (
 	hsInitMu    sync.Mutex
 	hsInitDone  bool
 	hsInitCores int
+
+	// stablePtrCount tracks the live count of Haskell StablePtrs handed out
+	// via aletheia_init across the process.  Incremented in [FFIBackend.Init]
+	// and decremented in [FFIBackend.Close].  Exposed via [StablePtrCount]
+	// for AGENTS.md cat 27 long-run leak detection — a non-zero value at the
+	// end of a stability run indicates an unmatched Init/Close pair.
+	stablePtrCount atomic.Int64
 )
+
+// StablePtrCount returns the current number of live Haskell StablePtrs
+// allocated via [FFIBackend.Init] and not yet released by
+// [FFIBackend.Close].  Used by the long-run stability harness
+// (`go/benchmarks/stability/main.go`) to detect leaks; production code does
+// not need to call this.  Counter is shared across all FFIBackend instances
+// in the process.
+func StablePtrCount() int64 {
+	return stablePtrCount.Load()
+}
 
 // FFIBackend implements [Backend] by loading libaletheia-ffi.so via dlopen.
 //
@@ -346,11 +364,28 @@ func (b *FFIBackend) Init() (unsafe.Pointer, error) {
 	if state == nil {
 		return nil, ffiError("aletheia_init returned null")
 	}
+	stablePtrCount.Add(1)
 	return state, nil
 }
 
 // Process sends a JSON command and returns the JSON response.
+//
+// Rejects oversize JSON payloads (`> MaxJSONBytes`) with a typed
+// *InputBoundExceededError before marshaling across cgo, per AGENTS.md
+// universal rule "Adversarial-input bounds at parser surfaces".  The
+// Agda kernel enforces the same bound; this is the Go binding's
+// short-circuit so we do not strdup a 100 MiB payload only to be
+// rejected on the other side.
 func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error) {
+	if len(input) > MaxJSONBytes {
+		return "", newInputBoundExceededError(
+			BoundKindInputLengthBytes,
+			uint64(len(input)),
+			MaxJSONBytes,
+			CodeParseInputBoundExceeded,
+		)
+	}
+
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -707,4 +742,5 @@ func (b *FFIBackend) Close(state unsafe.Pointer) {
 	defer runtime.UnlockOSThread()
 
 	C.call_close(b.closeFn, state)
+	stablePtrCount.Add(-1)
 }

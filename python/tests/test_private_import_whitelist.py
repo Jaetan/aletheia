@@ -28,6 +28,11 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
     # see the raw mapping to compare against the 15 wire events.
     ("test_logging.py", "aletheia.client._log", "KNOWN_EVENTS"),
     ("test_logging.py", "aletheia.client._log", "LogEvent"),
+    # Cross-binding YAML parity gate — anchors the LogEvent enum to
+    # docs/LOG_EVENTS.yaml (the SSOT shared with Go/C++). Same internal-
+    # vocabulary justification as test_logging.py above.
+    ("test_log_events_parity.py", "aletheia.client._log", "KNOWN_EVENTS"),
+    ("test_log_events_parity.py", "aletheia.client._log", "LogEvent"),
     # Binary extraction buffer parser — exercised structurally to lock
     # the on-wire layout. If the parser grows stable consumers outside
     # the test suite, promote the symbols then.
@@ -92,6 +97,12 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._response_parsers",
         "parse_event_response",
     ),
+    # Hypothesis property test (R18 cluster 5 — Cat 34b) exercises the
+    # internal JSON dumper directly.  ``dump_json`` is a binding-internal
+    # helper (canonical-form serializer used at the FFI boundary); the
+    # property test asserts round-trip identity, which is a wire-form
+    # invariant test that shouldn't go through public API.
+    ("test_property_hypothesis.py", "aletheia.client._helpers", "dump_json"),
     # Strict-contract guard for the shared error-response builder —
     # exercised directly because the surface-level tests all go through
     # ``parse_frame_response`` / ``parse_event_response`` and only hit

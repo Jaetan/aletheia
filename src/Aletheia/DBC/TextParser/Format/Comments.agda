@@ -68,6 +68,8 @@ open import Aletheia.DBC.TextParser.Format
          wsOpt; ws; withPrefix;
          emit; parse; EmitsOK;
          roundtrip)
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
+  using (digitChar-not-isHSpace)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (mirrors `Format.EnvVar`)
@@ -265,23 +267,6 @@ CommentTargetStop c with DBCComment.target c
 -- ============================================================================
 
 private
-  -- `digitChar d` is non-hspace for every closed `d` (10-case +
-  -- fall-through).  Used to bridge `nat` digit emits to the next
-  -- ws/non-ws boundary in `boMsgFmt`/`sgSigFmt`.
-  digitChar-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
-
   -- Head of `(showℕ-dec-chars n ++ inner-rest) ++ outer-suffix` is non-
   -- hspace for every ℕ.  Left-bracketed form matches the natural shape
   -- of `withWSAfter (pair nat …)` slots.

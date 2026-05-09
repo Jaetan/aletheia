@@ -40,6 +40,7 @@ from aletheia import (
     AletheiaClient,
     AletheiaError,
     BatchError,
+    CANFrameTuple,
     Check,
     FrameResponse,
     ProcessError,
@@ -132,7 +133,19 @@ def _harness_convert_dbc_file(*_args: Any, **_kwargs: Any) -> str:
 
 
 def _harness_iter_can_log(*_args: Any, **_kwargs: Any) -> Iterator[Any]:
-    return iter(())
+    """Return a single illustrative 5-tuple frame.
+
+    Empty iterators silently pass any unpack — including a 4-tuple unpack
+    against a 5-tuple yield, the exact drift that R18 cluster 11 surfaced
+    across 7+ doc sites. Yielding at least one real ``CANFrameTuple`` ensures
+    every fence body that iterates is actually exercised, so unpack-arity
+    drift fails fast at fence-execution time. The synthetic frame
+    ``(0, 0x100, 8, bytes(8), extended=False)`` resolves cleanly against the
+    harness DBC's message id ``0x100`` with ``dlc=8``; downstream signal
+    values decode to 0, comfortably below the ``Speed < 250`` property the
+    docs commonly reference.
+    """
+    return iter([CANFrameTuple(0, 0x100, 8, bytes(8), False)])
 
 
 def _harness_load_can_log(*_args: Any, **_kwargs: Any) -> list[Any]:

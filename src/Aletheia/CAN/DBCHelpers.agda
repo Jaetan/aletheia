@@ -13,28 +13,28 @@ open import Aletheia.CAN.Frame using (CANId; Standard; Extended)
 open import Aletheia.DBC.Types using (DBC; DBCMessage; DBCSignal)
 open import Aletheia.DBC.Identifier using (Identifier; _≡csᵇ_)
 open import Data.Char using (Char)
-open import Data.String using (String)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Bool using (Bool; true; false)
 open import Data.Nat using (_≡ᵇ_)
 open import Data.Nat.Properties using (_≟_)
 open import Relation.Nullary using (Dec; yes; no)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; cong)
-open import Aletheia.Prelude using (findByPredicate; T-irrelevant)
+open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+open import Aletheia.Prelude using (findByPredicate)
 
 -- ============================================================================
 -- CAN ID COMPARISON
 -- ============================================================================
 
 -- Decidable CANId equality (canonical definition).
--- After establishing ℕ equality, T-irrelevant closes the proof field.
+-- Proof fields are `.(…)` irrelevant (see CAN/Frame.agda), so ℕ equality alone
+-- closes — `Standard n p₁ ≡ Standard n p₂` holds definitionally.
 _≟-CANId_ : (id₁ id₂ : CANId) → Dec (id₁ ≡ id₂)
-Standard x p ≟-CANId Standard y q with x ≟ y
-... | yes refl = yes (cong (Standard x) (T-irrelevant p q))
+Standard x _ ≟-CANId Standard y _ with x ≟ y
+... | yes refl = yes refl
 ... | no  x≢y  = no λ { refl → x≢y refl }
-Extended x p ≟-CANId Extended y q with x ≟ y
-... | yes refl = yes (cong (Extended x) (T-irrelevant p q))
+Extended x _ ≟-CANId Extended y _ with x ≟ y
+... | yes refl = yes refl
 ... | no  x≢y  = no λ { refl → x≢y refl }
 Standard _ _ ≟-CANId Extended _ _ = no λ ()
 Extended _ _ ≟-CANId Standard _ _ = no λ ()

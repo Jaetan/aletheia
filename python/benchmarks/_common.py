@@ -1,11 +1,12 @@
-"""Shared benchmark helpers: DBC loaders, frame constants, system info.
+"""Shared benchmark helpers: DBC loaders, frame constants, system info, dataclasses.
 
 Every benchmark script in this directory pulls DBC loaders, frame byte
-arrays, and ``get_system_info`` / ``get_rss_mb`` from this module so that a
-drift (e.g. a signal layout change for the CAN-FD frame) only has to be
-fixed in one place.  Keep the module-level constants ``bytes`` (not
-``bytearray``) so a stray mutation between runs cannot silently skew the
-numbers.
+arrays, ``get_system_info`` / ``get_rss_mb``, the canonical ``FrameSpec`` /
+``BenchmarkConfig`` bundles, and the default LTL property sets from this
+module so that a drift (e.g. a signal layout change for the CAN-FD frame
+or a refactor of the property baseline) only has to be fixed in one place.
+Keep the module-level constants ``bytes`` (not ``bytearray``) so a stray
+mutation between runs cannot silently skew the numbers.
 
 Per PY-31-1: this module is deliberately thin — each constant / function
 has exactly one authoritative definition, and benchmark scripts import
@@ -13,12 +14,20 @@ what they need by name.  No re-export hoop, no star-imports; basedpyright
 and pylint see a straight dependency.
 """
 
+from __future__ import annotations
+
+import json
 import os
 import platform
 import resource
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
+from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.protocols import DBCDefinition, LTLFormula
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module
@@ -30,12 +39,12 @@ _EXAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "examples"
 # ============================================================================
 
 
-def load_dbc() -> dict[str, object]:
+def load_dbc() -> DBCDefinition:
     """Load the CAN 2.0B example DBC file."""
     return dbc_to_json(str(_EXAMPLES_DIR / "example.dbc"))
 
 
-def load_canfd_dbc() -> dict[str, object]:
+def load_canfd_dbc() -> DBCDefinition:
     """Load the CAN-FD example DBC file."""
     return dbc_to_json(str(_EXAMPLES_DIR / "example_canfd.dbc"))
 
@@ -78,6 +87,140 @@ CANFD_SIGNALS: dict[str, float] = {
     "WheelSpeedFL": 10.0,
     "WheelSpeedFR": 10.0,
 }
+
+
+# ============================================================================
+# Frame spec — bundles the four parameters describing one CAN frame so that
+# internal benchmark helpers can take a single ``spec`` argument instead of
+# can_id + dlc + payload + signals.  Drops R0913 too-many-arguments on
+# every per-frame helper from N+3 to N+0.  Frozen so a caller cannot
+# mutate a shared spec mid-run.
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class FrameSpec:
+    """Bundle of CAN frame parameters used by every per-frame benchmark.
+
+    Frozen so a caller cannot mutate a shared spec mid-run; a stray write
+    would silently skew downstream measurements.
+    """
+
+    can_id: int
+    dlc: int
+    payload: bytes
+    signals: dict[str, float]
+
+
+CAN20_SPEC: FrameSpec = FrameSpec(CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, CAN20_SIGNALS)
+CANFD_SPEC: FrameSpec = FrameSpec(CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SIGNALS)
+
+
+# ============================================================================
+# Default property bundles — the throughput / latency / scaling benchmarks
+# all converged on the same baseline LTL property set per frame type.
+# Duplicating them across files triggered R0801 duplicate-code.  These are
+# the canonical defaults; a benchmark that needs a different shape (e.g.
+# scaling.py exercising different formula counts) builds its own list.
+# ============================================================================
+
+DEFAULT_CAN20_PROPERTIES: list[LTLFormula] = [
+    Signal("EngineSpeed").between(0, 8000).always().to_dict(),
+    Signal("EngineTemp").between(-40, 215).always().to_dict(),
+]
+
+DEFAULT_CANFD_PROPERTIES: list[LTLFormula] = [
+    Signal("GPSSpeed").between(0, 655).always().to_dict(),
+    Signal("YawRate").between(-327, 327).always().to_dict(),
+    Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
+]
+
+
+# ============================================================================
+# CLI config bundle — bundles common CLI knobs into one dataclass to drop
+# the local-variable count of every main() entry point and keep helper
+# signatures narrow.
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    """Per-run knobs used by main()-style benchmark entry points.
+
+    Frozen so a benchmark cannot accidentally rewrite ``num_frames`` (or
+    sibling) mid-run after print-prologue / pre-warmup work captured the
+    initial value.  Construct once from ``argparse`` output, pass through.
+    """
+
+    num_frames: int
+    num_runs: int = 5
+    warmup_runs: int = 2
+    json_output: bool = False
+
+
+# ============================================================================
+# Shared streaming-loop helpers — extracted from throughput / scaling /
+# simplification (R0801 duplicate-code).  Caller owns Client lifecycle
+# (parse_dbc / set_properties / start_stream / end_stream); these only
+# time the inner per-frame loop.
+# ============================================================================
+
+
+def stream_frames(
+    client: AletheiaClient, spec: FrameSpec, num_frames: int,
+) -> float:
+    """Time a streaming-mode ``send_frame`` loop.  Returns elapsed seconds.
+
+    Caller is responsible for ``parse_dbc`` / ``set_properties`` /
+    ``start_stream`` BEFORE this call, and ``end_stream`` AFTER.  Splitting
+    timing from setup keeps each benchmark's setup-vs-measurement boundary
+    visible and prevents any inadvertent inclusion of parse cost in the
+    measured throughput.
+    """
+    start = time.perf_counter()
+    for i in range(num_frames):
+        client.send_frame(
+            timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload,
+        )
+    return time.perf_counter() - start
+
+
+def run_streaming_benchmark(
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec, properties: list[LTLFormula],
+) -> tuple[float, float]:
+    """End-to-end streaming benchmark: own a Client, parse, stream, end, close.
+
+    Returns ``(frames_per_sec, elapsed_seconds)``.  Extracted from
+    ``throughput.benchmark_streaming`` and ``scaling.benchmark_frames_per_sec``
+    (R0801 duplicate-code) so the streaming-mode setup block lives in one
+    place and any future change (e.g. wrapping in ``set_check_diagnostics``)
+    only has to be applied here.
+    """
+    with AletheiaClient() as client:
+        client.parse_dbc(dbc)
+        client.set_properties(properties)
+        client.start_stream()
+        elapsed = stream_frames(client, spec, num_frames)
+        client.end_stream()
+    return num_frames / elapsed, elapsed
+
+
+def emit_json_report(name: str, results: object) -> None:
+    """Print the canonical Aletheia benchmark JSON envelope to stdout.
+
+    Schema (frozen by ``benchmarks/run_all.sh`` consumers and the cross-
+    language baseline diff tooling): ``{benchmark, language, timestamp,
+    system, results}`` — each benchmark's caller passes its own ``results``
+    payload (dict or list) verbatim under the ``results`` key.
+    """
+    output = {
+        "benchmark": name,
+        "language": "python",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system": get_system_info(),
+        "results": results,
+    }
+    print(json.dumps(output, indent=2))
 
 
 # ============================================================================

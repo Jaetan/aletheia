@@ -113,22 +113,36 @@ private
     → b ≡ false → ifᵀ b then f else e ≡ e
   ifᵀ-witness-false {b = false} f e refl = refl
 
-  -- 2048 < 2^31 — closed-ℕ comparison; `<ᵇ` is a builtin so the
-  -- bool-valued comparison reduces in O(1).
-  2048<extFlagBit : 2048 < extFlagBit
-  2048<extFlagBit = <ᵇ⇒< 2048 extFlagBit tt
+  -- standard-can-id-max < extFlagBit — closed-ℕ comparison; `<ᵇ` is a
+  -- builtin so the bool-valued comparison reduces in O(1).
+  standard-max<extFlagBit : standard-can-id-max < extFlagBit
+  standard-max<extFlagBit = <ᵇ⇒< standard-can-id-max extFlagBit tt
+
+  -- `<ᵇ⇒<` accepting irrelevant `T (m <ᵇ n)` — needed because R18 cluster
+  -- 17 made `CANId` proof fields `.(…)`-irrelevant, so pattern-matched
+  -- `Standard n pf` binds `pf` irrelevantly and stdlib `<ᵇ⇒<` requires
+  -- relevant input.  Materializes a relevant `T b` via case split on the
+  -- Bool, then defers to stdlib `<ᵇ⇒<`.
+  T-materialize : (b : Bool) → .(T b) → T b
+  T-materialize true  _  = tt
+  T-materialize false ()
+
+  <ᵇ⇒<-irr : ∀ m n → .(T (m <ᵇ n)) → m < n
+  <ᵇ⇒<-irr m n pf = <ᵇ⇒< m n (T-materialize (m <ᵇ n) pf)
 
 -- ============================================================================
 -- buildCANId roundtrip — `buildCANId (rawCanIdℕ cid) ≡ just cid`
 -- ============================================================================
 
 -- Two cases:
---   * Standard n pf: rawCanIdℕ = n; outer ifᵀ on `2^31 ≤ᵇ n` is false
---     (n < 2048 < 2^31); inner ifᵀ on `n <ᵇ 2048` is true via `pf` —
---     `ifᵀ-witness pf` delivers the result with the original `pf`.
---   * Extended n pf: rawCanIdℕ = n + 2^31; outer ifᵀ is true
---     (2^31 ≤ n + 2^31); subtraction `(n + 2^31) ∸ 2^31 ≡ n` rewrites
---     the inner ifᵀ's domain to `n <ᵇ 2^29`, and `ifᵀ-witness pf` lands.
+--   * Standard n pf: rawCanIdℕ = n; outer ifᵀ on `extFlagBit ≤ᵇ n` is
+--     false (n < standard-can-id-max < extFlagBit); inner ifᵀ on
+--     `n <ᵇ standard-can-id-max` is true via `pf` — `ifᵀ-witness pf`
+--     delivers the result with the original `pf`.
+--   * Extended n pf: rawCanIdℕ = n + extFlagBit; outer ifᵀ is true
+--     (extFlagBit ≤ n + extFlagBit); subtraction
+--     `(n + extFlagBit) ∸ extFlagBit ≡ n` rewrites the inner ifᵀ's
+--     domain to `n <ᵇ extended-can-id-max`, and `ifᵀ-witness pf` lands.
 --
 -- The Extended clause uses pointwise `subst` (not `rewrite`) per the
 -- 3d.3b heap-blowup root cause: `rewrite n+ext∸ext≡n` over a goal
@@ -151,7 +165,7 @@ buildCANId-rawCanIdℕ (Standard n pf) =
        (λ pf' → just (Standard n pf')) nothing pf)
   where
     n<extFlagBit : n < extFlagBit
-    n<extFlagBit = <-trans (<ᵇ⇒< n standard-can-id-max pf) 2048<extFlagBit
+    n<extFlagBit = <-trans (<ᵇ⇒<-irr n standard-can-id-max pf) standard-max<extFlagBit
 buildCANId-rawCanIdℕ (Extended n pf) =
   trans
     (ifᵀ-witness {b = extFlagBit ≤ᵇ n + extFlagBit}

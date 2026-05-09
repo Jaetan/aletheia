@@ -1,0 +1,64 @@
+# Dependabot configuration for Aletheia.
+#
+# Cadence: weekly (per user direction 2026-05-08).  Weekly avoids the daily
+# noise of dependabot but stays on top of CVE-driven security advisories.
+#
+# Ecosystems covered:
+#   * pip       — Python bindings under python/
+#   * gomod     — Go bindings under go/ and go/excel/
+#   * github-actions — Workflow action references in .github/workflows/
+#
+# NOT covered (manual tracking):
+#   * cabal     — dependabot-core does not support Cabal/Hackage.  GHC
+#                 toolchain + Cabal package versions tracked manually
+#                 via the `--bignum=native` rebuild deliverable in Phase 6
+#                 (PROJECT_STATUS.md § Phase 6 candidates).
+#   * cmake     — C++ FetchContent dependencies (nlohmann_json, Catch2)
+#                 are pinned to specific tags inside cpp/CMakeLists.txt;
+#                 no dependabot ecosystem covers FetchContent refs.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /python
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(python)"
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: gomod
+    directory: /go
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(go)"
+    labels:
+      - "dependencies"
+      - "go"
+
+  - package-ecosystem: gomod
+    directory: /go/excel
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps(go-excel)"
+    labels:
+      - "dependencies"
+      - "go"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(actions)"
+    labels:
+      - "dependencies"
+      - "github-actions"

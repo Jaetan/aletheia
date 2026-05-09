@@ -187,7 +187,7 @@ with AletheiaClient() as client:
     client.add_checks(checks)
     client.start_stream()
 
-    for ts, can_id, dlc, data in iter_can_log("drive.blf"):
+    for ts, can_id, dlc, data, _extended in iter_can_log("drive.blf"):
         response = client.send_frame(ts, can_id, dlc, data)
         if response.get("status") == "fails":
             print(f"Violation at {response['timestamp']['numerator']}us")
@@ -286,21 +286,21 @@ A: Build-time Haskell/Agda toolchain plus `libgmp-dev`; runtime is just `libalet
 
 ## Current Status
 
-**Phase 5.1 complete** ✅ — all four binding stacks (Python, C++, Go, plus the LSP/CLI tooling) are at cross-language parity. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
+**Phase 5.1 complete** ✅ — all three binding stacks (Python, C++, Go) at cross-language parity, plus post-R17 Tracks A–E (matrix gates, DBC text parser, cancellation, doc-example harness, VAL_ promotion) all complete. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the authoritative status and metrics.
 
-- Core infrastructure (parser, CAN encoding/decoding, DBC parser)
+- Core infrastructure (parser, CAN encoding/decoding, DBC parser in the verified Agda kernel)
 - LTL verification with streaming architecture
 - Formal correctness proofs (parser, CAN encoding, LTL adequacy, DSL roundtrip)
 - DBC validator with formal proof (soundness + completeness; see [PROJECT_STATUS.md](../PROJECT_STATUS.md) for details)
 - Python API with signal operations (FFI, no subprocess)
 - Four-tier interface: Check API, YAML, Excel, DSL
-- CLI tool (`python3 -m aletheia check/validate/extract/signals`)
+- CLI tool (Python only — `python3 -m aletheia {check,validate,extract,signals,mux-query,format-dbc}`; C++/Go CLI parity is a Phase 6 stretch goal)
 - CAN log reader (ASC, BLF, CSV, DB, candump .log, MF4, TRC via python-can)
 - Enriched violation diagnostics (signal name, value, condition)
 - Per-binding and total test counts tracked in [PROJECT_STATUS.md § Key Metrics](../PROJECT_STATUS.md#key-metrics)
 - High-throughput streaming via binary FFI across Python/C++/Go (see [PROJECT_STATUS.md](../PROJECT_STATUS.md#key-metrics) for current benchmarks)
 
-**Phase 5**: CAN-FD, binary FFI, C++/Go bindings, cross-language benchmarks — all delivered. Remaining: SOME/IP exploration, binary FFI for signal extraction. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
+**Phase 5**: CAN-FD, binary FFI (streaming + signal extraction + frame build/update), C++/Go bindings, cross-language benchmarks — all delivered. Phase 6 candidate goals: CLI parity for C++/Go (stretch), python-can replacement (Agda+proof for ASC/BLF parsers), GHC `--bignum=native` rebuild (LGPL contingency for libgmp), SOME/IP. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) for detailed status.
 
 ---
 

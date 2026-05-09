@@ -102,14 +102,14 @@ walkVec :: AgdaVec.T_Vec_28 -> [Word8]
 walkVec AgdaVec.C_'91''93'_32 = []
 walkVec (AgdaVec.C__'8759'__38 x xs) = fromIntegral (unsafeCoerce x :: Integer) : walkVec xs
 
--- | MAlonzo CANId from raw value + extended flag. The proof slot is
--- unsafeCoerce () — same pattern as Marshal.mkAgdaCanId. Caller validates
--- canId < standardMax / extendedMax.
+-- | MAlonzo CANId from raw value + extended flag. The proof field is `.(…)`
+-- irrelevant in Agda — MAlonzo erases it, so the constructor takes only the
+-- numeric ID. Caller validates canId < standardMax / extendedMax.
 mkAgdaCanId :: Integer -> Bool -> AgdaFrame.T_CANId_8
 mkAgdaCanId canIdVal isExtended =
     if isExtended
-        then AgdaFrame.C_Extended_16 canIdVal (unsafeCoerce ())
-        else AgdaFrame.C_Standard_12 canIdVal (unsafeCoerce ())
+        then AgdaFrame.C_Extended_16 canIdVal
+        else AgdaFrame.C_Standard_12 canIdVal
 
 -- | Construct MAlonzo (signalIndex, ℚ) Σ pair — mirrors mkSignalPairs in
 -- AletheiaFFI/Marshal.hs (lines 87-94). Caller validates den > 0.

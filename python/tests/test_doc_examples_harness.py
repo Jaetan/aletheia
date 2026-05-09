@@ -40,6 +40,7 @@ DOC_FILES: tuple[str, ...] = (
     "docs/guides/QUICKSTART.md",
     "docs/guides/COOKBOOK.md",
     "docs/reference/CLI.md",
+    "docs/architecture/CANCELLATION.md",
     "docs/architecture/DESIGN.md",
     "docs/architecture/PROTOCOL.md",
     "docs/reference/PYTHON_API.md",

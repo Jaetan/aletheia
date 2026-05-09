@@ -35,10 +35,10 @@ open import Data.Nat using (ℕ; _≤_)
 -- layer, but the data type is fully populated so theorems and future
 -- converters can reference the other units by name.
 data TimeUnit : Set where
-  ns : TimeUnit  -- nanoseconds
+  ns : TimeUnit  -- nanoseconds (Reserved for future use; not currently produced)
   μs : TimeUnit  -- microseconds (bindings' canonical unit)
-  ms : TimeUnit  -- milliseconds
-  s  : TimeUnit  -- seconds
+  ms : TimeUnit  -- milliseconds (Reserved for future use; not currently produced)
+  s  : TimeUnit  -- seconds (Reserved for future use; not currently produced)
 
 -- ---------------------------------------------------------------------------
 -- Refined Timestamp type

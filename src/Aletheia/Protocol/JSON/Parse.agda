@@ -104,12 +104,18 @@ parseRational = do
         expHelper (just '-') (suc n') = pure -[1+ n' ]
         expHelper _ n' = pure (+ n')
 
-    -- Compute 10^n, returns suc n to prove NonZero
+    -- Compute 10^n, returns suc _ to prove NonZero structurally.
+    -- The literal `9` in `suc (9 + m * 10)` is `10 - 1`; kept in this
+    -- form so the result has shape `suc _`, which downstream uses as a
+    -- NonZero witness without an explicit `power10`-positive lemma.
     power10 : ℕ → ℕ
     power10 zero = suc 0
     power10 (suc n) with power10 n
     ... | suc m = suc (9 + m * 10)
-    ... | zero = suc 0  -- Unreachable but needed for coverage
+    ... | zero = suc 0  -- Unreachable: the suc-clause above guarantees
+                        -- power10 always returns suc _.  Coverage requires
+                        -- this branch; an explicit lemma would close it,
+                        -- but the structural shape suffices for callers.
 
     ascii-zero : ℕ
     ascii-zero = 48

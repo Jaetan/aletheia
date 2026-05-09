@@ -48,6 +48,7 @@ from ._types import (
     CANFrameTuple,
     FrameResponse,
     FrameResult,
+    InputBoundExceededError,
     ProcessError,
     PropertyDiagnostic,
     ProtocolError,
@@ -62,6 +63,7 @@ from ._types import (
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
     "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "FrameResult",
+    "InputBoundExceededError",
     "ProcessError", "PropertyDiagnostic", "ProtocolError",
     "RTSState", "SignalExtractionResult",
 ]

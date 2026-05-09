@@ -84,6 +84,13 @@ const (
 	CodeParseSignalMSBBelowBitLength = "parse_signal_msb_below_bit_length"
 	CodeParseInvalidKind             = "parse_invalid_kind"
 	CodeParseNonTerminatingRational  = "parse_non_terminating_rational"
+	CodeParseInvalidIdentifier       = "parse_invalid_identifier"
+	CodeParseInputBoundExceeded      = "parse_input_bound_exceeded"
+	// DBC text parse errors.
+	CodeDBCTextParseFailure              = "dbc_text_parse_failure"
+	CodeDBCTextTrailingInput             = "dbc_text_trailing_input"
+	CodeDBCTextAttributeRefinementFailed = "dbc_text_attribute_refinement_failed"
+	CodeDBCTextInputBoundExceeded        = "dbc_text_input_bound_exceeded"
 	// Frame errors.
 	CodeFrameSignalNotFound         = "frame_signal_not_found"
 	CodeFrameSignalIndexOOB         = "frame_signal_index_oob"
@@ -92,6 +99,7 @@ const (
 	CodeFrameCanIDNotFound          = "frame_can_id_not_found"
 	CodeFrameCanIDMismatch          = "frame_can_id_mismatch"
 	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
+	CodeFrameInputBoundExceeded     = "frame_input_bound_exceeded"
 	// Route errors.
 	CodeRouteMissingField         = "route_missing_field"
 	CodeRouteMissingArray         = "route_missing_array"
@@ -172,4 +180,47 @@ func NewValidationError(msg string) *Error { return validationError(msg) }
 // constructing *Error directly.
 func WrapValidationError(msg string, cause error) *Error {
 	return wrapValidation(msg, cause)
+}
+
+// InputBoundExceededError reports an adversarial-input bound violation.
+// Mirrors the Agda InputBoundExceeded constructor on
+// ParseError / DBCTextParseError / FrameError, and the equivalent type
+// in the Python (aletheia.InputBoundExceededError) and C++
+// (aletheia::InputBoundExceededError) bindings — keep the three surfaces
+// in sync per `feedback_cross_language_parity.md`.
+//
+// Use [errors.As] to inspect:
+//
+//	var bex *aletheia.InputBoundExceededError
+//	if errors.As(err, &bex) {
+//		log.Printf("rejected %s = %d (limit %d)", bex.BoundKind, bex.Observed, bex.Limit)
+//	}
+type InputBoundExceededError struct {
+	// BoundKind names which kind of bound was crossed (one of the
+	// BoundKind* constants in `limits.go`).
+	BoundKind string
+	// Observed is the input value that exceeded the limit.
+	Observed uint64
+	// Limit is the canonical bound from `limits.go` / Aletheia.Limits.
+	Limit uint64
+	// Code is the Agda wire error code (e.g. "parse_input_bound_exceeded"),
+	// matching the values in the Code* constant block above.
+	Code string
+}
+
+// Error implements the error interface.
+func (e *InputBoundExceededError) Error() string {
+	return fmt.Sprintf("aletheia validation error: %s %d exceeds limit %d",
+		e.BoundKind, e.Observed, e.Limit)
+}
+
+// newInputBoundExceededError constructs an InputBoundExceededError for the
+// FFI-entry early-reject path (see ffi.go).
+func newInputBoundExceededError(kind string, observed, limit uint64, code string) *InputBoundExceededError {
+	return &InputBoundExceededError{
+		BoundKind: kind,
+		Observed:  observed,
+		Limit:     limit,
+		Code:      code,
+	}
 }

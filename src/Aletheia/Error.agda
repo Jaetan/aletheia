@@ -19,6 +19,7 @@ open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-m
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
 open import Aletheia.Parser.Combinators using (Position)
+open import Aletheia.Limits using (BoundKind; boundKindCode; boundKindLabel)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda)
@@ -59,6 +60,10 @@ data ParseError : Set where
   -- reject invalid identifiers at the JSON parse boundary; the text parser
   -- already rejects these syntactically via `parseIdentifier`.
   InvalidIdentifier       : String → ParseError
+  -- Adversarial-input bound exceeded at the JSON parser entry.
+  -- First arg names which kind of bound was crossed; second is the
+  -- observed value; third is the limit per `Aletheia.Limits`.
+  InputBoundExceeded      : BoundKind → ℕ → ℕ → ParseError
   InContext               : String → ParseError → ParseError
 
 formatParseError : ParseError → String
@@ -100,6 +105,8 @@ formatParseError (NonTerminatingRational f) =
   "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
 formatParseError (InvalidIdentifier s) =
   "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
+formatParseError (InputBoundExceeded kind observed limit) =
+  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -122,6 +129,7 @@ parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_lengt
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
+parseErrorCode (InputBoundExceeded _ _ _)  = "parse_input_bound_exceeded"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================
@@ -171,6 +179,8 @@ data FrameError : Set where
   CANIdNotFound          : FrameError
   CANIdMismatch          : FrameError
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
+  -- Adversarial-input bound exceeded (frame byte count, etc.).
+  InputBoundExceeded     : BoundKind → ℕ → ℕ → FrameError
   InContext              : String → FrameError → FrameError
 
 formatFrameError : FrameError → String
@@ -181,6 +191,8 @@ formatFrameError SignalsOverlap                 = "signals overlap"
 formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
 formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
 formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
+formatFrameError (InputBoundExceeded kind observed limit) =
+  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatFrameError (InContext ctx inner)          = ctx ++ₛ ": " ++ₛ formatFrameError inner
 
 frameErrorCode : FrameError → String
@@ -191,6 +203,7 @@ frameErrorCode SignalsOverlap              = "frame_signals_overlap"
 frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
 frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
 frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"
+frameErrorCode (InputBoundExceeded _ _ _)  = "frame_input_bound_exceeded"
 frameErrorCode (InContext _ inner)         = frameErrorCode inner
 
 -- ============================================================================
@@ -339,6 +352,8 @@ data DBCTextParseError : Set where
   ParseFailure              : DBCTextParseError
   TrailingInput             : Position → DBCTextParseError
   AttributeRefinementFailed : String   → DBCTextParseError
+  -- Adversarial-input bound exceeded at the DBC text parser entry.
+  InputBoundExceeded        : BoundKind → ℕ → ℕ → DBCTextParseError
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError ParseFailure =
@@ -348,11 +363,14 @@ formatDBCTextParseError (TrailingInput pos) =
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
 formatDBCTextParseError (AttributeRefinementFailed detail) =
   "attribute refinement failed: " ++ₛ detail
+formatDBCTextParseError (InputBoundExceeded kind observed limit) =
+  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 
 dbcTextParseErrorCode : DBCTextParseError → String
 dbcTextParseErrorCode ParseFailure                  = "dbc_text_parse_failure"
 dbcTextParseErrorCode (TrailingInput _)             = "dbc_text_trailing_input"
 dbcTextParseErrorCode (AttributeRefinementFailed _) = "dbc_text_attribute_refinement_failed"
+dbcTextParseErrorCode (InputBoundExceeded _ _ _)    = "dbc_text_input_bound_exceeded"
 
 -- ============================================================================
 -- TOP-LEVEL ERROR SUM

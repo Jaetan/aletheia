@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""
-Scaling Benchmark
+"""Scaling Benchmark.
 
 Measures how Aletheia performance scales with:
+
 - Trace size (1K to 100K frames)
 - Property count (1 to 10 properties)
 - Property complexity (simple vs nested temporal operators)
@@ -13,48 +13,98 @@ Usage:
     python3 scaling.py [--quick]
 """
 
+from __future__ import annotations
+
 import argparse
-import json
 import sys
-import time
-from datetime import datetime, timezone
+from typing import IO, Callable, TypedDict
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
-from aletheia import AletheiaClient, Signal
+from aletheia import Signal
+from aletheia.dsl import Property
+from aletheia.protocols import DBCDefinition, LTLFormula
+
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from ._common import (
-    CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
-    CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME,
-    get_system_info, load_canfd_dbc, load_dbc,
+    CAN20_SPEC, CANFD_SPEC,
+    FrameSpec,
+    emit_json_report, load_canfd_dbc, load_dbc, run_streaming_benchmark,
 )
 
 
+class _TraceSizeRow(TypedDict):
+    """One row from the trace-size scaling sweep."""
+
+    frames: int
+    fps: float
+    relative: float
+
+
+class _PropertyCountRow(TypedDict):
+    """One row from the property-count scaling sweep."""
+
+    properties: int
+    fps: float
+    us_per_frame: float
+    relative: float
+
+
+class _PropertyComplexityRow(TypedDict):
+    """One row from the property-complexity scaling sweep."""
+
+    complexity: str
+    fps: float
+    us_per_frame: float
+    relative: float
+
+
+class _ScalingResults(TypedDict):
+    """All four sweep rows aggregated into one JSON-report payload."""
+
+    trace_size_can20: list[_TraceSizeRow]
+    trace_size_canfd: list[_TraceSizeRow]
+    property_count: list[_PropertyCountRow]
+    property_complexity: list[_PropertyComplexityRow]
+
+
 def benchmark_frames_per_sec(
-    dbc: dict,
-    num_frames: int,
-    properties: list[dict],
-    can_id: int,
-    dlc: int,
-    frame: bytes,
+    dbc: DBCDefinition, num_frames: int, properties: list[LTLFormula],
+    spec: FrameSpec,
 ) -> tuple[float, float]:
     """Benchmark streaming throughput. Returns (frames_per_sec, total_time)."""
-    with AletheiaClient() as client:
-        client.parse_dbc(dbc)
-        client.set_properties(properties)
-        client.start_stream()
-
-        start = time.perf_counter()
-        for i in range(num_frames):
-            client.send_frame(timestamp=i, can_id=can_id, dlc=dlc, data=frame)
-        elapsed = time.perf_counter() - start
-
-        client.end_stream()
-
-    return num_frames / elapsed, elapsed
+    return run_streaming_benchmark(dbc, num_frames, spec, properties)
 
 
-def test_trace_size_scaling(dbc: dict, quick: bool = False, file=None) -> list[dict]:
+def _trace_sizes(quick: bool) -> list[int]:
+    """Return the trace-size sweep (smaller in --quick mode)."""
+    return [1000, 5000, 10000, 50000] if quick else [1000, 5000, 10000, 50000, 100000]
+
+
+def _scan_trace_sizes(
+    dbc: DBCDefinition, spec: FrameSpec, properties: list[LTLFormula],
+    sizes: list[int], file: IO[str],
+) -> list[_TraceSizeRow]:
+    """Sweep trace sizes for one frame type and return per-size result rows."""
+    print(f"{'Frames':>10} {'Time (s)':>10} {'Frames/sec':>12} {'Relative':>10}", file=file)
+    print("-" * 45, file=file)
+    baseline_fps: float | None = None
+    results: list[_TraceSizeRow] = []
+    for size in sizes:
+        fps, elapsed = benchmark_frames_per_sec(dbc, size, properties, spec)
+        if baseline_fps is None:
+            baseline_fps = fps
+        relative = fps / baseline_fps
+        print(f"{size:>10,} {elapsed:>10.2f} {fps:>12,.0f} {relative:>10.2f}x", file=file)
+        results.append({"frames": size, "fps": round(fps, 1), "relative": round(relative, 3)})
+    print(file=file)
+    print("Expected: Relative throughput should stay near 1.0x (O(1) per frame)", file=file)
+    return results
+
+
+def test_trace_size_scaling(
+    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+) -> list[_TraceSizeRow]:
     """Test how throughput scales with trace size (CAN 2.0B)."""
     out = file or sys.stdout
     print("\n" + "=" * 70, file=out)
@@ -63,31 +113,13 @@ def test_trace_size_scaling(dbc: dict, quick: bool = False, file=None) -> list[d
     print("Testing throughput as trace size increases...", file=out)
     print("(Verifies O(1) memory and constant throughput)", file=out)
     print(file=out)
-
     properties = [Signal("EngineSpeed").between(0, 8000).always().to_dict()]
-    sizes = [1000, 5000, 10000, 50000] if quick else [1000, 5000, 10000, 50000, 100000]
-
-    print(f"{'Frames':>10} {'Time (s)':>10} {'Frames/sec':>12} {'Relative':>10}", file=out)
-    print("-" * 45, file=out)
-
-    baseline_fps = None
-    results = []
-    for size in sizes:
-        fps, elapsed = benchmark_frames_per_sec(
-            dbc, size, properties, CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
-        )
-        if baseline_fps is None:
-            baseline_fps = fps
-        relative = fps / baseline_fps
-        print(f"{size:>10,} {elapsed:>10.2f} {fps:>12,.0f} {relative:>10.2f}x", file=out)
-        results.append({"frames": size, "fps": round(fps, 1), "relative": round(relative, 3)})
-
-    print(file=out)
-    print("Expected: Relative throughput should stay near 1.0x (O(1) per frame)", file=out)
-    return results
+    return _scan_trace_sizes(dbc, CAN20_SPEC, properties, _trace_sizes(quick), out)
 
 
-def test_trace_size_scaling_canfd(canfd_dbc: dict, quick: bool = False, file=None) -> list[dict]:
+def test_trace_size_scaling_canfd(
+    canfd_dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+) -> list[_TraceSizeRow]:
     """Test how throughput scales with trace size (CAN-FD)."""
     out = file or sys.stdout
     print("\n" + "=" * 70, file=out)
@@ -95,31 +127,29 @@ def test_trace_size_scaling_canfd(canfd_dbc: dict, quick: bool = False, file=Non
     print("=" * 70, file=out)
     print("Testing CAN-FD throughput as trace size increases...", file=out)
     print(file=out)
-
     properties = [Signal("GPSSpeed").between(0, 655).always().to_dict()]
-    sizes = [1000, 5000, 10000, 50000] if quick else [1000, 5000, 10000, 50000, 100000]
-
-    print(f"{'Frames':>10} {'Time (s)':>10} {'Frames/sec':>12} {'Relative':>10}", file=out)
-    print("-" * 45, file=out)
-
-    baseline_fps = None
-    results = []
-    for size in sizes:
-        fps, elapsed = benchmark_frames_per_sec(
-            canfd_dbc, size, properties, CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME,
-        )
-        if baseline_fps is None:
-            baseline_fps = fps
-        relative = fps / baseline_fps
-        print(f"{size:>10,} {elapsed:>10.2f} {fps:>12,.0f} {relative:>10.2f}x", file=out)
-        results.append({"frames": size, "fps": round(fps, 1), "relative": round(relative, 3)})
-
-    print(file=out)
-    print("Expected: Relative throughput should stay near 1.0x (O(1) per frame)", file=out)
-    return results
+    return _scan_trace_sizes(canfd_dbc, CANFD_SPEC, properties, _trace_sizes(quick), out)
 
 
-def test_property_count_scaling(dbc: dict, quick: bool = False, file=None) -> list[dict]:
+def _property_templates() -> list[Callable[[], Property]]:
+    """Templates used by the property-count sweep."""
+    return [
+        lambda: Signal("EngineSpeed").between(0, 8000).always(),
+        lambda: Signal("EngineTemp").between(-40, 215).always(),
+        lambda: Signal("BrakePressure").less_than(6553.5).always(),
+        lambda: Signal("EngineSpeed").less_than(7000).always(),
+        lambda: Signal("EngineTemp").less_than(200).always(),
+        lambda: Signal("BrakePressure").less_than(5000).always(),
+        lambda: Signal("EngineSpeed").between(500, 7500).always(),
+        lambda: Signal("EngineTemp").between(-20, 180).always(),
+        lambda: Signal("BrakePressure").between(0, 4000).always(),
+        lambda: Signal("EngineSpeed").less_than(6000).always(),
+    ]
+
+
+def test_property_count_scaling(
+    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+) -> list[_PropertyCountRow]:
     """Test how throughput scales with number of properties."""
     out = file or sys.stdout
     print("\n" + "=" * 70, file=out)
@@ -129,37 +159,17 @@ def test_property_count_scaling(dbc: dict, quick: bool = False, file=None) -> li
     print(file=out)
 
     num_frames = 5000 if quick else 10000
-
-    def make_properties(count: int) -> list[dict]:
-        props = []
-        templates = [
-            lambda: Signal("EngineSpeed").between(0, 8000).always(),
-            lambda: Signal("EngineTemp").between(-40, 215).always(),
-            lambda: Signal("BrakePressure").less_than(6553.5).always(),
-            lambda: Signal("EngineSpeed").less_than(7000).always(),
-            lambda: Signal("EngineTemp").less_than(200).always(),
-            lambda: Signal("BrakePressure").less_than(5000).always(),
-            lambda: Signal("EngineSpeed").between(500, 7500).always(),
-            lambda: Signal("EngineTemp").between(-20, 180).always(),
-            lambda: Signal("BrakePressure").between(0, 4000).always(),
-            lambda: Signal("EngineSpeed").less_than(6000).always(),
-        ]
-        for i in range(count):
-            props.append(templates[i % len(templates)]().to_dict())
-        return props
-
+    templates = _property_templates()
     counts = [1, 2, 3, 5, 7, 10]
 
     print(f"{'Properties':>10} {'Frames/sec':>12} {'us/frame':>10} {'Relative':>10}", file=out)
     print("-" * 45, file=out)
 
-    baseline_fps = None
-    results = []
+    baseline_fps: float | None = None
+    results: list[_PropertyCountRow] = []
     for count in counts:
-        properties = make_properties(count)
-        fps, _ = benchmark_frames_per_sec(
-            dbc, num_frames, properties, CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
-        )
+        properties = [templates[i % len(templates)]().to_dict() for i in range(count)]
+        fps, _ = benchmark_frames_per_sec(dbc, num_frames, properties, CAN20_SPEC)
         us_per_frame = 1_000_000 / fps
         if baseline_fps is None:
             baseline_fps = fps
@@ -175,18 +185,9 @@ def test_property_count_scaling(dbc: dict, quick: bool = False, file=None) -> li
     return results
 
 
-def test_property_complexity_scaling(dbc: dict, quick: bool = False, file=None) -> list[dict]:
-    """Test how throughput scales with property complexity."""
-    out = file or sys.stdout
-    print("\n" + "=" * 70, file=out)
-    print("4. Property Complexity Scaling", file=out)
-    print("=" * 70, file=out)
-    print("Testing throughput with different property complexities...", file=out)
-    print(file=out)
-
-    num_frames = 5000 if quick else 10000
-
-    complexity_levels = [
+def _complexity_levels() -> list[tuple[str, list[LTLFormula]]]:
+    """Property bundles used by the complexity-scaling sweep."""
+    return [
         (
             "Simple predicate",
             [Signal("EngineSpeed").less_than(8000).always().to_dict()],
@@ -218,15 +219,27 @@ def test_property_complexity_scaling(dbc: dict, quick: bool = False, file=None) 
         ),
     ]
 
+
+def test_property_complexity_scaling(
+    dbc: DBCDefinition, quick: bool = False, file: IO[str] | None = None,
+) -> list[_PropertyComplexityRow]:
+    """Test how throughput scales with property complexity."""
+    out = file or sys.stdout
+    print("\n" + "=" * 70, file=out)
+    print("4. Property Complexity Scaling", file=out)
+    print("=" * 70, file=out)
+    print("Testing throughput with different property complexities...", file=out)
+    print(file=out)
+
+    num_frames = 5000 if quick else 10000
+
     print(f"{'Complexity':<25} {'Frames/sec':>12} {'us/frame':>10} {'Relative':>10}", file=out)
     print("-" * 60, file=out)
 
-    baseline_fps = None
-    results = []
-    for name, properties in complexity_levels:
-        fps, _ = benchmark_frames_per_sec(
-            dbc, num_frames, properties, CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME,
-        )
+    baseline_fps: float | None = None
+    results: list[_PropertyComplexityRow] = []
+    for name, properties in _complexity_levels():
+        fps, _ = benchmark_frames_per_sec(dbc, num_frames, properties, CAN20_SPEC)
         us_per_frame = 1_000_000 / fps
         if baseline_fps is None:
             baseline_fps = fps
@@ -242,7 +255,8 @@ def test_property_complexity_scaling(dbc: dict, quick: bool = False, file=None) 
     return results
 
 
-def main():
+def main() -> int:
+    """CLI entry point — parse args, run all scaling sweeps, emit summary."""
     parser = argparse.ArgumentParser(description="Scaling benchmark")
     parser.add_argument("--quick", action="store_true", help="Run faster with fewer iterations")
     parser.add_argument("--json", action="store_true", help="Emit JSON to stdout")
@@ -259,35 +273,24 @@ def main():
     dbc = load_dbc()
     canfd_dbc = load_canfd_dbc()
 
-    # Warmup
     print("\nWarming up...", file=out)
     props = [Signal("EngineSpeed").between(0, 8000).always().to_dict()]
-    benchmark_frames_per_sec(dbc, 1000, props, CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME)
+    benchmark_frames_per_sec(dbc, 1000, props, CAN20_SPEC)
     print("Done.", file=out)
 
-    trace_can20 = test_trace_size_scaling(dbc, args.quick, file=out)
-    trace_canfd = test_trace_size_scaling_canfd(canfd_dbc, args.quick, file=out)
-    prop_count = test_property_count_scaling(dbc, args.quick, file=out)
-    prop_complexity = test_property_complexity_scaling(dbc, args.quick, file=out)
+    results: _ScalingResults = {
+        "trace_size_can20": test_trace_size_scaling(dbc, args.quick, file=out),
+        "trace_size_canfd": test_trace_size_scaling_canfd(canfd_dbc, args.quick, file=out),
+        "property_count": test_property_count_scaling(dbc, args.quick, file=out),
+        "property_complexity": test_property_complexity_scaling(dbc, args.quick, file=out),
+    }
 
     print("\n" + "=" * 70, file=out)
     print("Scaling benchmark complete", file=out)
     print("=" * 70, file=out)
 
     if args.json:
-        output = {
-            "benchmark": "scaling",
-            "language": "python",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "system": get_system_info(),
-            "results": {
-                "trace_size_can20": trace_can20,
-                "trace_size_canfd": trace_canfd,
-                "property_count": prop_count,
-                "property_complexity": prop_complexity,
-            },
-        }
-        print(json.dumps(output, indent=2))
+        emit_json_report("scaling", results)
 
     return 0
 

@@ -62,6 +62,8 @@ open import Aletheia.DBC.TextParser.Format
          roundtrip)
 open import Aletheia.DBC.TextParser.Format.ValueTable using
   (ValueEntry-format; build-EmitsOKMany)
+open import Aletheia.DBC.TextParser.Properties.Attributes.Assign.Common
+  using (digitChar-not-isHSpace)
 
 -- ============================================================================
 -- LOCAL SUGAR — ws-aware combinators (mirror `Format.ValueTable`)
@@ -124,24 +126,6 @@ RawValueDescNameStop sigId =
 -- ============================================================================
 
 private
-  -- The head of `showNat-chars n` is `digitChar k` for some `k`; every
-  -- closed digit char fails `isHSpace`.  Local mirror of the same
-  -- helper in `Format.ValueTable.agda` (kept private there).  TODO:
-  -- consolidate into a shared module if either site grows further.
-  digitChar-not-isHSpace : ∀ d → isHSpace (digitChar d) ≡ false
-  digitChar-not-isHSpace 0 = refl
-  digitChar-not-isHSpace 1 = refl
-  digitChar-not-isHSpace 2 = refl
-  digitChar-not-isHSpace 3 = refl
-  digitChar-not-isHSpace 4 = refl
-  digitChar-not-isHSpace 5 = refl
-  digitChar-not-isHSpace 6 = refl
-  digitChar-not-isHSpace 7 = refl
-  digitChar-not-isHSpace 8 = refl
-  digitChar-not-isHSpace 9 = refl
-  digitChar-not-isHSpace
-    (suc (suc (suc (suc (suc (suc (suc (suc (suc (suc _)))))))))) = refl
-
   showNat-head-non-hspace : ∀ (n : ℕ) (rest : List Char)
     → SuffixStops isHSpace (showNat-chars n ++ₗ rest)
   showNat-head-non-hspace n rest with showNat-chars-head n

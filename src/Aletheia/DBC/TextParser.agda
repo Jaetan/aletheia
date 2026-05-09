@@ -219,7 +219,7 @@ buildDBC ver nodes c attrs = record
   -- pre-attach `CollectedTop.messages` (the same list the resolved RVDs
   -- match against).  Under WF (`unresolvedRVDs-on-collected`) this list
   -- is `[]` for any DBC built from `formatText`, so the universal proof
-  -- closes via `WellFormedDBC.unresolved-empty`.
+  -- closes via `WellFormedTextDBCAgg.unresolved-empty`.
   ; unresolvedValueDescs = unresolvedRVDs (CollectedTop.rawValueDescs c)
                                           (CollectedTop.messages       c)
   }

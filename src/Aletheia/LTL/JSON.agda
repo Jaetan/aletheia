@@ -15,7 +15,6 @@
 -- list and calls parseLTL on the structurally smaller sub-value.
 module Aletheia.LTL.JSON where
 
-open import Data.Char using (Char)
 open import Data.String using (String; _≟_)
 open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
