@@ -60,16 +60,28 @@ ARTIFACT_BASE = REPO_ROOT / "benchmarks" / "mutation"
 
 @dataclass
 class MutationReport:
+    """Per-binding mutation result; serialized to ``<binding>.json``."""
+
     binding: str
     tool: str
-    total_mutants: int
     killed: int
     survived: int
-    score_pct: float
     raw_log: str
     error: str | None = None
 
+    @property
+    def total_mutants(self) -> int:
+        """Killed + survived (excludes not-covered / skipped per tool semantics)."""
+        return self.killed + self.survived
+
+    @property
+    def score_pct(self) -> float:
+        """Mutation score: killed / (killed + survived) * 100, or 0 if total is 0."""
+        total = self.killed + self.survived
+        return 100.0 * self.killed / total if total > 0 else 0.0
+
     def to_dict(self) -> dict[str, object]:
+        """Materialize for JSON archival; truncates raw_log to last 2000 chars."""
         return {
             "binding": self.binding,
             "tool": self.tool,
@@ -83,6 +95,7 @@ class MutationReport:
 
 
 def short_sha() -> str:
+    """Return the current commit's short sha for artifact-dir naming."""
     out = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=True,
@@ -91,12 +104,8 @@ def short_sha() -> str:
 
 
 def load_spec() -> dict[str, object]:
+    """Load docs/MUTATION_BENCH.yaml as a dict (per-binding tool / hot_path / baseline)."""
     return yaml.safe_load(SPEC_PATH.read_text())
-
-
-def _score(killed: int, survived: int) -> float:
-    total = killed + survived
-    return 100.0 * killed / total if total > 0 else 0.0
 
 
 def run_python(artifact_dir: Path) -> MutationReport:
@@ -104,21 +113,23 @@ def run_python(artifact_dir: Path) -> MutationReport:
     venv_python = REPO_ROOT / "python" / ".venv" / "bin" / "python3"
     if not venv_python.is_file():
         return MutationReport(
-            "python", "mutmut", 0, 0, 0, 0.0, "",
-            error="python/.venv not found; run "
-                  "`python3 -m venv python/.venv && python/.venv/bin/pip install -e python/.[dev,mutation]`"
+            "python", "mutmut", 0, 0, "",
+            error=(
+                "python/.venv not found; run `python3 -m venv python/.venv && "
+                "python/.venv/bin/pip install -e python/.[dev,mutation]`"
+            )
         )
     mutmut_bin = REPO_ROOT / "python" / ".venv" / "bin" / "mutmut"
     if not mutmut_bin.is_file():
         return MutationReport(
-            "python", "mutmut", 0, 0, 0, 0.0, "",
+            "python", "mutmut", 0, 0, "",
             error="mutmut not installed in venv; run "
                   "`python/.venv/bin/pip install 'mutmut>=3.5,<4'`"
         )
     lib = REPO_ROOT / "build" / "libaletheia-ffi.so"
     if not lib.is_file():
         return MutationReport(
-            "python", "mutmut", 0, 0, 0, 0.0, "",
+            "python", "mutmut", 0, 0, "",
             error=f"libaletheia-ffi.so not found at {lib}; "
                   "run `cabal run shake -- build` first"
         )
@@ -152,7 +163,11 @@ def run_python(artifact_dir: Path) -> MutationReport:
     # Each section header is e.g. "survived: N items" or with a colon-separated
     # newline-list following.  We count by scanning for section headers.
     sections: dict[str, int] = {}
-    for m in re.finditer(r"^(killed|survived|timeout|suspicious|skipped)\s*\(\s*(\d+)", raw, re.MULTILINE):
+    section_re = re.compile(
+        r"^(killed|survived|timeout|suspicious|skipped)\s*\(\s*(\d+)",
+        re.MULTILINE,
+    )
+    for m in section_re.finditer(raw):
         sections[m.group(1)] = int(m.group(2))
     # Fallback parse: the older "X/Y mutants" line.
     if not sections:
@@ -169,18 +184,20 @@ def run_python(artifact_dir: Path) -> MutationReport:
     total = killed + survived + timeout + skipped
 
     if total == 0 and (run_proc.returncode != 0 or results_proc.returncode != 0):
+        run_rc = run_proc.returncode
+        res_rc = results_proc.returncode
         return MutationReport(
-            "python", "mutmut", 0, 0, 0, 0.0, raw,
-            error=f"mutmut run/results failed: exit {run_proc.returncode}/{results_proc.returncode} "
-                  f"(see python.raw.txt)"
+            "python", "mutmut", 0, 0, raw,
+            error=(
+                f"mutmut run/results failed: exit {run_rc}/{res_rc} "
+                "(see python.raw.txt)"
+            )
         )
 
-    return MutationReport(
-        "python", "mutmut", total, killed, survived, _score(killed, survived), raw,
-    )
+    return MutationReport("python", "mutmut", killed, survived, raw)
 
 
-def run_go(artifact_dir: Path, _hot_path: list[str]) -> MutationReport:
+def run_go(artifact_dir: Path) -> MutationReport:
     """gremlins unleash on the Go aletheia/ package.  Output: text summary
     with `Killed`, `Lived` (= survived), `Not covered`, `Mutator coverage` lines.
 
@@ -191,7 +208,7 @@ def run_go(artifact_dir: Path, _hot_path: list[str]) -> MutationReport:
     """
     if not shutil.which("gremlins"):
         return MutationReport(
-            "go", "gremlins", 0, 0, 0, 0.0, "",
+            "go", "gremlins", 0, 0, "",
             error="gremlins not in PATH; run "
                   "`go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`"
         )
@@ -214,46 +231,43 @@ def run_go(artifact_dir: Path, _hot_path: list[str]) -> MutationReport:
     #   Mutator coverage: P.PP%
     killed_m = re.search(r"Killed:\s*(\d+)", raw)
     survived_m = re.search(r"Lived:\s*(\d+)", raw)
-    notcov_m = re.search(r"Not covered:\s*(\d+)", raw)
     if not (killed_m and survived_m):
         return MutationReport(
-            "go", "gremlins", 0, 0, 0, 0.0, raw,
-            error=f"could not parse gremlins summary (see go.raw.txt; exit {proc.returncode})"
+            "go", "gremlins", 0, 0, raw,
+            error=(
+                "could not parse gremlins summary "
+                f"(see go.raw.txt; exit {proc.returncode})"
+            )
         )
     killed = int(killed_m.group(1))
     survived = int(survived_m.group(1))
-    not_covered = int(notcov_m.group(1)) if notcov_m else 0
-    # Total = killed + survived (only RUNNABLE mutants count toward score);
-    # not_covered are mutants on lines without test coverage and don't
-    # contribute to the killed/lived split per gremlins semantics.
-    total = killed + survived + not_covered
-    return MutationReport(
-        "go", "gremlins", total, killed, survived,
-        _score(killed, survived), raw,
-    )
+    # Note: gremlins' "Not covered" mutants are on lines without test
+    # coverage; they don't contribute to the killed/lived split per
+    # gremlins semantics, so total_mutants = killed + survived in the
+    # MutationReport.
+    return MutationReport("go", "gremlins", killed, survived, raw)
+
+
+def _check_cpp_tools() -> str | None:
+    """Return error string if any C++ mutation prereq is missing, else None."""
+    if not shutil.which("mull-runner-19"):
+        return ("mull-runner-19 not in PATH; install Mull-19 from "
+                "https://github.com/mull-project/mull/releases (see "
+                "docs/operations/MUTATION.md § Installation)")
+    if not shutil.which("clang++-19"):
+        return "clang++-19 not in PATH; install via apt: `sudo apt install clang-19`"
+    plugin = Path.home() / ".local" / "bin" / "mull-ir-frontend-19"
+    if not plugin.is_file():
+        return (f"mull-ir-frontend-19 plugin not found at {plugin}; "
+                "see docs/operations/MUTATION.md § Installation")
+    return None
 
 
 def run_cpp(artifact_dir: Path) -> MutationReport:
     """Mull pass via dedicated build tree; runs unit_tests under mull-runner-19."""
-    if not shutil.which("mull-runner-19"):
-        return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, "",
-            error="mull-runner-19 not in PATH; install Mull-19 from "
-                  "https://github.com/mull-project/mull/releases (see "
-                  "docs/operations/MUTATION.md § Installation)"
-        )
-    if not shutil.which("clang++-19"):
-        return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, "",
-            error="clang++-19 not in PATH; install via apt: `sudo apt install clang-19`"
-        )
-    plugin = Path.home() / ".local" / "bin" / "mull-ir-frontend-19"
-    if not plugin.is_file():
-        return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, "",
-            error=f"mull-ir-frontend-19 plugin not found at {plugin}; "
-                  "see docs/operations/MUTATION.md § Installation"
-        )
+    err = _check_cpp_tools()
+    if err is not None:
+        return MutationReport("cpp", "mull", 0, 0, "", error=err)
 
     cpp_root = REPO_ROOT / "cpp"
     build_dir = cpp_root / "build-mutation"
@@ -266,10 +280,9 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     )
     raw = "=== cmake configure ===\n" + cmake_proc.stdout + cmake_proc.stderr + "\n"
     if cmake_proc.returncode != 0:
-        out_path = artifact_dir / "cpp.raw.txt"
-        out_path.write_text(raw)
+        (artifact_dir / "cpp.raw.txt").write_text(raw)
         return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, raw,
+            "cpp", "mull", 0, 0, raw,
             error=f"cmake configure failed (exit {cmake_proc.returncode}; see cpp.raw.txt)"
         )
 
@@ -279,10 +292,9 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     )
     raw += "=== cmake build ===\n" + build_proc.stdout + build_proc.stderr + "\n"
     if build_proc.returncode != 0:
-        out_path = artifact_dir / "cpp.raw.txt"
-        out_path.write_text(raw)
+        (artifact_dir / "cpp.raw.txt").write_text(raw)
         return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, raw,
+            "cpp", "mull", 0, 0, raw,
             error=f"cmake build failed (exit {build_proc.returncode}; see cpp.raw.txt)"
         )
 
@@ -309,8 +321,11 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
 
     if not survived_m:
         return MutationReport(
-            "cpp", "mull", 0, 0, 0, 0.0, raw,
-            error=f"could not parse mull-runner-19 summary (see cpp.raw.txt; exit {runner_proc.returncode})"
+            "cpp", "mull", 0, 0, raw,
+            error=(
+                "could not parse mull-runner-19 summary "
+                f"(see cpp.raw.txt; exit {runner_proc.returncode})"
+            )
         )
     survived = int(survived_m.group(1))
     if killed_m:
@@ -324,13 +339,11 @@ def run_cpp(artifact_dir: Path) -> MutationReport:
     else:
         # Score not parsed either; fall back to "everything killed" guess.
         killed = 0
-    return MutationReport(
-        "cpp", "mull", killed + survived, killed, survived,
-        _score(killed, survived), raw,
-    )
+    return MutationReport("cpp", "mull", killed, survived, raw)
 
 
 def main() -> int:
+    """Drive every binding's mutation tool, archive reports, gate on baseline drift."""
     if not SPEC_PATH.is_file():
         print(f"ERROR: spec missing at {SPEC_PATH}", file=sys.stderr)
         return 2
@@ -355,8 +368,7 @@ def main() -> int:
         reports.append(rep)
 
     if os.environ.get("ALETHEIA_MUTATION_SKIP_GO") != "1":
-        go_hot_path = bindings.get("go", {}).get("hot_path", [])
-        rep = run_go(artifact_dir, go_hot_path)
+        rep = run_go(artifact_dir)
         (artifact_dir / "go.json").write_text(json.dumps(rep.to_dict(), indent=2))
         reports.append(rep)
 

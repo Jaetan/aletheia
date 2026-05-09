@@ -33,6 +33,7 @@ SPEC_PATH = REPO_ROOT / "docs" / "MUTATION_BENCH.yaml"
 
 
 def main() -> int:
+    """Verify every binding's declared hot-path source file exists on disk."""
     if not SPEC_PATH.is_file():
         print(f"ERROR: spec missing at {SPEC_PATH}", file=sys.stderr)
         return 2
