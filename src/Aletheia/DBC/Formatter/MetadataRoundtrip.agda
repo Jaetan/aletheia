@@ -266,21 +266,21 @@ private
     ("entries"    , JArray (map formatValueEntry (RawValueDesc.entries rvd))) ∷
     []
 
-  rvd-canId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+  rvd-canId-std : ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
                     (n : Identifier) (es : List (ℕ × List Char))
     → parseCANId "rawValueDesc" rawId
         (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
       ≡ inj₂ (Standard rawId pf)
   rvd-canId-std rawId pf n es = ifᵀ-witness _ _ pf
 
-  rvd-canId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+  rvd-canId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
                     (n : Identifier) (es : List (ℕ × List Char))
     → parseCANId "rawValueDesc" rawId
         (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
       ≡ inj₂ (Extended rawId pf)
   rvd-canId-ext rawId pf n es = ifᵀ-witness _ _ pf
 
-  rvd-msgId-std : ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+  rvd-msgId-std : ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
                     (n : Identifier) (es : List (ℕ × List Char))
     → parseMessageId "rawValueDesc"
         (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
@@ -289,7 +289,7 @@ private
     rewrite getNat-ℕtoJSON rawId
     = rvd-canId-std rawId pf n es
 
-  rvd-msgId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+  rvd-msgId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
                     (n : Identifier) (es : List (ℕ × List Char))
     → parseMessageId "rawValueDesc"
         (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
@@ -299,7 +299,7 @@ private
     = rvd-canId-ext rawId pf n es
 
   rawValueDesc-roundtrip-std :
-      ∀ rawId (pf : T (rawId <ᵇ standard-can-id-max))
+      ∀ rawId .(pf : T (rawId <ᵇ standard-can-id-max))
         (n : Identifier) (es : List (ℕ × List Char))
     → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Standard rawId pf) n es))
       ≡ inj₂ (mkRawValueDesc (Standard rawId pf) n es)
@@ -310,7 +310,7 @@ private
     = refl
 
   rawValueDesc-roundtrip-ext :
-      ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max))
+      ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max))
         (n : Identifier) (es : List (ℕ × List Char))
     → parseRawValueDesc (rawValueDescFields (mkRawValueDesc (Extended rawId pf) n es))
       ≡ inj₂ (mkRawValueDesc (Extended rawId pf) n es)

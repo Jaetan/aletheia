@@ -126,8 +126,14 @@ T→true = Equivalence.to T-≡
 -- Splits on b internally; avoids with-abstraction at call sites where
 -- the type of `Standard rawId pf` creates a rigid dependency on b.
 -- Uses η for ⊤: when b = true, pf : T true = ⊤ is definitionally tt.
-ifᵀ-witness : ∀ {A : Set} {b : Bool} (f : T b → A) (e : A) (pf : T b)
-  → ifᵀ b then f else e ≡ f pf
+-- `pf` is irrelevant `.(…)` so the lemma composes with downstream
+-- irrelevant proof flow (CANId Standard / Extended after AGDA-B-22.1 R18
+-- cluster 17 migration).  The continuation `f` takes its T b argument
+-- irrelevantly so the conclusion `f pf` typechecks; callers pass either
+-- relevant lambdas (Agda promotes argument irrelevance contravariantly)
+-- or explicitly-irrelevant lambdas — both are accepted.
+ifᵀ-witness : ∀ {A : Set} {b : Bool} (f : .(T b) → A) (e : A) .(pf : T b)
+  → ifᵀ b then (λ p → f p) else e ≡ f pf
 ifᵀ-witness {b = true}  f e pf = refl
 ifᵀ-witness {b = false} _ _ ()
 

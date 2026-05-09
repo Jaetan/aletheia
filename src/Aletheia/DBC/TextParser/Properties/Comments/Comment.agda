@@ -118,6 +118,18 @@ private
   standard-max<extFlagBit : standard-can-id-max < extFlagBit
   standard-max<extFlagBit = <ᵇ⇒< standard-can-id-max extFlagBit tt
 
+  -- `<ᵇ⇒<` accepting irrelevant `T (m <ᵇ n)` — needed because R18 cluster
+  -- 17 made `CANId` proof fields `.(…)`-irrelevant, so pattern-matched
+  -- `Standard n pf` binds `pf` irrelevantly and stdlib `<ᵇ⇒<` requires
+  -- relevant input.  Materializes a relevant `T b` via case split on the
+  -- Bool, then defers to stdlib `<ᵇ⇒<`.
+  T-materialize : (b : Bool) → .(T b) → T b
+  T-materialize true  _  = tt
+  T-materialize false ()
+
+  <ᵇ⇒<-irr : ∀ m n → .(T (m <ᵇ n)) → m < n
+  <ᵇ⇒<-irr m n pf = <ᵇ⇒< m n (T-materialize (m <ᵇ n) pf)
+
 -- ============================================================================
 -- buildCANId roundtrip — `buildCANId (rawCanIdℕ cid) ≡ just cid`
 -- ============================================================================
@@ -153,7 +165,7 @@ buildCANId-rawCanIdℕ (Standard n pf) =
        (λ pf' → just (Standard n pf')) nothing pf)
   where
     n<extFlagBit : n < extFlagBit
-    n<extFlagBit = <-trans (<ᵇ⇒< n standard-can-id-max pf) standard-max<extFlagBit
+    n<extFlagBit = <-trans (<ᵇ⇒<-irr n standard-can-id-max pf) standard-max<extFlagBit
 buildCANId-rawCanIdℕ (Extended n pf) =
   trans
     (ifᵀ-witness {b = extFlagBit ≤ᵇ n + extFlagBit}

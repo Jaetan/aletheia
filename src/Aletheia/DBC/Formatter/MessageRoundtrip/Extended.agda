@@ -31,12 +31,12 @@ open import Aletheia.DBC.Formatter.MessageRoundtrip.Base
 
 private
   -- Stage 1: parseCANId roundtrip (Extended)
-  canId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
+  canId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
     → parseCANId (ctx (Identifier.name n)) rawId (messageFields (mkMessage (Extended rawId pf) n dlc sender senders signals))
       ≡ inj₂ (Extended rawId pf)
   canId-ext rawId pf n dlc sender senders signals = ifᵀ-witness _ _ pf
 
-  msgId-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
+  msgId-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
     → parseMessageId (ctx (Identifier.name n)) (messageFields (mkMessage (Extended rawId pf) n dlc sender senders signals))
       ≡ inj₂ (Extended rawId pf)
   msgId-ext rawId pf n dlc sender senders signals
@@ -44,7 +44,7 @@ private
     = canId-ext rawId pf n dlc sender senders signals
 
   -- Stage 2: parseMessageBody roundtrip (Extended)
-  msgBody-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
+  msgBody-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
     → dlcBytes dlc ≤ 64
     → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
     → parseMessageBody (ctx (Identifier.name n)) (Identifier.name n) (Extended rawId pf) (messageFields (mkMessage (Extended rawId pf) n dlc sender senders signals))
@@ -61,7 +61,7 @@ private
     = refl
 
 -- Composed Extended message roundtrip
-message-roundtrip-ext : ∀ rawId (pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
+message-roundtrip-ext : ∀ rawId .(pf : T (rawId <ᵇ extended-can-id-max)) (n : Identifier) (dlc : DLC) (sender : Identifier) (senders : List Identifier) (signals : List DBCSignal)
   → dlcBytes dlc ≤ 64
   → All WellFormedSignal signals → All (PhysicallyValid (dlcBytes dlc)) signals
   → parseMessage (messageFields (mkMessage (Extended rawId pf) n dlc sender senders signals))

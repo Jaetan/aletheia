@@ -29,16 +29,16 @@ Byte : Set
 Byte = ℕ
 
 -- CAN ID type supporting both standard (11-bit) and extended (29-bit) IDs.
--- Bounds are embedded via T (n <ᵇ max): O(1) proof (just tt) at runtime,
--- but statically enforced at every construction site inside Agda.
--- At the FFI boundary (Haskell shim), bounds are checked at runtime.
--- Proof fields are NOT @0 (unlike DLC's record, where η-equality makes
--- erased fields definitionally irrelevant). Data constructors lack η, so
--- _≟-CANId_ in DBCHelpers.agda needs non-erased access to close the identity
--- gap via T-irrelevant. MAlonzo cost: one extra () per CANId — negligible.
+-- Bounds embedded via T (n <ᵇ max), marked irrelevant `.(…)` per AGENTS.md G-A4:
+-- the proof exists solely to enforce a precondition; its inhabitant carries no
+-- information beyond existence. Irrelevance bypasses the data-constructor
+-- η-equality gap that blocks `@0` here — `Standard n p₁ ≡ Standard n p₂` holds
+-- definitionally regardless of `p₁` / `p₂`, so `_≟-CANId_` collapses to `≟ ℕ`
+-- without `T-irrelevant`, and MAlonzo erases the proof field outright (zero
+-- runtime cell vs the prior `()` per CANId).
 data CANId : Set where
-  Standard : (n : ℕ) → T (n <ᵇ standard-can-id-max) → CANId
-  Extended : (n : ℕ) → T (n <ᵇ extended-can-id-max) → CANId
+  Standard : (n : ℕ) → .(T (n <ᵇ standard-can-id-max)) → CANId
+  Extended : (n : ℕ) → .(T (n <ᵇ extended-can-id-max)) → CANId
 
 -- CAN frame parameterized by payload size n.
 -- CAN 2.0B: n = 8 (fixed). CAN-FD: n ∈ {0..8, 12, 16, 20, 24, 32, 48, 64}.

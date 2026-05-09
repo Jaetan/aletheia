@@ -410,23 +410,35 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "check-erasure" $ do
         -- Guard the FFI marshaling assumptions about MAlonzo output shape.
-        -- Marshal.hs feeds `unsafeCoerce ()` for the erased proof slot of
-        -- CANId constructors; this is safe only while MAlonzo keeps those
-        -- slots compiled to `AgdaAny`. Likewise, Timestamp comparisons rely
-        -- on the newtype compilation to avoid a hot-path allocation.
+        -- After R18 cluster 17 (AGDA-B-22.1), CANId proof fields are
+        -- `.(…)`-irrelevant — MAlonzo erases the cell entirely, so the
+        -- constructors compile to single-Integer shape (no `AgdaAny`
+        -- proof slot). Marshal.hs `mkAgdaCanId` constructs without the
+        -- second arg. Timestamp comparisons rely on the newtype
+        -- compilation to avoid a hot-path allocation.
         -- If either assumption regresses we want a clear early failure
         -- before ConstructorTest runs.
         need ["build/libaletheia-ffi.so"]
         frame <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/CAN/Frame.hs"
         time  <- liftIO $ readFile "build/MAlonzo/Code/Aletheia/Trace/Time.hs"
+        -- Single-Integer ctor shape post-R18 cluster 17 — irrelevant proof
+        -- erased; reject any reintroduction of an `AgdaAny` proof slot.
+        -- Match by absence of the AgdaAny-shaped form rather than positive
+        -- presence: MAlonzo formats the data declaration on one line
+        -- (`data T_CANId_8 = C_Standard_12 Integer | C_Extended_16 Integer`),
+        -- so a positive-presence check would race the formatter.
         let canIdErasure =
-              "C_Standard_12 Integer AgdaAny" `isInfixOf` frame &&
-              "C_Extended_16 Integer AgdaAny" `isInfixOf` frame
+              "C_Standard_12 Integer" `isInfixOf` frame &&
+              "C_Extended_16 Integer" `isInfixOf` frame &&
+              not ("C_Standard_12 Integer AgdaAny" `isInfixOf` frame) &&
+              not ("C_Extended_16 Integer AgdaAny" `isInfixOf` frame)
         unless canIdErasure $
-          error $ "check-erasure failed: CAN ID constructors no longer use "
-               ++ "AgdaAny for the bound proof. "
-               ++ "Marshal.hs mkAgdaCanId assumes the proof slot is erased; "
-               ++ "fix Marshal.hs before this regresses end-to-end."
+          error $ "check-erasure failed: CAN ID constructor shape drifted "
+               ++ "from the post-R18-cluster-17 single-Integer form. "
+               ++ "Either MAlonzo regressed and re-emits the proof slot, or "
+               ++ "the AGDA-B-22.1 `.(…)` irrelevance was reverted. "
+               ++ "Marshal.hs mkAgdaCanId assumes single-arg constructors; "
+               ++ "fix the source of drift before this regresses end-to-end."
         let tsNewtype = "newtype T_Timestamp_18" `isInfixOf` time
         unless tsNewtype $
           error $ "check-erasure failed: Timestamp is no longer compiled as "
@@ -452,7 +464,7 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
           error $ "check-erasure failed: Sum stdlib constructor names changed. "
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
-        putInfo "Erasure guards OK: CANId AgdaAny + Timestamp newtype + stdlib constructors."
+        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors."
 
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in
