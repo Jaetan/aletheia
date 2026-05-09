@@ -7,6 +7,7 @@ from fractions import Fraction
 from types import MappingProxyType
 from typing import NamedTuple, cast, override
 
+from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
 from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
 
 type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
@@ -74,6 +75,26 @@ class InputBoundExceededError(AletheiaError):
         self.kind = kind
         self.observed = observed
         self.limit = limit
+
+
+def check_dbc_text_size_bound(observed: int) -> None:
+    """Raise :class:`InputBoundExceededError` if observed > MAX_DBC_TEXT_BYTES.
+
+    Defense-in-depth size cap shared by every parser surface that reads DBC
+    text, YAML check definitions, or Excel workbooks (each format references
+    DBC signal names from a parsed DBC, so the 64 MiB cap applies uniformly
+    per :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` and the AGENTS.md universal
+    rule "Adversarial-input bounds at parser surfaces").  Centralised here
+    so :mod:`aletheia.dbc_converter`, :mod:`aletheia.yaml_loader`, and
+    :mod:`aletheia.excel_loader` share one implementation per
+    ``feedback_no_subsumption_asymmetry.md``.
+    """
+    if observed > MAX_DBC_TEXT_BYTES:
+        raise InputBoundExceededError(
+            BOUND_KIND_INPUT_LENGTH_BYTES,
+            observed,
+            MAX_DBC_TEXT_BYTES,
+        )
 
 
 class BatchError(AletheiaError):

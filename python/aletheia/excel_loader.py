@@ -55,6 +55,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
+from .client._types import check_dbc_text_size_bound
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -184,11 +185,18 @@ def load_checks_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
+        InputBoundExceededError: If the file is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
+            workbooks are ZIP archives that openpyxl all-loads into memory;
+            the cap protects against ZIP-bomb / oversized-input DOS per
+            AGENTS.md universal rule "Adversarial-input bounds at parser
+            surfaces".
         ValueError: Invalid data in cells
     """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    check_dbc_text_size_bound(p.stat().st_size)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
@@ -227,11 +235,18 @@ def load_dbc_from_excel(
 
     Raises:
         FileNotFoundError: File doesn't exist
+        InputBoundExceededError: If the file is larger than
+            :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` (64 MiB).  Excel
+            workbooks are ZIP archives that openpyxl all-loads into memory;
+            the cap protects against ZIP-bomb / oversized-input DOS per
+            AGENTS.md universal rule "Adversarial-input bounds at parser
+            surfaces".
         ValueError: Invalid or missing data
     """
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
+    check_dbc_text_size_bound(p.stat().st_size)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:

@@ -59,8 +59,7 @@ from pathlib import Path
 import yaml
 
 from .checks import Check, CheckResult
-from .client._types import InputBoundExceededError
-from .limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from .client._types import check_dbc_text_size_bound
 from .protocols import is_object_list, is_str_dict
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
@@ -127,16 +126,6 @@ def load_checks(source: str | Path) -> list[CheckResult]:
 # Internal helpers
 # ============================================================================
 
-def _check_input_bound(observed: int) -> None:
-    """Raise :class:`InputBoundExceededError` if observed > MAX_DBC_TEXT_BYTES."""
-    if observed > MAX_DBC_TEXT_BYTES:
-        raise InputBoundExceededError(
-            BOUND_KIND_INPUT_LENGTH_BYTES,
-            observed,
-            MAX_DBC_TEXT_BYTES,
-        )
-
-
 def _load_yaml(source: str | Path) -> object:
     """Load YAML from a file path or string.
 
@@ -149,18 +138,18 @@ def _load_yaml(source: str | Path) -> object:
     universal rule "Adversarial-input bounds at parser surfaces".
     """
     if isinstance(source, Path):
-        _check_input_bound(source.stat().st_size)
+        check_dbc_text_size_bound(source.stat().st_size)
         with open(source, encoding="utf-8") as f:
             return yaml.safe_load(f)
     # String: existing file takes priority over inline detection
     path = Path(source)
     if path.exists():
-        _check_input_bound(path.stat().st_size)
+        check_dbc_text_size_bound(path.stat().st_size)
         with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
     # Multi-line or YAML-structured strings are inline YAML
     if "\n" in source or source.lstrip().startswith(("checks:", "-", "{", "[")):
-        _check_input_bound(len(source.encode("utf-8")))
+        check_dbc_text_size_bound(len(source.encode("utf-8")))
         return yaml.safe_load(source)
     # Doesn't exist and doesn't look like inline YAML
     raise FileNotFoundError(f"YAML file not found: {source}")

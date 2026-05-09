@@ -9,7 +9,15 @@ The Agda kernel additionally enforces the same bound (Aletheia.Limits +
 parseJSON / parseDBCText InputBoundExceeded constructor); this suite
 covers the binding-side short-circuit so a 100 MiB JSON does not
 allocate buffers in Python/ctypes before being rejected.
+
+R19 cluster A extends this with per-loader regression tests: every
+parser-surface entry point (``yaml_loader._load_yaml``,
+``dbc_converter.dbc_to_json``, ``excel_loader.load_dbc_from_excel``,
+``excel_loader.load_checks_from_excel``) rejects oversize files with
+:class:`InputBoundExceededError` before allocating buffers / parsing.
 """
+
+from pathlib import Path
 
 import pytest
 
@@ -19,6 +27,9 @@ from aletheia import (
     InputBoundExceededError,
 )
 from aletheia import limits
+from aletheia.dbc_converter import dbc_to_json
+from aletheia.excel_loader import load_checks_from_excel, load_dbc_from_excel
+from aletheia.yaml_loader import load_checks
 from aletheia.error_codes import ErrorCode
 
 
@@ -139,3 +150,93 @@ class TestErrorCodes:
     def test_frame_input_bound_exceeded_code(self) -> None:
         """Frame-side code is ``frame_input_bound_exceeded``."""
         assert ErrorCode.FRAME_INPUT_BOUND_EXCEEDED == "frame_input_bound_exceeded"
+
+
+class TestPythonLoaderBoundChecks:
+    """Per-loader bound checks fire and raise ``InputBoundExceededError``.
+
+    Covers all four parser-surface loader entry points across
+    R18 cluster 2 (yaml_loader, dbc_converter) + R19 cluster A
+    (excel_loader x2).  Per ``feedback_cross_binding_wire_symmetry.md``
+    these tests close the binding-side observation gap that R18
+    cluster 2 left implicit (cluster 2 wired the cap but did not test
+    that the cap fires).
+
+    Tests patch ``MAX_DBC_TEXT_BYTES`` on the consuming module to a
+    small value so a 2 KiB temp file exceeds the patched cap; this
+    avoids writing 64+ MiB to disk per test.
+    """
+
+    def test_yaml_loader_file_path_oversize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """yaml_loader rejects file paths whose size exceeds the cap."""
+        monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 1024)
+        f = tmp_path / "huge.yaml"
+        f.write_bytes(b"x" * 2048)
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            load_checks(f)
+        assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
+        assert exc_info.value.observed == 2048
+        assert exc_info.value.limit == 1024
+
+    def test_yaml_loader_inline_string_oversize(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """yaml_loader rejects inline YAML strings whose byte length exceeds the cap.
+
+        Mocks ``Path.exists`` to return False unconditionally so the
+        file-vs-string dispatch falls into the inline-yaml branch deterministically.
+        Without the mock, ``Path(big_str).exists()`` raises ENAMETOOLONG on
+        Linux for any single-segment string > NAME_MAX (255 bytes) — that
+        path-confusion behavior is tracked separately as PY-B-26.12
+        (R19 cluster B); cluster A's job is to verify the bound check
+        itself fires when reached.
+        """
+        monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 100)
+        monkeypatch.setattr(Path, "exists", lambda _self: False)
+        big_yaml = "checks:\n" + "  - { name: x, signal: S, condition: equals, value: 0 }\n" * 8
+        assert len(big_yaml.encode("utf-8")) > 100
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            load_checks(big_yaml)
+        assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
+        assert exc_info.value.limit == 100
+
+    def test_dbc_converter_oversize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """dbc_converter.dbc_to_json rejects DBC files larger than the cap."""
+        monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 1024)
+        f = tmp_path / "huge.dbc"
+        f.write_bytes(b"x" * 2048)
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            dbc_to_json(f)
+        assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
+        assert exc_info.value.observed == 2048
+        assert exc_info.value.limit == 1024
+
+    def test_excel_loader_dbc_oversize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """excel_loader.load_dbc_from_excel rejects oversize files."""
+        monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 1024)
+        f = tmp_path / "huge.xlsx"
+        f.write_bytes(b"x" * 2048)
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            load_dbc_from_excel(f)
+        assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
+        assert exc_info.value.observed == 2048
+        assert exc_info.value.limit == 1024
+
+    def test_excel_loader_checks_oversize(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """excel_loader.load_checks_from_excel rejects oversize files."""
+        monkeypatch.setattr("aletheia.client._types.MAX_DBC_TEXT_BYTES", 1024)
+        f = tmp_path / "huge.xlsx"
+        f.write_bytes(b"x" * 2048)
+        with pytest.raises(InputBoundExceededError) as exc_info:
+            load_checks_from_excel(f)
+        assert exc_info.value.kind == limits.BOUND_KIND_INPUT_LENGTH_BYTES
+        assert exc_info.value.observed == 2048
+        assert exc_info.value.limit == 1024

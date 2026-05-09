@@ -25,7 +25,7 @@ Eight R18 deferrals + cluster 2 partial-scope items (verified against `e37e6ea` 
 | **R19-CARRY-6** ← PY-B-26.11 | `python/aletheia/client/_ffi.py:224` | `ALETHEIA_LIB` honored without permission/owner check; orthogonal to UR-2 input bounds | Yes (orthogonal) but FIX is cheap | **FIX** (cluster B) |
 | **R19-CARRY-7** ← PY-B-26.12 | `python/aletheia/yaml_loader.py:156-158` | String → `Path(source).exists()` dispatch — path-confusion vector; orthogonal to UR-2 input bounds | Yes (orthogonal) but small breaking API change is OK per `feedback_no_backward_compat.md` | **FIX** (cluster B) |
 | **R19-CARRY-8** ← CICD-3.1 | `Shakefile.hs:972 phony "install-python"` | `pip3 install -e .` would inherit ambient `GITHUB_TOKEN` if CI invoked it. DEFER until CI runs install paths | YES — verified no `.github/workflows/*.yml` invokes `install-python` (grep clean) | **RE-DEFER** with explicit rationale (track for the cycle that wires CI install paths) |
-| **R19-CARRY-9** ← R18 cluster 2 partial scope (Python) | `python/aletheia/{can_log,excel_loader,cli,_helpers}.py` | Inner loaders deferred; covered transitively by FFI-entry `MAX_JSON_BYTES` cap | Partial — covered transitively but cross-binding parity wants explicit caps on parser surfaces | **FIX** (cluster A) on `iter_can_log` + `load_dbc_from_excel`; **DROP** `_helpers.float_to_rational` (not a parser surface — accepts a Python float, not raw bytes); CLI is protected via underlying loaders, no direct surface |
+| **R19-CARRY-9** ← R18 cluster 2 partial scope (Python) | `python/aletheia/{can_log,excel_loader,cli,_helpers}.py` | Inner loaders deferred; covered transitively by FFI-entry `MAX_JSON_BYTES` cap | Partial — Excel is a real parser surface (xlsx = ZIP, openpyxl all-loads); `can_log` is a streaming reader (per-frame yield, no all-load); CLI is protected via underlying loaders; `_helpers.float_to_rational` accepts a Python float, not raw bytes | **FIX** (cluster A) on `load_dbc_from_excel` + `load_checks_from_excel` (Excel = parser surface per AGENTS.md L40); **DROP** `iter_can_log` / `load_can_log` (streaming reader, not in AGENTS.md L40 enumeration; legitimate CAN logs > 64 MiB are common, capping would break real-world usage); **DROP** `_helpers.float_to_rational` + CLI helpers (not parser surfaces) |
 
 **Doc nit (out-of-band, fold into closure UPD):**
 - DOC-X-18.3 PROJECT_STATUS.md L450 LOC totals lack scope qualifier — minor doc sweep, fold into R19 closure UPD.
@@ -61,15 +61,16 @@ Single bundled commit per cluster (per `feedback_no_unilateral_deferral.md` + `f
 Closes R19-CARRY-4, R19-CARRY-5, R19-CARRY-9 (subset).
 
 **Targets:**
-1. Go `loadYAMLData` (`go/aletheia/yaml.go:38`) — add size cap returning `*InputBoundExceededError` mirroring Python's `_check_input_bound`. Both file-path and inline-string forms.
-2. C++ `cpp/src/json_parse.cpp` 10 callsites — switch from `Json::parse(input)` to depth-bounded `Json::parse(input, callback, allow_exceptions)` with `MAX_JSON_DEPTH` constant added to `Aletheia.Limits` + binding mirrors. New `BoundKind` `JsonNestingDepth` already exists in `Aletheia.Limits.agda`.
-3. Python `iter_can_log` (`python/aletheia/can_log.py:57`) — add file-size cap mirroring `_check_input_bound` shape; new `MAX_CAN_LOG_BYTES` constant or reuse existing.
-4. Python `load_dbc_from_excel` (`python/aletheia/excel_loader.py:214`) — add file-size cap; new `MAX_EXCEL_BYTES` constant.
-5. Cross-binding regression tests mirroring R18 cluster 2's `python/tests/test_input_bounds.py` shape.
+1. Go `loadYAMLData` (`go/aletheia/yaml.go:38`) — add size cap mirroring Python's `_check_input_bound`. Reuses `MaxDBCTextBytes` (YAML check-defs reference signal names from a parsed DBC, same family). Both file-path and inline-string forms; returns `*InputBoundExceededError`.
+2. C++ `cpp/src/json_parse.cpp` 10 callsites — add a single `parse_bounded(string_view)` helper using nlohmann's SAX-callback `Json::parse(input, callback)` form to enforce `max_nesting_depth` (already in `aletheia/limits.hpp` from cluster 2). Migrate all 10 `Json::parse(input)` callsites + add `catch (const InputBoundExceededError&)` block.
+3. Python `load_dbc_from_excel` + `load_checks_from_excel` (`python/aletheia/excel_loader.py:214` + sibling) — add inline `MAX_DBC_TEXT_BYTES` size cap (matching `dbc_converter.dbc_to_json`'s pattern; xlsx is a ZIP archive, openpyxl all-loads).
+4. Cross-binding regression tests mirroring R18 cluster 2's `python/tests/test_input_bounds.py` / `go/aletheia/input_bounds_test.go` / `cpp/tests/unit_tests_input_bounds.cpp` shape.
 
-**Drop from scope** (reclassification, document inline):
+**Drop from scope** (reclassification, documented inline):
 - Go `serializeDBC` — serializer not parser per AGENTS.md L40 "Adversarial-input bounds at parser surfaces". Covered by upstream parse-time bound.
-- Python `_helpers.float_to_rational` — accepts numeric, not raw bytes. Not a parser surface.
+- Python `_helpers.float_to_rational` — accepts a numeric, not raw bytes. Not a parser surface.
+- Python `iter_can_log` / `load_can_log` — streaming reader yielding per-frame; not in AGENTS.md L40 enumeration ("YAML check loaders, Excel loaders" listed but not CAN log readers); legitimate CAN log files > 64 MiB are common (multi-hour drives in BLF), capping would break real-world usage. Threat is mitigated by the per-frame DLC validation that fires on every yielded tuple.
+- Python CLI helpers — `run_checks` / `main` orchestrate from already-loaded inputs (DBC, checks, frames); no direct user-input parsing.
 
 **Re-defer** (condition still holds):
 - CICD-3.1 — `install-python` not invoked from any workflow; track until that changes.
@@ -100,8 +101,62 @@ Closes R19-CARRY-1. Adjudicated 2026-05-09: just implement.
 
 ## Round 1 progress
 
-(empty until first commit lands)
+### Cluster A — CLOSED 2026-05-09
+
+Single bundled commit per `feedback_no_unilateral_deferral.md`.  Closes
+**R19-CARRY-4** (Go YAML loader cap), **R19-CARRY-5** (C++ json::parse
+depth bound), **R19-CARRY-9 partial** (Python `excel_loader` x2);
+re-classifies `iter_can_log` / CLI helpers / `_helpers.float_to_rational`
+as out-of-scope (not parser surfaces).
+
+**Production code:**
+- `cpp/src/json_parse.cpp` — `parse_bounded(string_view)` helper using
+  nlohmann's SAX-callback `Json::parse(input, callback)` form to enforce
+  `max_nesting_depth` (64); migrates 10 callsites from `Json::parse(input)`
+  to `parse_bounded(input)`.  Throws `std::runtime_error` on depth
+  exceedance; the existing `catch (const std::exception&)` block at every
+  parse_* callsite converts it to a `Result<>` error via `make_error`.
+- `go/aletheia/yaml.go` — `loadYAMLData` + `LoadChecksFromYAMLFile`
+  return `*InputBoundExceededError{BoundKind, Observed, Limit}` for
+  inputs > `MaxDBCTextBytes` (64 MiB).  Mirrors Python's
+  `_check_input_bound` shape; closes the cross-binding asymmetry.
+- `python/aletheia/excel_loader.py` — `load_dbc_from_excel` +
+  `load_checks_from_excel` reject files > `MAX_DBC_TEXT_BYTES`
+  (Excel = ZIP archive, openpyxl all-loads = ZIP-bomb territory).
+
+**Asymmetry-hygiene refactor** (per `feedback_no_subsumption_asymmetry.md`,
+3 callsites of the same pattern across `dbc_converter` / `yaml_loader` /
+`excel_loader` after this commit):
+- NEW `python/aletheia/client/_types.py:check_dbc_text_size_bound(observed)`
+  — single shared helper that raises `InputBoundExceededError` if observed
+  > `MAX_DBC_TEXT_BYTES`.  All 3 loaders call it; `yaml_loader` drops its
+  private `_check_input_bound` helper.
+
+**Tests:**
+- `python/tests/test_input_bounds.py` — new `TestPythonLoaderBoundChecks`
+  class (5 tests): yaml_loader file-path / inline-string, dbc_converter,
+  excel_loader x 2.  Inline-string test mocks `Path.exists` to bypass
+  the orthogonal pre-existing path-confusion behavior tracked separately
+  as **PY-B-26.12** (cluster B).
+- `go/aletheia/input_bounds_test.go` — 3 new test funcs:
+  `TestLoadChecksFromYAMLFile_RejectsOversize`,
+  `TestLoadYAMLData_FilePathOversize`, `TestLoadYAMLData_InlineStringOversize`.
+  Uses sparse-file `Truncate(MaxDBCTextBytes+1)` to avoid 64 MiB writes.
+- `cpp/tests/unit_tests_input_bounds.cpp` — 2 new `TEST_CASE`s:
+  depth bound rejection (65 nested arrays) + clean parse at safe depth.
+
+**Gates:** pytest 795p+1s; go test -race ok 6.821s; ctest 10/10 (24.32s);
+basedpyright 0/0/0; pylint 10.00/10; gofmt + go vet clean; clang-format
+clean; clang-tidy clean (188,222 suppressed external-header / NOLINT, 0
+user-code findings).
+
+**Bench (vs 2026-04-19 baseline `774c6c8`):** Stream LTL across all 3
+bindings +20-39% (cumulative R18 win); CAN-FD Frame Building -1.0%
+(Go) / -0.7% (C++) / -0.3% (Python) — within WSL2 noise floor (~2-4%
+steady-state, ±10% inter-run gate).  No regression from the SAX
+callback overhead; baselines NOT refreshed per user "wait and see"
+2026-04-28.
 
 ---
 
-*R19 carry-over scoping completed 2026-05-09. R18 deferrals + cluster 2 partial scope mapped to R19-CARRY-1 through R19-CARRY-9. Ready to begin cluster A.*
+*R19 carry-over scoping completed 2026-05-09. R18 deferrals + cluster 2 partial scope mapped to R19-CARRY-1 through R19-CARRY-9. Cluster A closed; B / C / D pending.*

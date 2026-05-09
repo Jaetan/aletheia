@@ -15,9 +15,9 @@ shared library (``libaletheia-ffi.so``) is the only runtime requirement.
 
 from pathlib import Path
 
-from .client import AletheiaClient, InputBoundExceededError
+from .client import AletheiaClient
 from .client._helpers import dump_json
-from .limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
+from .client._types import check_dbc_text_size_bound
 from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 
@@ -43,13 +43,7 @@ def dbc_to_json(dbc_path: str | Path) -> DBCDefinition:
         long-lived ``AletheiaClient`` directly instead.
     """
     path = Path(dbc_path)
-    file_size = path.stat().st_size
-    if file_size > MAX_DBC_TEXT_BYTES:
-        raise InputBoundExceededError(
-            BOUND_KIND_INPUT_LENGTH_BYTES,
-            file_size,
-            MAX_DBC_TEXT_BYTES,
-        )
+    check_dbc_text_size_bound(path.stat().st_size)
     text = path.read_text(encoding="utf-8")
     with AletheiaClient() as client:
         response: ParsedDBCResponse | ErrorResponse = client.parse_dbc_text(text)
