@@ -157,6 +157,61 @@ steady-state, ±10% inter-run gate).  No regression from the SAX
 callback overhead; baselines NOT refreshed per user "wait and see"
 2026-04-28.
 
+### Cluster B + C — CLOSED 2026-05-09
+
+Single bundled commit closes **R19-CARRY-2** (Go defer-ordering comment),
+**R19-CARRY-6** (Python `ALETHEIA_LIB` permission hardening), and
+**R19-CARRY-7** (Python `_load_yaml` type-based dispatch).
+
+**Cluster C — Go defer-ordering hygiene:**
+- `go/aletheia/cancel_test.go` — added a comment block above the two
+  defers in `TestClient_CancelAtEntry` documenting the LIFO cleanup
+  ordering (channel-close registered first / client-close second so
+  client-close runs first).  Two-defer split is intentional: keeps the
+  channel-close registered even if `NewClient` fails before the
+  client-close defer can be set up.
+
+**Cluster B — Python security hygiene (PY-B-26.11 + PY-B-26.12):**
+
+PY-B-26.11 (`ALETHEIA_LIB` world-writable check):
+- `python/aletheia/client/_ffi.py:find_ffi_library` — rejects an env-var
+  path with `PermissionError` if `S_IWGRP | S_IWOTH` is set.  Defends
+  against an unprivileged third party who cannot set the env var
+  poisoning an existing legitimate path.  Owner-of-file ≠ current uid
+  is still allowed (shared `/usr/local` install).
+- NEW `python/tests/test_ffi_loader_security.py` — 4 test cases
+  (world-writable / group-writable / owner-only-accepted / missing-path).
+  Whitelist entry added to `tests/test_private_import_whitelist.py`
+  for the `from aletheia.client._ffi import find_ffi_library` reach-through.
+
+PY-B-26.12 (yaml_loader type-based dispatch):
+- `python/aletheia/yaml_loader.py:_load_yaml` — dispatch strict by type
+  (`Path` → file, `str` → inline YAML).  Removed the `Path(source).exists()`
+  heuristic (path-confusion vector).
+- BREAKING — call sites passing file path strings must wrap in `Path()`.
+- `tests/test_yaml_loader.py` — replaced `test_load_from_path_string`
+  with `test_string_path_now_treated_as_inline_yaml` (documents new
+  behavior); updated `test_file_not_found` to use `Path` arg.
+- Doc updates (PITCH.md / CANCELLATION.md / INTERFACES.md × 3 + prose /
+  COOKBOOK.md / TUTORIAL.md / presentation/index.html) — examples now
+  use `Path("checks.yaml")` / `pathlib.Path("checks.yaml")`.  Doc-example
+  harness still passes (conftest fakes `load_checks` regardless of arg).
+- CHANGELOG.md — `[2.0.0] [Changed] BREAKING` entries for both PY-B-26.11
+  and PY-B-26.12 with migration guidance.
+
+Asymmetry-hygiene refactor (cluster A landed `check_dbc_text_size_bound`
+helper; cluster B benefits — `_load_yaml` dispatches via the helper after
+type-narrowing, no duplicated bound-check code).
+
+**Gates:** pytest 799p+1s; basedpyright 0/0/0; pylint 10.00/10; gofmt
++ go vet clean.  No Agda code touched (no Agda gates needed).  No runtime
+hot-path effect (yaml_loader is a cold-start path; `_ffi` is once-per-
+process at startup) — bench skipped.
+
+### Cluster D — pending (AGDA-A-16.4 Bool fast-path)
+
+Awaiting implementation per Round-1 plan; bench mandatory per AGENTS.md cat 16.
+
 ---
 
-*R19 carry-over scoping completed 2026-05-09. R18 deferrals + cluster 2 partial scope mapped to R19-CARRY-1 through R19-CARRY-9. Cluster A closed; B / C / D pending.*
+*R19 carry-over scoping completed 2026-05-09.  Clusters A + B + C closed; D pending.  Cumulative carry-overs closed: 6 of 9 (R19-CARRY-2 / 4 / 5 / 6 / 7 / 9-partial).  Re-deferrals: R19-CARRY-3 (Go serializeDBC), R19-CARRY-8 (CICD-3.1).*

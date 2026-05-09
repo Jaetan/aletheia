@@ -476,6 +476,37 @@ step 13; `check-stability-bench` at step 12 was added by cluster 6).
 
 ### Changed
 
+#### BREAKING — Python: `aletheia.load_checks` dispatch is now strict by argument type (R19 cluster B)
+
+`load_checks(source: str | Path)` previously auto-promoted any string that
+matched an existing file path to a file load (path-confusion vector,
+PY-B-26.12). The dispatch is now strict: `pathlib.Path` → file load,
+`str` → inline YAML parse. Callers passing a file path as a bare string
+must wrap in `Path`:
+
+```python
+# before
+checks = load_checks("checks.yaml")
+
+# after
+from pathlib import Path
+checks = load_checks(Path("checks.yaml"))
+```
+
+Inline YAML strings continue to work unchanged. Static type checkers
+(pyright/mypy) catch non-(`str`|`Path`) callers at check time.
+
+#### Changed — Python: `ALETHEIA_LIB` now rejects group/world-writable paths (R19 cluster B)
+
+`AletheiaClient` startup raises `PermissionError` if the path resolved
+from `ALETHEIA_LIB` is writable by anyone but its owner (mode bits
+`S_IWGRP | S_IWOTH`). Defense against the case where an unprivileged
+third party who cannot set the env var poisons an existing legitimate
+path. Owner-of-file ≠ current uid is still allowed (a shared
+`/usr/local` install with root-owned `.so` loaded by a non-root user
+remains a supported deployment). Owner-only writes are accepted (mode
+`644` / `600`); fix with `chmod go-w $ALETHEIA_LIB` if rejected.
+
 #### BREAKING — Go: `ctx context.Context` is now the first parameter on every Client operation method (Track C.3)
 
 Affects `SendFrame`, `SendFrames`, `StartStream`, `EndStream`,

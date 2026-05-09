@@ -73,7 +73,8 @@ _ = aletheia.Always{Inner: aletheia.Atomic{Predicate: aletheia.LessThan{Signal: 
 
 **YAML loader** — load a check file:
 ```python
-checks = load_checks("checks.yaml")
+from pathlib import Path
+checks = load_checks(Path("checks.yaml"))
 ```
 ```cpp
 auto checks = aletheia::load_checks_from_yaml("checks.yaml");
@@ -313,10 +314,12 @@ from aletheia import load_checks
 ### Loading Checks
 
 ```python
-# From a file
-checks = load_checks("checks.yaml")
+from pathlib import Path
 
-# From a YAML string
+# From a file (must be a pathlib.Path)
+checks = load_checks(Path("checks.yaml"))
+
+# From a YAML string (must be a str)
 checks = load_checks("""
 checks:
   - signal: VehicleSpeed
@@ -329,7 +332,7 @@ checks:
 client.add_checks(checks)
 ```
 
-**String auto-detection**: `load_checks()` accepts either a file path or an inline YAML string. If the string is an existing file path, the file is loaded (file takes priority). Otherwise, it detects inline YAML when the input contains a newline (`\n`) or starts with `checks:`, `-`, `{`, or `[`. Strings that match neither are treated as a missing file path (`FileNotFoundError`).
+**Type-based dispatch**: `load_checks()` distinguishes file vs. inline YAML by argument type. Pass a `pathlib.Path` to load from a file (`FileNotFoundError` if missing). Pass a `str` to parse inline YAML (`ValueError` on a malformed YAML body). The previous heuristic that auto-promoted a file-path-shaped string to a file load was removed in R19 cluster B (`PY-B-26.12`) to close a path-confusion vector. Static type checkers (pyright/mypy) catch non-(`str` | `Path`) arguments at check time.
 
 ### YAML Schema
 

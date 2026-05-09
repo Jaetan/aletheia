@@ -4,12 +4,13 @@ Loads check definitions from YAML files or strings and compiles them
 through the Check API into LTL properties.
 
 Usage:
+    from pathlib import Path
     from aletheia import load_checks
 
-    # From a file
-    checks = load_checks("my_checks.yaml")
+    # From a file (must be a pathlib.Path)
+    checks = load_checks(Path("my_checks.yaml"))
 
-    # From a YAML string
+    # From an inline YAML string (must be a str)
     checks = load_checks('''
     checks:
       - name: "Speed limit"
@@ -129,30 +130,38 @@ def load_checks(source: str | Path) -> list[CheckResult]:
 def _load_yaml(source: str | Path) -> object:
     """Load YAML from a file path or string.
 
-    Returns the raw parsed object — caller must validate structure.
+    Dispatch is **type-based**, not content-based: pass a
+    :class:`pathlib.Path` to load from a file, or a :class:`str` to
+    parse inline YAML.  The previous behaviour (R18 cluster 2) treated
+    a string that happened to match an existing path as a file
+    reference, which is a path-confusion vector — an attacker who can
+    plant a file at a name a caller types literally could redirect the
+    load.  Cluster B / PY-B-26.12 closes that.
 
     Adversarial-input bound: rejects YAML inputs longer than
     ``MAX_DBC_TEXT_BYTES`` (the same 64 MiB cap as the DBC-text parser,
     since YAML check definitions reference signal names from a parsed
     DBC) with a typed :class:`InputBoundExceededError`, per AGENTS.md
     universal rule "Adversarial-input bounds at parser surfaces".
+
+    Returns the raw parsed object — caller must validate structure.
+
+    Migration note: callers that previously passed a file path as a
+    string now must wrap in ``pathlib.Path`` (e.g.
+    ``load_checks(Path("checks.yaml"))`` rather than
+    ``load_checks("checks.yaml")``).  Inline YAML strings continue to
+    work unchanged.  See CHANGELOG.md ``[Unreleased] [Changed]``.
     """
     if isinstance(source, Path):
         check_dbc_text_size_bound(source.stat().st_size)
         with open(source, encoding="utf-8") as f:
             return yaml.safe_load(f)
-    # String: existing file takes priority over inline detection
-    path = Path(source)
-    if path.exists():
-        check_dbc_text_size_bound(path.stat().st_size)
-        with open(path, encoding="utf-8") as f:
-            return yaml.safe_load(f)
-    # Multi-line or YAML-structured strings are inline YAML
-    if "\n" in source or source.lstrip().startswith(("checks:", "-", "{", "[")):
-        check_dbc_text_size_bound(len(source.encode("utf-8")))
-        return yaml.safe_load(source)
-    # Doesn't exist and doesn't look like inline YAML
-    raise FileNotFoundError(f"YAML file not found: {source}")
+    # source: str — the public ``load_checks`` signature constrains this
+    # branch by type; basedpyright/pyright catches non-(str|Path) callers
+    # statically, so a runtime defensive ``isinstance(source, str)`` would
+    # be dead code and is not added.
+    check_dbc_text_size_bound(len(source.encode("utf-8")))
+    return yaml.safe_load(source)
 
 
 def _parse_check(entry: dict[str, object]) -> CheckResult:

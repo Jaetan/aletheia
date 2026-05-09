@@ -146,6 +146,13 @@ _ALLOWED: frozenset[tuple[str, str, str]] = frozenset({
         "aletheia.client._enrichment",
         "format_formula",
     ),
+    # FFI loader security test (R19 cluster B / PY-B-26.11) exercises the
+    # ALETHEIA_LIB world/group-writable rejection path directly.
+    # ``find_ffi_library`` is binding-internal — public callers go
+    # through ``AletheiaClient`` which calls the loader transitively; the
+    # security check needs to be tested in isolation with monkeypatched
+    # env vars and synthetic permission modes.
+    ("test_ffi_loader_security.py", "aletheia.client._ffi", "find_ffi_library"),
 })
 
 

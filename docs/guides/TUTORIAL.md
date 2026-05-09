@@ -385,10 +385,12 @@ with AletheiaClient() as client:
 All tiers compile to the same LTL formulas. Mix freely:
 
 ```python
+from pathlib import Path
+
 from aletheia import Check, load_checks, Signal
 
 # Load base checks from YAML
-checks = load_checks("checks.yaml")
+checks = load_checks(Path("checks.yaml"))
 
 # Add a Check API check
 checks.append(Check.signal("Speed").never_exceeds(220))

@@ -147,10 +147,11 @@ Agda (all logic + proofs, compiled via MAlonzo)
 
 Python:
 ```python
+from pathlib import Path
 Check.signal("Speed").never_exceeds(220)            # Check API
-load_checks("checks.yaml")                          # YAML
+load_checks(Path("checks.yaml"))                    # YAML (Path → file)
 load_checks_from_excel("tests.xlsx")                # Excel
-Signal("Speed").less_than(220).always()              # Full DSL
+Signal("Speed").less_than(220).always()             # Full DSL
 ```
 
 C++:

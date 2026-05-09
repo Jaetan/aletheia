@@ -95,6 +95,12 @@ func (b *gateBackend) Close(_ unsafe.Pointer) {}
 // an already-cancelled context returns the wrapped ctx.Err() without making
 // the FFI call. This is CANCELLATION.md §1.1 at its most direct.
 func TestClient_CancelAtEntry(t *testing.T) {
+	// Cleanup-order note: the two defers below register the channel-close
+	// FIRST and the client-close SECOND, so LIFO gives client-close first
+	// (preventing it from using the release channel afterward) followed by
+	// channel-close.  Splitting (rather than combining into one deferred
+	// closure) keeps the channel-close registered even if NewClient fails
+	// before the client-close defer can be set up.
 	backend := newGateBackend(`{"status":"success"}`)
 	defer close(backend.release)
 

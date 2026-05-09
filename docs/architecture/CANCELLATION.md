@@ -150,7 +150,7 @@ from aletheia.asyncio import AletheiaClient
 
 async def watch_for_violation(dbc_path: str, timeout_s: float) -> bool:
     """Return True if a property violation occurs within `timeout_s`, else False."""
-    async with AletheiaClient(default_checks=load_checks("checks.yaml")) as client:
+    async with AletheiaClient(default_checks=load_checks(pathlib.Path("checks.yaml"))) as client:
         await client.parse_dbc_text(pathlib.Path(dbc_path).read_text(encoding="utf-8"))
         await client.start_stream()
         try:

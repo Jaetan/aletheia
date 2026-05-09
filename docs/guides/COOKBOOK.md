@@ -487,12 +487,14 @@ missing on a `fails` response, that's the cause.
 ### Load checks from multiple sources
 
 ```python
+from pathlib import Path
+
 from aletheia import Check, load_checks, load_checks_from_excel
 
 checks = []
-checks.extend(load_checks("base_checks.yaml"))           # YAML
-checks.extend(load_checks_from_excel("extra_checks.xlsx")) # Excel
-checks.append(Check.signal("Speed").never_exceeds(220))   # Check API
+checks.extend(load_checks(Path("base_checks.yaml")))         # YAML (Path → file)
+checks.extend(load_checks_from_excel("extra_checks.xlsx"))   # Excel
+checks.append(Check.signal("Speed").never_exceeds(220))      # Check API
 
 client.add_checks(checks)
 ```
