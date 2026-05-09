@@ -138,7 +138,52 @@ def _run_cycle(frames_per_cycle: int, dbc: dict[str, object]) -> None:
         )
 
 
-def main() -> int:  # pylint: disable=too-many-locals
+def _build_sub_checks(start: dict[str, int], end: dict[str, int]) -> list[dict[str, object]]:
+    """Build the four sub-check verdict dicts from start/end snapshots.
+
+    Hard-zero gates use exact equality; soft-threshold uses |delta| ≤ cap.
+    Extracted from ``main`` to keep its local-variable count under the
+    pylint cap without leaning on suppression.
+    """
+    rss_delta = end["rss"] - start["rss"]
+    fd_delta = end["num_fds"] - start["num_fds"]
+    rts_delta = end["rts_refcount"] - start["rts_refcount"]
+    handler_delta = end["logger_handlers"] - start["logger_handlers"]
+    return [
+        {
+            "name": "rss",
+            "gate": "soft_threshold",
+            "start": start["rss"], "end": end["rss"], "delta": rss_delta,
+            "threshold": RSS_DELTA_BYTES_CAP,
+            "passed": abs(rss_delta) <= RSS_DELTA_BYTES_CAP,
+        },
+        {
+            "name": "fd_count",
+            "gate": "hard_zero",
+            "start": start["num_fds"], "end": end["num_fds"], "delta": fd_delta,
+            "threshold": 0,
+            "passed": fd_delta == 0,
+        },
+        {
+            "name": "ctypes_handles",
+            "gate": "hard_zero",
+            "start": start["rts_refcount"], "end": end["rts_refcount"], "delta": rts_delta,
+            "threshold": 0,
+            "passed": rts_delta == 0,
+        },
+        {
+            "name": "logger_handlers",
+            "gate": "hard_zero",
+            "start": start["logger_handlers"], "end": end["logger_handlers"],
+            "delta": handler_delta,
+            "threshold": 0,
+            "passed": handler_delta == 0,
+        },
+    ]
+
+
+def main() -> int:
+    """Drive ``cycles × frames`` exercise of the FFI surface; emit verdict JSON."""
     cycles = int(os.environ.get("ALETHEIA_STABILITY_CYCLES", "10"))
     frames = int(os.environ.get("ALETHEIA_STABILITY_FRAMES", "100000"))
     proc = psutil.Process()
@@ -153,64 +198,18 @@ def main() -> int:  # pylint: disable=too-many-locals
     start = _proc_snapshot(proc)
     t0 = time.monotonic()
 
-    for cycle_idx in range(cycles):
+    for _cycle_idx in range(cycles):
         _run_cycle(frames_per_cycle=frames, dbc=dbc)
         # Force a GC between cycles so any per-cycle Python allocations are
         # reclaimed before we measure the next snapshot — keeps the hard-zero
         # gates from being defeated by lazy GC.
         gc.collect()
-        del cycle_idx  # unused; loop counter keeps clarity at call sites
 
     gc.collect()
     end = _proc_snapshot(proc)
     elapsed = time.monotonic() - t0
 
-    # Sub-check verdicts.  Hard-zero gates: exact equality.  Soft-threshold
-    # gates: |delta| ≤ cap.
-    rss_delta = end["rss"] - start["rss"]
-    fd_delta = end["num_fds"] - start["num_fds"]
-    rts_delta = end["rts_refcount"] - start["rts_refcount"]
-    handler_delta = end["logger_handlers"] - start["logger_handlers"]
-
-    sub_checks = [
-        {
-            "name": "rss",
-            "gate": "soft_threshold",
-            "start": start["rss"],
-            "end": end["rss"],
-            "delta": rss_delta,
-            "threshold": RSS_DELTA_BYTES_CAP,
-            "passed": abs(rss_delta) <= RSS_DELTA_BYTES_CAP,
-        },
-        {
-            "name": "fd_count",
-            "gate": "hard_zero",
-            "start": start["num_fds"],
-            "end": end["num_fds"],
-            "delta": fd_delta,
-            "threshold": 0,
-            "passed": fd_delta == 0,
-        },
-        {
-            "name": "ctypes_handles",
-            "gate": "hard_zero",
-            "start": start["rts_refcount"],
-            "end": end["rts_refcount"],
-            "delta": rts_delta,
-            "threshold": 0,
-            "passed": rts_delta == 0,
-        },
-        {
-            "name": "logger_handlers",
-            "gate": "hard_zero",
-            "start": start["logger_handlers"],
-            "end": end["logger_handlers"],
-            "delta": handler_delta,
-            "threshold": 0,
-            "passed": handler_delta == 0,
-        },
-    ]
-
+    sub_checks = _build_sub_checks(start, end)
     report = {
         "binding": "python",
         "cycles": cycles,

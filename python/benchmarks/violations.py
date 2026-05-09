@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Violation Enrichment Benchmark
+"""Violation Enrichment Benchmark.
 
 Measures the overhead of violation diagnostics (extract_signals calls)
 under different violation rates, at both the AletheiaClient and CLI layers.
@@ -19,6 +18,8 @@ Usage:
     python3 violations.py [--frames N] [--runs N]
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import statistics
@@ -26,6 +27,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable
 
 import can
 
@@ -45,6 +47,7 @@ _DBC_PATH = Path(__file__).parent.parent.parent / "examples" / "demo" / "vehicle
 # ============================================================================
 
 def _write_asc(path: str, messages: list[can.Message]) -> None:
+    """Write the given CAN messages to an ASC log at ``path``."""
     writer = can.ASCWriter(path)
     for msg in messages:
         writer.on_message_received(msg)
@@ -71,18 +74,21 @@ def _raw_data(speed_raw: int) -> bytearray:
 
 
 def gen_all_identical(tmpdir: str, n: int) -> str:
+    """Generate ASC log of N copies of the same violating frame."""
     path = os.path.join(tmpdir, "all_identical.asc")
     _write_asc(path, [_make_frame(10000, i * 0.001) for i in range(n)])
     return path
 
 
 def gen_all_unique(tmpdir: str, n: int) -> str:
+    """Generate ASC log of N unique violating frames (forces cache miss)."""
     path = os.path.join(tmpdir, "all_unique.asc")
     _write_asc(path, [_make_frame(5100 + i, i * 0.001) for i in range(n)])
     return path
 
 
 def gen_mixed(tmpdir: str, n: int) -> str:
+    """Generate ASC log with 10% violations + 90% passing."""
     path = os.path.join(tmpdir, "mixed.asc")
     msgs = []
     for i in range(n):
@@ -93,6 +99,7 @@ def gen_mixed(tmpdir: str, n: int) -> str:
 
 
 def gen_no_violations(tmpdir: str, n: int) -> str:
+    """Generate ASC log of N copies of a passing frame."""
     path = os.path.join(tmpdir, "no_violations.asc")
     _write_asc(path, [_make_frame(2000, i * 0.001) for i in range(n)])
     return path
@@ -102,11 +109,52 @@ def gen_no_violations(tmpdir: str, n: int) -> str:
 # Client-level benchmark
 # ============================================================================
 
+def _stream_identical(client: AletheiaClient, num_frames: int) -> float:
+    """Stream identical violating frames; return elapsed seconds."""
+    data = _raw_data(10000)
+    start = time.perf_counter()
+    for i in range(num_frames):
+        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+    return time.perf_counter() - start
+
+
+def _stream_unique(client: AletheiaClient, num_frames: int) -> float:
+    """Stream unique violating frames; return elapsed seconds."""
+    frames = [_raw_data(5100 + i) for i in range(num_frames)]
+    start = time.perf_counter()
+    for i, data in enumerate(frames):
+        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+    return time.perf_counter() - start
+
+
+def _stream_mixed(client: AletheiaClient, num_frames: int) -> float:
+    """Stream 10% violating / 90% passing frames; return elapsed seconds."""
+    start = time.perf_counter()
+    for i in range(num_frames):
+        raw = 10000 if i % 10 == 0 else 2000
+        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=_raw_data(raw))
+    return time.perf_counter() - start
+
+
+def _stream_no_violations(client: AletheiaClient, num_frames: int) -> float:
+    """Stream identical passing frames; return elapsed seconds."""
+    data = _raw_data(2000)
+    start = time.perf_counter()
+    for i in range(num_frames):
+        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+    return time.perf_counter() - start
+
+
+_FRAME_GENS: dict[str, Callable[[AletheiaClient, int], float]] = {
+    "identical": _stream_identical,
+    "unique": _stream_unique,
+    "mixed": _stream_mixed,
+    "no_violations": _stream_no_violations,
+}
+
+
 def bench_client(
-    dbc: dict,
-    checks: list[CheckResult],
-    num_frames: int,
-    frame_gen: str,
+    dbc: dict, checks: list[CheckResult], num_frames: int, frame_gen: str,
 ) -> float:
     """Benchmark AletheiaClient.send_frame() with enrichment.
 
@@ -116,34 +164,8 @@ def bench_client(
         client.parse_dbc(dbc)
         client.add_checks(checks)
         client.start_stream()
-
-        if frame_gen == "identical":
-            data = _raw_data(10000)
-            start = time.perf_counter()
-            for i in range(num_frames):
-                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
-            elapsed = time.perf_counter() - start
-        elif frame_gen == "unique":
-            frames = [_raw_data(5100 + i) for i in range(num_frames)]
-            start = time.perf_counter()
-            for i, data in enumerate(frames):
-                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
-            elapsed = time.perf_counter() - start
-        elif frame_gen == "mixed":
-            start = time.perf_counter()
-            for i in range(num_frames):
-                raw = 10000 if i % 10 == 0 else 2000
-                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=_raw_data(raw))
-            elapsed = time.perf_counter() - start
-        else:  # no_violations
-            data = _raw_data(2000)
-            start = time.perf_counter()
-            for i in range(num_frames):
-                client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
-            elapsed = time.perf_counter() - start
-
+        elapsed = _FRAME_GENS[frame_gen](client, num_frames)
         client.end_stream()
-
     return num_frames / elapsed
 
 
@@ -152,27 +174,28 @@ def bench_client(
 # ============================================================================
 
 def bench_cli(
-    dbc: dict,
-    checks: list[CheckResult],
-    asc_path: str,
+    dbc: dict, checks: list[CheckResult], asc_path: str,
 ) -> tuple[float, int]:
     """Benchmark _run_checks() (CLI pipeline).
 
-    Returns (fps, violation_count).
+    Returns (fps, violation_count).  ``_run_checks`` returns a 3-tuple
+    ``(violations, unresolved, total_frames)``; the prior version of this
+    benchmark unpacked only 2 values, silently using ``unresolved`` as
+    the FPS divisor (which is typically 0 → division by zero or a wildly
+    wrong number).  The fix unpacks all three explicitly and divides by
+    ``total_frames``.
     """
     start = time.perf_counter()
-    violations, total = _run_checks(dbc, checks, asc_path)
+    violations, _unresolved, total_frames = _run_checks(dbc, checks, asc_path)
     elapsed = time.perf_counter() - start
-    return total / elapsed, len(violations)
+    return total_frames / elapsed, len(violations)
 
 
 # ============================================================================
 # Runner
 # ============================================================================
 
-def run_multi(
-    name: str, func, num_runs: int,
-) -> dict:
+def run_multi(name: str, func: Callable[[], float], num_runs: int) -> dict:
     """Run a benchmark function multiple times and collect stats."""
     results = []
     for run in range(num_runs):
@@ -191,10 +214,13 @@ def run_multi(
 
 
 def print_summary(title: str, results: list[dict]) -> None:
+    """Print a formatted summary table for one benchmark layer."""
     print(f"\n{'=' * 70}")
     print(title)
     print("=" * 70)
-    print(f"{'Scenario':<30} {'Mean FPS':>10} {'us/frame':>10} {'Stdev':>8} {'Status':>8}")
+    print(
+        f"{'Scenario':<30} {'Mean FPS':>10} {'us/frame':>10} {'Stdev':>8} {'Status':>8}"
+    )
     print("-" * 70)
     for r in results:
         status = "OK" if r["mean_fps"] >= _TARGET_FPS else "SLOW"
@@ -207,7 +233,62 @@ def print_summary(title: str, results: list[dict]) -> None:
     print("=" * 70)
 
 
+def _run_client_layer(
+    dbc: dict, checks: list[CheckResult], num_frames: int, num_runs: int,
+) -> list[dict]:
+    """Run + summarize the AletheiaClient.send_frame() benchmark layer."""
+    scenarios = [
+        ("identical (cached)", "identical"),
+        ("unique (bounded)", "unique"),
+        ("mixed 10%", "mixed"),
+        ("no violations", "no_violations"),
+    ]
+    print("\n--- AletheiaClient.send_frame() ---")
+    results = []
+    for label, gen in scenarios:
+        print(f"\n{label}:")
+        results.append(run_multi(
+            label,
+            lambda g=gen: bench_client(dbc, checks, num_frames, g),
+            num_runs,
+        ))
+    print_summary("Client-level Summary", results)
+    return results
+
+
+def _run_cli_layer(
+    dbc: dict, checks: list[CheckResult], num_frames: int, num_runs: int,
+) -> tuple[list[dict], list[str]]:
+    """Run + summarize the _run_checks() CLI benchmark layer.
+
+    Returns (results, asc_paths).  Caller is responsible for cleaning up
+    each path in ``asc_paths`` plus the parent tempdir.
+    """
+    tmpdir = tempfile.mkdtemp()
+    scenarios = [
+        ("identical (cached)", gen_all_identical(tmpdir, num_frames)),
+        ("unique (bounded)", gen_all_unique(tmpdir, num_frames)),
+        ("mixed 10%", gen_mixed(tmpdir, num_frames)),
+        ("no violations", gen_no_violations(tmpdir, num_frames)),
+    ]
+    print("\n--- CLI _run_checks() ---")
+    results = []
+    paths = []
+    for label, asc_path in scenarios:
+        print(f"\n{label}:")
+        results.append(run_multi(
+            label,
+            lambda p=asc_path: bench_cli(dbc, checks, p)[0],
+            num_runs,
+        ))
+        paths.append(asc_path)
+    print_summary("CLI-level Summary", results)
+    paths.append(tmpdir)
+    return results, paths
+
+
 def main() -> int:
+    """CLI entry point — run client + CLI violation benchmark layers."""
     parser = argparse.ArgumentParser(description="Violation enrichment benchmark")
     parser.add_argument("--frames", type=int, default=10000, help="Frames per run")
     parser.add_argument("--runs", type=int, default=5, help="Number of runs")
@@ -225,51 +306,12 @@ def main() -> int:
             .named("Speed limit").severity("critical"),
     ]
 
-    # -- Client-level benchmarks ---------------------------------------------
-    client_scenarios = [
-        ("identical (cached)", "identical"),
-        ("unique (bounded)", "unique"),
-        ("mixed 10%", "mixed"),
-        ("no violations", "no_violations"),
-    ]
+    _run_client_layer(dbc, checks, args.frames, args.runs)
+    _, paths = _run_cli_layer(dbc, checks, args.frames, args.runs)
 
-    print("\n--- AletheiaClient.send_frame() ---")
-    client_results = []
-    for label, gen in client_scenarios:
-        print(f"\n{label}:")
-        r = run_multi(
-            label,
-            lambda g=gen: bench_client(dbc, checks, args.frames, g),
-            args.runs,
-        )
-        client_results.append(r)
-
-    print_summary("Client-level Summary", client_results)
-
-    # -- CLI-level benchmarks ------------------------------------------------
-    tmpdir = tempfile.mkdtemp()
-    cli_scenarios = [
-        ("identical (cached)", gen_all_identical(tmpdir, args.frames)),
-        ("unique (bounded)", gen_all_unique(tmpdir, args.frames)),
-        ("mixed 10%", gen_mixed(tmpdir, args.frames)),
-        ("no violations", gen_no_violations(tmpdir, args.frames)),
-    ]
-
-    print("\n--- CLI _run_checks() ---")
-    cli_results = []
-    for label, asc_path in cli_scenarios:
-        print(f"\n{label}:")
-        r = run_multi(
-            label,
-            lambda p=asc_path: bench_cli(dbc, checks, p)[0],
-            args.runs,
-        )
-        cli_results.append(r)
-
-    print_summary("CLI-level Summary", cli_results)
-
-    # Cleanup
-    for _, path in cli_scenarios:
+    # Cleanup: paths is [asc1, asc2, asc3, asc4, tmpdir] — last entry is the dir.
+    *files, tmpdir = paths
+    for path in files:
         os.unlink(path)
     os.rmdir(tmpdir)
 

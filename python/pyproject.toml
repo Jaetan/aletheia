@@ -126,12 +126,18 @@ reportMissingModuleSource = false  # _install_config.py is generated at install 
 reportImplicitStringConcatenation = "error"  # Require explicit + for string concatenation
 
 [tool.pylint.main]
-# Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` package.
+# Match AGENTS.md Python gate: pylint 10.00/10 on the ``aletheia/`` /
+# ``tests/`` / ``benchmarks/`` packages (orchestrator runs all three).
 # Line length follows PEP 8 Black-ish; existing code uses up to 100 chars.
 max-line-length = 100
 # Parallelise across all cores — pylint walks 20+ modules on every run.
 jobs = 0
-ignore = ["benchmarks", "stubs", ".venv", "build"]
+# ``tests/`` was promoted into the gate per ``feedback_pylint_10_mandatory.md``;
+# ``benchmarks/`` was promoted 2026-05-09 per ``feedback_no_subsumption_asymmetry.md``
+# (it shipped with the original 2026-04-12 ``ignore`` for "lint-checked separately"
+# rationale that was dropped for ``tests/`` but never re-litigated for ``benchmarks/``).
+# Stubs / .venv / build remain ignored because they are vendored or generated.
+ignore = ["stubs", ".venv", "build"]
 # ``.`` is the source root so pylint resolves ``aletheia.*`` without the
 # package being pip-installed (canonical flow is ``pip install -e .[dev]``
 # inside ``python/.venv``; this entry keeps the gate working outside it).

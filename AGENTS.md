@@ -605,7 +605,7 @@ file means adding it to `kDocFiles` in
 
 ## Python (34 categories)
 
-Scope: ALL source files in `python/aletheia/` and test files in `python/tests/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
+Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, and benchmark scripts in `python/benchmarks/`. The Python binding is the original and most mature. Review with the same rigor as Go and C++.
 
 **Tooling gates (hard requirements):**
 - `pylint` score must stay **10.00/10**. Any score drop is a blocking finding.
@@ -701,6 +701,7 @@ cd python && python3 -m pytest tests/ --random-order --random-order-bucket=packa
 cd python && basedpyright aletheia/
 cd python && pylint aletheia/
 cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
+cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
 # Cat 32 doc-example harness — runs every ``python`` fence across the
 # user-facing docs against the real FFI. Must be run from the repo root
 # so pytest picks up the repo-root ``conftest.py`` (which provides the

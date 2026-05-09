@@ -459,8 +459,12 @@ def main(argv: list[str] | None = None) -> int:
     r.step("basedpyright", ["basedpyright", "aletheia/"], cwd=r.repo_root / "python")
 
     # pylint SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
+    # ``benchmarks/`` joined the gate 2026-05-09 per
+    # ``feedback_no_subsumption_asymmetry.md`` — was previously ignored alongside
+    # ``tests/`` per the original 2026-04-12 ``[tool.pylint.main].ignore`` rule
+    # that ``feedback_pylint_10_mandatory`` later dropped only for ``tests/``.
     pylint_cmd = (
-        f"{shlex.quote(r.python)} -m pylint aletheia/ tests/ "
+        f"{shlex.quote(r.python)} -m pylint aletheia/ tests/ benchmarks/ "
         "> /tmp/aletheia-pylint.out 2>&1; "
         "rc=$?; cat /tmp/aletheia-pylint.out; "
         "grep -q 'rated at 10\\.00/10' /tmp/aletheia-pylint.out"
