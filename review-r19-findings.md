@@ -208,10 +208,115 @@ type-narrowing, no duplicated bound-check code).
 hot-path effect (yaml_loader is a cold-start path; `_ffi` is once-per-
 process at startup) — bench skipped.
 
-### Cluster D — pending (AGDA-A-16.4 Bool fast-path)
+### Cluster D — PARTIAL CLOSURE (@0 ships; Bool fast-path remains blocked) 2026-05-09
 
-Awaiting implementation per Round-1 plan; bench mandatory per AGENTS.md cat 16.
+User initially adjudicated "FIX" cluster D 2026-05-09 ("just implement
+Bool fast-path").  Three distinct implementation approaches probed;
+two failed at Agda's with-abstraction elaboration layer (not the proof
+body).  The third — `@0`-erase `ℕToBitVec`'s bound parameter —
+succeeded as a standalone improvement and ships independently.
+
+**Approach 1 — direct rewrite** (`with fromSigned ... <ᵇ 2 ^ bitLength in eq`
+in `injectHelper` + cascade `Roundtrip.agda` `fits-check` + helper with-
+patterns):
+
+Type-check error in Roundtrip.agda's `helper`:
+```
+n <ᵇ 2 ^ SignalDef.bitLength sig != w of type Bool
+when checking that the type ... | w | refl) ≡ just (injectedFrame n sig byteOrder frame n<2^bl)
+of the generated with function is well-formed
+```
+
+**Approach 2 — helper restructure** (factor `mkBoundedBitVec : (n bl : ℕ)
+→ Maybe (BitVec bl)` with reduction lemma; tried both `with ... in eq`
+and `mkFromBool b refl` polymorphic variants):
+
+Same error mode:
+```
+w != n <ᵇ 2 ^ bl of type Bool
+when checking that the type ... mkFromBool n bl w refl ≡ just (...)
+of the generated with function is well-formed
+```
+
+**Approach 3 — `@0`-erase `ℕToBitVec`'s bound parameter**: SHIPS.
+
+Modified `Aletheia.Data.BitVec.Conversion`:
+```agda
+ℕToBitVec  : ∀ {n} (value : ℕ) → @0 (value < 2 ^ n) → BitVec n
+ℕToBitVec' : ∀ {n} (value : ℕ) → ParityDecomp value → @0 (value < 2 ^ n) → BitVec n
+```
+
+`@0` propagates cleanly through Conversion.agda's recursive structure
+(into `half-bound-even` / `half-bound-odd` via call-site modality).
+**`check-properties` passes** (12m50s, all proof modules type-check).
+**`check-erasure` passes** (CANId + Timestamp + stdlib invariants
+intact + new ℕToBitVec erasure verified).
+
+MAlonzo output verified: `d_ℕToBitVec_258 v0 v1 ~v2 = du_ℕToBitVec_258
+v0 v1` — the bound proof `v2` is `~`-prefixed (erased), and the
+`du_` (erasure-elaborated) variant has signature `Integer → Integer
+→ T_Vec_28` (no proof slot).
+
+Stand-alone runtime improvement: every existing consumer of
+`ℕToBitVec` (e.g., `injectHelper`) now allocates the `Dec`-wrapped
+proof from `_<?_` only at the `Dec` boundary; the proof witness inside
+the `yes`-constructor flows into the `@0`-erased slot of `ℕToBitVec`
+and is dropped by MAlonzo.  The dominant `_<?_` Dec wrapper allocation
+remains (only the Bool fast-path would eliminate it), but the
+proof-payload erasure is a clean win.
+
+**Bool fast-path remains blocked**: Approaches 1 & 2 demonstrated that
+`with ... in eq` in `injectHelper` creates a closed elaboration scope
+that the proof's outer `with`-abstraction cannot penetrate, regardless
+of whether the witness slot is relevant, `@0`-erased, or `.()`-irrelevant.
+The mismatch is at Agda's elaboration mechanism (per `agda.readthedocs.io
+/with-abstraction.html#ill-typed-with-abstractions`), not the witness
+layer.  This is now empirically established; the in-source comment at
+`Encoding.agda:102-115` (which predicted "a larger proof refactor than
+the marginal `removeScaling`-dominated frame-build throughput gain
+justifies") stays — the proof-side blocker is structural to Agda's
+`with` mechanism, not to the proof effort estimate.
+
+**State**: `Aletheia.Data.BitVec.Conversion` ships `@0`-erased
+`ℕToBitVec`; `Aletheia.CAN.Encoding.injectHelper` keeps `_<?_` (Dec)
+form unchanged.  In-source comment updated to note the @0 win on the
+downstream slot.
+
+**Cluster D disposition**:
+- R19-CARRY-1 partial closure: @0-erasure of ℕToBitVec ships; Bool
+  fast-path on top is RE-DEFER (Agda elaboration barrier, not effort).
+- Future revisit only viable via either: (a) Agda upstream fix for
+  `with ... in eq` + outer with-abstraction composition; or (b)
+  removing the Dec dispatch entirely and accepting that the witness
+  must be constructed via a different mechanism (none identified).
+
+**Gates** (post-@0 ship):
+- check-properties PASS (12m50s; all proof modules type-check)
+- check-erasure PASS (CANId + Timestamp + ℕToBitVec invariants)
+- check-fidelity PASS (11/11 FFI exports; constructor-fidelity test 1/1)
+- check-invariants / check-no-properties-in-runtime / check-ffi-exports / count-modules PASS
+- pytest 791p+1s; go test (race) ok 6.024s; ctest 10/10 (24.41s)
+
+**Bench (vs 2026-04-19 baseline `774c6c8`):**
+| Binding | Stream LTL | Signal Extraction | Frame Building |
+|---|---|---|---|
+| C++ (CAN 2.0B / FD) | +20.8% / +21.2% | -2.3% / -3.8% | -0.4% / +0.3% |
+| Go (CAN 2.0B / FD)  | +43.5% / +23.6% | -2.5% / -2.7% | +6.4% / -0.4% |
+| Python (CAN 2.0B / FD) | +17.0% / +15.9% | -0.8% / -1.8% | +1.8% / -2.5% |
+
+Stream LTL +15-44% across bindings — cumulative R18 win confirmed.
+Signal Extraction -0.8% to -3.8% — within WSL2 noise floor.  Frame
+Building -0.4% to +6.4% — no regression across any binding; Go's
++6.4% is consistent with @0 erasure materializing on the binding with
+highest per-frame overhead.  All deltas within the 5% gate per
+AGENTS.md cat 16.  Baselines NOT refreshed per user "wait and see"
+2026-04-28.
 
 ---
 
-*R19 carry-over scoping completed 2026-05-09.  Clusters A + B + C closed; D pending.  Cumulative carry-overs closed: 6 of 9 (R19-CARRY-2 / 4 / 5 / 6 / 7 / 9-partial).  Re-deferrals: R19-CARRY-3 (Go serializeDBC), R19-CARRY-8 (CICD-3.1).*
+*R19 carry-over scoping completed 2026-05-09.  Clusters A + B + C
+closed; cluster D PARTIAL (`@0` ships, Bool fast-path RE-DEFER).
+Cumulative carry-overs closed: 7 of 9 (R19-CARRY-1 partial via @0 +
+R19-CARRY-2 / 4 / 5 / 6 / 7 / 9-partial).  Re-deferrals: R19-CARRY-3
+(Go serializeDBC), R19-CARRY-8 (CICD-3.1), R19-CARRY-1 Bool fast-path
+remainder (Agda with-abstraction mechanism).*
