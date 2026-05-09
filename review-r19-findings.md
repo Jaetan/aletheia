@@ -404,3 +404,86 @@ proof structure that wasn't tractable before.
   achieve Bool runtime + clean proof side?).
 - If all probes fail, document finally as RE-DEFER (Agda upstream
   needed).
+
+### Cluster F — FINAL RE-DEFER 2026-05-09
+
+Probed a fourth distinct approach: promote `ℕToBitVec`'s bound from
+`@0`-erasure (cluster D) to `.()`-irrelevance.  Hypothesis:
+`.()`-irrelevance gives stronger guarantees than `@0` —
+propositional equality of any two `_<_` proofs flows through the
+bound slot via record-η on the irrelevant field — so the proof's
+outer `with`-abstraction over `injectHelper`'s `with ... in eq`
+might succeed where `@0`-only didn't.
+
+**Probe shape** (3 files modified, all reverted):
+1. `Aletheia.Data.BitVec.Conversion` — `@0` → `.(…)` on
+   `ℕToBitVec` and `ℕToBitVec'` bound slots.
+2. `Aletheia.CAN.Encoding.injectHelper` — `_<?_` Dec form → Bool
+   fast-path: `with fromSigned ... <ᵇ 2 ^ bitLength in eq` + bridge
+   `<ᵇ⇒< _ _ (subst T (sym eq) tt)` to lift Bool witness to the
+   `_<_` proof needed by `ℕToBitVec`.  Local `.bounded` declaration
+   makes the proof slot `.()`-irrelevant on consumption.
+3. `Aletheia.CAN.Encoding.Properties.Roundtrip` — proof side updated
+   to mirror the Bool dispatch in `injectHelper`'s reduction:
+   imports `_<ᵇ_` / `T` / `tt` / `T-≡` / `Equivalence` / `<⇒<ᵇ`;
+   adds `<→<ᵇ-≡true` bridge helper; updates
+   `injectSignal-reduces-unsigned` and `injectSignal-reduces-signed`
+   helpers.
+
+**Result**: same elaboration error as cluster D approaches 1 & 2:
+```
+n <ᵇ 2 ^ SignalDef.bitLength sig != w of type Bool
+when checking that the type ... | w | refl) ≡ just (...)
+of the generated with function is well-formed
+```
+
+The outer `with`-abstraction over `n <ᵇ 2 ^ SignalDef.bitLength sig`
+in `injectSignal-reduces-*` cannot abstract through the inner `with
+... in eq` inside `injectHelper`, regardless of whether the witness
+slot consuming the Bool result is relevant, `@0`-erased, or
+`.()`-irrelevant.
+
+**Conclusion**: cluster F probe confirms cluster D's analysis: the
+with-abstraction barrier is at Agda's elaboration mechanism, not
+the witness-slot semantics.  `.()`-irrelevance gives stronger
+guarantees than `@0` (propositional equality of proof terms) but
+does not change the inner-`with ... in eq` ↔ outer-`with`-abstraction
+composition failure.  Four total approaches probed across cluster
+D + F (direct rewrite, `mkBoundedBitVec` helper restructure,
+`@0`-with-Bool, `.()`-with-Bool); all hit the same elaboration
+mechanism barrier.
+
+**Final RE-DEFER**: future revisit only viable via either:
+- (a) Agda upstream fix for `with ... in eq` + outer
+  `with`-abstraction composition (no specific issue tracked
+  upstream as of 2026-05-09; structural to Agda's `with`); or
+- (b) eliminating the Dec dispatch entirely and accepting that the
+  bound witness must be constructed via a different mechanism (no
+  mechanism identified that preserves the proof-side correctness
+  guarantees).
+
+The cluster D `@0`-erasure of `ℕToBitVec`'s bound slot remains in
+place — it stands as a genuine runtime improvement (proof witness
+inside `_<?_`'s `yes`-constructor flows into MAlonzo-erased slot)
+independent of whether the Dec wrapper itself is later eliminated.
+
+**Cluster F disposition**: probe complete, files reverted to
+cluster D state.  `feedback_with_in_eq_outer_abstraction_barrier.md`
+(written during cluster D) records the lesson; updated to cite
+cluster F as the second empirical confirmation.
+
+**Gates** (post-revert, identical to cluster E close):
+- check-properties / check-fidelity / check-invariants /
+  check-no-properties-in-runtime / check-erasure /
+  check-ffi-exports / count-modules PASS (working tree at cluster
+  E commit `7a541bd` + this docs-only update).
+
+---
+
+*R19 carry-over phase complete 2026-05-09.  All 9 carry-overs
+addressed: 7 closed (R19-CARRY-2 / 3 / 4 / 5 / 6 / 7 / 9-partial)
++ 1 partial (R19-CARRY-1 via `@0`-erasure ship; Bool fast-path
+final RE-DEFER per cluster F empirical) + 1 cleanly classified
+DROP scope (R19-CARRY-9 streaming reader / numeric-only helpers /
+CLI orchestrators).  R19-CARRY-8 closed via cluster E ambient-token
+strip on `install-python`.*
