@@ -27,6 +27,7 @@ from pathlib import Path
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.protocols import DBCDefinition, LTLFormula
 
 # ``benchmarks/`` sits two levels below the repo root: python/benchmarks/X.py
 # → ../../examples/.  Path is resolved once so re-importing this module
@@ -38,12 +39,12 @@ _EXAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "examples"
 # ============================================================================
 
 
-def load_dbc() -> dict[str, object]:
+def load_dbc() -> DBCDefinition:
     """Load the CAN 2.0B example DBC file."""
     return dbc_to_json(str(_EXAMPLES_DIR / "example.dbc"))
 
 
-def load_canfd_dbc() -> dict[str, object]:
+def load_canfd_dbc() -> DBCDefinition:
     """Load the CAN-FD example DBC file."""
     return dbc_to_json(str(_EXAMPLES_DIR / "example_canfd.dbc"))
 
@@ -123,12 +124,12 @@ CANFD_SPEC: FrameSpec = FrameSpec(CANFD_CAN_ID, CANFD_DLC, CANFD_FRAME, CANFD_SI
 # scaling.py exercising different formula counts) builds its own list.
 # ============================================================================
 
-DEFAULT_CAN20_PROPERTIES: list[dict[str, object]] = [
+DEFAULT_CAN20_PROPERTIES: list[LTLFormula] = [
     Signal("EngineSpeed").between(0, 8000).always().to_dict(),
     Signal("EngineTemp").between(-40, 215).always().to_dict(),
 ]
 
-DEFAULT_CANFD_PROPERTIES: list[dict[str, object]] = [
+DEFAULT_CANFD_PROPERTIES: list[LTLFormula] = [
     Signal("GPSSpeed").between(0, 655).always().to_dict(),
     Signal("YawRate").between(-327, 327).always().to_dict(),
     Signal("WheelSpeedFL").between(0, 655).always().to_dict(),
@@ -185,7 +186,7 @@ def stream_frames(
 
 
 def run_streaming_benchmark(
-    dbc: dict, num_frames: int, spec: FrameSpec, properties: list[dict],
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec, properties: list[LTLFormula],
 ) -> tuple[float, float]:
     """End-to-end streaming benchmark: own a Client, parse, stream, end, close.
 

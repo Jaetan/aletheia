@@ -24,7 +24,7 @@ from fractions import Fraction
 
 import pytest
 
-from _dbc_helpers import message, signal
+from _dbc_helpers import assert_non_terminating_rational, message, signal
 
 from aletheia import AletheiaClient
 from aletheia.protocols import (
@@ -374,11 +374,7 @@ class TestDBCMetadataTier2Rejects:
                 },
             ],
         }
-        with AletheiaClient() as client:
-            result = client.parse_dbc(bad)
-        assert result["status"] == "error"
-        assert result["code"] == "parse_non_terminating_rational"
-        assert field in result["message"]
+        assert_non_terminating_rational(bad, field)
 
     def test_float_attr_value_non_terminating_rejected(self) -> None:
         """``AVFloat`` default value must also have a terminating decimal

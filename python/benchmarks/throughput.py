@@ -16,13 +16,15 @@ import argparse
 import statistics
 import sys
 import time
-from typing import Callable
+from typing import Callable, TextIO, TypedDict
 
 # Benchmarks import the *installed* package (``pip install -e .[dev]``) so
 # that any wheel/setuptools shim overhead shows up in the numbers — matches
 # how end users measure Aletheia in production.  Do not reintroduce
 # ``sys.path.insert`` here; it hid the install-path cost from earlier runs.
 from aletheia import AletheiaClient
+from aletheia.protocols import DBCDefinition, LTLFormula
+
 # Shared benchmark vocabulary — frame specs, default property bundles, JSON
 # envelope, system info.  Consolidated in ``_common.py`` to keep the suite
 # files thin; see PY-31-1.
@@ -35,13 +37,40 @@ from ._common import (
 )
 
 
+class _BenchResult(TypedDict):
+    """Stats record for one benchmark scenario × N runs."""
+
+    name: str
+    num_frames: int
+    num_runs: int
+    mean: float
+    stdev: float
+    min: float
+    max: float
+    results: list[float]
+
+
+class _JsonPayload(TypedDict):
+    """JSON-report-shaped projection of a ``_BenchResult`` row."""
+
+    name: str
+    frames: int
+    runs: int
+    fps_mean: float
+    fps_stdev: float
+    fps_min: float
+    fps_max: float
+    us_per_frame: float
+
+
 # ============================================================================
 # Per-mode benchmark functions — each takes a FrameSpec to keep the
 # parameter list narrow (was 4-5 args; now 3).
 # ============================================================================
 
 def benchmark_streaming(
-    dbc: dict, num_frames: int, spec: FrameSpec, properties: list[dict],
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
+    properties: list[LTLFormula],
 ) -> float:
     """Benchmark streaming throughput. Returns frames per second."""
     fps, _elapsed = run_streaming_benchmark(dbc, num_frames, spec, properties)
@@ -49,7 +78,7 @@ def benchmark_streaming(
 
 
 def benchmark_signal_extraction(
-    dbc: dict, num_frames: int, spec: FrameSpec,
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
 ) -> float:
     """Benchmark signal extraction throughput. Returns extractions per second."""
     with AletheiaClient() as client:
@@ -62,7 +91,7 @@ def benchmark_signal_extraction(
 
 
 def benchmark_frame_building(
-    dbc: dict, num_frames: int, spec: FrameSpec,
+    dbc: DBCDefinition, num_frames: int, spec: FrameSpec,
 ) -> float:
     """Benchmark frame building throughput. Returns builds per second."""
     with AletheiaClient() as client:
@@ -80,7 +109,7 @@ def benchmark_frame_building(
 
 def run_benchmark(
     name: str, func: Callable[[int], float], cfg: BenchmarkConfig,
-) -> dict:
+) -> _BenchResult:
     """Run a benchmark multiple times and collect statistics."""
     for _ in range(cfg.warmup_runs):
         func(cfg.num_frames // 10)  # Smaller warmup
@@ -90,7 +119,7 @@ def run_benchmark(
         "num_frames": cfg.num_frames,
         "num_runs": cfg.num_runs,
         "mean": statistics.mean(results),
-        "stdev": statistics.stdev(results) if len(results) > 1 else 0,
+        "stdev": statistics.stdev(results) if len(results) > 1 else 0.0,
         "min": min(results),
         "max": max(results),
         "results": results,
@@ -98,7 +127,7 @@ def run_benchmark(
 
 
 def _build_benchmarks(
-    dbc: dict, canfd_dbc: dict,
+    dbc: DBCDefinition, canfd_dbc: DBCDefinition,
 ) -> list[tuple[str, Callable[[int], float]]]:
     """Build the (name, partial_fn) list driving the benchmark loop.
 
@@ -124,7 +153,7 @@ def _build_benchmarks(
     ]
 
 
-def _print_summary(results: list[dict], file) -> None:
+def _print_summary(results: list[_BenchResult], file: TextIO) -> None:
     """Print the formatted summary table to the given stream."""
     print("\n" + "=" * 70, file=file)
     print("Summary", file=file)
@@ -137,13 +166,13 @@ def _print_summary(results: list[dict], file) -> None:
     for r in results:
         print(
             f"{r['name']:<35} {r['mean']:>10,.0f}/s "
-            f"{r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}",
+            + f"{r['stdev']:>9,.0f} {r['min']:>9,.0f} {r['max']:>9,.0f}",
             file=file,
         )
     print("=" * 70, file=file)
 
 
-def _to_json_payload(r: dict) -> dict:
+def _to_json_payload(r: _BenchResult) -> _JsonPayload:
     """Project one ``run_benchmark`` result dict into the JSON-report shape."""
     return {
         "name": r["name"],
@@ -183,7 +212,7 @@ def main() -> int:
 
     benchmarks = _build_benchmarks(load_dbc(), load_canfd_dbc())
 
-    results = []
+    results: list[_BenchResult] = []
     for name, func in benchmarks:
         print(f"\n{name}:", file=out)
         print("-" * 40, file=out)

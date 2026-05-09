@@ -136,11 +136,11 @@ def _print_throughput(tput: ThroughputSnapshot) -> None:
     """Print the throughput report block."""
     print(f"\n{'Throughput (2K frames, 1 run)':-<60}")
     print(f"  Streaming LTL:    {tput.streaming_fps:8,.0f} fps  "
-          f"({1e6 / tput.streaming_fps:6.0f} us/frame)")
+          + f"({1e6 / tput.streaming_fps:6.0f} us/frame)")
     print(f"  Signal Extraction:{tput.extraction_fps:8,.0f} fps  "
-          f"({1e6 / tput.extraction_fps:6.0f} us/frame)")
+          + f"({1e6 / tput.extraction_fps:6.0f} us/frame)")
     print(f"  Frame Building:   {tput.building_fps:8,.0f} fps  "
-          f"({1e6 / tput.building_fps:6.0f} us/frame)")
+          + f"({1e6 / tput.building_fps:6.0f} us/frame)")
 
 
 def _print_docker(mem: MemorySnapshot) -> None:

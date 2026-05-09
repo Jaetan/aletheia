@@ -161,6 +161,18 @@ class AletheiaClient(SignalOpsMixin):
                 RTSState.release()
                 self._lib = None
 
+    @property
+    def is_closed(self) -> bool:
+        """True after ``close()`` (or ``__exit__``) has run.
+
+        Mirrors the stdlib convention (``socket.socket`` / ``mmap.mmap``)
+        of exposing a public predicate over the post-close invariant
+        (state pointer cleared).  Lets stability / leak harnesses verify
+        the cleanup pathway without reaching for the underlying ``_state``
+        ctypes pointer.
+        """
+        return self._state is None
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,

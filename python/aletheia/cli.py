@@ -103,7 +103,15 @@ _EXIT_OK = 0
 _EXIT_VIOLATIONS = 1
 _EXIT_ERROR = 2
 
-class _Violation(TypedDict):
+class Violation(TypedDict):
+    """Single violation record produced by ``run_checks``.
+
+    Stable wire shape consumed by the CLI's text/JSON output formatters,
+    by ``aletheia.testing`` re-exports, and by benchmark harnesses that
+    measure the full CLI pipeline.  Every field is required — no
+    ``NotRequired`` keys — so consumers can index without guarding.
+    """
+
     check_index: int
     check_name: str
     severity: str
@@ -455,7 +463,7 @@ def _check_meta(
 
 def _build_violation(
     response: PropertyViolationResponse, checks: list[CheckResult],
-) -> _Violation:
+) -> Violation:
     """Extract violation details from an (already enriched) violation response."""
     prop_index = rational_to_int(response["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
@@ -491,7 +499,7 @@ def _build_violation(
 
 def _build_eos_violation(
     result: PropertyResultEntry, checks: list[CheckResult],
-) -> _Violation:
+) -> Violation:
     """Extract violation details from an end-of-stream finalization result."""
     prop_index = rational_to_int(result["property_index"])
     check_name, severity = _check_meta(prop_index, checks)
@@ -516,12 +524,12 @@ def _build_eos_violation(
     }
 
 
-def _run_checks(  # pylint: disable=too-many-locals
+def run_checks(  # pylint: disable=too-many-locals
     dbc: DBCDefinition,
     checks: list[CheckResult],
     logfile: str,
     default_checks: list[CheckResult] | None = None,
-) -> tuple[list[_Violation], list[_Violation], int]:
+) -> tuple[list[Violation], list[Violation], int]:
     """Stream a CAN log through the Aletheia engine.
 
     Returns (violations, unresolved, total_frames). ``unresolved`` contains
@@ -544,8 +552,8 @@ def _run_checks(  # pylint: disable=too-many-locals
         if resp["status"] != "success":
             _die(f"start stream failed: {resp['message']}")
 
-        violations: list[_Violation] = []
-        unresolved: list[_Violation] = []
+        violations: list[Violation] = []
+        unresolved: list[Violation] = []
         total_frames = 0
 
         for ts, can_id, dlc, data, ext in _lazy_iter_can_log()(logfile):
@@ -568,8 +576,8 @@ def _run_checks(  # pylint: disable=too-many-locals
 
 
 def _print_check_results(
-    violations: list[_Violation],
-    unresolved: list[_Violation],
+    violations: list[Violation],
+    unresolved: list[Violation],
     total_frames: int,
     num_checks: int,
 ) -> None:
@@ -600,7 +608,7 @@ def _print_check_results(
     )
 
 
-def _print_violation(index: int, v: _Violation) -> None:
+def _print_violation(index: int, v: Violation) -> None:
     """Print a single violation entry."""
     sev_part = f" ({v['severity']})" if v["severity"] else ""
     ts_str = format_timestamp(v["timestamp_us"])
@@ -633,7 +641,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     if not Path(logfile).exists():
         _die(f"log file not found: {logfile}")
 
-    violations, unresolved, total_frames = _run_checks(
+    violations, unresolved, total_frames = run_checks(
         dbc, checks, logfile, default_checks
     )
 

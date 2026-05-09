@@ -16,11 +16,13 @@ import argparse
 import sys
 import time
 from dataclasses import dataclass
-from typing import IO
+from typing import IO, TypedDict
 
 # See ``throughput.py`` — benchmarks import the installed package to keep
 # the wheel / setuptools shim cost inside the measurement.
 from aletheia import AletheiaClient
+from aletheia.protocols import DBCDefinition, LTLFormula
+
 # Shared vocabulary lives in ``_common``; see PY-31-1 for the dedup rationale.
 from ._common import (
     CAN20_SPEC, CANFD_SPEC,
@@ -28,6 +30,33 @@ from ._common import (
     FrameSpec,
     emit_json_report, load_canfd_dbc, load_dbc,
 )
+
+
+class _LatencyStats(TypedDict):
+    """Per-operation latency distribution stats (microseconds)."""
+
+    count: int
+    mean_us: float
+    min_us: float
+    max_us: float
+    p50_us: float
+    p90_us: float
+    p99_us: float
+    p999_us: float
+
+
+class _JsonStatsRow(TypedDict):
+    """JSON-report-shaped projection of one (name, stats) row."""
+
+    name: str
+    count: int
+    mean_us: float
+    min_us: float
+    max_us: float
+    p50_us: float
+    p90_us: float
+    p99_us: float
+    p999_us: float
 
 
 @dataclass(frozen=True)
@@ -42,9 +71,9 @@ class LatencyContext:
     """
 
     label: str
-    dbc: dict
+    dbc: DBCDefinition
     spec: FrameSpec
-    properties: list[dict]
+    properties: list[LTLFormula]
     num_ops: int
     warmup: int
     file: IO[str]
@@ -62,7 +91,7 @@ def percentile(data: list[float], p: float) -> float:
 
 def _measure_stream(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
     """Per-op stream latencies."""
-    latencies = []
+    latencies: list[float] = []
     for i in range(num_ops):
         start = time.perf_counter()
         client.send_frame(timestamp=i, can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
@@ -72,7 +101,7 @@ def _measure_stream(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> li
 
 def _measure_extract(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
     """Per-op extract_signals latencies."""
-    latencies = []
+    latencies: list[float] = []
     for _ in range(num_ops):
         start = time.perf_counter()
         client.extract_signals(can_id=spec.can_id, dlc=spec.dlc, data=spec.payload)
@@ -82,7 +111,7 @@ def _measure_extract(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> l
 
 def _measure_build(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> list[float]:
     """Per-op build_frame latencies."""
-    latencies = []
+    latencies: list[float] = []
     for _ in range(num_ops):
         start = time.perf_counter()
         client.build_frame(can_id=spec.can_id, dlc=spec.dlc, signals=spec.signals)
@@ -90,7 +119,7 @@ def _measure_build(client: AletheiaClient, spec: FrameSpec, num_ops: int) -> lis
     return latencies
 
 
-def analyze_latencies(latencies: list[float]) -> dict:
+def analyze_latencies(latencies: list[float]) -> _LatencyStats:
     """Analyze latency distribution."""
     sorted_lat = sorted(latencies)
     return {
@@ -105,7 +134,7 @@ def analyze_latencies(latencies: list[float]) -> dict:
     }
 
 
-def print_latency_stats(name: str, stats: dict, file: IO[str] | None = None) -> None:
+def print_latency_stats(name: str, stats: _LatencyStats, file: IO[str] | None = None) -> None:
     """Print latency statistics."""
     out = file or sys.stdout
     print(f"\n{name}:", file=out)
@@ -121,7 +150,7 @@ def print_latency_stats(name: str, stats: dict, file: IO[str] | None = None) -> 
     print(f"  Implied:  {1_000_000 / stats['mean_us']:,.0f} ops/sec (from mean)", file=out)
 
 
-def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, dict]:
+def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     """Run streaming-mode latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} streaming...", file=ctx.file)
     spec = ctx.spec
@@ -139,7 +168,7 @@ def _bench_stream_lane(ctx: LatencyContext) -> tuple[str, dict]:
     return name, stats
 
 
-def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, dict]:
+def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     """Run extract-signals latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} signal extraction...", file=ctx.file)
     spec = ctx.spec
@@ -154,7 +183,7 @@ def _bench_extract_lane(ctx: LatencyContext) -> tuple[str, dict]:
     return name, stats
 
 
-def _bench_build_lane(ctx: LatencyContext) -> tuple[str, dict]:
+def _bench_build_lane(ctx: LatencyContext) -> tuple[str, _LatencyStats]:
     """Run frame-build latency for one frame type and return (name, stats)."""
     print(f"\nBenchmarking {ctx.label} frame building...", file=ctx.file)
     spec = ctx.spec
@@ -169,7 +198,7 @@ def _bench_build_lane(ctx: LatencyContext) -> tuple[str, dict]:
     return name, stats
 
 
-def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, dict]]:
+def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, _LatencyStats]]:
     """Run streaming, extraction, and build latency for one frame type."""
     return [
         _bench_stream_lane(ctx),
@@ -178,7 +207,7 @@ def run_latency_suite(ctx: LatencyContext) -> list[tuple[str, dict]]:
     ]
 
 
-def _print_summary(all_stats: list[tuple[str, dict]], file: IO[str]) -> None:
+def _print_summary(all_stats: list[tuple[str, _LatencyStats]], file: IO[str]) -> None:
     """Print the formatted summary table to the given stream."""
     print("\n" + "=" * 70, file=file)
     print("Summary (all times in microseconds)", file=file)
@@ -191,13 +220,13 @@ def _print_summary(all_stats: list[tuple[str, dict]], file: IO[str]) -> None:
     for name, stats in all_stats:
         print(
             f"{name:<30} {stats['mean_us']:>10.1f} {stats['p50_us']:>10.1f} "
-            f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}",
+            + f"{stats['p99_us']:>10.1f} {stats['p999_us']:>10.1f}",
             file=file,
         )
     print("=" * 70, file=file)
 
 
-def _to_json_payload(name: str, stats: dict) -> dict:
+def _to_json_payload(name: str, stats: _LatencyStats) -> _JsonStatsRow:
     """Project (name, stats) into the JSON-report shape."""
     return {
         "name": name,

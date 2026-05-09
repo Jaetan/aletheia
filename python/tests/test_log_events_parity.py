@@ -20,6 +20,7 @@ from typing import cast
 
 import yaml
 
+from _yaml_shape import as_str_object_dict
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
 
 _VALID_LEVELS: frozenset[str] = frozenset({"debug", "info", "warn"})
@@ -28,24 +29,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _YAML_PATH = _REPO_ROOT / "docs" / "LOG_EVENTS.yaml"
 
 
-def _as_str_object_dict(value: object, context: str) -> dict[str, object]:
-    """Validate that ``value`` is a dict with string keys; cast and return it."""
-    assert isinstance(value, dict), (
-        f"{context}: expected mapping, got {type(value).__name__}"
-    )
-    narrowed: dict[object, object] = cast("dict[object, object]", value)
-    for key in narrowed:
-        assert isinstance(key, str), (
-            f"{context}: non-string key {key!r} in mapping"
-        )
-    return cast("dict[str, object]", value)
-
-
 def _load_events() -> list[dict[str, object]]:
     """Load and return the event list with minimal shape guarantees."""
     with _YAML_PATH.open("r", encoding="utf-8") as fh:
         raw: object = yaml.safe_load(fh)
-    root = _as_str_object_dict(raw, "LOG_EVENTS.yaml root")
+    root = as_str_object_dict(raw, "LOG_EVENTS.yaml root")
     events_raw: object = root.get("events")
     assert isinstance(events_raw, list), (
         "LOG_EVENTS.yaml must contain an 'events' list"
@@ -54,7 +42,7 @@ def _load_events() -> list[dict[str, object]]:
     assert narrowed_list, "LOG_EVENTS.yaml 'events' list is empty"
     validated: list[dict[str, object]] = []
     for idx, evt in enumerate(narrowed_list):
-        validated.append(_as_str_object_dict(evt, f"events[{idx}]"))
+        validated.append(as_str_object_dict(evt, f"events[{idx}]"))
     return validated
 
 

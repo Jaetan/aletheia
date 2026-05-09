@@ -31,12 +31,8 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import psutil
-
-if TYPE_CHECKING:
-    from aletheia.client._ffi import RTSState as _RTSStateType
 
 # Ensure the in-tree binding wins over any installed copy.
 _REPO_PYTHON = Path(__file__).resolve().parent.parent
@@ -46,6 +42,7 @@ if str(_REPO_PYTHON) not in sys.path:
 # pylint: disable=wrong-import-position
 from aletheia import AletheiaClient
 from aletheia.client._ffi import RTSState
+from aletheia.protocols import DBCDefinition
 
 from ._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
 
@@ -105,12 +102,12 @@ def _proc_snapshot(proc: psutil.Process) -> dict[str, int]:
     }
 
 
-def _run_cycle(frames_per_cycle: int, dbc: dict[str, object]) -> None:
+def _run_cycle(frames_per_cycle: int, dbc: DBCDefinition) -> None:
     """One open/load/run/close cycle.
 
     Loads a DBC, starts a stream, sends ``frames_per_cycle`` frames through
     the binary FFI path, ends the stream, closes.  State leak detection
-    happens inline: after ``close()`` the client's ``_state`` must be ``None``
+    happens inline: after ``close()`` ``client.is_closed`` must be ``True``
     (Client invariant), and the RTSState refcount must drop by exactly 1.
     """
     refcount_before = RTSState.refcount
@@ -125,16 +122,16 @@ def _run_cycle(frames_per_cycle: int, dbc: dict[str, object]) -> None:
                 data=CAN20_FRAME,
             )
         client.end_stream()
-        # Pre-close invariant: state is non-None (we're still inside ``with``).
-        if client._state is None:  # pylint: disable=protected-access
+        # Pre-close invariant: not yet closed (we're still inside ``with``).
+        if client.is_closed:
             raise RuntimeError("state cleared inside client context")
-    # Post-close invariants.
-    if client._state is not None:  # pylint: disable=protected-access
+    # Post-close invariant.
+    if not client.is_closed:
         raise RuntimeError("state not cleared after Client.close()")
     if RTSState.refcount != refcount_before:
         raise RuntimeError(
-            f"RTSState.refcount drift mid-cycle: "
-            f"before={refcount_before} after={RTSState.refcount}"
+            "RTSState.refcount drift mid-cycle: "
+            + f"before={refcount_before} after={RTSState.refcount}"
         )
 
 

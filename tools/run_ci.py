@@ -456,7 +456,14 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     # ─── Steps 20-24: Lints ────────────────────────────────────────────────
-    r.step("basedpyright", ["basedpyright", "aletheia/"], cwd=r.repo_root / "python")
+    # ``benchmarks/`` joined the basedpyright gate 2026-05-09 (R18 end-of-round
+    # follow-up); the asymmetry against pylint's coverage was the same one
+    # ``feedback_no_subsumption_asymmetry.md`` flagged on the pylint side.
+    r.step(
+        "basedpyright",
+        ["basedpyright", "aletheia/", "benchmarks/"],
+        cwd=r.repo_root / "python",
+    )
 
     # pylint SCORE-based gate per AGENTS.md L611 + feedback_pylint_10_mandatory.md.
     # ``benchmarks/`` joined the gate 2026-05-09 per

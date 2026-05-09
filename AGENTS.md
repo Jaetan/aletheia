@@ -698,7 +698,7 @@ Scope: ALL source files in `python/aletheia/`, test files in `python/tests/`, an
 cd python && python3 -m pytest tests/ -v
 cd python && python3 -X dev -m pytest tests/ -v
 cd python && python3 -m pytest tests/ --random-order --random-order-bucket=package
-cd python && basedpyright aletheia/
+cd python && basedpyright aletheia/ benchmarks/  # benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
 cd python && pylint aletheia/
 cd python && pylint tests/ ../conftest.py  # same 10.00/10 gate applies (feedback_pylint_10_mandatory); conftest.py lives at repo root
 cd python && pylint benchmarks/  # same 10.00/10 gate applies; benchmarks/ joined the gate 2026-05-09 per feedback_no_subsumption_asymmetry
