@@ -234,3 +234,36 @@ func TestLoadYAMLData_InlineStringOversize(t *testing.T) {
 		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
 	}
 }
+
+// R19 cluster E1: defense-in-depth output bound on serializeDBC.
+// Constructs a DbcDefinition whose marshaled JSON exceeds MaxDBCTextBytes
+// and verifies serializeDBC returns *InputBoundExceededError before the
+// payload is handed to the FFI.  In normal flow the upstream parser cap
+// makes this redundant; this guard catches any internal blowup or future
+// bypass.
+
+func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
+	// A 64 MiB+ Version string drives the marshaled JSON over the cap.
+	// Allocating a 64 MiB string is acceptable for a single test —
+	// completes in <1s on a typical CI box.
+	bigVersion := strings.Repeat("x", MaxDBCTextBytes+100)
+	dbc := DbcDefinition{Version: bigVersion}
+
+	_, err := serializeDBC(dbc)
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.BoundKind != BoundKindInputLengthBytes {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindInputLengthBytes)
+	}
+	if bex.Observed <= uint64(MaxDBCTextBytes) {
+		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxDBCTextBytes)
+	}
+	if bex.Limit != MaxDBCTextBytes {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
+	}
+}

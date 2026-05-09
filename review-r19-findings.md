@@ -314,9 +314,93 @@ AGENTS.md cat 16.  Baselines NOT refreshed per user "wait and see"
 
 ---
 
-*R19 carry-over scoping completed 2026-05-09.  Clusters A + B + C
-closed; cluster D PARTIAL (`@0` ships, Bool fast-path RE-DEFER).
+*R19 carry-over scoping Round 1 completed 2026-05-09.  Clusters A + B
++ C closed; cluster D PARTIAL (`@0` ships, Bool fast-path RE-DEFER).
 Cumulative carry-overs closed: 7 of 9 (R19-CARRY-1 partial via @0 +
-R19-CARRY-2 / 4 / 5 / 6 / 7 / 9-partial).  Re-deferrals: R19-CARRY-3
-(Go serializeDBC), R19-CARRY-8 (CICD-3.1), R19-CARRY-1 Bool fast-path
-remainder (Agda with-abstraction mechanism).*
+R19-CARRY-2 / 4 / 5 / 6 / 7 / 9-partial).  Round 1 re-deferrals
+re-opened for Round 2 below.*
+
+---
+
+## Round 2 — RE-DEFER follow-ups (2026-05-09)
+
+User direction 2026-05-09 post-Round-1: "save the RE-DEFER to the R19
+plan and start working on them."  The three Round 1 RE-DEFERs have
+distinct scopes and are tackled across two clusters.
+
+### Cluster E — defense-in-depth + supply-chain hardening (FIX)
+
+Closes **R19-CARRY-3** (Go `serializeDBC` defense-in-depth) and
+**R19-CARRY-8** (Shakefile `install-python` ambient-token leak).
+Both are orthogonal to UR-2 input bounds; both are small, cheap,
+belt-and-suspenders fixes.  Single bundled commit.
+
+**Targets:**
+1. `go/aletheia/json.go:103` `serializeDBC` — add defense-in-depth
+   bound check on the serialized output size before handing to FFI.
+   Serializer-side rationale stays correct (parser bounds make it
+   redundant in normal flow), but the cost is 5-10 LOC and an extra
+   `len(json.Marshal(m))` pass; catches any internal-blowup regression.
+2. `Shakefile.hs:972` `phony "install-python"` — use Cabal's
+   `Env`-style invocation that strips `GITHUB_TOKEN` (and similar
+   secret env vars) before calling `pip3 install -e .`.  Even though
+   no current `.github/workflows/*.yml` invokes `install-python`,
+   future CI wiring would inherit ambient secrets without this guard.
+
+### Cluster E — CLOSED 2026-05-09
+
+Single bundled commit closes **R19-CARRY-3** (Go `serializeDBC`
+defense-in-depth) and **R19-CARRY-8** (Shakefile `install-python`
+ambient-token leak).  Also folds in a pre-existing pylint W1309 fix
+in `_ffi.py` (leftover from cluster B's f-string that lacked
+interpolation).
+
+**Production code:**
+- `go/aletheia/json.go` `serializeDBC` — output bound check via
+  `json.Marshal`-then-size pattern.  Returns
+  `*InputBoundExceededError` when the marshaled DBC exceeds
+  `MaxDBCTextBytes`.  Function-level comment documents that the cap
+  is redundant in normal flow (parser cap fires first) and exists as
+  a defense-in-depth guard against internal blowup or future bypass.
+- `Shakefile.hs:972` `phony "install-python"` — strips secret env
+  vars (`GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_API_URL`,
+  `ALETHEIA_COSIGN_KEY`, `ALETHEIA_COSIGN_TLOG`, `TWINE_PASSWORD`,
+  `NPM_TOKEN`) before invoking `pip3 install -e .` via Shake's
+  `RemEnv` modifier.  Even though no current `.github/workflows/*.yml`
+  invokes `install-python`, future CI wiring would inherit ambient
+  secrets without this guard.
+- `python/aletheia/client/_ffi.py:246` — drop `f` from a string
+  literal that had no interpolation (pylint W1309).
+
+**Tests:**
+- `go/aletheia/input_bounds_test.go` — new
+  `TestSerializeDBC_RejectsOversizeOutput` (single 64 MiB Version
+  string drives marshaled JSON over the cap; verifies
+  `*InputBoundExceededError` shape).
+
+**Gates:** check-properties / check-fidelity / check-invariants /
+check-no-properties-in-runtime / check-erasure / check-ffi-exports /
+count-modules PASS; pytest 791p+1s; go test -race ok 7.642s; ctest
+10/10 (24.62s); pylint 10.00/10; basedpyright 0/0/0 on `aletheia/ +
+benchmarks/`.  No bench needed (Go output bound is cold-path init;
+Shakefile change is build-time only).
+
+### Cluster F — R19-CARRY-1 Bool fast-path remainder (investigation)
+
+The Round 1 cluster D PARTIAL closure documented three approaches all
+hitting Agda's `with ... in eq` + outer `with`-abstraction barrier.
+Cluster F revisits with the @0-erasure now in place — the question is
+whether the new `@0`-irrelevance of `ℕToBitVec`'s bound enables a
+proof structure that wasn't tractable before.
+
+**Probe scope:**
+- Try `cong (...injectedFrame...) (<-irrelevant ...)` bridge in the
+  proof helper after the Bool dispatch — `@0` may make the proof slot
+  of `ℕToBitVec` (and hence `injectedFrame`) propositionally equal
+  for any two `_<_` proofs without the `with`-abstraction needing to
+  match.
+- If that fails, investigate alternative dispatching mechanisms
+  (e.g., `Decidable.does` with `@0`-erased `Reflects` — does this
+  achieve Bool runtime + clean proof side?).
+- If all probes fail, document finally as RE-DEFER (Agda upstream
+  needed).

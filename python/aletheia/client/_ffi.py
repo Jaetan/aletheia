@@ -243,7 +243,7 @@ def find_ffi_library() -> Path:
             raise PermissionError(
                 f"ALETHEIA_LIB={env_path} is group- or world-writable"
                 + f" (mode {mode_octal}); refusing to load for"
-                + f" security.  Restrict to owner-only writes"
+                + " security.  Restrict to owner-only writes"
                 + f" ('chmod go-w {env_path}')."
             )
         return p

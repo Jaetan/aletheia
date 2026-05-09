@@ -100,6 +100,13 @@ func serializeRemoteEvent(ts Timestamp, id CanID) string {
 
 // serializeDBC converts a DbcDefinition into the map shape Agda expects
 // under the "dbc" field of the parseDBC / validateDBC command envelopes.
+//
+// Defense-in-depth (R19 cluster E1, R19-CARRY-3 / GO-B-28.4 closure): a
+// `MaxDBCTextBytes` size cap is applied to the marshaled envelope before
+// it leaves Go.  In normal flow the upstream parser bound (per UR-2)
+// makes this redundant; the guard catches any internal blowup or future
+// bypass that lets an oversized in-memory `DbcDefinition` reach the
+// serializer.
 func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 	msgs := make([]map[string]any, 0, len(dbc.Messages))
 	for _, msg := range dbc.Messages {
@@ -244,7 +251,7 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		unresolvedVDs = append(unresolvedVDs, obj)
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"version":              dbc.Version,
 		"messages":             msgs,
 		"signalGroups":         groups,
@@ -254,7 +261,20 @@ func serializeDBC(dbc DbcDefinition) (map[string]any, error) {
 		"comments":             comments,
 		"attributes":           attributes,
 		"unresolvedValueDescs": unresolvedVDs,
-	}, nil
+	}
+	// Defense-in-depth bound check (see function-level comment).
+	probe, err := json.Marshal(out)
+	if err != nil {
+		return nil, wrapProtocol("failed to size-check DBC", err)
+	}
+	if size := uint64(len(probe)); size > MaxDBCTextBytes {
+		return nil, &InputBoundExceededError{
+			BoundKind: BoundKindInputLengthBytes,
+			Observed:  size,
+			Limit:     MaxDBCTextBytes,
+		}
+	}
+	return out, nil
 }
 
 // --- Tier 2 serializers (Go → JSON for Agda core) ---

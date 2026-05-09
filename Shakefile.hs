@@ -971,7 +971,19 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
 
     phony "install-python" $ do
         need ["build/libaletheia-ffi.so"]
-        cmd_ (Cwd "python") "pip3 install -e ."
+        -- R19 cluster E2 (CICD-3.1 closure): strip secret env vars
+        -- before invoking pip3 so a future CI workflow that wires
+        -- this target doesn't leak ambient credentials to the package
+        -- index resolver.  Stripped: GitHub Actions auth tokens
+        -- (GITHUB_TOKEN / GH_TOKEN / GITHUB_API_URL), Aletheia signing
+        -- credentials (ALETHEIA_COSIGN_KEY / ALETHEIA_COSIGN_TLOG),
+        -- and the generic CI auth knobs (TWINE_PASSWORD / NPM_TOKEN).
+        cmd_ (Cwd "python")
+            (RemEnv "GITHUB_TOKEN") (RemEnv "GH_TOKEN")
+            (RemEnv "GITHUB_API_URL")
+            (RemEnv "ALETHEIA_COSIGN_KEY") (RemEnv "ALETHEIA_COSIGN_TLOG")
+            (RemEnv "TWINE_PASSWORD") (RemEnv "NPM_TOKEN")
+            "pip3 install -e ."
 
     phony "docker" $ do
         need ["dist"]
