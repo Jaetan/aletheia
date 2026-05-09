@@ -53,6 +53,16 @@ from ._common import CAN20_CAN_ID, CAN20_DLC, CAN20_FRAME, load_dbc
 # revise inline if a future reviewer runs the harness on a host that rejects
 # these as too tight or too loose).
 RSS_DELTA_BYTES_CAP = 50 * 1024 * 1024  # 50 MiB across 1M frames
+
+# Warmup cycles before the measurement window opens.  The GHC RTS heap +
+# MAlonzo dictionaries + lazy Agda structures need a substantial workload
+# before they reach steady state — empirical probe (2026-05-09 cluster 7
+# orchestrator e2e) showed the heap plateaus around cycle 7 of 100k frames
+# (≈700k frames); a 10-frame warmup as cluster 6 originally shipped left
+# 137-154 MiB of RTS warmup leaking into the measurement window.  7 cycles
+# of WARMUP gives ≥ 30 MiB headroom over the 50 MiB threshold without
+# inflating the bench beyond ~10s wall.
+WARMUP_CYCLES = 7
 LOGGER_NAME = "aletheia"
 
 
@@ -134,9 +144,10 @@ def main() -> int:  # pylint: disable=too-many-locals
     proc = psutil.Process()
     dbc = load_dbc()
 
-    # Single warm-up cycle to absorb first-init RSS/FD spike before the
-    # measurement window opens.
-    _run_cycle(frames_per_cycle=10, dbc=dbc)
+    # Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
+    # Agda structure realization.  See WARMUP_CYCLES for empirical rationale.
+    for _ in range(WARMUP_CYCLES):
+        _run_cycle(frames_per_cycle=frames, dbc=dbc)
     gc.collect()
 
     start = _proc_snapshot(proc)

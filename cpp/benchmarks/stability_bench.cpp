@@ -49,6 +49,16 @@ namespace {
 constexpr std::int64_t kRssDeltaBytesCap = 50LL * 1024 * 1024;    // 50 MiB
 constexpr std::int64_t kMallocDeltaBytesCap = 50LL * 1024 * 1024; // 50 MiB
 
+// Warmup cycles before the measurement window opens.  The GHC RTS heap +
+// MAlonzo dictionaries + lazy Agda structures need a substantial workload
+// before they reach steady state — empirical probe (2026-05-09 cluster 7
+// orchestrator e2e) showed the heap plateaus around cycle 7 of 100k frames;
+// a 100-frame warmup as cluster 6 originally shipped left ~138 MiB of RTS
+// warmup leaking into the measurement window.  7 cycles of WARMUP gives
+// ≥ 30 MiB headroom over the 50 MiB threshold without inflating the bench
+// beyond ~3-4s wall.
+constexpr int kWarmupCycles = 7;
+
 struct Snapshot {
     std::int64_t rss_bytes;
     std::int64_t fd_count;
@@ -266,10 +276,12 @@ auto main() -> int {
     const auto lib = find_library();
     const auto dbc = minimal_dbc();
 
-    // One warm-up cycle to absorb first-init RSS / thread-pool spike before
-    // the measurement window opens.
+    // Multi-cycle warmup to absorb the GHC RTS heap warmup + lazy MAlonzo /
+    // Agda structure realization.  See kWarmupCycles for empirical rationale.
     try {
-        run_cycle(lib, dbc, 100);
+        for (int i = 0; i < kWarmupCycles; ++i) {
+            run_cycle(lib, dbc, frames);
+        }
     } catch (const std::exception& e) {
         std::cerr << "warm-up: " << e.what() << "\n";
         return 2;
