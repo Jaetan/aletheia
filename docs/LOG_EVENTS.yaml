@@ -91,7 +91,7 @@ events:
 
   - name: cache.full
     level: warn
-    description: Signal extraction cache reached its capacity bound and evicted the oldest entry.
+    description: Signal extraction cache reached its capacity bound; subsequent extractions bypass the cache (no eviction — first 256 unique payloads win, all later ones recompute from the Agda core every time).
 
   # --- Extraction errors (warn) ---
 

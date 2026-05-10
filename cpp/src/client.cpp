@@ -160,7 +160,7 @@ auto AletheiaClient::parse_dbc(std::stop_token stop, const DbcDefinition& dbc)
         populate_signal_lookup(result->dbc);
         if (logger_)
             logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
+                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -176,7 +176,7 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
         populate_signal_lookup(result->dbc);
         if (logger_)
             logger_.info("dbc.parsed",
-                         {{"messages", static_cast<std::int64_t>(result->dbc.messages.size())}});
+                         {{"messages", static_cast<std::uint64_t>(result->dbc.messages.size())}});
     }
     return result;
 }
@@ -416,7 +416,7 @@ auto AletheiaClient::set_properties(std::stop_token stop, std::span<const LtlFor
         diags_.push_back(build_diagnostic(f));
     cache_.clear();
     if (logger_)
-        logger_.info("properties.set", {{"count", static_cast<std::int64_t>(properties.size())}});
+        logger_.info("properties.set", {{"count", static_cast<std::uint64_t>(properties.size())}});
     return result;
 }
 
@@ -579,8 +579,8 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
             }
         }
         if (logger_) {
-            std::int64_t num_fails = 0;
-            std::int64_t num_unresolved = 0;
+            std::uint64_t num_fails = 0;
+            std::uint64_t num_unresolved = 0;
             for (const auto& pr : result->results) {
                 if (pr.verdict == Verdict::Fails)
                     ++num_fails;
@@ -588,7 +588,7 @@ auto AletheiaClient::end_stream(std::stop_token stop) -> Result<StreamResult> {
                     ++num_unresolved;
             }
             logger_.info("stream.ended",
-                         {{"numResults", static_cast<std::int64_t>(result->results.size())},
+                         {{"numResults", static_cast<std::uint64_t>(result->results.size())},
                           {"numFails", num_fails},
                           {"numUnresolved", num_unresolved}});
         }
@@ -656,7 +656,7 @@ void AletheiaClient::enrich_violation(Violation& v, CanId id, Dlc dlc,
         if (logger_)
             logger_.warn("enrichment.property_index_oob",
                          {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::int64_t>(diags_.size())}});
+                          {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
     const auto& diag = diags_[idx];
@@ -677,7 +677,7 @@ void AletheiaClient::enrich_property_result(PropertyResult& pr) {
         if (logger_)
             logger_.warn("enrichment.property_index_oob",
                          {{"index", static_cast<std::int64_t>(idx)},
-                          {"count", static_cast<std::int64_t>(diags_.size())}});
+                          {"count", static_cast<std::uint64_t>(diags_.size())}});
         return;
     }
     const auto& diag = diags_[idx];
@@ -717,7 +717,7 @@ auto AletheiaClient::extract_signal_values(const PropertyDiagnostic& diag, CanId
             cache_it = cache_.emplace(std::move(key), std::move(*extraction)).first;
         } else {
             if (logger_)
-                logger_.warn("cache.full", {{"size", static_cast<std::int64_t>(cache_.size())}});
+                logger_.warn("cache.full", {{"size", static_cast<std::uint64_t>(cache_.size())}});
             // Over capacity — use result directly without caching
             return collect_matching_signals(diag, *extraction);
         }

@@ -263,7 +263,9 @@ func (c *Client) ParseDBC(ctx context.Context, dbc DbcDefinition) (*ParsedDBC, e
 	}
 	c.populateSignalLookup(parsed.DBC)
 	if c.logger != nil {
-		c.logger.Info("dbc.parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "dbc.parsed",
+			slog.Int("messages", len(parsed.DBC.Messages)),
+			slog.Int("warnings", len(parsed.Warnings)))
 	}
 	return parsed, nil
 }
@@ -298,7 +300,9 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 	}
 	c.populateSignalLookup(parsed.DBC)
 	if c.logger != nil {
-		c.logger.Info("dbc.parsed", "messages", len(parsed.DBC.Messages), "warnings", len(parsed.Warnings))
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "dbc.parsed",
+			slog.Int("messages", len(parsed.DBC.Messages)),
+			slog.Int("warnings", len(parsed.Warnings)))
 	}
 	return parsed, nil
 }
@@ -532,7 +536,8 @@ func (c *Client) SetProperties(ctx context.Context, properties []Formula) error 
 	}
 	c.cache = newExtractCache()
 	if c.logger != nil {
-		c.logger.Info("properties.set", "count", len(properties))
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "properties.set",
+			slog.Int("count", len(properties)))
 	}
 	return nil
 }
@@ -587,7 +592,7 @@ func (c *Client) StartStream(ctx context.Context) error {
 		c.lastFrames = nil
 	}
 	if c.logger != nil {
-		c.logger.Info("stream.started")
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "stream.started")
 	}
 	return nil
 }
@@ -607,7 +612,7 @@ func (c *Client) SendFrame(ctx context.Context, ts Timestamp, id CanID, dlc DLC,
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("SendFrame: %w", err)
 	}
-	return c.sendFrameLocked(ts, id, dlc, data)
+	return c.sendFrameLocked(ctx, ts, id, dlc, data)
 }
 
 // SendFrames sends multiple CAN frames in a single batch, amortizing lock
@@ -638,7 +643,7 @@ func (c *Client) SendFrames(ctx context.Context, frames []Frame) ([]FrameRespons
 		if err := ctx.Err(); err != nil {
 			return results, fmt.Errorf("SendFrames: %w", err)
 		}
-		resp, err := c.sendFrameLocked(f.Timestamp, f.ID, f.DLC, f.Data)
+		resp, err := c.sendFrameLocked(ctx, f.Timestamp, f.ID, f.DLC, f.Data)
 		if err != nil {
 			return results, fmt.Errorf("frame %d: %w", i, err)
 		}
@@ -715,8 +720,9 @@ func (c *Client) SendRemote(ctx context.Context, ts Timestamp, id CanID) error {
 }
 
 // sendFrameLocked is the inner implementation of SendFrame. Caller must hold
-// the client lock.
-func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
+// the client lock.  ctx is forwarded to slog so request-scoped attrs (trace
+// IDs, etc.) propagate into the structured-log records.
+func (c *Client) sendFrameLocked(ctx context.Context, ts Timestamp, id CanID, dlc DLC, data FramePayload) (FrameResponse, error) {
 	if c.closed {
 		return nil, stateError("client is closed")
 	}
@@ -742,16 +748,16 @@ func (c *Client) sendFrameLocked(ts Timestamp, id CanID, dlc DLC, data FramePayl
 		c.lastFrames[canIDKey(id)] = lastFrameData{id: id, dlc: dlc, data: dataCopy}
 	}
 	if v, ok := fr.(Violation); ok && c.diags != nil {
-		c.enrichViolation(&v, id, dlc, data)
+		c.enrichViolation(ctx, &v, id, dlc, data)
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "frame.processed",
+			c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 				slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 				slog.Bool("extended", id.IsExtended()), slog.String("response", "violation"))
 		}
 		return v, nil
 	}
 	if c.logger != nil {
-		c.logger.LogAttrs(context.Background(), slog.LevelDebug, "frame.processed",
+		c.logger.LogAttrs(ctx, slog.LevelDebug, "frame.processed",
 			slog.Int64("ts", ts.Microseconds), slog.Uint64("canId", uint64(id.Value())),
 			slog.Bool("extended", id.IsExtended()), slog.String("response", "ack"))
 	}
@@ -790,36 +796,39 @@ func (c *Client) EndStream(ctx context.Context) (*StreamResult, error) {
 		case Fails:
 			numFails++
 			if c.diags != nil {
-				c.enrichPropertyResult(&sr.Results[i])
+				c.enrichPropertyResult(ctx, &sr.Results[i])
 			}
 		case Unresolved:
 			numUnresolved++
 			if c.diags != nil {
-				c.enrichPropertyResult(&sr.Results[i])
+				c.enrichPropertyResult(ctx, &sr.Results[i])
 			}
 		}
 	}
 	c.lastFrames = nil
 	if c.logger != nil {
-		c.logger.Info("stream.ended", "numResults", len(sr.Results),
-			"numFails", numFails, "numUnresolved", numUnresolved)
+		c.logger.LogAttrs(ctx, slog.LevelInfo, "stream.ended",
+			slog.Int("numResults", len(sr.Results)),
+			slog.Int("numFails", numFails),
+			slog.Int("numUnresolved", numUnresolved))
 	}
 	return sr, nil
 }
 
 // enrichViolation adds a ViolationEnrichment to a Violation. Caller must hold
-// the client lock.
-func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayload) {
+// the client lock.  ctx is forwarded to slog so request-scoped attrs propagate
+// into structured-log records.
+func (c *Client) enrichViolation(ctx context.Context, v *Violation, id CanID, dlc DLC, data FramePayload) {
 	idx := int(v.PropertyIndex)
 	if idx >= len(c.diags) {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.property_index_oob",
 				slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
 	diag := c.diags[idx]
-	values := c.extractSignalValues(diag, id, dlc, data)
+	values := c.extractSignalValues(ctx, diag, id, dlc, data)
 	reason := formatEnrichedReason(diag, values, v.Reason)
 	v.Enrichment = &ViolationEnrichment{
 		Signals:        values,
@@ -831,18 +840,19 @@ func (c *Client) enrichViolation(v *Violation, id CanID, dlc DLC, data FramePayl
 
 // enrichPropertyResult adds a ViolationEnrichment to a failed PropertyResult,
 // including last-known signal values from tracked frames. Caller must hold
-// the client lock.
-func (c *Client) enrichPropertyResult(pr *PropertyResult) {
+// the client lock.  ctx is forwarded to slog so request-scoped attrs propagate
+// into structured-log records.
+func (c *Client) enrichPropertyResult(ctx context.Context, pr *PropertyResult) {
 	idx := int(pr.PropertyIndex)
 	if idx >= len(c.diags) {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.property_index_oob",
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.property_index_oob",
 				slog.Int("index", idx), slog.Int("count", len(c.diags)))
 		}
 		return
 	}
 	diag := c.diags[idx]
-	values := c.extractLastKnownValues(diag)
+	values := c.extractLastKnownValues(ctx, diag)
 	reason := formatEnrichedReason(diag, values, pr.Reason)
 	pr.Enrichment = &ViolationEnrichment{
 		Signals:        values,
@@ -854,7 +864,9 @@ func (c *Client) enrichPropertyResult(pr *PropertyResult) {
 
 // extractLastKnownValues extracts signal values from the last-seen frames for
 // all signals referenced in a diagnostic. Caller must hold the client lock.
-func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]PhysicalValue {
+// ctx is forwarded to slog so request-scoped attrs propagate into
+// structured-log records.
+func (c *Client) extractLastKnownValues(ctx context.Context, diag PropertyDiagnostic) map[SignalName]PhysicalValue {
 	if len(c.lastFrames) == 0 || len(diag.Signals) == 0 {
 		return nil
 	}
@@ -874,10 +886,10 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 	// Try extraction against all last-seen frames to find matching signals.
 	for _, k := range keys {
 		lf := c.lastFrames[k]
-		result := c.extractSignalsLocked(lf.id, lf.dlc, lf.data)
+		result := c.extractSignalsLocked(ctx, lf.id, lf.dlc, lf.data)
 		if result == nil {
 			if c.logger != nil {
-				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.extraction_failed",
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
 					slog.Uint64("canId", uint64(lf.id.Value())))
 			}
 			continue
@@ -899,8 +911,9 @@ func (c *Client) extractLastKnownValues(diag PropertyDiagnostic) map[SignalName]
 }
 
 // extractSignalValues extracts signal values for a diagnostic from a frame, using the cache.
-// Caller must hold the client lock.
-func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC, data FramePayload) map[SignalName]PhysicalValue {
+// Caller must hold the client lock.  ctx is forwarded to slog so request-scoped
+// attrs propagate into structured-log records.
+func (c *Client) extractSignalValues(ctx context.Context, diag PropertyDiagnostic, id CanID, dlc DLC, data FramePayload) map[SignalName]PhysicalValue {
 	if c.cache == nil {
 		return nil
 	}
@@ -908,25 +921,25 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 	result, ok := c.cache.get(key)
 	if ok {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "cache.hit",
+			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.hit",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
 	} else {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelDebug, "cache.miss",
+			c.logger.LogAttrs(ctx, slog.LevelDebug, "cache.miss",
 				slog.Uint64("canId", uint64(id.Value())), slog.Uint64("dlc", uint64(dlc.Value())))
 		}
-		result = c.extractSignalsLocked(id, dlc, data)
+		result = c.extractSignalsLocked(ctx, id, dlc, data)
 		if result != nil {
 			if !c.cache.put(key, result) && c.logger != nil {
-				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "cache.full",
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "cache.full",
 					slog.Int("size", maxExtractCache))
 			}
 		}
 	}
 	if result == nil {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "enrichment.extraction_failed",
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "enrichment.extraction_failed",
 				slog.Uint64("canId", uint64(id.Value())))
 		}
 		return nil
@@ -944,7 +957,8 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 }
 
 // extractSignalsLocked performs signal extraction via binary FFI. Caller must
-// hold the client lock.
+// hold the client lock.  ctx is forwarded to slog so request-scoped attrs
+// propagate into structured-log records.
 //
 // Mirrors the ErrBinaryPathUnsupported fallback contract in the public
 // [Client.ExtractSignals]: only that sentinel triggers the JSON fallback —
@@ -952,7 +966,7 @@ func (c *Client) extractSignalValues(diag PropertyDiagnostic, id CanID, dlc DLC,
 // genuine FFI error) and is logged + surfaced as nil. The fall-through is what
 // lets a MockBackend-backed Client yield enrichment through the JSON path even
 // after a DBC has populated the signal-name cache.
-func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *ExtractionResult {
+func (c *Client) extractSignalsLocked(ctx context.Context, id CanID, dlc DLC, data FramePayload) *ExtractionResult {
 	// Use binary path when signal name cache is populated.
 	key := canIDKey(id)
 	if names, ok := c.signalNames[key]; ok {
@@ -961,7 +975,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 			result, perr := parseExtractionBin(buf, names)
 			if perr != nil {
 				if c.logger != nil {
-					c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
+					c.logger.LogAttrs(ctx, slog.LevelWarn, "extraction.parse_failed",
 						slog.Uint64("canId", uint64(id.Value())), slog.String("error", perr.Error()))
 				}
 				return nil
@@ -970,7 +984,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 		}
 		if !errors.Is(err, ErrBinaryPathUnsupported) {
 			if c.logger != nil {
-				c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
+				c.logger.LogAttrs(ctx, slog.LevelWarn, "extraction.process_failed",
 					slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 			}
 			return nil
@@ -983,7 +997,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 	resp, err := c.backend.ExtractSignalsBinary(c.state, id, dlc, []byte(data))
 	if err != nil {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.process_failed",
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "extraction.process_failed",
 				slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
@@ -991,7 +1005,7 @@ func (c *Client) extractSignalsLocked(id CanID, dlc DLC, data FramePayload) *Ext
 	result, err := parseExtractionResponse(resp)
 	if err != nil {
 		if c.logger != nil {
-			c.logger.LogAttrs(context.Background(), slog.LevelWarn, "extraction.parse_failed",
+			c.logger.LogAttrs(ctx, slog.LevelWarn, "extraction.parse_failed",
 				slog.Uint64("canId", uint64(id.Value())), slog.String("error", err.Error()))
 		}
 		return nil
