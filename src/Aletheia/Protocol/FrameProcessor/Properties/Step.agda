@@ -66,8 +66,11 @@ handleDataFrame-guard-readyToStream dbc props cache tf = refl
 -- Agda's listToVec applies (x % 256), but the Haskell shim constructs
 -- Vec entries directly from Word8 values (which are already in [0,255]).
 -- Since Word8 ∈ [0,255] implies n < 256, the modulo is a no-op.
+-- Direct re-export of stdlib `m<n⇒m%n≡m` (R19 cluster 15 — AGDA-C-27.5);
+-- kept exported under the documented name because the Haskell shim cites
+-- it in `haskell-shim/src/AletheiaFFI/Marshal.hs`'s rationale comment.
 mod-identity-byte : ∀ (n : ℕ) → n < 256 → n % 256 ≡ n
-mod-identity-byte n n<256 = m<n⇒m%n≡m n<256
+mod-identity-byte _ = m<n⇒m%n≡m
 
 -- ============================================================================
 -- PROPERTY 3: classifyStepResult faithfully reflects StepResult constructors

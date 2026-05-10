@@ -27,6 +27,7 @@ open import Data.Bool using (T)
 open import Data.Char using (Char)
 open import Data.Nat using (ℕ; suc; _<ᵇ_)
 open import Data.List using (List; []; _∷_; map) renaming (_++_ to _++ₗ_)
+open import Data.List.Properties using (map-∘)
 open import Data.String using (String)
 open import Data.Product using (_×_; _,_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -107,10 +108,11 @@ validateIdent-roundtrip (mkIdent name valid)
 -- receivers / senders roundtrips where the formatter emits
 -- `map (JString ∘ Identifier.name) xs`.  Exported for SignalRoundtrip /
 -- MessageRoundtrip which need the same lemma for their identifier fields.
+-- Re-exports stdlib `map-∘` at the specialised arity callers want
+-- (R19 cluster 15 — AGDA-C-27.1).
 map-∘-identifier : ∀ {A : Set} (f : List Char → A) (is : List Identifier)
   → map (λ i → f (Identifier.name i)) is ≡ map f (map Identifier.name is)
-map-∘-identifier _ []       = refl
-map-∘-identifier f (_ ∷ is) = cong (_ ∷_) (map-∘-identifier f is)
+map-∘-identifier _ is = map-∘ is
 
 -- List-of-identifiers roundtrip: mapped validateIdentList matches.
 validateIdentList-roundtrip :
