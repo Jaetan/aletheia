@@ -958,15 +958,167 @@ No NEW findings beyond cat 11 reframing per advisor.
 
 ---
 
-## Step 3: Coverage reconciliation and planning — TBD
+## Step 3: Coverage reconciliation and planning
 
-After step-2 returns, all findings collated and labeled FIX/FP/DEFER per AGENTS.md Step 3. Cluster ranking FIX-early / FIX-middle / DEFER-end-of-round per `feedback_review_round_dispositions.md`.
+**Coverage gate**: 17 of 17 agents returned full reports across all assigned categories. No gaps. ✓
+
+**False positives + reclassifications** (user adjudicated 2026-05-10):
+- **AGDA-A-29.1-4**: ✅ **FP** — already documented at `DecRatParse/Properties.agda:1079-1090` (explanatory comment block). Strict-form header note not required; existing inline rationale satisfies AGENTS.md cat 29.
+- **AGDA-D-10.3**: ❌ **NOT FP — reclassified FIX**. User direction: "do not defer". Domain-model gap on overload frames + single-shot transmission events; FIX as documenting comment-block addition to `TraceEvent` ADT explaining the omission (Phase 5.1 minimal-trace scope). Folded into Cluster 5.
+- **CPP-B-12.4**: ✅ **FP — audit verified**. Every public `parse_*` (10 functions: parse_success / parse_event_ack / parse_validation / parse_extraction / parse_frame_data / parse_frame_response / parse_stream_result / parse_dbc_response / parse_parsed_dbc / parse_dbc_text_response) wraps body in `try { ... } catch (const std::exception& e) { ... }`. nlohmann's exceptions all inherit from `std::exception`. Containment confirmed.
+- **GO-B-10.1**: ❌ **NOT FP — reclassified FIX**. User direction: "make sure there's a comment explaining why we strdup and not free". Existing comment at `go/aletheia/ffi.go:110` (`// Intentionally not freed — GHC RTS may retain argv pointers.`) is terse; strengthen to fully explain (a) why strdup vs stack — hs_init may retain argv across return per GHC docs; (b) why not free at process end — tiny one-shot leak, no harm; (c) cross-binding parity with Python `_ffi.py` and C++ `ffi_backend.cpp`. Folded into Cluster 5.
 
 ---
 
-## Action plan — TBD
+## Action plan
 
-After Step 3 dispositions are marked.
+19 clusters. Mirroring R18's FIX-early / FIX-middle / DEFER-end-of-round structure per `feedback_review_round_dispositions.md`. Carry-overs (R19-CARRY-1, R19P2-CARRY-1) tracked separately.
+
+### Carry-over dispositions
+
+| ID | Site | Disposition | Rationale |
+|---|---|---|---|
+| R19-CARRY-1 | `src/Aletheia/CAN/Encoding.agda:122` Bool fast-path | **RE-DEFER** | Agda elaboration barrier (4 probes failed in R19 Phase 1); only viable revisit via Agda upstream fix or eliminating Dec dispatch |
+| R19P2-CARRY-1 | `go/aletheia/ffi.go:690-700` `outSize MaxInt32` | **RE-DEFER** | Return-value bound (FFI output), not input; covered by upstream `MaxJSONBytes` cap |
+
+### Clusters (FIX-early — mechanical, low-risk)
+
+**Cluster 1 — Doc drift mechanical batch** (Themes A + parts H/Q)
+- Findings: DOC-A-1.1-1.10, DOC-A-2.1-2.5, DOC-A-3.1-3.6, DOC-A-4.1-4.9, DOC-A-5.1/5.3-5.5, DOC-A-7.1-7.2, DOC-A-8.1-8.2, DOC-A-9.1-9.6, DOC-B-10.5, DOC-B-13.1-13.4, DOC-B-14.1-14.5, DOC-B-15.1, DOC-B-16.1-16.4, DOC-B-17.1-17.3, DOC-B-18.1-18.3, DOC-B-19.1-19.5, DOC-B-20.1-20.4, DOC-B-21.1-21.3, DOC-B-22.2-22.3, DOC-X-5.1-5.13, DOC-X-15.1-15.5, DOC-X-16.1-16.5, DOC-X-17.1-17.10, DOC-X-18.1-18.5, AGDA-A-4.2/4.3, GO-A-1.1, CICD-5.8.
+- Disposition: **FIX-early**.
+- Scope: PROJECT_STATUS.md L489 244→246 sync; `tools/run_ci.py` step count cited as 17/21/27 → cite `BASE_STEPS = 27` symbolically across docs; `MUTATION.md:4` "go-mutesting" → `gremlins`; CLI subcommand list 5 vs 6 (CLI.md/INDEX.md need `format-dbc`); `iter_can_log` 5-tuple in python/README.md; CHANGELOG type-naming `DbcDefinition` vs `DBCDefinition` cross-binding alignment; INDEX.md missing 6+ docs (CHANGELOG, CANCELLATION, CGO_NOTES, CI_LOCAL, MUTATION, PARITY_PLAN, RELEASE); "Last Updated" stamps refresh on PITCH/DEFERRALS/DEPENDENCIES/DISTRIBUTION; binding READMEs for go/cpp.
+- Effort: ~80 doc-only edits across ~25 files; no source code changes.
+
+**Cluster 2 — CICD supply-chain hardening** (Theme P)
+- Findings: CICD-1.6/1.7/1.8/1.9, CICD-2.2, CICD-5.9.
+- Disposition: **FIX-early**.
+- Scope: `.github/workflows/gha-checks.yml` `runs-on: ubuntu-latest` → `ubuntu-22.04`; add `timeout-minutes: 5` per job; add `concurrency: { group: gha-checks-${{ github.ref }}, cancel-in-progress: true }`; sha256-verify actionlint tarball pre-extract; pin Dockerfile.runtime libgmp10 install via snapshot.debian.org; sha256-verify cosign binary fetch (keys/README.md + RELEASE.md).
+- Effort: ~6 small workflow/Dockerfile/release-doc edits.
+
+**Cluster 3 — Logger/event consistency mechanical batch** (Theme H)
+- Findings: GO-A-30.1, CPP-A-30.1 (= shared `cache.full` description drift), GO-A-30.2, GO-A-30.3, GO-A-30.4, CPP-A-30.2, CPP-A-30.3.
+- Disposition: **FIX-early**.
+- Scope: `docs/LOG_EVENTS.yaml:94` `cache.full` description "evicted oldest" → "reached capacity bound; subsequent extractions bypass cache"; Go's 13 `slog.LogAttrs(context.Background(),...)` → forward caller `ctx`; CPP-A-30.2 camelCase→snake_case key normalization; CPP-A-30.3 `int64`→`uint64` for size-style fields; document `dbc.parsed` field schema in YAML SSOT.
+- Effort: ~20 sites across 3 bindings; mechanical.
+
+**Cluster 4 — Test-discipline cleanup** (Theme J)
+- Findings: GO-B-11.1/11.2, PY-B-11.1/11.2/11.3/11.4, PY-A-4.6, PY-B-29.2.
+- Disposition: **FIX-early**.
+- Scope: Go cancel_test.go `time.Sleep` polling → channel-based synchronization (per `feedback_no_physical_time_in_tests.md`); python/tests/test_excel_loader.py `_active_sheet(wb)` helper to drop 30+ `# type: ignore[union-attr]`; test_cancellation.py narrow async-batch annotations to drop 3 `# type: ignore`; test_checks.py `not in d` → `.get(...) is None`; test_cli.py `from aletheia.testing import run_checks`.
+- Effort: ~3 files modified; pattern repeats.
+
+**Cluster 5 — Naming/hygiene Agda+Go mechanical batch** (Theme R + AGDA-D-10.3 + GO-B-10.1 reclassifications)
+- Findings: AGDA-A-1.1 (Limits.withinBound dead), AGDA-A-1.2 (Handlers comment stale), AGDA-A-1.3 (DLC suc^16 absurd), AGDA-A-4.4 (Constants L23 magic 512), AGDA-A-GA1.1/GA1.2 (import hygiene), AGDA-D-10.3 (TraceEvent overload-frame/single-shot-tx omission comment), GO-A-1.2 (`maxPayloadBytes` vs `MaxFrameByteCount`), GO-A-2.1 (`Dbc*` → `DBC*` 30 IDs), GO-A-2.2 (`CanID` capitalization), GO-A-2.3 (`vds` vs `unresolvedVDs`), GO-A-3.1-3.7 (godoc on 70+ exported), GO-A-4.4-4.5 (json.go const grouping + format inversion), GO-A-5.4 (frame error wrap prefix), GO-B-10.1 (strdup-no-free comment strengthening).
+- Disposition: **FIX-early**.
+- Scope: `Limits.withinBound` either delete or thread through parser entries; AGDA-D-10.3 add comment block to `TraceEvent` ADT explaining overload-frame + single-shot-tx omission per CAN 2.0B §3.1.5 / ISO 11898-1 §6.6 (Phase 5.1 minimal-trace scope, signal-level LTL only); Go `Dbc*` → `DBC*` API rename (breaking — per `feedback_no_backward_compat.md` OK, no migration shim); 70+ Go godoc comments added; minor consts/format inversions; GO-B-10.1 strengthen `ffi.go:110` strdup-no-free comment to fully explain (a) hs_init retains argv per GHC docs; (b) one-shot per-process leak is tiny and harmless; (c) cross-binding parity with Python+C++.
+- AGDA-A-29.1-4 dropped from scope per FP confirmation.
+- Effort: large (Go API rename touches every consumer of `DbcMessage`/`DbcSignal`/etc.); mostly mechanical via grep+sed.
+- Risk: Go API rename breaks downstream → call out explicitly.
+
+**Cluster 6 — AllObserved doc propagation** (Theme G)
+- Findings: AGDA-D-12.2, AGDA-D-13.5, AGDA-D-17.4, AGDA-D-GA7.1.
+- Disposition: **FIX-middle** (doc-propagation across 3 bindings).
+- Scope: Add docstring + binding-API doc on `AllObserved` user obligation in python/aletheia/client/_client.py docstring + go/aletheia/doc.go + cpp/include/aletheia/aletheia.hpp; cross-ref to `docs/architecture/CGO_NOTES.md` or new dedicated note; surface `Unsure` verdict semantics in PROTOCOL.md.
+- Effort: ~5-8 doc edits across bindings + 1 architecture doc.
+
+### Clusters (FIX-middle — moderate scope)
+
+**Cluster 7 — Cross-binding wire-byte parity** (Theme B)
+- Findings: PY-B-8.2 / PY-D-22.1 (Python `dump_json` `ensure_ascii` not pinned), GO-B-8.2 (Go `parseRational` accepts negative denom), CPP-B-8.1 / CPP-D-22.5 (C++ `rational_to_json` no GCD norm), CPP-D-19.2 (C++ Delta/Tolerance double, Python+Go Fraction), GO-B-8.1 (Go NaN/Inf to non-RFC8259 JSON).
+- Disposition: **FIX-middle**.
+- Scope: Pin `ensure_ascii=False` in `_helpers.py:dump_json`; Python+Go+C++ Rational normalization gate (cross-binding test asserting roundtrip emits canonical-form `{6,3}` → `{2,1}`); Python+Go reject NaN/Inf at predicate value boundary (typed `ProcessError`); C++ `Delta`/`Tolerance` migrate `double` → `Rational`.
+- Effort: ~6 sites + 1 cross-binding test; needs cross-binding parity gate.
+
+**Cluster 8 — Defense-in-depth bound checks at parser surfaces** (Theme D)
+- Findings: AGDA-D-11.1/11.2/11.3/11.4/11.5/11.6/11.7, CPP-B-9.1 / CPP-D-21.3 / CPP-B-28.4 (6 limits.hpp unenforced), CPP-D-21.5 (bound-error response missing structured fields), AGDA-D-13.4 (fuel measure leaves nesting unbounded).
+- Disposition: **FIX-middle**.
+- Scope: Identifier length bound at `Aletheia.DBC.Identifier` validity record; atom-count cap at `parseProperty`; nesting-depth bound at `parseJSONHelper` (subtract on each Array/Object recursion); `parseObjectList`/`parseSignalList`/`parseMessageList` cardinality caps; C++ `parse_bounded` extended to messages_per_file/signals_per_message/atom_count/identifier_length/string_length/attributes_per_file/value_descriptions_per_file; structured `bound_kind/observed/limit` in C++ bound-error JSON.
+- Effort: large — Agda kernel + C++ parser changes; needs proof updates for new validity record fields.
+
+**Cluster 9 — Missing extension points** (Theme E)
+- Findings: PY-D-17.1 (Python no IBackend), GO-D-16.2 (Go no IsClosed), CPP-D-17.4 (C++ Logger single-callback), CPP-D-17.1 (IBackend mixed pure/default).
+- Disposition: **FIX-middle**.
+- Scope: Define `aletheia.client.Backend(Protocol)` matching FFI surface; `AletheiaClient.__init__` accepts `backend: Backend | None` + default `_FFIBackend(...)`; Go `func (c *Client) IsClosed() bool` under lock; C++ `Logger::add_sink(LogCallback)` multi-sink composition; C++ `IBackend` annotate pure-vs-defaulted at declarations.
+- Effort: medium per binding; cross-binding parity test for IBackend / IsClosed surface.
+
+**Cluster 10 — API ergonomics asymmetries** (Theme F)
+- Findings: GO-D-15.1 (Close lies about error), GO-D-15.3 (Stringer asymmetric), GO-D-15.4 (BuildFrame/UpdateFrame ctx ordering), GO-D-15.5 (FormatDBC vs ParseDBC*), PY-D-15.1 (async no is_closed), PY-D-15.3 (positional kwargs), PY-D-15.6 (send_frame ValueError not typed), CPP-D-15.1/15.2 (Rational invariant), CPP-D-15.5 (Check::signal namespace).
+- Disposition: **FIX-middle**.
+- Scope: Cluster of small fixes — Go `String()` for DbcVarType/DbcAttrScope; arg-order normalization across BuildFrame/UpdateFrame/SendFrame; FormatDBC return `*ParsedDBC`; Python async `is_closed`; Python `__init__` keyword-only; Python typed `InvalidArgumentError`; C++ `Rational::make` as only public + privatize 2-arg ctor; C++ Check namespace decision (preserve or migrate).
+- Effort: medium; touches 3 bindings; some breaking (Python signature, Go arg order, C++ Check) per `feedback_no_backward_compat.md`.
+
+**Cluster 11 — Async cancellation hardening** (Theme I)
+- Findings: PY-B-12.1, PY-B-12.2, PY-D-15.2, PY-D-20.2.
+- Disposition: **FIX-middle**.
+- Scope: `asyncio.shield(asyncio.to_thread(self._sync.close))` in `__aexit__` + standalone `close()`; same pattern for `__aenter__` `init`; document `send_frames` partial-prefix behavior in docstring.
+- Effort: small (~5 code changes); add cancel-during-close test.
+
+**Cluster 12 — cgo / FFI safety hardening** (Theme L)
+- Findings: GO-B-27.2/27.3 (NUL-byte truncation in CString), GO-B-10.3 (runtime.KeepAlive), CPP-B-13.1 (memcpy no endian static_assert), CPP-B-13.5 (Rational::from_double scaled overflow), CPP-B-7.1/7.3 (Rational invariant under NDEBUG / extraction-bin den<0), CPP-B-7.4 (`max_can_fd_payload_bytes` vs `max_frame_byte_count` SSOT violation), PY-B-23.1 / PY-B-10.5 (ALETHEIA_LIB symlink-following), PY-B-23.4 (Excel ZIP-bomb cap on outer file size only).
+- Disposition: **FIX-middle**.
+- Scope: Go `strings.ContainsRune(s, 0)` rejection at `C.CString` callsites; `runtime.KeepAlive(...)` after `C.call_*`; C++ `static_assert(std::endian::native == std::endian::little)`; tighten `Rational::from_double` overflow boundary at `std::nextafter(int64_max_d, 0)`; Python `os.lstat` reject symlinks for ALETHEIA_LIB; Python ZIP-bomb defense via `zipfile.ZipFile` central-dir size sum.
+- Effort: medium; 8-10 sites across bindings.
+
+**Cluster 13 — MAlonzo erasure surface extension** (Theme M)
+- Findings: AGDA-D-17.2, AGDA-D-30.1, AGDA-D-30.2, AGDA-D-GA23.2.
+- Disposition: **FIX-middle**.
+- Scope: `Shakefile.hs check-erasure` add Maybe constructor checks (`AgdaMaybe.C_nothing_18`/`C_just_16`) + Sigma constructor checks (`AgdaSigma.T_Σ_14`, `C__'44'__32`, `d_fst_28`, `d_snd_30`); extend `ffi-exports.snapshot` to cover indirect helper accessors (`d_dlcToBytes_6`, `d_numerator_14`, `d_denominatorℕ_20`, etc.).
+- Effort: small (Shakefile + snapshot file); proof-only.
+
+**Cluster 14 — Combinator-first refactor batch** (Theme N)
+- Findings: AGDA-C-6.1 (`InContext` × 5 ADTs), AGDA-C-6.2 (`InputBoundExceeded` × 3), AGDA-C-6.3 (`checkUnknown*` × 3), AGDA-C-6.4 (Standard/Extended twins), AGDA-C-6.5 (`*-list-go` × 4), AGDA-C-6.6 (And/Or-symmetric ≥5 in SimplifySound), AGDA-C-3.1 (`formatChars` naming), AGDA-C-3.3 (`checkAll*` prefix), AGDA-C-3.4 (`-list-` kebab inconsistency), CPP-A-1.1 / CPP-A-6.1 (FFI deleter × 8), CPP-A-6.2 (`can_id_value` × 12), GO-A-6.1 (lock pattern × 15), GO-A-6.2 (iota Stringer × 6), GO-A-6.3 (parseObjects × 8), AGDA-C-5.1 (DispatchError trailing "in request"), AGDA-C-5.2 (range-error phrasing), AGDA-C-5.3 (DBCTextParseError/DispatchError lack InContext).
+- Disposition: **FIX-middle** (large scope, sub-cluster for parallel work).
+- Scope: Lift `InContext` to top-level `Error.WithContext` (or factor `WithCtx` combinator); lift `InputBoundExceeded` to top-level Error; parameterize `MessageRoundtrip/{Standard,Extended}.agda` over CANId ctor; `parseObjectList-roundtrip` combinator; And/Or duality lift to `LTL.Semantics.Duality`; C++ `wrap_str_result(char*, std::string_view)` helper + `can_id_value`/`can_id_is_extended` promoted to types.hpp; Go `(c *Client) acquire(ctx, name) (release func(), err error)` helper + `parseObjects[T any]` generic.
+- Effort: large; can be sub-clustered for parallel agent work.
+
+**Cluster 15 — Stdlib dedup** (Theme S)
+- Findings: AGDA-C-27.1-27.5.
+- Disposition: **FIX-early** (small mechanical).
+- Scope: Replace hand-rolled `map-∘-identifier` with stdlib `map-∘`; verify `monad-left/right-identity` against `RawMonad.Laws`; consolidate `*-comm` lemmas; inline `mod-identity-byte` rename wrapper.
+- Effort: small; 5 sites.
+
+**Cluster 16 — Python boundary cleanup** (Theme Q)
+- Findings: PY-D-16.1-16.6, PY-D-18.1, PY-D-18.3, PY-D-18.5, PY-D-18.6, PY-D-31.6.
+- Disposition: **FIX-middle**.
+- Scope: Promote `check_dbc_text_size_bound` to public `aletheia.limits.check_dbc_text_size_bound`; split `_types.py` into `aletheia/types.py` (public) + `aletheia/client/_internals.py` (private); rename `is_str_dict`/`is_object_list` → `_is_str_dict`/`_is_object_list`; `aletheia.testing` use public path for `AletheiaClient` import; Python ≥ 3.13 floor consistency; optional extras upper-bound pins; ImportError narrow-swallow at submodule level.
+- Effort: medium; some breaking changes per `feedback_no_backward_compat.md`.
+
+### Clusters (FIX-middle — Domain Model)
+
+**Cluster 17 — Python domain model coherence** (Theme N + part of E)
+- Findings: PY-D-19.1-19.6, PY-D-20.1, PY-D-20.3, PY-D-20.4, PY-D-20.6, PY-D-15.4, PY-A-3.1-3.6, PY-A-5.4 (RuntimeError in excel_loader), PY-A-6.1, PY-A-6.3, PY-A-6.4, PY-A-6.5.
+- Disposition: **FIX-middle**.
+- Scope: Predicate values `float` → `Fraction` (per DecRat universal principle); `DBCSignal` add explicit `presence` discriminator; `DBCMessage.dlc` distinguish `DLCByteCount`/`DLCCode` newtypes; `DBCDefinition` Tier 2 fields required + `[]` default; flat `AletheiaError` → kind-tagged hierarchy; move `run_checks` from `cli.py` to `aletheia/checks_runner.py`; rename `validation.py` → `issue_codes.py` or add thin `validate(dbc)` wrapper; helper consolidation (`_require_existing_path`, `_require_lo_le_hi`, `_require_non_negative_time_ms`, `_is_pure_int`); typed `AletheiaError` subclass for excel_loader RuntimeError.
+- Effort: large; touches several modules; some breaking (DBCSignal discriminator).
+
+### Clusters (DEFER-end-of-round / requires-decision)
+
+**Cluster 18 — BRS/ESI cross-binding plumbing** (Theme C)
+- Findings: AGDA-D-10.1 / AGDA-D-13.1 / AGDA-D-17.1 / AGDA-D-GA23.1.
+- Disposition: **FIX-late** (user adjudicated 2026-05-10: extend C signature + propagate through 3 bindings + JSON wire).
+- Scope: extend `aletheia_send_frame` C signature to accept `brs_present u8`, `brs_value u8`, `esi_present u8`, `esi_value u8` (or equivalent encoding); thread through `haskell-shim/AletheiaFFI.hs` builder so it constructs `TimedFrame.brs/.esi` from real values instead of hardcoded `nothing`; surface `BRS`, `ESI` fields on Python `Frame` / Go `Frame` / C++ `Frame` types; propagate to JSON wire shape; documentation-comment per binding explaining ISO 11898-1:2015 §10.4.2 (BRS) and §10.4.3 (ESI) semantics.
+- Cat 17 cross-layer: every wire boundary needs the new fields per `feedback_audit_all_wire_boundaries.md` — binary FFI signature, JSON wire, 3 binding type structs, doc surface.
+- Effort: large (~4-6 weeks of cross-binding work). Best ordered AFTER Cluster 8 (defense-in-depth bounds) and Cluster 9 (extension points) so the new fields get bound checks + Backend-aware tests in one pass.
+
+**Cluster 19 — Hot-path allocations** (Theme K)
+- Findings: GO-B-25.2 (strings.Builder), PY-B-10.3 / PY-D-22.5 (ctypes per-frame), CPP-B-25.1 (last_frames per-frame copy), PY-B-14.1 (log_event kwargs eval), PY-B-14.2 (`_ACK_BYTES` tuple per-frame).
+- Disposition: **DEFER-end-of-round** unless benchmarks show regression on cluster 17 ship.
+- Rationale: per `feedback_in_source_deferral_notes.md` + `feedback_hot_path_refactor_benchmark.md`, hot-path optimizations need benchmark evidence; current numbers are within WSL2 ±10% gate.
+
+### Clusters (DEFER-end-of-round / architectural)
+
+**Cluster 20 — Module structure refactors** (Theme O)
+- Findings: AGDA-D-15.1 (Validator/Checks.agda 595 LOC), AGDA-D-15.2 (StreamState/Internals.agda + DEFER block), AGDA-D-15.3 (StreamingWarm.agda 367 LOC), PY-A-27.4/27.5 (`_client.py` 930 LOC, `protocols.py` 976 LOC).
+- Disposition: **DEFER-end-of-round** (benchmark-or-skip per AGENTS.md L244 facade pattern).
+- Scope: split per `feedback_properties_facade_split.md`; Python `_client.py` candidate for further `_signal_ops.py`-style extraction.
+- Effort: medium; mechanical; module count drift to track per `feedback_module_count_prose_audit.md`.
+
+### Round summary
+
+- 20 clusters identified (18 FIX [6 early + 11 middle + 1 late], 2 DEFER-with-rationale).
+- 2 carry-overs RE-DEFER (R19-CARRY-1, R19P2-CARRY-1).
+- 4 candidate FPs adjudicated 2026-05-10: 2 confirmed FP (AGDA-A-29.1-4, CPP-B-12.4); 2 reclassified FIX (AGDA-D-10.3, GO-B-10.1) folded into Cluster 5.
+- Cluster 18 BRS/ESI: user adjudicated FIX-late (extend C signature + propagate).
 
 ---
 
@@ -978,7 +1130,7 @@ After Step 3 dispositions are marked.
 | Step 1 — Per-file review (12 agents) | ✓ done | 12 of 12 returned; ~296 findings |
 | Step 2 — System-level (4 agents) | ✓ done | Agda D 25 + Go D 22 + C++ D 28 + Python D 30 |
 | Step 2.5 — Cross-document pass | ✓ done | 38 findings across cats 5/15-18 |
-| Step 3 — Coverage reconciliation + plan | pending | Disposition + cluster ranking awaits user |
-| Step 4 — Implement and verify | pending | Per-cluster commits + 4-gate verification |
+| Step 3 — Coverage reconciliation + plan | ✓ done | 20 clusters; 18 FIX (6 early + 11 middle + 1 late), 2 DEFER; 2 carry-overs RE-DEFER; 4 FPs adjudicated (2 confirmed + 2 reclassified FIX) |
+| Step 4 — Implement and verify | in flight | FIX-early first (Clusters 1-6, 15); then FIX-middle (7-14, 16-17); FIX-late Cluster 18 last; per-cluster commits + 4-gate verification |
 
-**Total: 17 of 17 agents returned. ~439 findings.** Awaiting Step 3 — disposition / cluster ranking / FIX-early/middle/DEFER-end-of-round.
+**Total: 17 of 17 agents returned. ~439 findings.** Step 3 ✓; Step 4 starting FIX-early. **Pushes forbidden** per user direction 2026-05-10.
