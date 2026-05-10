@@ -51,6 +51,17 @@ class ProtocolError(AletheiaError):
     """
 
 
+class ValidationError(AletheiaError):
+    """Caller-supplied argument failed a Python-side validity check
+    (e.g. negative timestamp, malformed CAN ID).
+
+    Mirrors Go ``*ValidationError`` and C++ ``ValidationError`` —
+    cross-binding parity for argument-rejection paths.  Replaces ad-hoc
+    ``ValueError`` raises that escaped the typed ``AletheiaError``
+    hierarchy (R19 cluster 10 — PY-D-15.6).
+    """
+
+
 class InputBoundExceededError(AletheiaError):
     """Raised when an input exceeds an adversarial-input bound.
 

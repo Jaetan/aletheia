@@ -22,6 +22,7 @@ from aletheia import (
     ProtocolError,
     RTSState,
     Signal,
+    ValidationError,
 )
 from aletheia.client._response_parsers import parse_event_response
 
@@ -64,15 +65,15 @@ class TestSendErrorRemote:
             assert response["status"] == "ack"
 
     def test_send_error_negative_timestamp_rejected(self) -> None:
-        """send_error rejects negative timestamps."""
+        """send_error rejects negative timestamps via typed ValidationError."""
         with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="non-negative"):
+            with pytest.raises(ValidationError, match="non-negative"):
                 client.send_error(timestamp=-1)
 
     def test_send_remote_negative_timestamp_rejected(self) -> None:
-        """send_remote rejects negative timestamps."""
+        """send_remote rejects negative timestamps via typed ValidationError."""
         with AletheiaClient() as client:
-            with pytest.raises(ValueError, match="non-negative"):
+            with pytest.raises(ValidationError, match="non-negative"):
                 client.send_remote(timestamp=-1, can_id=256)
 
     def test_send_remote_invalid_can_id_rejected(self) -> None:

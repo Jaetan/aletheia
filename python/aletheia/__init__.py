@@ -75,6 +75,7 @@ from .client import (
     PropertyDiagnostic,
     ProtocolError,
     RTSState,
+    ValidationError,
     SignalExtractionResult,
     bytes_to_dlc,
     dlc_to_bytes,
@@ -158,6 +159,7 @@ __all__ = [
     "PropertyDiagnostic",
     "ProtocolError",
     "RTSState",
+    "ValidationError",
     # Check API
     "Check",
     "CheckResult",

@@ -61,6 +61,7 @@ from ._types import (
     InputBoundExceededError,
     ProcessError,
     ProtocolError,
+    ValidationError,
     SignalExtractionResult,
     PropertyDiagnostic,
     SignalLookup,
@@ -609,7 +610,7 @@ class AletheiaClient(SignalOpsMixin):
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
         if timestamp < 0:
-            raise ValueError("timestamp must be non-negative")
+            raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
         validate_payload_length(dlc, data)  # validates dlc is in [0, 15]
 
@@ -762,7 +763,7 @@ class AletheiaClient(SignalOpsMixin):
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
         if timestamp < 0:
-            raise ValueError("timestamp must be non-negative")
+            raise ValidationError("timestamp must be non-negative")
         result_ptr = self._lib.aletheia_send_error(
             self._state, ctypes.c_uint64(timestamp),
         )
@@ -806,7 +807,7 @@ class AletheiaClient(SignalOpsMixin):
         if self._lib is None or self._state is None:
             raise ProcessError("Client not initialized — use 'with' statement")
         if timestamp < 0:
-            raise ValueError("timestamp must be non-negative")
+            raise ValidationError("timestamp must be non-negative")
         validate_can_id(can_id, extended=extended)
         result_ptr = self._lib.aletheia_send_remote(
             self._state,

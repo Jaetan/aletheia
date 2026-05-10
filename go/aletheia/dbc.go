@@ -1,5 +1,7 @@
 package aletheia
 
+import "fmt"
+
 // SignalPresence describes when a signal is present in a frame.
 type SignalPresence interface {
 	signalPresence() // sealed
@@ -243,6 +245,22 @@ const (
 	DBCVarTypeString DBCVarType = 2
 )
 
+// String returns a human-readable name for this var type.  Cross-binding
+// parity with ByteOrder.String / IssueSeverity.String / Verdict.String;
+// R19 cluster 10 — GO-D-15.3.
+func (v DBCVarType) String() string {
+	switch v {
+	case DBCVarTypeInt:
+		return "int"
+	case DBCVarTypeFloat:
+		return "float"
+	case DBCVarTypeString:
+		return "string"
+	default:
+		return fmt.Sprintf("DBCVarType(%d)", int(v))
+	}
+}
+
 // DBCEnvironmentVar is a DBC environment variable (EV_ keyword).
 // Numeric fields use [Rational] to preserve exact decimal intent through
 // the wire round-trip, matching the Agda core's ℚ representation.
@@ -372,6 +390,31 @@ const (
 	// DBCAttrScopeNodeSig — relational scope: (node, signal) pair (`BU_SG_REL_` in BA_DEF_REL_).
 	DBCAttrScopeNodeSig
 )
+
+// String returns the DBC keyword form of this scope ("", "BU_", "BO_",
+// "SG_", "EV_", "BU_BO_REL_", "BU_SG_REL_").  Cross-binding parity with
+// ByteOrder.String / DBCVarType.String / IssueSeverity.String /
+// Verdict.String; R19 cluster 10 — GO-D-15.3.
+func (s DBCAttrScope) String() string {
+	switch s {
+	case DBCAttrScopeNetwork:
+		return ""
+	case DBCAttrScopeNode:
+		return "BU_"
+	case DBCAttrScopeMessage:
+		return "BO_"
+	case DBCAttrScopeSignal:
+		return "SG_"
+	case DBCAttrScopeEnvVar:
+		return "EV_"
+	case DBCAttrScopeNodeMsg:
+		return "BU_BO_REL_"
+	case DBCAttrScopeNodeSig:
+		return "BU_SG_REL_"
+	default:
+		return fmt.Sprintf("DBCAttrScope(%d)", int(s))
+	}
+}
 
 // --- Attribute types (RHS of BA_DEF_) ---
 

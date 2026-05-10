@@ -53,6 +53,7 @@ from ._types import (
     PropertyDiagnostic,
     ProtocolError,
     SignalExtractionResult,
+    ValidationError,
     bytes_to_dlc,
     dlc_to_bytes,
 )
@@ -65,5 +66,5 @@ __all__ = [
     "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "FrameResult",
     "InputBoundExceededError",
     "ProcessError", "PropertyDiagnostic", "ProtocolError",
-    "RTSState", "SignalExtractionResult",
+    "RTSState", "SignalExtractionResult", "ValidationError",
 ]

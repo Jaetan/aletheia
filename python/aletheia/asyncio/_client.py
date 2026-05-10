@@ -124,6 +124,14 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         """Free state and release RTS reference. Same uncancellable contract as ``__aexit__``."""
         await asyncio.shield(asyncio.to_thread(self._sync.close))
 
+    @property
+    def is_closed(self) -> bool:
+        """Whether :meth:`close` has been called.  Cross-binding parity
+        with sync :class:`aletheia.AletheiaClient.is_closed` and Go
+        ``Client.IsClosed()``; R19 cluster 10 — PY-D-15.1.
+        """
+        return self._sync.is_closed
+
     # =========================================================================
     # DBC and Properties
     # =========================================================================
