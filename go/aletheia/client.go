@@ -133,6 +133,17 @@ func (c *Client) unlock() {
 	<-c.lockCh
 }
 
+// IsClosed reports whether [Client.Close] has been called.  Acquires
+// the same internal lock as the data-path operations so the answer
+// reflects committed state (no torn reads).  Cross-binding parity
+// with Python's ``AletheiaClient.is_closed`` property; R19 cluster 9
+// — GO-D-16.2.
+func (c *Client) IsClosed() bool {
+	c.lockCh <- struct{}{}
+	defer func() { <-c.lockCh }()
+	return c.closed
+}
+
 // processLocked sends input to the backend. Caller must hold the client lock.
 func (c *Client) processLocked(input string) (string, error) {
 	if c.closed {

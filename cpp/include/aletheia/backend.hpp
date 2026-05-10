@@ -48,6 +48,12 @@ public:
     IBackend(IBackend&&) = delete;
     IBackend& operator=(IBackend&&) = delete;
 
+    // ========================================================================
+    // [MANDATORY] — every backend MUST implement these.
+    // R19 cluster 9 — CPP-D-17.1: pure-virtual sites grouped together;
+    // optional default-implementation overrides live in the [OPTIONAL]
+    // section below so a new backend implementer can read off the surface.
+    // ========================================================================
     virtual auto init() -> void* = 0;
     virtual auto process(void* state, std::string_view input) -> std::string = 0;
     virtual auto close(void* state) -> void = 0;
@@ -58,14 +64,17 @@ public:
                                                  Dlc dlc, std::span<const std::byte> data)
         -> std::string = 0;
 
+    // ========================================================================
+    // [OPTIONAL] — base class provides a default implementation falling back
+    // to the JSON `process()` path; specialized backends (e.g. FFIBackend)
+    // override these to take the binary-FFI fast path.  MockBackend and
+    // other test doubles inherit the JSON fallback for free.
+    // ========================================================================
+
     // CAN error/remote event endpoints (acknowledged without LTL evaluation).
     [[nodiscard]] virtual auto send_error_binary(void* state, Timestamp ts) -> std::string;
     [[nodiscard]] virtual auto send_remote_binary(void* state, Timestamp ts, const CanId& id)
         -> std::string;
-
-    // --- Binary FFI endpoints (bypass JSON input serialization) ---
-    // Default implementations fall back to JSON via process() for
-    // testability with MockBackend and other test doubles.
 
     // State transitions (no args → JSON response).
     [[nodiscard]] virtual auto start_stream_binary(void* state) -> std::string;
@@ -77,10 +86,7 @@ public:
                                                       std::span<const std::byte> data)
         -> std::string;
 
-    // --- Binary output endpoints (no JSON on output either) ---
-    // Returns raw payload bytes on success, error string on failure.
-    // Default implementations fall back to JSON path for MockBackend compatibility.
-
+    // Binary output endpoints — raw payload bytes on success, AletheiaError on failure.
     [[nodiscard]] virtual auto build_frame_bin(void* state, const CanId& id, Dlc dlc,
                                                SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
@@ -90,9 +96,7 @@ public:
                                                 SignalInjection signals, std::size_t expected_bytes)
         -> std::expected<std::vector<std::byte>, AletheiaError>;
 
-    // --- Binary extraction (no JSON on input or output) ---
-    // Returns packed binary buffer on success, error string on failure.
-    // Default implementation falls back to JSON path for MockBackend compatibility.
+    // Binary extraction (no JSON on input or output) — packed buffer on success.
     [[nodiscard]] virtual auto extract_signals_bin(void* state, const CanId& id, Dlc dlc,
                                                    std::span<const std::byte> data)
         -> std::expected<std::vector<std::byte>, AletheiaError>;

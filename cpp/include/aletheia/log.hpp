@@ -9,6 +9,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace aletheia {
 
@@ -48,17 +49,28 @@ public:
     Logger() = default;
 
     explicit Logger(LogCallback cb, LogLevel min_level = LogLevel::Debug)
-        : cb_(std::move(cb))
-        , min_(min_level) {}
+        : min_(min_level) {
+        if (cb) sinks_.emplace_back(std::move(cb));
+    }
+
+    // Add an additional sink callback.  Multiple sinks fire in registration
+    // order; each sees the same `LogRecord`.  Keeps the original
+    // single-callback constructor working unchanged for callers that only
+    // need one sink.  R19 cluster 9 — CPP-D-17.4.
+    void add_sink(LogCallback cb) {
+        if (cb) sinks_.emplace_back(std::move(cb));
+    }
 
     void log(LogLevel lvl, std::string_view event, std::initializer_list<LogField> fields,
              std::source_location loc = std::source_location::current()) const {
-        if (!cb_ || lvl < min_)
+        if (sinks_.empty() || lvl < min_)
             return;
-        cb_(LogRecord{.level = lvl,
-                      .event = event,
-                      .fields = std::span<const LogField>{fields.begin(), fields.end()},
-                      .location = loc});
+        const LogRecord rec{.level = lvl,
+                            .event = event,
+                            .fields = std::span<const LogField>{fields.begin(), fields.end()},
+                            .location = loc};
+        for (const auto& cb : sinks_)
+            cb(rec);
     }
 
     void debug(std::string_view event, std::initializer_list<LogField> fields = {},
@@ -81,10 +93,10 @@ public:
         log(LogLevel::Error, event, fields, loc);
     }
 
-    explicit operator bool() const { return static_cast<bool>(cb_); }
+    explicit operator bool() const { return !sinks_.empty(); }
 
 private:
-    LogCallback cb_;
+    std::vector<LogCallback> sinks_;
     LogLevel min_ = LogLevel::Debug;
 };
 
