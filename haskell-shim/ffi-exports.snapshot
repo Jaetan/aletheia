@@ -24,3 +24,15 @@ Aletheia/Main/Binary:d_processBuildFrameBin_72
 Aletheia/Main/Binary:d_processUpdateFrameBin_86
 Aletheia/Main/Binary:d_processExtractBin_102
 Aletheia/Protocol/StreamState/Types:d_initialState_42
+# Indirect helper accessors used by haskell-shim FFI marshalling
+# (R19 cluster 13 — AGDA-D-30.2 / AGDA-D-17.2):
+# Drift here means the proof or runtime modules were renumbered;
+# end-to-end check-fidelity catches it eventually but at much higher cost.
+Aletheia/CAN/DLC:d_dlcToBytes_6
+Aletheia/CAN/BatchExtraction:d_values_22
+Aletheia/CAN/BatchExtraction:d_errors_24
+Aletheia/CAN/BatchExtraction:d_absent_26
+Data/Rational/Base:d_numerator_14
+Data/Rational/Base:d_denominatorℕ_20
+Agda/Builtin/Sigma:d_fst_28
+Agda/Builtin/Sigma:d_snd_30

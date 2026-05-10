@@ -4,6 +4,7 @@ import System.Directory (createDirectoryLink, removePathForcibly,
                          getHomeDirectory, createDirectoryIfMissing,
                          removeDirectoryRecursive,
                          getCurrentDirectory)
+import qualified System.Directory as SysDir
 import System.Info (os)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode(..))
@@ -464,7 +465,32 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
           error $ "check-erasure failed: Sum stdlib constructor names changed. "
                ++ "BinaryOutput.hs pattern-matches on C_inj'8321'_38 (inj₁) and "
                ++ "C_inj'8322'_42 (inj₂) — update to match current MAlonzo output."
-        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors."
+        -- Maybe / Sigma builtin constructor names used by Marshal.hs +
+        -- BinaryOutput.hs.  R19 cluster 13 — AGDA-D-30.1 / AGDA-D-GA23.2:
+        -- the FFI shim's `unsafeCoerce` sites assume specific MAlonzo
+        -- constructor shapes for Agda.Builtin.Maybe and Agda.Builtin.Sigma;
+        -- a stdlib bump or builtin-module rename can drift them silently.
+        maybeBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Maybe.hs"
+        sigmaBase <- liftIO $ readFile "build/MAlonzo/Code/Agda/Builtin/Sigma.hs"
+        let maybeCtors =
+              "C_nothing_18" `isInfixOf` maybeBase &&
+              "C_just_16"    `isInfixOf` maybeBase
+        unless maybeCtors $
+          error $ "check-erasure failed: Maybe builtin constructor names "
+               ++ "changed. Marshal.hs / BinaryOutput.hs pattern-match on "
+               ++ "C_nothing_18 / C_just_16 — update to match current "
+               ++ "MAlonzo output."
+        let sigmaCtors =
+              "T_Σ_14"        `isInfixOf` sigmaBase &&
+              "C__'44'__32"   `isInfixOf` sigmaBase &&
+              "d_fst_28"      `isInfixOf` sigmaBase &&
+              "d_snd_30"      `isInfixOf` sigmaBase
+        unless sigmaCtors $
+          error $ "check-erasure failed: Sigma builtin constructor / "
+               ++ "accessor names changed. Marshal.hs / BinaryOutput.hs "
+               ++ "rely on T_Σ_14 / C__'44'__32 / d_fst_28 / d_snd_30 — "
+               ++ "update to match current MAlonzo output."
+        putInfo "Erasure guards OK: CANId single-Integer ctor + Timestamp newtype + stdlib constructors + Maybe/Sigma builtins."
 
     phony "check-ffi-exports" $ do
         -- Diff MAlonzo-mangled FFI export names against the checked-in
@@ -487,13 +513,29 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
                 [ p
                 | Just p <- map parseSnapshotLine (lines snapshotContent)
                 ]
-        moduleContents <- loadFFIModuleContents
+        -- Load every module mentioned in the snapshot, not just those in
+        -- `ffiExports`.  R19 cluster 13 — AGDA-D-30.2 extended the snapshot
+        -- to cover indirect helper accessors (Sigma fst/snd, DLC, Rational
+        -- numerator/denominator, BatchExtraction values/errors/absent),
+        -- which are NOT in `ffiExports` because the FFI shim accesses
+        -- them via qualified imports rather than as `foreign export`.
+        let snapshotModules = nub (map fst expected)
+        moduleContents <- liftIO $ forM snapshotModules $ \m -> do
+            let path = "build/MAlonzo/Code" </> m <.> "hs"
+            existsHere <- SysDir.doesFileExist path
+            if existsHere
+              then do c <- readFile path; return (m, Just c)
+              else return (m, Nothing)
         let failures =
               [ (modName, mangled,
-                 extractMangledName (inferFuncName mangled) c)
+                 case mc of
+                   Just c  -> extractMangledName (inferFuncName mangled) c
+                   Nothing -> Nothing)
               | (modName, mangled) <- expected
-              , Just c <- [lookup modName moduleContents]
-              , not ((mangled ++ " ::") `isInfixOf` c)
+              , Just mc <- [lookup modName moduleContents]
+              , case mc of
+                  Just c  -> not ((mangled ++ " ::") `isInfixOf` c)
+                  Nothing -> True
               ]
         unless (null failures) $ do
             forM_ failures $ \(m, expected', actual) ->
