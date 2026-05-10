@@ -75,7 +75,11 @@ def gate_send_frame(
     original = sync_client.send_frame
     counter = [0]
 
-    def gated(  # noqa: PLR0913
+    # The argument list mirrors AletheiaClient.send_frame's public signature
+    # exactly (4 positional + 1 keyword-only) so the wrap is transparent to
+    # callers and `original(...)` re-dispatches without surprise.  The arity
+    # is structural — the method has 5 parameters and the gate must too.
+    def gated(
         timestamp: int, can_id: int, dlc: int, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> object:
@@ -86,9 +90,14 @@ def gate_send_frame(
             proceed.wait()
         return result
 
-    sync_client.send_frame = gated  # type: ignore[method-assign]
+    # Monkey-patch via setattr: pyright correctly flags direct
+    # `sync_client.send_frame = gated` because methods are class-level
+    # read-only members, but setattr is dynamic and acceptable for the
+    # documented test-only rebind pattern.  Restored in `finally` so
+    # exceptions in the body don't leak the wrap.
+    setattr(sync_client, "send_frame", gated)
     try:
         yield started, proceed
     finally:
-        sync_client.send_frame = original  # type: ignore[method-assign]
+        setattr(sync_client, "send_frame", original)
         proceed.set()

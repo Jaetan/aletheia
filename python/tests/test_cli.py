@@ -25,6 +25,8 @@ from aletheia.cli import (
     rational_to_int,
     main,
 )
+from aletheia.protocols import DBCDefinition
+from aletheia.testing import run_checks
 
 
 # ============================================================================
@@ -490,8 +492,6 @@ class TestCheckCommand:
         not let the failure surface from inside ``iter_can_log`` two calls
         deeper.  Programmatic API contract: ``FileNotFoundError`` at the
         orchestrator boundary so callers get a clear error site."""
-        from aletheia.cli import run_checks  # pylint: disable=import-outside-toplevel
-        from aletheia.protocols import DBCDefinition  # pylint: disable=import-outside-toplevel
         dbc: DBCDefinition = {"version": "", "messages": []}
         with pytest.raises(FileNotFoundError, match="log file not found"):
             run_checks(dbc, [], "/nonexistent/drive.asc")

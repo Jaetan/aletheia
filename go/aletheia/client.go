@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -53,6 +54,13 @@ type Client struct {
 	lastFrames    map[uint64]lastFrameData  // last frame seen per CAN ID, for EOS enrichment
 	signalIndex   map[uint64]map[string]int // signal name -> 0-based index, keyed by (canId, extended)
 	signalNames   map[uint64][]string       // index -> signal name, keyed by (canId, extended)
+	// lockWaiters counts goroutines currently inside [Client.lock]
+	// (between the entry Add(1) and the deferred Add(-1)).  Test-only
+	// observability: lets cancel-while-waiting tests deterministically
+	// detect that a competing goroutine has reached the lock-acquisition
+	// select without falling back to time.Sleep — see cancel_test.go.
+	// Production callers do not read this counter.
+	lockWaiters atomic.Int32
 }
 
 // NewClient creates a Client backed by the given Backend.
@@ -104,7 +112,13 @@ func (c *Client) Close() error {
 // ctx.Err() if ctx is already cancelled or fires while waiting on the
 // lock, in which case the lock is NOT held and the caller must NOT
 // call unlock. Cooperative-at-FFI-boundaries per CANCELLATION.md §1.1.
+//
+// lockWaiters is incremented on entry and decremented on return so
+// tests can observe when a goroutine has reached the select without
+// polling on time.Sleep — see cancel_test.go.
 func (c *Client) lock(ctx context.Context) error {
+	c.lockWaiters.Add(1)
+	defer c.lockWaiters.Add(-1)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

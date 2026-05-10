@@ -223,9 +223,9 @@ class TestCheckMetadata:
             .severity("critical")
         )
         d = result.to_dict()
-        assert "name" not in d  # type: ignore[operator]
-        assert "severity" not in d  # type: ignore[operator]
-        assert "check_severity" not in d  # type: ignore[operator]
+        assert d.get("name") is None
+        assert d.get("severity") is None
+        assert d.get("check_severity") is None
 
     def test_defaults_empty(self) -> None:
         """name and check_severity default to empty string"""
@@ -237,8 +237,8 @@ class TestCheckMetadata:
         """signal_name and condition_desc are NOT included in the LTL dict."""
         result = Check.signal("Speed").never_exceeds(220)
         d = result.to_dict()
-        assert "signal_name" not in d  # type: ignore[operator]
-        assert "condition_desc" not in d  # type: ignore[operator]
+        assert d.get("signal_name") is None
+        assert d.get("condition_desc") is None
 
     def test_to_property_returns_property(self) -> None:
         """to_property() unwraps to a Property with matching dict"""

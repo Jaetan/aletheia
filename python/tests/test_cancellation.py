@@ -17,37 +17,46 @@ durable in stream state" half of the contract is actually exercised.
 """
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import AsyncIterable, Iterable
 
 import pytest
 
-from aletheia import AletheiaClient as SyncClient, BatchError, FrameResult, Signal
+from aletheia import (
+    AletheiaClient as SyncClient,
+    BatchError,
+    CANFrameTuple,
+    FrameResult,
+    Signal,
+)
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gate_send_frame
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import AckResponse, DBCDefinition, PropertyViolationResponse
 
 
 def _make_frames(
     n: int, *, can_id: int = 256, start_ts: int = 1000,
-) -> list[tuple[int, int, int, bytearray, bool]]:
+) -> list[CANFrameTuple]:
     """Build n monotonically-timestamped frames with payload (i, 0, 0, …)."""
     return [
-        (start_ts + i * 1000, can_id, 8, bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]), False)
+        CANFrameTuple(
+            timestamp=start_ts + i * 1000,
+            can_id=can_id,
+            dlc=8,
+            data=bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]),
+            extended=False,
+        )
         for i in range(n)
     ]
 
 
-async def _consume_iter(it: object) -> int:
+async def _consume_iter(it: AsyncIterable[FrameResult]) -> int:
     """Drain an async iterator and return the consumed count.
 
     Used by ``test_timeout_during_iter`` so the consumer runs as a
     distinct task whose ``await`` boundary the timeout can interrupt.
-    The annotation is ``object`` because ``send_frames_iter`` returns
-    ``AsyncGenerator[FrameResult, None]`` and rebinding here would force
-    importing the concrete type for one test helper.
     """
     consumed = 0
-    async for _ in it:  # type: ignore[attr-defined]
+    async for _ in it:
         consumed += 1
     return consumed
 
@@ -136,10 +145,10 @@ class TestSyncIter:
             client.start_stream()
 
             # Frames: ts 1000, 2000, 500 (regression — Agda rejects).
-            bad: list[tuple[int, int, int, bytearray, bool]] = [
-                (1000, 256, 8, bytearray(8), False),
-                (2000, 256, 8, bytearray(8), False),
-                (500, 256, 8, bytearray(8), False),
+            bad: list[CANFrameTuple] = [
+                CANFrameTuple(1000, 256, 8, bytearray(8), False),
+                CANFrameTuple(2000, 256, 8, bytearray(8), False),
+                CANFrameTuple(500, 256, 8, bytearray(8), False),
             ]
 
             yielded: list[FrameResult] = []
@@ -162,10 +171,10 @@ class TestSyncIter:
         prop = Signal("TestSignal").less_than(1000).always()
         consumed_from_source: list[int] = []
 
-        def lazy_source() -> Iterable[tuple[int, int, int, bytearray, bool]]:
+        def lazy_source() -> Iterable[CANFrameTuple]:
             for i in range(100):
                 consumed_from_source.append(i)
-                yield (1000 + i * 1000, 256, 8, bytearray(8), False)
+                yield CANFrameTuple(1000 + i * 1000, 256, 8, bytearray(8), False)
 
         with SyncClient() as client:
             client.parse_dbc(simple_dbc)
@@ -298,9 +307,9 @@ class TestAsyncBatchCancellation:
                     await client.set_properties([prop.to_dict()])
                     await client.start_stream()
 
-                    task: asyncio.Task[list[object]] = (
-                        asyncio.create_task(  # type: ignore[type-arg]
-                            client.send_frames(_make_frames(50)),  # type: ignore[arg-type]
+                    task: asyncio.Task[list[AckResponse | PropertyViolationResponse]] = (
+                        asyncio.create_task(
+                            client.send_frames(_make_frames(50)),
                         )
                     )
                     # Block until frame 1 has committed in the worker.
@@ -409,17 +418,17 @@ class TestFrameResultShape:
 
     def test_fails_response_returns_violation(self) -> None:
         """FrameResult.violation returns the response when it is a fails verdict."""
-        viol_response = {
+        viol_response: PropertyViolationResponse = {
             "status": "fails",
-            "results": [],
-            "metric": {"steps": 1},
-            "frame_index": 0,
+            "type": "property",
+            "property_index": {"numerator": 0, "denominator": 1},
+            "timestamp": {"numerator": 1000, "denominator": 1},
         }
         r = FrameResult(
             frame_index=0,
             timestamp=1000,
             can_id=0x100,
             extended=False,
-            response=viol_response,  # type: ignore[arg-type]
+            response=viol_response,
         )
         assert r.violation is viol_response
