@@ -62,8 +62,18 @@ class FractionJSONEncoder(json.JSONEncoder):
 
 
 def dump_json(value: object, *, indent: int | None = None) -> str:
-    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder."""
-    return json.dumps(value, cls=FractionJSONEncoder, indent=indent)
+    """Serialize *value* to JSON, handling Fraction via FractionJSONEncoder.
+
+    ``ensure_ascii=False`` is pinned so identifier and string-literal
+    fields with non-ASCII characters (DBC permits non-ASCII in
+    ``CM_`` text bodies, comments, and similar opaque-tail consumers)
+    serialize as their UTF-8 bytes rather than ``\\uXXXX`` escapes.  The
+    Agda-side parser is byte-oriented; the Go and C++ bindings emit
+    UTF-8 directly — pinning ``ensure_ascii=False`` keeps Python
+    byte-identical with them.  R19 cluster 7 — PY-B-8.2 / PY-D-22.1
+    (cross-binding wire-byte parity).
+    """
+    return json.dumps(value, cls=FractionJSONEncoder, indent=indent, ensure_ascii=False)
 
 
 # Outgoing-DBC normalization: C++/Go always emit these list keys (their

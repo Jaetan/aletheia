@@ -446,28 +446,70 @@ func serializeAttribute(a DBCAttribute) (map[string]any, error) {
 	}
 }
 
+// rejectNonFinite rejects NaN and Inf values at the predicate-value
+// boundary.  R19 cluster 7 — GO-B-8.1: serializePredicate emitted these
+// as non-RFC8259 JSON tokens (`NaN`, `+Inf`, `-Inf`) which break
+// downstream parsers (Agda + Python both reject); rejecting at the
+// boundary makes the failure precise and cross-binding-symmetric.
+func rejectNonFinite(name string, v float64) error {
+	if math.IsNaN(v) {
+		return validationError(fmt.Sprintf("%s: NaN is not representable in the JSON wire format", name))
+	}
+	if math.IsInf(v, 0) {
+		return validationError(fmt.Sprintf("%s: ±Inf is not representable in the JSON wire format", name))
+	}
+	return nil
+}
+
 // serializePredicate encodes a Predicate into the JSON tag/field shape
 // consumed by the Agda LTL parser (SignalPredicate.JSON).
 func serializePredicate(p Predicate) (map[string]any, error) {
 	switch p := p.(type) {
 	case Equals:
+		if err := rejectNonFinite("equals.value", float64(p.Value)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "equals", "signal": string(p.Signal), "value": float64(p.Value)}, nil
 	case LessThan:
+		if err := rejectNonFinite("lessThan.value", float64(p.Value)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "lessThan", "signal": string(p.Signal), "value": float64(p.Value)}, nil
 	case GreaterThan:
+		if err := rejectNonFinite("greaterThan.value", float64(p.Value)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "greaterThan", "signal": string(p.Signal), "value": float64(p.Value)}, nil
 	case LessThanOrEqual:
+		if err := rejectNonFinite("lessThanOrEqual.value", float64(p.Value)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "lessThanOrEqual", "signal": string(p.Signal), "value": float64(p.Value)}, nil
 	case GreaterThanOrEqual:
+		if err := rejectNonFinite("greaterThanOrEqual.value", float64(p.Value)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "greaterThanOrEqual", "signal": string(p.Signal), "value": float64(p.Value)}, nil
 	case Between:
+		if err := rejectNonFinite("between.min", float64(p.Min)); err != nil {
+			return nil, err
+		}
+		if err := rejectNonFinite("between.max", float64(p.Max)); err != nil {
+			return nil, err
+		}
 		if p.Min > p.Max {
 			return nil, validationError(fmt.Sprintf("between: min (%g) exceeds max (%g)", float64(p.Min), float64(p.Max)))
 		}
 		return map[string]any{"predicate": "between", "signal": string(p.Signal), "min": float64(p.Min), "max": float64(p.Max)}, nil
 	case ChangedBy:
+		if err := rejectNonFinite("changedBy.delta", float64(p.Delta)); err != nil {
+			return nil, err
+		}
 		return map[string]any{"predicate": "changedBy", "signal": string(p.Signal), "delta": float64(p.Delta)}, nil
 	case StableWithin:
+		if err := rejectNonFinite("stableWithin.tolerance", float64(p.Tolerance)); err != nil {
+			return nil, err
+		}
 		if p.Tolerance < 0 {
 			return nil, validationError(fmt.Sprintf("negative tolerance: %g", float64(p.Tolerance)))
 		}
@@ -647,13 +689,16 @@ func parseRational(v any) (Rational, error) {
 		if den == 0 {
 			return Rational{}, protocolError(fmt.Sprintf("zero denominator in rational: %v", v))
 		}
-		d := int64(den)
-		nu := int64(num)
-		if d < 0 {
-			nu = -nu
-			d = -d
+		// Reject negative denominators rather than rewriting them.
+		// Python and the Agda core reject `den < 0` at parse time;
+		// silently rewriting here would let asymmetric wire shapes
+		// pass through Go-only paths and surface as parity failures
+		// (per `feedback_cross_binding_wire_symmetry.md`).  R19
+		// cluster 7 — GO-B-8.2.
+		if den < 0 {
+			return Rational{}, protocolError(fmt.Sprintf("negative denominator in rational: %v", v))
 		}
-		return Rational{Numerator: nu, Denominator: d}, nil
+		return Rational{Numerator: int64(num), Denominator: int64(den)}, nil
 	default:
 		return Rational{}, protocolError(fmt.Sprintf("expected number or rational dict, got %T", v))
 	}

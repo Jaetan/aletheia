@@ -207,8 +207,8 @@ TEST_CASE("serialize all predicate types", "[json][serialize]") {
     check(ltl::at_least(SignalName{"S"}, PhysicalValue{Rational{}}), "greaterThanOrEqual");
     check(ltl::between(SignalName{"S"}, PhysicalValue{Rational{}}, PhysicalValue{Rational{100, 1}}),
           "between");
-    check(ltl::changed_by(SignalName{"S"}, Delta{10.0}), "changedBy");
-    check(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}), "stableWithin");
+    check(ltl::changed_by(SignalName{"S"}, Delta{Rational{10, 1}}), "changedBy");
+    check(ltl::stable_within(SignalName{"S"}, Tolerance{Rational{2, 1}}), "stableWithin");
 }
 
 // ===========================================================================
@@ -1425,13 +1425,13 @@ TEST_CASE("format_formula all predicate types", "[enrich]") {
                                        PhysicalValue{Rational{29, 2}}));
     CHECK(format_formula(bw) == "10 <= S <= 14.5");
 
-    auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{5.0}));
+    auto cb = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{5, 1}}));
     CHECK(format_formula(cb) == "\xce\x94S >= 5");
 
-    auto cb_neg = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{-3.0}));
+    auto cb_neg = ltl::atomic(ltl::changed_by(SignalName{"S"}, Delta{Rational{-3, 1}}));
     CHECK(format_formula(cb_neg) == "\xce\x94S <= -3");
 
-    auto sw = ltl::atomic(ltl::stable_within(SignalName{"S"}, Tolerance{2.0}));
+    auto sw = ltl::atomic(ltl::stable_within(SignalName{"S"}, Tolerance{Rational{2, 1}}));
     CHECK(format_formula(sw) == "|\xce\x94S| <= 2");
 }
 

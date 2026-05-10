@@ -6,7 +6,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
+#include <numeric>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -32,9 +34,26 @@ static auto can_id_extended(const CanId& id) -> bool {
 }
 
 static auto rational_to_json(const Rational& r) -> Json {
-    if (r.denominator == 1)
-        return r.numerator;
-    return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    // Normalize via gcd so the wire shape is byte-identical with Python's
+    // ``Fraction`` (auto-canonical) and Go's parseRational sign convention.
+    // R19 cluster 7 — CPP-B-8.1 / CPP-D-22.5 (cross-binding wire symmetry).
+    auto num = r.numerator;
+    auto den = r.denominator;
+    if (den < 0) {
+        num = -num;
+        den = -den;
+    }
+    if (den == 0) {
+        // Mirrored at the `Rational::make` invariant; emit raw to surface
+        // the bug rather than masking it.
+        return {{"numerator", r.numerator}, {"denominator", r.denominator}};
+    }
+    const auto g = std::gcd(std::abs(num), den);
+    num /= (g == 0 ? 1 : g);
+    den /= (g == 0 ? 1 : g);
+    if (den == 1)
+        return num;
+    return {{"numerator", num}, {"denominator", den}};
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
@@ -379,11 +398,11 @@ static auto predicate_to_json(const Predicate& p) -> Json {
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 return {{"predicate", "changedBy"},
                         {"signal", v.signal.get()},
-                        {"delta", v.delta.get()}};
+                        {"delta", rational_to_json(v.delta.get())}};
             else if constexpr (std::is_same_v<T, StableWithin>)
                 return {{"predicate", "stableWithin"},
                         {"signal", v.signal.get()},
-                        {"tolerance", v.tolerance.get()}};
+                        {"tolerance", rational_to_json(v.tolerance.get())}};
             else
                 static_assert(sizeof(T) == 0, "Unhandled predicate type in predicate_to_json");
         },

@@ -59,7 +59,9 @@ auto format_predicate(const Predicate& p) -> std::string {
                                    std::string_view{v.signal}, format_value(v.max.get()));
             else if constexpr (std::is_same_v<T, ChangedBy>)
                 // U+0394 Greek Capital Letter Delta (UTF-8: CE 94)
-                return v.delta.get() >= 0
+                // R19 cluster 7 — CPP-D-19.2: Delta is now Rational; compare
+                // against Rational{0, 1} via the Rational `<=>` operator.
+                return v.delta.get() >= Rational{0, 1}
                            ? std::format("{}{} >= {}", "\xce\x94", std::string_view{v.signal},
                                          format_value(v.delta.get()))
                            : std::format("{}{} <= {}", "\xce\x94", std::string_view{v.signal},

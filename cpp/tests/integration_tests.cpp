@@ -984,7 +984,7 @@ TEST_CASE("end_stream: changed_by on one-frame trace → Unresolved",
     REQUIRE(client.parse_dbc(std::stop_token{}, make_two_message_dbc()).has_value());
 
     auto formula =
-        ltl::always(ltl::negate(ltl::atomic(ltl::changed_by(SignalName{"Speed"}, Delta{0.0}))));
+        ltl::always(ltl::negate(ltl::atomic(ltl::changed_by(SignalName{"Speed"}, Delta{Rational{0, 1}}))));
     std::vector<LtlFormula> props;
     props.push_back(std::move(formula));
     REQUIRE(client.set_properties(std::stop_token{}, props).has_value());

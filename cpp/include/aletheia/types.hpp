@@ -113,10 +113,13 @@ struct Rational {
 // Uses Rational for exact precision — Agda sends signal values as
 // {numerator, denominator} pairs; double would lose precision on 1/3, 1/7 etc.
 using PhysicalValue = Strong<struct PhysicalValueTag, Rational>;
-// Signed change threshold for ChangedBy predicates (sign determines direction)
-using Delta = Strong<struct DeltaTag, double>;
-// Absolute tolerance for StableWithin predicates
-using Tolerance = Strong<struct ToleranceTag, double>;
+// Signed change threshold for ChangedBy predicates (sign determines direction).
+// R19 cluster 7 — CPP-D-19.2: cross-binding parity with Python (Fraction)
+// and Go (Rational) — was double, now Rational so the wire-shape is
+// numerator/denominator-exact across all three bindings.
+using Delta = Strong<struct DeltaTag, Rational>;
+// Absolute tolerance for StableWithin predicates (Rational for the same reason).
+using Tolerance = Strong<struct ToleranceTag, Rational>;
 
 // DBC signal scaling parameters — stored as exact rationals.
 using RationalFactor = Strong<struct RationalFactorTag, Rational>;
