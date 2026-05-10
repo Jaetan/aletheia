@@ -237,6 +237,16 @@ def find_ffi_library() -> Path:
             raise FileNotFoundError(
                 f"ALETHEIA_LIB={env_path} does not exist"
             )
+        # Reject symlinks before stat() — `Path.stat()` follows symlinks,
+        # so a symlink-to-world-writable target would slip past the mode
+        # check below.  Use `os.lstat` to inspect the link itself.  R19
+        # cluster 12 — PY-B-10.5 / PY-B-23.1.
+        link_st = os.lstat(env_path)
+        if stat.S_ISLNK(link_st.st_mode):
+            raise PermissionError(
+                f"ALETHEIA_LIB={env_path} is a symlink; refusing to load."
+                + "  Resolve the link and pass the real path explicitly."
+            )
         st = p.stat()
         if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
             mode_octal = oct(st.st_mode & 0o777)

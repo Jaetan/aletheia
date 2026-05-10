@@ -25,11 +25,13 @@ namespace aletheia {
 
 namespace {
 
-// CAN-FD's largest payload. Used to bound FFI data arguments before they
-// are forwarded to the Haskell core — this keeps the bound symmetric with
-// the core's own length check (dlcValid) and rejects caller-side attempts
-// to smuggle larger payloads.
-constexpr std::size_t max_can_fd_payload_bytes = 64;
+// CAN-FD's largest payload, sourced from the public limits header (SSOT).
+// R19 cluster 12 — CPP-B-7.4: this anonymous-namespace constant used to
+// duplicate `aletheia::max_frame_byte_count` (also 64); now it is a thin
+// alias so a future bound change at the public surface automatically
+// propagates here.
+constexpr std::size_t max_can_fd_payload_bytes =
+    static_cast<std::size_t>(aletheia::max_frame_byte_count);
 
 using HsInitFn = void (*)(int*, char***);
 using AletheiaInitFn = void* (*)();

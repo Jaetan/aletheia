@@ -34,9 +34,19 @@ auto Rational::from_double(double d) -> Rational {
     // decimal numbers where this gives the expected result.
     constexpr std::int64_t scale = 1'000'000'000;
     const auto scaled = d * static_cast<double>(scale);
-    constexpr auto int64_max_d = static_cast<double>(std::numeric_limits<std::int64_t>::max());
-    constexpr auto int64_min_d = static_cast<double>(std::numeric_limits<std::int64_t>::min());
-    if (scaled > int64_max_d || scaled < int64_min_d)
+    // INT64_MAX = 2^63 - 1 is not exactly representable as double; the
+    // nearest double rounds UP to 2^63 (which overflows int64).  Using
+    // std::nextafter to step down one ULP gives the largest double that is
+    // safely <= INT64_MAX after llround truncation.  Mirrored on the
+    // negative side: INT64_MIN = -2^63 IS exactly representable, but we
+    // step up one ULP for symmetry and to leave headroom against std::llround
+    // returning -2^63 - 1 by rounding-towards-zero subtleties.  R19 cluster
+    // 12 — CPP-B-13.5.
+    static const auto int64_max_d_safe = std::nextafter(
+        static_cast<double>(std::numeric_limits<std::int64_t>::max()), 0.0);
+    static const auto int64_min_d_safe = std::nextafter(
+        static_cast<double>(std::numeric_limits<std::int64_t>::min()), 0.0);
+    if (scaled > int64_max_d_safe || scaled < int64_min_d_safe)
         throw std::runtime_error("value " + std::to_string(d) +
                                  " overflows int64 when scaled to rational");
 

@@ -45,6 +45,7 @@ signal is multiplexed; if both are empty, the signal is always-present.
     Within (ms) | Severity
 """
 
+import zipfile
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,6 +57,24 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
 from .client._types import check_dbc_text_size_bound
+
+
+def _check_xlsx_uncompressed_bound(path: Path) -> None:
+    """Sum the uncompressed sizes of every entry in the .xlsx (ZIP archive).
+
+    R19 cluster 12 — PY-B-23.4: openpyxl all-loads the workbook into memory;
+    the outer-file-size cap (`check_dbc_text_size_bound`) doesn't catch a
+    pathological ZIP that compresses, say, 10 GiB of XML down to 50 KiB.
+    Walk the central directory and reject if the sum of `file_size`
+    (uncompressed) exceeds the same bound.  No decompression is performed
+    here — `ZipFile.infolist()` reads the central directory only.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            total = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
+    check_dbc_text_size_bound(total)
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -197,6 +216,7 @@ def load_checks_from_excel(
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
     check_dbc_text_size_bound(p.stat().st_size)
+    _check_xlsx_uncompressed_bound(p)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:
@@ -247,6 +267,7 @@ def load_dbc_from_excel(
     if not p.exists():
         raise FileNotFoundError(f"Excel file not found: {path}")
     check_dbc_text_size_bound(p.stat().st_size)
+    _check_xlsx_uncompressed_bound(p)
 
     wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
     try:

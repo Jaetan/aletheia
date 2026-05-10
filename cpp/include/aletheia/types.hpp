@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -67,7 +68,15 @@ struct Rational {
 
     constexpr Rational() = default;
     constexpr Rational(std::int64_t n, std::int64_t d) : numerator(n), denominator(d) {
-        assert(d > 0 && "Rational: denominator must be positive");
+        // The bare `assert` would disappear under -DNDEBUG (the default Release
+        // CMake mode); throwing keeps the invariant enforced at every callsite
+        // so a Release-build hot-path call cannot silently accept den == 0 or
+        // den < 0.  Use Rational::make for fallible (returns std::expected)
+        // construction in untrusted-input contexts.  R19 cluster 12 — CPP-B-7.1.
+        if (d <= 0) {
+            throw std::invalid_argument(
+                "Rational: denominator must be positive (was " + std::to_string(d) + ")");
+        }
     }
 
     [[nodiscard]] constexpr auto to_double() const -> double {

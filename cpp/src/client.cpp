@@ -7,6 +7,7 @@
 #include "detail/json.hpp"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -25,6 +26,14 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+// R19 cluster 12 — CPP-B-13.1: parse_extraction_bin uses std::memcpy reads
+// in native byte order (per the wire-format note at AletheiaFFI.hs:235).
+// On a big-endian host the same memcpy would silently misinterpret the
+// bytes; refuse to compile rather than ship an architecture-dependent ABI.
+static_assert(std::endian::native == std::endian::little,
+              "Aletheia FFI binary layout assumes little-endian native byte order; "
+              "see haskell-shim/src/AletheiaFFI.hs:235 for the wire-format note.");
 
 namespace aletheia {
 
@@ -219,6 +228,28 @@ constexpr std::array extraction_error_messages = {
     std::string_view{"Extraction failed"},       // 2
 };
 
+// Constructs a SignalValue from a wire-extracted (idx, num, den) triple.
+// Centralizes the den-positive normalization required for cross-binding
+// wire symmetry (R19 cluster 12 — CPP-B-7.3) and keeps `parse_extraction_bin`
+// under the clang-tidy readability-function-size threshold.
+auto wire_signal_value(std::uint16_t idx, std::int64_t num, std::int64_t den,
+                       const std::vector<std::string>& names) -> Result<SignalValue> {
+    auto name = idx < names.size()
+                    ? SignalName{names[idx]}
+                    : SignalName{std::format("signal_{}", idx)};
+    if (den == 0)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Zero denominator in extraction value for {}", std::string_view{name})});
+    auto rat_or_err = Rational::make(num, den);
+    if (!rat_or_err)
+        return std::unexpected(AletheiaError{
+            ErrorKind::Protocol,
+            std::format("Invalid rational in extraction value for {}: num={}, den={}",
+                        std::string_view{name}, num, den)});
+    return SignalValue{.name = std::move(name), .value = PhysicalValue{*rat_or_err}};
+}
+
 // Parses the binary extraction layout emitted by `aletheia_extract_signals_bin`.
 // Layout and byte-order (native; little-endian on all supported platforms) are
 // documented at haskell-shim/src/AletheiaFFI.hs:235 — "Header(3×u16) +
@@ -262,14 +293,10 @@ auto parse_extraction_bin(std::span<const std::byte> buf, const std::vector<std:
         auto num = read_i64(off + 2);
         auto den = read_i64(off + 10);
         off += 18;
-        auto name =
-            idx < names.size() ? SignalName{names[idx]} : SignalName{std::format("signal_{}", idx)};
-        if (den == 0)
-            return std::unexpected(AletheiaError{
-                ErrorKind::Protocol, std::format("Zero denominator in extraction value for {}",
-                                                 std::string_view{name})});
-        auto value = PhysicalValue{Rational{num, den}};
-        result.values.push_back(SignalValue{.name = std::move(name), .value = value});
+        auto sv = wire_signal_value(idx, num, den, names);
+        if (!sv)
+            return std::unexpected(sv.error());
+        result.values.push_back(std::move(*sv));
     }
     result.errors.reserve(nerrs);
     for (std::uint16_t i = 0; i < nerrs; ++i) {

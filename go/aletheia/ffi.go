@@ -140,6 +140,7 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -226,6 +227,12 @@ func NewFFIBackend(libPath string, opts ...FFIBackendOption) (*FFIBackend, error
 	defer runtime.UnlockOSThread()
 
 	libPath = filepath.Clean(libPath)
+	// Reject NUL bytes before C.CString silently truncates.  R19 cluster 12
+	// — GO-B-27.2: filepath.Clean does not validate NUL; a NUL-bearing
+	// libPath would translate to a different on-disk path inside cgo.
+	if strings.ContainsRune(libPath, 0) {
+		return nil, validationError("libPath contains NUL byte")
+	}
 	cPath := C.CString(libPath)
 	defer C.free(unsafe.Pointer(cPath))
 
@@ -407,6 +414,14 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			CodeParseInputBoundExceeded,
 		)
 	}
+	// Reject embedded NUL bytes before C.CString truncates.  R19 cluster
+	// 12 — GO-B-27.3: the Agda parser is byte-oriented (not C-string-
+	// oriented); a NUL-bearing input would silently truncate at the FFI
+	// boundary.  The bound check above is bytes-of-Go-string, so the
+	// post-truncation length disagreement is otherwise undetectable.
+	if strings.IndexByte(input, 0) >= 0 {
+		return "", validationError("input contains NUL byte")
+	}
 
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -457,6 +472,7 @@ func (b *FFIBackend) SendFrameBinary(state unsafe.Pointer, ts Timestamp, id CANI
 		dataPtr,
 		C.uint8_t(len(data)),
 	)
+	runtime.KeepAlive(data)
 	if result == nil {
 		return "", ffiError("aletheia_send_frame returned null")
 	}
@@ -569,6 +585,7 @@ func (b *FFIBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DL
 		dataPtr,
 		C.uint8_t(len(data)),
 	)
+	runtime.KeepAlive(data)
 	if result == nil {
 		return "", ffiError("aletheia_extract_signals returned null")
 	}
@@ -619,6 +636,16 @@ func (b *FFIBackend) BuildFrameBin(state unsafe.Pointer, id CANID, dlc DLC, numS
 		outBufPtr,
 		&outErr,
 	)
+	// Defensive against future inliner / GC: keep the Go-side slices alive
+	// until after the cgo call returns.  Without these, a sufficiently
+	// aggressive inliner could observe that `indices`/`nums`/`dens`/`outBuf`
+	// are no longer referenced from Go after their pointers cross the cgo
+	// boundary, and the GC could reclaim them while the C code is still
+	// reading.  R19 cluster 12 — GO-B-10.3.
+	runtime.KeepAlive(indices)
+	runtime.KeepAlive(nums)
+	runtime.KeepAlive(dens)
+	runtime.KeepAlive(outBuf)
 	if status != 0 {
 		var msg string
 		if outErr != nil {
@@ -689,6 +716,11 @@ func (b *FFIBackend) UpdateFrameBin(state unsafe.Pointer, id CANID, dlc DLC, dat
 		outBufPtr,
 		&outErr,
 	)
+	runtime.KeepAlive(data)
+	runtime.KeepAlive(indices)
+	runtime.KeepAlive(nums)
+	runtime.KeepAlive(dens)
+	runtime.KeepAlive(outBuf)
 	if status != 0 {
 		var msg string
 		if outErr != nil {
