@@ -60,7 +60,7 @@ from pathlib import Path
 import yaml
 
 from .checks import Check, CheckResult
-from .client._types import check_dbc_text_size_bound
+from .client import check_dbc_text_size_bound
 from .protocols import is_object_list, is_str_dict
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,

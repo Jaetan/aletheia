@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .client import AletheiaClient
 from .client._helpers import dump_json
-from .client._types import check_dbc_text_size_bound
+from .client import check_dbc_text_size_bound
 from .protocols import DBCDefinition, ErrorResponse, ParsedDBCResponse
 
 

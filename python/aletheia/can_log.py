@@ -19,7 +19,17 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
-import can
+# python-can is an optional extra (`pip install aletheia[can]`).  Surface a
+# clear, narrow ImportError naming the optional install rather than letting
+# a bare `ModuleNotFoundError: No module named 'can'` bubble up.  R19
+# cluster 16 — PY-D-18.5; mirrors the narrow-swallow pattern in
+# aletheia.__init__ for openpyxl / yaml.
+try:
+    import can
+except ImportError as exc:
+    raise ImportError(
+        "aletheia.can_log requires python-can.  Install via 'pip install aletheia[can]'."
+    ) from exc
 
 from .client import CANFrameTuple, bytes_to_dlc
 

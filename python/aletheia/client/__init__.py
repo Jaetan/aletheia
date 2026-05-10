@@ -55,6 +55,7 @@ from ._types import (
     SignalExtractionResult,
     ValidationError,
     bytes_to_dlc,
+    check_dbc_text_size_bound,
     dlc_to_bytes,
 )
 
@@ -63,8 +64,8 @@ from ._types import (
 # response TypedDicts, and the byte/DLC converters.
 __all__ = [
     "AletheiaClient", "AletheiaError", "BatchError", "bytes_to_dlc",
-    "CANFrameTuple", "dlc_to_bytes", "FrameResponse", "FrameResult",
-    "InputBoundExceededError",
+    "CANFrameTuple", "check_dbc_text_size_bound", "dlc_to_bytes",
+    "FrameResponse", "FrameResult", "InputBoundExceededError",
     "ProcessError", "PropertyDiagnostic", "ProtocolError",
     "RTSState", "SignalExtractionResult", "ValidationError",
 ]

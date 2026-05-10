@@ -56,25 +56,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
-from .client._types import check_dbc_text_size_bound
-
-
-def _check_xlsx_uncompressed_bound(path: Path) -> None:
-    """Sum the uncompressed sizes of every entry in the .xlsx (ZIP archive).
-
-    R19 cluster 12 — PY-B-23.4: openpyxl all-loads the workbook into memory;
-    the outer-file-size cap (`check_dbc_text_size_bound`) doesn't catch a
-    pathological ZIP that compresses, say, 10 GiB of XML down to 50 KiB.
-    Walk the central directory and reject if the sum of `file_size`
-    (uncompressed) exceeds the same bound.  No decompression is performed
-    here — `ZipFile.infolist()` reads the central directory only.
-    """
-    try:
-        with zipfile.ZipFile(path) as zf:
-            total = sum(info.file_size for info in zf.infolist())
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
-    check_dbc_text_size_bound(total)
+from .client import check_dbc_text_size_bound
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -101,6 +83,25 @@ from ._loader_utils import (
     get_bool,
 )
 from .client._helpers import to_signal_fraction
+
+
+def _check_xlsx_uncompressed_bound(path: Path) -> None:
+    """Sum the uncompressed sizes of every entry in the .xlsx (ZIP archive).
+
+    R19 cluster 12 — PY-B-23.4: openpyxl all-loads the workbook into memory;
+    the outer-file-size cap (`check_dbc_text_size_bound`) doesn't catch a
+    pathological ZIP that compresses, say, 10 GiB of XML down to 50 KiB.
+    Walk the central directory and reject if the sum of `file_size`
+    (uncompressed) exceeds the same bound.  No decompression is performed
+    here — `ZipFile.infolist()` reads the central directory only.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            total = sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"{path}: not a valid .xlsx (ZIP) archive") from exc
+    check_dbc_text_size_bound(total)
+
 
 # Excel cell values: str, numbers, booleans, or None (empty)
 # PEP 695 native ``type`` statement — lazy, no ``from __future__ import``

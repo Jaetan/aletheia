@@ -92,13 +92,10 @@ def check_dbc_text_size_bound(observed: int) -> None:
     """Raise :class:`InputBoundExceededError` if observed > MAX_DBC_TEXT_BYTES.
 
     Defense-in-depth size cap shared by every parser surface that reads DBC
-    text, YAML check definitions, or Excel workbooks (each format references
-    DBC signal names from a parsed DBC, so the 64 MiB cap applies uniformly
-    per :data:`aletheia.limits.MAX_DBC_TEXT_BYTES` and the AGENTS.md universal
-    rule "Adversarial-input bounds at parser surfaces").  Centralised here
-    so :mod:`aletheia.dbc_converter`, :mod:`aletheia.yaml_loader`, and
-    :mod:`aletheia.excel_loader` share one implementation per
-    ``feedback_no_subsumption_asymmetry.md``.
+    text, YAML check definitions, or Excel workbooks.  Re-exported from
+    :mod:`aletheia.limits` (PY-D-16.2) — non-client modules should import
+    via the public path; this canonical definition stays here so
+    InputBoundExceededError lives next to its raiser.
     """
     if observed > MAX_DBC_TEXT_BYTES:
         raise InputBoundExceededError(
@@ -106,6 +103,7 @@ def check_dbc_text_size_bound(observed: int) -> None:
             observed,
             MAX_DBC_TEXT_BYTES,
         )
+
 
 
 class BatchError(AletheiaError):

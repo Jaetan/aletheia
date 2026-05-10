@@ -39,7 +39,7 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from ..client._client import AletheiaClient as _SyncClient
+from ..client import AletheiaClient as _SyncClient
 
 
 @contextmanager
