@@ -77,9 +77,11 @@ using FrameResponse = std::variant<Ack, Violation>;
 /// ``Unsure`` verdict: the property was neither proved to hold nor proved
 /// to fail on the observed trace. Typical cause: an atomic predicate whose
 /// signal was never observed (e.g. ``Always(p)`` where no frame carrying
-/// ``p``'s signal arrived before end-of-stream). The denotational semantics
-/// agrees this is Unknown, so it is reported as a distinct verdict rather
-/// than collapsed to ``Fails``.
+/// ``p``'s signal arrived before end-of-stream). This is the
+/// user-observable manifestation of a violated ``AllObserved`` invariant
+/// — see ``aletheia/client.hpp`` § "Streaming adequacy" for the full
+/// contract. The denotational semantics agrees this is Unknown, so it is
+/// reported as a distinct verdict rather than collapsed to ``Fails``.
 enum class Verdict { Holds, Fails, Unresolved };
 
 struct PropertyResult {

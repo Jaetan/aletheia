@@ -785,9 +785,11 @@ class PropertyResultEntry(TypedDict):
     ``status="unresolved"`` means the Agda coalgebra's three-valued Kleene
     ``finalizeL`` returned ``Unsure`` — typically when an atomic predicate's
     signal was never observed on the trace, so neither satisfaction nor
-    violation can be proved. The denotational semantics agrees this is
-    Unknown, so it is reported as a distinct verdict rather than collapsed
-    to a failure.
+    violation can be proved. This is the user-observable manifestation of
+    a violated ``AllObserved`` invariant (see
+    :class:`AletheiaClient` docstring § "Streaming adequacy"). The
+    denotational semantics agrees this is Unknown, so it is reported as a
+    distinct verdict rather than collapsed to a failure.
     """
     type: Literal["property"]
     status: Literal["fails", "holds", "unresolved"]

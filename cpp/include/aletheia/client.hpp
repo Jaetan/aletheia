@@ -53,6 +53,23 @@ namespace aletheia {
 // which never reports stop_requested (mirrors Go's `context.Background()`).
 // Construction and destruction do NOT take stop_token (synchronous and
 // uncancellable by design).
+//
+// Streaming adequacy (Unresolved verdicts):
+//
+// The streaming evaluator is sound but requires that every property's
+// target signal is observed in the input trace at least once — the
+// AllObserved invariant from
+// Aletheia.Protocol.Adequacy.StreamingWarm.streaming-warms-cache. This
+// is a user obligation on the trace; the FFI does not check it.
+//
+// When the obligation is violated (e.g., a property references a signal
+// that no frame in the trace carries), the property may finalize as
+// Verdict::Unresolved — the three-valued Kleene "Unsure" — rather than
+// Verdict::Holds or Verdict::Fails. Reported verdicts remain sound;
+// coverage is the caller's responsibility.
+//
+// See docs/architecture/PROTOCOL.md § Streaming Semantics: Soundness
+// vs. Completeness for the full contract.
 class AletheiaClient {
 public:
     explicit AletheiaClient(std::unique_ptr<IBackend> backend, Logger logger = {},
