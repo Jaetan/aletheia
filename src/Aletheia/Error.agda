@@ -19,7 +19,7 @@ open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-m
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
 open import Aletheia.Parser.Combinators using (Position)
-open import Aletheia.Limits using (BoundKind; boundKindCode; boundKindLabel)
+open import Aletheia.Limits using (BoundKind; boundKindLabel)
 
 -- ============================================================================
 -- PARSE ERRORS (DBC/JSONParser.agda)

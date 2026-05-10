@@ -127,17 +127,3 @@ max-atom-count-per-property = 1024
 max-frame-byte-count : ℕ
 max-frame-byte-count = 64
 
--- ============================================================================
--- BOUND CHECK HELPER
--- ============================================================================
-
--- True iff the observed value is within bounds (≤ limit).  Defined as a
--- Bool comparison rather than a `Dec`-valued predicate so callers on the
--- streaming hot path do not allocate a proof term per check (per
--- `feedback_hot_path_refactor_benchmark.md`).
-withinBound : (observed limit : ℕ) → Bool
-withinBound observed limit = isWithin observed limit
-  where
-    open import Data.Nat using (_≤ᵇ_)
-    isWithin : ℕ → ℕ → Bool
-    isWithin o l = o ≤ᵇ l

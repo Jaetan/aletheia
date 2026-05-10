@@ -40,9 +40,9 @@ if err := client.SetProperties(ctx, properties); err != nil { ... }
 if err := client.StartStream(ctx); err != nil { ... }
 
 for _, f := range frames {
-    resp, err := client.SendFrame(ctx, f.Timestamp, f.CanID, f.DLC, f.Data, f.Extended)
+    resp, err := client.SendFrame(ctx, f.Timestamp, f.ID, f.DLC, f.Data)
     if err != nil { ... }
-    if v, ok := resp.(aletheia.PropertyViolation); ok {
+    if v, ok := resp.(aletheia.Violation); ok {
         // ...
     }
 }

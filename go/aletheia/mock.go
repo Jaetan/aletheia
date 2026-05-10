@@ -62,7 +62,7 @@ func RespondErr(err error) MockResponse {
 // populated from a known body without standing up the real FFI core.
 // Marshalling failures are surfaced as MockResponse.Err so the test fails
 // loudly rather than racing through a malformed canned reply.
-func RespondParseDBC(dbc DbcDefinition, warnings ...ValidationIssue) MockResponse {
+func RespondParseDBC(dbc DBCDefinition, warnings ...ValidationIssue) MockResponse {
 	dbcMap, err := serializeDBC(dbc)
 	if err != nil {
 		return MockResponse{Err: fmt.Errorf("RespondParseDBC: serialize DBC: %w", err)}
@@ -122,7 +122,7 @@ func (m *MockBackend) processLocked(input string) (string, error) {
 
 // SendFrameBinary delegates to Process by building the JSON string via
 // serializeDataFrame. This keeps mock tests working without the real .so.
-func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CanID, dlc DLC, data []byte) (string, error) {
+func (m *MockBackend) SendFrameBinary(_ unsafe.Pointer, ts Timestamp, id CANID, dlc DLC, data []byte) (string, error) {
 	input := serializeDataFrame(ts, id, dlc, FramePayload(data))
 	return m.Process(nil, input)
 }
@@ -135,7 +135,7 @@ func (m *MockBackend) SendErrorBinary(_ unsafe.Pointer, ts Timestamp) (string, e
 
 // SendRemoteBinary routes through Process so tests can observe remote events and
 // inject canned responses — matching the real FFI backend's request/response shape.
-func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, ts Timestamp, id CanID) (string, error) {
+func (m *MockBackend) SendRemoteBinary(_ unsafe.Pointer, ts Timestamp, id CANID) (string, error) {
 	return m.Process(nil, serializeRemoteEvent(ts, id))
 }
 
@@ -167,7 +167,7 @@ func (m *MockBackend) FormatDbcBinary(state unsafe.Pointer) (string, error) {
 }
 
 // ExtractSignalsBinary delegates to Process with a JSON extractAllSignals command.
-func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc DLC, data []byte) (string, error) {
+func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CANID, dlc DLC, data []byte) (string, error) {
 	cmd, err := serializeCommand("extractAllSignals", map[string]any{
 		"canId":    id.Value(),
 		"extended": id.IsExtended(),
@@ -184,7 +184,7 @@ func (m *MockBackend) ExtractSignalsBinary(state unsafe.Pointer, id CanID, dlc D
 // the canned JSON response. The real FFI backend bypasses JSON on input via
 // aletheia_build_frame_bin; the mock keeps a Process call so tests can inject
 // canned {"status":"success","data":[...]} responses.
-func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	resp, err := m.Process(state, "<binary-buildFrame>")
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (m *MockBackend) BuildFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ uint
 // the canned JSON response. The real FFI backend bypasses JSON on input via
 // aletheia_update_frame_bin; the mock keeps a Process call so tests can inject
 // canned {"status":"success","data":[...]} responses.
-func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	resp, err := m.Process(state, "<binary-updateFrame>")
 	if err != nil {
 		return nil, err
@@ -211,7 +211,7 @@ func (m *MockBackend) UpdateFrameBin(state unsafe.Pointer, _ CanID, _ DLC, _ []b
 // and falls through to the JSON path via ExtractSignalsBinary -> Process,
 // which the mock can service. Any other error (decode / truncation /
 // FFI failure) propagates instead of triggering silent JSON fallback.
-func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+func (m *MockBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 

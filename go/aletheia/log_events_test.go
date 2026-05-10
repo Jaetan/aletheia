@@ -207,7 +207,7 @@ func TestLogEvents_ComprehensiveWorkflow_NoDrift(t *testing.T) {
 	}
 	defer c.Close()
 
-	if _, err := c.ParseDBC(ctx, aletheia.DbcDefinition{Version: "1.0"}); err != nil {
+	if _, err := c.ParseDBC(ctx, aletheia.DBCDefinition{Version: "1.0"}); err != nil {
 		t.Fatalf("ParseDBC: %v", err)
 	}
 	if _, err := c.ParseDBCText(ctx, dbcSourceText); err != nil {

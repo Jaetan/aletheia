@@ -7,9 +7,11 @@
 -- Role: Separated from StreamState to isolate command business logic
 --       from state machine transitions, LTL processing, and proof-facing functions.
 --
--- StreamState.agda retains: state types, formula indexing, and signal cache.
--- StreamState/Internals.agda retains: LTL frame processing
---   (classifyStepResult, stepProperty, handleDataFrame).
+-- StreamState.agda retains: state types, formula indexing, signal cache, and
+--   `handleDataFrame` (StreamState.agda:62-72) — the entry point for incoming
+--   data frames in the Streaming state.
+-- StreamState/Internals.agda retains: LTL frame processing helpers
+--   (classifyStepResult, stepProperty, dispatchIterResult).
 -- This module also provides processStreamCommand (command dispatch).
 module Aletheia.Protocol.Handlers where
 

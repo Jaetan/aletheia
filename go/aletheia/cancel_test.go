@@ -62,13 +62,13 @@ func (b *gateBackend) callCount() int {
 // All other Backend methods route to Process so the gate-and-count semantics
 // apply uniformly. Tests only need a couple of these — the rest exist to
 // satisfy the interface.
-func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *gateBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+func (b *gateBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *gateBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
@@ -80,18 +80,18 @@ func (b *gateBackend) EndStreamBinary(_ unsafe.Pointer) (string, error) {
 func (b *gateBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *gateBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *gateBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *gateBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *gateBackend) UpdateFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *gateBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *gateBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+func (b *gateBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 func (b *gateBackend) Close(_ unsafe.Pointer) {}
@@ -250,13 +250,13 @@ func (b *cancelTriggerBackend) callCount() int {
 	return b.calls
 }
 
-func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *cancelTriggerBackend) SendFrameBinary(_ unsafe.Pointer, _ Timestamp, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) SendErrorBinary(_ unsafe.Pointer, _ Timestamp) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CanID) (string, error) {
+func (b *cancelTriggerBackend) SendRemoteBinary(_ unsafe.Pointer, _ Timestamp, _ CANID) (string, error) {
 	return b.Process(nil, "")
 }
 func (b *cancelTriggerBackend) StartStreamBinary(_ unsafe.Pointer) (string, error) {
@@ -268,18 +268,18 @@ func (b *cancelTriggerBackend) EndStreamBinary(_ unsafe.Pointer) (string, error)
 func (b *cancelTriggerBackend) FormatDbcBinary(_ unsafe.Pointer) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) (string, error) {
+func (b *cancelTriggerBackend) ExtractSignalsBinary(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) (string, error) {
 	return b.Process(nil, "")
 }
-func (b *cancelTriggerBackend) BuildFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *cancelTriggerBackend) BuildFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *cancelTriggerBackend) UpdateFrameBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
+func (b *cancelTriggerBackend) UpdateFrameBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte, _ uint32, _ []uint32, _ []int64, _ []int64) ([]byte, error) {
 	_, _ = b.Process(nil, "")
 	return nil, nil
 }
-func (b *cancelTriggerBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CanID, _ DLC, _ []byte) ([]byte, error) {
+func (b *cancelTriggerBackend) ExtractSignalsBin(_ unsafe.Pointer, _ CANID, _ DLC, _ []byte) ([]byte, error) {
 	return nil, ErrBinaryPathUnsupported
 }
 func (b *cancelTriggerBackend) Close(_ unsafe.Pointer) {}

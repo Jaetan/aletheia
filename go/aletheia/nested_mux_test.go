@@ -13,15 +13,15 @@ import (
 //	Detail  : present when SubMode == 7 (16 bits @ 16)
 //
 // Detail is reachable only when Mode == 3 AND SubMode == 7.
-func nestedMuxDBC() aletheia.DbcDefinition {
+func nestedMuxDBC() aletheia.DBCDefinition {
 	sid, _ := aletheia.NewStandardID(0x300)
 	dlc, _ := aletheia.NewDLC(8)
-	return aletheia.DbcDefinition{
+	return aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{
 				ID: sid, Name: "NestedMuxMessage", DLC: dlc, Sender: "ECU",
-				Signals: []aletheia.DbcSignal{
+				Signals: []aletheia.DBCSignal{
 					{
 						Name: "Mode", StartBit: 0, BitLength: 8,
 						ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -247,11 +247,11 @@ func TestNestedMux_CycleRejected(t *testing.T) {
 	// has to serialize cleanly.
 	sid, _ := aletheia.NewStandardID(0x301)
 	dlc, _ := aletheia.NewDLC(8)
-	cycleDBC := aletheia.DbcDefinition{
+	cycleDBC := aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{{
+		Messages: []aletheia.DBCMessage{{
 			ID: sid, Name: "CycleMsg", DLC: dlc, Sender: "ECU",
-			Signals: []aletheia.DbcSignal{
+			Signals: []aletheia.DBCSignal{
 				{
 					Name: "A", StartBit: 0, BitLength: 8,
 					ByteOrder: aletheia.LittleEndian, IsSigned: false,

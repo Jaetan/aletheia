@@ -2,7 +2,7 @@
 
 These functions operate on the DBCMessage / DBCDefinition TypedDicts
 from :mod:`aletheia.protocols` and provide the same functionality as the
-Go ``DbcMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
+Go ``DBCMessage`` methods (``IsMultiplexed``, ``AlwaysPresentSignals``, etc.).
 """
 
 from typing import cast

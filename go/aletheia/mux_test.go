@@ -7,15 +7,15 @@ import (
 )
 
 // muxDBC returns a DBC with multiplexed signals for testing.
-func muxDBC() aletheia.DbcDefinition {
+func muxDBC() aletheia.DBCDefinition {
 	sid, _ := aletheia.NewStandardID(0x200)
 	dlc, _ := aletheia.NewDLC(8)
-	return aletheia.DbcDefinition{
+	return aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{
 				ID: sid, Name: "MuxMessage", DLC: dlc, Sender: "ECU",
-				Signals: []aletheia.DbcSignal{
+				Signals: []aletheia.DBCSignal{
 					{
 						Name: "MuxSelector", StartBit: 0, BitLength: 8,
 						ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -212,7 +212,7 @@ func TestMultiplexorNames_NoMux(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DbcDefinition lookup helpers
+// DBCDefinition lookup helpers
 // ---------------------------------------------------------------------------
 
 func TestMessageByID(t *testing.T) {
@@ -299,11 +299,11 @@ func TestMessageByName_CopyIndependence(t *testing.T) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// mustStdID builds a standard-frame CanID from a raw 11-bit value in
+// mustStdID builds a standard-frame CANID from a raw 11-bit value in
 // tests; panics on out-of-range input because test fixtures should
 // never produce one and the panic message is more useful than a
 // silently-propagated error.
-func mustStdID(v uint16) aletheia.CanID {
+func mustStdID(v uint16) aletheia.CANID {
 	id, err := aletheia.NewStandardID(v)
 	if err != nil {
 		panic(err)
@@ -326,7 +326,7 @@ func mustDLC(v uint8) aletheia.DLC {
 // ---------------------------------------------------------------------------
 
 func TestIsMultiplexed_EmptySignals(t *testing.T) {
-	msg := aletheia.DbcMessage{
+	msg := aletheia.DBCMessage{
 		ID:      mustStdID(0x300),
 		Name:    "Empty",
 		DLC:     mustDLC(8),
@@ -348,9 +348,9 @@ func TestIsMultiplexed_EmptySignals(t *testing.T) {
 }
 
 func TestMultiplexorNames_MultipleMuxors(t *testing.T) {
-	msg := aletheia.DbcMessage{
+	msg := aletheia.DBCMessage{
 		ID: mustStdID(0x400), Name: "DualMux", DLC: mustDLC(8), Sender: "ECU",
-		Signals: []aletheia.DbcSignal{
+		Signals: []aletheia.DBCSignal{
 			{Name: "MuxA", Presence: aletheia.AlwaysPresent{}},
 			{Name: "SigA1", Presence: aletheia.Multiplexed{Multiplexor: "MuxA", MuxValues: []aletheia.MultiplexValue{0}}},
 			{Name: "MuxB", Presence: aletheia.AlwaysPresent{}},
@@ -373,9 +373,9 @@ func TestMultiplexorNames_MultipleMuxors(t *testing.T) {
 }
 
 func TestMessageByID_MultipleMessages(t *testing.T) {
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{ID: mustStdID(0x100), Name: "First", DLC: mustDLC(8), Sender: "ECU"},
 			{ID: mustStdID(0x200), Name: "Second", DLC: mustDLC(8), Sender: "ECU"},
 			{ID: mustStdID(0x300), Name: "Third", DLC: mustDLC(8), Sender: "ECU"},
@@ -391,9 +391,9 @@ func TestMessageByID_MultipleMessages(t *testing.T) {
 }
 
 func TestMessageByName_MultipleMessages(t *testing.T) {
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{ID: mustStdID(0x100), Name: "First", DLC: mustDLC(8), Sender: "ECU"},
 			{ID: mustStdID(0x200), Name: "Second", DLC: mustDLC(8), Sender: "ECU"},
 		},

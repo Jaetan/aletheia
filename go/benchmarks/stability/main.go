@@ -159,13 +159,13 @@ func findLibrary() string {
 // StartStream to succeed.  Mirrors the pattern in go/benchmarks/main.go
 // can20DBC but trimmed to one signal so the harness measures resource
 // accounting, not Stream LTL semantics.
-func minimalDBC() aletheia.DbcDefinition {
+func minimalDBC() aletheia.DBCDefinition {
 	id, _ := aletheia.NewStandardID(0x100)
 	dlc, _ := aletheia.NewDLC(8)
 	rat := func(n, d int64) aletheia.Rational {
 		return aletheia.Rational{Numerator: n, Denominator: d}
 	}
-	msg := aletheia.NewDbcMessage(id, "EngineStatus", dlc, "ECU1", nil, []aletheia.DbcSignal{
+	msg := aletheia.NewDbcMessage(id, "EngineStatus", dlc, "ECU1", nil, []aletheia.DBCSignal{
 		{
 			Name: "EngineSpeed", StartBit: 0, BitLength: 16,
 			ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -174,13 +174,13 @@ func minimalDBC() aletheia.DbcDefinition {
 			Unit: "rpm", Presence: aletheia.AlwaysPresent{},
 		},
 	})
-	return *aletheia.NewDbcDefinition("", []aletheia.DbcMessage{msg})
+	return *aletheia.NewDbcDefinition("", []aletheia.DBCMessage{msg})
 }
 
 // runCycle opens a Client, parses a DBC, runs a stream of framesPerCycle
 // frames, and closes the Client.  StablePtr accounting (one per Init) is
 // verified at the end of the run via aletheia.StablePtrCount().
-func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, framesPerCycle int) error {
+func runCycle(ctx context.Context, backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, framesPerCycle int) error {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return fmt.Errorf("NewClient: %w", err)

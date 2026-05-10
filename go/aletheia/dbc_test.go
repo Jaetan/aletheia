@@ -405,9 +405,9 @@ func TestUpdateFrame(t *testing.T) {
 func TestExtendedIDInDBC(t *testing.T) {
 	eid, _ := aletheia.NewExtendedID(0x18FEF100)
 	dlc, _ := aletheia.NewDLC(8)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "",
-		Messages: []aletheia.DbcMessage{{
+		Messages: []aletheia.DBCMessage{{
 			ID: eid, Name: "J1939Msg", DLC: dlc, Sender: "Node",
 			Signals: nil,
 		}},
@@ -430,11 +430,11 @@ func TestExtendedIDInDBC(t *testing.T) {
 func TestMultiplexedSignal(t *testing.T) {
 	sid, _ := aletheia.NewStandardID(0x200)
 	dlc, _ := aletheia.NewDLC(8)
-	dbc := aletheia.DbcDefinition{
+	dbc := aletheia.DBCDefinition{
 		Version: "",
-		Messages: []aletheia.DbcMessage{{
+		Messages: []aletheia.DBCMessage{{
 			ID: sid, Name: "MuxMsg", DLC: dlc, Sender: "ECU",
-			Signals: []aletheia.DbcSignal{
+			Signals: []aletheia.DBCSignal{
 				{
 					Name: "MuxSelector", StartBit: 0, BitLength: 8,
 					ByteOrder: aletheia.LittleEndian, Presence: aletheia.AlwaysPresent{},

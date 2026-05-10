@@ -73,10 +73,14 @@ type MultiplexValue uint32
 // Frame bundles all parameters needed to send a CAN frame during streaming.
 // Use with [Client.SendFrames] for batch operations.
 type Frame struct {
+	// Timestamp is the frame's microsecond-precision timestamp.
 	Timestamp Timestamp
-	ID        CanID
-	DLC       DLC
-	Data      FramePayload
+	// ID is the CAN identifier (11-bit standard or 29-bit extended).
+	ID CANID
+	// DLC is the data length code (0–8 for CAN 2.0B, 0–15 for CAN-FD).
+	DLC DLC
+	// Data is the payload — its length must equal DLC.ToBytes().
+	Data FramePayload
 }
 
 // ByteOrder specifies the byte ordering for a CAN signal.
@@ -133,8 +137,8 @@ func NewBitLength(v uint8) (BitLength, error) {
 	return BitLength(v), nil
 }
 
-// CanID is a CAN bus identifier. Use [NewStandardID] or [NewExtendedID] to create one.
-type CanID interface {
+// CANID is a CAN bus identifier. Use [NewStandardID] or [NewExtendedID] to create one.
+type CANID interface {
 	canID() // sealed
 	// Value returns the raw numeric ID.
 	Value() uint32
@@ -203,12 +207,6 @@ func NewDLC(v uint8) (DLC, error) {
 	}
 	return DLC{value: v}, nil
 }
-
-// maxPayloadBytes is the largest CAN-FD payload size in bytes (DLC 15 → 64).
-// Used by the binary FFI path to bound `len(data)` before handing a pointer
-// to cgo; the numeric value coincides with [MaxBitLength] but the two are
-// dimensionally distinct (bytes vs bits).
-const maxPayloadBytes = 64
 
 // dlcTable maps DLC values 0-15 to payload byte counts.
 var dlcTable = [16]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}

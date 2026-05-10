@@ -1,7 +1,7 @@
 package aletheia
 
 // Predicate is a signal predicate for LTL atomic propositions.
-// Implementations outside this package are not supported.
+// Sealed: only types in this package may implement Predicate.
 type Predicate interface {
 	predicate() // sealed
 }
@@ -66,7 +66,7 @@ func (ChangedBy) predicate()          {}
 func (StableWithin) predicate()       {}
 
 // Formula is an LTL formula over signal predicates.
-// Implementations outside this package are not supported.
+// Sealed: only types in this package may implement Formula.
 type Formula interface {
 	formula() // sealed
 }

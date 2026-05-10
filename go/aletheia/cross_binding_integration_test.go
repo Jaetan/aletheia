@@ -37,18 +37,18 @@ import (
 //
 // The three definitions are content-equivalent; structural drift across
 // languages is the actual cross-binding hazard the test is designed to catch.
-func canonicalDBC() DbcDefinition {
+func canonicalDBC() DBCDefinition {
 	sid, _ := NewStandardID(256)
 	d, _ := NewDLC(8)
-	return DbcDefinition{
+	return DBCDefinition{
 		Version: "1.0",
-		Messages: []DbcMessage{
+		Messages: []DBCMessage{
 			{
 				ID:     sid,
 				Name:   "TestMessage",
 				DLC:    d,
 				Sender: "ECU",
-				Signals: []DbcSignal{
+				Signals: []DBCSignal{
 					{
 						Name:      "TestSignal",
 						StartBit:  0,

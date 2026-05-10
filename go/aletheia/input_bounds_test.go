@@ -236,7 +236,7 @@ func TestLoadYAMLData_InlineStringOversize(t *testing.T) {
 }
 
 // R19 cluster E1: defense-in-depth output bound on serializeDBC.
-// Constructs a DbcDefinition whose marshaled JSON exceeds MaxDBCTextBytes
+// Constructs a DBCDefinition whose marshaled JSON exceeds MaxDBCTextBytes
 // and verifies serializeDBC returns *InputBoundExceededError before the
 // payload is handed to the FFI.  In normal flow the upstream parser cap
 // makes this redundant; this guard catches any internal blowup or future
@@ -247,7 +247,7 @@ func TestSerializeDBC_RejectsOversizeOutput(t *testing.T) {
 	// Allocating a 64 MiB string is acceptable for a single test —
 	// completes in <1s on a typical CI box.
 	bigVersion := strings.Repeat("x", MaxDBCTextBytes+100)
-	dbc := DbcDefinition{Version: bigVersion}
+	dbc := DBCDefinition{Version: bigVersion}
 
 	_, err := serializeDBC(dbc)
 	if err == nil {

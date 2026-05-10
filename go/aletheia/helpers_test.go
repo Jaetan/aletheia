@@ -37,18 +37,18 @@ func dlc8() aletheia.DLC {
 }
 
 // testDBC returns a minimal DBC definition for testing.
-func testDBC() aletheia.DbcDefinition {
+func testDBC() aletheia.DBCDefinition {
 	sid, _ := aletheia.NewStandardID(0x123)
 	dlc, _ := aletheia.NewDLC(8)
-	return aletheia.DbcDefinition{
+	return aletheia.DBCDefinition{
 		Version: "1.0",
-		Messages: []aletheia.DbcMessage{
+		Messages: []aletheia.DBCMessage{
 			{
 				ID:     sid,
 				Name:   "EngineData",
 				DLC:    dlc,
 				Sender: "ECU",
-				Signals: []aletheia.DbcSignal{
+				Signals: []aletheia.DBCSignal{
 					{
 						Name:      "Speed",
 						StartBit:  0,

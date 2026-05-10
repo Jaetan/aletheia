@@ -46,10 +46,16 @@ func (k ErrorKind) String() string {
 // Use [errors.As] to inspect the [ErrorKind], and [errors.Unwrap] to
 // retrieve the underlying cause (if any).
 type Error struct {
-	Kind    ErrorKind
-	Code    string // Machine-readable error code from Agda (empty for client-side errors)
+	// Kind is the high-level category (validation / state / protocol / FFI / ...).
+	Kind ErrorKind
+	// Code is the machine-readable wire code from the Agda core; empty for client-side errors.
+	// See the Code* constants below for the full vocabulary.
+	Code string
+	// Message is the human-readable diagnostic.
 	Message string
-	Cause   error // optional wrapped cause; nil when there is no underlying error
+	// Cause is the optional wrapped underlying error; nil when there is none.
+	// Used by [errors.Unwrap] / [errors.Is] / [errors.As].
+	Cause error
 }
 
 // Error returns a human-readable string in the form "aletheia <kind> error: <message>".
@@ -65,71 +71,134 @@ func (e *Error) Unwrap() error { return e.Cause }
 
 // Machine-readable error codes matching Agda Error ADT (51 codes).
 // Each maps 1:1 to an Agda error constructor via errorCode.
+//
+// Constants below are organized into eight groups (Parse / DBC text /
+// Frame / Route / Handler / Dispatch / Extraction); the wire string
+// (snake_case suffix on each constant) is the canonical identifier used
+// by the structured-log + Error.Code surface.  See [Error.Code] and
+// [docs/architecture/PROTOCOL.md] for the full Agda ADT mapping.
 const (
-	// Parse errors.
-	CodeParseMissingField            = "parse_missing_field"
-	CodeParseInvalidByteOrder        = "parse_invalid_byte_order"
-	CodeParseInvalidPresence         = "parse_invalid_presence"
-	CodeParseMissingSigned           = "parse_missing_signed"
-	CodeParseInvalidSigned           = "parse_invalid_signed"
-	CodeParseNotAnObject             = "parse_not_an_object"
-	CodeParseExtCanIDOutOfRange      = "parse_ext_can_id_out_of_range"
-	CodeParseStdCanIDOutOfRange      = "parse_std_can_id_out_of_range"
-	CodeParseDefaultCanIDOutOfRange  = "parse_default_can_id_out_of_range"
-	CodeParseInvalidDLCBytes         = "parse_invalid_dlc_bytes"
-	CodeParseRootNotObject           = "parse_root_not_object"
-	CodeParseMissingSignalName       = "parse_missing_signal_name"
-	CodeParseSignalBitLengthZero     = "parse_signal_bit_length_zero"
-	CodeParseSignalOverflowsFrame    = "parse_signal_overflows_frame"
+	// CodeParseMissingField — required JSON field absent on the input object.
+	CodeParseMissingField = "parse_missing_field"
+	// CodeParseInvalidByteOrder — byte_order value not "big" or "little".
+	CodeParseInvalidByteOrder = "parse_invalid_byte_order"
+	// CodeParseInvalidPresence — presence value not "always" or "muxed".
+	CodeParseInvalidPresence = "parse_invalid_presence"
+	// CodeParseMissingSigned — required `signed` field absent.
+	CodeParseMissingSigned = "parse_missing_signed"
+	// CodeParseInvalidSigned — `signed` field not boolean.
+	CodeParseInvalidSigned = "parse_invalid_signed"
+	// CodeParseNotAnObject — expected JSON object at this position.
+	CodeParseNotAnObject = "parse_not_an_object"
+	// CodeParseExtCanIDOutOfRange — extended CAN ID exceeds 29-bit range.
+	CodeParseExtCanIDOutOfRange = "parse_ext_can_id_out_of_range"
+	// CodeParseStdCanIDOutOfRange — standard CAN ID exceeds 11-bit range.
+	CodeParseStdCanIDOutOfRange = "parse_std_can_id_out_of_range"
+	// CodeParseDefaultCanIDOutOfRange — default CAN ID literal exceeds 29-bit range.
+	CodeParseDefaultCanIDOutOfRange = "parse_default_can_id_out_of_range"
+	// CodeParseInvalidDLCBytes — DLC byte count is not a valid CAN/CAN-FD value.
+	CodeParseInvalidDLCBytes = "parse_invalid_dlc_bytes"
+	// CodeParseRootNotObject — JSON root is not an object.
+	CodeParseRootNotObject = "parse_root_not_object"
+	// CodeParseMissingSignalName — required `name` field absent on a signal.
+	CodeParseMissingSignalName = "parse_missing_signal_name"
+	// CodeParseSignalBitLengthZero — signal has zero bit length.
+	CodeParseSignalBitLengthZero = "parse_signal_bit_length_zero"
+	// CodeParseSignalOverflowsFrame — signal bit range extends beyond frame DLC.
+	CodeParseSignalOverflowsFrame = "parse_signal_overflows_frame"
+	// CodeParseSignalMSBBelowBitLength — signal MSB is less than its declared bit length.
 	CodeParseSignalMSBBelowBitLength = "parse_signal_msb_below_bit_length"
-	CodeParseInvalidKind             = "parse_invalid_kind"
-	CodeParseNonTerminatingRational  = "parse_non_terminating_rational"
-	CodeParseInvalidIdentifier       = "parse_invalid_identifier"
-	CodeParseInputBoundExceeded      = "parse_input_bound_exceeded"
-	// DBC text parse errors.
-	CodeDBCTextParseFailure              = "dbc_text_parse_failure"
-	CodeDBCTextTrailingInput             = "dbc_text_trailing_input"
+	// CodeParseInvalidKind — kind tag not recognized.
+	CodeParseInvalidKind = "parse_invalid_kind"
+	// CodeParseNonTerminatingRational — rational value lacks a terminating decimal representation.
+	CodeParseNonTerminatingRational = "parse_non_terminating_rational"
+	// CodeParseInvalidIdentifier — identifier fails DBC's identifier syntax.
+	CodeParseInvalidIdentifier = "parse_invalid_identifier"
+	// CodeParseInputBoundExceeded — JSON input exceeds maximum size bound.
+	CodeParseInputBoundExceeded = "parse_input_bound_exceeded"
+
+	// CodeDBCTextParseFailure — generic .dbc text parse failure.
+	CodeDBCTextParseFailure = "dbc_text_parse_failure"
+	// CodeDBCTextTrailingInput — .dbc text contains unparsed trailing characters.
+	CodeDBCTextTrailingInput = "dbc_text_trailing_input"
+	// CodeDBCTextAttributeRefinementFailed — BA_ value fails its BA_DEF_ refinement.
 	CodeDBCTextAttributeRefinementFailed = "dbc_text_attribute_refinement_failed"
-	CodeDBCTextInputBoundExceeded        = "dbc_text_input_bound_exceeded"
-	// Frame errors.
-	CodeFrameSignalNotFound         = "frame_signal_not_found"
-	CodeFrameSignalIndexOOB         = "frame_signal_index_oob"
-	CodeFrameInjectionFailed        = "frame_injection_failed"
-	CodeFrameSignalsOverlap         = "frame_signals_overlap"
-	CodeFrameCanIDNotFound          = "frame_can_id_not_found"
-	CodeFrameCanIDMismatch          = "frame_can_id_mismatch"
+	// CodeDBCTextInputBoundExceeded — .dbc text input exceeds maximum size bound.
+	CodeDBCTextInputBoundExceeded = "dbc_text_input_bound_exceeded"
+
+	// CodeFrameSignalNotFound — frame-level: signal name not declared on the message.
+	CodeFrameSignalNotFound = "frame_signal_not_found"
+	// CodeFrameSignalIndexOOB — frame-level: signal index out of range for the message.
+	CodeFrameSignalIndexOOB = "frame_signal_index_oob"
+	// CodeFrameInjectionFailed — bit-injection of a signal value failed.
+	CodeFrameInjectionFailed = "frame_injection_failed"
+	// CodeFrameSignalsOverlap — two signals occupy overlapping bit positions.
+	CodeFrameSignalsOverlap = "frame_signals_overlap"
+	// CodeFrameCanIDNotFound — no message in the DBC has this CAN ID.
+	CodeFrameCanIDNotFound = "frame_can_id_not_found"
+	// CodeFrameCanIDMismatch — frame CAN ID disagrees with the message ID resolved by name.
+	CodeFrameCanIDMismatch = "frame_can_id_mismatch"
+	// CodeFrameSignalValueOutOfBounds — physical value outside [min, max] bounds.
 	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
-	CodeFrameInputBoundExceeded     = "frame_input_bound_exceeded"
-	// Route errors.
-	CodeRouteMissingField         = "route_missing_field"
-	CodeRouteMissingArray         = "route_missing_array"
-	CodeRouteUnknownCommand       = "route_unknown_command"
-	CodeRouteMissingCommandField  = "route_missing_command_field"
-	CodeRouteDLCExceedsMax        = "route_dlc_exceeds_max"
+	// CodeFrameInputBoundExceeded — frame input exceeds maximum size bound.
+	CodeFrameInputBoundExceeded = "frame_input_bound_exceeded"
+
+	// CodeRouteMissingField — required field absent on a routed request.
+	CodeRouteMissingField = "route_missing_field"
+	// CodeRouteMissingArray — expected array field absent on a routed request.
+	CodeRouteMissingArray = "route_missing_array"
+	// CodeRouteUnknownCommand — command name not recognized by the dispatcher.
+	CodeRouteUnknownCommand = "route_unknown_command"
+	// CodeRouteMissingCommandField — request body missing the `cmd` field.
+	CodeRouteMissingCommandField = "route_missing_command_field"
+	// CodeRouteDLCExceedsMax — DLC value exceeds the maximum allowed.
+	CodeRouteDLCExceedsMax = "route_dlc_exceeds_max"
+	// CodeRouteByteArrayParseFailed — byte-array body could not be parsed.
 	CodeRouteByteArrayParseFailed = "route_byte_array_parse_failed"
-	CodeRouteByteCountMismatch    = "route_byte_count_mismatch"
-	CodeRouteMissingDBCField      = "route_missing_dbc_field"
-	CodeRouteMissingPropsField    = "route_missing_props_field"
-	// Handler errors.
-	CodeHandlerNoDBC                 = "handler_no_dbc"
-	CodeHandlerAlreadyStreaming      = "handler_already_streaming"
-	CodeHandlerNotStreaming          = "handler_not_streaming"
-	CodeHandlerStreamNotStarted      = "handler_stream_not_started"
-	CodeHandlerStreamActive          = "handler_stream_active"
-	CodeHandlerPropertyParseFailed   = "handler_property_parse_failed"
-	CodeHandlerInvalidDLCCode        = "handler_invalid_dlc_code"
-	CodeHandlerValidationFailed      = "handler_validation_failed"
+	// CodeRouteByteCountMismatch — byte count does not match DLC.
+	CodeRouteByteCountMismatch = "route_byte_count_mismatch"
+	// CodeRouteMissingDBCField — `dbc` field absent on a request that requires it.
+	CodeRouteMissingDBCField = "route_missing_dbc_field"
+	// CodeRouteMissingPropsField — `properties` field absent on a request that requires it.
+	CodeRouteMissingPropsField = "route_missing_props_field"
+
+	// CodeHandlerNoDBC — handler invoked before any DBC was parsed.
+	CodeHandlerNoDBC = "handler_no_dbc"
+	// CodeHandlerAlreadyStreaming — start_stream called while a stream is active.
+	CodeHandlerAlreadyStreaming = "handler_already_streaming"
+	// CodeHandlerNotStreaming — frame-stream operation invoked outside a stream.
+	CodeHandlerNotStreaming = "handler_not_streaming"
+	// CodeHandlerStreamNotStarted — operation requires start_stream first.
+	CodeHandlerStreamNotStarted = "handler_stream_not_started"
+	// CodeHandlerStreamActive — operation cannot be performed while a stream is active.
+	CodeHandlerStreamActive = "handler_stream_active"
+	// CodeHandlerPropertyParseFailed — set_properties body could not be parsed.
+	CodeHandlerPropertyParseFailed = "handler_property_parse_failed"
+	// CodeHandlerInvalidDLCCode — DLC code outside [0, 15].
+	CodeHandlerInvalidDLCCode = "handler_invalid_dlc_code"
+	// CodeHandlerValidationFailed — handler-level validation rejected the request.
+	CodeHandlerValidationFailed = "handler_validation_failed"
+	// CodeHandlerNonMonotonicTimestamp — frame timestamp regressed relative to the previous frame.
 	CodeHandlerNonMonotonicTimestamp = "handler_non_monotonic_timestamp"
-	// Dispatch errors.
-	CodeDispatchMissingTypeField   = "dispatch_missing_type_field"
+
+	// CodeDispatchMissingTypeField — request object missing the `type` field.
+	CodeDispatchMissingTypeField = "dispatch_missing_type_field"
+	// CodeDispatchUnknownMessageType — `type` value not recognized.
 	CodeDispatchUnknownMessageType = "dispatch_unknown_message_type"
-	CodeDispatchInvalidJSON        = "dispatch_invalid_json"
-	CodeDispatchRequestNotObject   = "dispatch_request_not_object"
-	// Extraction errors.
-	CodeExtractionMuxValueMismatch    = "extraction_mux_value_mismatch"
-	CodeExtractionMuxSignalNotFound   = "extraction_mux_signal_not_found"
-	CodeExtractionMuxChainCycle       = "extraction_mux_chain_cycle"
+	// CodeDispatchInvalidJSON — request body is not valid JSON.
+	CodeDispatchInvalidJSON = "dispatch_invalid_json"
+	// CodeDispatchRequestNotObject — request body is not a JSON object at root.
+	CodeDispatchRequestNotObject = "dispatch_request_not_object"
+
+	// CodeExtractionMuxValueMismatch — multiplexor value does not match the requested signal's mux selector.
+	CodeExtractionMuxValueMismatch = "extraction_mux_value_mismatch"
+	// CodeExtractionMuxSignalNotFound — multiplexor signal referenced by a muxed signal is missing.
+	CodeExtractionMuxSignalNotFound = "extraction_mux_signal_not_found"
+	// CodeExtractionMuxChainCycle — multiplexor chain references itself.
+	CodeExtractionMuxChainCycle = "extraction_mux_chain_cycle"
+	// CodeExtractionMuxExtractionFailed — multiplexor extraction step failed.
 	CodeExtractionMuxExtractionFailed = "extraction_mux_extraction_failed"
+	// CodeExtractionBitExtractionFailed — bit-extraction step failed (out-of-range / scaling error).
 	CodeExtractionBitExtractionFailed = "extraction_bit_extraction_failed"
 )
 

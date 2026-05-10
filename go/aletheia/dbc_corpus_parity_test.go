@@ -10,7 +10,7 @@
 // inj₂ d, in Aletheia/DBC/TextParser/Properties/Substrate/Unsafe.agda). Parser
 // correctness is established by that proof, universally over the DBC domain.
 // What this test validates instead is that the Go binding's wire-to-native
-// conversion (Agda JSON → DbcDefinition) preserves the wire bytes faithfully.
+// conversion (Agda JSON → DBCDefinition) preserves the wire bytes faithfully.
 // A failure here means the Go binding lost or mangled fields on parse, not
 // that the Agda parser is wrong.
 //
@@ -19,14 +19,14 @@
 // oracle — the Python (test_dbc_corpus_parity.py) and C++
 // (dbc_corpus_parity_tests.cpp) tests assert byte equality against the same
 // files. When all three match, the bindings have observed identical
-// DbcDefinition structure for every fixture.
+// DBCDefinition structure for every fixture.
 //
 // Canonical form: sorted JSON keys + 2-space indent + trailing newline + the
 // "emit int when denominator=1" rule (already shared by the binding's
 // internal serializer). Go produces this naturally via json.MarshalIndent on
 // a map[string]any (which sorts keys), with one post-processing step to drop
 // "extended": false from message envelopes (Agda's wire format omits
-// "extended" for standard CAN frames; see attachCanID for the same convention
+// "extended" for standard CAN frames; see attachCANID for the same convention
 // on comment/attribute targets).
 
 package aletheia
@@ -65,13 +65,13 @@ func findFFILibForParityTest() string {
 	return ""
 }
 
-// canonicalDBCJSON canonical-encodes a DbcDefinition for the parity test. The
+// canonicalDBCJSON canonical-encodes a DBCDefinition for the parity test. The
 // shape mirrors the Python FractionJSONEncoder + sort_keys=True + indent=2
 // output. json.MarshalIndent on map[string]any sorts keys alphabetically by
 // design (Go 1.12+); serializeDBC already mirrors the Agda wire form for
 // "extended" (omitted on standard frames) and "presence" (explicit
 // "always"), so no post-processing is needed.
-func canonicalDBCJSON(dbc DbcDefinition) ([]byte, error) {
+func canonicalDBCJSON(dbc DBCDefinition) ([]byte, error) {
 	m, err := serializeDBC(dbc)
 	if err != nil {
 		return nil, err

@@ -55,7 +55,7 @@ func findLibrary() string {
 // DBC definitions (programmatic, matching examples/*.dbc)
 // ---------------------------------------------------------------------------
 
-func mustStdID(v uint16) aletheia.CanID {
+func mustStdID(v uint16) aletheia.CANID {
 	id, err := aletheia.NewStandardID(v)
 	if err != nil {
 		panic(err)
@@ -76,20 +76,20 @@ func rat(num, den int64) aletheia.Rational {
 	return aletheia.Rational{Numerator: num, Denominator: den}
 }
 
-func can20DBC() aletheia.DbcDefinition {
+func can20DBC() aletheia.DBCDefinition {
 	// Use NewDbcMessage / NewDbcDefinition so the generated indices exercise
 	// the map-backed lookup path real users get. Directly populating the
 	// structs leaves the signalIndex / nameIndex / idIndex fields nil and
 	// drops SignalByName, MessageByID, and MessageByName onto their linear-
 	// scan fallback — a benchmark-correctness defect.
-	msgs := []aletheia.DbcMessage{
-		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DbcSignal{
+	msgs := []aletheia.DBCMessage{
+		aletheia.NewDbcMessage(mustStdID(0x100), "EngineStatus", mustDLC(8), "ECU1", nil, []aletheia.DBCSignal{
 			{Name: "EngineSpeed", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 4), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(8000, 1), Unit: "rpm", Presence: aletheia.AlwaysPresent{}},
 			{Name: "EngineTemp", StartBit: 16, BitLength: 8, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 1), Offset: rat(-40, 1), Minimum: rat(-40, 1), Maximum: rat(215, 1), Unit: "celsius", Presence: aletheia.AlwaysPresent{}},
 		}),
-		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DbcSignal{
+		aletheia.NewDbcMessage(mustStdID(0x200), "BrakeStatus", mustDLC(8), "ECU2", nil, []aletheia.DBCSignal{
 			{Name: "BrakePressure", StartBit: 0, BitLength: 16, ByteOrder: aletheia.LittleEndian, IsSigned: false,
 				Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(0, 1), Maximum: rat(65535, 10), Unit: "bar", Presence: aletheia.AlwaysPresent{}},
 			{Name: "BrakePressed", StartBit: 16, BitLength: 1, ByteOrder: aletheia.LittleEndian, IsSigned: false,
@@ -99,15 +99,15 @@ func can20DBC() aletheia.DbcDefinition {
 	return *aletheia.NewDbcDefinition("", msgs)
 }
 
-func canfdDBC() aletheia.DbcDefinition {
+func canfdDBC() aletheia.DBCDefinition {
 	ap := aletheia.AlwaysPresent{}
 	le := aletheia.LittleEndian
 	// See comment on can20DBC — constructors populate the map-backed indices
 	// so the benchmark measures the lookup path real users exercise.
-	msgs := []aletheia.DbcMessage{
+	msgs := []aletheia.DBCMessage{
 		aletheia.NewDbcMessage(mustStdID(0x200), "SensorFusion", mustDLC(15), "SensorGateway",
 			nil,
-			[]aletheia.DbcSignal{
+			[]aletheia.DBCSignal{
 				{Name: "GPSLatitude", StartBit: 0, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-90, 1), Maximum: rat(90, 1), Unit: "deg", Presence: ap},
 				{Name: "GPSLongitude", StartBit: 32, BitLength: 32, ByteOrder: le, IsSigned: true, Factor: rat(1, 10000000), Offset: rat(0, 1), Minimum: rat(-180, 1), Maximum: rat(180, 1), Unit: "deg", Presence: ap},
 				{Name: "GPSAltitude", StartBit: 64, BitLength: 16, ByteOrder: le, IsSigned: true, Factor: rat(1, 10), Offset: rat(0, 1), Minimum: rat(-1000, 1), Maximum: rat(55535, 10), Unit: "m", Presence: ap},
@@ -291,7 +291,7 @@ func getSystemInfo() systemInfo {
 // Benchmark: Throughput
 // ---------------------------------------------------------------------------
 
-func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames int) (float64, error) {
+func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numFrames int) (float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return 0, err
@@ -322,7 +322,7 @@ func benchmarkStreaming(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition
 	return float64(numFrames) / elapsed.Seconds(), nil
 }
 
-func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, dlc aletheia.DLC, frame aletheia.FramePayload, numFrames int) (float64, error) {
+func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, numFrames int) (float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return 0, err
@@ -343,7 +343,7 @@ func benchmarkExtraction(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinitio
 	return float64(numFrames) / elapsed.Seconds(), nil
 }
 
-func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, signals []aletheia.SignalValue, dlc aletheia.DLC, numFrames int) (float64, error) {
+func benchmarkBuilding(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, signals []aletheia.SignalValue, dlc aletheia.DLC, numFrames int) (float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return 0, err
@@ -479,7 +479,7 @@ type latencyStats struct {
 	P999US float64 `json:"p999_us"`
 }
 
-func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numOps, warmup int) ([]float64, error) {
+func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, props []aletheia.Formula, numOps, warmup int) ([]float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return nil, err
@@ -519,7 +519,7 @@ func measureStreamLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefini
 	return latencies, nil
 }
 
-func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, dlc aletheia.DLC, frame aletheia.FramePayload, numOps, warmup int) ([]float64, error) {
+func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, numOps, warmup int) ([]float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return nil, err
@@ -547,7 +547,7 @@ func measureExtractionLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDe
 	return latencies, nil
 }
 
-func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DbcDefinition, id aletheia.CanID, signals []aletheia.SignalValue, dlc aletheia.DLC, numOps, warmup int) ([]float64, error) {
+func measureBuildLatencies(backend *aletheia.FFIBackend, dbc aletheia.DBCDefinition, id aletheia.CANID, signals []aletheia.SignalValue, dlc aletheia.DLC, numOps, warmup int) ([]float64, error) {
 	client, err := aletheia.NewClient(backend)
 	if err != nil {
 		return nil, err
@@ -608,7 +608,7 @@ func printLatencyStats(out *os.File, s latencyStats) {
 	}
 }
 
-func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, label string, dbc aletheia.DbcDefinition, id aletheia.CanID, dlc aletheia.DLC, frame aletheia.FramePayload, signals []aletheia.SignalValue, props []aletheia.Formula, numOps, warmup int) []latencyStats {
+func runLatencySuite(backend *aletheia.FFIBackend, out *os.File, label string, dbc aletheia.DBCDefinition, id aletheia.CANID, dlc aletheia.DLC, frame aletheia.FramePayload, signals []aletheia.SignalValue, props []aletheia.Formula, numOps, warmup int) []latencyStats {
 	var allStats []latencyStats
 
 	// Streaming.

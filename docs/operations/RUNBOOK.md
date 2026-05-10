@@ -55,9 +55,10 @@ informational below and authoritative in
 **Symptom:** info-level log line at `parse_dbc` / `parse_dbc_text`
 completion, carrying the parsed message / signal counts.
 
-**Cause:** A `DbcDefinition` was successfully loaded — either from
-the JSON-shape command (`parseDBC`) or the DBC-text path
-(`parseDBCText`). Both paths emit the same canonical event name.
+**Cause:** A DBC definition (Python `DBCDefinition` / Go `DBCDefinition` /
+C++ `DbcDefinition`) was successfully loaded — either from the JSON-shape
+command (`parseDBC`) or the DBC-text path (`parseDBCText`). Both paths emit
+the same canonical event name.
 
 **Action:** None. This is a normal lifecycle marker. If you expected
 a higher message count, check for `extraction.parse_failed` or

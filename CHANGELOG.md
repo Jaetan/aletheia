@@ -25,7 +25,7 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 #### Cross-binding (Python / Go / C++)
 
 - `format_dbc_text` Client method — emit a DBC definition (Python
-  `DBCDefinition`, Go `DbcDefinition`, C++ `DbcDefinition`) as canonical
+  `DBCDefinition`, Go `DBCDefinition`, C++ `DbcDefinition`) as canonical
   DBC text via the verified Agda formatter (Track E.10).
 - `parse_dbc_text` Client method — parse DBC text directly through the
   verified Agda kernel (Track B.3 / E.10). Replaces the previous
@@ -33,15 +33,15 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 - `send_error` and `send_remote` Client methods — emit CAN error and
   remote frames.
 - DBC signal `value_descriptions` field (Python `DBCSignal.value_descriptions`,
-  Go `DbcSignal.ValueDescriptions`, C++ `DbcSignal::value_descriptions`) —
+  Go `DBCSignal.ValueDescriptions`, C++ `DbcSignal::value_descriptions`) —
   VAL_ entries promoted onto the owning signal (Track E.1 – E.12).
 - DBC signal `receivers` field — per-signal receiver-node list from `SG_`
   lines (Track B.1.x commit 2).
 - DBC definition Tier 1 metadata fields (`signal_groups`, `environment_vars`,
-  `value_tables`) on Python `DBCDefinition` / Go `DbcDefinition` /
+  `value_tables`) on Python `DBCDefinition` / Go `DBCDefinition` /
   C++ `DbcDefinition` (Track B.1).
 - DBC definition Tier 2 metadata fields (`nodes`, `comments`, `attributes`)
-  on Python `DBCDefinition` / Go `DbcDefinition` / C++ `DbcDefinition`
+  on Python `DBCDefinition` / Go `DBCDefinition` / C++ `DbcDefinition`
   (Track B.1.x).
 - DBC definition `unresolved_value_descriptions` field (same naming
   rule as Tier 1/2) — VAL_ lines that did not resolve to a signal on the
