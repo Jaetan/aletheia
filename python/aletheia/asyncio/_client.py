@@ -90,8 +90,16 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
             self._sync = _SyncClient(default_checks=default_checks, rts_cores=rts_cores)
 
     async def __aenter__(self) -> Self:
-        """Load the FFI library + initialize RTS on a background thread."""
-        await asyncio.to_thread(self._sync.__enter__)
+        """Load the FFI library + initialize RTS on a background thread.
+
+        Wrapped in :func:`asyncio.shield` so a cancellation on the awaiting
+        task cannot leave RTS state half-initialized — the underlying
+        ``hs_init`` call is not interruptible cooperatively (CANCELLATION.md
+        §5.1), and a partial init would orphan the StablePtr.  Cancellation
+        delivered during init still propagates: the shield only protects the
+        init from being cancelled mid-call; it doesn't suppress.
+        """
+        await asyncio.shield(asyncio.to_thread(self._sync.__enter__))
         return self
 
     async def __aexit__(
@@ -100,13 +108,21 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Free state and release the RTS reference. Best-effort, uncancellable."""
+        """Free state and release the RTS reference.
+
+        Wrapped in :func:`asyncio.shield` so cancellation cannot leak the
+        FFI session — partial close would leave the StablePtr alive and the
+        backing IORef unreachable.  The shield delays the CancelledError
+        delivery until after the close has completed (see CANCELLATION.md
+        §5.1 — "teardown is best-effort, idempotent, and double-close safe;
+        cancellation cannot preempt the GHC RTS").
+        """
         del exc_type, exc_val, exc_tb
-        await asyncio.to_thread(self._sync.close)
+        await asyncio.shield(asyncio.to_thread(self._sync.close))
 
     async def close(self) -> None:
         """Free state and release RTS reference. Same uncancellable contract as ``__aexit__``."""
-        await asyncio.to_thread(self._sync.close)
+        await asyncio.shield(asyncio.to_thread(self._sync.close))
 
     # =========================================================================
     # DBC and Properties

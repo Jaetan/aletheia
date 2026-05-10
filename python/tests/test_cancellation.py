@@ -17,6 +17,7 @@ durable in stream state" half of the contract is actually exercised.
 """
 
 import asyncio
+import contextlib
 from collections.abc import AsyncIterable, Iterable
 
 import pytest
@@ -323,6 +324,51 @@ class TestAsyncBatchCancellation:
                     # frames committed — end_stream succeeds.
                     result = await client.end_stream()
                     assert result["status"] == "complete"
+
+        asyncio.run(_run())
+
+    def test_cancel_during_close_does_not_leak_state(self) -> None:
+        """Cancellation delivered while ``__aexit__`` is closing must not leak FFI state.
+
+        R19 cluster 11 — PY-B-12.1 / PY-D-15.2 / PY-D-20.2: ``__aexit__`` /
+        ``close()`` wrap their ``asyncio.to_thread(self._sync.close)`` in
+        ``asyncio.shield`` so the underlying close runs to completion even
+        if the awaiting coroutine is cancelled.  Verified by cancelling
+        the task running ``client.close()`` after the shielded coroutine
+        has had a chance to start; the inner ``to_thread`` keeps running
+        in the background and ``is_closed`` flips to True.
+
+        Pattern adapted from python/tests/test_cancellation.py's existing
+        ``gate_send_frame`` deterministic-yield-point pattern (no
+        ``Event.wait(timeout=…)`` or wall-clock sleeps; pytest session
+        timeout is the only safety net).
+        """
+
+        async def _run() -> None:
+            sync = SyncClient()
+            client = AsyncClient(sync_client=sync)
+            await client.__aenter__()
+            assert not sync.is_closed
+            close_task = asyncio.create_task(client.close())
+            # Yield enough times for the shielded inner task to start.
+            # asyncio.shield wraps the inner future; cancelling the outer
+            # coroutine after the inner has been scheduled lets the inner
+            # complete in the background.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            close_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await close_task
+            # The shielded close runs in the asyncio default executor; wait
+            # for it to land via a deterministic poll on the observable
+            # ``is_closed`` flag.  Per feedback_no_physical_time_in_tests, we
+            # use ``asyncio.sleep(0)`` (single-tick yield) rather than a
+            # wall-clock wait; pytest's session timeout catches genuine hangs.
+            for _ in range(10_000):  # bounded so a real bug surfaces
+                if sync.is_closed:
+                    break
+                await asyncio.sleep(0)
+            assert sync.is_closed, "FFI session must be released even when close was cancelled"
 
         asyncio.run(_run())
 
