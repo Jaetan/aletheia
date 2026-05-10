@@ -6,7 +6,7 @@
 # itself (workflow YAML lint, action-pin policy, workflow-permissions
 # hygiene) and does NOT duplicate the offline correctness gates.
 #
-# Three jobs run in parallel.  Total wall-clock ~1-2 min on `ubuntu-latest`.
+# Three jobs run in parallel.  Total wall-clock ~1-2 min on `ubuntu-24.04`.
 
 name: GHA infrastructure checks
 
@@ -18,10 +18,17 @@ on:
 permissions:
   contents: read
 
+# Cancel in-progress runs of this workflow when a new commit lands on the
+# same ref — saves Actions minutes on rapid push sequences.  Per CICD-1.9.
+concurrency:
+  group: gha-checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   actionlint:
     name: Lint workflow YAML (actionlint)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,9 +36,17 @@ jobs:
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: '1.7.7'
+          # SHA-256 of actionlint_1.7.7_linux_amd64.tar.gz from upstream's
+          # signed `actionlint_1.7.7_checksums.txt` (verified against
+          # https://github.com/rhysd/actionlint/releases/tag/v1.7.7).  Per
+          # CICD-1.7: the tool that enforces SHA-pin policy on third-party
+          # actions must itself be fetched verifiably.  Refresh both
+          # ACTIONLINT_VERSION and ACTIONLINT_SHA256 on version bumps.
+          ACTIONLINT_SHA256: '023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757'
         run: |
           set -euo pipefail
           curl -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
           tar xzf "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
           chmod +x actionlint
           ./actionlint --version
@@ -41,7 +56,8 @@ jobs:
 
   action-pins:
     name: Verify action-pin policy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +67,8 @@ jobs:
 
   permissions-check:
     name: Verify minimal workflow permissions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
