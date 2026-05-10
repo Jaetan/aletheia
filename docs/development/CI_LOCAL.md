@@ -215,7 +215,7 @@ provides; treat `act` as an opt-in workflow-development tool.
 For a CI-style local replay, run both:
 
 ```bash
-tools/run_ci.py    # correctness gates (17 steps, ~12-15 min)
+tools/run_ci.py    # correctness gates (27 always-on steps, ~17-22 min warm)
 act push           # GHA meta-gates (workflows, ~1-2 min)
 ```
 
@@ -245,7 +245,7 @@ from GHA's amd64 runners.
 
 ### Pre-push hook is slow / blocking work
 
-The pre-push hook runs the full 17-step sweep (~12-15 min). If you need to
+The pre-push hook runs the full 27-step always-on sweep (~17-22 min warm). If you need to
 push iteratively (e.g., a doc-only fix that doesn't affect gates), bypass
 with:
 

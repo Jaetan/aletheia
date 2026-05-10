@@ -204,7 +204,7 @@ Before tagging a release:
 - [ ] Working tree clean (`git status --porcelain` empty).  A dirty
       tree shows up as `Git tree: dirty` in the MANIFEST and signals
       that the dist may not match any committed source.
-- [ ] `tools/run_ci.py` passes end-to-end (21 steps, ~18 min).
+- [ ] `tools/run_ci.py` passes end-to-end (27 always-on steps, ~17-22 min warm).
 - [ ] `tools/check_reproducible_build.py` passes (~10 min cold).
 - [ ] `CHANGELOG.md` has an entry under `## [X.Y.Z] — Unreleased`
       describing the release.

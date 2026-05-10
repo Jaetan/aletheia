@@ -1,7 +1,7 @@
 # Aletheia: Project Pitch
 
 **Formally verified CAN frame analysis with Linear Temporal Logic (LTL)**
-**Last Updated**: 2026-04-15
+**Last Updated**: 2026-05-10
 
 LTL is a formal method for specifying and verifying properties of sequences — in this case, proving that CAN bus signals stay within safe bounds over time.
 

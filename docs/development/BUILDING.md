@@ -1,5 +1,7 @@
 # Building Aletheia
 
+**Last Updated**: 2026-05-10
+
 Version and release metadata live in [DISTRIBUTION.md](DISTRIBUTION.md); phase and status in [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 This document provides step-by-step instructions for building Aletheia from source.

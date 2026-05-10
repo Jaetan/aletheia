@@ -503,7 +503,7 @@ Verification across Track A/B: 735 Python tests + 1 expected-skip + 103 markdown
 - ~~Go multiplexing query helpers~~ ✅ Closed by Track B.2 audit 2026-04-XX (helpers were already shipped client-side).
 
 **Binding feature gaps** (active):
-- **CLI parity for C++/Go (stretch goal, 2026-05-07)** — Python ships `python -m aletheia` with subcommands `validate` / `mux-query` / `convert` / `extract`.  C++ and Go are currently `not_applicable` in the FEATURE_MATRIX with reason "library bindings; CLI tools are a host-application concern."  Stretch-goal flip: rebuild the same subcommand surface in each language as a thin host binary dispatching to the existing client API.  Estimate ~300-500 LOC per language (CLI is glue, not parser, so the estimate is honest).  No Agda or FFI changes.  Drives a `cli` matrix row flip from `not_applicable` to `planned` × 2.
+- **CLI parity for C++/Go (stretch goal, 2026-05-07)** — Python ships `python -m aletheia` with six subcommands: `check` / `validate` / `extract` / `signals` / `format-dbc` / `mux-query`.  C++ and Go are currently `not_applicable` in the FEATURE_MATRIX with reason "library bindings; CLI tools are a host-application concern."  Stretch-goal flip: rebuild the same subcommand surface in each language as a thin host binary dispatching to the existing client API.  Estimate ~300-500 LOC per language (CLI is glue, not parser, so the estimate is honest).  No Agda or FFI changes.  Drives a `cli` matrix row flip from `not_applicable` to `planned` × 2.
 
 **Toolchain upgrades**:
 - Upgrade `basedpyright` and `pylint` to the latest stable releases, re-verify the 0/0/0 + 10.00/10 gates on the updated versions, and bump the upper pins in `python/pyproject.toml` (`basedpyright>=1.0,<2`, `pylint>=3.0,<4`) accordingly.

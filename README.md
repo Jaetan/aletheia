@@ -11,7 +11,7 @@ Aletheia provides mathematically proven tools for verifying automotive software 
 - **LTL Verification**: Streaming model checker with O(1) memory — verified 1.08× growth across a 100× trace increase. Single-bus streaming tops out in the six-figure-fps range on the C++ binary FFI path; see [PROJECT_STATUS.md § Key Metrics](PROJECT_STATUS.md#key-metrics) for the per-binding / per-lane / per-property-shape throughput table and methodology.
 - **Four Interface Tiers**: Check API (engineers), YAML (CI/CD), Excel (technicians), and full LTL DSL (developers) — choose the level that fits your team
 - **Python, C++, and Go Interfaces**: All run in-process via shared library (ctypes/dlopen FFI) — no subprocess, no IPC overhead
-- **Robust DBC Parsing**: Handles real-world edge cases (multiplexed signals, 29-bit IDs, signed integers) with clear validation warnings
+- **Verified DBC Parsing**: Agda parser with a universal roundtrip theorem (`∀ d → WellFormedDBC d → parseText (formatText d) ≡ inj₂ d`); handles multiplexed signals, 29-bit IDs, signed integers, value tables, attributes, environment variables, and comments. Exercised by an 8-fixture cross-binding corpus under `python/tests/fixtures/dbc_corpus/` (covering 23 IssueCode validation rejections; see [PROTOCOL.md § Error Code Reference](docs/architecture/PROTOCOL.md#error-code-reference))
 
 ## Quick Start
 
@@ -153,11 +153,11 @@ aletheia/
 **📚 [Complete Documentation Index](docs/INDEX.md)** - Full navigation guide
 
 ### Getting Started
-- [Quick Start](docs/guides/QUICKSTART.md) - 5-minute tutorial
+- [Tutorials](docs/guides/TUTORIAL.md) - End-to-end walkthroughs by role (start here if new to Aletheia)
+- [Quick Start](docs/guides/QUICKSTART.md) - 5-minute walkthrough (assumes built library)
 - [Building Guide](docs/development/BUILDING.md) - Setup and installation
 
 ### Guides
-- [Tutorials](docs/guides/TUTORIAL.md) - End-to-end walkthroughs (Technician, Test Engineer, Scripter, Developer)
 - [Cookbook](docs/guides/COOKBOOK.md) - Problem-driven recipes
 
 ### Reference
@@ -168,11 +168,24 @@ aletheia/
 ### Architecture & Design
 - [Design Overview](docs/architecture/DESIGN.md) - Three-layer architecture
 - [JSON Protocol](docs/architecture/PROTOCOL.md) - Low-level protocol specification
+- [Cancellation Contract](docs/architecture/CANCELLATION.md) - Cross-binding cancellation semantics
+- [cgo Notes](docs/architecture/CGO_NOTES.md) - Go binding's cgo + dlopen rationale
+
+### Operations
+- [Runbook](docs/operations/RUNBOOK.md) - Symptom → cause → action
+- [Stability Bench](docs/operations/STABILITY.md) - RSS / FD drift detection
+- [Mutation Testing](docs/operations/MUTATION.md) - Per-binding mutation testing
+
+### Development
+- [Local CI](docs/development/CI_LOCAL.md) - Three-layer CI architecture
+- [Release Guide](docs/development/RELEASE.md) - Tag / sign / publish procedure
+- [Parity Plan](docs/development/PARITY_PLAN.md) - Cross-binding feature parity roadmap
 
 ### Contributing
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute
 - [CLAUDE.md](CLAUDE.md) - AI-assisted development
 - [Project Status](PROJECT_STATUS.md) - Current phase and roadmap
+- [CHANGELOG](CHANGELOG.md) - Public-API change log
 
 ### Additional
 - [Project Pitch](docs/PITCH.md) - Why Aletheia?

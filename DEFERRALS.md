@@ -2,7 +2,7 @@
 
 Items explicitly declined or deferred during AGENTS.md review rounds. Each entry records **what**, **where**, **why deferred**, and **what would change the decision**. Resolved items are removed; see git history or `project_system_review_deferred.md` in memory for the full record.
 
-**Last updated:** 2026-04-14 (after review round 10)
+**Last updated:** 2026-05-10 (after review round 19; rounds 11–19 closed all prior deferrals — see `memory/project_review_round{11,12,...,19}.md` files for per-round closure narratives)
 
 ---
 

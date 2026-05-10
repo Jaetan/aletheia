@@ -24,24 +24,28 @@ Breaking changes are concentrated in the Go and C++ Client signatures
 
 #### Cross-binding (Python / Go / C++)
 
-- `format_dbc_text` Client method — emit a `DbcDefinition` as canonical
+- `format_dbc_text` Client method — emit a DBC definition (Python
+  `DBCDefinition`, Go `DbcDefinition`, C++ `DbcDefinition`) as canonical
   DBC text via the verified Agda formatter (Track E.10).
 - `parse_dbc_text` Client method — parse DBC text directly through the
   verified Agda kernel (Track B.3 / E.10). Replaces the previous
   `cantools`-based path on Python.
 - `send_error` and `send_remote` Client methods — emit CAN error and
   remote frames.
-- `DbcSignal.value_descriptions` (Python `value_descriptions`,
-  Go `ValueDescriptions`, C++ `value_descriptions`) — VAL_ entries
-  promoted onto the owning signal (Track E.1 – E.12).
-- `DbcSignal.receivers` — per-signal receiver-node list from `SG_` lines
-  (Track B.1.x commit 2).
-- `DbcDefinition.{signal_groups, environment_vars, value_tables}` —
-  Tier 1 DBC metadata (Track B.1).
-- `DbcDefinition.{nodes, comments, attributes}` — Tier 2 DBC metadata
+- DBC signal `value_descriptions` field (Python `DBCSignal.value_descriptions`,
+  Go `DbcSignal.ValueDescriptions`, C++ `DbcSignal::value_descriptions`) —
+  VAL_ entries promoted onto the owning signal (Track E.1 – E.12).
+- DBC signal `receivers` field — per-signal receiver-node list from `SG_`
+  lines (Track B.1.x commit 2).
+- DBC definition Tier 1 metadata fields (`signal_groups`, `environment_vars`,
+  `value_tables`) on Python `DBCDefinition` / Go `DbcDefinition` /
+  C++ `DbcDefinition` (Track B.1).
+- DBC definition Tier 2 metadata fields (`nodes`, `comments`, `attributes`)
+  on Python `DBCDefinition` / Go `DbcDefinition` / C++ `DbcDefinition`
   (Track B.1.x).
-- `DbcDefinition.unresolved_value_descriptions` — VAL_ lines that did
-  not resolve to a signal on the text-parse path (Track E.8 / E.11).
+- DBC definition `unresolved_value_descriptions` field (same naming
+  rule as Tier 1/2) — VAL_ lines that did not resolve to a signal on the
+  text-parse path (Track E.8 / E.11).
 - `IssueCode.UnknownSignalReceiver` (Python `UNKNOWN_SIGNAL_RECEIVER`)
   — CHECK 21 warning surfaced on the typed binding API as a named
   constant (Track E.11 binding mirror).

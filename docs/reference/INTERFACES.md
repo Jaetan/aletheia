@@ -109,7 +109,7 @@ response, err := client.SendFrame(ctx, ts, canID, dlc, data)
 _, _ = response, err
 ```
 
-**DBC text formatting** — render a `DbcDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level):
+**DBC text formatting** — render a `DBCDefinition` back as `.dbc` text via the verified Agda formatter (inverse of `parse_dbc_text` at the wire level):
 ```python
 text = client.format_dbc_text(dbc)
 ```

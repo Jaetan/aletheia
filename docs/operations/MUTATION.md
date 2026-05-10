@@ -1,10 +1,12 @@
 # Mutation Testing — operations guide
 
-R18 cluster 7 wires mutation testing across all three bindings per AGENTS.md
-cat 14(g): **Python** via `mutmut`, **Go** via `go-mutesting`, **C++** via
-`Mull`.  This doc explains the threshold model, the per-binding
-sub-checks, the env-var contract, the install procedure, and the
-forward-revert verification protocol.
+R18 cluster 7 wires mutation testing across all three bindings.
+The actual tools are: **Python** via `mutmut`, **Go** via `gremlins`
+(substituted for the AGENTS.md cat 14(g)–named `go-mutesting`, which is
+unmaintained — see § Per-binding sub-checks), **C++** via `Mull`.  This doc
+explains the threshold model, the per-binding sub-checks, the env-var
+contract, the install procedure, and the forward-revert verification
+protocol.
 
 A finding survives a mutation when the test suite still passes after the
 mutation operator transforms operational code (e.g. flips `<` to `<=`).

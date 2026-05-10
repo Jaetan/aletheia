@@ -10,7 +10,7 @@
 python3 -m aletheia <subcommand> [options]
 ```
 
-Five subcommands: `check`, `validate`, `extract`, `signals`, `mux-query`.
+Six subcommands: `check`, `validate`, `extract`, `signals`, `format-dbc`, `mux-query`.
 
 **Exit codes** (all subcommands):
 - `0` — success (or all checks passed)
@@ -215,6 +215,43 @@ Message 0x200 BrakeStatus (DLC 8, sender ECU)
   BrakePressure        bits[0:16]   LE  unsigned    x0.1 +0      bar  [0, 6553.5]
 
 2 messages, 3 signals
+```
+
+---
+
+## format-dbc
+
+Re-export a DBC as canonical JSON via the Agda core. Loads the DBC, parses it through the FFI, then re-exports via `aletheia_format_dbc` — producing a normalized representation where numeric fields are exact rationals matching the Agda core. Equivalent to `AletheiaClient.format_dbc()`.
+
+```
+python3 -m aletheia format-dbc [--dbc FILE] [--excel FILE]
+```
+
+**Arguments**:
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--dbc FILE` | \* | .dbc file |
+| `--excel FILE` | \* | .xlsx workbook with DBC sheet |
+
+\* At least one of `--dbc` or `--excel` required.
+
+**Output** (always JSON, pretty-printed):
+
+```json
+{
+  "version": "",
+  "messages": [
+    {
+      "id": 256,
+      "name": "EngineData",
+      "dlc": 8,
+      "transmitter": "ECU",
+      "signals": [ ... ]
+    }
+  ],
+  ...
+}
 ```
 
 ---
