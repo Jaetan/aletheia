@@ -1505,190 +1505,164 @@ func parseDbcDefinition(j map[string]any) (*DBCDefinition, error) {
 	return def, nil
 }
 
+// parseObjects is the shared template for decoding an array-of-objects field
+// on the JSON wire.  Returns (nil, nil) for an empty/absent field, a protocol
+// error at the first non-object entry, and propagates per-entry decoder
+// errors verbatim.  The 7 list parsers in this file (parseSignalGroups /
+// parseEnvironmentVars / parseValueTables / parseNodes / parseComments /
+// parseAttributes / parseUnresolvedValueDescs) all share this outer
+// plumbing; their per-entry decode is the `decode` callback.
+func parseObjects[T any](
+	j map[string]any,
+	fieldName string,
+	decode func(map[string]any) (T, error),
+) ([]T, error) {
+	raw := getArray(j, fieldName)
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]T, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, protocolError(fmt.Sprintf("expected object in %s array", fieldName))
+		}
+		v, err := decode(m)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
 // parseUnresolvedValueDescs decodes the optional "unresolvedValueDescs" array
 // (Track E.8 Plan B). Each entry is `{id, [extended], signalName, entries}`.
 // Empty/absent on the JSON-parse path is the common case.
 func parseUnresolvedValueDescs(j map[string]any) ([]DBCRawValueDesc, error) {
-	raw := getArray(j, "unresolvedValueDescs")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCRawValueDesc, 0, len(raw))
-	for _, item := range raw {
-		rvdRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in unresolvedValueDescs array")
-		}
+	return parseObjects(j, "unresolvedValueDescs", func(rvdRaw map[string]any) (DBCRawValueDesc, error) {
 		idVal, ext, err := parseCanIDFields(rvdRaw)
 		if err != nil {
-			return nil, wrapProtocol("invalid unresolvedValueDesc id", err)
+			return DBCRawValueDesc{}, wrapProtocol("invalid unresolvedValueDesc id", err)
 		}
 		var canID CANID
 		if ext {
 			eid, err := NewExtendedID(idVal)
 			if err != nil {
-				return nil, err
+				return DBCRawValueDesc{}, err
 			}
 			canID = eid
 		} else {
 			sid, err := NewStandardID(uint16(idVal))
 			if err != nil {
-				return nil, err
+				return DBCRawValueDesc{}, err
 			}
 			canID = sid
 		}
-		entriesRaw := getArray(rvdRaw, "entries")
-		entries := make([]DBCValueEntry, 0, len(entriesRaw))
-		for _, er := range entriesRaw {
-			eRaw, ok := er.(map[string]any)
-			if !ok {
-				return nil, protocolError("expected object in unresolvedValueDescs.entries array")
-			}
+		entries, err := parseObjects(rvdRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return nil, wrapProtocol("invalid unresolvedValueDescs entry value", err)
+				return DBCValueEntry{}, wrapProtocol("invalid unresolvedValueDescs entry value", err)
 			}
-			entries = append(entries, DBCValueEntry{
+			return DBCValueEntry{
 				Value:       v,
 				Description: getString(eRaw, "description"),
-			})
+			}, nil
+		})
+		if err != nil {
+			return DBCRawValueDesc{}, err
 		}
-		out = append(out, DBCRawValueDesc{
+		return DBCRawValueDesc{
 			CANID:      canID,
 			SignalName: getString(rvdRaw, "signalName"),
 			Entries:    entries,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // parseSignalGroups decodes the optional "signalGroups" array from a
 // formatDBC "dbc" sub-object.
 func parseSignalGroups(j map[string]any) ([]DBCSignalGroup, error) {
-	raw := getArray(j, "signalGroups")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCSignalGroup, 0, len(raw))
-	for _, item := range raw {
-		gRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in signalGroups array")
-		}
-		name := getString(gRaw, "name")
+	return parseObjects(j, "signalGroups", func(gRaw map[string]any) (DBCSignalGroup, error) {
 		sigsRaw := getArray(gRaw, "signals")
 		sigs := make([]SignalName, 0, len(sigsRaw))
 		for _, sn := range sigsRaw {
 			s, ok := sn.(string)
 			if !ok {
-				return nil, protocolError("signalGroups.signals entry is not a string")
+				return DBCSignalGroup{}, protocolError("signalGroups.signals entry is not a string")
 			}
 			sigs = append(sigs, SignalName(s))
 		}
-		out = append(out, DBCSignalGroup{Name: name, Signals: sigs})
-	}
-	return out, nil
+		return DBCSignalGroup{Name: getString(gRaw, "name"), Signals: sigs}, nil
+	})
 }
 
 // parseEnvironmentVars decodes the optional "environmentVars" array.
 // The wire-tag “varType“ must be one of 0/1/2 (Int/Float/String); any
 // other value is a protocol error.
 func parseEnvironmentVars(j map[string]any) ([]DBCEnvironmentVar, error) {
-	raw := getArray(j, "environmentVars")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCEnvironmentVar, 0, len(raw))
-	for _, item := range raw {
-		evRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in environmentVars array")
-		}
+	return parseObjects(j, "environmentVars", func(evRaw map[string]any) (DBCEnvironmentVar, error) {
 		tagVal, err := parseNumberAsInt64(evRaw["varType"])
 		if err != nil {
-			return nil, wrapProtocol("invalid varType", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid varType", err)
 		}
 		if tagVal < 0 || tagVal > 2 {
-			return nil, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
+			return DBCEnvironmentVar{}, protocolError(fmt.Sprintf("unknown varType tag: %d", tagVal))
 		}
 		initial, err := parseRational(evRaw["initial"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar initial", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar initial", err)
 		}
 		minimum, err := parseRational(evRaw["minimum"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar minimum", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar minimum", err)
 		}
 		maximum, err := parseRational(evRaw["maximum"])
 		if err != nil {
-			return nil, wrapProtocol("invalid environmentVar maximum", err)
+			return DBCEnvironmentVar{}, wrapProtocol("invalid environmentVar maximum", err)
 		}
-		out = append(out, DBCEnvironmentVar{
+		return DBCEnvironmentVar{
 			Name:    getString(evRaw, "name"),
 			VarType: DBCVarType(tagVal),
 			Initial: initial,
 			Minimum: minimum,
 			Maximum: maximum,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // parseValueTables decodes the optional "valueTables" array. Each entry's
 // integer value is parsed through [parseNumberAsInt64] to tolerate JSON's
 // float decoder on whole-number values.
 func parseValueTables(j map[string]any) ([]DBCValueTable, error) {
-	raw := getArray(j, "valueTables")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCValueTable, 0, len(raw))
-	for _, item := range raw {
-		vtRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in valueTables array")
-		}
-		entriesRaw := getArray(vtRaw, "entries")
-		entries := make([]DBCValueEntry, 0, len(entriesRaw))
-		for _, er := range entriesRaw {
-			eRaw, ok := er.(map[string]any)
-			if !ok {
-				return nil, protocolError("expected object in valueTables.entries array")
-			}
+	return parseObjects(j, "valueTables", func(vtRaw map[string]any) (DBCValueTable, error) {
+		entries, err := parseObjects(vtRaw, "entries", func(eRaw map[string]any) (DBCValueEntry, error) {
 			v, err := parseNumberAsInt64(eRaw["value"])
 			if err != nil {
-				return nil, wrapProtocol("invalid valueTable entry value", err)
+				return DBCValueEntry{}, wrapProtocol("invalid valueTable entry value", err)
 			}
-			entries = append(entries, DBCValueEntry{
+			return DBCValueEntry{
 				Value:       v,
 				Description: getString(eRaw, "description"),
-			})
+			}, nil
+		})
+		if err != nil {
+			return DBCValueTable{}, err
 		}
-		out = append(out, DBCValueTable{
+		return DBCValueTable{
 			Name:    getString(vtRaw, "name"),
 			Entries: entries,
-		})
-	}
-	return out, nil
+		}, nil
+	})
 }
 
 // --- Tier 2 parsers (JSON from Agda core → Go) ---
 
 // parseNodes decodes the optional "nodes" array.
 func parseNodes(j map[string]any) ([]DBCNode, error) {
-	raw := getArray(j, "nodes")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCNode, 0, len(raw))
-	for _, item := range raw {
-		nRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in nodes array")
-		}
-		out = append(out, DBCNode{Name: getString(nRaw, "name")})
-	}
-	return out, nil
+	return parseObjects(j, "nodes", func(nRaw map[string]any) (DBCNode, error) {
+		return DBCNode{Name: getString(nRaw, "name")}, nil
+	})
 }
 
 // parseCanIDFields reads the {"id", "extended"} pair that every
@@ -1736,27 +1710,17 @@ func parseCommentTarget(m map[string]any) (DBCCommentTarget, error) {
 
 // parseComments decodes the optional "comments" array.
 func parseComments(j map[string]any) ([]DBCComment, error) {
-	raw := getArray(j, "comments")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCComment, 0, len(raw))
-	for _, item := range raw {
-		cRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in comments array")
-		}
+	return parseObjects(j, "comments", func(cRaw map[string]any) (DBCComment, error) {
 		targetRaw, ok := cRaw["target"].(map[string]any)
 		if !ok {
-			return nil, protocolError("comment entry missing target object")
+			return DBCComment{}, protocolError("comment entry missing target object")
 		}
 		target, err := parseCommentTarget(targetRaw)
 		if err != nil {
-			return nil, err
+			return DBCComment{}, err
 		}
-		out = append(out, DBCComment{Target: target, Text: getString(cRaw, "text")})
-	}
-	return out, nil
+		return DBCComment{Target: target, Text: getString(cRaw, "text")}, nil
+	})
 }
 
 func parseAttrScope(s string) (DBCAttrScope, error) {
@@ -1960,23 +1924,7 @@ func parseAttribute(m map[string]any) (DBCAttribute, error) {
 
 // parseAttributes decodes the optional "attributes" array.
 func parseAttributes(j map[string]any) ([]DBCAttribute, error) {
-	raw := getArray(j, "attributes")
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]DBCAttribute, 0, len(raw))
-	for _, item := range raw {
-		aRaw, ok := item.(map[string]any)
-		if !ok {
-			return nil, protocolError("expected object in attributes array")
-		}
-		a, err := parseAttribute(aRaw)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, nil
+	return parseObjects(j, "attributes", parseAttribute)
 }
 
 // parseDbcMessage decodes a single message from a DBCDefinition JSON
