@@ -506,6 +506,7 @@ def _parse_dbc_signal(row: dict[str, object], row_num: int) -> DBCSignal:
             "minimum": to_signal_fraction(get_number(row, "Min", ctx)),
             "maximum": to_signal_fraction(get_number(row, "Max", ctx)),
             "unit": unit_str,
+            "presence": "multiplexed",
             "multiplexor": get_str(row, "Multiplexor", ctx),
             "multiplex_values": [get_int(row, "Multiplex Value", ctx)],
         }

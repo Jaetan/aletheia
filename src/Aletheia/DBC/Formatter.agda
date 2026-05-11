@@ -77,9 +77,14 @@ formatCANId : CANId → List (String × JSON)
 formatCANId (CANId.Standard n _) = ("id" , ℕtoJSON n) ∷ []
 formatCANId (CANId.Extended n _) = ("id" , ℕtoJSON n) ∷ ("extended" , JBool true) ∷ []
 
+-- R19 cluster 17 / PY-D-19.2: emit ``"presence": "multiplexed"`` on
+-- multiplexed signals (symmetric to ``"presence": "always"`` on Always
+-- signals).  Cross-binding parity: Python TypedDict, Go serializeDBC,
+-- and C++ serialize_dbc all emit the discriminator.
 formatPresence : SignalPresence → List (String × JSON)
 formatPresence Always        = ("presence" , JStringS "always") ∷ []
-formatPresence (When mux vs) = ("multiplexor" , identJSON mux)
+formatPresence (When mux vs) = ("presence" , JStringS "multiplexed")
+  ∷ ("multiplexor" , identJSON mux)
   ∷ ("multiplex_values" , JArray (map ℕtoJSON (List⁺.toList vs))) ∷ []
 
 -- Format a single (value, description) entry for a value table OR a signal's

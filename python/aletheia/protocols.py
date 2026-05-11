@@ -40,7 +40,7 @@ def is_object_list(val: object) -> TypeGuard[list[object]]:
 
 ByteOrder = Literal["little_endian", "big_endian"]
 
-SignalPresence = Literal["always"]
+SignalPresence = Literal["always", "multiplexed"]
 
 
 # R19 cluster 17 / PY-D-19.4: distinguish DLC byte count from DLC code at
@@ -101,6 +101,12 @@ class DBCSignalMultiplexed(TypedDict):
     (empty list when only the ``Vector__XXX`` placeholder is present).
     ``valueDescriptions`` carries the inline ``VAL_`` entries attached to
     this signal (empty list when no ``VAL_`` line names it).
+
+    R19 cluster 17 / PY-D-19.2 (2026-05-12): carries an explicit
+    ``presence: Literal["multiplexed"]`` discriminator mirroring
+    :class:`DBCSignalAlways`'s ``presence: "always"`` — cross-binding
+    parity with Agda Formatter, Go ``serializeDBC``, and C++
+    ``presence_to_json``.
     """
     name: str
     startBit: int
@@ -112,6 +118,7 @@ class DBCSignalMultiplexed(TypedDict):
     minimum: Fraction
     maximum: Fraction
     unit: str
+    presence: Literal["multiplexed"]
     multiplexor: str
     multiplex_values: list[int]
     receivers: NotRequired[list[str]]

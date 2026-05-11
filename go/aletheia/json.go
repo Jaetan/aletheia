@@ -144,7 +144,12 @@ func serializeDBC(dbc DBCDefinition) (map[string]any, error) {
 			default:
 				return nil, validationError(fmt.Sprintf("invalid byte order %d", sig.ByteOrder))
 			}
+			// R19 cluster 17 / PY-D-19.2: emit explicit "presence"
+			// discriminator on multiplexed signals (mirrors Always
+			// signals' "presence": "always").  Cross-binding parity
+			// with the Agda Formatter and the Python TypedDict.
 			if mux, ok := sig.Presence.(Multiplexed); ok {
+				s["presence"] = "multiplexed"
 				s["multiplexor"] = string(mux.Multiplexor)
 				vals := make([]uint32, len(mux.MuxValues))
 				for i, v := range mux.MuxValues {

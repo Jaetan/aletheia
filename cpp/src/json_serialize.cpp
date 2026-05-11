@@ -53,18 +53,17 @@ static auto rational_to_json(const Rational& r) -> Json {
 }
 
 static auto presence_to_json(const SignalPresence& p, Json& sig) -> void {
-    // Mirror the Agda wire form: emit "presence": "always" explicitly for
-    // AlwaysPresent signals; emit "multiplexor" + "multiplex_values" for
-    // Multiplexed. Cross-binding parity: Python and Go both emit the
-    // explicit "presence": "always", and parse_dbc_text returns it on the
-    // wire. Agda's parser accepts the absence-of-multiplexor shorthand
-    // too, but the explicit form is the canonical one (B.3.j).
+    // Mirror the Agda wire form: emit "presence": "always" / "multiplexed"
+    // explicitly. R19 cluster 17 / PY-D-19.2: both variants now carry the
+    // explicit discriminator (cross-binding parity with Agda Formatter and
+    // Python TypedDict / Go serializeDBC).
     std::visit(
         [&sig](auto&& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, AlwaysPresent>) {
                 sig["presence"] = "always";
             } else if constexpr (std::is_same_v<T, Multiplexed>) {
+                sig["presence"] = "multiplexed";
                 sig["multiplexor"] = v.multiplexor.get();
                 auto arr = Json::array();
                 for (const auto& mv : v.mux_values)

@@ -152,7 +152,10 @@ TEST_CASE("serialize multiplexed signal", "[json][serialize]") {
     CHECK(jsig["signed"] == true);
     CHECK(jsig["multiplexor"] == "MuxSelector");
     CHECK(jsig["multiplex_values"] == json::array({3}));
-    CHECK_FALSE(jsig.contains("presence"));
+    // R19 cluster 17 / PY-D-19.2: multiplexed signals now carry an
+    // explicit ``"presence": "multiplexed"`` discriminator (cross-binding
+    // parity with Agda Formatter, Go ``serializeDBC``, and Python).
+    CHECK(jsig["presence"] == "multiplexed");
 }
 
 TEST_CASE("serialize extended CAN ID in DBC", "[json][serialize]") {

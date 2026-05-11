@@ -429,7 +429,9 @@ class TestLoadDBCMultiplexed:
         assert "multiplexor" in sig
         assert sig["multiplexor"] == "Selector"
         assert sig["multiplex_values"] == [3]
-        assert "presence" not in sig
+        # R19 cluster 17 / PY-D-19.2: multiplexed signals carry an
+        # explicit ``"presence": "multiplexed"`` discriminator.
+        assert sig["presence"] == "multiplexed"
 
     def test_always_signal_no_mux_columns(self, tmp_path: Path) -> None:
         """Signal without Multiplexor/Multiplex Value columns is always-present."""
