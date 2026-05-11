@@ -492,7 +492,12 @@ class TestCheckCommand:
         not let the failure surface from inside ``iter_can_log`` two calls
         deeper.  Programmatic API contract: ``FileNotFoundError`` at the
         orchestrator boundary so callers get a clear error site."""
-        dbc: DBCDefinition = {"version": "", "messages": []}
+        dbc: DBCDefinition = {
+            "version": "", "messages": [],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
         with pytest.raises(FileNotFoundError, match="log file not found"):
             run_checks(dbc, [], "/nonexistent/drive.asc")
 

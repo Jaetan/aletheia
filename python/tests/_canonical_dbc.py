@@ -42,7 +42,17 @@ def make_dbc(*, msg_id: int = 256, sender: str = "ECU") -> DBCDefinition:
         "sender": sender,
         "signals": [CANONICAL_SIGNAL],
     })
-    return {"version": "1.0", "messages": [msg]}
+    return {
+        "version": "1.0",
+        "messages": [msg],
+        "signalGroups": [],
+        "environmentVars": [],
+        "valueTables": [],
+        "nodes": [],
+        "comments": [],
+        "attributes": [],
+        "unresolvedValueDescs": [],
+    }
 
 
 CANONICAL_DBC: DBCDefinition = make_dbc()

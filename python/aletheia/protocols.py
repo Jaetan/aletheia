@@ -448,20 +448,20 @@ class DBCRawValueDesc(TypedDict):
 class DBCDefinition(TypedDict):
     """Complete DBC file structure.
 
-    Every metadata array is ``NotRequired`` so that pre-Tier-1/2 wire
-    payloads and hand-written fixtures remain accepted; absent keys are
-    treated as empty lists by both ``dbc_to_json`` consumers and the Agda
-    parser.
+    R19 cluster 17 / PY-D-19.6 (2026-05-12): every metadata array is
+    REQUIRED to match Go/C++ struct shape (where fields are non-optional
+    by language idiom).  Use ``[]`` for sections the file has no entries
+    for; hand-written fixtures must enumerate all keys.
     """
     version: str
     messages: list[DBCMessage]
-    signalGroups: NotRequired[list[DBCSignalGroup]]
-    environmentVars: NotRequired[list[DBCEnvironmentVar]]
-    valueTables: NotRequired[list[DBCValueTable]]
-    nodes: NotRequired[list[DBCNode]]
-    comments: NotRequired[list[DBCComment]]
-    attributes: NotRequired[list[DBCAttribute]]
-    unresolvedValueDescs: NotRequired[list[DBCRawValueDesc]]
+    signalGroups: list[DBCSignalGroup]
+    environmentVars: list[DBCEnvironmentVar]
+    valueTables: list[DBCValueTable]
+    nodes: list[DBCNode]
+    comments: list[DBCComment]
+    attributes: list[DBCAttribute]
+    unresolvedValueDescs: list[DBCRawValueDesc]
 
 
 # ============================================================================

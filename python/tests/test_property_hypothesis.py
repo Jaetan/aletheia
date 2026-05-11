@@ -88,7 +88,12 @@ def dbc_strategy(draw: st.DrawFn) -> DBCDefinition:
             "sender": "ECU",
             "signals": signals,
         })
-    return {"version": "1.0", "messages": messages}
+    return {
+        "version": "1.0", "messages": messages,
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
+    }
 
 
 # -----------------------------------------------------------------------------

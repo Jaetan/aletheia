@@ -565,4 +565,14 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
             msg["extended"] = True
         messages.append(msg)
 
-    return {"version": "", "messages": messages}
+    return {
+        "version": "",
+        "messages": messages,
+        "signalGroups": [],
+        "environmentVars": [],
+        "valueTables": [],
+        "nodes": [],
+        "comments": [],
+        "attributes": [],
+        "unresolvedValueDescs": [],
+    }

@@ -76,6 +76,9 @@ class TestDBCToText:
                 {"id": 2, "name": "M2", "dlc": 8, "sender": "ECU_B", "signals": []},
                 {"id": 3, "name": "M3", "dlc": 8, "sender": "ECU_A", "signals": []},
             ],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
         }
         text = dbc_to_text(dbc)
         assert "BU_: ECU_A ECU_B" in text
@@ -133,7 +136,12 @@ class TestDBCToText:
 
     def test_empty_messages(self) -> None:
         """DBC with no messages produces valid output."""
-        dbc: DBCDefinition = {"version": "2.0", "messages": []}
+        dbc: DBCDefinition = {
+            "version": "2.0", "messages": [],
+            "signalGroups": [], "environmentVars": [], "valueTables": [],
+            "nodes": [], "comments": [], "attributes": [],
+            "unresolvedValueDescs": [],
+        }
         text = dbc_to_text(dbc)
         assert 'VERSION "2.0"' in text
         # No nodes in the DBC, no trailing space after BU_:

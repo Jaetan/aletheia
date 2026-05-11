@@ -53,6 +53,9 @@ def _mux_dbc() -> DBCDefinition:
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -75,6 +78,9 @@ def _plain_dbc() -> DBCDefinition:
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -250,6 +256,9 @@ def _empty_msg() -> DBCDefinition:
                 "signals": [],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -319,6 +328,9 @@ def _dual_mux_dbc() -> DBCDefinition:
                 ],
             }
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 
@@ -360,6 +372,9 @@ def _extended_dbc() -> DBCDefinition:
                 "signals": [],
             },
         ],
+        "signalGroups": [], "environmentVars": [], "valueTables": [],
+        "nodes": [], "comments": [], "attributes": [],
+        "unresolvedValueDescs": [],
     }
 
 

@@ -684,22 +684,22 @@ def normalize_dbc(raw: dict[str, object]) -> DBCDefinition:
     result: DBCDefinition = {
         "version": str(raw.get("version", "")),
         "messages": messages,
+        "signalGroups": _normalize_optional_list(
+            raw, "signalGroups", _normalize_signal_group,
+        ),
+        "environmentVars": _normalize_optional_list(
+            raw, "environmentVars", _normalize_environment_var,
+        ),
+        "valueTables": _normalize_optional_list(
+            raw, "valueTables", _normalize_value_table,
+        ),
+        "nodes": _normalize_optional_list(raw, "nodes", _normalize_node),
+        "comments": _normalize_optional_list(raw, "comments", _normalize_comment),
+        "attributes": _normalize_optional_list(raw, "attributes", _normalize_attribute),
+        "unresolvedValueDescs": _normalize_optional_list(
+            raw, "unresolvedValueDescs", _normalize_raw_value_desc,
+        ),
     }
-    result["signalGroups"] = _normalize_optional_list(
-        raw, "signalGroups", _normalize_signal_group
-    )
-    result["environmentVars"] = _normalize_optional_list(
-        raw, "environmentVars", _normalize_environment_var
-    )
-    result["valueTables"] = _normalize_optional_list(
-        raw, "valueTables", _normalize_value_table
-    )
-    result["nodes"] = _normalize_optional_list(raw, "nodes", _normalize_node)
-    result["comments"] = _normalize_optional_list(raw, "comments", _normalize_comment)
-    result["attributes"] = _normalize_optional_list(raw, "attributes", _normalize_attribute)
-    result["unresolvedValueDescs"] = _normalize_optional_list(
-        raw, "unresolvedValueDescs", _normalize_raw_value_desc
-    )
     return result
 
 
