@@ -91,8 +91,8 @@ checkDuplicateIdPair m1 m2 =
 checkDuplicateIdAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDuplicateIdAgainstList = checkAgainst checkDuplicateIdPair
 
-checkDuplicateMessageIds : List DBCMessage → List ValidationIssue
-checkDuplicateMessageIds = triangularCheck checkDuplicateIdPair
+checkAllDuplicateMessageIds : List DBCMessage → List ValidationIssue
+checkAllDuplicateMessageIds = triangularCheck checkDuplicateIdPair
 
 -- ============================================================================
 -- CHECK 2: DUPLICATE SIGNAL NAMES (within a message)
@@ -330,8 +330,8 @@ checkDuplicateNamePair m1 m2 =
 checkDuplicateNameAgainstList : DBCMessage → List DBCMessage → List ValidationIssue
 checkDuplicateNameAgainstList = checkAgainst checkDuplicateNamePair
 
-checkDuplicateMessageNames : List DBCMessage → List ValidationIssue
-checkDuplicateMessageNames = triangularCheck checkDuplicateNamePair
+checkAllDuplicateMessageNames : List DBCMessage → List ValidationIssue
+checkAllDuplicateMessageNames = triangularCheck checkDuplicateNamePair
 
 -- ============================================================================
 -- CHECK 13: OFFSET/SCALE RANGE
@@ -446,8 +446,8 @@ checkDuplicateAttrNamePair n1 n2 =
             (mkIssue IsWarning DuplicateAttributeName
               ("Duplicate attribute definition name '" ++ₛ n1 ++ₛ "'"))
 
-checkDuplicateAttributeNames : List DBCAttribute → List ValidationIssue
-checkDuplicateAttributeNames attrs = triangularCheck checkDuplicateAttrNamePair (attrDefNames attrs)
+checkAllDuplicateAttributeNames : List DBCAttribute → List ValidationIssue
+checkAllDuplicateAttributeNames attrs = triangularCheck checkDuplicateAttrNamePair (attrDefNames attrs)
 
 -- ============================================================================
 -- CHECK 19: UNKNOWN COMMENT TARGET

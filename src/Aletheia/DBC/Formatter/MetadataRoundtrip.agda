@@ -216,16 +216,16 @@ valueEntry-roundtrip (n , s)
   rewrite getNat-ℕtoJSON n = refl
 
 private
-  valueEntryList-go : ∀ n es
+  valueEntry-list-go : ∀ n es
     → parseObjectList "valueEntry" parseValueEntry n (map formatValueEntry es) ≡ inj₂ es
-  valueEntryList-go _ [] = refl
-  valueEntryList-go n (e ∷ es)
+  valueEntry-list-go _ [] = refl
+  valueEntry-list-go n (e ∷ es)
     rewrite valueEntry-roundtrip e
-          | valueEntryList-go (suc n) es = refl
+          | valueEntry-list-go (suc n) es = refl
 
-valueEntryList-roundtrip : ∀ es
+valueEntry-list-roundtrip : ∀ es
   → parseValueEntryList (map formatValueEntry es) ≡ inj₂ es
-valueEntryList-roundtrip = valueEntryList-go 0
+valueEntry-list-roundtrip = valueEntry-list-go 0
 
 private
   valueTableFields : ValueTable → List (String × JSON)
@@ -237,7 +237,7 @@ private
 valueTable-roundtrip : ∀ vt
   → parseValueTable (valueTableFields vt) ≡ inj₂ vt
 valueTable-roundtrip vt
-  rewrite valueEntryList-roundtrip (ValueTable.entries vt)
+  rewrite valueEntry-list-roundtrip (ValueTable.entries vt)
         | validateIdent-roundtrip (ValueTable.name vt) = refl
 
 private
@@ -307,7 +307,7 @@ private
       ≡ inj₂ (mkRawValueDesc (Standard rawId pf) n es)
   rawValueDesc-roundtrip-std rawId pf n es
     rewrite rvd-msgId-std rawId pf n es
-          | valueEntryList-roundtrip es
+          | valueEntry-list-roundtrip es
           | validateIdent-roundtrip n
     = refl
 
@@ -318,7 +318,7 @@ private
       ≡ inj₂ (mkRawValueDesc (Extended rawId pf) n es)
   rawValueDesc-roundtrip-ext rawId pf n es
     rewrite rvd-msgId-ext rawId pf n es
-          | valueEntryList-roundtrip es
+          | valueEntry-list-roundtrip es
           | validateIdent-roundtrip n
     = refl
 

@@ -16,6 +16,7 @@ open import Data.Nat using (ℕ; _∸_)
 open import Data.Nat.Show using () renaming (show to showℕ)
 open import Data.List using (List)
 open import Aletheia.CAN.Constants using (standard-can-id-max; extended-can-id-max)
+open import Aletheia.CAN.DLC using (maxDLC-FD)
 open import Aletheia.DBC.Types using (ValidationIssue)
 open import Aletheia.DBC.Validator.Formatting using (formatIssuesText)
 open import Aletheia.Parser.Combinators using (Position)
@@ -80,11 +81,11 @@ formatParseError (InvalidSigned s) =
 formatParseError (NotAnObject kind idx) =
   kind ++ₛ " at index " ++ₛ showℕ idx ++ₛ " is not a JSON object"
 formatParseError (ExtCANIdOutOfRange n) =
-  "extended CAN ID " ++ₛ showℕ n ++ₛ " out of range (max " ++ₛ showℕ (extended-can-id-max ∸ 1) ++ₛ ")"
+  "extended CAN ID " ++ₛ showℕ n ++ₛ " exceeds limit " ++ₛ showℕ (extended-can-id-max ∸ 1)
 formatParseError (StdCANIdOutOfRange n) =
-  "standard CAN ID " ++ₛ showℕ n ++ₛ " out of range (max " ++ₛ showℕ (standard-can-id-max ∸ 1) ++ₛ ")"
+  "standard CAN ID " ++ₛ showℕ n ++ₛ " exceeds limit " ++ₛ showℕ (standard-can-id-max ∸ 1)
 formatParseError (DefaultCANIdOutOfRange n) =
-  "CAN ID " ++ₛ showℕ n ++ₛ " out of range for standard ID (max " ++ₛ showℕ (standard-can-id-max ∸ 1) ++ₛ ")"
+  "CAN ID " ++ₛ showℕ n ++ₛ " exceeds limit " ++ₛ showℕ (standard-can-id-max ∸ 1) ++ₛ " for standard ID"
 formatParseError (InvalidDLCBytes n) =
   "DLC " ++ₛ showℕ n ++ₛ " is not a valid CAN byte count"
 formatParseError RootNotObject =
@@ -233,7 +234,7 @@ formatRouteError (UnknownCommand s) =
 formatRouteError MissingCommandField =
   "missing 'command' field"
 formatRouteError DLCExceedsMax =
-  "DLC exceeds maximum value"
+  "DLC exceeds limit " ++ₛ showℕ maxDLC-FD
 formatRouteError ByteArrayParseFailed =
   "failed to parse byte array"
 formatRouteError ByteCountMismatch =
@@ -330,7 +331,7 @@ data DispatchError : Set where
   RequestNotObject   : DispatchError
 
 formatDispatchError : DispatchError → String
-formatDispatchError MissingTypeField       = "missing 'type' field in request"
+formatDispatchError MissingTypeField       = "missing 'type' field"
 formatDispatchError (UnknownMessageType s) = "unknown message type '" ++ₛ s ++ₛ "'"
 formatDispatchError InvalidJSON            = "invalid JSON"
 formatDispatchError RequestNotObject       = "request must be a JSON object"

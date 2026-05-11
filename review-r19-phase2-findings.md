@@ -134,15 +134,15 @@ No findings.
 ### Agda Agent C — Cross-file (19 findings)
 
 #### Cat 3: Naming consistency (5)
-- `[ ]` AGDA-C-3.1 [src/Aletheia/DBC/TextFormatter/TopLevel.agda:76] `formatChars` breaks `emit*-chars` convention used by every sibling helper
+- `[FP]` AGDA-C-3.1 [src/Aletheia/DBC/TextFormatter/TopLevel.agda:76] `formatChars` breaks `emit*-chars` convention — **adjudicated FP** (2026-05-11, cluster 14 naming sub-batch): `formatChars : DBC → List Char` follows the `format*` API convention (parallels `formatText : DBC → String` in `Aletheia.DBC.TextFormatter`, both are the top-level whole-file emitters; one returns `List Char`, the other `String`).  The `emit*-chars` family is for per-section sub-emitters (`emitMessages-chars`, `emitAttributes-chars`, etc.) that `formatChars` composes.  Two distinct, internally-consistent conventions for two distinct roles (top-level vs. per-section).  Renaming `formatChars → emitDBC-chars` would also cascade through the universal-roundtrip proof aggregator (`formatChars-body`, `formatChars-body-bridge`, `parseTextChars-on-formatChars`, `parseDBCText-on-formatChars` — load-bearing theorem names with ~80 references).
 - `[ ]` AGDA-C-3.2 [src/Aletheia/Limits.agda:49,62 + 116,128] `BoundKind` ctors mix `<noun>Length` / `<noun>Bytes` / `Byte+Count` suffix orderings
-- `[ ]` AGDA-C-3.3 [src/Aletheia/DBC/Validator.agda:35,46,51 vs :36-50] 3 `checkDuplicate*` exceptions break the `checkAll*` prefix convention
-- `[ ]` AGDA-C-3.4 [src/Aletheia/DBC/Formatter/MetadataRoundtrip.agda:153 vs :217,242] kebab `-list-` vs camelCase inconsistency in `*-go` helpers
+- `[x]` AGDA-C-3.3 [src/Aletheia/DBC/Validator.agda:35,46,51 vs :36-50] 3 `checkDuplicate*` exceptions break the `checkAll*` prefix convention — closed by cluster 14 naming sub-batch (51 sites across 6 files)
+- `[x]` AGDA-C-3.4 [src/Aletheia/DBC/Formatter/MetadataRoundtrip.agda:153 vs :217,242] kebab `-list-` vs camelCase inconsistency in `*-go` helpers — closed by cluster 14 naming sub-batch (`valueEntryList-*` → `valueEntry-list-*`, 8 sites in MetadataRoundtrip.agda + SignalRoundtrip.agda)
 - `[ ]` AGDA-C-3.5 [src/Aletheia/DBC/Formatter/MessageRoundtrip/{Standard,Extended}.agda] `-std`/`-ext` suffix doesn't match type-level `Standard`/`Extended`
 
 #### Cat 5: Error message consistency (3)
-- `[ ]` AGDA-C-5.1 [src/Aletheia/Error.agda:333 vs :71,234,242,244] `formatDispatchError MissingTypeField` adds trailing `" in request"` no other "missing 'X' field" carries
-- `[ ]` AGDA-C-5.2 [src/Aletheia/Error.agda:188 vs :83-87,236] Range-violation strings split across `"out of range (max N)"` / `"DLC exceeds maximum value"` (no max) / `"<label> N exceeds limit M"`
+- `[x]` AGDA-C-5.1 [src/Aletheia/Error.agda:333 vs :71,234,242,244] `formatDispatchError MissingTypeField` adds trailing `" in request"` no other "missing 'X' field" carries — closed by cluster 14 naming sub-batch (string text aligned)
+- `[x]` AGDA-C-5.2 [src/Aletheia/Error.agda:188 vs :83-87,236] Range-violation strings split across `"out of range (max N)"` / `"DLC exceeds maximum value"` (no max) / `"<label> N exceeds limit M"` — closed by cluster 14 naming sub-batch (converged on `"<label> N exceeds limit M"`; SignalIndexOOB kept "out of range" — index, not value-range — and bound is contextual; `DLCExceedsMax` now uses `maxDLC-FD` literal)
 - `[ ]` AGDA-C-5.3 [src/Aletheia/Error.agda:351 + 326] `DBCTextParseError` and `DispatchError` lack `InContext` ctor present on every other error ADT
 
 #### Cat 6: Redundant patterns (6)

@@ -12,7 +12,7 @@ open import Aletheia.DBC.Validator using
   ( checkBitLengthZero; checkAllBitLengthZero
   ; checkFactorZeroSig; checkAllFactorZero
   ; checkSignalExceedsDLC; checkAllSignalExceedsDLC
-  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkDuplicateMessageIds
+  ; checkDuplicateIdPair; checkDuplicateIdAgainstList; checkAllDuplicateMessageIds
   ; checkDuplicateSignalPair; checkDuplicateSignalAgainstList; checkDuplicateSignalTriangular
   ; checkAllDuplicateSignalNames
   ; checkOverlapPair; checkOverlapAgainstList; checkOverlapTriangular
@@ -158,16 +158,16 @@ checkDuplicateIdAgainstList-complete : ∀ m rest →
 checkDuplicateIdAgainstList-complete m =
   liftConcatMap-complete (checkDuplicateIdPair m) (checkDuplicateIdPair-complete m)
 
-checkDuplicateMessageIds-sound : ∀ msgs →
-  checkDuplicateMessageIds msgs ≡ [] →
+checkAllDuplicateMessageIds-sound : ∀ msgs →
+  checkAllDuplicateMessageIds msgs ≡ [] →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs
-checkDuplicateMessageIds-sound =
+checkAllDuplicateMessageIds-sound =
   liftTriangular-sound checkDuplicateIdPair checkDuplicateIdPair-sound
 
-checkDuplicateMessageIds-complete : ∀ msgs →
+checkAllDuplicateMessageIds-complete : ∀ msgs →
   AllPairs (λ m₁ m₂ → DBCMessage.id m₁ ≢ DBCMessage.id m₂) msgs →
-  checkDuplicateMessageIds msgs ≡ []
-checkDuplicateMessageIds-complete =
+  checkAllDuplicateMessageIds msgs ≡ []
+checkAllDuplicateMessageIds-complete =
   liftTriangular-complete checkDuplicateIdPair checkDuplicateIdPair-complete
 
 -- ============================================================================
