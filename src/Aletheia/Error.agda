@@ -61,11 +61,12 @@ data ParseError : Set where
   -- reject invalid identifiers at the JSON parse boundary; the text parser
   -- already rejects these syntactically via `parseIdentifier`.
   InvalidIdentifier       : String → ParseError
-  -- Adversarial-input bound exceeded at the JSON parser entry.
-  -- First arg names which kind of bound was crossed; second is the
-  -- observed value; third is the limit per `Aletheia.Limits`.
-  InputBoundExceeded      : BoundKind → ℕ → ℕ → ParseError
   InContext               : String → ParseError → ParseError
+  -- NOTE: Adversarial-input bounds are emitted via the top-level
+  -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2 —
+  -- consolidated from the three previously duplicate per-ADT ctors).
+  -- A ParseError observer sees `InputBoundExceeded` at the Error sum
+  -- level rather than inside ParseError itself.
 
 formatParseError : ParseError → String
 formatParseError (MissingField f) =
@@ -106,8 +107,6 @@ formatParseError (NonTerminatingRational f) =
   "rational field '" ++ₛ f ++ₛ "' is non-terminating in decimal (denominator has a prime factor outside {2, 5})"
 formatParseError (InvalidIdentifier s) =
   "'" ++ₛ s ++ₛ "' is not a valid DBC identifier (must start with letter or '_', followed by alphanumerics or '_')"
-formatParseError (InputBoundExceeded kind observed limit) =
-  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatParseError (InContext ctx inner) =
   ctx ++ₛ ": " ++ₛ formatParseError inner
 
@@ -130,7 +129,6 @@ parseErrorCode (SignalMSBBelowBitLength _ _) = "parse_signal_msb_below_bit_lengt
 parseErrorCode (InvalidKind _ _)          = "parse_invalid_kind"
 parseErrorCode (NonTerminatingRational _) = "parse_non_terminating_rational"
 parseErrorCode (InvalidIdentifier _)       = "parse_invalid_identifier"
-parseErrorCode (InputBoundExceeded _ _ _)  = "parse_input_bound_exceeded"
 parseErrorCode (InContext _ inner)         = parseErrorCode inner
 
 -- ============================================================================
@@ -180,9 +178,10 @@ data FrameError : Set where
   CANIdNotFound          : FrameError
   CANIdMismatch          : FrameError
   SignalValueOutOfBounds : String → FrameError  -- pre-formatted "v not in [min, max]"
-  -- Adversarial-input bound exceeded (frame byte count, etc.).
-  InputBoundExceeded     : BoundKind → ℕ → ℕ → FrameError
   InContext              : String → FrameError → FrameError
+  -- NOTE: Frame-byte-count and similar adversarial-input bounds emit
+  -- via the top-level `Error.InputBoundExceeded` ctor (R19 cluster 14 /
+  -- AGDA-C-6.2 consolidation).
 
 formatFrameError : FrameError → String
 formatFrameError (SignalNotFound name)          = "signal '" ++ₛ name ++ₛ "' not found in message"
@@ -192,8 +191,6 @@ formatFrameError SignalsOverlap                 = "signals overlap"
 formatFrameError CANIdNotFound                  = "CAN ID not found in DBC"
 formatFrameError CANIdMismatch                  = "CAN ID does not match frame"
 formatFrameError (SignalValueOutOfBounds desc)  = "value out of bounds: " ++ₛ desc
-formatFrameError (InputBoundExceeded kind observed limit) =
-  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 formatFrameError (InContext ctx inner)          = ctx ++ₛ ": " ++ₛ formatFrameError inner
 
 frameErrorCode : FrameError → String
@@ -204,7 +201,6 @@ frameErrorCode SignalsOverlap              = "frame_signals_overlap"
 frameErrorCode CANIdNotFound               = "frame_can_id_not_found"
 frameErrorCode CANIdMismatch               = "frame_can_id_mismatch"
 frameErrorCode (SignalValueOutOfBounds _)  = "frame_signal_value_out_of_bounds"
-frameErrorCode (InputBoundExceeded _ _ _)  = "frame_input_bound_exceeded"
 frameErrorCode (InContext _ inner)         = frameErrorCode inner
 
 -- ============================================================================
@@ -353,8 +349,8 @@ data DBCTextParseError : Set where
   ParseFailure              : DBCTextParseError
   TrailingInput             : Position → DBCTextParseError
   AttributeRefinementFailed : String   → DBCTextParseError
-  -- Adversarial-input bound exceeded at the DBC text parser entry.
-  InputBoundExceeded        : BoundKind → ℕ → ℕ → DBCTextParseError
+  -- NOTE: DBC-text-input bytes adversarial bound emits via the top-level
+  -- `Error.InputBoundExceeded` ctor (R19 cluster 14 / AGDA-C-6.2).
 
 formatDBCTextParseError : DBCTextParseError → String
 formatDBCTextParseError ParseFailure =
@@ -364,45 +360,53 @@ formatDBCTextParseError (TrailingInput pos) =
     ++ₛ ", column " ++ₛ showℕ (Position.column pos)
 formatDBCTextParseError (AttributeRefinementFailed detail) =
   "attribute refinement failed: " ++ₛ detail
-formatDBCTextParseError (InputBoundExceeded kind observed limit) =
-  boundKindLabel kind ++ₛ " " ++ₛ showℕ observed ++ₛ " exceeds limit " ++ₛ showℕ limit
 
 dbcTextParseErrorCode : DBCTextParseError → String
 dbcTextParseErrorCode ParseFailure                  = "dbc_text_parse_failure"
 dbcTextParseErrorCode (TrailingInput _)             = "dbc_text_trailing_input"
 dbcTextParseErrorCode (AttributeRefinementFailed _) = "dbc_text_attribute_refinement_failed"
-dbcTextParseErrorCode (InputBoundExceeded _ _ _)    = "dbc_text_input_bound_exceeded"
 
 -- ============================================================================
 -- TOP-LEVEL ERROR SUM
 -- ============================================================================
 
 data Error : Set where
-  ParseErr        : ParseError → Error
-  FrameErr        : FrameError → Error
-  ExtractionErr   : ExtractionError → Error
-  RouteErr        : RouteError → Error
-  HandlerErr      : HandlerError → Error
-  DispatchErr     : DispatchError → Error
-  DBCTextParseErr : DBCTextParseError → Error
-  WithContext     : String → Error → Error
+  ParseErr           : ParseError → Error
+  FrameErr           : FrameError → Error
+  ExtractionErr      : ExtractionError → Error
+  RouteErr           : RouteError → Error
+  HandlerErr         : HandlerError → Error
+  DispatchErr        : DispatchError → Error
+  DBCTextParseErr    : DBCTextParseError → Error
+  WithContext        : String → Error → Error
+  -- Adversarial-input bound exceeded at any parser surface.  Consolidated
+  -- from the previously per-ADT `InputBoundExceeded` ctors on ParseError /
+  -- FrameError / DBCTextParseError (R19 cluster 14 / AGDA-C-6.2).  The
+  -- `BoundKind` discriminates which kind of bound (NestingDepth /
+  -- AtomCount / IdentifierLength / FrameByteCount / etc.); the
+  -- ADT-prefix discrimination on the wire code is no longer needed —
+  -- bindings dispatch on `bound_kind` from the structured payload.
+  InputBoundExceeded : BoundKind → ℕ → ℕ → Error
 
 formatError : Error → String
-formatError (ParseErr pe)           = formatParseError pe
-formatError (FrameErr fe)           = formatFrameError fe
-formatError (ExtractionErr ee)      = formatExtractionError ee
-formatError (RouteErr re)           = formatRouteError re
-formatError (HandlerErr he)         = formatHandlerError he
-formatError (DispatchErr de)        = formatDispatchError de
-formatError (DBCTextParseErr de)    = formatDBCTextParseError de
-formatError (WithContext ctx inner) = ctx ++ₛ ": " ++ₛ formatError inner
+formatError (ParseErr pe)                       = formatParseError pe
+formatError (FrameErr fe)                       = formatFrameError fe
+formatError (ExtractionErr ee)                  = formatExtractionError ee
+formatError (RouteErr re)                       = formatRouteError re
+formatError (HandlerErr he)                     = formatHandlerError he
+formatError (DispatchErr de)                    = formatDispatchError de
+formatError (DBCTextParseErr de)                = formatDBCTextParseError de
+formatError (WithContext ctx inner)             = ctx ++ₛ ": " ++ₛ formatError inner
+formatError (InputBoundExceeded kind obs limit) =
+  boundKindLabel kind ++ₛ " " ++ₛ showℕ obs ++ₛ " exceeds limit " ++ₛ showℕ limit
 
 errorCode : Error → String
-errorCode (ParseErr pe)         = parseErrorCode pe
-errorCode (FrameErr fe)         = frameErrorCode fe
-errorCode (ExtractionErr ee)    = extractionErrorCode ee
-errorCode (RouteErr re)         = routeErrorCode re
-errorCode (HandlerErr he)       = handlerErrorCode he
-errorCode (DispatchErr de)      = dispatchErrorCode de
-errorCode (DBCTextParseErr de)  = dbcTextParseErrorCode de
-errorCode (WithContext _ inner) = errorCode inner
+errorCode (ParseErr pe)             = parseErrorCode pe
+errorCode (FrameErr fe)             = frameErrorCode fe
+errorCode (ExtractionErr ee)        = extractionErrorCode ee
+errorCode (RouteErr re)             = routeErrorCode re
+errorCode (HandlerErr he)           = handlerErrorCode he
+errorCode (DispatchErr de)          = dispatchErrorCode de
+errorCode (DBCTextParseErr de)      = dbcTextParseErrorCode de
+errorCode (WithContext _ inner)     = errorCode inner
+errorCode (InputBoundExceeded _ _ _) = "input_bound_exceeded"

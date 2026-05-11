@@ -332,8 +332,8 @@ func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	if !errors.As(err, &bex) {
 		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
 	}
-	if bex.Code != CodeParseInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeParseInputBoundExceeded)
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
 	}
 	if bex.BoundKind != BoundKindNestingDepth {
 		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindNestingDepth)

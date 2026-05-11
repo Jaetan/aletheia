@@ -80,7 +80,7 @@ handleParseDBCTextResult (inj₂ dbc) state =
     helper : DBC → Maybe (ℕ × ℕ) → StreamState × Response
     helper dbc (just (obs , lim)) =
       (state , Response.Error (WithContext "ParseDBCText"
-        (DBCTextParseErr (InputBoundExceeded ArrayCardinality obs lim))))
+        (InputBoundExceeded ArrayCardinality obs lim)))
     helper dbc nothing =
       let issues = validateDBCFull dbc
       in if hasAnyError issues
@@ -97,4 +97,4 @@ handleParseDBCText text state =
   in if inputLen ≤ᵇ max-dbc-text-bytes
      then handleParseDBCTextResult (parseText text) state
      else (state , Response.Error (WithContext "ParseDBCText"
-              (DBCTextParseErr (InputBoundExceeded InputLengthBytes inputLen max-dbc-text-bytes))))
+              (InputBoundExceeded InputLengthBytes inputLen max-dbc-text-bytes)))

@@ -747,10 +747,11 @@ class ErrorResponse(TypedDict):
     """Error response with machine-readable code.
 
     The ``bound_kind`` / ``observed`` / ``limit`` triple is present on
-    InputBoundExceeded errors (``code`` ends with ``input_bound_exceeded``)
-    and absent on all other error codes; the Agda kernel emits the typed
-    payload via ``Protocol/ResponseFormat.errorExtras`` (AGDA-D-13.4
-    phase 2a).
+    InputBoundExceeded errors (``code == "input_bound_exceeded"`` post
+    R19 cluster 14 / AGDA-C-6.2 consolidation; previously the three
+    per-ADT codes ``parse_*`` / ``frame_*`` / ``dbc_text_*``) and absent
+    on all other error codes; the Agda kernel emits the typed payload
+    via ``Protocol/ResponseFormat.errorExtras`` (AGDA-D-13.4 phase 2a).
     """
     status: Literal["error"]
     code: str

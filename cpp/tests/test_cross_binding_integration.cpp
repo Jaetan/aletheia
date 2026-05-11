@@ -243,7 +243,7 @@ TEST_CASE("nesting depth over limit lifts to InputBoundExceeded",
     auto result = client.set_properties(std::stop_token{}, props);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
-    CHECK(result.error().code() == ErrorCode::ParseInputBoundExceeded);
+    CHECK(result.error().code() == ErrorCode::InputBoundExceeded);
     REQUIRE(result.error().bound_info().has_value());
     CHECK(result.error().bound_info()->bound_kind == bound_kind_nesting_depth);
     CHECK(result.error().bound_info()->limit == max_nesting_depth);

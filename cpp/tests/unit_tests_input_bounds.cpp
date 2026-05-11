@@ -67,12 +67,11 @@ TEST_CASE("BoundKind wire codes mirror boundKindCode in Aletheia.Limits",
 }
 
 TEST_CASE("New ErrorCode entries map from string", "[input_bounds][trackUR2]") {
-    CHECK(aletheia::error_code_from_string("parse_input_bound_exceeded") ==
-          aletheia::ErrorCode::ParseInputBoundExceeded);
-    CHECK(aletheia::error_code_from_string("dbc_text_input_bound_exceeded") ==
-          aletheia::ErrorCode::DBCTextInputBoundExceeded);
-    CHECK(aletheia::error_code_from_string("frame_input_bound_exceeded") ==
-          aletheia::ErrorCode::FrameInputBoundExceeded);
+    // Post R19 cluster 14 / AGDA-C-6.2 — the parse / dbc_text / frame
+    // input-bound codes consolidated to a single InputBoundExceeded;
+    // discriminate the source bound via the structured bound_kind field.
+    CHECK(aletheia::error_code_from_string("input_bound_exceeded") ==
+          aletheia::ErrorCode::InputBoundExceeded);
     CHECK(aletheia::error_code_from_string("parse_invalid_identifier") ==
           aletheia::ErrorCode::ParseInvalidIdentifier);
     CHECK(aletheia::error_code_from_string("dbc_text_parse_failure") ==
@@ -138,8 +137,9 @@ TEST_CASE("parse_bounded accepts JSON at nesting depth", "[input_bounds][trackUR
 
 // R19 cluster 8 (CPP-D-21.3 cross-binding parity): parse_dbc_text pre-checks
 // the inner text size against max_dbc_text_bytes before wrapping it in a JSON
-// command, so the rejection carries the precise DBCTextInputBoundExceeded
-// error code and InputBoundExceeded error kind.
+// command, so the rejection carries the consolidated InputBoundExceeded
+// error code and InputBoundExceeded error kind (post R19 cluster 14 /
+// AGDA-C-6.2 consolidation).
 
 TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]") {
     // Mock backend that never returns — the bound check fires before any
@@ -152,7 +152,7 @@ TEST_CASE("parse_dbc_text rejects oversize DBC text", "[input_bounds][cluster8]"
     auto result = client.parse_dbc_text(stop_source.get_token(), big_text);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
-    CHECK(result.error().code() == aletheia::ErrorCode::DBCTextInputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
     CHECK_THAT(std::string{result.error().message()},
                Catch::Matchers::ContainsSubstring("exceeds limit"));
 
@@ -177,7 +177,7 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info",
           "[input_bounds][cluster8]") {
     const std::string err_json =
         R"({"status":"error",)"
-        R"("code":"parse_input_bound_exceeded",)"
+        R"("code":"input_bound_exceeded",)"
         R"("message":"input length (bytes) 100000000 exceeds limit 67108864",)"
         R"("bound_kind":"input_length_bytes",)"
         R"("observed":100000000,)"
@@ -185,7 +185,7 @@ TEST_CASE("Input-bound error JSON lifts structured fields into bound_info",
     auto result = aletheia::detail::parse_success(err_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
-    CHECK(result.error().code() == aletheia::ErrorCode::ParseInputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
     REQUIRE(result.error().bound_info().has_value());
     CHECK(result.error().bound_info()->bound_kind == "input_length_bytes");
     CHECK(result.error().bound_info()->observed == 100000000ULL);
@@ -197,11 +197,11 @@ TEST_CASE("Input-bound error JSON without structured fields degrades to nullopt"
     // Older Agda responses (pre-cluster-8) emit only `code` and `message`.
     // The kind/code lifting still applies; bound_info() stays nullopt.
     const std::string err_json = R"({"status":"error",)"
-                                 R"("code":"parse_input_bound_exceeded",)"
+                                 R"("code":"input_bound_exceeded",)"
                                  R"("message":"input length exceeded"})";
     auto result = aletheia::detail::parse_success(err_json);
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().kind() == aletheia::ErrorKind::InputBoundExceeded);
-    CHECK(result.error().code() == aletheia::ErrorCode::ParseInputBoundExceeded);
+    CHECK(result.error().code() == aletheia::ErrorCode::InputBoundExceeded);
     CHECK_FALSE(result.error().bound_info().has_value());
 }

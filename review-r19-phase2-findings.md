@@ -147,7 +147,7 @@ No findings.
 
 #### Cat 6: Redundant patterns (6)
 - `[ ]` AGDA-C-6.1 [src/Aletheia/Error.agda:67,148,184,224,288] `InContext` duplicated across 5 ADTs with identical shape — combinator candidate
-- `[ ]` AGDA-C-6.2 [src/Aletheia/Error.agda:66,183,356] `InputBoundExceeded : BoundKind → ℕ → ℕ → X` duplicated across 3 ADTs — lift to top-level Error
+- `[x]` AGDA-C-6.2 [src/Aletheia/Error.agda:66,183,356] `InputBoundExceeded : BoundKind → ℕ → ℕ → X` duplicated across 3 ADTs — closed by cluster 14 / AGDA-C-6.2 — lifted `InputBoundExceeded` from per-ADT ctors (ParseError / FrameError / DBCTextParseError) to a single top-level `Error.InputBoundExceeded`; wire codes `parse_input_bound_exceeded` / `frame_input_bound_exceeded` / `dbc_text_input_bound_exceeded` consolidated to `input_bound_exceeded` with `bound_kind` discriminating which bound was crossed; cross-binding mirrored (Python `ErrorCode.INPUT_BOUND_EXCEEDED`, Go `CodeInputBoundExceeded`, C++ `ErrorCode::InputBoundExceeded`); `ResponseFormat.errorExtras` consolidated 3 boundInfo helpers to 1; docs/PROTOCOL.md + RUNBOOK.md sections consolidated; per-binding tests updated
 - `[ ]` AGDA-C-6.3 [src/Aletheia/DBC/Validator/Checks.agda:506-541 + 551-567] 3 near-identical `checkUnknown*` functions — single helper
 - `[ ]` AGDA-C-6.4 [src/Aletheia/DBC/Formatter/MessageRoundtrip/{Standard,Extended}.agda] 72-line mirror twins — parameterise over CANId ctor
 - `[x]` AGDA-C-6.5 [src/Aletheia/DBC/Formatter/MetadataRoundtrip.agda:153,189,217,242] 4 `-list-go` helpers identical template — closed by cluster 14 / AGDA-C-6.5 — added `parseObjectList-roundtrip` combinator in MetadataRoundtrip.agda; 4 per-entity `*-list-go` helpers (signalGroup / environmentVar / valueEntry / valueTable) collapsed to one-line combinator calls; combinator takes `formatter-eq` witness that `formatter ≡ JObject ∘ fields` (always `λ _ → refl` when formatter is `formatX x = JObject (...)` syntactically)
@@ -729,7 +729,7 @@ No NEW findings beyond cat 11 reframing per advisor.
 #### Guidelines G-A7/A11/A19/A23
 - `[ ]` AGDA-D-GA7.1 (= AGDA-D-12.2) `AllObserved` doc-propagation gap
 - `[ ]` AGDA-D-GA11.1 (= AGDA-D-11.4) `Identifier.valid` length missing
-- `[ ]` AGDA-D-GA17.1 (cross-listed AGDA-C-6.2) `InputBoundExceeded` duplicated 3 ADTs
+- `[x]` AGDA-D-GA17.1 (= AGDA-C-6.2) `InputBoundExceeded` duplicated 3 ADTs — closed alongside AGDA-C-6.2
 - `[ ]` AGDA-D-GA19.1 [haskell-shim/AletheiaFFI/BinaryOutput.hs:53-71] Wire format uses host-native byte order; cross-host parity nominal but undocumented
 - `[ ]` AGDA-D-GA19.2 [haskell-shim/AletheiaFFI/BinaryOutput.hs:81-84] Numerator `Integer` cast to `Int64` silently wraps for VAL_TABLE_ rationals exceeding `Int64.MaxValue`
 - `[ ]` AGDA-D-GA23.1 (= AGDA-D-10.1/13.1/17.1) BRS/ESI wire-boundary audit not applied

@@ -218,7 +218,7 @@ class AletheiaClient(SignalOpsMixin):
                 BOUND_KIND_INPUT_LENGTH_BYTES,
                 len(json_bytes),
                 MAX_JSON_BYTES,
-                code="parse_input_bound_exceeded",
+                code="input_bound_exceeded",
             )
         result_ptr = self._lib.aletheia_process(self._state, json_bytes)
 
@@ -325,7 +325,7 @@ class AletheiaClient(SignalOpsMixin):
         Defense-in-depth (R19 cluster 8 — CPP-D-21.3 cross-binding parity):
         rejects DBC text inputs longer than :data:`MAX_DBC_TEXT_BYTES` before
         wrapping them in a JSON command, raising :class:`InputBoundExceededError`
-        with code ``"dbc_text_input_bound_exceeded"``.  The outer
+        with code ``"input_bound_exceeded"``.  The outer
         :data:`MAX_JSON_BYTES` cap in :meth:`_send_command` still covers the
         wrapped command separately; the additional inner cap matches the
         Agda kernel's two-layer enforcement in ``handleParseDBCText``.
@@ -336,7 +336,7 @@ class AletheiaClient(SignalOpsMixin):
                 BOUND_KIND_INPUT_LENGTH_BYTES,
                 len(text_bytes),
                 MAX_DBC_TEXT_BYTES,
-                code="dbc_text_input_bound_exceeded",
+                code="input_bound_exceeded",
             )
         cmd: ParseDBCTextCommand = {"type": "command", "command": "parseDBCText", "text": text}
         return self._finalize_parsed_dbc(parse_parsed_dbc_response(self._send_command(cmd)))

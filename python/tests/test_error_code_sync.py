@@ -33,10 +33,13 @@ _SKIP_REASON = (
     " structural parse failures."
 )
 
-# The seven ``*ErrorCode`` function families ``errorCode`` dispatches through.
-# Each family emits a string literal on the RHS of ``= "..."``; collecting
-# those literals across all seven yields the canonical wire-value set.
+# The seven per-ADT ``*ErrorCode`` functions plus the top-level
+# ``errorCode`` (which carries the post R19 cluster 14 / AGDA-C-6.2
+# consolidated ``input_bound_exceeded`` literal directly).  Each family
+# emits a string literal on the RHS of ``= "..."``; collecting those
+# literals across all functions yields the canonical wire-value set.
 _ERROR_CODE_FUNCTIONS: tuple[str, ...] = (
+    "errorCode",
     "parseErrorCode",
     "frameErrorCode",
     "extractionErrorCode",

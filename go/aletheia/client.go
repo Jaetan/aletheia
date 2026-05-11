@@ -317,7 +317,7 @@ func (c *Client) ParseDBCText(ctx context.Context, text string) (*ParsedDBC, err
 			BoundKindInputLengthBytes,
 			uint64(len(text)),
 			MaxDBCTextBytes,
-			"dbc_text_input_bound_exceeded",
+			CodeInputBoundExceeded,
 		)
 	}
 	cmd, err := serializeCommand("parseDBCText", map[string]any{

@@ -190,7 +190,7 @@ auto AletheiaClient::parse_dbc_text(std::stop_token stop, std::string_view text)
             AletheiaError{ErrorKind::InputBoundExceeded,
                           "input length (bytes) " + std::to_string(text.size()) +
                               " exceeds limit " + std::to_string(max_dbc_text_bytes),
-                          ErrorCode::DBCTextInputBoundExceeded,
+                          ErrorCode::InputBoundExceeded,
                           InputBoundExceededError{
                               .bound_kind = std::string{bound_kind_input_length_bytes},
                               .observed = static_cast<std::uint64_t>(text.size()),

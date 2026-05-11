@@ -411,7 +411,7 @@ func (b *FFIBackend) Process(state unsafe.Pointer, input string) (string, error)
 			BoundKindInputLengthBytes,
 			uint64(len(input)),
 			MaxJSONBytes,
-			CodeParseInputBoundExceeded,
+			CodeInputBoundExceeded,
 		)
 	}
 	// Reject embedded NUL bytes before C.CString truncates.  R19 cluster

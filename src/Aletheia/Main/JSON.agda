@@ -67,7 +67,7 @@ private
     in if depth <ᵇ suc max-nesting-depth
        then handleJSONObject state j
        else wrapJSON (state , Msg.Response.Error
-              (ParseErr (InputBoundExceeded NestingDepth depth max-nesting-depth)))
+              (InputBoundExceeded NestingDepth depth max-nesting-depth))
     where
       handleJSONObject : StreamState → JSON → StreamState × String
       handleJSONObject state (JObject obj) = dispatchCommand state obj
@@ -91,4 +91,4 @@ processJSONLine state jsonLine =
   in if inputLen ≤ᵇ max-json-bytes
      then handleParsedJSON state (mapₘ proj₁ (runParser parseJSON chars))
      else wrapJSON (state , Msg.Response.Error
-            (ParseErr (InputBoundExceeded InputLengthBytes inputLen max-json-bytes)))
+            (InputBoundExceeded InputLengthBytes inputLen max-json-bytes))

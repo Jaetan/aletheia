@@ -49,12 +49,10 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"parse_invalid_kind", ErrorCode::ParseInvalidKind},
     {"parse_non_terminating_rational", ErrorCode::ParseNonTerminatingRational},
     {"parse_invalid_identifier", ErrorCode::ParseInvalidIdentifier},
-    {"parse_input_bound_exceeded", ErrorCode::ParseInputBoundExceeded},
     // DBC text parse errors
     {"dbc_text_parse_failure", ErrorCode::DBCTextParseFailure},
     {"dbc_text_trailing_input", ErrorCode::DBCTextTrailingInput},
     {"dbc_text_attribute_refinement_failed", ErrorCode::DBCTextAttributeRefinementFailed},
-    {"dbc_text_input_bound_exceeded", ErrorCode::DBCTextInputBoundExceeded},
     // Frame errors
     {"frame_signal_not_found", ErrorCode::FrameSignalNotFound},
     {"frame_signal_index_oob", ErrorCode::FrameSignalIndexOob},
@@ -63,7 +61,8 @@ constexpr std::array<ErrorCodeEntry, 58> error_code_table{{
     {"frame_can_id_not_found", ErrorCode::FrameCanIdNotFound},
     {"frame_can_id_mismatch", ErrorCode::FrameCanIdMismatch},
     {"frame_signal_value_out_of_bounds", ErrorCode::FrameSignalValueOutOfBounds},
-    {"frame_input_bound_exceeded", ErrorCode::FrameInputBoundExceeded},
+    // Top-level adversarial-input bound (R19 cluster 14 / AGDA-C-6.2)
+    {"input_bound_exceeded", ErrorCode::InputBoundExceeded},
     // Route errors
     {"route_missing_field", ErrorCode::RouteMissingField},
     {"route_missing_array", ErrorCode::RouteMissingArray},
@@ -156,9 +155,7 @@ static auto parse_bounded(std::string_view input) -> Json {
 // parser surfaces.  Mirrors Python's `InputBoundExceededError` subclassing
 // and Go's typed `*InputBoundExceededError` discriminator.
 static auto is_input_bound_exceeded_code(ErrorCode code) -> bool {
-    return code == ErrorCode::ParseInputBoundExceeded ||
-           code == ErrorCode::DBCTextInputBoundExceeded ||
-           code == ErrorCode::FrameInputBoundExceeded;
+    return code == ErrorCode::InputBoundExceeded;
 }
 
 static auto make_json_error(ErrorKind kind, const Json& j) -> AletheiaError {

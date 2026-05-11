@@ -25,8 +25,10 @@ enum class ErrorKind {
     InputBoundExceeded // Adversarial-input bound crossed at a parser surface;
                        // mirrors Python's `InputBoundExceededError` and Go's
                        // `*InputBoundExceededError` (R19 cluster 8 — CPP-D-21.3
-                       // cross-binding parity).  ErrorCode carries the precise
-                       // wire-form code (Parse/DBCText/FrameInputBoundExceeded).
+                       // cross-binding parity).  Post R19 cluster 14 /
+                       // AGDA-C-6.2 consolidation, the wire code is the single
+                       // `ErrorCode::InputBoundExceeded`; `bound_kind` from
+                       // the structured payload discriminates which bound.
 };
 
 /// Machine-readable error codes mirroring the Agda `Error` ADT.
@@ -61,12 +63,10 @@ enum class ErrorCode {
     ParseInvalidKind,
     ParseNonTerminatingRational,
     ParseInvalidIdentifier,
-    ParseInputBoundExceeded,
     // DBC text parse errors
     DBCTextParseFailure,
     DBCTextTrailingInput,
     DBCTextAttributeRefinementFailed,
-    DBCTextInputBoundExceeded,
     // Frame errors
     FrameSignalNotFound,
     FrameSignalIndexOob,
@@ -75,7 +75,11 @@ enum class ErrorCode {
     FrameCanIdNotFound,
     FrameCanIdMismatch,
     FrameSignalValueOutOfBounds,
-    FrameInputBoundExceeded,
+    // Top-level adversarial-input bound (consolidated 2026-05-11 per
+    // R19 cluster 14 / AGDA-C-6.2 — replaces ParseInputBoundExceeded /
+    // FrameInputBoundExceeded / DBCTextInputBoundExceeded; discriminate
+    // by `bound_kind` from the structured payload).
+    InputBoundExceeded,
     // Route errors
     RouteMissingField,
     RouteMissingArray,

@@ -98,11 +98,11 @@ formatValidationIssue issue =
 
 -- Per-error structured fields appended to the Error JSON envelope:
 --   * `DBCTextParseErr (TrailingInput pos)` exposes `line` + `column`.
---   * Any `InputBoundExceeded kind observed limit` on `ParseError` /
---     `FrameError` / `DBCTextParseError` exposes `bound_kind` + `observed`
---     + `limit` (AGDA-D-13.4 phase 2a — typed wire-error refinement, closes
---     cluster 8c by making the structured triple actually appear on the
---     wire; the C++ / Go / Python bindings already expect these keys).
+--   * `Error.InputBoundExceeded kind observed limit` (top-level after
+--     R19 cluster 14 / AGDA-C-6.2 consolidation) exposes `bound_kind` +
+--     `observed` + `limit` (AGDA-D-13.4 phase 2a/2b typed wire-error
+--     refinement; the C++ / Go / Python bindings dispatch on `bound_kind`
+--     from this structured payload).
 -- `WithContext` is transparent so wrappers do not hide structured payloads.
 private
   boundInfoFields : BoundKind → ℕ → ℕ → List (String × JSON)
@@ -112,36 +112,14 @@ private
     ("limit"      , JNumber (ℕtoℚ limit)) ∷
     []
 
-  parseErrorBoundInfo : Err.ParseError → Maybe (BoundKind × ℕ × ℕ)
-  parseErrorBoundInfo (Err.ParseError.InputBoundExceeded k o l) = just (k , o , l)
-  parseErrorBoundInfo (Err.ParseError.InContext _ inner)        = parseErrorBoundInfo inner
-  parseErrorBoundInfo _                                          = nothing
-
-  frameErrorBoundInfo : Err.FrameError → Maybe (BoundKind × ℕ × ℕ)
-  frameErrorBoundInfo (Err.FrameError.InputBoundExceeded k o l) = just (k , o , l)
-  frameErrorBoundInfo (Err.FrameError.InContext _ inner)        = frameErrorBoundInfo inner
-  frameErrorBoundInfo _                                          = nothing
-
-  dbcTextErrorBoundInfo : Err.DBCTextParseError → Maybe (BoundKind × ℕ × ℕ)
-  dbcTextErrorBoundInfo (Err.DBCTextParseError.InputBoundExceeded k o l) = just (k , o , l)
-  dbcTextErrorBoundInfo _                                                = nothing
-
 errorExtras : Err.Error → List (String × JSON)
 errorExtras (Err.DBCTextParseErr (Err.TrailingInput pos)) =
   ("line"   , JNumber (ℕtoℚ (Position.line pos))) ∷
   ("column" , JNumber (ℕtoℚ (Position.column pos))) ∷
   []
-errorExtras (Err.ParseErr pe) with parseErrorBoundInfo pe
-... | just (k , o , l) = boundInfoFields k o l
-... | nothing          = []
-errorExtras (Err.FrameErr fe) with frameErrorBoundInfo fe
-... | just (k , o , l) = boundInfoFields k o l
-... | nothing          = []
-errorExtras (Err.DBCTextParseErr de) with dbcTextErrorBoundInfo de
-... | just (k , o , l) = boundInfoFields k o l
-... | nothing          = []
-errorExtras (Err.WithContext _ inner) = errorExtras inner
-errorExtras _                         = []
+errorExtras (Err.InputBoundExceeded k o l) = boundInfoFields k o l
+errorExtras (Err.WithContext _ inner)      = errorExtras inner
+errorExtras _                              = []
 
 -- Format Response as JSON
 formatResponse : Response → JSON

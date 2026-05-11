@@ -25,7 +25,7 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 			BoundKind: BoundKindInputLengthBytes,
 			Observed:  100,
 			Limit:     50,
-			Code:      CodeParseInputBoundExceeded,
+			Code:      CodeInputBoundExceeded,
 		}
 		if err.BoundKind != "input_length_bytes" {
 			t.Errorf("BoundKind = %q, want %q", err.BoundKind, "input_length_bytes")
@@ -33,8 +33,8 @@ func TestInputBoundExceededError_Shape(t *testing.T) {
 		if err.Observed != 100 || err.Limit != 50 {
 			t.Errorf("Observed/Limit = %d/%d, want 100/50", err.Observed, err.Limit)
 		}
-		if err.Code != "parse_input_bound_exceeded" {
-			t.Errorf("Code = %q, want %q", err.Code, "parse_input_bound_exceeded")
+		if err.Code != "input_bound_exceeded" {
+			t.Errorf("Code = %q, want %q", err.Code, "input_bound_exceeded")
 		}
 	})
 
@@ -141,8 +141,8 @@ func TestProcess_RejectsOversizeJSON(t *testing.T) {
 	if bex.Limit != MaxJSONBytes {
 		t.Errorf("Limit = %d, want %d", bex.Limit, MaxJSONBytes)
 	}
-	if bex.Code != CodeParseInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeParseInputBoundExceeded)
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
 	}
 }
 
@@ -300,7 +300,7 @@ func TestParseDBCText_RejectsOversizeText(t *testing.T) {
 	if bex.Limit != MaxDBCTextBytes {
 		t.Errorf("Limit = %d, want %d", bex.Limit, MaxDBCTextBytes)
 	}
-	if bex.Code != CodeDBCTextInputBoundExceeded {
-		t.Errorf("Code = %q, want %q", bex.Code, CodeDBCTextInputBoundExceeded)
+	if bex.Code != CodeInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeInputBoundExceeded)
 	}
 }

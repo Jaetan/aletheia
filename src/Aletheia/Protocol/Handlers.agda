@@ -127,9 +127,7 @@ private
   cardinalityErrorResponse cmdCtx arrayCtx observed limit state =
     (state , Response.Error
       (WithContext cmdCtx
-        (HandlerErr
-          (WrappedParse
-            (InContext arrayCtx (InputBoundExceeded ArrayCardinality observed limit))))))
+        (WithContext arrayCtx (InputBoundExceeded ArrayCardinality observed limit))))
 
 -- ============================================================================
 -- COMMAND HANDLERS
@@ -184,7 +182,7 @@ parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
 ... | just prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
 ...   | false | observed = (state , Response.Error
                               (WithContext "SetProperties"
-                                (ParseErr (InputBoundExceeded AtomCount observed max-atom-count-per-property))))
+                                (InputBoundExceeded AtomCount observed max-atom-count-per-property)))
 ...   | true  | _        = let atoms = collectAtoms prop
                                proc = initProc (indexFormula prop)
                                propState = mkPropertyState idx prop atoms proc

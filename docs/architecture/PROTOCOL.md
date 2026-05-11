@@ -1003,18 +1003,16 @@ The single source of truth is the Agda module `Aletheia.Limits` (`src/Aletheia/L
 
 ### Wire shape
 
-`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with one of the codes below, matching the `BoundKind` enum in `Aletheia.Limits`:
+`InputBoundExceeded` errors surface as the standard `{"status": "error", ...}` envelope with the consolidated code `input_bound_exceeded` (post R19 cluster 14 / AGDA-C-6.2 consolidation 2026-05-11; previously split into `parse_input_bound_exceeded` / `dbc_text_input_bound_exceeded` / `frame_input_bound_exceeded`). The `bound_kind` field in the structured payload discriminates which kind of bound was crossed, matching the `BoundKind` enum in `Aletheia.Limits`:
 
-| Code | Bound |
+| Code | bound_kind values |
 |---|---|
-| `parse_input_bound_exceeded` | JSON parser-side bound (any kind) |
-| `dbc_text_input_bound_exceeded` | DBC text parser-side bound (any kind) |
-| `frame_input_bound_exceeded` | Frame-decoder bound (`FrameByteCount`) |
+| `input_bound_exceeded` | `input_length_bytes` / `nesting_depth` / `array_cardinality` / `identifier_length` / `string_length` / `atom_count` / `frame_byte_count` |
 
-The `message` field embeds the kind label, observed value, and limit. Example:
+The `message` field embeds the kind label, observed value, and limit; the structured `bound_kind` / `observed` / `limit` fields appear on the envelope alongside `code` and `message`. Example:
 
 ```
-<<< {"status": "error", "code": "parse_input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864"}
+<<< {"status": "error", "code": "input_bound_exceeded", "message": "input length (bytes) 134217728 exceeds limit 67108864", "bound_kind": "input_length_bytes", "observed": 134217728, "limit": 67108864}
 ```
 
 ### Two-layer enforcement

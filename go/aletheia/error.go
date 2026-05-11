@@ -114,8 +114,6 @@ const (
 	CodeParseNonTerminatingRational = "parse_non_terminating_rational"
 	// CodeParseInvalidIdentifier — identifier fails DBC's identifier syntax.
 	CodeParseInvalidIdentifier = "parse_invalid_identifier"
-	// CodeParseInputBoundExceeded — JSON input exceeds maximum size bound.
-	CodeParseInputBoundExceeded = "parse_input_bound_exceeded"
 
 	// CodeDBCTextParseFailure — generic .dbc text parse failure.
 	CodeDBCTextParseFailure = "dbc_text_parse_failure"
@@ -123,8 +121,6 @@ const (
 	CodeDBCTextTrailingInput = "dbc_text_trailing_input"
 	// CodeDBCTextAttributeRefinementFailed — BA_ value fails its BA_DEF_ refinement.
 	CodeDBCTextAttributeRefinementFailed = "dbc_text_attribute_refinement_failed"
-	// CodeDBCTextInputBoundExceeded — .dbc text input exceeds maximum size bound.
-	CodeDBCTextInputBoundExceeded = "dbc_text_input_bound_exceeded"
 
 	// CodeFrameSignalNotFound — frame-level: signal name not declared on the message.
 	CodeFrameSignalNotFound = "frame_signal_not_found"
@@ -140,8 +136,14 @@ const (
 	CodeFrameCanIDMismatch = "frame_can_id_mismatch"
 	// CodeFrameSignalValueOutOfBounds — physical value outside [min, max] bounds.
 	CodeFrameSignalValueOutOfBounds = "frame_signal_value_out_of_bounds"
-	// CodeFrameInputBoundExceeded — frame input exceeds maximum size bound.
-	CodeFrameInputBoundExceeded = "frame_input_bound_exceeded"
+
+	// CodeInputBoundExceeded — adversarial-input bound exceeded at any
+	// parser surface.  Consolidated from the previously per-ADT codes
+	// `parse_input_bound_exceeded` / `frame_input_bound_exceeded` /
+	// `dbc_text_input_bound_exceeded` (R19 cluster 14 / AGDA-C-6.2,
+	// 2026-05-11).  Discriminate which bound was crossed by the
+	// `bound_kind` field carried in the structured payload.
+	CodeInputBoundExceeded = "input_bound_exceeded"
 
 	// CodeRouteMissingField — required field absent on a routed request.
 	CodeRouteMissingField = "route_missing_field"
@@ -272,8 +274,11 @@ type InputBoundExceededError struct {
 	Observed uint64
 	// Limit is the canonical bound from `limits.go` / Aletheia.Limits.
 	Limit uint64
-	// Code is the Agda wire error code (e.g. "parse_input_bound_exceeded"),
-	// matching the values in the Code* constant block above.
+	// Code is the Agda wire error code.  After R19 cluster 14 /
+	// AGDA-C-6.2 consolidation, this is always
+	// [CodeInputBoundExceeded] ("input_bound_exceeded") for
+	// adversarial-input bounds; the per-ADT codes
+	// (parse_input_bound_exceeded / frame_… / dbc_text_…) were merged.
 	Code string
 }
 

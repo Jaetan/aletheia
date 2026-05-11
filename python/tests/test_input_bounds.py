@@ -70,9 +70,9 @@ class TestInputBoundExceededErrorType:
             kind=limits.BOUND_KIND_INPUT_LENGTH_BYTES,
             observed=100,
             limit=50,
-            code="parse_input_bound_exceeded",
+            code="input_bound_exceeded",
         )
-        assert err.code == "parse_input_bound_exceeded"
+        assert err.code == "input_bound_exceeded"
 
 
 class TestLimitsConstants:
@@ -144,18 +144,21 @@ class TestInputBoundEnforcedAtFFIEntry:
             # Inner cap is on the raw text bytes, not the JSON envelope.
             assert exc_info.value.observed == limits.MAX_DBC_TEXT_BYTES + 1024
 
-    def test_parse_dbc_text_uses_dbc_text_code(self) -> None:
-        """Inner-cap rejection carries the ``dbc_text_input_bound_exceeded`` code.
+    def test_parse_dbc_text_uses_consolidated_code(self) -> None:
+        """Inner-cap rejection carries the ``input_bound_exceeded`` code.
 
         Regression: pre-R19-cluster-8 the rejection went through
-        ``_send_command``'s outer JSON cap and surfaced as
-        ``parse_input_bound_exceeded``.
+        ``_send_command``'s outer JSON cap and surfaced as a parse code;
+        post R19 cluster 14 / AGDA-C-6.2 (2026-05-11) the parse / frame /
+        dbc-text codes consolidated to a single ``input_bound_exceeded``
+        with the discriminator carried by ``bound_kind`` (here
+        ``input_length_bytes``).
         """
         with AletheiaClient() as client:
             big_payload = "x" * (limits.MAX_DBC_TEXT_BYTES + 1)
             with pytest.raises(InputBoundExceededError) as exc_info:
                 client.parse_dbc_text(big_payload)
-            assert exc_info.value.code == "dbc_text_input_bound_exceeded"
+            assert exc_info.value.code == "input_bound_exceeded"
 
 
 class TestIdentifierLengthBound:
@@ -253,13 +256,13 @@ class TestNestingDepthBound:
 
     def test_nested_at_depth_63_rejected(self) -> None:
         """63 always-wrappers = JSON depth 65 (> 64) — typed
-        ``parse_input_bound_exceeded`` carrying the structured triple."""
+        ``input_bound_exceeded`` carrying the structured triple."""
         prop = self._nested_ltl(63)
         with AletheiaClient() as client:
             client.parse_dbc(self._trivial_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "error", r
-            assert r["code"] == "parse_input_bound_exceeded", r
+            assert r["code"] == "input_bound_exceeded", r
             assert r["bound_kind"] == "nesting_depth", r
             assert r["limit"] == 64, r
             assert r["observed"] >= 65, r
@@ -412,19 +415,18 @@ class TestListCardinalityBound:
 
 
 class TestErrorCodes:
-    """``ErrorCode`` enum carries the new ``*_input_bound_exceeded`` codes."""
+    """``ErrorCode`` enum carries the consolidated ``input_bound_exceeded`` code.
 
-    def test_parse_input_bound_exceeded_code(self) -> None:
-        """JSON-side code is ``parse_input_bound_exceeded``."""
-        assert ErrorCode.PARSE_INPUT_BOUND_EXCEEDED == "parse_input_bound_exceeded"
+    Post R19 cluster 14 / AGDA-C-6.2 (2026-05-11): the three previously
+    per-ADT wire codes (``parse_input_bound_exceeded`` /
+    ``frame_input_bound_exceeded`` / ``dbc_text_input_bound_exceeded``)
+    merged into a single top-level ``input_bound_exceeded`` code; the
+    sub-discrimination lives in the structured ``bound_kind`` payload.
+    """
 
-    def test_dbc_text_input_bound_exceeded_code(self) -> None:
-        """DBC-text-side code is ``dbc_text_input_bound_exceeded``."""
-        assert ErrorCode.DBC_TEXT_INPUT_BOUND_EXCEEDED == "dbc_text_input_bound_exceeded"
-
-    def test_frame_input_bound_exceeded_code(self) -> None:
-        """Frame-side code is ``frame_input_bound_exceeded``."""
-        assert ErrorCode.FRAME_INPUT_BOUND_EXCEEDED == "frame_input_bound_exceeded"
+    def test_input_bound_exceeded_code(self) -> None:
+        """Top-level adversarial-input bound wire code."""
+        assert ErrorCode.INPUT_BOUND_EXCEEDED == "input_bound_exceeded"
 
 
 class TestPythonLoaderBoundChecks:

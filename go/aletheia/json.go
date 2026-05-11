@@ -856,9 +856,7 @@ func requireString(m map[string]any, key string) (string, error) {
 // only the binding-side short-circuit raised this type, so kernel-rejected
 // paths (NestingDepth, AtomCount) returned a generic *Error.
 func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
-	switch code {
-	case CodeParseInputBoundExceeded, CodeDBCTextInputBoundExceeded, CodeFrameInputBoundExceeded:
-	default:
+	if code != CodeInputBoundExceeded {
 		return nil
 	}
 	kind, ok := m["bound_kind"].(string)
