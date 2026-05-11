@@ -279,7 +279,7 @@ No findings (json.Marshal sorts; signalIndex map access via lookup not range).
 ### C++ Agent A — Hygiene (8 findings)
 
 #### Cat 1: Hygiene
-- `[ ]` CPP-A-1.1 [cpp/src/ffi_backend.cpp:237-343] 8× repeated FFI-string deleter+guard+null-check pattern; extract `wrap_str_result(char*, std::string_view)` helper
+- `[x]` CPP-A-1.1 [cpp/src/ffi_backend.cpp:237-343] 8× repeated FFI-string deleter+guard+null-check pattern — closed by cluster 14 / CPP-A-1.1 — added private `wrap_str_result(char* result, std::string_view error_msg)` helper on `FfiBackend`; 8 sites (process / send_frame_binary / send_error_binary / send_remote_binary / start_stream_binary / end_stream_binary / format_dbc_binary / extract_signals_binary) collapsed from 6-line pattern (char* / null-check / lambda / unique_ptr / string ctor) to 1-3 line `return wrap_str_result(...)` calls
 - `[ ]` CPP-A-1.2 [cpp/include/aletheia/dbc.hpp:340 + cpp/src/json_parse.cpp:585] "Track E.8 (Plan B)" qualifier — Track E shipped; drop "(Plan B)" tag
 
 #### Cat 2: Naming
@@ -296,7 +296,7 @@ No findings.
 - `[ ]` CPP-A-5.1 [cpp/src/ffi_backend.cpp:253-256, 331-334; cpp/src/yaml.cpp:32-61] `throw std::runtime_error` past the FFI boundary; sibling `update_frame_bin`/`extract_signals_bin` use `std::expected`. Asymmetric — uncaught exception unwinds through `AletheiaClient::send_frame`
 
 #### Cat 6: Redundant patterns
-- `[ ]` CPP-A-6.1 (= CPP-A-1.1) FFI-string deleter pattern × 8
+- `[x]` CPP-A-6.1 (= CPP-A-1.1) FFI-string deleter pattern × 8 — closed by CPP-A-1.1 (same finding, different cat label)
 - `[ ]` CPP-A-6.2 [cpp/src/client.cpp + dbc.cpp + json_serialize.cpp + ffi_backend.cpp] `std::visit([](const auto& v) → uint32_t { return v.value(); }, id)` + `holds_alternative<ExtendedId>(id)` ~12 sites; promote `can_id_value`/`can_id_is_extended` to `aletheia::detail::` or types.hpp
 
 #### Cat 30: Logging discipline

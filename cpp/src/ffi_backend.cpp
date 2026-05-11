@@ -134,6 +134,22 @@ class FfiBackend : public IBackend {
         return reinterpret_cast<Fn>(sym);
     }
 
+    // Wrap an FFI char* result with the standard null-check + RAII deleter
+    // + std::string conversion pattern.  Throws std::runtime_error with
+    // `error_msg` when result is null; otherwise materializes the C string
+    // into a std::string and frees the FFI buffer via free_str_fn_.
+    // R19 cluster 14 / CPP-A-1.1 — replaces 8 hand-rolled copies of this
+    // pattern across process / send_frame_binary / send_error_binary /
+    // send_remote_binary / start_stream_binary / end_stream_binary /
+    // format_dbc_binary / extract_signals_binary.
+    [[nodiscard]] auto wrap_str_result(char* result, std::string_view error_msg) -> std::string {
+        if (result == nullptr)
+            throw std::runtime_error(std::string{error_msg});
+        auto deleter = [this](char* p) { free_str_fn_(p); };
+        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
+        return std::string{result};
+    }
+
 public:
     explicit FfiBackend(const std::filesystem::path& lib_path, int rts_cores)
         : handle_(dlopen(lib_path.c_str(), RTLD_NOW | RTLD_LOCAL)) {
@@ -244,13 +260,8 @@ public:
         }
         // The Agda core expects a null-terminated string.
         const std::string input_str{input};
-        char* result = process_fn_(state, input_str.c_str());
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_process returned null");
-        // RAII guard ensures free_str_fn_ runs even if string construction throws.
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(process_fn_(state, input_str.c_str()),
+                               "aletheia_process returned null");
     }
 
     auto send_frame_binary(void* state, Timestamp ts, const CanId& id, Dlc dlc,
@@ -270,23 +281,15 @@ public:
                                      " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result = send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
-                                      as_u8(data.data()), data_len);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_frame returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(send_frame_fn_(state, timestamp, can_id, extended, dlc_val,
+                                              as_u8(data.data()), data_len),
+                               "aletheia_send_frame returned null");
     }
 
     auto send_error_binary(void* state, Timestamp ts) -> std::string override {
         const auto timestamp = static_cast<std::uint64_t>(ts.count());
-        char* result = send_error_fn_(state, timestamp);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_error returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(send_error_fn_(state, timestamp),
+                               "aletheia_send_error returned null");
     }
 
     auto send_remote_binary(void* state, Timestamp ts, const CanId& id) -> std::string override {
@@ -295,41 +298,22 @@ public:
             std::visit([](const auto& v) -> std::uint32_t { return v.value(); }, id);
         const auto extended =
             static_cast<std::uint8_t>(std::holds_alternative<ExtendedId>(id) ? 1 : 0);
-        char* result = send_remote_fn_(state, timestamp, can_id, extended);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_send_remote returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(send_remote_fn_(state, timestamp, can_id, extended),
+                               "aletheia_send_remote returned null");
     }
 
     void close(void* state) override { close_fn_(state); }
 
     auto start_stream_binary(void* state) -> std::string override {
-        char* result = start_stream_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_start_stream returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(start_stream_fn_(state), "aletheia_start_stream returned null");
     }
 
     auto end_stream_binary(void* state) -> std::string override {
-        char* result = end_stream_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_end_stream returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(end_stream_fn_(state), "aletheia_end_stream returned null");
     }
 
     auto format_dbc_binary(void* state) -> std::string override {
-        char* result = format_dbc_fn_(state);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_format_dbc returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(format_dbc_fn_(state), "aletheia_format_dbc returned null");
     }
 
     auto extract_signals_binary(void* state, const CanId& id, Dlc dlc,
@@ -348,13 +332,9 @@ public:
                                      " bytes (CAN-FD max)");
         const auto data_len = static_cast<std::uint8_t>(data.size());
 
-        char* result =
-            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len);
-        if (result == nullptr)
-            throw std::runtime_error("aletheia_extract_signals returned null");
-        auto deleter = [this](char* p) { free_str_fn_(p); };
-        const std::unique_ptr<char, decltype(deleter)> guard{result, deleter};
-        return std::string{result};
+        return wrap_str_result(
+            extract_signals_fn_(state, can_id, extended, dlc_val, as_u8(data.data()), data_len),
+            "aletheia_extract_signals returned null");
     }
 
     auto build_frame_bin(void* state, const CanId& id, Dlc dlc, SignalInjection signals,
