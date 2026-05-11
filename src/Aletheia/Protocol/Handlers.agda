@@ -32,6 +32,7 @@ open import Aletheia.LTL.SignalPredicate using (SignalPredicate; SignalCache; em
 open import Aletheia.LTL.Incremental using (FinalVerdict; Holds; Fails; Unsure)
 open import Aletheia.LTL.Coalgebra using (LTLProc; finalizeL; initProc)
 open import Aletheia.LTL.JSON using (parseProperty)
+open import Aletheia.LTL.Syntax using (atomCount)
 open import Aletheia.Protocol.JSON using (JSON; lookupString; getObject; lookupRational)
 open import Aletheia.Protocol.Message using (Response; StreamCommand; ParseDBC; SetProperties; StartStream; EndStream; ExtractAllSignals; ValidateDBC; FormatDBC; ParseDBCText; FormatDBCText)
 open import Aletheia.Protocol.Response as PR using (mkCounterexampleData; PropertyResult)
@@ -49,8 +50,9 @@ open import Aletheia.Error as Err using
   ; WrappedParse
   )
 open import Aletheia.Limits using
-  ( ArrayCardinality
+  ( ArrayCardinality; AtomCount
   ; max-messages-per-file; max-signals-per-message; max-attributes-per-file
+  ; max-atom-count-per-property
   )
 
 -- Import state types from StreamState (no circular dependency: Handlers → StreamState types only)
@@ -162,17 +164,31 @@ open import Aletheia.Protocol.Handlers.ParseDBCText using (handleParseDBCText)
 -- transitive closure ~30 modules).  See Handlers/FormatDBCText.agda.
 open import Aletheia.Protocol.Handlers.FormatDBCText using (handleFormatDBCText)
 
--- Parse property list (extracted from where-block for proof access)
+-- Parse property list (extracted from where-block for proof access).
+--
+-- Distinguishes two rejection paths at the handler boundary:
+--   * Shape malformed (`parseProperty` → `nothing`): emit untyped
+--     `HandlerErr (PropertyParseFailed idx)` (code
+--     `handler_property_parse_failed`).
+--   * Shape OK but atom count > `max-atom-count-per-property` (1024):
+--     emit typed `ParseErr (InputBoundExceeded AtomCount observed limit)`
+--     (code `parse_input_bound_exceeded` + structured `bound_kind /
+--     observed / limit`).  AGDA-D-13.4 phase 2b — closes R19 cluster 8
+--     phase e.2 typed-error half.  Mirrors the handler-boundary
+--     placement pattern from cluster 8 e.3 / phase 2a NestingDepth.
 parseAllProperties : StreamState → DBC → List JSON → ℕ → List PropertyState → StreamState × Response
 parseAllProperties _ dbc [] _ acc =
   (ReadyToStream dbc (reverse acc) emptyCache , Response.Success "Properties set successfully")
 parseAllProperties state dbc (json ∷ rest) idx acc with parseProperty json
 ... | nothing = (state , Response.Error (WithContext "SetProperties" (HandlerErr (PropertyParseFailed idx))))
-... | just prop =
-    let atoms = collectAtoms prop
-        proc = initProc (indexFormula prop)
-        propState = mkPropertyState idx prop atoms proc
-    in parseAllProperties state dbc rest (idx + 1) (propState ∷ acc)
+... | just prop with atomCount prop <ᵇ suc max-atom-count-per-property | atomCount prop
+...   | false | observed = (state , Response.Error
+                              (WithContext "SetProperties"
+                                (ParseErr (InputBoundExceeded AtomCount observed max-atom-count-per-property))))
+...   | true  | _        = let atoms = collectAtoms prop
+                               proc = initProc (indexFormula prop)
+                               propState = mkPropertyState idx prop atoms proc
+                           in parseAllProperties state dbc rest (idx + 1) (propState ∷ acc)
 
 -- Set properties command: parse JSON properties to LTL
 handleSetProperties : List JSON → StreamState → StreamState × Response

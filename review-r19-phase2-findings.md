@@ -696,7 +696,7 @@ No findings.
 - `[ ]` AGDA-D-13.1 (= AGDA-D-10.1) BRS/ESI hardcoding is unchecked coercion at FFI
 - `[ ]` AGDA-D-13.2 [src/Aletheia/LTL/Semantics/MTL.agda:93-111] `met-*-go` uses `_∸_` truncated subtraction; relies on upstream `checkMonotonic` defensively
 - `[ ]` AGDA-D-13.3 [haskell-shim/AletheiaFFI/Marshal.hs:70-84 vs BinaryOutput.hs:81-82] Stdlib bump renaming `denominator-1` → `denominator` would break input side without touching output (asymmetric path)
-- `[~]` AGDA-D-13.4 [src/Aletheia/Protocol/JSON/Parse.agda:198-200] PHASE 2a SHIPPED 2026-05-11 (NestingDepth typed wire-error + structured payload + cross-binding lift); phase 2b (`AtomCount`) + phase 2c (`IdentifierLength`) still pending — Fuel measure correct for termination but leaves nesting effectively unbounded
+- `[~]` AGDA-D-13.4 [src/Aletheia/Protocol/JSON/Parse.agda:198-200] PHASE 2a + 2b SHIPPED 2026-05-11 (NestingDepth `8a81786` + AtomCount typed wire-errors at handler boundary + structured payload + cross-binding lifting); phase 2c (`IdentifierLength`, parser-monad rewrite) still pending — Fuel measure correct for termination but leaves nesting effectively unbounded
 - `[ ]` AGDA-D-13.5 [src/Aletheia/Main.agda:34-50 adequacy comment] Implicit assumption "callers know which atoms are LTL-relevant"; no programmatic introspection in bindings
 
 #### Cat 14: API surface

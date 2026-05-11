@@ -266,20 +266,26 @@ class TestNestingDepthBound:
 
 
 class TestAtomCountBound:
-    """R19 cluster 8 phase e.2 — ``parseProperty`` rejects over-1024-atom formulas.
+    """R19 AGDA-D-13.4 phase 2b — typed AtomCount wire-error refinement.
 
-    Post-parse refinement: ``parseLTL`` parses the full tree (structurally
-    terminating on the JSON value), then ``atomCount ltl <ᵇ suc
-    max-atom-count-per-property`` discards over-bound trees.  Wire-surface
-    for rejection is ``handler_property_parse_failed`` via
-    ``parseAllProperties`` in ``Protocol.Handlers``.
+    Post-parse refinement: ``parseProperty`` parses the full tree
+    (structurally terminating on the JSON value); at the handler boundary
+    (``parseAllProperties`` in ``Protocol.Handlers``) ``atomCount prop <ᵇ
+    suc max-atom-count-per-property`` discriminates accepted from over-
+    bound trees.  Over-bound trees emit the typed
+    ``ParseErr (InputBoundExceeded AtomCount observed limit)`` (code
+    ``parse_input_bound_exceeded`` + structured ``bound_kind / observed /
+    limit``).  Pre-phase-2b the untyped ``handler_property_parse_failed``
+    code conflated atom-count overflow with shape-malformed JSON.
 
-    The over-bound case is slow (parseLTL runs to completion on a 1025-atom
-    tree before the post-parse check fires — empirically ~115s on this
-    host) and is intentionally not exercised here.  Manual verification:
-    a balanced 1025-atom And-tree returns ``status=error,
-    code=handler_property_parse_failed`` (verified 2026-05-11).  The
-    formal bound-soundness proof lives in e.4.
+    The over-bound case is slow (parseLTL runs to completion on a 1025-
+    atom tree before the post-parse check fires — empirically ~110s on
+    this host) and is intentionally not exercised here.  Manual
+    verification (2026-05-11, against the post-phase-2b kernel): a
+    balanced 1025-atom And-tree returns ``status="error"``,
+    ``code="parse_input_bound_exceeded"``, ``bound_kind="atom_count"``,
+    ``observed=1025``, ``limit=1024`` after 109.2s elapsed.  The formal
+    bound-soundness proof lives in e.4.
     """
 
     @staticmethod

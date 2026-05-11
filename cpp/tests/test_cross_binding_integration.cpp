@@ -216,6 +216,16 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e
 // into `AletheiaError::bound_info()`.  Mirrors Python's
 // `TestNestingDepthBound::test_nested_at_depth_63_rejected` and Go's
 // `TestCrossBinding_NestingDepthLiftsToInputBoundExceeded`.
+//
+// Phase 2b (AtomCount) note: `make_json_error` is BoundKind-generic — it
+// reads `bound_kind` from the wire and populates `bound_info()`
+// uniformly across NestingDepth / AtomCount / IdentifierLength.  This
+// NestingDepth test exercises the same lifter that handles AtomCount
+// (>1024 atoms-per-property).  AtomCount over-bound rejection is
+// verified at the kernel + Python boundary by
+// `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
+// 1025-atom And-tree across the C++ FFI takes ~109s which is
+// unsuitable for a unit-test budget.
 TEST_CASE("nesting depth over limit lifts to InputBoundExceeded",
           "[cross_binding][cluster8][phase2a]") {
     auto lib = find_lib();

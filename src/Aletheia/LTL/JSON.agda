@@ -19,13 +19,12 @@ open import Data.String using (String; _≟_)
 open import Data.Bool using (if_then_else_)
 open import Data.List using (List; []; _∷_)
 open import Data.Maybe using (Maybe; just; nothing; _>>=_)
-open import Data.Nat using (ℕ; suc; _<ᵇ_)
+open import Data.Nat using (ℕ)
 open import Data.Product using (_×_; _,_)
 open import Relation.Nullary.Decidable using (⌊_⌋)
-open import Aletheia.Limits using (max-atom-count-per-property)
 open import Aletheia.Prelude using (lookupByKey)
 open import Aletheia.JSON using (JSON; JObject; lookupString; lookupChars; lookupRational; lookupObject; lookupNat)
-open import Aletheia.LTL.Syntax using (LTL; atomCount)
+open import Aletheia.LTL.Syntax using (LTL)
 open import Aletheia.LTL.SignalPredicate using (SignalPredicate; ValueP; DeltaP)
 import Aletheia.LTL.SignalPredicate as SP
 
@@ -211,23 +210,18 @@ mutual
 -- PUBLIC API
 -- ============================================================================
 
--- R19 cluster 8 phase e.2: bound the atom count of every accepted
--- property at `max-atom-count-per-property` (1024).  parseLTL is
--- structurally recursive — for an adversarial JSON that has already
--- passed the upstream `max-json-bytes` (64 MiB) and `max-nesting-depth`
--- (64) caps, the atom count can still exceed any reasonable bound
--- because siblings within a single nesting level are unbounded.  This
--- check fires post-parse and discards over-bound trees, matching
--- AGENTS.md "Adversarial-input bounds at parser surfaces".  The wire
--- surface for rejection is HandlerErr (PropertyParseFailed idx) via
--- `parseAllProperties` in `Protocol.Handlers`; refining to typed
--- `InputBoundExceeded AtomCount` is downstream parser-monad plumbing
--- tracked alongside AGDA-D-13.4.  The companion bound-soundness lemma
--- `parseProperty-atom-bounded` lives in e.4 where it composes with the
--- formatter side as `formatProperty-atom-bounded` (the load-bearing
--- emission theorem).
+-- Entry point: structural parse of a property JSON into the LTL ADT.
+-- Returns `nothing` only on malformed JSON shape (missing operator
+-- discriminator, ill-typed sub-fields).  The adversarial atom-count cap
+-- (`max-atom-count-per-property`, 1024) is enforced ONE LAYER UP by
+-- `parseAllProperties` (`Protocol.Handlers`) as a typed `ParseErr
+-- (InputBoundExceeded AtomCount …)` rejection (AGDA-D-13.4 phase 2b —
+-- closes R19 cluster 8 phase e.2 typed-error half).  Placing the check
+-- at the handler boundary distinguishes "shape-malformed" (untyped
+-- `HandlerErr PropertyParseFailed`) from "shape-OK but over-bound"
+-- (typed `ParseErr (InputBoundExceeded AtomCount o l)` with the
+-- structured triple), and keeps `parseProperty` a pure JSON → LTL
+-- parser.  Formatter-side bound preservation lives in
+-- `DBC/Formatter/Bounded.agda` (cluster 8 e.4 length-map lemmas).
 parseProperty : JSON → Maybe (LTL SignalPredicate)
-parseProperty j = parseLTL j >>= λ ltl →
-  if atomCount ltl <ᵇ suc max-atom-count-per-property
-    then just ltl
-    else nothing
+parseProperty j = parseLTL j

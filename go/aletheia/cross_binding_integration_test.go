@@ -304,6 +304,15 @@ func TestCrossBinding_ErrorTypeShape(t *testing.T) {
 // `bound_kind / observed / limit`, lifted into `*InputBoundExceededError`
 // by `checkErrorStatus`.  Mirrors Python's
 // `TestNestingDepthBound::test_nested_at_depth_63_rejected`.
+//
+// Phase 2b (AtomCount) note: `inputBoundExceededFromResponse` is BoundKind-
+// generic — it dispatches on `bound_kind` string, not on `code`.  This
+// NestingDepth test exercises the same lifter that handles AtomCount
+// (>1024 atom-per-property) and IdentifierLength.  AtomCount over-bound
+// rejection is verified at the kernel + Python boundary by
+// `python/tests/test_input_bounds.py::TestAtomCountBound`; building a
+// 1025-atom And-tree across the Go FFI takes ~109s which is unsuitable
+// for a unit-test budget.
 func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
 	c := newCrossBindingClient(t)
 	ctx := context.Background()
