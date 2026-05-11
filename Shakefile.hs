@@ -1138,8 +1138,21 @@ main = shakeArgs shakeOptions{shakeFiles="build", shakeThreads=0, shakeChange=Ch
         -- enabling debug info on a downstream rebuild.  C++ binding gets the
         -- equivalent flag in cpp/CMakeLists.txt.
         repoRoot <- liftIO getCurrentDirectory
-        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j"
+        -- Memory-bound the GHC compilation of MAlonzo .hs files.
+        -- `-jN` caps parallelism (each worker = one GHC process); per-worker
+        -- `+RTS -M3G -RTS` is the tripwire ceiling — typical MAlonzo modules
+        -- compile in 0.3-1 GB, the 3G ceiling fails fast on pathological
+        -- growth rather than silently exhausting WSL2's 50%-of-host budget.
+        -- Worst-case peak: 16 × 3 GB = 48 GB on a 62 GiB host.  Bump only
+        -- if a specific MAlonzo module legitimately needs more (mirror of
+        -- the Agda elaborator's -M16G discipline).  -A64M raises GHC's
+        -- nursery size from the 4 MB default for slight throughput win.
+        -- Wrap in `[String]` so Shake's `cmd_` does NOT whitespace-split
+        -- the value (otherwise `+RTS`, `-A64M`, `-M3G`, `-RTS` get sent as
+        -- separate argv elements and cabal rejects them as unknown options).
+        cmd_ (Cwd "haskell-shim") "cabal" "build" "-j16"
             ("--ghc-options=-optc-ffile-prefix-map=" ++ repoRoot ++ "=.")
+            ["--ghc-options=+RTS -A64M -M3G -RTS"]
             "aletheia-ffi"
 
         -- Find and copy the built .so file
