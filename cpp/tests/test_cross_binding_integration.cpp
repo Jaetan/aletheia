@@ -207,3 +207,35 @@ TEST_CASE("identifier over max length is rejected", "[cross_binding][cluster8][e
     auto result = client.parse_dbc_text(std::stop_token{}, dbc_text);
     REQUIRE_FALSE(result.has_value());
 }
+
+// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error.  A
+// deeply-nested LTL formula triggers the kernel's `jsonDepth` check at
+// `handleParsedJSON`, emitting `ParseErr (InputBoundExceeded NestingDepth …)`
+// instead of the pre-phase-2a untyped `DispatchErr InvalidJSON`.  The wire
+// carries `bound_kind / observed / limit` which `make_json_error` lifts
+// into `AletheiaError::bound_info()`.  Mirrors Python's
+// `TestNestingDepthBound::test_nested_at_depth_63_rejected` and Go's
+// `TestCrossBinding_NestingDepthLiftsToInputBoundExceeded`.
+TEST_CASE("nesting depth over limit lifts to InputBoundExceeded",
+          "[cross_binding][cluster8][phase2a]") {
+    auto lib = find_lib();
+    auto backend = make_ffi_backend(lib);
+    AletheiaClient client(std::move(backend));
+
+    REQUIRE(client.parse_dbc(std::stop_token{}, canonical_dbc()).has_value());
+    // 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
+    LtlFormula inner =
+        ltl::atomic(ltl::equals(SignalName{"TestSignal"}, PhysicalValue{Rational{0, 1}}));
+    for (std::size_t i = 0; i < 63; ++i)
+        inner = ltl::always(std::move(inner));
+    std::vector<LtlFormula> props;
+    props.push_back(std::move(inner));
+    auto result = client.set_properties(std::stop_token{}, props);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().kind() == ErrorKind::InputBoundExceeded);
+    CHECK(result.error().code() == ErrorCode::ParseInputBoundExceeded);
+    REQUIRE(result.error().bound_info().has_value());
+    CHECK(result.error().bound_info()->bound_kind == bound_kind_nesting_depth);
+    CHECK(result.error().bound_info()->limit == max_nesting_depth);
+    CHECK(result.error().bound_info()->observed > max_nesting_depth);
+}

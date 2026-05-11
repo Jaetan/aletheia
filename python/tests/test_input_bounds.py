@@ -202,15 +202,23 @@ class TestIdentifierLengthBound:
 
 
 class TestNestingDepthBound:
-    """R19 cluster 8 phase e.2 companion — JSON nesting-depth refinement.
+    """R19 AGDA-D-13.4 phase 2a — typed JSON nesting-depth wire-error.
 
-    ``parseJSON`` parses the input with ``length input`` as fuel (a real
-    termination measure bounded by the upstream ``max_json_bytes`` cap,
-    not an arbitrary recursion budget); after parse, ``jsonDepth`` of the
-    constructed tree is compared against ``MAX_NESTING_DEPTH``.  Direct
-    measurement, NOT fuel.  Wire-surface for rejection is
-    ``dispatch_invalid_json``; typed ``InputBoundExceeded NestingDepth``
-    is downstream parser-monad plumbing tracked alongside AGDA-D-13.4.
+    ``parseJSON`` parses the input with ``length input`` as a structural
+    termination measure (bounded above by the upstream ``max_json_bytes``
+    cap).  At the handler boundary (``processJSONLine`` →
+    ``handleParsedJSON``), ``jsonDepth`` of the constructed tree is
+    compared against ``MAX_NESTING_DEPTH``; over-depth trees are rejected
+    with a typed ``ParseError.InputBoundExceeded NestingDepth …``
+    constructor.
+
+    The wire envelope carries ``code="parse_input_bound_exceeded"`` plus
+    the structured ``bound_kind / observed / limit`` triple, mirroring
+    the typed surface already in place for ``InputLengthBytes`` (oversize
+    JSON) and ``InputLengthBytes`` (oversize DBC text).  Pre-phase-2a the
+    untyped ``dispatch_invalid_json`` shape conflated nesting-depth
+    rejection with malformed JSON; tests asserting the new shape pin the
+    contract for the C++ / Go bindings' typed lifters.
     """
 
     @staticmethod
@@ -244,13 +252,17 @@ class TestNestingDepthBound:
             assert r["status"] == "success", r
 
     def test_nested_at_depth_63_rejected(self) -> None:
-        """63 always-wrappers = JSON depth 65 (> 64) — rejected as invalid JSON."""
+        """63 always-wrappers = JSON depth 65 (> 64) — typed
+        ``parse_input_bound_exceeded`` carrying the structured triple."""
         prop = self._nested_ltl(63)
         with AletheiaClient() as client:
             client.parse_dbc(self._trivial_dbc())
             r = client.set_properties([prop])
             assert r["status"] == "error", r
-            assert r["code"] == "dispatch_invalid_json", r
+            assert r["code"] == "parse_input_bound_exceeded", r
+            assert r["bound_kind"] == "nesting_depth", r
+            assert r["limit"] == 64, r
+            assert r["observed"] >= 65, r
 
 
 class TestAtomCountBound:

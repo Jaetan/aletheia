@@ -13,7 +13,7 @@
 #
 # This snapshot is paired with `checkFFINames` in Shakefile.hs, which
 # ensures `haskell-shim/src/AletheiaFFI.hs` calls match these names.
-Aletheia/Main/JSON:d_processJSONLine_58
+Aletheia/Main/JSON:d_processJSONLine_70
 Aletheia/Main/Binary:d_processFrameDirect_12
 Aletheia/Main/Binary:d_processEventDirect_18
 Aletheia/Main/Binary:d_processStartStreamDirect_24

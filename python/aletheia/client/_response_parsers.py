@@ -56,6 +56,13 @@ def build_error_response(response: Response) -> ErrorResponse:
     the defaults (``""`` for Python, ``"Unknown error"`` for C++) used
     to diverge across bindings, and R16 shipped with a silent "unknown
     error code" regression in production logs.
+
+    InputBoundExceeded errors carry an additional ``bound_kind`` /
+    ``observed`` / ``limit`` triple via ``Protocol/ResponseFormat.
+    errorExtras`` (AGDA-D-13.4 phase 2a); all three must be present and
+    well-typed when any one is, else the payload is treated as missing
+    rather than partial (matches the C++ binding's degrade-to-nullopt
+    rule in ``make_json_error``).
     """
     code = response.get("code")
     if not isinstance(code, str):
@@ -69,7 +76,17 @@ def build_error_response(response: Response) -> ErrorResponse:
             "Error response missing or non-string 'message' field;"
             + f" got {type(message).__name__}"
         )
-    return {"status": "error", "code": code, "message": message}
+    out: ErrorResponse = {"status": "error", "code": code, "message": message}
+    bound_kind = response.get("bound_kind")
+    observed   = response.get("observed")
+    limit      = response.get("limit")
+    if (isinstance(bound_kind, str)
+            and isinstance(observed, int) and not isinstance(observed, bool)
+            and isinstance(limit, int)    and not isinstance(limit, bool)):
+        out["bound_kind"] = bound_kind
+        out["observed"]   = observed
+        out["limit"]      = limit
+    return out
 
 
 def parse_success_or_error(

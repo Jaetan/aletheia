@@ -696,12 +696,12 @@ No findings.
 - `[ ]` AGDA-D-13.1 (= AGDA-D-10.1) BRS/ESI hardcoding is unchecked coercion at FFI
 - `[ ]` AGDA-D-13.2 [src/Aletheia/LTL/Semantics/MTL.agda:93-111] `met-*-go` uses `_∸_` truncated subtraction; relies on upstream `checkMonotonic` defensively
 - `[ ]` AGDA-D-13.3 [haskell-shim/AletheiaFFI/Marshal.hs:70-84 vs BinaryOutput.hs:81-82] Stdlib bump renaming `denominator-1` → `denominator` would break input side without touching output (asymmetric path)
-- `[ ]` AGDA-D-13.4 [src/Aletheia/Protocol/JSON/Parse.agda:198-200] Fuel measure correct for termination but leaves nesting effectively unbounded
+- `[~]` AGDA-D-13.4 [src/Aletheia/Protocol/JSON/Parse.agda:198-200] PHASE 2a SHIPPED 2026-05-11 (NestingDepth typed wire-error + structured payload + cross-binding lift); phase 2b (`AtomCount`) + phase 2c (`IdentifierLength`) still pending — Fuel measure correct for termination but leaves nesting effectively unbounded
 - `[ ]` AGDA-D-13.5 [src/Aletheia/Main.agda:34-50 adequacy comment] Implicit assumption "callers know which atoms are LTL-relevant"; no programmatic introspection in bindings
 
 #### Cat 14: API surface
 - `[ ]` AGDA-D-14.1 [src/Aletheia/Main.agda:89] `checkMonotonic` re-exported but unused in any binding code
-- `[ ]` AGDA-D-14.2 [src/Aletheia/Limits.agda:64-71] `boundKindCode` exported but no Agda code uses it (only per-binding mirror tests)
+- `[x]` AGDA-D-14.2 [src/Aletheia/Limits.agda:64-71] CLOSED 2026-05-11 via AGDA-D-13.4 phase 2a (`boundKindCode` is now consumed by `Protocol/ResponseFormat.errorExtras` to serialize the structured wire payload)
 - `[ ]` AGDA-D-14.3 [src/Aletheia/Main.agda:131-147] Re-exports `Byte`, `bytesToDlc`, `maxDLC-2B`, `maxDLC-FD` — unused by FFI shim or any binding
 - `[ ]` AGDA-D-14.4 [src/Aletheia/Main.agda:159-164] `TimeUnit; μs` exported alongside unused `ns/ms/s`; binding side hardcodes μs
 

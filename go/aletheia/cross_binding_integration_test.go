@@ -295,3 +295,44 @@ func TestCrossBinding_ErrorTypeShape(t *testing.T) {
 		t.Error("errors.As(*Error): want true")
 	}
 }
+
+// R19 AGDA-D-13.4 phase 2a — typed NestingDepth wire-error refinement.
+// A deeply-nested LTL formula triggers the kernel-side `jsonDepth`
+// check at `handleParsedJSON`, which emits
+// `ParseErr (InputBoundExceeded NestingDepth …)` instead of the
+// pre-phase-2a `DispatchErr InvalidJSON`.  The wire response now carries
+// `bound_kind / observed / limit`, lifted into `*InputBoundExceededError`
+// by `checkErrorStatus`.  Mirrors Python's
+// `TestNestingDepthBound::test_nested_at_depth_63_rejected`.
+func TestCrossBinding_NestingDepthLiftsToInputBoundExceeded(t *testing.T) {
+	c := newCrossBindingClient(t)
+	ctx := context.Background()
+	if _, err := c.ParseDBC(ctx, canonicalDBC()); err != nil {
+		t.Fatalf("ParseDBC: %v", err)
+	}
+	// 63 always-wrappers + atomic + predicate = JSON depth 65 (> 64).
+	inner := Formula(Atomic{Predicate: Equals{Signal: "TestSignal", Value: 0}})
+	for range 63 {
+		inner = Always{Inner: inner}
+	}
+	err := c.SetProperties(ctx, []Formula{inner})
+	if err == nil {
+		t.Fatal("expected InputBoundExceededError for 65-deep formula, got nil")
+	}
+	var bex *InputBoundExceededError
+	if !errors.As(err, &bex) {
+		t.Fatalf("expected *InputBoundExceededError, got %T: %v", err, err)
+	}
+	if bex.Code != CodeParseInputBoundExceeded {
+		t.Errorf("Code = %q, want %q", bex.Code, CodeParseInputBoundExceeded)
+	}
+	if bex.BoundKind != BoundKindNestingDepth {
+		t.Errorf("BoundKind = %q, want %q", bex.BoundKind, BoundKindNestingDepth)
+	}
+	if bex.Limit != uint64(MaxNestingDepth) {
+		t.Errorf("Limit = %d, want %d", bex.Limit, MaxNestingDepth)
+	}
+	if bex.Observed <= uint64(MaxNestingDepth) {
+		t.Errorf("Observed = %d, want > %d", bex.Observed, MaxNestingDepth)
+	}
+}

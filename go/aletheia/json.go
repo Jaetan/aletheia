@@ -843,11 +843,75 @@ func requireString(m map[string]any, key string) (string, error) {
 	return s, nil
 }
 
+// inputBoundExceededFromResponse lifts a wire response carrying
+// “bound_kind“ / “observed“ / “limit“ into a typed
+// [InputBoundExceededError].  Returns nil when any of the three fields
+// is missing or ill-typed (matches C++ “make_json_error“'s
+// degrade-to-nullopt rule and Python “build_error_response“'s
+// triple-must-be-complete check).  The wire “message“ string is not
+// threaded through — “*InputBoundExceededError.Error()“ reconstructs an
+// equivalent string from kind/observed/limit, matching cross-binding
+// convention where each language formats the message in its own idiom.
+// AGDA-D-13.4 phase 2a — cross-binding wire-symmetric lifting; previously
+// only the binding-side short-circuit raised this type, so kernel-rejected
+// paths (NestingDepth, AtomCount) returned a generic *Error.
+func inputBoundExceededFromResponse(code string, m map[string]any) *InputBoundExceededError {
+	switch code {
+	case CodeParseInputBoundExceeded, CodeDBCTextInputBoundExceeded, CodeFrameInputBoundExceeded:
+	default:
+		return nil
+	}
+	kind, ok := m["bound_kind"].(string)
+	if !ok {
+		return nil
+	}
+	observed, ok := jsonNumberToUint64(m["observed"])
+	if !ok {
+		return nil
+	}
+	limit, ok := jsonNumberToUint64(m["limit"])
+	if !ok {
+		return nil
+	}
+	return newInputBoundExceededError(kind, observed, limit, code)
+}
+
+// jsonNumberToUint64 narrows a JSON-decoded numeric value to uint64.
+// Rejects negatives, non-integers, and overflowing magnitudes.
+func jsonNumberToUint64(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case float64:
+		if n < 0 || n > float64(^uint64(0)) || n != float64(uint64(n)) {
+			return 0, false
+		}
+		return uint64(n), true
+	case int:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case int64:
+		if n < 0 {
+			return 0, false
+		}
+		return uint64(n), true
+	case uint64:
+		return n, true
+	default:
+		return 0, false
+	}
+}
+
 // checkErrorStatus converts a parsed response with status="error" into
 // a typed error carrying the Agda-side code and message. Both “code“
 // and “message“ must be non-null strings — a missing or non-string
 // value surfaces as a protocol error rather than being papered over with
 // a default, matching Python's “build_error_response“ strict contract.
+//
+// InputBoundExceeded responses lift the structured triple into a typed
+// [InputBoundExceededError] when all three of “bound_kind“ /
+// “observed“ / “limit“ are present; mirrors Python's
+// “build_error_response“ and C++'s “make_json_error“ lifting.
 func checkErrorStatus(m map[string]any) error {
 	status := getString(m, "status")
 	if status != "error" {
@@ -860,6 +924,9 @@ func checkErrorStatus(m map[string]any) error {
 	msg, err := requireString(m, "message")
 	if err != nil {
 		return err
+	}
+	if bex := inputBoundExceededFromResponse(code, m); bex != nil {
+		return bex
 	}
 	return newCodedError(ErrProtocol, code, msg)
 }

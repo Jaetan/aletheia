@@ -744,10 +744,20 @@ class SuccessResponse(TypedDict):
 
 
 class ErrorResponse(TypedDict):
-    """Error response with machine-readable code"""
+    """Error response with machine-readable code.
+
+    The ``bound_kind`` / ``observed`` / ``limit`` triple is present on
+    InputBoundExceeded errors (``code`` ends with ``input_bound_exceeded``)
+    and absent on all other error codes; the Agda kernel emits the typed
+    payload via ``Protocol/ResponseFormat.errorExtras`` (AGDA-D-13.4
+    phase 2a).
+    """
     status: Literal["error"]
     code: str
     message: str
+    bound_kind: NotRequired[str]
+    observed:   NotRequired[int]
+    limit:      NotRequired[int]
 
 
 class AckResponse(TypedDict):

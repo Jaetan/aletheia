@@ -10,7 +10,7 @@
 --
 -- Coverage matches the 11 entries in haskell-shim/ffi-exports.snapshot:
 --   1. d_initialState_42         — exercised in setup
---   2. d_processJSONLine_58      — exercised in setup (DBC load + setProps)
+--   2. d_processJSONLine_70      — exercised in setup (DBC load + setProps)
 --   3. d_processStartStreamDirect_24  — exercised in setup
 --   4. d_processFrameDirect_12   — tests 1-4
 --   5. d_processEventDirect_18   — tests 5-6
@@ -86,7 +86,7 @@ extractSumIER result =
 -- | Process a JSON command (used in setup).
 processJSON :: AgdaState.T_StreamState_28 -> String
             -> (AgdaState.T_StreamState_28, T.Text)
-processJSON state input = extractResult (AgdaJSON.d_processJSONLine_58 state (T.pack input))
+processJSON state input = extractResult (AgdaJSON.d_processJSONLine_70 state (T.pack input))
 
 -- | Convert [Word8] to MAlonzo Vec Byte n (linked-list shape).
 -- Identical to bytesToAgdaVec in AletheiaFFI/Marshal.hs — must stay in sync.
@@ -263,7 +263,7 @@ main = do
 
     -- ------------------------------------------------------------------------
     -- Setup: load DBC + properties + start stream.
-    --   exercises: d_initialState_42, d_processJSONLine_58,
+    --   exercises: d_initialState_42, d_processJSONLine_70,
     --              d_processStartStreamDirect_24
     -- ------------------------------------------------------------------------
     let state0 = AgdaState.d_initialState_42
