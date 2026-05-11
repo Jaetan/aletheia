@@ -15,32 +15,18 @@ var ErrBinaryPathUnsupported = errors.New("binary path not supported by this bac
 // ErrorKind classifies the source of an error.
 type ErrorKind int
 
+//go:generate stringer -type=ErrorKind -linecomment -output=errorkind_string.go
+
 const (
 	// ErrProtocol indicates a JSON parsing or protocol mismatch with the Agda core.
-	ErrProtocol ErrorKind = iota
+	ErrProtocol ErrorKind = iota // protocol
 	// ErrValidation indicates a structural issue in the DBC definition.
-	ErrValidation
+	ErrValidation // validation
 	// ErrState indicates an operation was attempted in the wrong client state.
-	ErrState
+	ErrState // state
 	// ErrFFI indicates a failure in the FFI layer (dlopen, dlsym, hs_init).
-	ErrFFI
+	ErrFFI // ffi
 )
-
-// String returns the lowercase name of the error kind.
-func (k ErrorKind) String() string {
-	switch k {
-	case ErrProtocol:
-		return "protocol"
-	case ErrValidation:
-		return "validation"
-	case ErrState:
-		return "state"
-	case ErrFFI:
-		return "ffi"
-	default:
-		return "unknown"
-	}
-}
 
 // Error is the error type returned by all Aletheia operations.
 // Use [errors.As] to inspect the [ErrorKind], and [errors.Unwrap] to

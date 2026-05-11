@@ -1,7 +1,5 @@
 package aletheia
 
-import "fmt"
-
 // SignalPresence describes when a signal is present in a frame.
 type SignalPresence interface {
 	signalPresence() // sealed
@@ -235,31 +233,17 @@ type DBCSignalGroup struct {
 // as a protocol error.
 type DBCVarType int
 
+//go:generate stringer -type=DBCVarType -linecomment -output=dbcvartype_string.go
+
 // DBC var type constants (wire tag values).
 const (
 	// DBCVarTypeInt — integer-valued environment variable (DBC `0`).
-	DBCVarTypeInt DBCVarType = 0
+	DBCVarTypeInt DBCVarType = 0 // int
 	// DBCVarTypeFloat — float-valued environment variable (DBC `1`).
-	DBCVarTypeFloat DBCVarType = 1
+	DBCVarTypeFloat DBCVarType = 1 // float
 	// DBCVarTypeString — string-valued environment variable (DBC `2`).
-	DBCVarTypeString DBCVarType = 2
+	DBCVarTypeString DBCVarType = 2 // string
 )
-
-// String returns a human-readable name for this var type.  Cross-binding
-// parity with ByteOrder.String / IssueSeverity.String / Verdict.String;
-// R19 cluster 10 — GO-D-15.3.
-func (v DBCVarType) String() string {
-	switch v {
-	case DBCVarTypeInt:
-		return "int"
-	case DBCVarTypeFloat:
-		return "float"
-	case DBCVarTypeString:
-		return "string"
-	default:
-		return fmt.Sprintf("DBCVarType(%d)", int(v))
-	}
-}
 
 // DBCEnvironmentVar is a DBC environment variable (EV_ keyword).
 // Numeric fields use [Rational] to preserve exact decimal intent through
@@ -371,50 +355,27 @@ type DBCComment struct {
 // DBCAttrScope names the scope of a BA_DEF_ attribute declaration.
 type DBCAttrScope int
 
+//go:generate stringer -type=DBCAttrScope -linecomment -output=dbcattrscope_string.go
+
 // Attribute scope constants matching Agda AttrScope. The nodeMsg /
 // nodeSig entries are the relational scopes introduced by BA_DEF_REL_
 // (BU_BO_REL_ / BU_SG_REL_ in DBC text).
 const (
 	// DBCAttrScopeNetwork — attribute applies to the network as a whole (`""` in BA_DEF_).
-	DBCAttrScopeNetwork DBCAttrScope = iota
+	DBCAttrScopeNetwork DBCAttrScope = iota //
 	// DBCAttrScopeNode — attribute scoped to a node (`BU_` in BA_DEF_).
-	DBCAttrScopeNode
+	DBCAttrScopeNode // BU_
 	// DBCAttrScopeMessage — attribute scoped to a message (`BO_` in BA_DEF_).
-	DBCAttrScopeMessage
+	DBCAttrScopeMessage // BO_
 	// DBCAttrScopeSignal — attribute scoped to a signal (`SG_` in BA_DEF_).
-	DBCAttrScopeSignal
+	DBCAttrScopeSignal // SG_
 	// DBCAttrScopeEnvVar — attribute scoped to an environment variable (`EV_` in BA_DEF_).
-	DBCAttrScopeEnvVar
+	DBCAttrScopeEnvVar // EV_
 	// DBCAttrScopeNodeMsg — relational scope: (node, message) pair (`BU_BO_REL_` in BA_DEF_REL_).
-	DBCAttrScopeNodeMsg
+	DBCAttrScopeNodeMsg // BU_BO_REL_
 	// DBCAttrScopeNodeSig — relational scope: (node, signal) pair (`BU_SG_REL_` in BA_DEF_REL_).
-	DBCAttrScopeNodeSig
+	DBCAttrScopeNodeSig // BU_SG_REL_
 )
-
-// String returns the DBC keyword form of this scope ("", "BU_", "BO_",
-// "SG_", "EV_", "BU_BO_REL_", "BU_SG_REL_").  Cross-binding parity with
-// ByteOrder.String / DBCVarType.String / IssueSeverity.String /
-// Verdict.String; R19 cluster 10 — GO-D-15.3.
-func (s DBCAttrScope) String() string {
-	switch s {
-	case DBCAttrScopeNetwork:
-		return ""
-	case DBCAttrScopeNode:
-		return "BU_"
-	case DBCAttrScopeMessage:
-		return "BO_"
-	case DBCAttrScopeSignal:
-		return "SG_"
-	case DBCAttrScopeEnvVar:
-		return "EV_"
-	case DBCAttrScopeNodeMsg:
-		return "BU_BO_REL_"
-	case DBCAttrScopeNodeSig:
-		return "BU_SG_REL_"
-	default:
-		return fmt.Sprintf("DBCAttrScope(%d)", int(s))
-	}
-}
 
 // --- Attribute types (RHS of BA_DEF_) ---
 

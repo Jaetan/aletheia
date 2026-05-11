@@ -96,7 +96,7 @@ func TestErrorKindString(t *testing.T) {
 		{aletheia.ErrValidation, "validation"},
 		{aletheia.ErrState, "state"},
 		{aletheia.ErrFFI, "ffi"},
-		{aletheia.ErrorKind(99), "unknown"},
+		{aletheia.ErrorKind(99), "ErrorKind(99)"},
 	}
 	for _, tt := range tests {
 		if got := tt.kind.String(); got != tt.want {

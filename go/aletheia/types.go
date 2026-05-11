@@ -86,24 +86,14 @@ type Frame struct {
 // ByteOrder specifies the byte ordering for a CAN signal.
 type ByteOrder int
 
+//go:generate stringer -type=ByteOrder -linecomment -output=byteorder_string.go
+
 const (
 	// LittleEndian is Intel byte order (LSB first).
-	LittleEndian ByteOrder = iota
+	LittleEndian ByteOrder = iota // little_endian
 	// BigEndian is Motorola byte order (MSB first).
-	BigEndian
+	BigEndian // big_endian
 )
-
-// String returns the protocol wire name: "little_endian" or "big_endian".
-func (b ByteOrder) String() string {
-	switch b {
-	case LittleEndian:
-		return "little_endian"
-	case BigEndian:
-		return "big_endian"
-	default:
-		return "unknown"
-	}
-}
 
 // BitPosition is a start bit position within a CAN frame.
 // Valid domain is 0-511 (64 bytes × 8 bits). Use [NewBitPosition] to create one.

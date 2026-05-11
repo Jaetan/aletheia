@@ -70,28 +70,16 @@ func (Violation) frameResponse() {}
 // verdict rather than collapsed to Fails.
 type Verdict int
 
+//go:generate stringer -type=Verdict -linecomment -output=verdict_string.go
+
 const (
 	// Holds means the property was satisfied.
-	Holds Verdict = iota
+	Holds Verdict = iota // holds
 	// Fails means the property was violated.
-	Fails
+	Fails // fails
 	// Unresolved means the verdict is Unknown (three-valued Kleene).
-	Unresolved
+	Unresolved // unresolved
 )
-
-// String returns "holds", "fails", "unresolved", or "unknown".
-func (v Verdict) String() string {
-	switch v {
-	case Holds:
-		return "holds"
-	case Fails:
-		return "fails"
-	case Unresolved:
-		return "unresolved"
-	default:
-		return "unknown"
-	}
-}
 
 // PropertyResult is the end-of-stream verdict for a single property.
 type PropertyResult struct {
@@ -110,24 +98,14 @@ type StreamResult struct {
 // IssueSeverity classifies a validation issue.
 type IssueSeverity int
 
+//go:generate stringer -type=IssueSeverity -linecomment -output=issueseverity_string.go
+
 const (
 	// SeverityError indicates a structural issue that prevents correct operation.
-	SeverityError IssueSeverity = iota
+	SeverityError IssueSeverity = iota // error
 	// SeverityWarning indicates a suspicious but non-fatal issue.
-	SeverityWarning
+	SeverityWarning // warning
 )
-
-// String returns "error", "warning", or "unknown".
-func (s IssueSeverity) String() string {
-	switch s {
-	case SeverityError:
-		return "error"
-	case SeverityWarning:
-		return "warning"
-	default:
-		return "unknown"
-	}
-}
 
 // IssueCode identifies a specific type of DBC validation issue.
 type IssueCode string
