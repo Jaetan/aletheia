@@ -36,7 +36,7 @@ import can
 from aletheia import AletheiaClient
 from aletheia.checks import Check, CheckResult
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, DLCCode
 from aletheia.testing import run_checks
 
 _TARGET_FPS = 8000
@@ -126,7 +126,7 @@ def _stream_identical(client: AletheiaClient, num_frames: int) -> float:
     data = _raw_data(10000)
     start = time.perf_counter()
     for i in range(num_frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 
@@ -135,7 +135,7 @@ def _stream_unique(client: AletheiaClient, num_frames: int) -> float:
     frames = [_raw_data(5100 + i) for i in range(num_frames)]
     start = time.perf_counter()
     for i, data in enumerate(frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 
@@ -144,7 +144,7 @@ def _stream_mixed(client: AletheiaClient, num_frames: int) -> float:
     start = time.perf_counter()
     for i in range(num_frames):
         raw = 10000 if i % 10 == 0 else 2000
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=_raw_data(raw))
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=_raw_data(raw))
     return time.perf_counter() - start
 
 
@@ -153,7 +153,7 @@ def _stream_no_violations(client: AletheiaClient, num_frames: int) -> float:
     data = _raw_data(2000)
     start = time.perf_counter()
     for i in range(num_frames):
-        client.send_frame(timestamp=i, can_id=0x100, dlc=8, data=data)
+        client.send_frame(timestamp=i, can_id=0x100, dlc=DLCCode(8), data=data)
     return time.perf_counter() - start
 
 

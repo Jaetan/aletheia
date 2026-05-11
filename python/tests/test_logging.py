@@ -14,7 +14,7 @@ from conftest import run_one_frame_stream
 
 from aletheia import AletheiaClient, Signal
 from aletheia.client._log import KNOWN_EVENTS, LogEvent
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, DLCCode
 
 
 class _Capture(logging.Handler):
@@ -91,7 +91,7 @@ class TestLoggingStreamingEvents:
             client.start_stream()
             # Value 200 > 100 → violation
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -121,7 +121,7 @@ class TestLoggingStreamingEvents:
             client.start_stream()
             # Value 200 > 100 triggers mid-stream violation
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -194,7 +194,7 @@ class TestLoggingSchema:
             client.start_stream()
             # Violation path exercises enrichment + cache warmup.
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()

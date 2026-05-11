@@ -30,7 +30,7 @@ from .client import (
     AletheiaClient,
     AletheiaError,
     SignalExtractionResult,
-    dlc_to_bytes,
+    bytes_to_dlc,
 )
 from .client._helpers import dump_json
 from .dbc_queries import (
@@ -425,19 +425,27 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     if msg is None:
         id_kind = "extended" if extended else "standard"
         _die(f"CAN ID 0x{can_id:X} ({id_kind}) not found in DBC")
-    expected_bytes = dlc_to_bytes(msg["dlc"])
+    # ``msg["dlc"]`` is the payload byte count (DBC convention), not the
+    # raw DLC code — no conversion needed.  R19 cluster 17 / PY-D-19.4
+    # surfaced the latent ``dlc_to_bytes(byte_count)`` bug: for CAN-FD
+    # byte counts > 8, that call raised ``ValueError`` because 12/16/...
+    # are not valid DLC codes.
+    expected_bytes = msg["dlc"]
     if len(data) != expected_bytes:
         _die(
             f"data length ({len(data)} bytes) does not match "
-            + f"DBC message DLC ({msg['dlc']} → {expected_bytes} bytes)"
+            + f"DBC message DLC ({msg['dlc']} bytes)"
         )
 
     with AletheiaClient() as client:
         resp = client.parse_dbc(dbc)
         if resp["status"] != "success":
             _die(f"DBC parse failed: {resp.get('message', 'unknown error')}")
+        # ``extract_signals`` takes the DLC code (CAN frame wire convention),
+        # not the byte count; convert via ``bytes_to_dlc``.
         result = client.extract_signals(
-            can_id=can_id, dlc=msg["dlc"], data=data, extended=extended,
+            can_id=can_id, dlc=bytes_to_dlc(msg["dlc"]), data=data,
+            extended=extended,
         )
 
     if getattr(args, "json", False):

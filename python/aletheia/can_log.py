@@ -32,6 +32,7 @@ except ImportError as exc:
     ) from exc
 
 from .client import CANFrameTuple, bytes_to_dlc
+from .protocols import DLCByteCount, DLCCode
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({
     ".asc", ".blf", ".csv", ".db", ".log", ".mf4", ".trc",
@@ -142,7 +143,10 @@ def _convert_message(
         return None
 
     timestamp_us = _timestamp_to_us(msg.timestamp)
-    dlc: int = bytes_to_dlc(msg.dlc)
+    # ``msg.dlc`` from python-can is the byte count (cantools convention);
+    # ``bytes_to_dlc`` converts to the 4-bit DLC code that ``CANFrameTuple``
+    # carries (CAN wire convention).
+    dlc: DLCCode = bytes_to_dlc(DLCByteCount(msg.dlc))
     data = _normalize_data(msg.data, msg.dlc)
 
     return CANFrameTuple(timestamp_us, msg.arbitration_id, dlc, data, msg.is_extended_id)

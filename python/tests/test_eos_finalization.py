@@ -7,6 +7,7 @@ from _dbc_helpers import dbc, message, signal
 
 from aletheia.client import AletheiaClient
 from aletheia.dsl import Signal
+from aletheia.protocols import DLCCode
 
 
 SIMPLE_DBC = dbc([
@@ -34,7 +35,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -57,7 +58,7 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").changed_by(0).never().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -89,7 +90,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -109,7 +110,7 @@ class TestEndOfStreamFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+                client.send_frame(i * 1000, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -127,7 +128,7 @@ class TestEndOfStreamFinalization:
                 Signal("Speed").less_than(100).always().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert "results" in resp
             assert resp["status"] == "complete"
@@ -138,7 +139,7 @@ class TestEndOfStreamFinalization:
             client.parse_dbc(SIMPLE_DBC)
             client.set_properties([])
             client.start_stream()
-            client.send_frame(0, 256, 8, bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 256, DLCCode(8), bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -196,7 +197,7 @@ class TestMissingSignalFinalization:
                 Signal("Speed").less_than(100).always().to_dict()
             ])
             client.start_stream()
-            client.send_frame(0, 512, 8, bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
+            client.send_frame(0, 512, DLCCode(8), bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
             results = resp["results"]
@@ -213,7 +214,7 @@ class TestMissingSignalFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 512, 8,
+                client.send_frame(i * 1000, 512, DLCCode(8),
                                   bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
@@ -240,7 +241,7 @@ class TestMissingSignalFinalization:
             ])
             client.start_stream()
             for i in range(5):
-                client.send_frame(i * 1000, 512, 8,
+                client.send_frame(i * 1000, 512, DLCCode(8),
                                   bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"
@@ -278,12 +279,12 @@ class TestMissingSignalFinalization:
             client.start_stream()
             # Three frames of Msg512 (Speed absent)
             for i in range(3):
-                client.send_frame(i * 1000, 512, 8,
+                client.send_frame(i * 1000, 512, DLCCode(8),
                                   bytearray([5, 0, 0, 0, 0, 0, 0, 0]))
             # Two frames of Msg256 with Speed = 10 (< 100)
-            client.send_frame(3000, 256, 8,
+            client.send_frame(3000, 256, DLCCode(8),
                               bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
-            client.send_frame(4000, 256, 8,
+            client.send_frame(4000, 256, DLCCode(8),
                               bytearray([10, 0, 0, 0, 0, 0, 0, 0]))
             resp = client.end_stream()
             assert resp["status"] == "complete"

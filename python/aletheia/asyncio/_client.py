@@ -36,6 +36,7 @@ from ..protocols import (
     AckResponse,
     CompleteResponse,
     DBCDefinition,
+    DLCCode,
     ErrorResponse,
     LTLFormula,
     ParsedDBCResponse,
@@ -184,7 +185,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
         self,
         timestamp: int,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         data: bytes | bytearray,
         *,
         extended: bool = False,
@@ -261,7 +262,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     # =========================================================================
 
     async def extract_signals(
-        self, can_id: int, dlc: int, data: bytes | bytearray,
+        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Async mirror of :meth:`aletheia.AletheiaClient.extract_signals`."""
@@ -272,7 +273,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     async def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         frame: bytes | bytearray,
         signals: Mapping[str, float | Fraction],
         *,
@@ -286,7 +287,7 @@ class AletheiaClient:  # pylint: disable=too-many-public-methods
     async def build_frame(
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,

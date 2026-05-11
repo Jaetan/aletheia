@@ -16,6 +16,7 @@ from enum import IntEnum
 from fractions import Fraction
 from typing import NoReturn
 
+from ..protocols import DLCCode
 from ._types import ProcessError, SignalExtractionResult
 
 
@@ -66,7 +67,7 @@ class FrameIdentity:
     """CAN frame identity (ID + ID width + DLC) used by all binary calls."""
     can_id: int
     extended: bool
-    dlc: int
+    dlc: DLCCode
 
 
 @dataclass(frozen=True, slots=True)

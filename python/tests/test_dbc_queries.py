@@ -11,7 +11,9 @@ from aletheia.dbc_queries import (
     signal_by_name,
     signals_for_mux_value,
 )
-from aletheia.protocols import DBCDefinition, DBCSignalAlways, DBCSignalMultiplexed
+from aletheia.protocols import (
+    DBCDefinition, DBCSignalAlways, DBCSignalMultiplexed, DLCByteCount,
+)
 
 
 def _mux_dbc() -> DBCDefinition:
@@ -21,7 +23,7 @@ def _mux_dbc() -> DBCDefinition:
             {
                 "id": 0x200,
                 "name": "MuxMessage",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -66,7 +68,7 @@ def _plain_dbc() -> DBCDefinition:
             {
                 "id": 0x100,
                 "name": "EngineData",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -251,7 +253,7 @@ def _empty_msg() -> DBCDefinition:
             {
                 "id": 0x500,
                 "name": "EmptyMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [],
             }
@@ -289,7 +291,7 @@ def _dual_mux_dbc() -> DBCDefinition:
             {
                 "id": 0x400,
                 "name": "DualMuxMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [
                     DBCSignalAlways(
@@ -359,14 +361,14 @@ def _extended_dbc() -> DBCDefinition:
             {
                 "id": 0x200,
                 "name": "StdMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "signals": [],
             },
             {
                 "id": 0x200,
                 "name": "ExtMsg",
-                "dlc": 8,
+                "dlc": DLCByteCount(8),
                 "sender": "ECU",
                 "extended": True,
                 "signals": [],

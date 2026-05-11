@@ -24,6 +24,7 @@ import pytest
 
 from aletheia import AletheiaClient, DBCDefinition, ProcessError, Signal
 from aletheia.dbc_converter import dbc_to_json
+from aletheia.protocols import DLCCode
 
 
 @pytest.fixture(name="demo_dbc")
@@ -47,7 +48,7 @@ class TestAletheiaClientBasics:
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
             result = client.extract_signals(
-                can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+                can_id=256, dlc=DLCCode(8), data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert result.get("TestSignal") == 100.0
 
@@ -55,10 +56,10 @@ class TestAletheiaClientBasics:
         """Test frame building."""
         with AletheiaClient() as client:
             client.parse_dbc(simple_dbc)
-            frame = client.build_frame(can_id=256, dlc=8, signals={"TestSignal": 1000.0})
+            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 1000.0})
             assert len(frame) == 8
             # Verify by extracting
-            result = client.extract_signals(can_id=256, dlc=8, data=frame)
+            result = client.extract_signals(can_id=256, dlc=DLCCode(8), data=frame)
             assert result.get("TestSignal") == 1000.0
 
     def test_update_frame(self, simple_dbc: DBCDefinition) -> None:
@@ -67,11 +68,11 @@ class TestAletheiaClientBasics:
             client.parse_dbc(simple_dbc)
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(
-                can_id=256, dlc=8, frame=original, signals={"TestSignal": 200.0},
+                can_id=256, dlc=DLCCode(8), frame=original, signals={"TestSignal": 200.0},
             )
             assert len(updated) == 8
             # Verify
-            result = client.extract_signals(can_id=256, dlc=8, data=updated)
+            result = client.extract_signals(can_id=256, dlc=DLCCode(8), data=updated)
             assert result.get("TestSignal") == 200.0
 
 
@@ -92,7 +93,7 @@ class TestAletheiaClientStreaming:
                 response = client.send_frame(
                     timestamp=i * 1000,
                     can_id=256,
-                    dlc=8,
+                    dlc=DLCCode(8),
                     data=bytearray([i * 10, 0, 0, 0, 0, 0, 0, 0])  # Values 0-90
                 )
                 assert response.get("status") == "ack"
@@ -113,7 +114,7 @@ class TestAletheiaClientStreaming:
             response = client.send_frame(
                 timestamp=1000,
                 can_id=256,
-                dlc=8,
+                dlc=DLCCode(8),
                 data=bytearray([200, 0, 0, 0, 0, 0, 0, 0])
             )
             assert response.get("status") == "fails"
@@ -135,19 +136,19 @@ class TestAletheiaClientMixedOperations:
 
             # Send a frame
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([50, 0, 0, 0, 0, 0, 0, 0]),
             )
 
             # Extract signals while streaming (should work!)
             result = client.extract_signals(
-                can_id=256, dlc=8, data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
+                can_id=256, dlc=DLCCode(8), data=bytearray([100, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert result.get("TestSignal") == 100.0
 
             # Continue streaming
             client.send_frame(
-                timestamp=2000, can_id=256, dlc=8,
+                timestamp=2000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([60, 0, 0, 0, 0, 0, 0, 0]),
             )
 
@@ -165,11 +166,11 @@ class TestAletheiaClientMixedOperations:
             # Update a frame while streaming
             original = bytearray([50, 0, 0, 0, 0, 0, 0, 0])
             updated = client.update_frame(
-                can_id=256, dlc=8, frame=original, signals={"TestSignal": 75.0},
+                can_id=256, dlc=DLCCode(8), frame=original, signals={"TestSignal": 75.0},
             )
 
             # Send the updated frame
-            response = client.send_frame(timestamp=1000, can_id=256, dlc=8, data=updated)
+            response = client.send_frame(timestamp=1000, can_id=256, dlc=DLCCode(8), data=updated)
             assert response.get("status") == "ack"
 
             client.end_stream()
@@ -184,10 +185,10 @@ class TestAletheiaClientMixedOperations:
             client.start_stream()
 
             # Build a frame while streaming
-            frame = client.build_frame(can_id=256, dlc=8, signals={"TestSignal": 500.0})
+            frame = client.build_frame(can_id=256, dlc=DLCCode(8), signals={"TestSignal": 500.0})
 
             # Send it
-            response = client.send_frame(timestamp=1000, can_id=256, dlc=8, data=frame)
+            response = client.send_frame(timestamp=1000, can_id=256, dlc=DLCCode(8), data=frame)
             assert response.get("status") == "ack"
 
             client.end_stream()
@@ -280,7 +281,10 @@ class TestAletheiaClientLifecycle:
         def make_property(threshold: int) -> dict:
             return Signal("TestSignal").less_than(threshold).always().to_dict()
 
-        frames = [(i * 1000, 256, 8, bytearray([200, 0, 0, 0, 0, 0, 0, 0])) for i in range(10)]
+        frames = [
+            (i * 1000, 256, DLCCode(8), bytearray([200, 0, 0, 0, 0, 0, 0, 0]))
+            for i in range(10)
+        ]
         results: dict[str, str | None] = {"A": None, "B": None, "C": None}
         errors: list[str] = []
         barrier = threading.Barrier(3, timeout=10)
@@ -337,7 +341,7 @@ class TestAletheiaClientLifecycle:
             # First stream
             client.start_stream()
             client.send_frame(
-                timestamp=0, can_id=256, dlc=8,
+                timestamp=0, can_id=256, dlc=DLCCode(8),
                 data=bytearray([1, 0, 0, 0, 0, 0, 0, 0]),
             )
             client.end_stream()
@@ -345,7 +349,7 @@ class TestAletheiaClientLifecycle:
             # Second stream (same client, same DBC)
             client.start_stream()
             resp = client.send_frame(
-                timestamp=1, can_id=256, dlc=8,
+                timestamp=1, can_id=256, dlc=DLCCode(8),
                 data=bytearray([2, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert resp.get("status") == "ack"
@@ -445,10 +449,10 @@ class TestAletheiaClientWithDemoDBC:
             client.parse_dbc(demo_dbc)
 
             # Build a frame with speed = 72 kph
-            frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 72.0})
+            frame = client.build_frame(can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 72.0})
 
             # Extract and verify
-            result = client.extract_signals(can_id=0x100, dlc=8, data=frame)
+            result = client.extract_signals(can_id=0x100, dlc=DLCCode(8), data=frame)
             assert abs(result.get("VehicleSpeed") - 72.0) < 0.01
 
     def test_fault_injection_single_session(self, demo_dbc: DBCDefinition) -> None:
@@ -462,13 +466,21 @@ class TestAletheiaClientWithDemoDBC:
 
             # Send normal frames
             for i in range(5):
-                frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 50.0 + i})
-                response = client.send_frame(timestamp=i * 100000, can_id=0x100, dlc=8, data=frame)
+                frame = client.build_frame(
+                    can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 50.0 + i},
+                )
+                response = client.send_frame(
+                    timestamp=i * 100000, can_id=0x100, dlc=DLCCode(8), data=frame,
+                )
                 assert response.get("status") == "ack"
 
             # Inject fault: speed = 130 kph (exceeds 120 limit)
-            fault_frame = client.build_frame(can_id=0x100, dlc=8, signals={"VehicleSpeed": 130.0})
-            response = client.send_frame(timestamp=500000, can_id=0x100, dlc=8, data=fault_frame)
+            fault_frame = client.build_frame(
+                can_id=0x100, dlc=DLCCode(8), signals={"VehicleSpeed": 130.0},
+            )
+            response = client.send_frame(
+                timestamp=500000, can_id=0x100, dlc=DLCCode(8), data=fault_frame,
+            )
             assert response.get("status") == "fails"
 
             client.end_stream()
@@ -481,13 +493,13 @@ class TestStateMachineErrors:
         """extract_signals before parse_dbc raises ProcessError."""
         with AletheiaClient() as client:
             with pytest.raises(ProcessError, match="DBC not loaded"):
-                client.extract_signals(can_id=256, dlc=8, data=bytearray(8))
+                client.extract_signals(can_id=256, dlc=DLCCode(8), data=bytearray(8))
 
     def test_build_frame_without_dbc(self) -> None:
         """build_frame before parse_dbc raises ProcessError."""
         with AletheiaClient() as client:
             with pytest.raises(ProcessError, match="DBC not loaded"):
-                client.build_frame(can_id=256, dlc=8, signals={"Sig": 1.0})
+                client.build_frame(can_id=256, dlc=DLCCode(8), signals={"Sig": 1.0})
 
     def test_send_frame_without_stream(self, simple_dbc: DBCDefinition) -> None:
         """send_frame before start_stream returns error response."""
@@ -497,7 +509,7 @@ class TestStateMachineErrors:
                 Signal("TestSignal").less_than(1000).always().to_dict()
             ])
             response = client.send_frame(
-                timestamp=0, can_id=256, dlc=8, data=bytearray(8),
+                timestamp=0, can_id=256, dlc=DLCCode(8), data=bytearray(8),
             )
             assert response["status"] == "error"
 
@@ -527,7 +539,7 @@ class TestStateMachineErrors:
             client.start_stream()
             # Send an unrelated frame that carries TestSignal only.
             client.send_frame(
-                timestamp=1000, can_id=256, dlc=8,
+                timestamp=1000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             end_resp = client.end_stream()
@@ -554,14 +566,14 @@ class TestStateMachineErrors:
 
             # First frame at t=5000 µs — accepted.
             ok = client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
+                timestamp=5000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert ok.get("status") == "ack"
 
             # Regressing to t=4999 µs — rejected.
             err = client.send_frame(
-                timestamp=4999, can_id=256, dlc=8,
+                timestamp=4999, can_id=256, dlc=DLCCode(8),
                 data=bytearray([11, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert err["status"] == "error"
@@ -569,14 +581,14 @@ class TestStateMachineErrors:
 
             # Same-timestamp frames (≥, not >) are accepted.
             eq = client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
+                timestamp=5000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([12, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert eq.get("status") == "ack"
 
             # Anchor is unchanged after rejection — next ≥ 5000 still accepted.
             fwd = client.send_frame(
-                timestamp=6000, can_id=256, dlc=8,
+                timestamp=6000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([13, 0, 0, 0, 0, 0, 0, 0]),
             )
             assert fwd.get("status") == "ack"

@@ -40,6 +40,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 
 from ..client import AletheiaClient as _SyncClient
+from ..protocols import DLCCode
 
 
 @contextmanager
@@ -80,7 +81,7 @@ def gate_send_frame(
     # callers and `original(...)` re-dispatches without surprise.  The arity
     # is structural — the method has 5 parameters and the gate must too.
     def gated(
-        timestamp: int, can_id: int, dlc: int, data: bytes | bytearray,
+        timestamp: int, can_id: int, dlc: DLCCode, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> object:
         counter[0] += 1

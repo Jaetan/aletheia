@@ -8,7 +8,7 @@ from _canonical_dbc import CANONICAL_DBC, make_dbc
 
 from aletheia import AletheiaClient, Signal
 from aletheia.dsl import Property
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, DLCCode
 
 
 def run_one_frame_stream(
@@ -32,7 +32,7 @@ def run_one_frame_stream(
     )
     timestamp = int(overrides.get("timestamp", 1000))  # type: ignore[arg-type]
     can_id = int(overrides.get("can_id", 256))  # type: ignore[arg-type]
-    dlc = int(overrides.get("dlc", 8))  # type: ignore[arg-type]
+    dlc = DLCCode(int(overrides.get("dlc", 8)))  # type: ignore[arg-type]
     with AletheiaClient() as client:
         client.parse_dbc(dbc)
         client.set_properties([chosen.to_dict()])

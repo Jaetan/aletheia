@@ -9,7 +9,7 @@ from _dbc_helpers import message, signal
 
 from aletheia import AletheiaClient, ProtocolError, dbc_to_text
 from aletheia.dbc_converter import dbc_to_json
-from aletheia.protocols import DBCDefinition
+from aletheia.protocols import DBCDefinition, DLCByteCount
 
 
 EXAMPLE_DBC = Path(__file__).parent.parent.parent / "examples" / "example.dbc"
@@ -72,9 +72,9 @@ class TestDBCToText:
         dbc: DBCDefinition = {
             "version": "",
             "messages": [
-                {"id": 1, "name": "M1", "dlc": 8, "sender": "ECU_A", "signals": []},
-                {"id": 2, "name": "M2", "dlc": 8, "sender": "ECU_B", "signals": []},
-                {"id": 3, "name": "M3", "dlc": 8, "sender": "ECU_A", "signals": []},
+                {"id": 1, "name": "M1", "dlc": DLCByteCount(8), "sender": "ECU_A", "signals": []},
+                {"id": 2, "name": "M2", "dlc": DLCByteCount(8), "sender": "ECU_B", "signals": []},
+                {"id": 3, "name": "M3", "dlc": DLCByteCount(8), "sender": "ECU_A", "signals": []},
             ],
             "signalGroups": [], "environmentVars": [], "valueTables": [],
             "nodes": [], "comments": [], "attributes": [],

@@ -8,7 +8,9 @@ from types import MappingProxyType
 from typing import NamedTuple, cast, override
 
 from ..limits import BOUND_KIND_INPUT_LENGTH_BYTES, MAX_DBC_TEXT_BYTES
-from ..protocols import AckResponse, ErrorResponse, PropertyViolationResponse
+from ..protocols import (
+    AckResponse, DLCByteCount, DLCCode, ErrorResponse, PropertyViolationResponse,
+)
 
 type FrameResponse = AckResponse | PropertyViolationResponse | ErrorResponse
 
@@ -179,7 +181,7 @@ def call_send_frame(
     return raise_on_error_response(resp, partial, frame_index)
 
 
-def validate_payload_length(dlc: int, data: bytes | bytearray) -> int:
+def validate_payload_length(dlc: DLCCode, data: bytes | bytearray) -> DLCByteCount:
     """Return ``dlc_to_bytes(dlc)``; raise :class:`ProcessError` on mismatch.
 
     Shared between ``send_frame`` / ``extract_signals`` / ``update_frame``
@@ -276,7 +278,7 @@ type ExtractionCache = dict[FrameKey, SignalExtractionResult]
 
 # (can_id, extended) → (can_id, dlc, data) for EOS signal extraction.
 type LastFrameKey = tuple[int, bool]
-type LastFrameData = tuple[int, bytearray]
+type LastFrameData = tuple[DLCCode, bytearray]
 
 MAX_EXTRACT_CACHE: int = 256
 
@@ -305,7 +307,7 @@ class CANFrameTuple(NamedTuple):
     """
     timestamp: int
     can_id: int
-    dlc: int
+    dlc: DLCCode
     # Either ``bytes`` (immutable read-only payload) or ``bytearray`` (mutable
     # buffer filled from a SocketCAN read).  Both work at the ctypes boundary;
     # ``bytes`` is preferred for precomputed frame constants in benchmarks and
@@ -337,14 +339,14 @@ _DLC_TO_BYTES: dict[int, int] = {
 }
 
 
-def dlc_to_bytes(dlc: int) -> int:
+def dlc_to_bytes(dlc: DLCCode) -> DLCByteCount:
     """Convert a DLC code (0-15) to payload byte count.
 
     CAN 2.0B: DLC 0-8 maps directly.
     CAN-FD: DLC 9-15 maps to 12, 16, 20, 24, 32, 48, 64.
     """
     try:
-        return _DLC_TO_BYTES[dlc]
+        return DLCByteCount(_DLC_TO_BYTES[dlc])
     except KeyError:
         raise ValueError(f"Invalid DLC code: {dlc} (must be 0-15)") from None
 
@@ -352,14 +354,14 @@ def dlc_to_bytes(dlc: int) -> int:
 _BYTES_TO_DLC: dict[int, int] = {v: k for k, v in _DLC_TO_BYTES.items()}
 
 
-def bytes_to_dlc(byte_count: int) -> int:
+def bytes_to_dlc(byte_count: DLCByteCount) -> DLCCode:
     """Convert a payload byte count to a DLC code (0-15).
 
     CAN 2.0B: byte counts 0-8 map directly.
     CAN-FD: byte counts 12, 16, 20, 24, 32, 48, 64 map to DLC 9-15.
     """
     try:
-        return _BYTES_TO_DLC[byte_count]
+        return DLCCode(_BYTES_TO_DLC[byte_count])
     except KeyError:
         raise ValueError(
             f"Invalid byte count: {byte_count}"

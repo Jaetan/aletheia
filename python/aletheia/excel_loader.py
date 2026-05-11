@@ -74,6 +74,7 @@ from .protocols import (
     DBCSignal,
     DBCSignalAlways,
     DBCSignalMultiplexed,
+    DLCByteCount,
 )
 from ._loader_utils import (
     is_str,
@@ -557,7 +558,7 @@ def _parse_dbc_rows(rows: list[dict[str, object]]) -> DBCDefinition:
         msg = DBCMessage(
             id=key.msg_id,
             name=key.name,
-            dlc=key.dlc,
+            dlc=DLCByteCount(key.dlc),
             sender="",
             signals=signals,
         )

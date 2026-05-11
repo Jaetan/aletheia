@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from fractions import Fraction
 from typing import cast
 
-from ..protocols import Response, is_object_list
+from ..protocols import DLCCode, Response, is_object_list
 from ._client_bin import BinaryFFI, FrameIdentity, SignalValues
 from ._helpers import (
     parse_absent_list,
@@ -67,7 +67,7 @@ class SignalOpsMixin(ABC):
         """Decode a JSON FFI response and free the C string."""
 
     def extract_signals(
-        self, can_id: int, dlc: int, data: bytes | bytearray,
+        self, can_id: int, dlc: DLCCode, data: bytes | bytearray,
         *, extended: bool = False,
     ) -> SignalExtractionResult:
         """Extract all signals from a CAN frame.
@@ -144,7 +144,7 @@ class SignalOpsMixin(ABC):
     def update_frame(  # pylint: disable=too-many-arguments
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         frame: bytes | bytearray,
         signals: Mapping[str, float | Fraction],
         *,
@@ -182,7 +182,7 @@ class SignalOpsMixin(ABC):
     def build_frame(
         self,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         signals: Mapping[str, float | Fraction],
         *,
         extended: bool = False,

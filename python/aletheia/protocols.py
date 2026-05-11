@@ -6,7 +6,7 @@ This provides better type safety and IDE support.
 
 from enum import Enum
 from fractions import Fraction
-from typing import TypedDict, TypeGuard, NotRequired, Literal, cast
+from typing import TypedDict, TypeGuard, NewType, NotRequired, Literal, cast
 
 from .validation import ValidationIssue
 
@@ -41,6 +41,14 @@ def is_object_list(val: object) -> TypeGuard[list[object]]:
 ByteOrder = Literal["little_endian", "big_endian"]
 
 SignalPresence = Literal["always"]
+
+
+# R19 cluster 17 / PY-D-19.4: distinguish DLC byte count from DLC code at
+# the type level.  Both wrap ``int`` at runtime; JSON wire shape unchanged.
+# Go's ``aletheia.DLC`` + C++'s ``aletheia::DLC`` are the cross-binding
+# equivalents.  ``dlc_to_bytes`` / ``bytes_to_dlc`` mediate between them.
+DLCByteCount = NewType("DLCByteCount", int)  # bytes, {0..8, 12, 16, 20, 24, 32, 48, 64}
+DLCCode = NewType("DLCCode", int)            # 4-bit wire field, 0..15
 
 
 class PredicateType(str, Enum):
@@ -118,13 +126,16 @@ class DBCMessage(TypedDict):
     """DBC message definition structure.
 
     Note: ``dlc`` is the payload byte count (from ``cantools message.length``),
-    not the raw DLC code.  For CAN 2.0B (DLC 0-8) the values coincide;
-    for CAN-FD (DLC 9-15) this field holds 12/16/20/24/32/48/64.
-    The JSON key name ``"dlc"`` matches the Agda parser's wire format.
+    typed as :data:`DLCByteCount` rather than ``int`` to keep it
+    distinguishable from :data:`DLCCode` (the 4-bit wire field on a CAN
+    frame).  For CAN 2.0B (DLC 0-8) the byte count and DLC code coincide;
+    for CAN-FD (DLC 9-15) this field holds 12/16/20/24/32/48/64 bytes.
+    The JSON key name ``"dlc"`` matches the Agda parser's wire format
+    (the NewType is type-level only — runtime is plain ``int``).
     """
     id: int
     name: str
-    dlc: int
+    dlc: DLCByteCount
     sender: str
     senders: NotRequired[list[str]]  # Additional BO_TX_BU_ transmitters (primary is ``sender``)
     signals: list[DBCSignal]

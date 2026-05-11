@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Self, override, cast
 
 from ..protocols import (
     DBCDefinition,
+    DLCCode,
     LTLFormula,
     Command,
     Response,
@@ -601,7 +602,7 @@ class AletheiaClient(SignalOpsMixin):
         self,
         timestamp: int,
         can_id: int,
-        dlc: int,
+        dlc: DLCCode,
         data: bytes | bytearray,
         *,
         extended: bool = False,

@@ -25,6 +25,7 @@ from aletheia import (
     ValidationError,
 )
 from aletheia.client._response_parsers import parse_event_response
+from aletheia.protocols import DLCCode
 
 
 class TestSendErrorRemote:
@@ -144,7 +145,7 @@ class TestSendErrorRemote:
             ])
             client.start_stream()
             client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
+                timestamp=5000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             # Error events don't participate in data-frame monotonicity.
@@ -167,7 +168,7 @@ class TestSendErrorRemote:
             ])
             client.start_stream()
             client.send_frame(
-                timestamp=5000, can_id=256, dlc=8,
+                timestamp=5000, can_id=256, dlc=DLCCode(8),
                 data=bytearray([10, 0, 0, 0, 0, 0, 0, 0]),
             )
             # Remote events don't participate in data-frame monotonicity.

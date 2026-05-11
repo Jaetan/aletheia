@@ -31,7 +31,9 @@ from aletheia import (
 )
 from aletheia.asyncio import AletheiaClient as AsyncClient
 from aletheia.asyncio.testing import gate_send_frame
-from aletheia.protocols import AckResponse, DBCDefinition, PropertyViolationResponse
+from aletheia.protocols import (
+    AckResponse, DBCDefinition, DLCCode, PropertyViolationResponse,
+)
 
 
 def _make_frames(
@@ -42,7 +44,7 @@ def _make_frames(
         CANFrameTuple(
             timestamp=start_ts + i * 1000,
             can_id=can_id,
-            dlc=8,
+            dlc=DLCCode(8),
             data=bytearray([i & 0xFF, 0, 0, 0, 0, 0, 0, 0]),
             extended=False,
         )
@@ -147,9 +149,9 @@ class TestSyncIter:
 
             # Frames: ts 1000, 2000, 500 (regression — Agda rejects).
             bad: list[CANFrameTuple] = [
-                CANFrameTuple(1000, 256, 8, bytearray(8), False),
-                CANFrameTuple(2000, 256, 8, bytearray(8), False),
-                CANFrameTuple(500, 256, 8, bytearray(8), False),
+                CANFrameTuple(1000, 256, DLCCode(8), bytearray(8), False),
+                CANFrameTuple(2000, 256, DLCCode(8), bytearray(8), False),
+                CANFrameTuple(500, 256, DLCCode(8), bytearray(8), False),
             ]
 
             yielded: list[FrameResult] = []
@@ -175,7 +177,7 @@ class TestSyncIter:
         def lazy_source() -> Iterable[CANFrameTuple]:
             for i in range(100):
                 consumed_from_source.append(i)
-                yield CANFrameTuple(1000 + i * 1000, 256, 8, bytearray(8), False)
+                yield CANFrameTuple(1000 + i * 1000, 256, DLCCode(8), bytearray(8), False)
 
         with SyncClient() as client:
             client.parse_dbc(simple_dbc)
@@ -216,7 +218,7 @@ class TestAsyncSmoke:
                 assert set_resp["status"] == "success"
                 start_resp = await client.start_stream()
                 assert start_resp["status"] == "success"
-                ack = await client.send_frame(1000, 256, 8, bytearray(8))
+                ack = await client.send_frame(1000, 256, DLCCode(8), bytearray(8))
                 assert ack["status"] in ("ack", "fails")
                 end_resp = await client.end_stream()
                 return end_resp["status"]
