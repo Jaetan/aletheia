@@ -46,6 +46,16 @@ def _atomic(predicate: SignalPredicate) -> AtomicFormula:
     return {'operator': 'atomic', 'predicate': predicate}
 
 
+def require_non_negative_time_ms(time_ms: int) -> None:
+    """Reject negative durations in metric temporal operators.
+
+    Raises:
+        ValueError: When *time_ms* is negative.
+    """
+    if time_ms < 0:
+        raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+
+
 def _implies_formula(antecedent: LTLFormula, consequent: LTLFormula) -> OrFormula:
     """Desugar implication to ``or(not(antecedent), consequent)``."""
     return {
@@ -265,7 +275,7 @@ class Predicate:
 
     def __init__(self, formula: LTLFormula) -> None:
         """Internal constructor - use Signal methods instead"""
-        self._data: LTLFormula = formula
+        self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
         """Convert to LTL formula for use in composition
@@ -273,7 +283,7 @@ class Predicate:
         Returns:
             LTL formula representation
         """
-        return self._data
+        return self._formula
 
     def always(self) -> 'Property':
         """Property must always hold (globally)
@@ -286,7 +296,7 @@ class Predicate:
         """
         formula: AlwaysFormula = {
             'operator': 'always',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -301,7 +311,7 @@ class Predicate:
         """
         formula: EventuallyFormula = {
             'operator': 'eventually',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -320,7 +330,7 @@ class Predicate:
             'operator': 'always',
             'formula': {
                 'operator': 'not',
-                'formula': self._data
+                'formula': self._formula
             }
         }
         return Property(formula)
@@ -340,12 +350,11 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricEventuallyFormula = {
             'operator': 'metricEventually',
             'timebound': time_ms * 1000,
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -364,12 +373,11 @@ class Predicate:
         Example:
             Signal("DoorClosed").equals(1).for_at_least(50)  # Debounced
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricAlwaysFormula = {
             'operator': 'metricAlways',
             'timebound': time_ms * 1000,
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -387,7 +395,7 @@ class Predicate:
         """
         formula: AndFormula = {
             'operator': 'and',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Predicate(formula)
@@ -406,7 +414,7 @@ class Predicate:
         """
         formula: OrFormula = {
             'operator': 'or',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Predicate(formula)
@@ -422,7 +430,7 @@ class Predicate:
         """
         formula: NotFormula = {
             'operator': 'not',
-            'formula': self._data
+            'formula': self._formula
         }
         return Predicate(formula)
 
@@ -440,7 +448,7 @@ class Predicate:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        return Property(_implies_formula(self._data, other.to_formula()))
+        return Property(_implies_formula(self._formula, other.to_formula()))
 
     # ------------------------------------------------------------------
     # Discouraged in CAN analysis — kept for standard-LTLf completeness.
@@ -483,7 +491,7 @@ class Predicate:
         """
         formula: NextFormula = {
             'operator': 'next',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -505,7 +513,7 @@ class Predicate:
         """
         formula: WeakNextFormula = {
             'operator': 'weakNext',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -527,7 +535,7 @@ class Property:
 
     def __init__(self, formula: LTLFormula) -> None:
         """Internal constructor - use Predicate methods instead"""
-        self._data: LTLFormula = formula
+        self._formula: LTLFormula = formula
 
     def to_formula(self) -> LTLFormula:
         """Convert to LTL formula for use in composition
@@ -535,7 +543,7 @@ class Property:
         Returns:
             LTL formula representation
         """
-        return self._data
+        return self._formula
 
     def and_(self, other: 'Property') -> 'Property':
         """Logical AND of two properties
@@ -551,7 +559,7 @@ class Property:
         """
         formula: AndFormula = {
             'operator': 'and',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -570,7 +578,7 @@ class Property:
         """
         formula: OrFormula = {
             'operator': 'or',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -589,7 +597,7 @@ class Property:
         Example:
             brake_pressed.implies(speed_decreases.within(100))
         """
-        return Property(_implies_formula(self._data, other.to_formula()))
+        return Property(_implies_formula(self._formula, other.to_formula()))
 
     def until(self, other: 'Property') -> 'Property':
         """Temporal until: self holds until other becomes true
@@ -605,7 +613,7 @@ class Property:
         """
         formula: UntilFormula = {
             'operator': 'until',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -625,7 +633,7 @@ class Property:
         """
         formula: ReleaseFormula = {
             'operator': 'release',
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -647,12 +655,11 @@ class Property:
             # Speed must stay above 50 until brake within 1000ms
             speed_ok.metric_until(1000, brake_pressed)
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricUntilFormula = {
             'operator': 'metricUntil',
             'timebound': time_ms * 1000,
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -671,12 +678,11 @@ class Property:
             # Brake must be engaged until ignition releases it, within 5000ms
             ignition_on.metric_release(5000, brake_engaged)
         """
-        if time_ms < 0:
-            raise ValueError(f"time_ms must be non-negative, got {time_ms}")
+        require_non_negative_time_ms(time_ms)
         formula: MetricReleaseFormula = {
             'operator': 'metricRelease',
             'timebound': time_ms * 1000,
-            'left': self._data,
+            'left': self._formula,
             'right': other.to_formula()
         }
         return Property(formula)
@@ -693,7 +699,7 @@ class Property:
         """
         formula: AlwaysFormula = {
             'operator': 'always',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -709,7 +715,7 @@ class Property:
         """
         formula: EventuallyFormula = {
             'operator': 'eventually',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -726,7 +732,7 @@ class Property:
         """
         formula: NotFormula = {
             'operator': 'not',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -740,7 +746,7 @@ class Property:
             property = Signal("Speed").less_than(220).always()
             client.set_properties([property.to_dict()])
         """
-        return self._data
+        return self._formula
 
     # ------------------------------------------------------------------
     # Discouraged in CAN analysis — kept for standard-LTLf completeness.
@@ -766,7 +772,7 @@ class Property:
         """
         formula: NextFormula = {
             'operator': 'next',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 
@@ -785,7 +791,7 @@ class Property:
         """
         formula: WeakNextFormula = {
             'operator': 'weakNext',
-            'formula': self._data
+            'formula': self._formula
         }
         return Property(formula)
 

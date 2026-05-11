@@ -56,7 +56,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .checks import Check, CheckResult
-from .client import check_dbc_text_size_bound
+from .client import AletheiaError, check_dbc_text_size_bound
 from ._check_conditions import (
     ALL_SIMPLE_CONDITIONS,
     SIMPLE_VALUE_CONDITIONS,
@@ -314,7 +314,7 @@ def create_template(path: str | Path) -> None:
     # DBC sheet (rename the default sheet)
     ws_dbc = wb.active
     if ws_dbc is None:
-        raise RuntimeError("Workbook has no active sheet")
+        raise AletheiaError("Workbook has no active sheet")
     ws_dbc.title = "DBC"
     _write_header_row(ws_dbc, DBC_HEADERS)
 

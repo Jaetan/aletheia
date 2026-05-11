@@ -32,6 +32,7 @@ from ..protocols import (
     is_object_list,
 )
 from ._types import ProtocolError
+from .._loader_utils import is_pure_int
 
 # Fields in a DBCSignal that Agda serializes as JNumber (may be rational dict)
 _NUMERIC_SIGNAL_FIELDS = ("factor", "offset", "minimum", "maximum")
@@ -314,7 +315,7 @@ def _normalize_signal_group(raw: dict[str, object]) -> DBCSignalGroup:
 
 def _normalize_var_type(raw: object) -> DBCVarType:
     """Narrow an Agda ``varType`` (ℕ 0/1/2) to the ``DBCVarType`` Literal."""
-    if isinstance(raw, bool) or not isinstance(raw, int) or raw not in (0, 1, 2):
+    if not is_pure_int(raw) or raw not in (0, 1, 2):
         raise ProtocolError(
             f"Expected environment var 'varType' to be 0, 1, or 2, got {raw!r}"
         )
@@ -340,7 +341,7 @@ def _normalize_environment_var(raw: dict[str, object]) -> DBCEnvironmentVar:
 def _normalize_value_entry(raw: dict[str, object]) -> DBCValueEntry:
     """Normalize one ``entries`` item from a ``valueTables`` entry."""
     value_raw = raw.get("value")
-    if isinstance(value_raw, bool) or not isinstance(value_raw, int) or value_raw < 0:
+    if not is_pure_int(value_raw) or value_raw < 0:
         raise ProtocolError(
             f"Expected value table entry 'value' to be non-negative int, got {value_raw!r}"
         )
@@ -410,7 +411,7 @@ def _require_str_field(raw: dict[str, object], field: str, context: str) -> str:
 
 def _require_int_field(raw: dict[str, object], field: str, context: str) -> int:
     v = raw.get(field)
-    if isinstance(v, bool) or not isinstance(v, int):
+    if not is_pure_int(v):
         raise ProtocolError(f"Expected {context} {field!r} to be int, got {type(v).__name__}")
     return v
 

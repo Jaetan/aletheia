@@ -409,14 +409,14 @@ No findings (PEP 8 conformant).
 - `[ ]` PY-A-4.6 [python/aletheia/asyncio/testing.py:78,89,93] `# noqa: PLR0913` + `# type: ignore[method-assign]` — protocol typing could remove
 
 #### Cat 5: Errors
-- `[ ]` PY-A-5.4 [python/aletheia/excel_loader.py:295] `raise RuntimeError(...)` not typed AletheiaError subclass
+- `[x]` PY-A-5.4 [python/aletheia/excel_loader.py:295] `raise RuntimeError(...)` not typed AletheiaError subclass — closed by cluster 17 mechanical sub-batch — `RuntimeError("Workbook has no active sheet")` in `create_template` swapped to `AletheiaError(...)` (imported from public `aletheia.client`).  No new subclass needed (this is a CLI-utility invariant violation, not parsing / FFI / validation); the base AletheiaError class fits the "library state never expected" semantic.
 - `[ ]` PY-A-5.6 [python/aletheia/client/_response_parsers.py:62-71] `ProtocolError` raises lack `code=` parameter
 
 #### Cat 6: Redundant patterns
-- `[ ]` PY-A-6.1 [python/aletheia/cli.py:131,197,221,629] 5 `_die(...)` paths share `not p.exists()` precondition
-- `[ ]` PY-A-6.3 [python/aletheia/checks.py:144,171,226] 3 classes raise same `"<x>: lo must be <= hi"`
-- `[ ]` PY-A-6.4 [python/aletheia/dsl.py:343,367,651,675 + checks.py:106,194] 6 `time_ms < 0` raises
-- `[ ]` PY-A-6.5 [python/aletheia/client/_helpers.py:401-405 + _loader_utils.py:37 + _helpers.py:307,333] 4 sites duplicate `isinstance(v, bool) or not isinstance(v, int)`
+- `[x]` PY-A-6.1 [python/aletheia/cli.py:131,197,221,629] 5 `_die(...)` paths share `not p.exists()` precondition — closed by cluster 17 mechanical sub-batch — added private `_require_existing_path(p: Path, label: str, source: str) -> None` helper in cli.py wrapping `if not p.exists(): _die(f"{label} not found: {source}")`.  5 sites (DBC file / Excel file × 2 / checks file / defaults file) refactored to one-line calls.  6th site at cli.py:542 (`run_checks` public API) intentionally retained as `raise FileNotFoundError(...)` since the helper exits via `_die`, which is CLI-only.
+- `[x]` PY-A-6.3 [python/aletheia/checks.py:144,171,226] 3 classes raise same `"<x>: lo must be <= hi"` — closed by cluster 17 mechanical sub-batch — added private `_require_lo_le_hi(lo: float, hi: float, method_name: str) -> None` helper in checks.py.  3 sites (stays_between × 2 + settles_between) collapsed to one-line calls passing the method name for the error prefix.
+- `[x]` PY-A-6.4 [python/aletheia/dsl.py:343,367,651,675 + checks.py:106,194] 6 `time_ms < 0` raises — closed by cluster 17 mechanical sub-batch — added module-public `require_non_negative_time_ms(time_ms: int) -> None` helper in dsl.py (kept public because checks.py imports it; project convention is module-private via `_module.py` filename, function-public when cross-module).  6 sites (4 in dsl.py + 2 in checks.py) collapsed to one-line calls.
+- `[x]` PY-A-6.5 [python/aletheia/client/_helpers.py:401-405 + _loader_utils.py:37 + _helpers.py:307,333] 4 sites duplicate `isinstance(v, bool) or not isinstance(v, int)` — closed by cluster 17 mechanical sub-batch — added module-public `is_pure_int(v: object) -> TypeGuard[int]` helper in `_loader_utils.py` returning the positive form `isinstance(v, int) and not isinstance(v, bool)`.  3 negative-form sites in `client/_helpers.py` (varType / value entry / `_require_int_field`) collapsed to `if not is_pure_int(v): ...`; 1 positive-form site in `_loader_utils.py` (`get_int`) collapsed to `if is_pure_int(val): ...`.  All 4 sites unified via one cross-module import.
 
 #### Cat 27: Module organization
 - `[ ]` PY-A-27.4 [python/aletheia/client/_client.py] 930 LOC near pylint cap
@@ -853,7 +853,7 @@ No NEW findings beyond cat 11 reframing per advisor.
 - `[ ]` PY-D-15.1 [python/aletheia/asyncio/_client.py:107] async client lacks `is_closed` (sync client has it at line 165) — sync↔async asymmetric
 - `[ ]` PY-D-15.2 [python/aletheia/asyncio/_client.py:97-105] `__aexit__` close coroutine cancellable; `asyncio.shield` candidate
 - `[ ]` PY-D-15.3 [python/aletheia/client/_client.py:88-112] `__init__` accepts `default_checks` and `rts_cores` positionally; keyword-only signature would match cross-binding ergonomics
-- `[ ]` PY-D-15.4 [python/aletheia/dsl.py:266-269 / checks.py:42] `_data` vs `_property` field naming inconsistent
+- `[x]` PY-D-15.4 [python/aletheia/dsl.py:266-269 / checks.py:42] `_data` vs `_property` field naming inconsistent — closed by cluster 17 mechanical sub-batch — renamed `Property._data` / `Predicate._data` → `Property._formula` / `Predicate._formula` (28 sites across dsl.py).  `CheckResult._property` retained as-is — it stores a `Property` (the wrapper class), so the descriptive name fits; the inconsistency was the generic `_data` on dsl.py fields that store `LTLFormula` dicts.
 - `[ ]` PY-D-15.5 [python/aletheia/asyncio/_client.py:196-217] `send_frames_iter` async generator without `await` — docstring should clarify vs other coroutine methods
 - `[ ]` PY-D-15.6 [python/aletheia/client/_client.py:728-815] `send_error/send_remote/send_frame` raise `ValueError` not typed `AletheiaError`
 

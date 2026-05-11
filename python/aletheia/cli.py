@@ -132,6 +132,12 @@ def _die(msg: str) -> NoReturn:
     sys.exit(_EXIT_ERROR)
 
 
+def _require_existing_path(p: Path, label: str, source: str) -> None:
+    """Exit with code 2 if path *p* does not exist."""
+    if not p.exists():
+        _die(f"{label} not found: {source}")
+
+
 def parse_can_id(s: str) -> int:
     """Parse a CAN ID from hex (0x100) or decimal (256) string.
 
@@ -193,16 +199,14 @@ def _load_dbc(args: argparse.Namespace) -> DBCDefinition:
 
     if dbc_path is not None:
         p = Path(dbc_path)
-        if not p.exists():
-            _die(f"DBC file not found: {dbc_path}")
+        _require_existing_path(p, "DBC file", dbc_path)
         if p.suffix == ".xlsx":
             return _lazy_load_dbc_from_excel()(p)
         return _lazy_dbc_to_json()(p)
 
     if excel_path is not None:
         p = Path(excel_path)
-        if not p.exists():
-            _die(f"Excel file not found: {excel_path}")
+        _require_existing_path(p, "Excel file", excel_path)
         return _lazy_load_dbc_from_excel()(p)
 
     _die("no DBC source specified (use --dbc or --excel)")
@@ -217,8 +221,7 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
     if checks_path is not None:
         p = Path(checks_path)
-        if not p.exists():
-            _die(f"checks file not found: {checks_path}")
+        _require_existing_path(p, "checks file", checks_path)
         if p.suffix == ".xlsx":
             results.extend(_lazy_load_checks_from_excel()(p))
         else:
@@ -226,8 +229,7 @@ def _load_checks_from_args(args: argparse.Namespace) -> list[CheckResult]:
 
     if excel_path is not None and checks_path is None:
         p = Path(excel_path)
-        if not p.exists():
-            _die(f"Excel file not found: {excel_path}")
+        _require_existing_path(p, "Excel file", excel_path)
         results.extend(_lazy_load_checks_from_excel()(p))
 
     if not results:
@@ -626,8 +628,7 @@ def _load_defaults(args: argparse.Namespace) -> list[CheckResult]:
     if defaults_path is None:
         return []
     p = Path(defaults_path)
-    if not p.exists():
-        _die(f"defaults file not found: {defaults_path}")
+    _require_existing_path(p, "defaults file", defaults_path)
     if p.suffix == ".xlsx":
         return _lazy_load_checks_from_excel()(p)
     return _lazy_load_yaml_checks()(p)

@@ -15,6 +15,17 @@ def is_str(val: object) -> TypeGuard[str]:
     return isinstance(val, str)
 
 
+def is_pure_int(v: object) -> TypeGuard[int]:
+    """Type guard: value is an ``int`` and not a ``bool`` subclass.
+
+    Python's ``bool`` is a subclass of ``int`` (``isinstance(True, int)``
+    returns ``True``), so plain ``isinstance(v, int)`` is insufficient
+    for "is this a numeric integer?" checks.  This guard rejects bools
+    while accepting all other ``int`` values.
+    """
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
 def get_str(d: dict[str, object], key: str, ctx: str) -> str:
     """Extract a required string field from *d*.
 
@@ -42,7 +53,7 @@ def get_number(d: dict[str, object], key: str, ctx: str) -> float:
 def get_int(d: dict[str, object], key: str, ctx: str) -> int:
     """Extract a required integer field from *d*."""
     val = d.get(key)
-    if isinstance(val, int) and not isinstance(val, bool):
+    if is_pure_int(val):
         return val
     raise ValueError(f"{ctx}: missing or invalid '{key}' (expected integer)")
 
