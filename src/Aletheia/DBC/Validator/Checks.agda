@@ -14,7 +14,7 @@ open import Aletheia.DBC.CanonicalReceivers using (CanonicalReceivers)
 open import Aletheia.DBC.Types using
   ( signalNameStr; messageNameStr; messageSenderStr; nodeNameStr; envVarNameStr; attrDefNameStr
   ; DBCMessage; DBCSignal; SignalPresence; Always; When
-  ; ValidationIssue; mkIssue; IsError; IsWarning
+  ; ValidationIssue; mkIssue; IsError; IsWarning; IssueCode
   ; DuplicateMessageId; DuplicateSignalName; FactorZero
   ; MultiplexorNotFound; MultiplexorCycle
   ; GlobalNameCollision; MinExceedsMax; SignalExceedsDLC
@@ -495,6 +495,16 @@ checkAllUnknownCommentTargets : List DBCMessage → List Node → List Environme
 checkAllUnknownCommentTargets msgs nodes envVars =
   concatMap (checkCommentTargetExists msgs nodes envVars)
 
+-- Shared body for CHECK 20 / 21 / 22 "is name X declared as a node?"
+-- warnings.  Rejects when `targetName` is not in `nodes`, emitting an
+-- IsWarning-severity issue with the given code and detail.
+private
+  checkUnknownNodeReference :
+    List Node → String → IssueCode → String → List ValidationIssue
+  checkUnknownNodeReference nodes targetName code detail =
+    requireDec (any? (λ n → nodeNameStr n ≟ₛ targetName) nodes)
+      (mkIssue IsWarning code detail)
+
 -- ============================================================================
 -- CHECK 20: UNKNOWN MESSAGE SENDER
 -- ============================================================================
@@ -505,11 +515,10 @@ checkAllUnknownCommentTargets msgs nodes envVars =
 
 checkUnknownSender : List Node → DBCMessage → List ValidationIssue
 checkUnknownSender nodes msg =
-  requireDec (any? (λ n → nodeNameStr n ≟ₛ messageSenderStr msg) nodes)
-    (mkIssue IsWarning UnknownMessageSender
-      ("Message '" ++ₛ messageNameStr msg
-       ++ₛ "': sender '" ++ₛ messageSenderStr msg
-       ++ₛ "' not declared in BU_ (nodes) list"))
+  checkUnknownNodeReference nodes (messageSenderStr msg) UnknownMessageSender
+    ("Message '" ++ₛ messageNameStr msg
+     ++ₛ "': sender '" ++ₛ messageSenderStr msg
+     ++ₛ "' not declared in BU_ (nodes) list")
 
 checkAllUnknownMessageSenders : List DBCMessage → List Node → List ValidationIssue
 checkAllUnknownMessageSenders _    []             = []
@@ -524,11 +533,10 @@ checkAllUnknownMessageSenders msgs nodes@(_ ∷ _) = concatMap (checkUnknownSend
 
 checkUnknownReceiver : List Node → String → String → Identifier → List ValidationIssue
 checkUnknownReceiver nodes msgName sigName receiver =
-  requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr receiver) nodes)
-    (mkIssue IsWarning UnknownSignalReceiver
-      ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
-       ++ₛ "': receiver '" ++ₛ nameStr receiver
-       ++ₛ "' not declared in BU_ (nodes) list"))
+  checkUnknownNodeReference nodes (nameStr receiver) UnknownSignalReceiver
+    ("Message '" ++ₛ msgName ++ₛ "', signal '" ++ₛ sigName
+     ++ₛ "': receiver '" ++ₛ nameStr receiver
+     ++ₛ "' not declared in BU_ (nodes) list")
 
 checkReceiversForSignal : List Node → String → DBCSignal → List ValidationIssue
 checkReceiversForSignal nodes msgName sig =
@@ -550,11 +558,10 @@ checkAllUnknownSignalReceivers msgs nodes@(_ ∷ _) =
 
 checkUnknownAdditionalSender : List Node → String → Identifier → List ValidationIssue
 checkUnknownAdditionalSender nodes msgName sender =
-  requireDec (any? (λ n → nodeNameStr n ≟ₛ nameStr sender) nodes)
-    (mkIssue IsWarning UnknownMessageSender
-      ("Message '" ++ₛ msgName
-       ++ₛ "': additional sender '" ++ₛ nameStr sender
-       ++ₛ "' not declared in BU_ (nodes) list"))
+  checkUnknownNodeReference nodes (nameStr sender) UnknownMessageSender
+    ("Message '" ++ₛ msgName
+     ++ₛ "': additional sender '" ++ₛ nameStr sender
+     ++ₛ "' not declared in BU_ (nodes) list")
 
 checkAdditionalSendersForMessage : List Node → DBCMessage → List ValidationIssue
 checkAdditionalSendersForMessage nodes msg =
